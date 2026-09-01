@@ -1,6 +1,7 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-`aria-account-manager-v1.0.0` · Misión 10.4 (HEAD)
+`aria-quota-capacity-v1.0.0` · Misión 10.5 (HEAD)
+`aria-account-manager-v1.0.0` · Misión 10.4
 `aria-capability-matrix-v1.0.0` · Misión 10.3
 `aria-model-registry-v1.0.1` · Misión 10.2
 `aria-adapters-v1.0.0` · Misión 9.6
@@ -28,6 +29,8 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
 - No guarda API keys / tokens / passwords. Solo `credential_ref`.
+- No decide rutas (eso es 10.6).
+- No inventa cuotas, usage ni precios.
 
 ## Archivos
 
@@ -35,11 +38,22 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - `models/` — Model Registry (10.2)
 - `capabilities/` — Capability Matrix (10.3)
 - `accounts/` — Account Manager (10.4)
+- `quota/` — Quota / Capacity Manager (10.5)
 - `tests/` — pruebas locales
 
 ```
 npm test
 ```
+
+## Quota / Capacity Manager 10.5
+
+Capa declarativa. Quota ≠ usage ≠ routing. Seed verificado (ChatBending `quota_registry`):
+
+`acct_openrouter_primary` × `google/gemini-2.5-flash-lite` → status `unknown`
+
+Límites, usage, capacity numérica y rate-limit permanecen `null`. `unknown ≠ 0` y `unknown ≠ available`. No se materializaron RPM/TPM de OpenRouter ni Gemini.
+
+Lookups: `getQuota` / `getCapacity` / `getQuotaForModel` / `getCapacityForModel`.
 
 ## Account Manager 10.4
 

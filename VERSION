@@ -1,5 +1,5 @@
-aria-account-manager-v1.0.0
-mission: 10.4
-layer: control-plane / account-manager
+aria-quota-capacity-v1.0.0
+mission: 10.5
+layer: control-plane / quota-capacity
 memory_authority: none
 canonical_write: false

@@ -1,0 +1,70 @@
+{
+  "version": "aria-quota-capacity-v1.0.0",
+  "mission": "10.5",
+  "kind": "quota_registry",
+  "memory_authority": false,
+  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
+  "source_of_truth": {
+    "persistent": "aria_internal.quota_registry (Supabase ARIA)",
+    "declarative": "this file"
+  },
+  "entries": [
+    {
+      "provider_id": "openrouter",
+      "account_id": "acct_openrouter_primary",
+      "model_id": "google/gemini-2.5-flash-lite",
+      "quota": {
+        "status": "unknown",
+        "limits": null
+      },
+      "capacity": {
+        "status": "unknown",
+        "max_known": null
+      },
+      "rate_limit": {
+        "status": "unknown",
+        "limits": null
+      },
+      "usage": {
+        "status": "unknown",
+        "requests_consumed": null,
+        "tokens_consumed": null,
+        "remaining": null,
+        "reset_at": null
+      },
+      "metadata": {
+        "verified_at": "2026-08-31",
+        "evidence": "Control Plane materialization seed + ChatBending: quota unknown; limits, usage, capacity and rate_limit remain null",
+        "notes": "No OpenRouter or Gemini numeric limits were evidenced. unknown ≠ 0; unknown ≠ available. Usage is not simulated."
+      }
+    }
+  ],
+  "indexes": {
+    "by_account_id": {
+      "acct_openrouter_primary": ["google/gemini-2.5-flash-lite"]
+    },
+    "by_model_id": {
+      "google/gemini-2.5-flash-lite": ["acct_openrouter_primary"]
+    }
+  },
+  "canonical_status": [
+    "unknown",
+    "known",
+    "available",
+    "unavailable",
+    "exhausted"
+  ],
+  "rules": [
+    "account_id must exist in Account Manager",
+    "model_id must exist in Model Registry",
+    "provider_id must exist in Provider Registry seed",
+    "do not copy provider/account/model/capability records",
+    "quota.limits and rate_limit.limits are null unless evidenced",
+    "usage numbers stay null until observed; never simulate remaining/used",
+    "unknown ≠ 0 and unknown ≠ available and unknown ≠ exhausted",
+    "no secrets",
+    "no router/fallback/selection/execution logic",
+    "no billing/pricing fields",
+    "do not invent RPM/TPM/RPD/TPD/concurrency/prices/remaining/reset times"
+  ]
+}
