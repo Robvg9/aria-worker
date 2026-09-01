@@ -1,6 +1,6 @@
-aria-tool-registry-v1.0.0
-mission: 10.9
-layer: control-plane / tool-registry
+aria-stage10-9-14-v1.0.0
+missions: 10.9 Tool Registry | 10.10 Observability | 10.11 Lifecycle | 10.12 Governance | 10.13 Adapter Boundary (consolidation) | 10.14 Universal Integration
 memory_authority: none
 canonical_write: false
-execution_authority: none
+live_execution: not_performed
+credential_resolver: CREDENTIAL RESOLVER NOT IMPLEMENTED
