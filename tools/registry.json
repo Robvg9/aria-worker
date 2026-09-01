@@ -1,0 +1,72 @@
+{
+  "version": "aria-tool-registry-v1.0.0",
+  "mission": "10.9",
+  "kind": "tool_registry",
+  "memory_authority": false,
+  "pipeline": "CONTROL_PLANE → TOOL_INVENTORY (no execution)",
+  "source_of_truth": {
+    "persistent": "declarative seed (this file)",
+    "evidence": "ARIA MCP tools exposed by aria-mcp-gateway / static endpoint; Grok E2E verified"
+  },
+  "tools": [
+    {
+      "tool_id": "tool_aria_context",
+      "name": "aria_context",
+      "provider_id": "aria",
+      "interface_type": "mcp",
+      "operations": ["read"],
+      "risk_level": "read",
+      "status": "available",
+      "permission_refs": ["aria_context_read"],
+      "mcp_tool_name": "aria_context",
+      "description": "Protected read of ChatBending context / retrieval. No memory write.",
+      "metadata": {
+        "verified_at": "2026-09-01",
+        "evidence": "Grok E2E aria_context → cb_retrieval_events",
+        "notes": "READ only. Does not write canonical memory."
+      }
+    },
+    {
+      "tool_id": "tool_aria_memory_capture",
+      "name": "aria_memory_capture",
+      "provider_id": "aria",
+      "interface_type": "mcp",
+      "operations": ["write_candidate"],
+      "risk_level": "low_risk_write",
+      "status": "available",
+      "permission_refs": ["aria_memory_write"],
+      "mcp_tool_name": "aria_memory_capture",
+      "description": "Submit memory candidate. Canonical write remains false; GATE human required.",
+      "metadata": {
+        "verified_at": "2026-09-01",
+        "evidence": "Grok E2E aria_memory_capture → cb_memory_candidates status=pending",
+        "notes": "WRITE candidate only. canonical_write=false. review_required=true. No auto-approve."
+      }
+    }
+  ],
+  "indexes": {
+    "by_tool_id": {
+      "tool_aria_context": "aria",
+      "tool_aria_memory_capture": "aria"
+    },
+    "by_provider": {
+      "aria": ["tool_aria_context", "tool_aria_memory_capture"]
+    },
+    "by_mcp_name": {
+      "aria_context": "tool_aria_context",
+      "aria_memory_capture": "tool_aria_memory_capture"
+    }
+  },
+  "canonical_status": ["available", "unavailable", "unknown"],
+  "canonical_risk": ["read", "low_risk_write", "high_risk_write", "destructive", "unknown"],
+  "rules": [
+    "tool_id is unique and stable",
+    "status unknown never treated as available",
+    "no secrets, tokens or API keys in any field",
+    "do not invent tools without verified evidence",
+    "Tool Registry does not execute tools",
+    "Tool Registry does not select tools for tasks",
+    "memory write tools remain behind Human Gate",
+    "future tools (GitHub, Notion, Supabase, Web) require explicit authorization and evidence before status=available"
+  ]
+}
