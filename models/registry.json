@@ -1,6 +1,6 @@
 {
-  "version": "aria-model-registry-v1.0.0",
-  "mission": "10.2",
+  "version": "aria-model-registry-v1.0.1",
+  "mission": "10.2+10.3",
   "kind": "model_registry",
   "memory_authority": false,
   "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
@@ -23,7 +23,9 @@
         "evidence": "Control Plane materialization seed",
         "notes": "Only verified AI model path at materialization time"
       },
-      "capability_refs": []
+      "capability_refs": [
+        "text_generation"
+      ]
     }
   ],
   "indexes": {
@@ -38,7 +40,7 @@
     "model_id is unique and stable",
     "provider_id must exist in Provider Registry",
     "no secrets",
-    "capability_refs left empty until 10.3 Capability Matrix",
+    "capability_refs point to canonical IDs defined in Capability Matrix",
     "do not invent models not verified in ChatBending / physical seed"
   ]
 }
