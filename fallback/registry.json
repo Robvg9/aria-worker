@@ -1,0 +1,50 @@
+{
+  "version": "aria-fallback-v1.0.0",
+  "mission": "10.7",
+  "kind": "fallback_engine",
+  "memory_authority": false,
+  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER → FALLBACK",
+  "source_of_truth": {
+    "persistent": "none — fallback is derived",
+    "declarative": "this file (metadata only)"
+  },
+  "consumes": [
+    "router/lookup.js",
+    "models/lookup.js",
+    "capabilities/lookup.js",
+    "accounts/lookup.js",
+    "quota/lookup.js"
+  ],
+  "selection_rule": "primary if still executable; else first remaining candidate after policy, validity, authorization, capacity/quota, capability, preferences, lexical sort (provider_id ASC, account_id ASC, model_id ASC); visited keys excluded",
+  "unknown_policy": "capacity/quota/rate_limit status === 'unknown' → candidate not selectable (unknown ≠ available)",
+  "policy_note": "POLICY INPUT NOT IMPLEMENTED",
+  "canonical_status": [
+    "primary",
+    "fallback",
+    "no_fallback"
+  ],
+  "activations": [
+    "provider_unavailable",
+    "account_unavailable",
+    "credential_failure",
+    "quota_exhausted",
+    "rate_limit",
+    "capacity_unavailable",
+    "execution_failure",
+    "policy_rejection"
+  ],
+  "anti_loop": "candidate key provider_id|account_id|model_id; primary always visited this call; input.visited excluded",
+  "rules": [
+    "does not own provider/model/account/capability/quota data",
+    "does not re-implement the Router",
+    "does not execute models or call providers",
+    "does not mutate registries",
+    "does not store secrets",
+    "does not invent permissions or a Policy Engine",
+    "does not coerce unknown capacity/quota to available",
+    "does not use fallback to evade rate limits, quotas, or policy",
+    "rate_limit fallback requires explicit policy.allow_rate_limit_fallback",
+    "selection is pure and deterministic",
+    "no retry engine — one next candidate per call"
+  ]
+}

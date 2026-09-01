@@ -1,6 +1,7 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-`aria-intelligent-router-v1.0.0` · Misión 10.6 (HEAD)
+`aria-fallback-v1.0.0` · Misión 10.7 (HEAD)
+`aria-intelligent-router-v1.0.0` · Misión 10.6
 `aria-quota-capacity-v1.0.0` · Misión 10.5
 `aria-account-manager-v1.0.0` · Misión 10.4
 `aria-capability-matrix-v1.0.0` · Misión 10.3
@@ -20,7 +21,7 @@ IA externa → Adapter (auth/protocolo) → ARIA MCP → ChatBending
 ```
 
 ```
-Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6)
+Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7)
 ```
 
 ## Qué no es
@@ -30,7 +31,7 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
 - No guarda API keys / tokens / passwords. Solo `credential_ref`.
-- No ejecuta modelos ni consume tokens (10.6 solo selecciona).
+- No ejecuta modelos ni consume tokens (10.6 selecciona; 10.7 elige alternativa).
 - No inventa cuotas, usage ni precios.
 
 ## Archivos
@@ -41,11 +42,26 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - `accounts/` — Account Manager (10.4)
 - `quota/` — Quota / Capacity Manager (10.5)
 - `router/` — Intelligent Router (10.6)
+- `fallback/` — Fallback Engine (10.7)
 - `tests/` — pruebas locales
 
 ```
 npm test
 ```
+
+## Fallback Engine 10.7
+
+Capa declarativa de alternativa. Consume el resultado de 10.6.
+
+`resolve({ router_result, failure })` → `primary` | `fallback` | `no_fallback`.
+
+No ejecuta. No llama proveedores. No muta registries. No almacena secretos.  
+`unknown` capacity/quota **no** se interpreta como available.  
+Anti-loop: clave `provider_id|account_id|model_id` + `visited`.  
+`rate_limit` no activa fallback salvo permiso explícito (no evadir límites).  
+Policy Engine físico: **POLICY INPUT NOT IMPLEMENTED** — se consume un input opcional; no se inventan permisos.
+
+Lookups: `resolve`, `candidateSelectable`, `activationAllows`, `candidateKey`.
 
 ## Intelligent Router 10.6
 
