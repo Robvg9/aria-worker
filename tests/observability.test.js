@@ -1,5 +1,5 @@
 /**
- * Mission 10.10 — Observability tests
+ * Mission 10.10 — Observability tests (canonical contract)
  */
 const assert = require('assert');
 const obs = require('../observability/lookup.js');
@@ -24,25 +24,46 @@ test('version', () => {
   assert.strictEqual(obs.version, 'aria-observability-v1.0.0');
 });
 
-test('createEvent fills defaults', () => {
+test('createEvent fills defaults including timestamp', () => {
   const e = obs.createEvent({ stage: 'execution', status: 'started' });
   assert.ok(e.event_id);
   assert.strictEqual(e.stage, 'execution');
   assert.strictEqual(e.status, 'started');
   assert.strictEqual(e.duration_ms, null);
   assert.strictEqual(e.usage, null);
+  assert.ok(typeof e.timestamp === 'string' && e.timestamp.length > 0);
+  assert.strictEqual(e.span_id, null); // optional until set
 });
 
-test('validateEvent accepts valid', () => {
+test('createEvent accepts span_id and trace_id', () => {
+  const e = obs.createEvent({
+    stage: 'execution',
+    status: 'started',
+    trace_id: 'tr_abc',
+    span_id: 'sp_xyz'
+  });
+  assert.strictEqual(e.trace_id, 'tr_abc');
+  assert.strictEqual(e.span_id, 'sp_xyz');
+});
+
+test('validateEvent accepts valid with timestamp', () => {
   const e = obs.createEvent({ stage: 'routing', status: 'completed' });
   const v = obs.validateEvent(e);
   assert.strictEqual(v.ok, true);
 });
 
 test('validateEvent rejects missing event_id', () => {
-  const v = obs.validateEvent({ stage: 'routing', status: 'completed' });
+  const v = obs.validateEvent({ stage: 'routing', status: 'completed', timestamp: new Date().toISOString() });
   assert.strictEqual(v.ok, false);
   assert.strictEqual(v.reason, 'event_id_missing');
+});
+
+test('validateEvent rejects missing timestamp', () => {
+  const e = obs.createEvent({ stage: 'routing', status: 'completed' });
+  delete e.timestamp;
+  const v = obs.validateEvent(e);
+  assert.strictEqual(v.ok, false);
+  assert.strictEqual(v.reason, 'timestamp_missing');
 });
 
 test('validateEvent rejects secret patterns', () => {
@@ -60,6 +81,12 @@ test('redact removes bearer and keys', () => {
   const s = obs.redact('Authorization: Bearer sk-abc123token value');
   assert.ok(s.indexOf('sk-') === -1);
   assert.ok(s.indexOf('Bearer') === -1 || s.indexOf('[redacted]') !== -1);
+});
+
+test('usage and duration remain null (unknown ≠ zero)', () => {
+  const e = obs.createEvent({ stage: 'execution', status: 'completed' });
+  assert.strictEqual(e.usage, null);
+  assert.strictEqual(e.duration_ms, null);
 });
 
 test('emitSafe does not throw when onEvent throws', () => {
