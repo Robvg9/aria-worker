@@ -1,0 +1,27 @@
+{
+  "version": "aria-observability-v1.0.0",
+  "mission": "10.10",
+  "kind": "observability_contract",
+  "memory_authority": false,
+  "default_mode": "metadata_only",
+  "stages": ["ingress", "routing", "fallback", "execution", "result"],
+  "statuses": ["started", "completed", "failed", "skipped", "unknown"],
+  "critical_events": [
+    "router.decision",
+    "fallback.evaluation",
+    "execution.started",
+    "execution.completed",
+    "execution.failed",
+    "execution.blocked",
+    "policy.blocked",
+    "telemetry.redacted"
+  ],
+  "rules": [
+    "never capture prompts, responses, secrets or PII by default",
+    "usage and duration only when observable evidence exists",
+    "unknown is preserved; never converted to zero",
+    "observability failures must never affect execution",
+    "no memory authority",
+    "no routing authority"
+  ]
+}
