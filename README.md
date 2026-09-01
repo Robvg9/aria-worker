@@ -1,6 +1,7 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-`aria-execution-engine-v1.0.0` · Misión 10.8 (HEAD)
+`aria-stage10-9-14-v1.0.0` · Misiones 10.9–10.14 (HEAD branch)
+`aria-execution-engine-v1.0.0` · Misión 10.8
 `aria-fallback-v1.0.0` · Misión 10.7
 `aria-intelligent-router-v1.0.0` · Misión 10.6
 `aria-quota-capacity-v1.0.0` · Misión 10.5
@@ -22,11 +23,14 @@ IA externa → Adapter (auth/protocolo) → ARIA MCP → ChatBending
 ```
 
 ```
-Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7) → Execution (10.8)
+Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5)
+→ Router (10.6) → Fallback (10.7) → Execution (10.8)
+→ Tool Registry (10.9) → Observability (10.10) → Lifecycle (10.11) → Governance (10.12)
+→ Adapter Boundary (10.13) → Universal Integration (10.14)
 ```
 
 ```
-Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
+Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory ≠ Telemetry ≠ Governance
 ```
 
 ## Qué no es
@@ -39,80 +43,57 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 - No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 solo ejecuta una ruta ya seleccionada y autorizada).
 - No reintenta, no rota cuentas, no hace fallback automático desde la ejecución.
 - No inventa cuotas, usage ni precios.
+- Observability no es autoridad de memoria ni de routing.
+- Tool Registry no ejecuta tools (Etapa 11).
 
-## Archivos
+## Archivos nuevos (10.9–10.14)
 
-- `adapters/` — contrato universal multi-IA (9.6)
-- `models/` — Model Registry (10.2)
-- `capabilities/` — Capability Matrix (10.3)
-- `accounts/` — Account Manager (10.4)
-- `quota/` — Quota / Capacity Manager (10.5)
-- `router/` — Intelligent Router (10.6)
-- `fallback/` — Fallback Engine (10.7)
-- `execution/` — Execution Engine (10.8): `lookup.js`, `credentials.js`, `adapters/`
+- `tools/` — Tool Registry (10.9): inventario declarativo `aria_context` + `aria_memory_capture`
+- `observability/` — Telemetry contract + helpers (10.10)
+- `lifecycle/` — State machine helpers (10.11)
+- `governance/` — Human-Gate / authorization evaluation (10.12)
+- `execution/ADAPTER_BOUNDARY.md` — consolidación 10.13 sobre 10.8
+- `integration/universal.js` — composición 10.14 (planAndGuard + executeGuarded)
+
+## Archivos previos
+
+- `adapters/` — 9.6
+- `models/` — 10.2
+- `capabilities/` — 10.3
+- `accounts/` — 10.4
+- `quota/` — 10.5
+- `router/` — 10.6
+- `fallback/` — 10.7
+- `execution/` — 10.8
 - `tests/` — pruebas locales
 
 ```
 npm test
 ```
 
-## Execution Engine 10.8
+## 10.9 Tool Registry
 
-Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) **y autorizada** (10.12) en una única llamada al proveedor vía Provider Adapter (10.13).
+Inventario declarativo. Solo tools verificados (MCP ARIA). No ejecución. `unknown ≠ available`.
 
-`execute({ selected_route | capability, authorization, input }, deps?)` → `succeeded` | `failed` | `blocked` (máquina 10.13; `cancelled` reservado, no emitido).
+## 10.10 Observability
 
-- Revalida la ruta con `fallback.candidateSelectable` (consume 10.2–10.6; no reimplementa). `unknown` → `blocked / insufficient_evidence`.
-- `authorization.status !== 'approved'` → `blocked` (`selected ≠ approved_to_execute`).
-- Credenciales: solo `credential_ref` de 10.4 → interfaz `CredentialResolver`. Mecanismo real **CREDENTIAL RESOLVER NOT IMPLEMENTED** (no definido en ChatBending; resolver nulo por defecto → `failed / credential_unavailable`).
-- Adapter registrado: `openrouter_chat_completions` (`openrouter` / `text_generation`). Transport inyectable; tests 100 % mock.
-- `execution_id` determinista (sha256 canónico). Un intento por llamada. Sin retry, sin rotación, sin account hopping.
-- Usage del proveedor se copia como `reported` o queda `unknown`; nunca se estima ni alimenta 10.5.
-- Hook `onEvent` (10.10) opcional; sin telemetría persistida. Sin escritura de memoria canónica (`CAPTURE → GATE → COMMIT → SYNC` intacto).
-- **LIVE no ejecutado**: no existe credencial real autorizada ni resolver; la ruta seed sigue bloqueada por 10.5 `unknown`.
+Contrato de eventos + `createEvent` / `validateEvent` / `redact` / `emitSafe`. Metadata-only por defecto. Sin secretos.
 
-Contrato: `execution/contract.md`.
+## 10.11 Lifecycle
 
-## Fallback Engine 10.7
+Estados de ejecución y gobernanza + transiciones válidas.
 
-Capa declarativa de alternativa. Consume el resultado de 10.6.
+## 10.12 Governance
 
-`resolve({ router_result, failure })` → `primary` | `fallback` | `no_fallback`.
+`selected ≠ approved_to_execute`. `evaluateAuthorization`, `requiresHumanGate`. Memory write → human gate.
 
-No ejecuta. No llama proveedores. No muta registries. No almacena secretos.  
-`unknown` capacity/quota **no** se interpreta como available.  
-Anti-loop: clave `provider_id|account_id|model_id` + `visited`.  
-`rate_limit` no activa fallback salvo permiso explícito (no evadir límites).  
-Policy Engine físico: **POLICY INPUT NOT IMPLEMENTED** — se consume un input opcional; no se inventan permisos.
+## 10.13 Adapter Boundary
 
-Lookups: `resolve`, `candidateSelectable`, `activationAllows`, `candidateKey`.
+Consolidación documental sobre la implementación existente de 10.8. Sin cambios de runtime.
 
-## Intelligent Router 10.6
+## 10.14 Universal Integration
 
-Capa declarativa de selección. `route({ capability })` → `selected` | `no_route`.
-
-Consumes 10.2–10.5. No duplica datos. Selección determinista (lexical sort).  
-`unknown` capacity/quota **no** se interpreta como disponible → el seed actual produce `no_route` hasta que 10.5 materialice evidencia de capacidad.
-
-Lookups: `route`, `collectCandidates`, `capacityAllows`.
-
-## Quota / Capacity Manager 10.5
-
-Capa declarativa. Quota ≠ usage ≠ routing. Seed verificado (ChatBending `quota_registry`):
-
-`acct_openrouter_primary` × `google/gemini-2.5-flash-lite` → status `unknown`
-
-Límites, usage, capacity numérica y rate-limit permanecen `null`. `unknown ≠ 0` y `unknown ≠ available`. No se materializaron RPM/TPM de OpenRouter ni Gemini.
-
-Lookups: `getQuota` / `getCapacity` / `getQuotaForModel` / `getCapacityForModel`.
-
-## Account Manager 10.4
-
-Capa declarativa. Account ≠ Credential. Seed verificado:
-
-`openrouter` → `acct_openrouter_primary` → `google/gemini-2.5-flash-lite`
-
-`credential_ref`: `secret://openrouter/acct_openrouter_primary` (referencia; el secreto no vive aquí).
+`planAndGuard` + `executeGuarded`. Compone governance + execution sin llamadas LIVE.
 
 ## Estado adapters 2026-09-01
 
@@ -122,5 +103,3 @@ Capa declarativa. Account ≠ Credential. Seed verificado:
 | Claude | pendiente registro del conector | mismo |
 | ChatGPT | pendiente registro del conector | mismo |
 | Gemini | pendiente registro del conector | mismo |
-
-El MCP ya acepta `source_application` para cualquier IA. Conectar un cliente nuevo es configuración, no un sistema de memoria.
