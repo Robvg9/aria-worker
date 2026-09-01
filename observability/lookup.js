@@ -1,6 +1,7 @@
 /**
  * ARIA Observability helpers (Mission 10.10)
  * Pure functions. Observation only. No memory authority. No routing authority.
+ * Canonical contract: MISIÓN 10.10 — Observability / Telemetry Design
  */
 const crypto = require('crypto');
 const registry = require('./registry.json');
@@ -30,6 +31,7 @@ function createEvent(partial) {
     event_id: p.event_id || newId('evt'),
     request_id: p.request_id || null,
     trace_id: p.trace_id || null,
+    span_id: p.span_id || null,
     stage: p.stage || 'unknown',
     status: p.status || 'unknown',
     task_id: p.task_id || null,
@@ -42,6 +44,7 @@ function createEvent(partial) {
     model_id: p.model_id || null,
     capability_id: p.capability_id || null,
     outcome: p.outcome || null,
+    timestamp: p.timestamp || new Date().toISOString(),
     duration_ms: typeof p.duration_ms === 'number' ? p.duration_ms : null,
     usage: p.usage && typeof p.usage === 'object' ? p.usage : null,
     error_code: p.error_code || null,
@@ -58,11 +61,25 @@ function validateEvent(event) {
   if (!event.event_id || typeof event.event_id !== 'string') {
     return { ok: false, reason: 'event_id_missing' };
   }
+  // Required by canonical 10.10 contract for correlation identity
+  if (event.trace_id != null && typeof event.trace_id !== 'string') {
+    return { ok: false, reason: 'trace_id_invalid' };
+  }
+  if (event.span_id != null && typeof event.span_id !== 'string') {
+    return { ok: false, reason: 'span_id_invalid' };
+  }
+  if (!event.timestamp || typeof event.timestamp !== 'string') {
+    return { ok: false, reason: 'timestamp_missing' };
+  }
   if (registry.stages.indexOf(event.stage) === -1 && event.stage !== 'unknown') {
     return { ok: false, reason: 'stage_invalid' };
   }
   if (registry.statuses.indexOf(event.status) === -1) {
     return { ok: false, reason: 'status_invalid' };
+  }
+  // usage / duration_ms: absence is null, never coerced to zero
+  if (event.duration_ms !== null && typeof event.duration_ms !== 'number') {
+    return { ok: false, reason: 'duration_ms_invalid' };
   }
   const raw = JSON.stringify(event);
   for (const re of SECRET_PATTERNS) {
