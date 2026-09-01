@@ -1,6 +1,7 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-`aria-quota-capacity-v1.0.0` · Misión 10.5 (HEAD)
+`aria-intelligent-router-v1.0.0` · Misión 10.6 (HEAD)
+`aria-quota-capacity-v1.0.0` · Misión 10.5
 `aria-account-manager-v1.0.0` · Misión 10.4
 `aria-capability-matrix-v1.0.0` · Misión 10.3
 `aria-model-registry-v1.0.1` · Misión 10.2
@@ -29,7 +30,7 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
 - No guarda API keys / tokens / passwords. Solo `credential_ref`.
-- No decide rutas (eso es 10.6).
+- No ejecuta modelos ni consume tokens (10.6 solo selecciona).
 - No inventa cuotas, usage ni precios.
 
 ## Archivos
@@ -39,11 +40,21 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - `capabilities/` — Capability Matrix (10.3)
 - `accounts/` — Account Manager (10.4)
 - `quota/` — Quota / Capacity Manager (10.5)
+- `router/` — Intelligent Router (10.6)
 - `tests/` — pruebas locales
 
 ```
 npm test
 ```
+
+## Intelligent Router 10.6
+
+Capa declarativa de selección. `route({ capability })` → `selected` | `no_route`.
+
+Consumes 10.2–10.5. No duplica datos. Selección determinista (lexical sort).  
+`unknown` capacity/quota **no** se interpreta como disponible → el seed actual produce `no_route` hasta que 10.5 materialice evidencia de capacidad.
+
+Lookups: `route`, `collectCandidates`, `capacityAllows`.
 
 ## Quota / Capacity Manager 10.5
 

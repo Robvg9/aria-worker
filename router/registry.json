@@ -1,0 +1,32 @@
+{
+  "version": "aria-intelligent-router-v1.0.0",
+  "mission": "10.6",
+  "kind": "intelligent_router",
+  "memory_authority": false,
+  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
+  "source_of_truth": {
+    "persistent": "none — selection is derived",
+    "declarative": "this file (metadata only)"
+  },
+  "consumes": [
+    "models/lookup.js",
+    "capabilities/lookup.js",
+    "accounts/lookup.js",
+    "quota/lookup.js"
+  ],
+  "selection_rule": "deterministic lexical sort: provider_id ASC, account_id ASC, model_id ASC; prefer_* filters applied after sort when supplied",
+  "unknown_policy": "capacity/quota/rate_limit status === 'unknown' → candidate not selectable (unknown ≠ available)",
+  "canonical_status": [
+    "selected",
+    "no_route"
+  ],
+  "rules": [
+    "does not own provider/model/account/capability/quota data",
+    "does not execute models or call providers",
+    "does not mutate registries",
+    "does not store secrets",
+    "selection is pure and deterministic",
+    "no complex scoring or fallback engine",
+    "unknown capacity/quota never coerced to available"
+  ]
+}
