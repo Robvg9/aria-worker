@@ -1,0 +1,16 @@
+{
+  "version": "aria-governance-v1.0.0",
+  "mission": "10.12",
+  "kind": "governance_contract",
+  "memory_authority": false,
+  "authorization_statuses": ["pending_gate", "approved", "denied", "blocked", "expired", "invalid"],
+  "authorities": ["human", "policy", "none"],
+  "rules": [
+    "selected does not equal approved_to_execute",
+    "missing or invalid authorization → blocked",
+    "secret read/output → deny",
+    "memory write → require human gate",
+    "no secret access for authorization decisions",
+    "deterministic and explainable"
+  ]
+}
