@@ -1,0 +1,54 @@
+{
+  "version": "aria-account-manager-v1.0.0",
+  "mission": "10.4",
+  "kind": "account_registry",
+  "memory_authority": false,
+  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
+  "source_of_truth": {
+    "persistent": "aria_internal.account_registry (Supabase ARIA)",
+    "declarative": "this file"
+  },
+  "credential_ref_scheme": "secret://{provider_id}/{account_id}",
+  "accounts": [
+    {
+      "account_id": "acct_openrouter_primary",
+      "provider_id": "openrouter",
+      "credential_ref": "secret://openrouter/acct_openrouter_primary",
+      "status": "active",
+      "model_refs": [
+        "google/gemini-2.5-flash-lite"
+      ],
+      "metadata": {
+        "verified_at": "2026-08-31",
+        "evidence": "Control Plane materialization seed + ChatBending route openrouter → acct_openrouter_primary → google/gemini-2.5-flash-lite",
+        "notes": "Credential reference only. Secret lives in the credential store, never in this registry."
+      }
+    }
+  ],
+  "indexes": {
+    "by_account_id": {
+      "acct_openrouter_primary": "openrouter"
+    },
+    "by_provider": {
+      "openrouter": [
+        "acct_openrouter_primary"
+      ]
+    }
+  },
+  "canonical_status": [
+    "active",
+    "inactive",
+    "revoked",
+    "unknown"
+  ],
+  "rules": [
+    "account_id is unique and stable",
+    "provider_id must exist in Provider Registry seed",
+    "credential_ref is a reference, never a secret",
+    "Account ≠ Credential",
+    "model_refs point to Model Registry ids; do not copy models or capabilities",
+    "no quota/usage/rate-limit fields",
+    "no router/fallback/execution logic",
+    "do not invent accounts not verified in ChatBending / physical seed"
+  ]
+}

@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "description": "ARIA universal multi-IA adapter layer. Interface only. No memory authority.",
+  "description": "ARIA control-plane registries and universal multi-IA adapter layer. Interface only. No memory authority.",
   "scripts": {
-    "test": "node tests/normalize.test.js"
+    "test": "node tests/normalize.test.js && node tests/model-registry.test.js && node tests/capability-matrix.test.js && node tests/account-manager.test.js"
   }
 }
