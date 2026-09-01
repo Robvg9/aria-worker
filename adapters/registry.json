@@ -1,0 +1,106 @@
+{
+  "version": "aria-adapters-v1.0.0",
+  "mission": "9.6",
+  "kind": "interface_registry",
+  "memory_authority": false,
+  "pipeline": "CAPTURE → GATE → COMMIT → SYNC",
+  "universal_mcp": {
+    "resource": "https://aria.robvg9.workers.dev",
+    "mcp_path": "/mcp",
+    "auth": "OAuth 2.1 + PKCE",
+    "authorization_server": "https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1",
+    "tools": ["aria_context", "aria_memory_capture"]
+  },
+  "canonical_source_applications": [
+    "grok",
+    "claude",
+    "chatgpt",
+    "gemini",
+    "mistral",
+    "aria",
+    "aria_app",
+    "unknown"
+  ],
+  "aliases": {
+    "xai": "grok",
+    "x.ai": "grok",
+    "grok.com": "grok",
+    "anthropic": "claude",
+    "claude.ai": "claude",
+    "openai": "chatgpt",
+    "chat.openai.com": "chatgpt",
+    "chatgpt.com": "chatgpt",
+    "bard": "gemini",
+    "google": "gemini",
+    "google-ai": "gemini",
+    "gemini.google.com": "gemini",
+    "lechat": "mistral",
+    "mistral.ai": "mistral",
+    "chatbending": "aria"
+  },
+  "adapters": {
+    "grok": {
+      "status": "connected_verified",
+      "client_type": "remote_mcp_oauth",
+      "source_application": "grok",
+      "connect": "Register https://aria.robvg9.workers.dev as Custom MCP Connector. Auth is OAuth 2.1 + PKCE. Tools discovered: aria_context, aria_memory_capture.",
+      "e2e": {
+        "read": true,
+        "write_pending": true,
+        "canonical_write": false
+      }
+    },
+    "claude": {
+      "status": "interface_ready_client_pending",
+      "client_type": "remote_mcp_oauth",
+      "source_application": "claude",
+      "connect": "Claude: Customize → Connectors → Add custom connector → URL https://aria.robvg9.workers.dev. Complete OAuth. Always pass source_application=claude.",
+      "e2e": {
+        "read": false,
+        "write_pending": false,
+        "canonical_write": false
+      }
+    },
+    "chatgpt": {
+      "status": "interface_ready_client_pending",
+      "client_type": "remote_mcp_oauth",
+      "source_application": "chatgpt",
+      "connect": "ChatGPT Developer Mode / Connectors → custom MCP → URL https://aria.robvg9.workers.dev with OAuth. Always pass source_application=chatgpt.",
+      "e2e": {
+        "read": false,
+        "write_pending": false,
+        "canonical_write": false
+      }
+    },
+    "gemini": {
+      "status": "interface_ready_client_pending",
+      "client_type": "remote_mcp_oauth",
+      "source_application": "gemini",
+      "connect": "Gemini CLI / Agent Platform remote MCP → URL https://aria.robvg9.workers.dev. Always pass source_application=gemini. Do not create a Gemini-specific memory writer.",
+      "e2e": {
+        "read": false,
+        "write_pending": false,
+        "canonical_write": false
+      }
+    },
+    "mistral": {
+      "status": "interface_ready_client_pending",
+      "client_type": "remote_mcp_oauth",
+      "source_application": "mistral",
+      "connect": "Connect any MCP-capable Mistral client to the same URL. Pass source_application=mistral.",
+      "e2e": {
+        "read": false,
+        "write_pending": false,
+        "canonical_write": false
+      }
+    }
+  },
+  "rules": [
+    "Adapters are an interface layer only.",
+    "source_application identifies origin. It never selects a pipeline.",
+    "No per-IA memory tables, writers, or CAPTURE forks.",
+    "ARIA never auto-approves memory. GATE humano remains mandatory.",
+    "pending ≠ approved ≠ committed.",
+    "Adding a new IA means registering a client against the existing MCP, not building a new brain."
+  ]
+}

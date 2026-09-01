@@ -1,0 +1,10 @@
+{
+  "name": "aria-adapters",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "ARIA universal multi-IA adapter layer. Interface only. No memory authority.",
+  "scripts": {
+    "test": "node tests/normalize.test.js"
+  }
+}
