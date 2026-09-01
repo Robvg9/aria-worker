@@ -5,6 +5,6 @@
   "type": "commonjs",
   "description": "ARIA control-plane registries and universal multi-IA adapter layer. Interface only. No memory authority.",
   "scripts": {
-    "test": "node tests/normalize.test.js && node tests/model-registry.test.js && node tests/capability-matrix.test.js && node tests/account-manager.test.js && node tests/quota-capacity.test.js && node tests/intelligent-router.test.js && node tests/fallback.test.js && node tests/execution.test.js && node tests/tool-registry.test.js && node tests/observability.test.js && node tests/governance.test.js"
+    "test": "node tests/normalize.test.js && node tests/model-registry.test.js && node tests/capability-matrix.test.js && node tests/account-manager.test.js && node tests/quota-capacity.test.js && node tests/intelligent-router.test.js && node tests/fallback.test.js && node tests/execution.test.js && node tests/tool-registry.test.js && node tests/observability.test.js"
   }
 }
