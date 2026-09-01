@@ -1,0 +1,44 @@
+{
+  "version": "aria-model-registry-v1.0.0",
+  "mission": "10.2",
+  "kind": "model_registry",
+  "memory_authority": false,
+  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
+  "source_of_truth": {
+    "persistent": "aria_internal.model_registry (Supabase ARIA)",
+    "declarative": "this file"
+  },
+  "models": [
+    {
+      "model_id": "google/gemini-2.5-flash-lite",
+      "provider_id": "openrouter",
+      "canonical_name": "Gemini 2.5 Flash Lite",
+      "upstream_model": "google/gemini-2.5-flash-lite",
+      "upstream_provider_id": "google",
+      "status": "available",
+      "availability": "public",
+      "metadata": {
+        "access_path": "openrouter",
+        "verified_at": "2026-08-31",
+        "evidence": "Control Plane materialization seed",
+        "notes": "Only verified AI model path at materialization time"
+      },
+      "capability_refs": []
+    }
+  ],
+  "indexes": {
+    "by_provider": {
+      "openrouter": ["google/gemini-2.5-flash-lite"]
+    },
+    "by_model_id": {
+      "google/gemini-2.5-flash-lite": "openrouter"
+    }
+  },
+  "rules": [
+    "model_id is unique and stable",
+    "provider_id must exist in Provider Registry",
+    "no secrets",
+    "capability_refs left empty until 10.3 Capability Matrix",
+    "do not invent models not verified in ChatBending / physical seed"
+  ]
+}
