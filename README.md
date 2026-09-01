@@ -1,10 +1,13 @@
-# ARIA Worker — Adapter Layer
+# ARIA Worker — Adapter Layer + Control Plane
 
+`aria-account-manager-v1.0.0` · Misión 10.4 (HEAD)
+`aria-capability-matrix-v1.0.0` · Misión 10.3
+`aria-model-registry-v1.0.1` · Misión 10.2
 `aria-adapters-v1.0.0` · Misión 9.6
 
-Fuente persistente de la **capa de interfaz multi-IA**. No es un cerebro de memoria.
+Fuente persistente de la **capa de interfaz multi-IA** y de los **registries declarativos del Control Plane**. No es un cerebro de memoria. No almacena secretos.
 
-El runtime vivo permanece en Cloudflare (`aria.robvg9.workers.dev`) + Supabase ARIA. Este repositorio conserva el contrato de adapters para que añadir Claude / ChatGPT / Gemini / otras IAs no requiera otro pipeline.
+El runtime vivo permanece en Cloudflare (`aria.robvg9.workers.dev`) + Supabase ARIA. Este repositorio conserva contratos declarativos para que añadir IAs o cuentas no requiera otro pipeline ni copiar credenciales.
 
 ## Qué es
 
@@ -14,25 +17,39 @@ IA externa → Adapter (auth/protocolo) → ARIA MCP → ChatBending
                            CAPTURE → GATE → COMMIT → SYNC
 ```
 
+```
+Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6)
+```
+
 ## Qué no es
 
 - No escribe Notion.
 - No aprueba candidatos.
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
+- No guarda API keys / tokens / passwords. Solo `credential_ref`.
 
 ## Archivos
 
-- `adapters/contract.md` — contrato universal
-- `adapters/registry.json` — IAs, aliases, recetas de conexión
-- `adapters/normalize.js` — canonicalización de `source_application`
-- `tests/normalize.test.js` — pruebas locales
+- `adapters/` — contrato universal multi-IA (9.6)
+- `models/` — Model Registry (10.2)
+- `capabilities/` — Capability Matrix (10.3)
+- `accounts/` — Account Manager (10.4)
+- `tests/` — pruebas locales
 
 ```
-node tests/normalize.test.js
+npm test
 ```
 
-## Estado 2026-09-01
+## Account Manager 10.4
+
+Capa declarativa. Account ≠ Credential. Seed verificado:
+
+`openrouter` → `acct_openrouter_primary` → `google/gemini-2.5-flash-lite`
+
+`credential_ref`: `secret://openrouter/acct_openrouter_primary` (referencia; el secreto no vive aquí).
+
+## Estado adapters 2026-09-01
 
 | IA | Cliente real | Pipeline |
 |---|---|---|
