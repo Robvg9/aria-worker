@@ -1,6 +1,7 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-`aria-fallback-v1.0.0` · Misión 10.7 (HEAD)
+`aria-execution-engine-v1.0.0` · Misión 10.8 (HEAD)
+`aria-fallback-v1.0.0` · Misión 10.7
 `aria-intelligent-router-v1.0.0` · Misión 10.6
 `aria-quota-capacity-v1.0.0` · Misión 10.5
 `aria-account-manager-v1.0.0` · Misión 10.4
@@ -21,7 +22,11 @@ IA externa → Adapter (auth/protocolo) → ARIA MCP → ChatBending
 ```
 
 ```
-Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7)
+Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7) → Execution (10.8)
+```
+
+```
+Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 ```
 
 ## Qué no es
@@ -31,7 +36,8 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
 - No guarda API keys / tokens / passwords. Solo `credential_ref`.
-- No ejecuta modelos ni consume tokens (10.6 selecciona; 10.7 elige alternativa).
+- No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 solo ejecuta una ruta ya seleccionada y autorizada).
+- No reintenta, no rota cuentas, no hace fallback automático desde la ejecución.
 - No inventa cuotas, usage ni precios.
 
 ## Archivos
@@ -43,11 +49,29 @@ Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Qu
 - `quota/` — Quota / Capacity Manager (10.5)
 - `router/` — Intelligent Router (10.6)
 - `fallback/` — Fallback Engine (10.7)
+- `execution/` — Execution Engine (10.8): `lookup.js`, `credentials.js`, `adapters/`
 - `tests/` — pruebas locales
 
 ```
 npm test
 ```
+
+## Execution Engine 10.8
+
+Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) **y autorizada** (10.12) en una única llamada al proveedor vía Provider Adapter (10.13).
+
+`execute({ selected_route | capability, authorization, input }, deps?)` → `succeeded` | `failed` | `blocked` (máquina 10.13; `cancelled` reservado, no emitido).
+
+- Revalida la ruta con `fallback.candidateSelectable` (consume 10.2–10.6; no reimplementa). `unknown` → `blocked / insufficient_evidence`.
+- `authorization.status !== 'approved'` → `blocked` (`selected ≠ approved_to_execute`).
+- Credenciales: solo `credential_ref` de 10.4 → interfaz `CredentialResolver`. Mecanismo real **CREDENTIAL RESOLVER NOT IMPLEMENTED** (no definido en ChatBending; resolver nulo por defecto → `failed / credential_unavailable`).
+- Adapter registrado: `openrouter_chat_completions` (`openrouter` / `text_generation`). Transport inyectable; tests 100 % mock.
+- `execution_id` determinista (sha256 canónico). Un intento por llamada. Sin retry, sin rotación, sin account hopping.
+- Usage del proveedor se copia como `reported` o queda `unknown`; nunca se estima ni alimenta 10.5.
+- Hook `onEvent` (10.10) opcional; sin telemetría persistida. Sin escritura de memoria canónica (`CAPTURE → GATE → COMMIT → SYNC` intacto).
+- **LIVE no ejecutado**: no existe credencial real autorizada ni resolver; la ruta seed sigue bloqueada por 10.5 `unknown`.
+
+Contrato: `execution/contract.md`.
 
 ## Fallback Engine 10.7
 

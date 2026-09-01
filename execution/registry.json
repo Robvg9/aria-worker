@@ -1,0 +1,69 @@
+{
+  "version": "aria-execution-engine-v1.0.0",
+  "mission": "10.8",
+  "kind": "execution_engine",
+  "memory_authority": false,
+  "canonical_write": false,
+  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER → FALLBACK → EXECUTION",
+  "consumes": [
+    "fallback/lookup.js",
+    "router/lookup.js",
+    "models/lookup.js",
+    "capabilities/lookup.js",
+    "accounts/lookup.js"
+  ],
+  "canonical_status": [
+    "pending",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "blocked"
+  ],
+  "emitted_status": [
+    "succeeded",
+    "failed",
+    "blocked"
+  ],
+  "blocked_reasons": [
+    "authorization_missing",
+    "authorization_not_approved",
+    "route_missing",
+    "no_route",
+    "route_not_selectable",
+    "insufficient_evidence",
+    "credential_ref_missing",
+    "adapter_unavailable",
+    "capability_missing",
+    "input_missing"
+  ],
+  "error_codes": [
+    "credential_unavailable",
+    "provider_error",
+    "transport_error",
+    "timeout",
+    "adapter_error",
+    "invalid_response"
+  ],
+  "adapters": [
+    {
+      "adapter_id": "openrouter_chat_completions",
+      "provider_id": "openrouter",
+      "interface_type": "http_json",
+      "operations": ["text_generation"],
+      "status": "registered"
+    }
+  ],
+  "credential_resolver_note": "CREDENTIAL RESOLVER NOT IMPLEMENTED",
+  "rules": [
+    "executes only a route already selected by 10.6/10.7 and revalidated by 10.7 candidateSelectable",
+    "requires authorization.status === 'approved' (10.12); selected ≠ approved_to_execute",
+    "does not choose models, create routes, or switch accounts",
+    "does not retry, rotate, or fallback automatically — one route, one attempt",
+    "does not coerce unknown quota/capacity to available",
+    "resolves credential_ref only through CredentialResolver; secret never leaves the call",
+    "never stores, logs, or returns secrets",
+    "does not write canonical memory (CAPTURE → GATE → COMMIT → SYNC unchanged)",
+    "does not invent telemetry — optional onEvent hook only (10.10)"
+  ]
+}
