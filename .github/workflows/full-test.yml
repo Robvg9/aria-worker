@@ -1,0 +1,17 @@
+name: ARIA Full Test
+on:
+  push:
+    branches:
+      - ci/npm-test-full-20260902
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm test
+        run: npm test
