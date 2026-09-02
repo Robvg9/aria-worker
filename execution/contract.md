@@ -1,6 +1,6 @@
 # ARIA Execution Engine — Contract (Misión 10.8)
 
-**Versión:** `aria-execution-engine-v1.0.0`
+**Versión:** `aria-execution-engine-v1.1.0`
 **Capa:** Data Plane / Execution Layer
 **Autoridad de memoria:** ninguna (`memory_authority: none`, `canonical_write: false`)
 
@@ -15,22 +15,9 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 
 ## 1. Responsabilidad
 
-10.8 convierte **una ruta ya seleccionada y ya autorizada** en una única llamada
-real al proveedor, a través de un Provider Adapter, y devuelve un resultado
-normalizado.
+10.8 convierte **una ruta ya seleccionada y ya autorizada** en una única llamada al proveedor, a través de un Provider Adapter, y devuelve un resultado normalizado.
 
-10.8 **NO**:
-
-- decide qué modelo usar (10.6 Router);
-- elige alternativas ante fallo (10.7 Fallback);
-- crea rutas ni acepta rutas que no existan en 10.2–10.5;
-- cambia de cuenta/proveedor/modelo para evadir límites (account hopping);
-- convierte `quota/capacity/rate_limit = unknown` en `available`;
-- reintenta, rota ni hace fallback automático (una ruta → un intento);
-- almacena, imprime o devuelve credenciales;
-- escribe en ChatBending / Notion / Supabase ni en ninguna memoria canónica
-  (todo conocimiento derivado sigue `CAPTURE → GATE → COMMIT → SYNC`);
-- inventa telemetría (solo emite eventos a un hook opcional, ver §9).
+10.8 **NO** decide modelo, elige alternativas, crea rutas, cambia de cuenta/proveedor/modelo, convierte `unknown` en `available`, reintenta/rota/fallback automático, almacena o expone credenciales, escribe memoria canónica ni inventa telemetría.
 
 ## 2. Flujo
 
@@ -38,13 +25,13 @@ normalizado.
 Execution Request
 → Route Resolution      (consume 10.6/10.7 o recibe selected_route; valida con 10.7 candidateSelectable)
 → Authorization Gate    (authorization.status === "approved"; 10.12)
-→ Credential Resolution (credential_ref → CredentialResolver; secreto nunca sale de este paso)
+→ Credential Resolution (credential_ref → CredentialResolver; secreto solo en el call path)
 → Provider Adapter      (adapter por provider_id; 10.13)
 → Provider API          (una llamada, vía transport inyectable)
 → Execution Result      (normalizado, sin secretos)
 ```
 
-## 3. Input de ejecución (`ExecutionRequest`)
+## 3. Input (`ExecutionRequest`)
 
 ```json
 {
@@ -59,70 +46,29 @@ Execution Request
   "authorization": { "status": "approved", "evidence_ref": "..." },
   "input": { "modality": "text", "payload": { "messages": [ { "role": "user", "content": "..." } ] } },
   "task_id": "opcional",
-  "policy": { "...": "opcional; se pasa tal cual a 10.7 candidateSelectable" }
+  "policy": { "...": "opcional; se pasa a 10.7 candidateSelectable" }
 }
 ```
 
-| Campo | Regla |
-|---|---|
-| `selected_route` | Salida literal de 10.6 (`selected`) o 10.7 (`primary`/`fallback`). Si falta, 10.8 **consume** `fallback.resolve({capability, policy})` para obtenerla; nunca la fabrica. |
-| `capability` | Obligatoria si no viene en `selected_route`. |
-| `authorization` | Obligatoria. Solo `status === "approved"` permite ejecutar (10.12: `selected ≠ approved_to_execute`). |
-| `input.payload` | Opaco para el Core; lo traduce el adapter. |
-| `task_id` | Opcional; participa en `execution_id`. |
-
-Cualquier ruta recibida se **revalida** con `fallback.candidateSelectable(route, capability, deps, policy)`
-(10.7), que a su vez consume 10.2 `getModel`, 10.3 `supports`, 10.4 `isAccountActive`/`credentialRefOf`
-y 10.6 `capacityAllows`. 10.8 no reimplementa esas comprobaciones.
+`selected_route` se revalida con `fallback.candidateSelectable(...)`; 10.8 no duplica Router/Fallback/Quota logic. `authorization.status !== approved` bloquea.
 
 ## 4. `execution_id`
-
-Determinista (10.13: "contrato de ejecución determinista"):
 
 ```
 execution_id = "exec_" + sha256(canonical_json({ task_id, provider_id, account_id, model_id, capability, input })).slice(0, 32)
 ```
 
-- Misma solicitud → mismo `execution_id` (idempotencia de identificación).
-- Solicitudes distintas → ids distintos.
-- No usa reloj ni aleatoriedad.
+Misma solicitud → mismo id. No usa reloj ni aleatoriedad.
 
 ## 5. Estados
 
-ChatBending define dos vocabularios previos:
+`pending → running → succeeded | failed | cancelled | blocked` es el modelo canónico de 10.13; v1 no emite `cancelled`.
 
-- **10.8 (diseño):** `success | error | timeout | blocked | insufficient_evidence`
-- **10.13 (Execution Engine Contract):** `pending → running → succeeded | failed | cancelled | blocked`
+`blocked.reason` incluye `authorization_missing | authorization_not_approved | route_missing | no_route | route_not_selectable | insufficient_evidence | credential_ref_missing | adapter_unavailable | capability_missing | input_missing`.
 
-Este contrato adopta la **máquina de estados de 10.13** como `status` y conserva
-el vocabulario de 10.8 como `reason` / `error.code`. No se inventan estados.
+`failed.error.code` incluye `credential_unavailable | provider_error | transport_error | timeout | adapter_error | invalid_response`.
 
-| `status` (10.13) | Cuándo | Equivalente 10.8 |
-|---|---|---|
-| `pending` | Solicitud recibida; aún no ejecutada (interno, no se devuelve). | — |
-| `running` | Adapter en curso (interno; emitido al hook como `execution.started`). | — |
-| `succeeded` | Adapter devolvió respuesta válida. | `success` |
-| `failed` | Adapter/transport/credencial falló. | `error` (`error.code`), `timeout` (`error.code = "timeout"`) |
-| `blocked` | Ruta inválida/no seleccionable, sin autorización, sin adapter, sin `credential_ref`. | `blocked`, `insufficient_evidence` (`reason`) |
-| `cancelled` | Reservado por 10.13. **No emitido** en v1.0.0: no existe mecanismo de cancelación en 10.8. | — |
-
-`blocked.reason` (determinista):
-
-```
-authorization_missing | authorization_not_approved | route_missing | no_route |
-route_not_selectable | insufficient_evidence | credential_ref_missing | adapter_unavailable |
-capability_missing | input_missing
-```
-
-`failed.error.code`:
-
-```
-credential_unavailable | provider_error | transport_error | timeout | adapter_error | invalid_response
-```
-
-`failed` **nunca** dispara fallback ni retry dentro de 10.8. Quien orquesta puede
-invocar 10.7 con `failure.kind = execution_failure` (u otro kind declarado) en
-una nueva llamada.
+`failed` no dispara fallback ni retry dentro de 10.8.
 
 ## 6. Resultado (`ExecutionResult`)
 
@@ -135,87 +81,56 @@ una nueva llamada.
   "error": { "code": "…", "message": "…", "stage": "…", "provider_status": 429 },
   "reason": "…",
   "usage": { "status": "unknown", "prompt_tokens": null, "completion_tokens": null, "total_tokens": null },
-  "metadata": {
-    "engine_version": "aria-execution-engine-v1.0.0",
-    "adapter_id": "openrouter_chat_completions",
-    "mode": "mock | live",
-    "attempt": 1,
-    "memory_authority": "none",
-    "canonical_write": false
-  }
+  "metadata": { "engine_version": "aria-execution-engine-v1.1.0", "adapter_id": "openrouter_chat_completions", "mode": "mock | live", "attempt": 1, "memory_authority": "none", "canonical_write": false }
 }
 ```
 
-- `response` solo en `succeeded`; `error` solo en `failed`; `reason` solo en `blocked`.
-- `route` siempre refleja la ruta recibida; 10.8 nunca la altera.
-- `usage`: si el proveedor devuelve conteos, se copian tal cual con `status: "reported"`;
-  si no, `status: "unknown"` con `null`. **Nunca** se estiman ni se convierten en
-  evidencia de 10.5 (10.5 sigue siendo la autoridad de quota/capacity).
-- `attempt` es siempre `1` (no hay retry).
-- Ningún campo puede contener material de credencial. `error.message` se
-  sanitiza: se eliminan cabeceras `Authorization` y patrones de secreto.
+Ningún campo de resultado puede contener material de credencial. `error.message` se sanitiza.
 
 ## 7. Credenciales
 
-- 10.4 entrega solo `credential_ref` (`secret://{provider}/{account}`).
-- 10.8 lo resuelve mediante la interfaz `CredentialResolver`:
+10.4 entrega solo `credential_ref` (`secret://{provider}/{account}`). 10.8 llama a `CredentialResolver`:
 
 ```js
 resolve(credential_ref) → { status: "resolved", secret } | { status: "unavailable", reason }
 ```
 
-- El `secret` se pasa **solo** al adapter dentro de la misma llamada y nunca se
-  incluye en resultado, eventos, errores ni logs.
-- Resolver por defecto: `nullCredentialResolver` → siempre `unavailable`.
+En Block B, la implementación concreta es un resolver inyectado: `createCredentialResolver({ getSecret })`. Solo acepta referencias canónicas y soporta resolución async. Una implementación adicional adapta bindings de Cloudflare mediante una tabla no secreta `ref → bindingName`.
 
-> **PENDIENTE (no inventado):** ChatBending define el esquema `secret://…` y
-> exige un Credential Store seguro, pero **no define el mecanismo concreto**
-> (Cloudflare Secrets, Vault, etc.). Hasta que una misión lo defina, 10.8 solo
-> expone la interfaz; toda ejecución con el resolver por defecto termina en
-> `failed / credential_unavailable`. `CREDENTIAL_RESOLVER_NOTE = "CREDENTIAL RESOLVER NOT IMPLEMENTED"`.
+El secret es transitorio y se entrega únicamente al adapter dentro del mismo call path. Nunca aparece en `ExecutionResult`, eventos, logs ni errores.
+
+El resolver concreto no lee configuración ambiental, archivos, bases de datos o red por sí mismo y no persiste credenciales. Los errores del proveedor de secretos se normalizan a `resolver_error`.
+
+Se conserva `nullCredentialResolver` como fallback explícito cuando ningún resolver es inyectado; en ese caso la ejecución termina `failed / credential_unavailable`.
 
 ## 8. Provider Adapter (10.13)
 
-Cada adapter declara: `adapter_id`, `provider_id`, `interface_type`,
-`operations` (capabilities soportadas), `status`, y expone:
+Cada adapter declara `adapter_id`, `provider_id`, `interface_type`, `operations`, `status` y expone:
 
 ```js
 execute({ route, input, secret, transport }) → { ok: true, response, usage_raw } | { ok: false, error }
 ```
 
-- El adapter traduce el payload al protocolo del proveedor y normaliza la respuesta.
-- No decide ruta, no reintenta, no rota cuentas, no escribe memoria.
-- El `transport` (HTTP) es inyectable; los tests usan transports controlados.
-- Adapter registrado en v1.0.0: `openrouter_chat_completions` (`provider_id: openrouter`,
-  `operations: ["text_generation"]`, endpoint `https://openrouter.ai/api/v1/chat/completions`).
+El adapter traduce el payload y normaliza la respuesta. No decide ruta, no reintenta, no rota cuentas y no escribe memoria. El transport es inyectable. El adapter registrado sigue siendo `openrouter_chat_completions` para `openrouter/text_generation`.
 
-## 9. Observability hook (10.10 — no implementado aquí)
+## 9. Observability hook
 
-`deps.onEvent(event)` opcional. Eventos: `execution.started`,
-`execution.completed`, `execution.failed`, `execution.blocked`.
-Payload: `{ event, execution_id, route, status, reason|error.code }`. Sin
-secretos, sin timestamps generados por 10.8, sin persistencia. El contrato de
-telemetría pertenece a 10.10.
+`deps.onEvent(event)` opcional. Eventos: `execution.started`, `execution.completed`, `execution.failed`, `execution.blocked`. Sin secretos ni persistencia.
 
 ## 10. LIVE vs MOCK
 
-- Tests: adapters/transports/resolvers controlados. **Cero** llamadas reales.
-- `metadata.mode = "live"` solo cuando el transport es el real (`fetch`) **y**
-  el resolver devolvió `resolved`. Requiere credencial real autorizada por
-  humano; no existe en esta misión → **LIVE no ejecutado**.
-- Ruta seed real (`openrouter / acct_openrouter_primary / google/gemini-2.5-flash-lite`):
-  10.5 mantiene `unknown` → 10.6/10.7 no la seleccionan → 10.8 devuelve
-  `blocked / insufficient_evidence` (unknown ≠ available). Esto es correcto.
+Tests: adapters/transports/resolvers controlados; cero llamadas reales. `metadata.mode = live` solo cuando se usa el transport real y el resolver devuelve `resolved`.
 
-## 11. Invariantes verificados por `tests/execution.test.js`
+No se ejecuta un smoke test de producción en CI porque ningún secreto de producción se incorpora ni se auto-provisiona. La ruta seed continúa bloqueada cuando 10.5 mantiene `unknown`.
 
-- ruta válida + approved + resolver mock + adapter mock → `succeeded`;
-- ruta/provider/model/account/capability inexistente → `blocked`;
-- `credential_ref` ausente → `blocked / credential_ref_missing`;
-- secreto no disponible → `failed / credential_unavailable` sin material;
-- error del proveedor → `failed / provider_error`;
-- `execution_id` determinista y único;
-- Router (10.6) y Fallback (10.7) sin modificar (hash de archivos + sin mutación);
-- sin secretos en código, resultados, eventos ni errores;
-- sin account hopping; sin bypass de quota/capacity; sin retry;
-- sin writers de memoria (Notion/Supabase/ChatBending) en `execution/`.
+## 11. Invariantes
+
+- Ruta válida + approved + resolver mock + adapter mock → `succeeded`.
+- Ruta/provider/model/account/capability inexistente → `blocked`.
+- `credential_ref` ausente → `blocked / credential_ref_missing`.
+- Secreto no disponible → `failed / credential_unavailable` sin material sensible.
+- Error del proveedor → `failed / provider_error`.
+- `execution_id` determinista.
+- Router/Fallback/registries no mutados por 10.8.
+- Sin account hopping, bypass de quota/capacity o retry.
+- Sin writers de memoria en `execution/`.
