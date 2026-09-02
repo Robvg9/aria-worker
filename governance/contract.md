@@ -19,7 +19,7 @@ This layer is Control Plane only. It does not route, fallback, execute, resolve 
 - `invalid`
 
 ## Decision contract
-A governance decision is valid only when it is bound to the concrete execution/request and the requested operation.
+A governance decision is valid only when it is bound to the concrete execution/request and the requested operation/tool when those are part of the request.
 
 ```json
 {
@@ -27,6 +27,8 @@ A governance decision is valid only when it is bound to the concrete execution/r
   "execution_id": "string",
   "task_id": "string|null",
   "request_id": "string|null",
+  "tool_id": "string|null",
+  "operation": "string|null",
   "risk_class": "READ|LOW_RISK_WRITE|HIGH_RISK_WRITE|DESTRUCTIVE",
   "decision": "pending_approval|approved|rejected|expired|invalid",
   "reviewed_by": "string|null",
@@ -41,7 +43,7 @@ A governance decision is valid only when it is bound to the concrete execution/r
 1. `selected` never implies `approved`.
 2. Missing authorization blocks execution.
 3. `rejected`, `expired`, and `invalid` block execution.
-4. Authorization is scoped to the concrete `execution_id` and request/operation.
+4. Authorization is scoped to the concrete `execution_id` and request/operation/tool when those are defined by the request.
 5. Material changes to target, operation, or risk require reevaluation.
 6. Governance cannot create or alter a route.
 7. Governance cannot resolve or reveal secrets.
