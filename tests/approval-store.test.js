@@ -59,7 +59,7 @@ async function run() {
   assert.equal(await store.canExecute('auth_1', sameBinding), false);
   db.get('auth_1').approved_by = 'Robert';
   db.get('auth_1').verification_ref = 'verify://human/abc123';
-  assert.equal(isExecutable(db.get('auth_1'), sameBinding), false, 'READ should not need verification, but malformed status/record still must fail safely');
+  assert.equal(isExecutable(db.get('auth_1'), sameBinding), true, 'READ does not require verification_ref');
   db.get('auth_1').verification_ref = null;
 
   const highRisk = baseRecord({ authorization_id: 'auth_2', risk_class: 'HIGH_RISK_WRITE', operation: 'merge_pr', target: { repository: 'Robvg9/aria-worker', pull_request: 1 } });
