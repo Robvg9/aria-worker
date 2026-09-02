@@ -1,9 +1,10 @@
 {
-  "version": "aria-tool-router-v1.0.0",
+  "version": "aria-tool-router-v1.1.0",
   "mission": "11.2",
   "kind": "tool_router",
-  "mode": "design_controlled",
+  "mode": "controlled_runtime",
   "live_execution": false,
+  "controlled_runtime": true,
   "selects_from": "tool_registry",
   "supports_multi_tool_plan": true,
   "owns_authorization": false,
