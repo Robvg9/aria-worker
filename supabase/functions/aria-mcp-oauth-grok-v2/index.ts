@@ -7,7 +7,7 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUP
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ISSUER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-grok-v2`;
 const MCP_RESOURCE = `${SUPABASE_URL}/functions/v1/aria-mcp-server-grok-v2`;
-const STATIC_UI = "https://cdn.jsdelivr.net/gh/Robvg9/aria-worker@main/integrations/grok/oauth-ui.html";
+const STATIC_UI = "https://raw.githack.com/Robvg9/aria-worker/main/integrations/grok/oauth-ui.html";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const CODE_TTL_MS = 60_000;
 const PENDING_TTL_MS = 10 * 60_000;
