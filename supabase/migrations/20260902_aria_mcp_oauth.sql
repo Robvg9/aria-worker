@@ -17,6 +17,7 @@ create table if not exists public.aria_mcp_oauth_pending (
   code_challenge text not null,
   code_challenge_method text not null default 'S256' check (code_challenge_method = 'S256'),
   email text,
+  trace_id text,
   created_at timestamptz not null default now(),
   expires_at timestamptz not null
 );
@@ -30,15 +31,23 @@ create table if not exists public.aria_mcp_oauth_codes (
   user_id uuid not null,
   encrypted_access_token text not null,
   scope text not null default 'openid profile email',
+  trace_id text,
   created_at timestamptz not null default now(),
   expires_at timestamptz not null,
   used_at timestamptz
 );
 
+alter table public.aria_mcp_oauth_pending add column if not exists trace_id text;
+alter table public.aria_mcp_oauth_codes add column if not exists trace_id text;
+
 create index if not exists aria_mcp_oauth_pending_expiry_idx
   on public.aria_mcp_oauth_pending (expires_at);
 create index if not exists aria_mcp_oauth_codes_expiry_idx
   on public.aria_mcp_oauth_codes (expires_at);
+create index if not exists aria_mcp_oauth_pending_trace_idx
+  on public.aria_mcp_oauth_pending (trace_id);
+create index if not exists aria_mcp_oauth_codes_trace_idx
+  on public.aria_mcp_oauth_codes (trace_id);
 
 alter table public.aria_mcp_oauth_clients enable row level security;
 alter table public.aria_mcp_oauth_pending enable row level security;
