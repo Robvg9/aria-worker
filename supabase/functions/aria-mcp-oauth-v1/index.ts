@@ -92,7 +92,17 @@ Deno.serve(async req => {
     const pendingId = crypto.randomUUID();
     const { error } = await db().from("aria_mcp_oauth_pending").insert({ id: pendingId, client_id: clientId, redirect_uri: redirectUri, state, code_challenge: challenge, code_challenge_method: method, expires_at: new Date(Date.now() + PENDING_TTL_MS).toISOString() });
     if (error) return json(500, { error: "authorization_state_failed" });
-    return html(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize ARIA</title><body style="font-family:sans-serif;max-width:520px;margin:40px auto;padding:0 16px"><h1>Authorize ${escapeHtml(client.client_name)}</h1><p>ARIA will request permission to use your ChatBending context and memory tools.</p><form method="post" action="${ISSUER}/authorize/start"><input type="hidden" name="pending_id" value="${pendingId}"><label>Email<br><input name="email" type="email" required autocomplete="email" style="width:100%;padding:10px"></label><button style="margin-top:16px;padding:10px 16px">Send code</button></form></body>`);
+    const ui = new URL(`${ISSUER}/authorize/ui`);
+    ui.searchParams.set("pending_id", pendingId);
+    return Response.redirect(ui.toString(), 302);
+  }
+
+  if (req.method === "GET" && u.pathname.endsWith("/authorize/ui")) {
+    const pendingId = u.searchParams.get("pending_id") ?? "";
+    const { data: pending } = await db().from("aria_mcp_oauth_pending").select("id,client_id,expires_at").eq("id", pendingId).maybeSingle();
+    if (!pending || new Date(pending.expires_at).getTime() <= Date.now()) return json(400, { error: "authorization_expired" });
+    const { data: client } = await db().from("aria_mcp_oauth_clients").select("client_name").eq("client_id", pending.client_id).maybeSingle();
+    return html(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"><title>Authorize ARIA</title></head><body style="font-family:sans-serif;max-width:520px;margin:40px auto;padding:0 16px"><h1>Authorize ${escapeHtml(client?.client_name ?? "client")}</h1><p>ARIA will request permission to use your ChatBending context and memory tools.</p><form method="post" action="${ISSUER}/authorize/start"><input type="hidden" name="pending_id" value="${escapeHtml(pendingId)}"><label>Email<br><input name="email" type="email" required autocomplete="email" style="width:100%;padding:10px;box-sizing:border-box"></label><button style="margin-top:16px;padding:10px 16px">Send code</button></form></body></html>`);
   }
 
   if (req.method === "POST" && u.pathname.endsWith("/authorize/start")) {
@@ -105,7 +115,7 @@ Deno.serve(async req => {
     const { error } = await authClient().auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
     if (error) return json(400, { error: "otp_send_failed" });
     await db().from("aria_mcp_oauth_pending").update({ email }).eq("id", pendingId);
-    return html(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify ARIA</title><body style="font-family:sans-serif;max-width:520px;margin:40px auto;padding:0 16px"><h1>Enter verification code</h1><p>A one-time code was sent to ${escapeHtml(email)}.</p><form method="post" action="${ISSUER}/authorize/verify"><input type="hidden" name="pending_id" value="${escapeHtml(pendingId)}"><input name="token" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="8" required style="width:100%;padding:10px"><button style="margin-top:16px;padding:10px 16px">Authorize</button></form></body>`);
+    return html(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"><title>Verify ARIA</title></head><body style="font-family:sans-serif;max-width:520px;margin:40px auto;padding:0 16px"><h1>Enter verification code</h1><p>A one-time code was sent to ${escapeHtml(email)}.</p><form method="post" action="${ISSUER}/authorize/verify"><input type="hidden" name="pending_id" value="${escapeHtml(pendingId)}"><input name="token" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="8" required style="width:100%;padding:10px;box-sizing:border-box"><button style="margin-top:16px;padding:10px 16px">Authorize</button></form></body></html>`);
   }
 
   if (req.method === "POST" && u.pathname.endsWith("/authorize/verify")) {
