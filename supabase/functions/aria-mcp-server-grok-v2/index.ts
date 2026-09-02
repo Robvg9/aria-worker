@@ -45,12 +45,12 @@ Deno.serve(async req => {
   const requested = req.headers.get("MCP-Protocol-Version") ?? body.params?._meta?.["io.modelcontextprotocol/protocolVersion"] ?? body.params?.protocolVersion ?? "2025-03-26";
   const modern = requested === "2026-07-28";
   if (!["2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"].includes(requested)) return reply(400, errorRpc(id, -32022, "unsupported_protocol"));
-  if (method === "initialize") return reply(200, rpc(id, { protocolVersion: modern ? "2026-07-28" : requested, serverInfo: { name: "ARIA MCP Server", version: "1.3.4" }, capabilities: { tools: { listChanged: false } }, transport: TRANSPORT }));
+  const auth = await authUser(req);
+  if (!auth) return reply(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer resource_metadata="${RESOURCE_METADATA}"` });
+  if (method === "initialize") return reply(200, rpc(id, { protocolVersion: modern ? "2026-07-28" : requested, serverInfo: { name: "ARIA MCP Server", version: "1.3.6" }, capabilities: { tools: { listChanged: false } }, transport: TRANSPORT }));
   if (method === "server/discover") return reply(200, rpc(id, { resultType: "complete", supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"], capabilities: { tools: { listChanged: false } } }));
   if (method === "notifications/initialized") return new Response(null, { status: 202, headers: H });
   if (method === "tools/list") return reply(200, rpc(id, { tools: TOOLS }));
-  const auth = await authUser(req);
-  if (!auth) return reply(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer resource_metadata="${RESOURCE_METADATA}"` });
   const params = body.params ?? {};
   const name = typeof params.name === "string" ? params.name : (req.headers.get("Mcp-Name") ?? "");
   const args = params.arguments ?? {};
