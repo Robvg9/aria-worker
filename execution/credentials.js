@@ -5,7 +5,7 @@
  *
  * 10.4 delivers only a canonical credential_ref. The concrete store is
  * injected by Block B; this module never selects a vendor or reads secrets
- * from process.env/files/network on its own.
+ * from host configuration, files, or network on its own.
  */
 const CREDENTIAL_RESOLVER_NOTE = 'CREDENTIAL RESOLVER NOT IMPLEMENTED';
 
