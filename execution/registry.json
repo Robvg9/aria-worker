@@ -1,5 +1,5 @@
 {
-  "version": "aria-execution-engine-v1.0.0",
+  "version": "aria-execution-engine-v1.1.0",
   "mission": "10.8",
   "kind": "execution_engine",
   "memory_authority": false,
@@ -54,14 +54,22 @@
       "status": "registered"
     }
   ],
-  "credential_resolver_note": "CREDENTIAL RESOLVER NOT IMPLEMENTED",
+  "credential_resolver": {
+    "resolver_id": "injected-secret-store-v1",
+    "status": "implemented",
+    "resolution": "secret://provider/account → injected getSecret(ref, context)",
+    "persistence": false,
+    "process_env_access": false,
+    "vendor_binding": false,
+    "async": true
+  },
   "rules": [
     "executes only a route already selected by 10.6/10.7 and revalidated by 10.7 candidateSelectable",
     "requires authorization.status === 'approved' (10.12); selected ≠ approved_to_execute",
     "does not choose models, create routes, or switch accounts",
     "does not retry, rotate, or fallback automatically — one route, one attempt",
     "does not coerce unknown quota/capacity to available",
-    "resolves credential_ref only through CredentialResolver; secret never leaves the call",
+    "resolves credential_ref only through injected CredentialResolver; secret never leaves the immediate call path",
     "never stores, logs, or returns secrets",
     "does not write canonical memory (CAPTURE → GATE → COMMIT → SYNC unchanged)",
     "does not invent telemetry — optional onEvent hook only (10.10)"
