@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const RESOURCE = `${SUPABASE_URL}/functions/v1/aria-mcp-server-grok-v2`;
+const RESOURCE_PATH = new URL(RESOURCE).pathname;
 const AUTH_SERVER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-grok-v2`;
 const RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;
 const TRANSPORT = "streamable-http";
