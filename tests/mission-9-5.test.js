@@ -32,7 +32,8 @@ assert.equal(/encrypted_access_token/.test(schema), true);
 assert.equal(/grant all on public\.aria_mcp_oauth_codes to service_role/.test(schema), true);
 assert.equal(/revoke all on public\.aria_mcp_oauth_codes from anon, authenticated/.test(schema), true);
 
-mustContain(mcp, '/.well-known/oauth-protected-resource', 'MCP protected resource');
+mustContain(mcp, '/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-9-5', 'standard protected-resource metadata path');
+mustContain(mcp, '/.well-known/oauth-protected-resource', 'legacy protected-resource metadata');
 mustContain(mcp, 'authorization_servers: [AUTH_SERVER]', 'MCP OAuth advertisement');
 mustContain(mcp, 'resource_metadata="${RESOURCE_METADATA}"', 'MCP challenge resource metadata');
 mustContain(mcp, 'auth.getUser(token)', 'MCP bearer validation');
@@ -52,4 +53,4 @@ assert.equal(/console\.(log|error|warn)\s*\(/.test(mcp), false);
 mustContain(connector, 'oauth = true', 'Grok connector OAuth');
 mustContain(connector, 'aria-mcp-server-9-5', 'Grok connector target');
 
-console.log('PASS: Mission 9.5 repository OAuth/PKCE + modern MCP contract checks');
+console.log('PASS: Mission 9.5 repository OAuth/PKCE + MCP transport/metadata contract checks');
