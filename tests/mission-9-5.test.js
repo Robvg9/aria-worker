@@ -18,6 +18,9 @@ mustContain(oauth, 'code_challenge_methods_supported: ["S256"]', 'PKCE metadata'
 mustContain(oauth, '/register', 'dynamic registration');
 mustContain(oauth, '/authorize/start', 'authorization start');
 mustContain(oauth, '/authorize/verify', 'authorization verification');
+mustContain(oauth, '/authorize/ui', 'browser authorization UI');
+mustContain(oauth, 'Response.redirect(ui.toString(), 302)', 'browser authorization redirect');
+mustContain(oauth, 'content-type": "text/html; charset=utf-8', 'HTML authorization UI content type');
 mustContain(oauth, '/token', 'token endpoint');
 mustContain(oauth, 'verifyOtp', 'Supabase OTP verification');
 mustContain(oauth, 'pkceMatches', 'PKCE verifier');
