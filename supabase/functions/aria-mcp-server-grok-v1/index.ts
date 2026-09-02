@@ -6,6 +6,7 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUB
 const RESOURCE = `${SUPABASE_URL}/functions/v1/aria-mcp-server-grok-v1`;
 const AUTH_SERVER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-grok-v1`;
 const RESOURCE_METADATA = `${SUPABASE_URL}/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-grok-v1`;
+const TRANSPORT = "streamable-http";
 const H = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const TOOLS = [
   { name: "aria_context", description: "Retrieve relevant authorized ChatBending context. Read-only.", inputSchema: { type: "object", properties: { query: { type: "string", minLength: 1 } }, required: ["query"], additionalProperties: false } },
@@ -37,8 +38,8 @@ Deno.serve(async req => {
   if (!allowedOrigin(req)) return reply(403, { error: "invalid_origin" });
   const u = new URL(req.url);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...H, "access-control-allow-origin": "*", "access-control-allow-methods": "GET,HEAD,POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,accept,mcp-protocol-version,mcp-method,mcp-name", "access-control-expose-headers": "WWW-Authenticate" } });
-  if (req.method === "GET" && u.pathname === `/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-grok-v1`) return reply(200, { resource: RESOURCE, authorization_servers: [AUTH_SERVER], bearer_methods_supported: ["header"] }, { "access-control-allow-origin": "*" });
-  if (req.method === "GET" || req.method === "HEAD") return reply(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer resource_metadata="${RESOURCE_METADATA}"` });
+  if (req.method === "GET" && u.pathname === `/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-grok-v1`) return reply(200, { resource: RESOURCE, authorization_servers: [AUTH_SERVER], bearer_methods_supported: ["header"], transport: TRANSPORT }, { "access-control-allow-origin": "*" });
+  if (req.method === "GET" || req.method === "HEAD") return reply(401, { error: "unauthorized", transport: TRANSPORT }, { "WWW-Authenticate": `Bearer resource_metadata="${RESOURCE_METADATA}"` });
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, { allow: "GET,HEAD,POST,OPTIONS" });
 
   let body: any; try { body = await req.json(); } catch { return reply(400, { error: "invalid_json" }); }
