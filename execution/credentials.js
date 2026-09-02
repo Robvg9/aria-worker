@@ -1,10 +1,11 @@
+'use strict';
+
 /**
- * ARIA Execution Engine — Credential Resolution interface (Mission 10.8)
+ * ARIA Execution Engine — Credential Resolution boundary.
  *
- * 10.4 delivers only `credential_ref` (secret://{provider}/{account}).
- * ChatBending does NOT define the concrete secure secret store yet, so this
- * module only exposes the interface and a null resolver. Nothing here reads
- * env vars, files, or networks.
+ * 10.4 delivers only a canonical credential_ref. The concrete store is
+ * injected by Block B; this module never selects a vendor or reads secrets
+ * from process.env/files/network on its own.
  */
 const CREDENTIAL_RESOLVER_NOTE = 'CREDENTIAL RESOLVER NOT IMPLEMENTED';
 
@@ -12,22 +13,16 @@ const RESOLVED = 'resolved';
 const UNAVAILABLE = 'unavailable';
 
 function isCredentialRef(ref) {
-  return typeof ref === 'string' && /^secret:\/\/[^/\s]+\/[^/\s]+$/.test(ref);
+  return typeof ref === 'string' && /^secret:\/\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(ref.trim());
 }
 
-/**
- * Default resolver: never resolves. Documents the pending point explicitly.
- */
-const nullCredentialResolver = {
+const nullCredentialResolver = Object.freeze({
   resolver_id: 'null',
   resolve() {
     return { status: UNAVAILABLE, reason: CREDENTIAL_RESOLVER_NOTE };
   }
-};
+});
 
-/**
- * Validates a resolver result shape without ever echoing the secret.
- */
 function normalizeResolution(result) {
   if (!result || typeof result !== 'object') {
     return { status: UNAVAILABLE, reason: 'resolver_invalid_result' };
@@ -44,15 +39,19 @@ function normalizeResolution(result) {
   };
 }
 
-function resolveCredential(credentialRef, resolver) {
+/**
+ * May resolve through either a synchronous or asynchronous injected resolver.
+ * The resolved secret is returned only to the immediate execution caller.
+ */
+async function resolveCredential(credentialRef, resolver) {
   if (!isCredentialRef(credentialRef)) {
     return { status: UNAVAILABLE, reason: 'credential_ref_invalid' };
   }
   const r = resolver && typeof resolver.resolve === 'function' ? resolver : nullCredentialResolver;
   let out;
   try {
-    out = r.resolve(credentialRef);
-  } catch (e) {
+    out = await r.resolve(credentialRef);
+  } catch {
     return { status: UNAVAILABLE, reason: 'resolver_error' };
   }
   return normalizeResolution(out);
