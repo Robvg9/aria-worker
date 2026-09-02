@@ -20,10 +20,17 @@ create table if not exists public.aria_mcp_trace_events (
   created_at timestamptz not null default now()
 );
 
+alter table public.aria_mcp_oauth_pending add column if not exists trace_id text;
+alter table public.aria_mcp_oauth_codes add column if not exists trace_id text;
+
 create index if not exists aria_mcp_trace_events_trace_idx
   on public.aria_mcp_trace_events (trace_id, created_at);
 create index if not exists aria_mcp_trace_events_created_idx
   on public.aria_mcp_trace_events (created_at desc);
+create index if not exists aria_mcp_oauth_pending_trace_idx
+  on public.aria_mcp_oauth_pending (trace_id);
+create index if not exists aria_mcp_oauth_codes_trace_idx
+  on public.aria_mcp_oauth_codes (trace_id);
 
 alter table public.aria_mcp_trace_events enable row level security;
 revoke all on public.aria_mcp_trace_events from anon, authenticated;
