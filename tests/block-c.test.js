@@ -13,6 +13,13 @@ const tool = {
   risk_level: 'read',
   capabilities: ['read']
 };
+const captureTool = {
+  tool_id: 'tool_capture',
+  status: 'available',
+  operations: ['write_candidate'],
+  risk_level: 'low_risk_write',
+  capabilities: ['write_candidate']
+};
 
 const baseTask = {
   task_id: 'task-c',
@@ -71,7 +78,7 @@ async function run() {
   assert.equal(planner.normalize({ ...routed, plan: [{ ...routed.plan[0], operation: 'read' }, { ...routed.plan[0] }] }).reason, 'duplicate_operation_1');
   assert.equal(planner.normalize({ ...routed, plan: [{ ...routed.plan[0], selection_reason: '' }] }).reason, 'missing_selection_reason_0');
   assert.equal(planner.normalize({ ...routed, plan: [{ ...routed.plan[0], risk_class: 'UNKNOWN' }] }).reason, 'invalid_risk_class_0');
-  assert.equal(planner.normalize({ ...routed, authorization: 'secret' }).reason, 'invalid_route_result');
+  assert.equal(planner.normalize({ ...routed, authorization: 'secret' }).reason, 'secret_like_field');
 
   // 11.1/11.4 controlled dispatch through injected adapter only.
   const request = {
@@ -107,7 +114,6 @@ async function run() {
   assert.equal(dispatched.metadata.dispatch_attempted, true);
   assert.equal(adapterCalls, 1);
 
-  // Authorization remains bound to exact scope.
   const wrongExecution = await gateway.dispatchAuthorized({
     request,
     tool,
@@ -154,7 +160,6 @@ async function run() {
   assert.equal(sensitive.status, 'blocked');
   assert.equal(sensitive.reason, 'sensitive_output_rejected');
 
-  // Malformed adapter result normalizes safely.
   const malformed = await gateway.dispatchAuthorized({
     request,
     tool,
@@ -164,18 +169,20 @@ async function run() {
   assert.equal(malformed.status, 'failed');
   assert.equal(malformed.error_code, 'invalid_adapter_result');
 
-  // Multi-step routing keeps each step explicit; planner remains deterministic.
+  // Multi-step routing with distinct tools keeps each step independently governed.
   const multi = router.routePlan({
     task_id: 'task-multi',
     request_id: 'request-multi',
     intent: 'two steps',
     steps: [
       { preferred_tool_id: 'tool_test', preferred_operation: 'read' },
-      { preferred_tool_id: 'tool_test', preferred_operation: 'write_candidate', risk_level: 'low_risk_write' }
+      { preferred_tool_id: 'tool_capture', preferred_operation: 'write_candidate' }
     ]
-  }, { ...registry, tools: [tool, { ...tool, risk_level: 'low_risk_write' }] });
+  }, { ...registry, tools: [tool, captureTool] });
   assert.equal(multi.status, 'route');
   assert.equal(multi.plan.length, 2);
+  assert.equal(multi.plan[0].tool_id, 'tool_test');
+  assert.equal(multi.plan[1].tool_id, 'tool_capture');
   const normalizedMulti = planner.normalize(multi);
   assert.equal(normalizedMulti.status, 'plan');
   assert.equal(normalizedMulti.steps.length, 2);
