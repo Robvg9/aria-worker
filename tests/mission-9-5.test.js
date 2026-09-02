@@ -9,12 +9,11 @@ const mcp = fs.readFileSync(path.join(root, 'supabase/functions/aria-mcp-server-
 const schema = fs.readFileSync(path.join(root, 'supabase/migrations/20260902_aria_mcp_oauth.sql'), 'utf8');
 const connector = fs.readFileSync(path.join(root, 'integrations/grok/connector.toml'), 'utf8');
 
-function mustContain(text, needle, label) {
-  assert.ok(text.includes(needle), `${label}: missing ${needle}`);
-}
+function mustContain(text, needle, label) { assert.ok(text.includes(needle), `${label}: missing ${needle}`); }
 
-mustContain(oauth, '/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-v1', 'RFC8414 OAuth metadata path');
-mustContain(oauth, '/.well-known/oauth-authorization-server', 'OAuth discovery');
+mustContain(oauth, 'aria-mcp-oauth-grok-v1', 'clean OAuth issuer');
+mustContain(oauth, 'aria-mcp-server-grok-v1', 'clean MCP resource');
+mustContain(oauth, '/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v1', 'RFC8414 OAuth metadata path');
 mustContain(oauth, 'issuer: ISSUER', 'OAuth issuer');
 mustContain(oauth, 'code_challenge_methods_supported: ["S256"]', 'PKCE metadata');
 mustContain(oauth, '/register', 'dynamic registration');
@@ -35,6 +34,8 @@ assert.equal(/encrypted_access_token/.test(schema), true);
 assert.equal(/grant all on public\.aria_mcp_oauth_codes to service_role/.test(schema), true);
 assert.equal(/revoke all on public\.aria_mcp_oauth_codes from anon, authenticated/.test(schema), true);
 
+mustContain(mcp, 'aria-mcp-server-grok-v1', 'clean MCP resource');
+mustContain(mcp, 'aria-mcp-oauth-grok-v1', 'clean OAuth authority');
 mustContain(mcp, '/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-grok-v1', 'standard protected-resource metadata path');
 mustContain(mcp, 'return (await authenticate(req)).response', 'protected root authentication discovery');
 mustContain(mcp, 'GET" || req.method === "HEAD"', 'protected root discovery methods');
@@ -57,4 +58,4 @@ assert.equal(/console\.(log|error|warn)\s*\(/.test(mcp), false);
 mustContain(connector, 'oauth = true', 'Grok connector OAuth');
 mustContain(connector, 'aria-mcp-server-grok-v1', 'Grok connector target');
 
-console.log('PASS: Mission 9.5 repository OAuth/PKCE + MCP protected discovery contract checks');
+console.log('PASS: Mission 9.5 clean Grok OAuth + MCP protected discovery contract checks');
