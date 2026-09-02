@@ -48,14 +48,21 @@ function resourceMetadata() {
 }
 Deno.serve(async req => {
   if (!originAllowed(req)) return reply(403, { error: "invalid_origin" }, { "access-control-allow-origin": "null" });
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,accept,mcp-protocol-version,mcp-method,mcp-name,mcp-session-id", "access-control-expose-headers": "WWW-Authenticate,Mcp-Session-Id" } });
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,HEAD,POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,accept,mcp-protocol-version,mcp-method,mcp-name,mcp-session-id", "access-control-expose-headers": "WWW-Authenticate,Mcp-Session-Id" } });
   const u = new URL(req.url);
 
   const isRootMetadata = req.method === "GET" && u.pathname === "/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-9-5";
   const isLegacyMetadata = req.method === "GET" && u.pathname.endsWith("/.well-known/oauth-protected-resource");
   if (isRootMetadata || isLegacyMetadata) return reply(200, resourceMetadata(), { "access-control-allow-origin": "*" });
 
-  if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, { allow: "POST, OPTIONS" });
+  if (req.method === "GET" || req.method === "HEAD") {
+    const noAuth = authenticate(req);
+    const response = (await noAuth).response;
+    if ((await noAuth).ok) return reply(405, { error: "method_not_allowed" }, { allow: "POST, OPTIONS" });
+    return response;
+  }
+
+  if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, { allow: "GET, HEAD, POST, OPTIONS" });
   const auth = await authenticate(req);
   if (!auth.ok) return auth.response;
 
