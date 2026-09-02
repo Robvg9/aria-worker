@@ -1,10 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const RESOURCE = `${SUPABASE_URL}/functions/v1/aria-mcp-server-grok-v1`;
-const AUTH_SERVER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-v1`;
+const AUTH_SERVER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-grok-v1`;
 const RESOURCE_METADATA = `${SUPABASE_URL}/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-grok-v1`;
 const SERVER_NAME = "ARIA MCP Server";
 const SERVER_VERSION = "1.1.1";
