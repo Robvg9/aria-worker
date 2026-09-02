@@ -31,6 +31,7 @@ assert.equal(/revoke all on public\.aria_mcp_oauth_codes from anon, authenticate
 
 mustContain(mcp, '/.well-known/oauth-protected-resource', 'MCP protected resource');
 mustContain(mcp, 'authorization_servers: [AUTH_SERVER]', 'MCP OAuth advertisement');
+mustContain(mcp, 'resource_metadata="${RESOURCE_METADATA}"', 'MCP challenge resource metadata');
 mustContain(mcp, 'auth.getUser(token)', 'MCP bearer validation');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
