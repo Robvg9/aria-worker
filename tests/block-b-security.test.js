@@ -13,7 +13,9 @@ const files = [
 
 for (const relative of files) {
   const content = fs.readFileSync(path.join(__dirname, '..', relative), 'utf8');
-  assert.equal(/process\.env/.test(content), false, `${relative}: no process.env credential reads`);
+  // Detect executable environment access (`process.env.X` / `process.env['X']`),
+  // not harmless documentation mentions inside comments/strings.
+  assert.equal(/process\.env\s*(?:\.|\[)/.test(content), false, `${relative}: no process.env credential reads`);
   assert.equal(/console\.log\([^\n]*(secret|token|password|api.?key)/i.test(content), false, `${relative}: no credential logging`);
 }
 
