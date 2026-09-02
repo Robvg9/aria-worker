@@ -44,7 +44,7 @@ function rpcError(id: unknown, code: number, message: string, extra: Record<stri
 }
 Deno.serve(async req => {
   if (!originAllowed(req)) return reply(403, { error: "invalid_origin" }, { "access-control-allow-origin": "null" });
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "https://grok.com", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,accept,mcp-protocol-version,mcp-method,mcp-name,mcp-session-id", "access-control-expose-headers": "WWW-Authenticate,Mcp-Session-Id" } });
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,accept,mcp-protocol-version,mcp-method,mcp-name,mcp-session-id", "access-control-expose-headers": "WWW-Authenticate,Mcp-Session-Id" } });
   const u = new URL(req.url);
   if (req.method === "GET" && u.pathname.endsWith("/.well-known/oauth-protected-resource")) return reply(200, { resource: RESOURCE, authorization_servers: [AUTH_SERVER], bearer_methods_supported: ["header"] }, { "access-control-allow-origin": "*" });
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, { allow: "POST, OPTIONS" });
@@ -63,7 +63,6 @@ Deno.serve(async req => {
 
   if (headerMethod && headerMethod !== bodyMethod) return reply(400, rpcError(id, -32600, "Mcp-Method does not match JSON-RPC method"));
   if (modern) {
-    if (requestedProtocol !== MODERN_VERSION) return reply(400, rpcError(id, -32021, "unsupported_protocol", { supported: [MODERN_VERSION] }));
     if (!headerMethod && bodyMethod !== "notifications/initialized") return reply(400, rpcError(id, -32600, "Mcp-Method is required for modern MCP requests"));
     if (bodyMethod === "tools/call" && headerName && headerName !== body.params?.name) return reply(400, rpcError(id, -32600, "Mcp-Name does not match tool name"));
     if (bodyMethod === "tools/call" && !headerName) return reply(400, rpcError(id, -32600, "Mcp-Name is required for tools/call"));
@@ -77,7 +76,7 @@ Deno.serve(async req => {
 
   if (!modern && bodyMethod === "initialize") {
     const protocolVersion = [LEGACY_VERSION, "2025-06-18", "2025-03-26"].includes(requestedProtocol) ? requestedProtocol : LEGACY_VERSION;
-    return reply(200, { jsonrpc: "2.0", id, result: { protocolVersion, serverInfo: { name: SERVER_NAME, version: SERVER_VERSION }, capabilities: { tools: { listChanged: false } } } });
+    return reply(200, { jsonrpc: "2.0", id, result: { protocolVersion, serverInfo: { name: SERVER_NAME, version: SERVER_VERSION }, capabilities: { tools: { listChanged: false } } });
   }
 
   if (!modern && bodyMethod === "notifications/initialized") return new Response(null, { status: 202, headers: H });
