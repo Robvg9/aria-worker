@@ -48,7 +48,6 @@ function routeTask(overrides = {}) {
 }
 
 async function run() {
-  // 11.2 deterministic route.
   const routed = routeTask();
   assert.equal(routed.status, 'route');
   assert.deepEqual(routed.plan, [{
@@ -61,7 +60,6 @@ async function run() {
   const routedAgain = routeTask();
   assert.deepEqual(routedAgain, routed, 'same task produces the same route');
 
-  // 11.3 explicit normalization and scope preservation.
   const planned = planner.normalize(routed);
   assert.equal(planned.status, 'plan');
   assert.deepEqual(planned.steps[0], {
@@ -80,7 +78,6 @@ async function run() {
   assert.equal(planner.normalize({ ...routed, plan: [{ ...routed.plan[0], risk_class: 'UNKNOWN' }] }).reason, 'invalid_risk_class_0');
   assert.equal(planner.normalize({ ...routed, authorization: 'secret' }).reason, 'secret_like_field');
 
-  // 11.1/11.4 controlled dispatch through injected adapter only.
   const request = {
     request_id: 'request-c',
     task_id: 'task-c',
@@ -124,7 +121,6 @@ async function run() {
   assert.equal(wrongExecution.reason, 'execution_scope_mismatch');
   assert.equal(adapterCalls, 1, 'blocked authorization never reaches adapter');
 
-  // High-risk requires verification; approval alone is insufficient.
   const highRiskTool = { ...tool, risk_level: 'high_risk_write' };
   const highRiskRequest = { ...request, operation: 'write_candidate', risk_class: 'HIGH_RISK_WRITE' };
   const highRiskAuth = { ...authorizedRead, authorization_id: 'auth-c-high', execution_id: 'exec-c-high', operation: 'write_candidate', risk_class: 'HIGH_RISK_WRITE' };
@@ -138,17 +134,25 @@ async function run() {
   assert.equal(highRiskBlocked.reason, 'human_verification_required');
   assert.equal(adapterCalls, 1);
 
+  const highRiskAdapter = {
+    async execute(input) {
+      adapterCalls += 1;
+      assert.equal(input.tool_id, 'tool_test');
+      assert.equal(input.operation, 'write_candidate');
+      assert.equal(input.authorization_id, 'auth-c-high');
+      return { status: 'succeeded', result: { written: true }, metadata: { mode: 'mock' } };
+    }
+  };
   const highRiskReady = await gateway.dispatchAuthorized({
     request: { ...highRiskRequest, execution_id: 'exec-c-high', authorization_id: 'auth-c-high' },
     tool: highRiskTool,
     authorization: highRiskAuth,
     verification: { status: 'verified', verification_ref: 'vr-c-high' },
-    adapter
+    adapter: highRiskAdapter
   });
   assert.equal(highRiskReady.status, 'succeeded');
   assert.equal(adapterCalls, 2);
 
-  // Fail closed when adapter missing or output contains sensitive material.
   const noAdapter = await gateway.dispatchAuthorized({ request, tool, authorization: authorizedRead });
   assert.equal(noAdapter.status, 'blocked');
   assert.equal(noAdapter.reason, 'adapter_unavailable');
@@ -169,7 +173,6 @@ async function run() {
   assert.equal(malformed.status, 'failed');
   assert.equal(malformed.error_code, 'invalid_adapter_result');
 
-  // Multi-step routing with distinct tools keeps each step independently governed.
   const multi = router.routePlan({
     task_id: 'task-multi',
     request_id: 'request-multi',
