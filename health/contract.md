@@ -10,8 +10,9 @@ Answers only whether ARIA has **observed evidence** about the health/availabilit
 
 - `unknown` is the safe default when no health observation exists.
 - A registry entry is not proof of live availability.
-- No live probes are performed by this layer.
+- Live observation is dependency-injected; this repository does not perform a network call by itself.
 - Evidence must identify its source and observation time when known.
+- An observation is evidence, not execution authorization.
 
 ## Record shape
 
@@ -36,17 +37,21 @@ Answers only whether ARIA has **observed evidence** about the health/availabilit
 }
 ```
 
+## Observation boundary
+
+`observe(filter, probeFn)` accepts a dependency-injected probe. The probe owns transport/protocol details; Health owns normalization and safe interpretation. If no probe is configured, the result remains `unknown`/`probe_not_configured`. Malformed or incomplete evidence becomes `insufficient_evidence` rather than a positive state.
+
 ## Semantics
 
 - `unknown` means there is insufficient evidence; it is neither success nor failure.
 - `healthy` does not grant permission to execute.
 - `available` does not grant permission to execute.
-- Health/availability does not override 10.5 quota/capacity, 10.6 routing, 10.7 fallback, or 10.8 execution rules.
-- This mission provides a controlled schema and pure lookups only. Live observation belongs to a later operational layer.
+- Health/availability does not override 10.5 quota/capacity, 10.6 routing, 10.7 fallback, 10.8 execution, or 10.12 governance rules.
+- The observation boundary may be used by a future live-probe service, but this mission does not enable one.
 
 ## Required invariants
 
-1. No provider/network calls.
+1. No implicit provider/network calls.
 2. No credential resolution.
 3. No mutation of other registries.
 4. No routing authority.
@@ -54,3 +59,4 @@ Answers only whether ARIA has **observed evidence** about the health/availabilit
 6. No memory writes.
 7. Missing records return `null` or `[]`.
 8. Unknown values remain `unknown` and are never converted to `available`/`healthy` by inference.
+9. Errors and evidence are sanitized; secret-looking values never become output data.
