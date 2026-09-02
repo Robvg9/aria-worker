@@ -1,0 +1,1 @@
+Block B implementation branch is ready for pull request audit. No merge before CI + final review.
