@@ -5,7 +5,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const RESOURCE = `${SUPABASE_URL}/functions/v1/aria-mcp-server-9-5`;
 const AUTH_SERVER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-v1`;
-const RESOURCE_METADATA = `${AUTH_SERVER}/.well-known/oauth-authorization-server`;
+const RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;
 const H = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const TOOLS = [
   { name: "aria_context", description: "Retrieve relevant authorized ChatBending context. Read-only.", inputSchema: { type: "object", properties: { query: { type: "string", minLength: 1 } }, required: ["query"], additionalProperties: false } },
@@ -15,11 +15,11 @@ const reply = (status: number, body: Record<string, unknown>, extra: HeadersInit
 const bearer = (req: Request) => { const h = req.headers.get("authorization") ?? ""; return h.startsWith("Bearer ") ? h.slice(7).trim() : ""; };
 async function authenticate(req: Request) {
   const token = bearer(req);
-  if (!token) return { ok: false as const, response: reply(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer resource_metadata="${AUTH_SERVER}/.well-known/oauth-protected-resource"` }) };
+  if (!token) return { ok: false as const, response: reply(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer resource_metadata="${RESOURCE_METADATA}"` }) };
   if (!ANON_KEY) return { ok: false as const, response: reply(500, { error: "auth_configuration_invalid" }) };
   const c = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false } });
   const { data, error } = await c.auth.getUser(token);
-  if (error || !data.user) return { ok: false as const, response: reply(401, { error: "invalid_token" }, { "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${AUTH_SERVER}/.well-known/oauth-protected-resource"` }) };
+  if (error || !data.user) return { ok: false as const, response: reply(401, { error: "invalid_token" }, { "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${RESOURCE_METADATA}"` }) };
   return { ok: true as const, token, user: data.user };
 }
 async function callFunction(slug: string, token: string, payload: unknown) {
