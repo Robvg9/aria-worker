@@ -10,6 +10,7 @@
 `aria-model-registry-v1.0.1` · Misión 10.2
 `aria-adapters-v1.0.0` · Misión 9.6
 `aria-governance-v1.0.0` · Misión 10.12
+`aria-tool-mcp-gateway-v1.0.0` · Misión 11.1
 
 **Estado Stage 10 actual:**
 
@@ -21,6 +22,12 @@
 | 10.12 Governance / Human-Gate | **DESIGN CONTROLLED** |
 | 10.13 Adapter Boundary | **PASS** |
 | 10.14 Universal Integration / Cost-Latency | **NOT IMPLEMENTED** |
+
+**Estado Stage 11 actual:**
+
+| Mission | Status |
+|---------|--------|
+| 11.1 Tool/MCP Gateway | **DESIGN CONTROLLED** |
 
 Fuente persistente de la **capa de interfaz multi-IA** y de los **registries declarativos del Control Plane**. No es un cerebro de memoria. No almacena secretos.
 
@@ -35,7 +42,7 @@ IA externa → Adapter (auth/protocolo) → ARIA MCP → ChatBending
 ```
 
 ```
-Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7) → Execution (10.8) → Governance (10.12)
+Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7) → Execution (10.8) → Governance (10.12) → Tool/MCP Gateway (11.1)
 ```
 
 ```
@@ -65,6 +72,7 @@ Routing ≠ Fallback ≠ Execution ≠ Governance ≠ Credentials ≠ Memory
 - `execution/` — Execution Engine (10.8): `lookup.js`, `credentials.js`, `adapters/`
 - `health/` — Health / Availability Manager (10.11), design-controlled, unknown-by-default, no live probes
 - `governance/` — Execution Governance / Human-Gate Contract (10.12), design-controlled, fail-closed, no live execution
+- `mcp-gateway/` — Tool/MCP Gateway Contract and deterministic validation (11.1), design-controlled, live dispatch disabled
 - `tests/` — pruebas locales
 
 ## Tests
@@ -72,6 +80,19 @@ Routing ≠ Fallback ≠ Execution ≠ Governance ≠ Credentials ≠ Memory
 ```
 npm test
 ```
+
+## Tool / MCP Gateway 11.1
+
+Boundary governed between ARIA and external tools/services. It consumes the Tool Registry, an approved Governance decision and a protocol-specific adapter boundary; it does not become the Router, Governance engine, Execution Engine or Credential Resolver.
+
+- Resolves only registered tools/operations supplied by the caller; unknown/unavailable tools fail closed.
+- Authorization is bound to execution, request, tool, operation and risk class.
+- High-risk and destructive operations require an explicit human verification result when Governance requires it.
+- Plaintext passwords and credentials are never accepted, stored or logged.
+- Results are normalized and intended to be sanitized before exposure.
+- `v1` is validation/design-controlled only. No live external dispatch.
+
+Contrato: `mcp-gateway/contract.md`.
 
 ## Health / Availability Manager 10.11
 

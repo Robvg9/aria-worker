@@ -5,6 +5,7 @@ aria-execution-engine-v1.0.0
 10.12 Governance: DESIGN CONTROLLED — aria-governance-v1.0.0, fail-closed; no live execution
 10.13 Adapter Boundary: PASS (consolidation on 10.8)
 10.14 Universal/Cost-Latency: NOT IMPLEMENTED (STOP — ownership not recoverable)
+11.1 Tool/MCP Gateway: DESIGN CONTROLLED — aria-tool-mcp-gateway-v1.0.0, validation-only; live dispatch disabled
 memory_authority: none
 canonical_write: false
 live_execution: not_performed

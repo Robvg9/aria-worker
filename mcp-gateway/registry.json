@@ -1,0 +1,29 @@
+{
+  "version": "aria-tool-mcp-gateway-v1.0.0",
+  "mission": "11.1",
+  "kind": "tool_mcp_gateway",
+  "mode": "design_controlled",
+  "live_dispatch": false,
+  "interface_types": ["mcp", "api"],
+  "consumes": ["tool_registry", "governance_decision", "tool_adapter"],
+  "does_not_own": [
+    "tool_discovery",
+    "tool_selection",
+    "approval_creation",
+    "credential_resolution",
+    "quota",
+    "capacity",
+    "fallback",
+    "canonical_memory"
+  ],
+  "rules": [
+    "unknown tool status never becomes available",
+    "unknown operation never becomes allowed",
+    "selection never implies authorization",
+    "authorization is bound to execution, request, tool, operation and risk class",
+    "high-risk and destructive operations require human verification when required by governance",
+    "plaintext passwords and credentials are never accepted or stored",
+    "results are normalized and sanitized",
+    "v1 does not perform live external dispatch"
+  ]
+}
