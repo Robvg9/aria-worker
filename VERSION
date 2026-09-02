@@ -8,3 +8,4 @@ aria-stage10-corrected-v1.0.0
 memory_authority: none
 canonical_write: false
 live_execution: not_performed
+credential_resolver: CREDENTIAL RESOLVER NOT IMPLEMENTED
