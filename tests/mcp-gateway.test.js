@@ -41,9 +41,10 @@ function test(name, fn) {
   console.log(`PASS ${name}`);
 }
 
-test('registry is design-controlled and LIVE disabled', () => {
-  assert.strictEqual(registry.mode, 'design_controlled');
+test('registry is controlled-runtime and LIVE disabled', () => {
+  assert.strictEqual(registry.mode, 'controlled_runtime');
   assert.strictEqual(registry.live_dispatch, false);
+  assert.strictEqual(registry.controlled_dispatch, true);
 });
 
 test('valid request passes shape validation', () => {
@@ -146,7 +147,7 @@ test('ordinary result without secrets is not flagged', () => {
   assert.strictEqual(gateway.containsForbiddenSecretText('repository updated'), false);
 });
 
-test('gateway does not itself execute', () => {
+test('gateway lookup remains validation-only', () => {
   assert.strictEqual(typeof gateway.dispatch, 'undefined');
 });
 

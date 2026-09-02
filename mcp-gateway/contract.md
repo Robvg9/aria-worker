@@ -1,19 +1,19 @@
-# ARIA Tool/MCP Gateway Contract v1.0
+# ARIA Tool/MCP Gateway Contract v1.1
 
 ## Purpose
-Provide one governed boundary between ARIA and external tools/services. The gateway normalizes discovery and invocation without becoming the Tool Registry, Tool Router, Governance engine, or Execution Engine.
+Provide one governed boundary between ARIA and external tools/services. The gateway validates normalized requests and performs controlled adapter dispatch without becoming the Tool Registry, Tool Router, Governance engine, or Execution Engine.
 
 ## Responsibilities
 - Accept a normalized tool invocation request.
 - Resolve a registered tool and operation.
 - Enforce that the request carries the governance decision required by 10.12.
 - Enforce risk and scope metadata before dispatch.
-- Dispatch through a tool adapter boundary.
+- Dispatch through an injected tool adapter boundary.
 - Return a sanitized normalized result.
-- Emit metadata-only observability events.
+- Emit metadata-only observability events when the caller supplies the hook.
 
 ## Non-responsibilities
-The gateway does not invent tools, choose the best tool, create approvals, resolve secrets, bypass quotas, perform fallback, write canonical memory, or silently change the requested operation.
+The gateway does not invent tools, choose the best tool, create approvals, resolve secrets, bypass quotas, perform fallback, write canonical memory, silently change the requested operation, or create external network clients.
 
 ## Tool lifecycle
 `discovered → registered → selectable → authorized → dispatched → completed|failed|blocked`
@@ -35,13 +35,13 @@ Unknown or unavailable tools are never treated as available.
 ```
 
 ## Authorization binding
-The gateway must reject when authorization is missing, not approved, expired, invalid, or scoped to a different execution/request/tool/operation/risk class. A tool selection never implies authorization.
+The gateway rejects requests when authorization is missing, not approved, expired, invalid, or scoped to a different execution/request/tool/operation/risk class.
 
 ## Human verification
-For high-risk or destructive operations, Governance may require an additional human verification step. The gateway accepts only a verification result/token reference; it never accepts or stores a plaintext password and never logs credentials.
+For high-risk or destructive operations, Governance may require an additional human verification step. The gateway accepts only a verification result/token reference; it never accepts or stores a plaintext password.
 
 ## Dispatch
-Adapters are responsible for protocol-specific communication (MCP/API). The gateway supplies normalized metadata and the already-authorized operation. An adapter may not expand the operation beyond the authorized request.
+The Gateway exposes `dispatchAuthorized(...)` through the controlled runtime boundary. The caller supplies an adapter with an async `execute(normalizedRequest)` operation. The Gateway preserves exact identity and operation scope, normalizes adapter output, and rejects sensitive output.
 
 ## Result contract
 ```json
@@ -57,8 +57,6 @@ Adapters are responsible for protocol-specific communication (MCP/API). The gate
 }
 ```
 
-Results and errors must be sanitized. Secrets, tokens, passwords, full credentials, and unnecessary PII are prohibited in output and observability metadata.
-
 ## Fail-closed
 - missing tool → blocked
 - unknown tool status → blocked
@@ -68,7 +66,9 @@ Results and errors must be sanitized. Secrets, tokens, passwords, full credentia
 - missing authorization → blocked
 - authorization mismatch → blocked
 - required verification missing → blocked
-- adapter unavailable → failed or blocked according to the adapter contract
+- adapter unavailable → blocked
+- adapter error → blocked
+- sensitive adapter output → blocked
 
 ## Security invariants
 1. No direct secret resolution in gateway code.
@@ -82,5 +82,5 @@ Results and errors must be sanitized. Secrets, tokens, passwords, full credentia
 9. No sensitive payload logging by default.
 10. Unknown evidence never becomes permission.
 
-## v1 scope
-Design-controlled contract and deterministic validation only. Real external tool invocation remains disabled until a concrete adapter, credential resolver, governance integration, and approved live-test plan exist.
+## Live boundary
+Controlled injected-adapter dispatch is implemented. Live external dispatch remains disabled by default; production network access belongs to an explicitly provisioned adapter/runtime outside this repository boundary.

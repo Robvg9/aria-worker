@@ -1,9 +1,10 @@
 {
-  "version": "aria-tool-mcp-gateway-v1.0.0",
+  "version": "aria-tool-mcp-gateway-v1.1.0",
   "mission": "11.1",
   "kind": "tool_mcp_gateway",
-  "mode": "design_controlled",
+  "mode": "controlled_runtime",
   "live_dispatch": false,
+  "controlled_dispatch": true,
   "interface_types": ["mcp", "api"],
   "consumes": ["tool_registry", "governance_decision", "tool_adapter"],
   "does_not_own": [
@@ -24,6 +25,8 @@
     "high-risk and destructive operations require human verification when required by governance",
     "plaintext passwords and credentials are never accepted or stored",
     "results are normalized and sanitized",
-    "v1 does not perform live external dispatch"
+    "controlled dispatch requires an injected adapter",
+    "gateway creates no network client and does no external I/O itself",
+    "live external dispatch remains disabled by default"
   ]
 }

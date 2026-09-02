@@ -5,10 +5,10 @@ aria-execution-engine-v1.1.0
 10.12 Governance: DESIGN CONTROLLED — aria-governance-v1.0.0, fail-closed; no live execution
 10.13 Adapter Boundary: PASS (consolidation on 10.8)
 10.14 Universal/Cost-Latency: NOT IMPLEMENTED (STOP — ownership not recoverable)
-11.1 Tool/MCP Gateway: DESIGN CONTROLLED — aria-tool-mcp-gateway-v1.0.0, validation-only; live dispatch disabled
-11.2 Tool Router: DESIGN CONTROLLED — aria-tool-router-v1.0.0, deterministic selection only; no live execution
-11.3 Tool Operation Planner: DESIGN CONTROLLED — normalization only; live dispatch disabled
-11.4 Tool Adapter Boundary: DESIGN CONTROLLED — validation-only; live dispatch disabled
+11.1 Tool/MCP Gateway: CONTROLLED RUNTIME — aria-tool-mcp-gateway-v1.1.0, governed injected-adapter dispatch; live dispatch disabled by default
+11.2 Tool Router: CONTROLLED RUNTIME — aria-tool-router-v1.1.0, deterministic registry-backed selection; no authorization/execution authority
+11.3 Tool Operation Planner: CONTROLLED RUNTIME — ordered scope-preserving normalization; no execution authority
+11.4 Tool Adapter Boundary: CONTROLLED RUNTIME — governed injected adapter boundary; protocol-specific I/O remains adapter-owned
 Block A1 Credential Secret Boundary: DESIGN CONTROLLED — resolver injected; no secrets stored or returned
 Block A2 Human Approval Store: DESIGN CONTROLLED — durable adapter + Supabase migration; no auto-approval
 Block A3 Health Observation: DESIGN CONTROLLED — injectable HTTP probe boundary; live probing remains disabled by default
@@ -16,6 +16,8 @@ Block B1 Concrete Credential Resolver: IMPLEMENTED — injected secret-store bou
 Block B2 OpenRouter Adapter Execution: IMPLEMENTED — one-call provider adapter; credential passed only to transport
 Block B3 Execution Wiring: IMPLEMENTED — async resolver support; existing governance/routing/quota gates preserved
 Block B4 Verification: COMPLETE — dedicated tests added and included in npm test
+Block C11 Stage 11 Gateway/Router/Planner/Adapter: IMPLEMENTED — controlled end-to-end boundary with fail-closed authorization, deterministic planning, injected adapter dispatch and sensitive-output rejection
+Block C Verification: COMPLETE — dedicated integration/security coverage included in npm test
 memory_authority: none
 canonical_write: false
 live_execution: not_performed_without_explicit_production_credentials
