@@ -1,0 +1,14 @@
+{
+  "version": "aria-tool-router-v1.0.0",
+  "mission": "11.2",
+  "kind": "tool_router",
+  "mode": "design_controlled",
+  "live_execution": false,
+  "selects_from": "tool_registry",
+  "supports_multi_tool_plan": true,
+  "owns_authorization": false,
+  "owns_execution": false,
+  "owns_credentials": false,
+  "owns_memory": false,
+  "fail_closed": true
+}
