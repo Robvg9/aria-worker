@@ -45,6 +45,7 @@ mustContain(mcp, 'Mcp-Method does not match JSON-RPC method', 'standard header c
 mustContain(mcp, 'Mcp-Name does not match tool name', 'tool header consistency');
 mustContain(mcp, 'originAllowed', 'Origin validation');
 mustContain(mcp, 'io.modelcontextprotocol/serverInfo', 'modern server identity metadata');
+mustContain(mcp, 'MCP-Protocol-Version', 'protocol version header');
 assert.equal(/SUPABASE_SERVICE_ROLE_KEY/.test(mcp), false);
 assert.equal(/console\.(log|error|warn)\s*\(/.test(mcp), false);
 
