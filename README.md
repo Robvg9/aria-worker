@@ -47,7 +47,7 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
 - No guarda API keys / tokens / passwords. Solo `credential_ref`.
-- No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 ejecuta una ruta ya seleccionada y autorizada).
+- No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 solo ejecuta una ruta ya seleccionada y autorizada).
 - No reintenta, no rota cuentas, no hace fallback automático desde la ejecución.
 - No inventa cuotas, usage ni precios.
 
@@ -71,7 +71,7 @@ npm test
 
 ## Execution Engine 10.8
 
-Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) **y autorizada** (authorization.status === approved) en una única llamada al proveedor vía Provider Adapter.
+Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) y autorizada (`authorization.status === approved`) en una única llamada al proveedor vía Provider Adapter.
 
 `execute({ selected_route | capability, authorization, input }, deps?)` → `succeeded` | `failed` | `blocked`.
 
