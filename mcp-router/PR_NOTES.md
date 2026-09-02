@@ -1,0 +1,1 @@
+Mission 11.2 verification boundary: Tool Router is deterministic selection only. It consumes the existing Tool Registry and produces route plans; Governance and the Tool/MCP Gateway remain responsible for authorization and dispatch. No live tool execution or credential access is enabled.
