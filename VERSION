@@ -1,4 +1,7 @@
 aria-execution-engine-v1.1.0
+package-version: 1.3.0
+9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate
+9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — additional real client connections remain pending
 10.9 Tool Registry: PASS
 10.10 Observability: PASS (span_id + timestamp + canonical validate)
 10.11 Health/Availability: DESIGN CONTROLLED — aria-health-availability-v1.0.0, unknown-by-default; explicit probe boundary; no live probes enabled
