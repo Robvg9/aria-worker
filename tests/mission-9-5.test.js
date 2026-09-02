@@ -25,9 +25,10 @@ assert.equal(/revoke all on public\.aria_mcp_oauth_codes from anon, authenticate
 mustContain(mcp, 'aria-mcp-server-grok-v2', 'clean MCP resource');
 mustContain(mcp, 'aria-mcp-oauth-grok-v2', 'clean OAuth authority');
 mustContain(mcp, 'streamable-http', 'Grok Streamable HTTP transport');
+mustContain(mcp, 'const RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;', 'real function-path resource metadata');
+mustContain(mcp, 'const RESOURCE_PATH = new URL(RESOURCE).pathname;', 'function resource path derivation');
 mustContain(mcp, 'if (req.method === "GET" || req.method === "HEAD") return reply(401', 'OAuth challenge on connector root');
-mustContain(mcp, 'WWW-Authenticate', 'OAuth challenge header');
-mustContain(mcp, 'resource_metadata="${RESOURCE_METADATA}"', 'protected resource metadata pointer');
+mustContain(mcp, 'authChallenge()', 'protected resource challenge');
 mustContain(mcp, 'const auth = await authUser(req);', 'MCP auth gate before MCP methods');
 mustContain(mcp, 'if (method === "initialize")', 'MCP initialize behind auth');
 mustContain(mcp, 'if (method === "tools/list")', 'MCP tools list behind auth');
