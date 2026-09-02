@@ -1,4 +1,4 @@
-aria-tool-adapter-boundary-v1.0.0
+aria-execution-engine-v1.0.0
 10.9 Tool Registry: PASS
 10.10 Observability: PASS (span_id + timestamp + canonical validate)
 10.11 Health/Availability: DESIGN CONTROLLED — aria-health-availability-v1.0.0, unknown-by-default; no live probes
