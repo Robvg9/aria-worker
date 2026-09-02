@@ -1,0 +1,4 @@
+[mcp_servers.aria]
+url = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-server-9-5"
+enabled = true
+oauth = true
