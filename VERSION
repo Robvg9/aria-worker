@@ -1,17 +1,19 @@
 aria-execution-engine-v1.1.0
-package-version: 1.3.0
-9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate
+package-version: 1.4.2
+9.5 First External AI / Grok: CONTROLLED RUNTIME — OAuth 2.1/PKCE authorization server + authenticated MCP resource; Grok provisioning is public and tool execution remains OAuth-protected
+9.5 Trace Diagnostics: IMPLEMENTED — correlated MCP/OAuth trace_id with secret-safe event storage
+9.5 Grok OAuth UI: EXTERNAL HTML ORIGIN — raw.githack verified as HTTP 200 text/html
 9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — additional real client connections remain pending
 10.9 Tool Registry: PASS
 10.10 Observability: PASS (span_id + timestamp + canonical validate)
-10.11 Health/Availability: DESIGN CONTROLLED — aria-health-availability-v1.0.0, unknown-by-default; explicit probe boundary; no live probes enabled
-10.12 Governance: DESIGN CONTROLLED — aria-governance-v1.0.0, fail-closed; no live execution
-10.13 Adapter Boundary: PASS (consolidation on 10.8)
+10.11 Health/Availability: DESIGN CONTROLLED — unknown-by-default; explicit probe boundary; no live probes enabled
+10.12 Governance: DESIGN CONTROLLED — fail-closed; no live execution
+10.13 Adapter Boundary: PASS
 10.14 Universal/Cost-Latency: NOT IMPLEMENTED (STOP — ownership not recoverable)
-11.1 Tool/MCP Gateway: CONTROLLED RUNTIME — aria-tool-mcp-gateway-v1.1.0, governed injected-adapter dispatch; live dispatch disabled by default
-11.2 Tool Router: CONTROLLED RUNTIME — aria-tool-router-v1.1.0, deterministic registry-backed selection; no authorization/execution authority
-11.3 Tool Operation Planner: CONTROLLED RUNTIME — ordered scope-preserving normalization; no execution authority
-11.4 Tool Adapter Boundary: CONTROLLED RUNTIME — governed injected adapter boundary; protocol-specific I/O remains adapter-owned
+11.1 Tool/MCP Gateway: CONTROLLED RUNTIME
+11.2 Tool Router: CONTROLLED RUNTIME
+11.3 Tool Operation Planner: CONTROLLED RUNTIME
+11.4 Tool Adapter Boundary: CONTROLLED RUNTIME
 Block A1 Credential Secret Boundary: DESIGN CONTROLLED — resolver injected; no secrets stored or returned
 Block A2 Human Approval Store: DESIGN CONTROLLED — durable adapter + Supabase migration; no auto-approval
 Block A3 Health Observation: DESIGN CONTROLLED — injectable HTTP probe boundary; live probing remains disabled by default
