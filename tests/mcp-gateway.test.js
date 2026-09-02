@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const gateway = require('../mcp-gateway/lookup.js');
+const dispatchGateway = require('../mcp-gateway');
 const registry = require('../mcp-gateway/registry.json');
 
 const tool = {
@@ -41,9 +42,10 @@ function test(name, fn) {
   console.log(`PASS ${name}`);
 }
 
-test('registry is design-controlled and LIVE disabled', () => {
-  assert.strictEqual(registry.mode, 'design_controlled');
+test('registry is controlled-runtime and LIVE disabled', () => {
+  assert.strictEqual(registry.mode, 'controlled_runtime');
   assert.strictEqual(registry.live_dispatch, false);
+  assert.strictEqual(registry.controlled_dispatch, true);
 });
 
 test('valid request passes shape validation', () => {
@@ -146,8 +148,42 @@ test('ordinary result without secrets is not flagged', () => {
   assert.strictEqual(gateway.containsForbiddenSecretText('repository updated'), false);
 });
 
-test('gateway does not itself execute', () => {
-  assert.strictEqual(typeof gateway.dispatch, 'undefined');
+test('controlled gateway dispatch reaches injected adapter only after validation', async () => {
+  const request = { ...baseRead };
+  let calls = 0;
+  const adapter = { async execute(input) {
+    calls += 1;
+    assert.strictEqual(Object.isFrozen(input), true);
+    return { status: 'succeeded', result: { ok: true }, metadata: { mode: 'mock' } };
+  }};
+  const result = await dispatchGateway.dispatchAuthorized({ request, tool, authorization: approvedRead, adapter });
+  assert.strictEqual(result.status, 'succeeded');
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.metadata.dispatch_attempted, true);
+});
+
+test('gateway dispatch does not reach adapter on authorization mismatch', async () => {
+  let calls = 0;
+  const result = await dispatchGateway.dispatchAuthorized({
+    request: baseRead,
+    tool,
+    authorization: { ...approvedRead, execution_id: 'other' },
+    adapter: { async execute() { calls += 1; return { status: 'succeeded', result: {} }; } }
+  });
+  assert.strictEqual(result.status, 'blocked');
+  assert.strictEqual(result.reason, 'execution_scope_mismatch');
+  assert.strictEqual(calls, 0);
+});
+
+test('gateway dispatch rejects sensitive adapter output', async () => {
+  const result = await dispatchGateway.dispatchAuthorized({
+    request: baseRead,
+    tool,
+    authorization: approvedRead,
+    adapter: { async execute() { return { status: 'succeeded', result: { message: 'Bearer abc-secret' } }; } }
+  });
+  assert.strictEqual(result.status, 'blocked');
+  assert.strictEqual(result.reason, 'sensitive_output_rejected');
 });
 
 console.log(`\n${passed} passed, 0 failed`);
