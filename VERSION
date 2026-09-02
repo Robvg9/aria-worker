@@ -8,6 +8,7 @@ aria-execution-engine-v1.0.0
 11.1 Tool/MCP Gateway: DESIGN CONTROLLED — aria-tool-mcp-gateway-v1.0.0, validation-only; live dispatch disabled
 11.2 Tool Router: DESIGN CONTROLLED — aria-tool-router-v1.0.0, deterministic selection only; no live execution
 11.3 Tool Operation Planner: DESIGN CONTROLLED — normalization only; live dispatch disabled
+11.4 Tool Adapter Boundary: DESIGN CONTROLLED — validation-only; live dispatch disabled
 memory_authority: none
 canonical_write: false
 live_execution: not_performed
