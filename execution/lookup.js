@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * ARIA Execution Engine (Mission 10.8) — Data Plane / Execution Layer
  *
@@ -56,10 +58,6 @@ function mergeDeps(overrides) {
   return Object.assign(base, overrides);
 }
 
-/**
- * Real HTTP transport. Only used when no transport is injected.
- * Never logs. Never inspects headers.
- */
 async function defaultTransport(url, opts) {
   if (typeof fetch !== 'function') {
     throw new Error('fetch unavailable');
@@ -158,10 +156,6 @@ function failed(id, route, error, deps, adapterId, mode) {
   return result;
 }
 
-/**
- * Explains why 10.7 rejected a route. Diagnostic only — the gate is
- * candidateSelectable; this never overrides it.
- */
 function diagnoseRoute(r, capability, deps) {
   if (!r.provider_id || !r.account_id || !r.model_id) return 'route_incomplete';
   const model = deps.getModel(r.model_id);
@@ -188,10 +182,6 @@ function resolveSelectedRoute(input, deps) {
   return { source: 'fallback', route: r };
 }
 
-/**
- * execute(input, deps?) → Promise<ExecutionResult>
- * See execution/contract.md.
- */
 async function execute(input, depsOverride) {
   const deps = mergeDeps(depsOverride);
 
@@ -228,7 +218,6 @@ async function execute(input, depsOverride) {
     return blocked(id, route, 'route_not_selectable', 'capability_mismatch', deps);
   }
 
-  // 10.7 gate: consumes 10.2/10.3/10.4/10.6. unknown ≠ available.
   const policy = input.policy && typeof input.policy === 'object' ? input.policy : null;
   if (!deps.candidateSelectable(route, capability, deps, policy)) {
     const detail = diagnoseRoute(route, capability, deps);
@@ -238,7 +227,6 @@ async function execute(input, depsOverride) {
     return blocked(id, route, reason, detail, deps);
   }
 
-  // 10.12 gate: selected ≠ approved_to_execute.
   const auth = input.authorization;
   if (!auth || typeof auth !== 'object') {
     return blocked(id, route, 'authorization_missing', null, deps);
@@ -265,7 +253,7 @@ async function execute(input, depsOverride) {
   if (!credentialRef) {
     return blocked(id, route, 'credential_ref_missing', null, deps, adapterId);
   }
-  const cred = credentials.resolveCredential(credentialRef, deps.credentialResolver);
+  const cred = await credentials.resolveCredential(credentialRef, deps.credentialResolver);
   const mode = deps.transport === defaultTransport ? 'live' : 'mock';
   if (cred.status !== credentials.RESOLVED) {
     return failed(id, route, {
@@ -317,6 +305,7 @@ module.exports = {
   canonicalJson,
   sanitizeMessage,
   diagnoseRoute,
+  defaultTransport,
   ADAPTERS,
   CREDENTIAL_RESOLVER_NOTE,
   SUCCEEDED,
