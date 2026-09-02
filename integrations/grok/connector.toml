@@ -1,4 +1,4 @@
 [mcp_servers.aria]
-url = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-server-9-5"
+url = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-server-grok-v1"
 enabled = true
 oauth = true
