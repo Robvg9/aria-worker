@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { createApprovalStore, validateRecord, bindingMatches, isExecutable } = require('../approvals/store');
+const { createApprovalStore, validateRecord, validateVerificationRef, bindingMatches, isExecutable } = require('../approvals/store');
 
 function baseRecord(overrides = {}) {
   return {
@@ -17,6 +17,9 @@ async function run() {
   assert.equal(validateRecord(baseRecord({ risk_class: 'UNKNOWN' })).reason, 'risk_class_invalid');
   assert.equal(validateRecord(baseRecord({ status: 'AVAILABLE' })).reason, 'status_invalid');
   assert.equal(validateRecord(baseRecord({ target: null })).reason, 'target_invalid');
+  assert.equal(validateRecord(baseRecord({ verification_ref: 'Bearer secret_token_12345678' })).reason, 'verification_secret_rejected');
+  assert.deepEqual(validateVerificationRef('verify://human/abc123'), { valid: true, value: 'verify://human/abc123', reason: null });
+  assert.equal(validateVerificationRef('secret://github/prod').reason, 'verification_ref_invalid');
 
   const sameBinding = {
     request_id: 'req_1', execution_id: 'exec_1', tool_id: 'github', operation: 'read_file', risk_class: 'READ',
@@ -51,11 +54,20 @@ async function run() {
   assert.equal(await store.canExecute('auth_1', sameBinding), true);
   assert.equal(await store.canExecute('auth_1', { ...sameBinding, target: { repository: 'Robvg9/aria-worker', path: 'package.json' } }), false);
 
+  // Tampering/invalid durable data must fail closed before execution.
+  db.get('auth_1').approved_by = null;
+  assert.equal(await store.canExecute('auth_1', sameBinding), false);
+  db.get('auth_1').approved_by = 'Robert';
+  db.get('auth_1').verification_ref = 'verify://human/abc123';
+  assert.equal(isExecutable(db.get('auth_1'), sameBinding), true, 'READ does not require verification_ref');
+  db.get('auth_1').verification_ref = null;
+
   const highRisk = baseRecord({ authorization_id: 'auth_2', risk_class: 'HIGH_RISK_WRITE', operation: 'merge_pr', target: { repository: 'Robvg9/aria-worker', pull_request: 1 } });
   await store.create(highRisk);
   const highBinding = { request_id: 'req_1', execution_id: 'exec_1', tool_id: 'github', operation: 'merge_pr', risk_class: 'HIGH_RISK_WRITE', policy_version: 'aria-governance-v1.0.0', target: { repository: 'Robvg9/aria-worker', pull_request: 1 } };
-  await store.decide('auth_2', { status: 'approved', approved_by: 'Robert', approved_at: '2026-09-02T01:05:00.000Z' });
-  assert.equal(await store.canExecute('auth_2', highBinding), false);
+  await assert.rejects(() => store.decide('auth_2', { status: 'approved', approved_by: 'Robert', approved_at: '2026-09-02T01:05:00.000Z' }), /verification_required|verification_ref_invalid/);
+  await store.decide('auth_2', { status: 'approved', approved_by: 'Robert', approved_at: '2026-09-02T01:06:00.000Z', verification_ref: 'verify://human/approval-1' });
+  assert.equal(await store.canExecute('auth_2', highBinding), true);
   await store.decide('auth_2', { status: 'revoked' });
   assert.equal(await store.canExecute('auth_2', highBinding), false);
 

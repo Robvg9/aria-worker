@@ -34,3 +34,14 @@ comment on table aria_internal.execution_approvals is
 
 comment on column aria_internal.execution_approvals.verification_ref is
   'Reference to an external verification result. Never plaintext password, OTP, token, or secret material.';
+
+-- Re-runnable hardening for installations created by an earlier version of this migration.
+alter table aria_internal.execution_approvals
+  drop constraint if exists execution_approvals_verification_ref_format_ck;
+
+alter table aria_internal.execution_approvals
+  add constraint execution_approvals_verification_ref_format_ck
+  check (
+    verification_ref is null
+    or verification_ref ~ '^verify://[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
+  );
