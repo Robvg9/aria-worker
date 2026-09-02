@@ -1,6 +1,6 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-`aria-execution-engine-v1.0.0` · Misión 10.8 (HEAD)
+`aria-execution-engine-v1.0.0` · Misión 10.8
 `aria-fallback-v1.0.0` · Misión 10.7
 `aria-intelligent-router-v1.0.0` · Misión 10.6
 `aria-quota-capacity-v1.0.0` · Misión 10.5
@@ -8,6 +8,17 @@
 `aria-capability-matrix-v1.0.0` · Misión 10.3
 `aria-model-registry-v1.0.1` · Misión 10.2
 `aria-adapters-v1.0.0` · Misión 9.6
+
+**Stage 10.9–10.14 corrected scope:**
+
+| Mission | Status |
+|---------|--------|
+| 10.9 Tool Registry | **PASS** |
+| 10.10 Observability | **PASS** |
+| 10.11 Health / Availability | **BLOCKED** |
+| 10.12 Governance / Human-Gate | **NOT IMPLEMENTED** |
+| 10.13 Adapter Boundary | **PASS** |
+| 10.14 Universal Integration / Cost-Latency | **NOT IMPLEMENTED** |
 
 Fuente persistente de la **capa de interfaz multi-IA** y de los **registries declarativos del Control Plane**. No es un cerebro de memoria. No almacena secretos.
 
@@ -52,19 +63,21 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 - `execution/` — Execution Engine (10.8): `lookup.js`, `credentials.js`, `adapters/`
 - `tests/` — pruebas locales
 
+## Tests
+
 ```
 npm test
 ```
 
 ## Execution Engine 10.8
 
-Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) **y autorizada** (10.12) en una única llamada al proveedor vía Provider Adapter (10.13).
+Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) y autorizada (`authorization.status === approved`) en una única llamada al proveedor vía Provider Adapter.
 
-`execute({ selected_route | capability, authorization, input }, deps?)` → `succeeded` | `failed` | `blocked` (máquina 10.13; `cancelled` reservado, no emitido).
+`execute({ selected_route | capability, authorization, input }, deps?)` → `succeeded` | `failed` | `blocked`.
 
 - Revalida la ruta con `fallback.candidateSelectable` (consume 10.2–10.6; no reimplementa). `unknown` → `blocked / insufficient_evidence`.
 - `authorization.status !== 'approved'` → `blocked` (`selected ≠ approved_to_execute`).
-- Credenciales: solo `credential_ref` de 10.4 → interfaz `CredentialResolver`. Mecanismo real **CREDENTIAL RESOLVER NOT IMPLEMENTED** (no definido en ChatBending; resolver nulo por defecto → `failed / credential_unavailable`).
+- Credenciales: solo `credential_ref` de 10.4 → interfaz `CredentialResolver`. Mecanismo real **CREDENTIAL RESOLVER NOT IMPLEMENTED** (resolver nulo por defecto → `failed / credential_unavailable`).
 - Adapter registrado: `openrouter_chat_completions` (`openrouter` / `text_generation`). Transport inyectable; tests 100 % mock.
 - `execution_id` determinista (sha256 canónico). Un intento por llamada. Sin retry, sin rotación, sin account hopping.
 - Usage del proveedor se copia como `reported` o queda `unknown`; nunca se estima ni alimenta 10.5.
@@ -92,7 +105,7 @@ Lookups: `resolve`, `candidateSelectable`, `activationAllows`, `candidateKey`.
 Capa declarativa de selección. `route({ capability })` → `selected` | `no_route`.
 
 Consumes 10.2–10.5. No duplica datos. Selección determinista (lexical sort).  
-`unknown` capacity/quota **no** se interpreta como disponible → el seed actual produce `no_route` hasta que 10.5 materialice evidencia de capacidad.
+`unknown` capacity/quota **no** se interpreta como available → el seed actual produce `no_route` hasta que 10.5 materialice evidencia de capacidad.
 
 Lookups: `route`, `collectCandidates`, `capacityAllows`.
 
@@ -113,6 +126,28 @@ Capa declarativa. Account ≠ Credential. Seed verificado:
 `openrouter` → `acct_openrouter_primary` → `google/gemini-2.5-flash-lite`
 
 `credential_ref`: `secret://openrouter/acct_openrouter_primary` (referencia; el secreto no vive aquí).
+
+## Tool Registry 10.9
+
+Inventario declarativo. Solo tools verificadas: `aria_context` (read), `aria_memory_capture` (write_candidate; Gate humano; `canonical_write=false`).  
+No ejecuta tools. No selecciona tools. No resuelve credenciales. `unknown ≠ available`.
+
+## Observability 10.10
+
+Contrato de eventos + helpers de laboratorio (`createEvent`, `validateEvent`, `redact`, `emitSafe`).  
+Campos de correlación: `trace_id`, `span_id`, `execution_id`, `task_id`, `router_decision_id`, `fallback_decision_id`.  
+`timestamp` obligatorio. `usage`/`duration_ms` = `null` cuando no hay evidencia (unknown ≠ 0). Metadata-only. Sin exporters reales.
+
+## Adapter Boundary 10.13
+
+Consolidación documental sobre 10.8 (`execution/ADAPTER_BOUNDARY.md`). Sin cambio de runtime.
+
+## Stage 10.11–10.14 corrected scope
+
+- 10.11 Health / Availability: **BLOCKED** — contrato canónico insuficiente.
+- 10.12 Governance / Human-Gate: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
+- 10.13 Adapter Boundary: **PASS** — consolidación documental sobre 10.8, sin runtime change.
+- 10.14 Universal Integration / Cost-Latency: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
 
 ## Estado adapters 2026-09-01
 
