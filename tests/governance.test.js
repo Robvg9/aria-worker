@@ -42,6 +42,8 @@ assert.equal(requiresHumanGate('READ', { enabled: true, readRequiresHuman: false
 assert.equal(scopeMatches(baseRequest, approval()), true);
 assert.equal(scopeMatches(baseRequest, approval({ execution_id: 'exec_other' })), false);
 assert.equal(scopeMatches(baseRequest, approval({ operation: 'delete' })), false);
+assert.equal(scopeMatches(baseRequest, approval({ tool_id: 'tool_other' })), false);
+assert.equal(scopeMatches({ ...baseRequest, operation: undefined }, approval({ operation: 'write' })), false);
 
 assert.deepEqual(validateAuthorizationRecord(null), { valid: false, reason: 'missing_authorization' });
 assert.equal(validateAuthorizationRecord(approval()).valid, true);
@@ -88,4 +90,4 @@ const readRequest = { ...baseRequest, risk_class: 'READ' };
 const readApproval = approval({ risk_class: 'READ' });
 assert.equal(evaluateAuthorization(readRequest, readApproval, { enabled: true, readRequiresHuman: false }).approved_to_execute, true);
 
-console.log('10.12 governance tests: 14 passed, 0 failed');
+console.log('10.12 governance tests: 16 passed, 0 failed');
