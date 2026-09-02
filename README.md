@@ -9,16 +9,16 @@
 `aria-model-registry-v1.0.1` · Misión 10.2
 `aria-adapters-v1.0.0` · Misión 9.6
 
-**Branch `grok/stage10-9-14` additions:**
+**Stage 10.9–10.14 corrected scope:**
 
 | Mission | Status |
 |---------|--------|
 | 10.9 Tool Registry | **PASS** |
 | 10.10 Observability | **PASS** |
-| 10.11 Health / Availability | **BLOCKED** (contract page not recovered) |
-| 10.12 Governance / Human-Gate | **NOT IMPLEMENTED** (STOP — ownership) |
-| 10.13 Adapter Boundary | **PASS** (consolidation on 10.8) |
-| 10.14 Cost/Latency or Universal | **NOT IMPLEMENTED** (STOP — ownership) |
+| 10.11 Health / Availability | **BLOCKED** |
+| 10.12 Governance / Human-Gate | **NOT IMPLEMENTED** |
+| 10.13 Adapter Boundary | **PASS** |
+| 10.14 Universal Integration / Cost-Latency | **NOT IMPLEMENTED** |
 
 Fuente persistente de la **capa de interfaz multi-IA** y de los **registries declarativos del Control Plane**. No es un cerebro de memoria. No almacena secretos.
 
@@ -34,11 +34,10 @@ IA externa → Adapter (auth/protocolo) → ARIA MCP → ChatBending
 
 ```
 Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7) → Execution (10.8)
-→ Tool Registry (10.9) → Observability (10.10) → Adapter Boundary (10.13)
 ```
 
 ```
-Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory ≠ Telemetry
+Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 ```
 
 ## Qué no es
@@ -48,12 +47,9 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory ≠ Telemetry
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
 - No guarda API keys / tokens / passwords. Solo `credential_ref`.
-- No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 solo ejecuta una ruta ya seleccionada y autorizada).
+- No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 ejecuta una ruta ya seleccionada y autorizada).
 - No reintenta, no rota cuentas, no hace fallback automático desde la ejecución.
 - No inventa cuotas, usage ni precios.
-- Tool Registry no ejecuta ni selecciona tools.
-- Observability no es autoridad de routing ni de memoria.
-- 10.12 y 10.14 no implementados (STOP ChatBending).
 
 ## Archivos
 
@@ -65,12 +61,9 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory ≠ Telemetry
 - `router/` — Intelligent Router (10.6)
 - `fallback/` — Fallback Engine (10.7)
 - `execution/` — Execution Engine (10.8): `lookup.js`, `credentials.js`, `adapters/`
-- `tools/` — Tool Registry (10.9)
-- `observability/` — Observability / Telemetry (10.10)
-- `health/CONTRACT_STATUS.md` — 10.11 BLOCKED
-- `execution/ADAPTER_BOUNDARY.md` — 10.13 consolidation
-- `FUTURE_DEPENDENCIES.md` — 10.12 / 10.14 STOP notes
 - `tests/` — pruebas locales
+
+## Tests
 
 ```
 npm test
@@ -112,7 +105,7 @@ Lookups: `resolve`, `candidateSelectable`, `activationAllows`, `candidateKey`.
 Capa declarativa de selección. `route({ capability })` → `selected` | `no_route`.
 
 Consumes 10.2–10.5. No duplica datos. Selección determinista (lexical sort).  
-`unknown` capacity/quota **no** se interpreta como disponible → el seed actual produce `no_route` hasta que 10.5 materialice evidencia de capacidad.
+`unknown` capacity/quota **no** se interpreta como available → el seed actual produce `no_route` hasta que 10.5 materialice evidencia de capacidad.
 
 Lookups: `route`, `collectCandidates`, `capacityAllows`.
 
@@ -136,7 +129,7 @@ Capa declarativa. Account ≠ Credential. Seed verificado:
 
 ## Tool Registry 10.9
 
-Inventario declarativo. Solo tools verificados: `aria_context` (read), `aria_memory_capture` (write_candidate; Gate humano; `canonical_write=false`).  
+Inventario declarativo. Solo tools verificadas: `aria_context` (read), `aria_memory_capture` (write_candidate; Gate humano; `canonical_write=false`).  
 No ejecuta tools. No selecciona tools. No resuelve credenciales. `unknown ≠ available`.
 
 ## Observability 10.10
@@ -148,6 +141,13 @@ Campos de correlación: `trace_id`, `span_id`, `execution_id`, `task_id`, `route
 ## Adapter Boundary 10.13
 
 Consolidación documental sobre 10.8 (`execution/ADAPTER_BOUNDARY.md`). Sin cambio de runtime.
+
+## Stage 10.11–10.14 corrected scope
+
+- 10.11 Health / Availability: **BLOCKED** — contrato canónico insuficiente.
+- 10.12 Governance / Human-Gate: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
+- 10.13 Adapter Boundary: **PASS** — consolidación documental sobre 10.8, sin runtime change.
+- 10.14 Universal Integration / Cost-Latency: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
 
 ## Estado adapters 2026-09-01
 
