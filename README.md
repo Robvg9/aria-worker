@@ -1,5 +1,6 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
+`aria-health-availability-v1.0.0` · Misión 10.11
 `aria-execution-engine-v1.0.0` · Misión 10.8
 `aria-fallback-v1.0.0` · Misión 10.7
 `aria-intelligent-router-v1.0.0` · Misión 10.6
@@ -9,13 +10,13 @@
 `aria-model-registry-v1.0.1` · Misión 10.2
 `aria-adapters-v1.0.0` · Misión 9.6
 
-**Stage 10.9–10.14 corrected scope:**
+**Estado Stage 10 actual:**
 
 | Mission | Status |
 |---------|--------|
 | 10.9 Tool Registry | **PASS** |
 | 10.10 Observability | **PASS** |
-| 10.11 Health / Availability | **BLOCKED** |
+| 10.11 Health / Availability | **DESIGN CONTROLLED** |
 | 10.12 Governance / Human-Gate | **NOT IMPLEMENTED** |
 | 10.13 Adapter Boundary | **PASS** |
 | 10.14 Universal Integration / Cost-Latency | **NOT IMPLEMENTED** |
@@ -61,6 +62,7 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 - `router/` — Intelligent Router (10.6)
 - `fallback/` — Fallback Engine (10.7)
 - `execution/` — Execution Engine (10.8): `lookup.js`, `credentials.js`, `adapters/`
+- `health/` — Health / Availability Manager (10.11), design-controlled, unknown-by-default, no live probes
 - `tests/` — pruebas locales
 
 ## Tests
@@ -68,6 +70,19 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 ```
 npm test
 ```
+
+## Health / Availability Manager 10.11
+
+Diseño controlado y declarativo. Consume evidencia de salud/availability cuando exista, pero **no genera evidencia por inferencia**.
+
+- `health.status` = `unknown | healthy | degraded | unavailable`.
+- `availability.status` = `unknown | available | unavailable`.
+- El seed actual queda en `unknown` porque no existe una observación LIVE en este layer.
+- `unknown` no se convierte en `available`/`healthy` por metadata de registry.
+- No realiza network calls, credential resolution, routing, fallback, quota mutation ni memory writes.
+- `getHealth`, `listHealth`, `isObserved`, `isAvailable` son lookups puros.
+
+Contrato: `health/contract.md`.
 
 ## Execution Engine 10.8
 
@@ -144,7 +159,7 @@ Consolidación documental sobre 10.8 (`execution/ADAPTER_BOUNDARY.md`). Sin camb
 
 ## Stage 10.11–10.14 corrected scope
 
-- 10.11 Health / Availability: **BLOCKED** — contrato canónico insuficiente.
+- 10.11 Health / Availability: **DESIGN CONTROLLED** — implementación declarativa sin probes LIVE.
 - 10.12 Governance / Human-Gate: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
 - 10.13 Adapter Boundary: **PASS** — consolidación documental sobre 10.8, sin runtime change.
 - 10.14 Universal Integration / Cost-Latency: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
