@@ -101,7 +101,7 @@ El secret es transitorio y se entrega únicamente al adapter dentro del mismo ca
 
 El resolver concreto no lee configuración ambiental, archivos, bases de datos o red por sí mismo y no persiste credenciales. Los errores del proveedor de secretos se normalizan a `resolver_error`.
 
-Se conserva `nullCredentialResolver` como fallback explícito cuando ningún resolver es inyectado; en ese caso la ejecución termina `failed / credential_unavailable`.
+Se conserva `nullCredentialResolver` como fallback explícito cuando ningún resolver es inyectado; en ese caso la ejecución termina `failed / credential_unavailable`. La nota histórica de compatibilidad permanece: `CREDENTIAL RESOLVER NOT IMPLEMENTED` describe únicamente ese resolver nulo, no el resolver concreto de Block B.
 
 ## 8. Provider Adapter (10.13)
 
@@ -134,3 +134,5 @@ No se ejecuta un smoke test de producción en CI porque ningún secreto de produ
 - Router/Fallback/registries no mutados por 10.8.
 - Sin account hopping, bypass de quota/capacity o retry.
 - Sin writers de memoria en `execution/`.
+
+Compatibilidad de memoria canónica: `CAPTURE → GATE → COMMIT → SYNC` permanece fuera de 10.8 y sin writers de memoria en esta capa.
