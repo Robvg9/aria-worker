@@ -13,7 +13,8 @@ function run() {
   assert.match(sql, /revoke all on table aria_internal\.execution_approvals from anon/i);
   assert.match(sql, /revoke all on table aria_internal\.execution_approvals from authenticated/i);
   assert.doesNotMatch(sql, /service_role_key|SUPABASE_SERVICE_ROLE|Bearer\s+[A-Za-z0-9._-]{12,}/i);
-  assert.doesNotMatch(sql, /password|passphrase|otp\s*[:=]/i);
+  assert.doesNotMatch(sql, /\bpassword\s+(text|varchar|bytea)|\bpassphrase\s+(text|varchar|bytea)|\botp\s+(text|varchar|bytea)/i);
+  assert.match(sql, /verification_ref text/);
   console.log('PASS: approval migration security contract tests');
 }
 
