@@ -46,11 +46,11 @@ Deno.serve(async req => {
   let mcpMethod: string | null = null;
   const hasBearer = Boolean(bearer(req));
   let clientId: string | null = req.headers.get("x-client-id");
+  const u = new URL(req.url);
   if (!allowedOrigin(req)) {
-    await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "rejected", method: req.method, path: new URL(req.url).pathname, statusCode: 403, hasBearer, errorCode: "invalid_origin", latencyMs: Date.now() - started });
+    await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "rejected", method: req.method, path: u.pathname, statusCode: 403, hasBearer, errorCode: "invalid_origin", latencyMs: Date.now() - started });
     return reply(403, { error: "invalid_origin" }, traceId);
   }
-  const u = new URL(req.url);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...H, ...traceHeaders(traceId), "access-control-allow-origin": "*", "access-control-allow-methods": "GET,HEAD,POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,accept,mcp-protocol-version,mcp-method,mcp-name,x-client-id,x-aria-trace-id", "access-control-expose-headers": "X-ARIA-Trace-Id, WWW-Authenticate" } });
   const resourceMetadata = { resource: RESOURCE, authorization_servers: [AUTH_SERVER], bearer_methods_supported: ["header"], scopes_supported: SCOPES.split(" "), transport: TRANSPORT };
   if (req.method === "GET" && u.pathname === `${RESOURCE_PATH}/.well-known/oauth-protected-resource`) {
@@ -58,8 +58,8 @@ Deno.serve(async req => {
     return reply(200, resourceMetadata, traceId, { "access-control-allow-origin": "*" });
   }
   if (req.method === "GET" || req.method === "HEAD") {
-    await recordTrace({ traceId, stage: "mcp.auth", component: "aria-mcp-server-grok-v2", outcome: "challenge", method: req.method, path: u.pathname, statusCode: 401, hasBearer, latencyMs: Date.now() - started });
-    return reply(401, { error: "unauthorized", transport: TRANSPORT }, traceId, { "WWW-Authenticate": authChallenge() });
+    await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "provisioning", method: req.method, path: u.pathname, statusCode: 200, hasBearer, latencyMs: Date.now() - started });
+    return reply(200, { name: "ARIA MCP Server", version: "1.4.2", transport: TRANSPORT, provisioning: true, authentication: { type: "oauth2.1", protected_methods: ["tools/call"] }, capabilities: { tools: { listChanged: false } } }, traceId, { "access-control-allow-origin": "*" });
   }
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, traceId, { allow: "GET,HEAD,POST,OPTIONS" });
   let body: any; try { body = await req.json(); } catch { return reply(400, { error: "invalid_json" }, traceId); }
@@ -69,20 +69,26 @@ Deno.serve(async req => {
   const requested = req.headers.get("MCP-Protocol-Version") ?? body.params?._meta?.["io.modelcontextprotocol/protocolVersion"] ?? body.params?.protocolVersion ?? "2025-03-26";
   const modern = requested === "2026-07-28";
   if (!["2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"].includes(requested)) return reply(400, errorRpc(id, -32022, "unsupported_protocol"), traceId);
+  if (methodEquals(mcpMethod, "initialize")) {
+    await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "provisioning", method: "POST", path: u.pathname, statusCode: 200, mcpMethod, clientId, hasBearer, latencyMs: Date.now() - started, details: { protocol: requested } });
+    return reply(200, rpc(id, { protocolVersion: modern ? "2026-07-28" : requested, serverInfo: { name: "ARIA MCP Server", version: "1.4.2" }, capabilities: { tools: { listChanged: false } }, transport: TRANSPORT }), traceId);
+  }
+  if (methodEquals(mcpMethod, "server/discover")) return reply(200, rpc(id, { resultType: "complete", supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"], capabilities: { tools: { listChanged: false } } }), traceId);
+  if (methodEquals(mcpMethod, "notifications/initialized")) return new Response(null, { status: 202, headers: { ...H, ...traceHeaders(traceId) } });
+  if (methodEquals(mcpMethod, "tools/list")) {
+    await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "provisioning", method: "POST", path: u.pathname, statusCode: 200, mcpMethod, clientId, hasBearer, latencyMs: Date.now() - started });
+    return reply(200, rpc(id, { tools: TOOLS }), traceId);
+  }
+  const params = body.params ?? {};
+  const name = typeof params.name === "string" ? params.name : (req.headers.get("Mcp-Name") ?? "");
+  const args = params.arguments ?? {};
+  if (!methodEquals(mcpMethod, "tools/call")) return reply(200, errorRpc(id, -32601, "unsupported_method"), traceId);
   const auth = await authUser(req);
   if (!auth) {
     await recordTrace({ traceId, stage: "mcp.auth", component: "aria-mcp-server-grok-v2", outcome: "rejected", method: "POST", path: u.pathname, statusCode: 401, mcpMethod, clientId, hasBearer, errorCode: "auth_required", latencyMs: Date.now() - started });
     return reply(401, { error: "unauthorized" }, traceId, { "WWW-Authenticate": authChallenge() });
   }
   await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "authenticated", method: "POST", path: u.pathname, statusCode: 200, mcpMethod, clientId, hasBearer: true, latencyMs: Date.now() - started, details: { protocol: requested } });
-  if (methodEquals(mcpMethod, "initialize")) return reply(200, rpc(id, { protocolVersion: modern ? "2026-07-28" : requested, serverInfo: { name: "ARIA MCP Server", version: "1.3.9" }, capabilities: { tools: { listChanged: false } }, transport: TRANSPORT }), traceId);
-  if (methodEquals(mcpMethod, "server/discover")) return reply(200, rpc(id, { resultType: "complete", supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"], capabilities: { tools: { listChanged: false } } }), traceId);
-  if (methodEquals(mcpMethod, "notifications/initialized")) return new Response(null, { status: 202, headers: { ...H, ...traceHeaders(traceId) } });
-  if (methodEquals(mcpMethod, "tools/list")) return reply(200, rpc(id, { tools: TOOLS }), traceId);
-  const params = body.params ?? {};
-  const name = typeof params.name === "string" ? params.name : (req.headers.get("Mcp-Name") ?? "");
-  const args = params.arguments ?? {};
-  if (!methodEquals(mcpMethod, "tools/call")) return reply(200, errorRpc(id, -32601, "unsupported_method"), traceId);
   await recordTrace({ traceId, stage: "mcp.tool_call", component: "aria-mcp-server-grok-v2", outcome: "dispatch", method: "POST", path: u.pathname, statusCode: 200, mcpMethod, clientId, hasBearer: true, details: { tool: name } });
   if (name === "aria_context") {
     if (typeof args.query !== "string" || !args.query.trim()) return reply(200, errorRpc(id, -32602, "query is required"), traceId);
