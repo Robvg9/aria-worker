@@ -28,9 +28,9 @@ mustContain(mcp, 'streamable-http', 'Grok Streamable HTTP transport');
 mustContain(mcp, 'if (req.method === "GET" || req.method === "HEAD") return reply(401', 'OAuth challenge on connector root');
 mustContain(mcp, 'WWW-Authenticate', 'OAuth challenge header');
 mustContain(mcp, 'resource_metadata="${RESOURCE_METADATA}"', 'protected resource metadata pointer');
-mustContain(mcp, 'if (method === "initialize")', 'MCP initialize discovery');
-mustContain(mcp, 'if (method === "tools/list")', 'MCP tools discovery');
-mustContain(mcp, 'const auth = await authUser(req);', 'tool authorization boundary');
+mustContain(mcp, 'const auth = await authUser(req);', 'MCP auth gate');
+mustContain(mcp, 'if (method === "initialize")', 'MCP initialize after auth');
+mustContain(mcp, 'if (method === "tools/list")', 'MCP tools list after auth');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
 mustContain(mcp, 'aria-memory-bridge-9-4', 'canonical memory bridge');
@@ -39,4 +39,4 @@ assert.equal(/console\.(log|error|warn)\s*\(/.test(mcp), false);
 
 mustContain(connector, 'oauth = true', 'Grok connector OAuth');
 mustContain(connector, 'aria-mcp-server-grok-v2', 'Grok connector target');
-console.log('PASS: Mission 9.5 clean v2 Grok OAuth + MCP discovery/auth contract');
+console.log('PASS: Mission 9.5 Grok OAuth-first MCP contract');
