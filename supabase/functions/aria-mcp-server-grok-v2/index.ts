@@ -11,9 +11,10 @@ const RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;
 const TRANSPORT = "streamable-http";
 const SCOPES = "openid profile email";
 const H = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+const OAUTH_SECURITY = [{ type: "oauth2", scopes: ["openid", "profile", "email"] }];
 const TOOLS = [
-  { name: "aria_context", description: "Retrieve relevant authorized ChatBending context. Read-only.", inputSchema: { type: "object", properties: { query: { type: "string", minLength: 1 } }, required: ["query"], additionalProperties: false } },
-  { name: "aria_memory_capture", description: "Submit a memory candidate through the existing Gate-protected memory pipeline.", inputSchema: { type: "object", properties: { message: { type: "string", minLength: 1 }, source_application: { type: "string" }, source_conversation_id: { type: "string" }, source_session_id: { type: "string" }, idempotency_key: { type: "string" } }, required: ["message"], additionalProperties: false } }
+  { name: "aria_context", description: "Retrieve relevant authorized ChatBending context. Read-only.", inputSchema: { type: "object", properties: { query: { type: "string", minLength: 1 } }, required: ["query"], additionalProperties: false }, securitySchemes: OAUTH_SECURITY, _meta: { securitySchemes: OAUTH_SECURITY } },
+  { name: "aria_memory_capture", description: "Submit a memory candidate through the existing Gate-protected memory pipeline.", inputSchema: { type: "object", properties: { message: { type: "string", minLength: 1 }, source_application: { type: "string" }, source_conversation_id: { type: "string" }, source_session_id: { type: "string" }, idempotency_key: { type: "string" } }, required: ["message"], additionalProperties: false }, securitySchemes: OAUTH_SECURITY, _meta: { securitySchemes: OAUTH_SECURITY } }
 ];
 const reply = (status: number, body: Record<string, unknown>, traceId: string, extra: HeadersInit = {}) => new Response(JSON.stringify(body), { status, headers: { ...H, ...traceHeaders(traceId), ...extra } });
 const rpc = (id: unknown, result: unknown) => ({ jsonrpc: "2.0", id, result });
@@ -69,16 +70,19 @@ Deno.serve(async req => {
   const requested = req.headers.get("MCP-Protocol-Version") ?? body.params?._meta?.["io.modelcontextprotocol/protocolVersion"] ?? body.params?.protocolVersion ?? "2025-03-26";
   const modern = requested === "2026-07-28";
   if (!["2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"].includes(requested)) return reply(400, errorRpc(id, -32022, "unsupported_protocol"), traceId);
+  if (methodEquals(mcpMethod, "initialize") || methodEquals(mcpMethod, "notifications/initialized") || methodEquals(mcpMethod, "server/discover") || methodEquals(mcpMethod, "tools/list")) {
+    await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "provisioning", method: "POST", path: u.pathname, statusCode: 200, mcpMethod, clientId, hasBearer, latencyMs: Date.now() - started });
+    if (methodEquals(mcpMethod, "initialize")) return reply(200, rpc(id, { protocolVersion: modern ? "2026-07-28" : requested, serverInfo: { name: "ARIA MCP Server", version: "1.4.3" }, capabilities: { tools: { listChanged: false } }, transport: TRANSPORT }), traceId);
+    if (methodEquals(mcpMethod, "server/discover")) return reply(200, rpc(id, { resultType: "complete", supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"], capabilities: { tools: { listChanged: false } } }), traceId);
+    if (methodEquals(mcpMethod, "notifications/initialized")) return new Response(null, { status: 202, headers: { ...H, ...traceHeaders(traceId) } });
+    return reply(200, rpc(id, { tools: TOOLS }), traceId);
+  }
   const auth = await authUser(req);
   if (!auth) {
     await recordTrace({ traceId, stage: "mcp.auth", component: "aria-mcp-server-grok-v2", outcome: "rejected", method: "POST", path: u.pathname, statusCode: 401, mcpMethod, clientId, hasBearer, errorCode: "auth_required", latencyMs: Date.now() - started });
     return reply(401, { error: "unauthorized" }, traceId, { "WWW-Authenticate": authChallenge() });
   }
   await recordTrace({ traceId, stage: "mcp.request", component: "aria-mcp-server-grok-v2", outcome: "authenticated", method: "POST", path: u.pathname, statusCode: 200, mcpMethod, clientId, hasBearer: true, latencyMs: Date.now() - started, details: { protocol: requested } });
-  if (methodEquals(mcpMethod, "initialize")) return reply(200, rpc(id, { protocolVersion: modern ? "2026-07-28" : requested, serverInfo: { name: "ARIA MCP Server", version: "1.3.9" }, capabilities: { tools: { listChanged: false } }, transport: TRANSPORT }), traceId);
-  if (methodEquals(mcpMethod, "server/discover")) return reply(200, rpc(id, { resultType: "complete", supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"], capabilities: { tools: { listChanged: false } } }), traceId);
-  if (methodEquals(mcpMethod, "notifications/initialized")) return new Response(null, { status: 202, headers: { ...H, ...traceHeaders(traceId) } });
-  if (methodEquals(mcpMethod, "tools/list")) return reply(200, rpc(id, { tools: TOOLS }), traceId);
   const params = body.params ?? {};
   const name = typeof params.name === "string" ? params.name : (req.headers.get("Mcp-Name") ?? "");
   const args = params.arguments ?? {};

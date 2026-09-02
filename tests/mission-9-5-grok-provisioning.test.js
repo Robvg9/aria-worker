@@ -1,0 +1,20 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
+const mcp = fs.readFileSync(path.join(root, 'supabase/functions/aria-mcp-server-grok-v2/index.ts'), 'utf8');
+function has(s) { assert.ok(mcp.includes(s), `missing ${s}`); }
+has('provisioning');
+has('methodEquals(mcpMethod, "initialize")');
+has('methodEquals(mcpMethod, "tools/list")');
+has('methodEquals(mcpMethod, "tools/call")');
+has('auth_required');
+has('authUser(req)');
+const provisioningIndex = mcp.indexOf('if (methodEquals(mcpMethod, "initialize") ||');
+const authIndex = mcp.indexOf('const auth = await authUser(req);');
+const toolCallIndex = mcp.indexOf('if (!methodEquals(mcpMethod, "tools/call"))');
+assert.ok(provisioningIndex >= 0, 'provisioning guard missing');
+assert.ok(authIndex > provisioningIndex, 'authentication must occur after provisioning methods');
+assert.ok(toolCallIndex > authIndex, 'tools/call dispatch must occur after authentication');
+console.log('PASS: Grok provisioning remains public; tools/call remains authenticated');
