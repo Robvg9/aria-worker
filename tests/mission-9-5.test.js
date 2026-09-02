@@ -6,7 +6,9 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const oauth = fs.readFileSync(path.join(root, 'supabase/functions/aria-mcp-oauth-grok-v2/index.ts'), 'utf8');
 const mcp = fs.readFileSync(path.join(root, 'supabase/functions/aria-mcp-server-grok-v2/index.ts'), 'utf8');
+const trace = fs.readFileSync(path.join(root, 'supabase/functions/_shared/aria-trace.ts'), 'utf8');
 const schema = fs.readFileSync(path.join(root, 'supabase/migrations/20260902_aria_mcp_oauth.sql'), 'utf8');
+const traceSchema = fs.readFileSync(path.join(root, 'supabase/migrations/20260902_aria_mcp_trace.sql'), 'utf8');
 const connector = fs.readFileSync(path.join(root, 'integrations/grok/connector.toml'), 'utf8');
 function mustContain(text, needle, label) { assert.ok(text.includes(needle), `${label}: missing ${needle}`); }
 
@@ -17,9 +19,16 @@ mustContain(oauth, 'registration_endpoint', 'dynamic registration');
 mustContain(oauth, 'verifyOtp', 'OTP verification');
 mustContain(oauth, 'pkceMatches', 'PKCE verifier');
 mustContain(oauth, 'encryptSecret', 'token encryption');
+mustContain(oauth, 'getTraceId', 'OAuth trace id');
+mustContain(oauth, 'trace_id: traceId', 'OAuth trace persistence');
+mustContain(oauth, 'stage: "oauth.authorize"', 'OAuth authorize trace');
+mustContain(oauth, 'stage: "oauth.otp"', 'OAuth OTP trace');
+mustContain(oauth, 'stage: "oauth.callback"', 'OAuth callback trace');
+mustContain(oauth, 'stage: "oauth.token"', 'OAuth token trace');
 assert.equal(/console\.(log|error|warn)\s*\(/.test(oauth), false);
 assert.equal(/aria_mcp_oauth_codes/.test(schema), true);
 assert.equal(/encrypted_access_token/.test(schema), true);
+assert.equal(/trace_id text/.test(schema), true);
 assert.equal(/revoke all on public\.aria_mcp_oauth_codes from anon, authenticated/.test(schema), true);
 
 mustContain(mcp, 'aria-mcp-server-grok-v2', 'clean MCP resource');
@@ -27,17 +36,33 @@ mustContain(mcp, 'aria-mcp-oauth-grok-v2', 'clean OAuth authority');
 mustContain(mcp, 'streamable-http', 'Grok Streamable HTTP transport');
 mustContain(mcp, 'const RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;', 'real function-path resource metadata');
 mustContain(mcp, 'const RESOURCE_PATH = new URL(RESOURCE).pathname;', 'function resource path derivation');
-mustContain(mcp, 'if (req.method === "GET" || req.method === "HEAD") return reply(401', 'OAuth challenge on connector root');
+mustContain(mcp, 'if (req.method === "GET" || req.method === "HEAD")', 'OAuth challenge on connector root');
 mustContain(mcp, 'authChallenge()', 'protected resource challenge');
 mustContain(mcp, 'const auth = await authUser(req);', 'MCP auth gate before MCP methods');
-mustContain(mcp, 'if (method === "initialize")', 'MCP initialize behind auth');
-mustContain(mcp, 'if (method === "tools/list")', 'MCP tools list behind auth');
+mustContain(mcp, 'if (methodEquals(mcpMethod, "initialize"))', 'MCP initialize behind auth');
+mustContain(mcp, 'if (methodEquals(mcpMethod, "tools/list"))', 'MCP tools list behind auth');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
 mustContain(mcp, 'aria-memory-bridge-9-4', 'canonical memory bridge');
+mustContain(mcp, 'getTraceId', 'MCP trace id');
+mustContain(mcp, 'stage: "mcp.request"', 'MCP request trace');
+mustContain(mcp, 'stage: "mcp.auth"', 'MCP auth trace');
+mustContain(mcp, 'stage: "mcp.tool_call"', 'MCP tool trace');
+mustContain(mcp, 'stage: "mcp.upstream"', 'MCP upstream trace');
 assert.equal(/SUPABASE_SERVICE_ROLE_KEY/.test(mcp), false);
 assert.equal(/console\.(log|error|warn)\s*\(/.test(mcp), false);
 
+mustContain(trace, 'aria_mcp_trace_events', 'trace store');
+mustContain(trace, 'sanitizeDetails', 'trace sanitizer');
+mustContain(trace, 'authorization', 'forbidden trace key');
+mustContain(trace, 'access_token', 'forbidden trace key');
+mustContain(trace, 'X-ARIA-Trace-Id', 'trace response propagation');
+assert.equal(/SERVICE_ROLE_KEY/.test(trace), true);
+
+mustContain(traceSchema, 'create table if not exists public.aria_mcp_trace_events', 'trace table');
+mustContain(traceSchema, 'revoke all on public.aria_mcp_trace_events from anon, authenticated', 'trace table private');
+mustContain(traceSchema, 'trace_id text not null', 'trace id column');
+
 mustContain(connector, 'oauth = true', 'Grok connector OAuth');
 mustContain(connector, 'aria-mcp-server-grok-v2', 'Grok connector target');
-console.log('PASS: Mission 9.5 Grok OAuth-first MCP contract');
+console.log('PASS: Mission 9.5 Grok OAuth + safe E2E trace contract');
