@@ -10,6 +10,7 @@ const trace = fs.readFileSync(path.join(root, 'supabase/functions/_shared/aria-t
 const schema = fs.readFileSync(path.join(root, 'supabase/migrations/20260902_aria_mcp_oauth.sql'), 'utf8');
 const traceSchema = fs.readFileSync(path.join(root, 'supabase/migrations/20260902_aria_mcp_trace.sql'), 'utf8');
 const connector = fs.readFileSync(path.join(root, 'integrations/grok/connector.toml'), 'utf8');
+const oauthUi = fs.readFileSync(path.join(root, 'integrations/grok/oauth-ui.html'), 'utf8');
 function mustContain(text, needle, label) { assert.ok(text.includes(needle), `${label}: missing ${needle}`); }
 
 mustContain(oauth, 'aria-mcp-oauth-grok-v2', 'clean OAuth issuer');
@@ -20,11 +21,15 @@ mustContain(oauth, 'verifyOtp', 'OTP verification');
 mustContain(oauth, 'pkceMatches', 'PKCE verifier');
 mustContain(oauth, 'encryptSecret', 'token encryption');
 mustContain(oauth, 'getTraceId', 'OAuth trace id');
-mustContain(oauth, 'trace_id: traceId', 'OAuth trace persistence');
+mustContain(oauth, 'trace_id: flowTrace', 'OAuth trace persistence');
 mustContain(oauth, 'stage: "oauth.authorize"', 'OAuth authorize trace');
 mustContain(oauth, 'stage: "oauth.otp"', 'OAuth OTP trace');
 mustContain(oauth, 'stage: "oauth.callback"', 'OAuth callback trace');
 mustContain(oauth, 'stage: "oauth.token"', 'OAuth token trace');
+mustContain(oauth, 'STATIC_UI', 'external OAuth UI');
+mustContain(oauth, 'return uiRedirect(pendingId)', 'authorize redirects to static UI');
+mustContain(oauth, 'return uiRedirect(pendingId, "otp")', 'OTP redirects to static UI');
+assert.equal(/return new Response\(body.*text\/html/.test(oauth), false);
 assert.equal(/console\.(log|error|warn)\s*\(/.test(oauth), false);
 assert.equal(/aria_mcp_oauth_codes/.test(schema), true);
 assert.equal(/encrypted_access_token/.test(schema), true);
@@ -65,4 +70,8 @@ mustContain(traceSchema, 'trace_id text not null', 'trace id column');
 
 mustContain(connector, 'oauth = true', 'Grok connector OAuth');
 mustContain(connector, 'aria-mcp-server-grok-v2', 'Grok connector target');
-console.log('PASS: Mission 9.5 Grok OAuth + safe E2E trace contract');
+mustContain(oauthUi, 'id="pending_id"', 'static OAuth UI pending state');
+mustContain(oauthUi, 'issuer', 'static OAuth UI issuer');
+mustContain(oauthUi, "mode==='otp'", 'static OAuth OTP mode');
+assert.equal(/service_role|SUPABASE_SERVICE_ROLE_KEY|access_token|refresh_token|code_verifier/i.test(oauthUi), false);
+console.log('PASS: Mission 9.5 Grok OAuth + safe E2E trace + static UI contract');
