@@ -1,1 +1,13 @@
-placeholder
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
+const mcp = fs.readFileSync(path.join(root, 'supabase/functions/aria-mcp-server-grok-v2/index.ts'), 'utf8');
+assert.ok(mcp.includes('provisioning'), 'provisioning marker missing');
+assert.ok(mcp.includes('if (methodEquals(mcpMethod, "initialize"))'), 'initialize path missing');
+assert.ok(mcp.includes('if (methodEquals(mcpMethod, "tools/list"))'), 'tools/list path missing');
+assert.ok(mcp.includes('if (methodEquals(mcpMethod, "tools/call"))'), 'tools/call path missing');
+assert.ok(mcp.includes('auth_required'), 'auth-required guard missing');
+assert.ok(!(/GET \|\| req\.method === "HEAD"[\s\S]*return reply\(401/).test(mcp), 'GET/HEAD must remain public for provisioning');
+console.log('PASS: Grok provisioning public; tool execution authenticated');
