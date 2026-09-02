@@ -35,19 +35,19 @@ assert.equal(/encrypted_access_token/.test(schema), true);
 assert.equal(/grant all on public\.aria_mcp_oauth_codes to service_role/.test(schema), true);
 assert.equal(/revoke all on public\.aria_mcp_oauth_codes from anon, authenticated/.test(schema), true);
 
-mustContain(mcp, '/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-9-5', 'standard protected-resource metadata path');
-mustContain(mcp, '/.well-known/oauth-protected-resource', 'legacy protected-resource metadata');
+mustContain(mcp, '/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-grok-v1', 'standard protected-resource metadata path');
+mustContain(mcp, 'return (await authenticate(req)).response', 'protected root authentication discovery');
+mustContain(mcp, 'GET" || req.method === "HEAD"', 'protected root discovery methods');
 mustContain(mcp, 'authorization_servers: [AUTH_SERVER]', 'MCP OAuth advertisement');
 mustContain(mcp, 'resource_metadata="${RESOURCE_METADATA}"', 'MCP challenge resource metadata');
-mustContain(mcp, 'GET" || req.method === "HEAD"', 'protected root discovery methods');
-mustContain(mcp, 'Mcp-Method does not match JSON-RPC method', 'standard header consistency');
-mustContain(mcp, 'Mcp-Name does not match tool name', 'tool header consistency');
 mustContain(mcp, 'auth.getUser(token)', 'MCP bearer validation');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
 mustContain(mcp, 'aria-memory-bridge-9-4', 'canonical bridge');
 mustContain(mcp, '2026-07-28', 'modern MCP version');
 mustContain(mcp, 'server/discover', 'modern discovery method');
+mustContain(mcp, 'Mcp-Method does not match JSON-RPC method', 'standard header consistency');
+mustContain(mcp, 'Mcp-Name does not match tool name', 'tool header consistency');
 mustContain(mcp, 'originAllowed', 'Origin validation');
 mustContain(mcp, 'io.modelcontextprotocol/serverInfo', 'modern server identity metadata');
 mustContain(mcp, 'MCP-Protocol-Version', 'protocol version header');
@@ -55,6 +55,6 @@ assert.equal(/SUPABASE_SERVICE_ROLE_KEY/.test(mcp), false);
 assert.equal(/console\.(log|error|warn)\s*\(/.test(mcp), false);
 
 mustContain(connector, 'oauth = true', 'Grok connector OAuth');
-mustContain(connector, 'aria-mcp-server-9-5', 'Grok connector target');
+mustContain(connector, 'aria-mcp-server-grok-v1', 'Grok connector target');
 
-console.log('PASS: Mission 9.5 repository OAuth/PKCE + MCP transport/metadata contract checks');
+console.log('PASS: Mission 9.5 repository OAuth/PKCE + MCP protected discovery contract checks');
