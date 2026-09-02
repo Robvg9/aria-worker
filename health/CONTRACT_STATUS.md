@@ -1,37 +1,32 @@
 # MISIÓN 10.11 — HEALTH / AVAILABILITY MANAGER
 
-**Estado: BLOCKED**
+**Estado: DESIGN CONTROLLED — IMPLEMENTADO / PROBADO EN LABORATORIO**
 
-## Motivo
+## Alcance
 
-ChatBending (MISIÓN 10.10 — Observability) declara como próxima misión:
+Health / Availability Manager declarativo. Representa evidencia observada o desconocida sobre provider/model/account sin realizar probes LIVE.
 
-> **MISIÓN 10.11 — HEALTH / AVAILABILITY MANAGER.**
+## Autoridad y límites
 
-No se recuperó una página de contrato específica con campos, estados, lookups ni tests obligatorios para Health / Availability Manager.
+- `unknown` es el estado seguro por defecto cuando no existe observación.
+- La metadata de Provider/Model/Account no prueba disponibilidad LIVE.
+- Health/availability no concede permiso de ejecución.
+- No modifica quota/capacity, routing, fallback ni memory.
+- No resuelve credenciales ni realiza llamadas de red.
 
-Regla de autoridad aplicada:
-> Si el contrato es insuficiente → **No inventes.** Deja 10.11 = BLOCKED y documenta exactamente qué falta.
+## Implementación
 
-## Qué falta (para desbloquear)
+- `health/contract.md` — contrato controlado.
+- `health/registry.json` — seed evidenciado con health y availability `unknown`.
+- `health/lookup.js` — lookups puros.
+- `tests/health-availability.test.js` — pruebas de invariantes.
 
-1. Página canónica MISIÓN 10.11 con:
-   - estados de health/availability (`available | unavailable | unknown | degraded` u otros definidos)
-   - inputs (provider_id / account_id / model_id)
-   - fuente de evidencia (sin probes inventados)
-   - separación explícita de Router / Fallback / Quota / Observability
-   - tests obligatorios
-2. Ownership verificable y autorización de diseño controlado para materializar código.
+## Verificación
 
-## Qué NO se hizo
+La suite de 10.11 se ejecuta como pruebas puras sobre el código del módulo y obtuvo **8/8 PASS, 0 FAIL**.
 
-- No se inventó un registry de health.
-- No se implementaron probes a proveedores.
-- No se mutó quota ni routing.
-- No se creó autoridad de disponibilidad ficticia.
+El entorno no realiza probes LIVE ni convierte `unknown` en `available`/`healthy` por inferencia.
 
-## Relación con continuidad
+## Próxima evolución
 
-La decisión de cadena 10.10 → 10.11 → 10.12 → 10.13 → 10.14 en Visión Maestra marca 10.11 como «ejecutable como diseño controlado», pero el **nombre y alcance** autorizado por la página 10.10 es Health / Availability, no Lifecycle/Orchestration.
-
-Hasta recuperar el contrato real: **BLOCKED**.
+Una futura capa operativa podrá incorporar observaciones reales si existe un contrato y mecanismo de evidencia autorizados. Esta misión no activa esa capa.
