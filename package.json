@@ -1,6 +1,6 @@
 {
   "name": "aria-adapters",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "type": "commonjs",
   "description": "ARIA control-plane registries and universal multi-IA adapter layer. Controlled runtime tool routing/planning/gateway dispatch. No memory authority.",
