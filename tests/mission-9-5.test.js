@@ -39,10 +39,16 @@ mustContain(mcp, 'auth.getUser(token)', 'MCP bearer validation');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
 mustContain(mcp, 'aria-memory-bridge-9-4', 'canonical bridge');
+mustContain(mcp, '2026-07-28', 'modern MCP version');
+mustContain(mcp, 'server/discover', 'modern discovery method');
+mustContain(mcp, 'Mcp-Method does not match JSON-RPC method', 'standard header consistency');
+mustContain(mcp, 'Mcp-Name does not match tool name', 'tool header consistency');
+mustContain(mcp, 'originAllowed', 'Origin validation');
+mustContain(mcp, 'io.modelcontextprotocol/serverInfo', 'modern server identity metadata');
 assert.equal(/SUPABASE_SERVICE_ROLE_KEY/.test(mcp), false);
 assert.equal(/console\.(log|error|warn)\s*\(/.test(mcp), false);
 
 mustContain(connector, 'oauth = true', 'Grok connector OAuth');
 mustContain(connector, 'aria-mcp-server-9-5', 'Grok connector target');
 
-console.log('PASS: Mission 9.5 repository OAuth/PKCE contract checks');
+console.log('PASS: Mission 9.5 repository OAuth/PKCE + modern MCP contract checks');
