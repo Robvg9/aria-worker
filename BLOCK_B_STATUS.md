@@ -11,7 +11,7 @@ Safety state:
 
 - No production credential values are stored in Git.
 - No live provider request is performed by the test suite.
-- The real HTTP transport exists and remains behind the existing execution/gov­ernance boundaries.
+- The real HTTP transport exists and remains behind the existing execution/governance boundaries.
 - No retry, fallback, account hopping, quota bypass, memory write, or BattleCruiser change was introduced.
 
 This document is subordinate to ChatBending CURRENT STATE and exists only as a concise repository-local status record for the PR.
