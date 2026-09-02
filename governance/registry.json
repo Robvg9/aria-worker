@@ -1,0 +1,11 @@
+{
+  "version": "aria-governance-v1.0.0",
+  "status": "design_controlled",
+  "auto_approve": false,
+  "default_decision": "blocked",
+  "risk_classes": ["READ", "LOW_RISK_WRITE", "HIGH_RISK_WRITE", "DESTRUCTIVE"],
+  "authorization_states": ["pending_approval", "approved", "rejected", "expired", "invalid"],
+  "memory_authority": false,
+  "execution_authority": false,
+  "live_execution": false
+}
