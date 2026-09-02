@@ -382,11 +382,11 @@ async function main() {
   // ── TEST 20: version & contract
   {
     const version = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8');
-    ok(/^aria-execution-engine-v1\.0\.0/m.test(version), 'TEST 20: VERSION is aria-execution-engine-v1.0.0');
-    eq(engine.version, 'aria-execution-engine-v1.0.0', 'TEST 20b: engine version matches');
+    ok(/^aria-execution-engine-v1\.1\.0/m.test(version), 'TEST 20: VERSION is aria-execution-engine-v1.1.0');
+    eq(engine.version, 'aria-execution-engine-v1.1.0', 'TEST 20b: engine version matches');
     const contract = fs.readFileSync(path.join(__dirname, '..', 'execution', 'contract.md'), 'utf8');
     for (const s of ['succeeded', 'failed', 'blocked', 'cancelled', 'insufficient_evidence', 'CREDENTIAL RESOLVER NOT IMPLEMENTED', 'CAPTURE → GATE → COMMIT → SYNC']) {
-      ok(contract.indexOf(s) !== -1, `TEST 20c: contract documents "${s}"`);
+      ok(contract.indexOf(s) !== -1, `TEST 20c: contract documents \"${s}\"`);
     }
     for (const s of ['succeeded', 'failed', 'blocked']) ok(execReg.emitted_status.indexOf(s) !== -1, `TEST 20d: registry emits ${s}`);
     ok(execReg.canonical_status.indexOf('cancelled') !== -1 && execReg.emitted_status.indexOf('cancelled') === -1,
