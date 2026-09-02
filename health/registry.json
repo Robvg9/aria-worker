@@ -1,0 +1,25 @@
+{
+  "version": "aria-health-availability-v1.0.0",
+  "mode": "design_controlled",
+  "live_probes_enabled": false,
+  "entries": [
+    {
+      "provider_id": "openrouter",
+      "model_id": "google/gemini-2.5-flash-lite",
+      "account_id": "acct_openrouter_primary",
+      "health": {
+        "status": "unknown",
+        "observed_at": null,
+        "source": null,
+        "evidence_ref": null,
+        "last_error": null
+      },
+      "availability": {
+        "status": "unknown",
+        "observed_at": null,
+        "source": null,
+        "evidence_ref": null
+      }
+    }
+  ]
+}
