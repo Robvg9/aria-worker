@@ -18,6 +18,7 @@
 - [x] Dedicated Block B functional test suite.
 - [x] Dedicated Block B source-level security suite.
 - [x] Both suites appended to full `npm test`.
-- [ ] GitHub Actions full `npm test` PASS on this PR head.
-- [ ] Final PR diff audit PASS.
-- [ ] Merge only after the preceding checks are PASS.
+- [x] GitHub Actions run #59 on PR HEAD `ee1b89774bbe2beed27736c9925142f14e019dbf` — full `npm test` PASS.
+- [x] Final PR diff audit PASS: 15 changed files are scoped to Block B runtime/resolver/tests/documentation; no unrelated Supabase/BattleCruiser/memory writes.
+- [x] Secret-boundary audit PASS: only synthetic test fixtures contain secret-shaped values; no production credential material.
+- [x] Merge gate satisfied.
