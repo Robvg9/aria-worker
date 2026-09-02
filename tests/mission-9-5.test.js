@@ -52,7 +52,9 @@ mustContain(mcp, 'methodEquals(mcpMethod, "tools/call")', 'MCP tools call path')
 mustContain(mcp, 'authUser(req)', 'MCP auth function');
 mustContain(mcp, 'auth_required', 'MCP auth gate');
 assert.ok(/initialize[\s\S]*tools\/list/.test(mcp), 'provisioning paths remain present');
-assert.ok(/tools\/call[\s\S]*authUser/.test(mcp), 'tools/call remains authenticated');
+const authIndex = mcp.indexOf('const auth = await authUser(req);');
+const toolsCallIndex = mcp.indexOf('if (!methodEquals(mcpMethod, "tools/call"))');
+assert.ok(authIndex >= 0 && toolsCallIndex > authIndex, 'authentication gate precedes tools/call dispatch');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
 mustContain(mcp, 'aria-memory-bridge-9-4', 'canonical memory bridge');
