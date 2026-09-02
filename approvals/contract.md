@@ -35,22 +35,24 @@ Missing, unknown, malformed, expired, or mismatched approval is non-executable.
   "expires_at": "string|null",
   "verification_ref": "string|null",
   "policy_version": "string",
-  "created_at": "string"
+  "created_at": "string",
+  "updated_at": "string"
 }
 ```
 
-## Store boundary
-The production store is injected through an adapter with durable persistence. No database, filesystem persistence, approval secret, or identity provider is hardcoded here because ChatBending does not designate a concrete approval store yet.
-
-Required adapter operations:
+## Durable store boundary
+The PR provides a durable Supabase store schema under `aria_internal.execution_approvals` plus an injected Supabase adapter. The control layer remains storage-agnostic and requires the adapter contract:
 - `create(record)`
 - `get(authorization_id)`
 - `transition(authorization_id, expected_status, next_status, decision)`
 
-The control layer validates identity/scope before allowing a transition and treats adapter failure as fail-closed.
+The database is intentionally not exposed to `anon` or `authenticated`; service-role access is the operational boundary. The migration does not seed approvals.
+
+## Transition rules
+New records must start `pending`. Approval requires an explicit approver and approval timestamp. High-risk/destructive execution additionally requires a non-secret `verification_ref`. Expired, rejected, or revoked records are non-executable. Race-safe transition belongs to the durable adapter/database condition, not to caller-side optimism.
 
 ## Human verification
-For `HIGH_RISK_WRITE` and `DESTRUCTIVE`, `verification_ref` may identify an external verification result. Plaintext passwords, passphrases, OTPs, or credential material are never accepted or stored.
+For `HIGH_RISK_WRITE` and `DESTRUCTIVE`, `verification_ref` identifies an external verification result. Plaintext passwords, passphrases, OTPs, bearer tokens, or credential material are never accepted or stored.
 
 ## Production status
-Design-controlled. The adapter contract is production-ready; a concrete durable store and human approval UI remain separate implementation work.
+Design-controlled durable persistence. The schema and adapter are present, but the live approval UI/identity verification flow is intentionally not activated by this block.
