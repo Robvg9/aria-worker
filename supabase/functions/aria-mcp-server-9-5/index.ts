@@ -5,7 +5,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const RESOURCE = `${SUPABASE_URL}/functions/v1/aria-mcp-server-9-5`;
 const AUTH_SERVER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-v1`;
-const RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;
+const RESOURCE_METADATA = `${SUPABASE_URL}/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-9-5`;
+const LEGACY_RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;
 const SERVER_NAME = "ARIA MCP Server";
 const SERVER_VERSION = "1.1.0";
 const MODERN_VERSION = "2026-07-28";
@@ -42,13 +43,19 @@ async function callFunction(slug: string, token: string, payload: unknown) {
 function rpcError(id: unknown, code: number, message: string, extra: Record<string, unknown> = {}) {
   return { jsonrpc: "2.0", id, error: { code, message, ...extra } };
 }
+function resourceMetadata() {
+  return { resource: RESOURCE, authorization_servers: [AUTH_SERVER], bearer_methods_supported: ["header"] };
+}
 Deno.serve(async req => {
   if (!originAllowed(req)) return reply(403, { error: "invalid_origin" }, { "access-control-allow-origin": "null" });
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,accept,mcp-protocol-version,mcp-method,mcp-name,mcp-session-id", "access-control-expose-headers": "WWW-Authenticate,Mcp-Session-Id" } });
   const u = new URL(req.url);
-  if (req.method === "GET" && u.pathname.endsWith("/.well-known/oauth-protected-resource")) return reply(200, { resource: RESOURCE, authorization_servers: [AUTH_SERVER], bearer_methods_supported: ["header"] }, { "access-control-allow-origin": "*" });
-  if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, { allow: "POST, OPTIONS" });
 
+  const isRootMetadata = req.method === "GET" && u.pathname === "/.well-known/oauth-protected-resource/functions/v1/aria-mcp-server-9-5";
+  const isLegacyMetadata = req.method === "GET" && u.pathname.endsWith("/.well-known/oauth-protected-resource");
+  if (isRootMetadata || isLegacyMetadata) return reply(200, resourceMetadata(), { "access-control-allow-origin": "*" });
+
+  if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, { allow: "POST, OPTIONS" });
   const auth = await authenticate(req);
   if (!auth.ok) return auth.response;
 
@@ -70,17 +77,13 @@ Deno.serve(async req => {
     return reply(400, rpcError(id, -32021, "unsupported_protocol", { supported: [MODERN_VERSION, LEGACY_VERSION, "2025-06-18", "2025-03-26"] }));
   }
 
-  if (modern && bodyMethod === "server/discover") {
-    return modernReply(200, { jsonrpc: "2.0", id, result: { resultType: "complete", supportedVersions: [MODERN_VERSION], capabilities: { tools: { listChanged: false } }, instructions: "ARIA exposes governed ChatBending context and memory-capture tools." } });
-  }
-
+  if (modern && bodyMethod === "server/discover") return modernReply(200, { jsonrpc: "2.0", id, result: { resultType: "complete", supportedVersions: [MODERN_VERSION], capabilities: { tools: { listChanged: false } }, instructions: "ARIA exposes governed ChatBending context and memory-capture tools." } });
   if (!modern && bodyMethod === "initialize") {
     const protocolVersion = [LEGACY_VERSION, "2025-06-18", "2025-03-26"].includes(requestedProtocol) ? requestedProtocol : LEGACY_VERSION;
-    return reply(200, { jsonrpc: "2.0", id, result: { protocolVersion, serverInfo: { name: SERVER_NAME, version: SERVER_VERSION }, capabilities: { tools: { listChanged: false } } });
+    return reply(200, { jsonrpc: "2.0", id, result: { protocolVersion, serverInfo: { name: SERVER_NAME, version: SERVER_VERSION }, capabilities: { tools: { listChanged: false } } } });
   }
-
   if (!modern && bodyMethod === "notifications/initialized") return new Response(null, { status: 202, headers: H });
-  if (bodyMethod === "tools/list") return modern ? modernReply(200, { jsonrpc: "2.0", id, result: { resultType: "complete", tools: TOOLS } }) : reply(200, { jsonrpc: "2.0", id, result: { tools: TOOLS } });
+  if (bodyMethod === "tools/list") return modern ? modernReply(200, { jsonrpc: "2.0", id, result: { resultType: "complete", tools: TOOLS, ttlMs: 60000, cacheScope: "public" } }) : reply(200, { jsonrpc: "2.0", id, result: { tools: TOOLS } });
   if (bodyMethod !== "tools/call") return modern ? modernReply(200, rpcError(id, -32601, "unsupported_method")) : reply(200, rpcError(id, -32601, "unsupported_method"));
 
   const p = body.params ?? {};
