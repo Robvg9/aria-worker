@@ -13,7 +13,9 @@ function mustContain(text, needle, label) {
   assert.ok(text.includes(needle), `${label}: missing ${needle}`);
 }
 
+mustContain(oauth, '/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-v1', 'RFC8414 OAuth metadata path');
 mustContain(oauth, '/.well-known/oauth-authorization-server', 'OAuth discovery');
+mustContain(oauth, 'issuer: ISSUER', 'OAuth issuer');
 mustContain(oauth, 'code_challenge_methods_supported: ["S256"]', 'PKCE metadata');
 mustContain(oauth, '/register', 'dynamic registration');
 mustContain(oauth, '/authorize/start', 'authorization start');
@@ -25,6 +27,7 @@ mustContain(oauth, '/token', 'token endpoint');
 mustContain(oauth, 'verifyOtp', 'Supabase OTP verification');
 mustContain(oauth, 'pkceMatches', 'PKCE verifier');
 mustContain(oauth, 'encryptSecret', 'token encryption');
+mustContain(oauth, 'redirect.searchParams.set("iss", ISSUER)', 'RFC9207 issuer callback');
 assert.equal(/console\.(log|error|warn)\s*\(/.test(oauth), false);
 assert.equal(/Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/.test(oauth), true);
 assert.equal(/aria_mcp_oauth_codes/.test(schema), true);
