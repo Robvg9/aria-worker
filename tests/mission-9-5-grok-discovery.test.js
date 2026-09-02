@@ -6,8 +6,9 @@ const root = path.join(__dirname, '..');
 const mcp = fs.readFileSync(path.join(root, 'supabase/functions/aria-mcp-server-grok-v2/index.ts'), 'utf8');
 const oauth = fs.readFileSync(path.join(root, 'supabase/functions/aria-mcp-oauth-grok-v2/index.ts'), 'utf8');
 for (const needle of [
-  'oauth-protected-resource/functions/v1/aria-mcp-server-grok-v2',
-  'oauth-protected-resource"',
+  'const RESOURCE_PATH = new URL(RESOURCE).pathname;',
+  'const RESOURCE_METADATA = `${RESOURCE}/.well-known/oauth-protected-resource`;',
+  'u.pathname === `${RESOURCE_PATH}/.well-known/oauth-protected-resource`',
   'scopes_supported: SCOPES.split(" ")',
   'scope="${SCOPES}"',
   'authorization_servers: [AUTH_SERVER]',
@@ -18,4 +19,4 @@ for (const needle of [
   'code_challenge_methods_supported: ["S256"]',
   'token_endpoint_auth_methods_supported: ["none"]',
 ]) assert.ok(oauth.includes(needle), `OAuth discovery: missing ${needle}`);
-console.log('PASS: Mission 9.5 Grok root/path OAuth discovery + scope contract');
+console.log('PASS: Mission 9.5 Grok function-path OAuth discovery contract');
