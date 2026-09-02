@@ -1,0 +1,1 @@
+11.2 implementation note: this module is design-controlled. Live tool dispatch remains disabled until concrete adapter, credential resolver, Governance integration, and approved live-test evidence exist.
