@@ -6,6 +6,8 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUP
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ISSUER = `${SUPABASE_URL}/functions/v1/aria-mcp-oauth-v1`;
 const MCP_RESOURCE = `${SUPABASE_URL}/functions/v1/aria-mcp-server-9-5`;
+const OAUTH_METADATA = `${SUPABASE_URL}/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-v1`;
+const LEGACY_OAUTH_METADATA = `${ISSUER}/.well-known/oauth-authorization-server`;
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const CODE_TTL_MS = 60_000;
 const PENDING_TTL_MS = 10 * 60_000;
@@ -43,6 +45,20 @@ async function cleanup() {
   await db().from("aria_mcp_oauth_pending").delete().lt("expires_at", now);
   await db().from("aria_mcp_oauth_codes").delete().lt("expires_at", now);
 }
+function metadata() {
+  return {
+    issuer: ISSUER,
+    resource: MCP_RESOURCE,
+    authorization_endpoint: `${ISSUER}/authorize`,
+    token_endpoint: `${ISSUER}/token`,
+    registration_endpoint: `${ISSUER}/register`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: ["openid", "profile", "email"],
+  };
+}
 
 Deno.serve(async req => {
   const u = new URL(req.url);
@@ -50,20 +66,9 @@ Deno.serve(async req => {
 
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" } });
 
-  if (u.pathname.endsWith("/.well-known/oauth-authorization-server")) {
-    return json(200, {
-      issuer: ISSUER,
-      resource: MCP_RESOURCE,
-      authorization_endpoint: `${ISSUER}/authorize`,
-      token_endpoint: `${ISSUER}/token`,
-      registration_endpoint: `${ISSUER}/register`,
-      response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
-      code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none"],
-      scopes_supported: ["openid", "profile", "email"],
-    }, { "access-control-allow-origin": "*" });
-  }
+  const isStandardMetadata = req.method === "GET" && u.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-v1";
+  const isLegacyMetadata = req.method === "GET" && u.pathname === "/functions/v1/aria-mcp-oauth-v1/.well-known/oauth-authorization-server";
+  if (isStandardMetadata || isLegacyMetadata) return json(200, metadata(), { "access-control-allow-origin": "*" });
 
   if (req.method === "POST" && u.pathname.endsWith("/register")) {
     let body: any;
@@ -134,6 +139,7 @@ Deno.serve(async req => {
     const redirect = new URL(pending.redirect_uri);
     redirect.searchParams.set("code", code);
     redirect.searchParams.set("state", pending.state);
+    redirect.searchParams.set("iss", ISSUER);
     return Response.redirect(redirect.toString(), 302);
   }
 
@@ -147,7 +153,7 @@ Deno.serve(async req => {
     if (record.client_id !== body.client_id || record.redirect_uri !== body.redirect_uri || !(await pkceMatches(body.code_verifier, record.code_challenge))) return json(400, { error: "invalid_grant" });
     const accessToken = await decryptSecret(record.encrypted_access_token);
     await db().from("aria_mcp_oauth_codes").update({ used_at: new Date().toISOString() }).eq("code", body.code);
-    return json(200, { access_token: accessToken, token_type: "Bearer", expires_in: 3600, scope: record.scope });
+    return json(200, { access_token: accessToken, token_type: "Bearer", expires_in: 3600, scope: record.scope ?? "openid profile email" });
   }
 
   return json(404, { error: "not_found" });
