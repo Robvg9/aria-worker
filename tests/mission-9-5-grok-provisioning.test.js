@@ -9,5 +9,6 @@ assert.ok(mcp.includes('if (methodEquals(mcpMethod, "initialize"))'), 'initializ
 assert.ok(mcp.includes('if (methodEquals(mcpMethod, "tools/list"))'), 'tools/list path missing');
 assert.ok(mcp.includes('if (methodEquals(mcpMethod, "tools/call"))'), 'tools/call path missing');
 assert.ok(mcp.includes('auth_required'), 'auth-required guard missing');
-assert.ok(!(/GET \|\| req\.method === "HEAD"[\s\S]*return reply\(401/).test(mcp), 'GET/HEAD must remain public for provisioning');
-console.log('PASS: Grok provisioning public; tool execution authenticated');
+assert.ok(mcp.includes('return reply(401, { error: "unauthorized" }'), 'tool auth challenge missing');
+assert.ok(!(/if \(req\.method === "GET" \|\| req\.method === "HEAD"\)[\s\S]*return reply\(401/).test(mcp), 'GET/HEAD must not block provisioning');
+console.log('PASS: Grok provisioning public; tool execution remains OAuth-protected');
