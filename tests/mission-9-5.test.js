@@ -10,6 +10,8 @@ const schema = fs.readFileSync(path.join(root, 'supabase/migrations/20260902_ari
 const connector = fs.readFileSync(path.join(root, 'integrations/grok/connector.toml'), 'utf8');
 function mustContain(text, needle, label) { assert.ok(text.includes(needle), `${label}: missing ${needle}`); }
 
+mustContain(oauth, 'aria-mcp-oauth-grok-v1', 'clean OAuth issuer');
+mustContain(oauth, 'aria-mcp-server-grok-v1', 'clean MCP resource');
 mustContain(oauth, '/.well-known/oauth-authorization-server', 'OAuth discovery');
 mustContain(oauth, 'code_challenge_methods_supported: ["S256"]', 'PKCE metadata');
 mustContain(oauth, '/authorize', 'authorization endpoint');
@@ -28,8 +30,10 @@ mustContain(mcp, 'aria-mcp-oauth-grok-v1', 'clean OAuth authority');
 mustContain(mcp, 'streamable-http', 'Grok Streamable HTTP transport');
 mustContain(mcp, 'if (method === "initialize")', 'unauthenticated initialize discovery');
 mustContain(mcp, 'if (method === "tools/list")', 'unauthenticated tools discovery');
+mustContain(mcp, 'if (req.method === "GET" || req.method === "HEAD") return reply(401', 'OAuth challenge on connector root');
+mustContain(mcp, 'WWW-Authenticate', 'OAuth challenge header');
+mustContain(mcp, 'resource_metadata="${RESOURCE_METADATA}"', 'protected resource metadata pointer');
 mustContain(mcp, 'const auth = await authUser(req);', 'tool authorization boundary');
-mustContain(mcp, 'WWW-Authenticate', 'OAuth challenge');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
 mustContain(mcp, 'aria-memory-bridge-9-4', 'canonical memory bridge');
