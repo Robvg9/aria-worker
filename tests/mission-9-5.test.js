@@ -48,8 +48,9 @@ mustContain(mcp, 'const OAUTH_SECURITY = [{ type: "oauth2", scopes: ["openid", "
 mustContain(mcp, 'securitySchemes: OAUTH_SECURITY', 'root-level tool OAuth security metadata');
 mustContain(mcp, '_meta: { securitySchemes: OAUTH_SECURITY }', 'compatibility tool OAuth security metadata');
 mustContain(mcp, 'provisioning', 'provisioning compatibility');
-mustContain(mcp, 'if (methodEquals(mcpMethod, "initialize"))', 'MCP initialize path');
-mustContain(mcp, 'if (methodEquals(mcpMethod, "tools/list"))', 'MCP tools list path');
+mustContain(mcp, 'methodEquals(mcpMethod, "initialize")', 'MCP initialize path');
+mustContain(mcp, 'methodEquals(mcpMethod, "tools/list")', 'MCP tools list path');
+mustContain(mcp, 'if (methodEquals(mcpMethod, "tools/list")) return reply(200, rpc(id, { tools: TOOLS }), traceId);', 'MCP tools list response');
 mustContain(mcp, 'auth_required', 'MCP auth gate');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
