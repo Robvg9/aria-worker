@@ -16,12 +16,13 @@ function requiresHumanGate(riskClass, policy) {
 
 function scopeMatches(request, authorization) {
   if (!request || !authorization) return false;
-  if (request.execution_id && authorization.execution_id !== request.execution_id) return false;
+  if (!hasString(authorization.execution_id) || !request.execution_id) return false;
+  if (authorization.execution_id !== request.execution_id) return false;
   if (request.request_id && authorization.request_id !== request.request_id) return false;
   if (request.task_id && authorization.task_id !== request.task_id) return false;
-  if (request.risk_class && authorization.risk_class !== request.risk_class) return false;
-  if (request.operation && authorization.operation && authorization.operation !== request.operation) return false;
-  if (request.tool_id && authorization.tool_id && authorization.tool_id !== request.tool_id) return false;
+  if (authorization.risk_class !== request.risk_class) return false;
+  if (request.operation !== undefined && authorization.operation !== request.operation) return false;
+  if (request.tool_id !== undefined && authorization.tool_id !== request.tool_id) return false;
   return true;
 }
 
@@ -49,9 +50,6 @@ function evaluateAuthorization(request, authorization = null, policy = null) {
   if (!scopeMatches(request, authorization)) return { status: 'blocked', reason: 'authorization_scope_mismatch' };
 
   if (authorization.decision === 'approved') {
-    if (requiresHumanGate(request.risk_class, policy)) {
-      return { status: 'approved', approved_to_execute: true, authorization_id: authorization.authorization_id };
-    }
     return { status: 'approved', approved_to_execute: true, authorization_id: authorization.authorization_id };
   }
 
