@@ -9,6 +9,7 @@
 `aria-capability-matrix-v1.0.0` · Misión 10.3
 `aria-model-registry-v1.0.1` · Misión 10.2
 `aria-adapters-v1.0.0` · Misión 9.6
+`aria-governance-v1.0.0` · Misión 10.12
 
 **Estado Stage 10 actual:**
 
@@ -17,7 +18,7 @@
 | 10.9 Tool Registry | **PASS** |
 | 10.10 Observability | **PASS** |
 | 10.11 Health / Availability | **DESIGN CONTROLLED** |
-| 10.12 Governance / Human-Gate | **NOT IMPLEMENTED** |
+| 10.12 Governance / Human-Gate | **DESIGN CONTROLLED** |
 | 10.13 Adapter Boundary | **PASS** |
 | 10.14 Universal Integration / Cost-Latency | **NOT IMPLEMENTED** |
 
@@ -34,22 +35,22 @@ IA externa → Adapter (auth/protocolo) → ARIA MCP → ChatBending
 ```
 
 ```
-Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7) → Execution (10.8)
+Provider (10.1) → Model (10.2) → Capability (10.3) → Account (10.4) → Quota (10.5) → Router (10.6) → Fallback (10.7) → Execution (10.8) → Governance (10.12)
 ```
 
 ```
-Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
+Routing ≠ Fallback ≠ Execution ≠ Governance ≠ Credentials ≠ Memory
 ```
 
 ## Qué no es
 
 - No escribe Notion.
-- No aprueba candidatos.
+- No aprueba candidatos de memoria.
 - No crea `cb_memory_*` por IA.
 - No toca BattleCruiser.
-- No guarda API keys / tokens / passwords. Solo `credential_ref`.
-- No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 solo ejecuta una ruta ya seleccionada y autorizada).
-- No reintenta, no rota cuentas, no hace fallback automático desde la ejecución.
+- No guarda API keys / tokens / passwords. Solo referencias como `credential_ref`.
+- No selecciona modelos en 10.8 (10.6 selecciona; 10.7 elige alternativa; 10.8 ejecuta una ruta ya seleccionada; 10.12 determina la autorización cuando el contrato/policy vigente lo exige).
+- No reintenta, no rota cuentas y no evade rate limits.
 - No inventa cuotas, usage ni precios.
 
 ## Archivos
@@ -63,6 +64,7 @@ Routing ≠ Fallback ≠ Execution ≠ Credentials ≠ Memory
 - `fallback/` — Fallback Engine (10.7)
 - `execution/` — Execution Engine (10.8): `lookup.js`, `credentials.js`, `adapters/`
 - `health/` — Health / Availability Manager (10.11), design-controlled, unknown-by-default, no live probes
+- `governance/` — Execution Governance / Human-Gate Contract (10.12), design-controlled, fail-closed, no live execution
 - `tests/` — pruebas locales
 
 ## Tests
@@ -84,6 +86,22 @@ Diseño controlado y declarativo. Consume evidencia de salud/availability cuando
 
 Contrato: `health/contract.md`.
 
+## Execution Governance / Human-Gate 10.12
+
+Diseño controlado del punto de autoridad entre una ruta seleccionada y una ejecución autorizada.
+
+- `selected` **no** implica `approved`.
+- Riesgos: `READ`, `LOW_RISK_WRITE`, `HIGH_RISK_WRITE`, `DESTRUCTIVE`.
+- Estados: `pending_approval`, `approved`, `rejected`, `expired`, `invalid`.
+- Fail-closed ante ausencia de autorización, mismatch de scope, expiración o rechazo.
+- Una aprobación queda vinculada a `execution_id` y, cuando estén definidos por la solicitud, a `request_id`, `task_id`, `tool_id`, `operation` y `risk_class`.
+- `approved` exige `reviewed_by`, `reviewed_at` y `evidence_ref`.
+- No auto-approve.
+- No persistent approval store, no UI y no LIVE execution en v1.
+- No sustituye Router, Fallback, Execution, Credentials, Quota ni Memory Authority.
+
+Contrato: `governance/contract.md`.
+
 ## Execution Engine 10.8
 
 Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) y autorizada (`authorization.status === approved`) en una única llamada al proveedor vía Provider Adapter.
@@ -92,7 +110,7 @@ Data Plane. Convierte una ruta ya seleccionada (10.6/10.7) y autorizada (`author
 
 - Revalida la ruta con `fallback.candidateSelectable` (consume 10.2–10.6; no reimplementa). `unknown` → `blocked / insufficient_evidence`.
 - `authorization.status !== 'approved'` → `blocked` (`selected ≠ approved_to_execute`).
-- Credenciales: solo `credential_ref` de 10.4 → interfaz `CredentialResolver`. Mecanismo real **CREDENTIAL RESOLVER NOT IMPLEMENTED** (resolver nulo por defecto → `failed / credential_unavailable`).
+- Credenciales: solo `credential_ref` de 10.4 → interfaz `CredentialResolver`. Mecanismo real **CREDENTIAL RESOLVER NOT IMPLEMENTED**.
 - Adapter registrado: `openrouter_chat_completions` (`openrouter` / `text_generation`). Transport inyectable; tests 100 % mock.
 - `execution_id` determinista (sha256 canónico). Un intento por llamada. Sin retry, sin rotación, sin account hopping.
 - Usage del proveedor se copia como `reported` o queda `unknown`; nunca se estima ni alimenta 10.5.
@@ -107,62 +125,42 @@ Capa declarativa de alternativa. Consume el resultado de 10.6.
 
 `resolve({ router_result, failure })` → `primary` | `fallback` | `no_fallback`.
 
-No ejecuta. No llama proveedores. No muta registries. No almacena secretos.  
-`unknown` capacity/quota **no** se interpreta como available.  
-Anti-loop: clave `provider_id|account_id|model_id` + `visited`.  
-`rate_limit` no activa fallback salvo permiso explícito (no evadir límites).  
-Policy Engine físico: **POLICY INPUT NOT IMPLEMENTED** — se consume un input opcional; no se inventan permisos.
-
-Lookups: `resolve`, `candidateSelectable`, `activationAllows`, `candidateKey`.
+No ejecuta. No llama proveedores. No muta registries. No almacena secretos.
+`unknown` capacity/quota **no** se interpreta como available.
 
 ## Intelligent Router 10.6
 
 Capa declarativa de selección. `route({ capability })` → `selected` | `no_route`.
 
-Consumes 10.2–10.5. No duplica datos. Selección determinista (lexical sort).  
-`unknown` capacity/quota **no** se interpreta como available → el seed actual produce `no_route` hasta que 10.5 materialice evidencia de capacidad.
-
-Lookups: `route`, `collectCandidates`, `capacityAllows`.
+Consume 10.2–10.5. No duplica datos. Selección determinista.
+`unknown` capacity/quota **no** se interpreta como available.
 
 ## Quota / Capacity Manager 10.5
 
-Capa declarativa. Quota ≠ usage ≠ routing. Seed verificado (ChatBending `quota_registry`):
-
-`acct_openrouter_primary` × `google/gemini-2.5-flash-lite` → status `unknown`
-
-Límites, usage, capacity numérica y rate-limit permanecen `null`. `unknown ≠ 0` y `unknown ≠ available`. No se materializaron RPM/TPM de OpenRouter ni Gemini.
-
-Lookups: `getQuota` / `getCapacity` / `getQuotaForModel` / `getCapacityForModel`.
+Capa declarativa. Quota ≠ usage ≠ routing.
 
 ## Account Manager 10.4
 
-Capa declarativa. Account ≠ Credential. Seed verificado:
-
-`openrouter` → `acct_openrouter_primary` → `google/gemini-2.5-flash-lite`
-
-`credential_ref`: `secret://openrouter/acct_openrouter_primary` (referencia; el secreto no vive aquí).
+Capa declarativa. Account ≠ Credential.
 
 ## Tool Registry 10.9
 
-Inventario declarativo. Solo tools verificadas: `aria_context` (read), `aria_memory_capture` (write_candidate; Gate humano; `canonical_write=false`).  
-No ejecuta tools. No selecciona tools. No resuelve credenciales. `unknown ≠ available`.
+Inventario declarativo de herramientas verificadas. No ejecuta ni selecciona herramientas.
 
 ## Observability 10.10
 
-Contrato de eventos + helpers de laboratorio (`createEvent`, `validateEvent`, `redact`, `emitSafe`).  
-Campos de correlación: `trace_id`, `span_id`, `execution_id`, `task_id`, `router_decision_id`, `fallback_decision_id`.  
-`timestamp` obligatorio. `usage`/`duration_ms` = `null` cuando no hay evidencia (unknown ≠ 0). Metadata-only. Sin exporters reales.
+Contrato de eventos + helpers de laboratorio. Metadata-only. Sin exporters reales ni persistencia.
 
 ## Adapter Boundary 10.13
 
-Consolidación documental sobre 10.8 (`execution/ADAPTER_BOUNDARY.md`). Sin cambio de runtime.
+Consolidación documental sobre 10.8. Sin cambio de runtime.
 
-## Stage 10.11–10.14 corrected scope
+## Stage 10.11–10.14
 
-- 10.11 Health / Availability: **DESIGN CONTROLLED** — implementación declarativa sin probes LIVE.
-- 10.12 Governance / Human-Gate: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
-- 10.13 Adapter Boundary: **PASS** — consolidación documental sobre 10.8, sin runtime change.
-- 10.14 Universal Integration / Cost-Latency: **NOT IMPLEMENTED** — ownership no recuperable; STOP.
+- 10.11 Health / Availability: **DESIGN CONTROLLED**.
+- 10.12 Governance / Human-Gate: **DESIGN CONTROLLED**.
+- 10.13 Adapter Boundary: **PASS**.
+- 10.14 Universal Integration / Cost-Latency: **NOT IMPLEMENTED** — ownership no recuperable.
 
 ## Estado adapters 2026-09-01
 
