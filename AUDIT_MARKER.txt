@@ -1,1 +1,0 @@
-ARIA audit of PR #2: merge authorized after static verification. Full private-repo npm test could not be executed by the connector runtime.
