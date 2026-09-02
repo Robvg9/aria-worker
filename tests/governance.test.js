@@ -43,7 +43,8 @@ assert.equal(scopeMatches(baseRequest, approval()), true);
 assert.equal(scopeMatches(baseRequest, approval({ execution_id: 'exec_other' })), false);
 assert.equal(scopeMatches(baseRequest, approval({ operation: 'delete' })), false);
 assert.equal(scopeMatches(baseRequest, approval({ tool_id: 'tool_other' })), false);
-assert.equal(scopeMatches({ ...baseRequest, operation: undefined }, approval({ operation: 'write' })), false);
+assert.equal(scopeMatches(baseRequest, approval({ operation: undefined })), false);
+assert.equal(scopeMatches(baseRequest, approval({ tool_id: undefined })), false);
 
 assert.deepEqual(validateAuthorizationRecord(null), { valid: false, reason: 'missing_authorization' });
 assert.equal(validateAuthorizationRecord(approval()).valid, true);
@@ -65,20 +66,12 @@ assert.deepEqual(
 );
 
 for (const decision of ['rejected', 'expired', 'invalid']) {
-  assert.equal(
-    evaluateAuthorization(baseRequest, approval({ decision })).status,
-    'blocked',
-  );
+  assert.equal(evaluateAuthorization(baseRequest, approval({ decision })).status, 'blocked');
 }
 
 assert.deepEqual(
   evaluateAuthorization(baseRequest, approval({ decision: 'pending_approval' })),
-  {
-    status: 'pending_approval',
-    approved_to_execute: false,
-    reason: 'human_gate_required',
-    authorization_id: 'auth_123',
-  },
+  { status: 'pending_approval', approved_to_execute: false, reason: 'human_gate_required', authorization_id: 'auth_123' },
 );
 
 assert.deepEqual(
@@ -90,4 +83,4 @@ const readRequest = { ...baseRequest, risk_class: 'READ' };
 const readApproval = approval({ risk_class: 'READ' });
 assert.equal(evaluateAuthorization(readRequest, readApproval, { enabled: true, readRequiresHuman: false }).approved_to_execute, true);
 
-console.log('10.12 governance tests: 16 passed, 0 failed');
+console.log('10.12 governance tests: 18 passed, 0 failed');
