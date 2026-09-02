@@ -39,14 +39,15 @@ mustContain(mcp, '/.well-known/oauth-protected-resource/functions/v1/aria-mcp-se
 mustContain(mcp, '/.well-known/oauth-protected-resource', 'legacy protected-resource metadata');
 mustContain(mcp, 'authorization_servers: [AUTH_SERVER]', 'MCP OAuth advertisement');
 mustContain(mcp, 'resource_metadata="${RESOURCE_METADATA}"', 'MCP challenge resource metadata');
+mustContain(mcp, 'GET" || req.method === "HEAD"', 'protected root discovery methods');
+mustContain(mcp, 'Mcp-Method does not match JSON-RPC method', 'standard header consistency');
+mustContain(mcp, 'Mcp-Name does not match tool name', 'tool header consistency');
 mustContain(mcp, 'auth.getUser(token)', 'MCP bearer validation');
 mustContain(mcp, 'aria_context', 'context tool');
 mustContain(mcp, 'aria_memory_capture', 'memory tool');
 mustContain(mcp, 'aria-memory-bridge-9-4', 'canonical bridge');
 mustContain(mcp, '2026-07-28', 'modern MCP version');
 mustContain(mcp, 'server/discover', 'modern discovery method');
-mustContain(mcp, 'Mcp-Method does not match JSON-RPC method', 'standard header consistency');
-mustContain(mcp, 'Mcp-Name does not match tool name', 'tool header consistency');
 mustContain(mcp, 'originAllowed', 'Origin validation');
 mustContain(mcp, 'io.modelcontextprotocol/serverInfo', 'modern server identity metadata');
 mustContain(mcp, 'MCP-Protocol-Version', 'protocol version header');
