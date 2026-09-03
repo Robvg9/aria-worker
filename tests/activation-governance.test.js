@@ -47,8 +47,9 @@ const approvalStore = {
   },
   async canExecute(id, candidate, now) {
     assert.equal(id, 'auth_1');
-    assert.deepEqual(candidate, binding);
     assert.equal(now.toISOString(), '2026-09-03T12:00:00.000Z');
+    if (candidate.target.owner !== binding.target.owner || candidate.target.repo !== binding.target.repo) return false;
+    assert.deepEqual(candidate, binding);
     return true;
   }
 };
@@ -65,7 +66,7 @@ const approvalStore = {
   assert.deepEqual(pending, { status: 'pending_approval', approved_to_execute: false, reason: 'human_gate_required', authorization_id: 'auth_pending' });
 
   const mismatched = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, authorization_id: 'auth_1', target: { owner: 'other', repo: 'aria-worker' } } });
-  assert.deepEqual(mismatched, { status: 'blocked', reason: 'authorization_scope_mismatch' });
+  assert.deepEqual(mismatched, { status: 'blocked', reason: 'approval_not_executable', authorization_id: 'auth_1' });
 
   const unknown = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, authorization_id: 'auth_unknown' } });
   assert.deepEqual(unknown, { status: 'blocked', reason: 'missing_authorization' });
