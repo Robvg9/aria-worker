@@ -13,15 +13,17 @@ const { adapters } = require('../activation/connectors');
   assert.equal(isSecretRef('secret://github/default'), true);
   assert.equal(isSecretRef('plaintext'), false);
   assert.equal(validateConnectorConfig(DEFAULT_MANIFEST[0]).valid, true);
+  assert.equal(validateConnectorConfig({...DEFAULT_MANIFEST[0],base_url:'https://evil.example'}).reason, 'provider_origin_not_trusted');
   assert.equal(envNameForRef('secret://github/default'), 'ARIA_SECRET_GITHUB_DEFAULT');
   const resolver = createEnvironmentSecretResolver({ ARIA_SECRET_GITHUB_DEFAULT:'x' });
   const resolved = await resolver.resolve('secret://github/default');
   assert.equal(resolved.status, 'resolved');
 
-  const safe = redact({ authorization:'Bearer confidential', nested:{ api_key:'secret-value', ok:'value' } });
+  const safe = redact({ authorization:'Bearer confidential', nested:{ api_key:'secret-value', ok:'value', echo:'github-secret-123' } }, '', ['github-secret-123']);
   assert.equal(safe.authorization, '[redacted]');
   assert.equal(safe.nested.api_key, '[redacted]');
   assert.equal(safe.nested.ok, 'value');
+  assert.equal(safe.nested.echo, '[redacted]');
 
   for (const id of ['github','supabase','cloudflare','notion','web','image','filesystem']) {
     assert.equal(typeof adapters[id].execute, 'function');
