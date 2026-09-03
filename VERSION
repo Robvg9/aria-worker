@@ -1,16 +1,36 @@
 aria-core-v1.0.0
 package-version: 1.5.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
-1.1 ARIA Core Identity: PASS — pure identity/context, no secrets/network/execution
-1.2 Session Engine: PASS — active/paused/closed lifecycle, injectable persistence boundary
-1.3 Planning Engine: PASS — validated plans only, no execution authority, dependency validation
-1.4 Task State Machine: PASS — explicit fail-closed transitions, terminal completed/cancelled states
-1.5 Self-State: PASS — read-only allowlisted snapshot, no credential/secret export
-Provider/model/tool registries remain control-plane authorities; execution remains governance-gated.
-9.5 First External AI / Grok: PAUSED — external E2E gate intentionally removed from critical path
-9.6 Universal Multi-IA Adapter: FUTURE — retained for later AI collaboration phase
-10.2–10.12 control-plane registries/routing/fallback/execution/governance: IMPLEMENTED/CONTROLLED per roadmap
-11.1–11.4 Tool/MCP gateway boundary: IMPLEMENTED/CONTROLLED per roadmap
-memory_authority: chatbending
+1.1 ARIA Core Identity: IMPLEMENTED — pure identity/context, no secrets/network/execution
+1.2 Session Engine: IMPLEMENTED — active/paused/closed lifecycle, injectable persistence boundary
+1.3 Planning Engine: IMPLEMENTED — validated plans only, no execution authority, dependency validation
+1.4 Task State Machine: IMPLEMENTED — explicit fail-closed transitions, terminal completed/cancelled states
+1.5 Self-State: IMPLEMENTED — read-only allowlisted snapshot, no credential/secret export
+
+aria-execution-engine-v1.1.0
+package-version: 1.3.0
+9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate
+9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — additional real client connections remain pending
+10.9 Tool Registry: PASS
+10.10 Observability: PASS (span_id + timestamp + canonical validate)
+10.11 Health/Availability: DESIGN CONTROLLED — aria-health-availability-v1.0.0, unknown-by-default; explicit probe boundary; no live probes enabled
+10.12 Governance: DESIGN CONTROLLED — aria-governance-v1.0.0, fail-closed; no live execution
+10.13 Adapter Boundary: PASS (consolidation on 10.8)
+10.14 Universal/Cost-Latency: NOT IMPLEMENTED (STOP — ownership not recoverable)
+11.1 Tool/MCP Gateway: CONTROLLED RUNTIME — aria-tool-mcp-gateway-v1.1.0, governed injected-adapter dispatch; live dispatch disabled by default
+11.2 Tool Router: CONTROLLED RUNTIME — aria-tool-router-v1.1.0, deterministic registry-backed selection; no authorization/execution authority
+11.3 Tool Operation Planner: CONTROLLED RUNTIME — ordered scope-preserving normalization; no execution authority
+11.4 Tool Adapter Boundary: CONTROLLED RUNTIME — governed injected adapter boundary; protocol-specific I/O remains adapter-owned
+Block A1 Credential Secret Boundary: DESIGN CONTROLLED — resolver injected; no secrets stored or returned
+Block A2 Human Approval Store: DESIGN CONTROLLED — durable adapter + Supabase migration; no auto-approval
+Block A3 Health Observation: DESIGN CONTROLLED — injectable HTTP probe boundary; live probing remains disabled by default
+Block B1 Concrete Credential Resolver: IMPLEMENTED — injected secret-store boundary; canonical refs only; no persistence
+Block B2 OpenRouter Adapter Execution: IMPLEMENTED — one-call provider adapter; credential passed only to transport
+Block B3 Execution Wiring: IMPLEMENTED — async resolver support; existing governance/routing/quota gates preserved
+Block B4 Verification: COMPLETE — dedicated tests added and included in npm test
+Block C11 Stage 11 Gateway/Router/Planner/Adapter: IMPLEMENTED — controlled end-to-end boundary with fail-closed authorization, deterministic planning, injected adapter dispatch and sensitive-output rejection
+Block C Verification: COMPLETE — dedicated integration/security coverage included in npm test
+memory_authority: none
 canonical_write: false
 live_execution: not_performed_without_explicit_production_credentials
+credential_resolver: INJECTED CONCRETE RESOLVER AVAILABLE
