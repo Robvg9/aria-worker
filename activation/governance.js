@@ -49,6 +49,7 @@ function createGovernanceAuthorizer({ approvalStore, policy = null, now = () => 
     const binding = {
       request_id: input.request_id,
       execution_id: input.execution_id,
+      task_id: input.task_id ?? null,
       tool_id: input.tool_id,
       operation,
       risk_class,
