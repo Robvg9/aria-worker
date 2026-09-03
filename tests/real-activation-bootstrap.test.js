@@ -19,5 +19,14 @@ const { createAriaRuntime } = require('../activation/bootstrap');
   assert.equal(typeof aria.core.planning.makePlan, 'function');
   assert.equal(typeof aria.core.taskState.transition, 'function');
   assert.equal(typeof aria.core.selfState.createSelfStateProvider, 'function');
+
+  const approvalStore = {
+    async get() { return null; },
+    async canExecute() { return false; }
+  };
+  const governed = createAriaRuntime({ governance:{ approvalStore } });
+  assert.equal(typeof governed.governance.authorize, 'function');
+  assert.equal(governed.activation.resolver !== undefined, true);
+
   console.log('REAL ACTIVATION BOOTSTRAP PASS');
 })();
