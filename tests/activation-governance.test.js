@@ -4,7 +4,6 @@ const assert = require('node:assert/strict');
 const { createGovernanceAuthorizer, toGovernanceAuthorization } = require('../activation/governance');
 
 const binding = {
-  authorization_id: 'auth_1',
   request_id: 'req_1',
   execution_id: 'exec_1',
   task_id: 'task_1',
@@ -39,6 +38,7 @@ function record(overrides = {}) {
 
 assert.equal(toGovernanceAuthorization(record({ status: 'pending' })).decision, 'pending_approval');
 assert.equal(toGovernanceAuthorization(record({ status: 'revoked' })).decision, 'rejected');
+assert.equal(toGovernanceAuthorization(record()).evidence_ref, 'approval://auth_1');
 
 const approvalStore = {
   async get(id) {
@@ -55,7 +55,7 @@ const approvalStore = {
 
 (async () => {
   const authorize = createGovernanceAuthorizer({ approvalStore, now: () => new Date('2026-09-03T12:00:00Z') });
-  const approved = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: binding });
+  const approved = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, authorization_id: 'auth_1' } });
   assert.deepEqual(approved, { status: 'approved', approved_to_execute: true, authorization_id: 'auth_1' });
 
   const missing = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, authorization_id: undefined } });
@@ -64,7 +64,7 @@ const approvalStore = {
   const pending = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, authorization_id: 'auth_pending' } });
   assert.deepEqual(pending, { status: 'pending_approval', approved_to_execute: false, reason: 'human_gate_required', authorization_id: 'auth_pending' });
 
-  const mismatched = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, target: { owner: 'other', repo: 'aria-worker' } } });
+  const mismatched = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, authorization_id: 'auth_1', target: { owner: 'other', repo: 'aria-worker' } } });
   assert.deepEqual(mismatched, { status: 'blocked', reason: 'authorization_scope_mismatch' });
 
   const unknown = await authorize({ connector_id: 'github', operation: 'repo_read', risk_class: 'READ', input: { ...binding, authorization_id: 'auth_unknown' } });
