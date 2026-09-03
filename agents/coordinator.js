@@ -11,9 +11,9 @@ async function runAgentDelegation({ registry, from = 'aria', agent_id, task_id, 
     const message = createAgentMessage({ message_id: `${task_id}:delegation`, task_id, from, to: agent_id, type: 'task', payload: { objective, request }, depth: plan.depth });
     if (typeof executeAgent !== 'function') return { status: 'blocked', reason: 'executor_not_injected', message };
     const raw = await executeAgent(message, plan);
-    const result = normalizeAgentResult({ agent_id, task_id, ...(raw || {}) });
+    const result = normalizeAgentResult({ ...(raw || {}), agent_id, task_id });
     return { status: 'completed', plan, result };
-  } catch (e) {
+  } catch (_) {
     return { status: 'failed', plan, result: normalizeAgentResult({ agent_id, task_id, status: 'failed', error: 'agent_execution_failed', verified: false }) };
   } finally { guard.finished(); }
 }
