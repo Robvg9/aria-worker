@@ -26,6 +26,7 @@ const { adapters } = require('../activation/connectors');
   for (const id of ['github','supabase','cloudflare','notion','web','image','filesystem']) {
     assert.equal(typeof adapters[id].execute, 'function');
     assert.equal(typeof adapters[id].health, 'function');
+    for (const operation of adapters[id].descriptor.operations) assert.ok(adapters[id].descriptor.operation_risk[operation], `${id}:${operation} risk declared`);
   }
 
   const calls = [];
@@ -78,6 +79,16 @@ const { adapters } = require('../activation/connectors');
   assert.equal(calls.length, beforeApproved + 1);
   assert.match(calls.at(-1).url, /actions\/workflows\/ci\.yml\/dispatches$/);
   assert.equal(calls.at(-1).opts.method, 'POST');
+
+  const downgrade = await runtime2.execute('github','workflow_dispatch',{risk_class:'READ',owner:'Robvg9',repo:'aria-worker',workflow_id:'ci.yml'});
+  assert.equal(downgrade.status, 'blocked');
+  assert.equal(downgrade.reason, 'risk_class_insufficient');
+
+  const write = await runtime2.execute('github','file_write',{risk_class:'LOW_RISK_WRITE',owner:'Robvg9',repo:'aria-worker',path:'tmp.txt',message:'test',content:'hello',sha:'abc',branch:'test'});
+  assert.equal(write.status, 'succeeded');
+  assert.match(calls.at(-1).url, /\/contents\/tmp\.txt$/);
+  const writeBody = JSON.parse(calls.at(-1).opts.body);
+  assert.equal(writeBody.content, Buffer.from('hello').toString('base64'));
 
   const missing = createActivationRuntime({ manifest:DEFAULT_MANIFEST, env:{}, fetchImpl:fakeFetch, authorize:async()=>({status:'approved'}) });
   const p = await missing.probe(DEFAULT_MANIFEST[0]);
