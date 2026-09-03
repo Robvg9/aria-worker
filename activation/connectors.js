@@ -9,6 +9,7 @@ function authHeaders(secret, kind='bearer') {
   return { Authorization:`Bearer ${secret}` };
 }
 function providerRequest(c, options) { return request({ ...options, redaction_secrets:c.secret ? [c.secret] : [] }); }
+function base64(value) { const text=String(value||''); if(typeof Buffer!=='undefined') return Buffer.from(text,'utf8').toString('base64'); if(typeof btoa==='function') return btoa(unescape(encodeURIComponent(text))); throw new Error('base64_unavailable'); }
 function createAdapter(descriptor, call) { return Object.freeze({ descriptor, async health(ctx={}) { return call('health',ctx); }, async execute(operation,ctx={}) { return call(operation,ctx); } }); }
 
 const adapters = {
@@ -17,7 +18,7 @@ const adapters = {
     if(op==='health') return providerRequest(c,{url:`${base}/rate_limit`,headers:h,fetchImpl:c.fetchImpl});
     if(op==='repo_read') return providerRequest(c,{url:`${base}/repos/${owner}/${repo}`,headers:h,fetchImpl:c.fetchImpl});
     if(op==='file_read') return providerRequest(c,{url:`${base}/repos/${owner}/${repo}/contents/${c.path}`,headers:h,fetchImpl:c.fetchImpl});
-    if(op==='file_write') return providerRequest(c,{url:`${base}/repos/${owner}/${repo}/contents/${c.path}`,method:'PUT',headers:{...h,'Content-Type':'application/json'},body:{message:c.message,content:Buffer.from(String(c.content||''),'utf8').toString('base64'),sha:c.sha,branch:c.branch,committer:c.committer,author:c.author},fetchImpl:c.fetchImpl});
+    if(op==='file_write') return providerRequest(c,{url:`${base}/repos/${owner}/${repo}/contents/${c.path}`,method:'PUT',headers:{...h,'Content-Type':'application/json'},body:{message:c.message,content:base64(c.content),sha:c.sha,branch:c.branch,committer:c.committer,author:c.author},fetchImpl:c.fetchImpl});
     if(op==='branch_create') return providerRequest(c,{url:`${base}/repos/${owner}/${repo}/git/refs`,method:'POST',headers:{...h,'Content-Type':'application/json'},body:{ref:`refs/heads/${c.branch}`,sha:c.sha},fetchImpl:c.fetchImpl});
     if(op==='pull_request') return providerRequest(c,{url:`${base}/repos/${owner}/${repo}/pulls`,method:'POST',headers:{...h,'Content-Type':'application/json'},body:{title:c.title,head:c.head,base:c.base,body:c.body,draft:c.draft,maintainer_can_modify:c.maintainer_can_modify},fetchImpl:c.fetchImpl});
     if(op==='workflow_dispatch') return providerRequest(c,{url:`${base}/repos/${owner}/${repo}/actions/workflows/${c.workflow_id}/dispatches`,method:'POST',headers:{...h,'Content-Type':'application/json'},body:{ref:c.ref||'main',inputs:c.inputs||{}},fetchImpl:c.fetchImpl});
