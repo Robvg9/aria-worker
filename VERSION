@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 2.4.4
+package-version: 2.4.5
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity, sessions, planning, task state, self-state
 BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager boundary, credential boundary, discovery, permissions, governed multi-tool execution, recovery
 BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED AS CONTROLLED ADAPTER BOUNDARIES — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web/Research, Filesystem/Workspace, Image/Multimedia; live provider activation remains credential/configuration dependent
@@ -7,7 +7,7 @@ BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED — task coordination, dependency resolu
 BLOCK 5/9 SELF-DEVELOPMENT: IMPLEMENTED AS GOVERNED ENGINE — inspection, diagnosis, planning, code-change boundary, testing, verification, rollback, documentation
 BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED AS BOUNDED AUTONOMY CORE — policy, goals, queue, scheduler, loop, resource limits, stop control, coordinator
 BLOCK 7/9 MULTI-IA: IMPLEMENTED AS PROVIDER-NEUTRAL CONTROL PLANE — registry, capabilities, envelopes, normalization, selection, fallback, coordination, result isolation; external clients remain opt-in
-BLOCK 8/9 MULTI-AGENT: IMPLEMENTED — governed registry, scopes, delegation, coordinator, messaging, hierarchy/resource guards, verification/recovery, governance/audit
+BLOCK 8/9 MULTI-AGENT: IMPLEMENTED — governed registry, scopes, delegation, coordinator, messaging, hierarchy/resource guards, verification/recovery, audit
 BLOCK 9/9 ARIA PLATFORM: IMPLEMENTED — platform registry, extension contract, lifecycle manager, tool/agent/connector/plugin factories, capability discovery, internal marketplace, bounded scheduler, continuous maintenance, platform coordinator
 9.1 Platform Registry & Extension Contract: IMPLEMENTED
 9.2 Plugin Lifecycle Manager: IMPLEMENTED

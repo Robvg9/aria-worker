@@ -12,11 +12,17 @@ const autonomy = require('../autonomy/coordinator');
 const multiIA = require('../multi-ia/coordinator');
 const agents = require('../agents/coordinator');
 const platform = require('../platform/coordinator');
+const { createGovernanceAuthorizer } = require('./governance');
 const { createActivationRuntime } = require('./runtime');
 const { version } = require('../package.json');
 
 function createAriaRuntime(options = {}) {
-  const activation = createActivationRuntime(options.activation || {});
+  const governanceOptions = options.governance || {};
+  const governanceAuthorize = governanceOptions.approvalStore
+    ? createGovernanceAuthorizer(governanceOptions)
+    : null;
+  const activationOptions = { ...(options.activation || {}) };
+  if (!activationOptions.authorize && governanceAuthorize) activationOptions.authorize = governanceAuthorize;
   return Object.freeze({
     identity: coreIdentity,
     core: { session, planning, taskState, selfState },
@@ -27,7 +33,8 @@ function createAriaRuntime(options = {}) {
     multiIA,
     agents,
     platform,
-    activation,
+    governance: Object.freeze({ authorize: governanceAuthorize }),
+    activation: createActivationRuntime(activationOptions),
     version
   });
 }

@@ -52,8 +52,20 @@ function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.en
     if (RISK_ORDER[requestedRisk] < RISK_ORDER[declaredRisk]) return { status:'blocked', reason:'risk_class_insufficient', required:declaredRisk };
     if (typeof authorize !== 'function') return { status:'blocked', reason:'authorization_unavailable' };
     const authorizationInput = { ...(context.input || {}) };
-    for (const key of ['owner','repo','path','branch','workflow_id','ref','project_ref','account_id','script_name','page_id','url','slug']) if (context[key] !== undefined) authorizationInput[key] = context[key];
-    const auth = await authorize({ connector_id:id, operation, risk_class:declaredRisk, input:authorizationInput });
+    for (const key of ['owner','repo','path','branch','workflow_id','ref','project_ref','account_id','script_name','page_id','url','slug','authorization_id','execution_id','request_id','task_id','tool_id','target','policy_version']) if (context[key] !== undefined) authorizationInput[key] = context[key];
+    const auth = await authorize({
+      connector_id:id,
+      operation,
+      risk_class:declaredRisk,
+      input:authorizationInput,
+      authorization_id: context.authorization_id ?? authorizationInput.authorization_id ?? null,
+      execution_id: context.execution_id ?? authorizationInput.execution_id ?? null,
+      request_id: context.request_id ?? authorizationInput.request_id ?? null,
+      task_id: context.task_id ?? authorizationInput.task_id ?? null,
+      tool_id: context.tool_id ?? authorizationInput.tool_id ?? null,
+      target: context.target ?? authorizationInput.target ?? null,
+      policy_version: context.policy_version ?? authorizationInput.policy_version ?? null
+    });
     if (!auth || auth.status !== 'approved') return { status:'blocked', reason:'authorization_not_approved' };
     const cred = entry.credential_ref ? await resolver.resolve(entry.credential_ref) : { status:'resolved', secret:null };
     if (cred.status !== 'resolved') return { status:'blocked', reason:'credential_unconfigured' };
