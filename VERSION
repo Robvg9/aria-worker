@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 2.1.0
+package-version: 2.2.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED
 BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED
 BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED
@@ -15,6 +15,15 @@ BLOCK 7/9 MULTI-IA: IMPLEMENTED — provider-neutral adapter registry, capabilit
 7.6 Bounded Multi-IA Fallback: IMPLEMENTED
 7.7 Multi-IA Coordinator: IMPLEMENTED
 7.8 External-Result Isolation Boundary: IMPLEMENTED
+BLOCK 8/9 MULTI-AGENT: IMPLEMENTED — governed agent registry, bounded delegation, scoped actions, inter-agent messaging, hierarchy/resource limits, verification, recovery and audit
+8.1 Agent Registry & Identity: IMPLEMENTED
+8.2 Agent Capability/Scope Model: IMPLEMENTED
+8.3 Delegation Planner: IMPLEMENTED
+8.4 Agent Execution Coordinator: IMPLEMENTED
+8.5 Inter-Agent Messaging & Result Contract: IMPLEMENTED
+8.6 Hierarchy/Depth & Resource Guard: IMPLEMENTED
+8.7 Agent Verification & Recovery: IMPLEMENTED
+8.8 Multi-Agent Governance & Audit: IMPLEMENTED
 
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
