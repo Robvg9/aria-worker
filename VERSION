@@ -1,11 +1,19 @@
 aria-core-v1.0.0
-package-version: 1.5.0
+package-version: 1.6.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
 1.1 ARIA Core Identity: IMPLEMENTED — pure identity/context, no secrets/network/execution
 1.2 Session Engine: IMPLEMENTED — active/paused/closed lifecycle, injectable persistence boundary
 1.3 Planning Engine: IMPLEMENTED — validated plans only, no execution authority, dependency validation
 1.4 Task State Machine: IMPLEMENTED — explicit fail-closed transitions, terminal completed/cancelled states
 1.5 Self-State: IMPLEMENTED — read-only allowlisted snapshot, no credential/secret export
+BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager, credential manager, discovery, permission resolution, governed multi-tool execution, recovery
+2.1 Tool Registry Runtime: IMPLEMENTED — validated runtime registry with stable IDs and fail-safe status/risk vocabularies
+2.2 Connector Manager: IMPLEMENTED — injectable interface probes and status synchronization; no protocol-specific execution
+2.3 Credential Manager Runtime: IMPLEMENTED — canonical secret:// references only; secret resolution remains injected
+2.4 Tool Discovery: IMPLEMENTED — capability/operation/interface discovery; unknown tools excluded by default
+2.5 Permission Resolver: IMPLEMENTED — risk-aware authorization boundary; high-risk/destructive require approval evidence
+2.6 Multi-tool Execution: IMPLEMENTED — ordered dependency-aware execution through router + gateway; no bypass of governance
+2.7 Tool Recovery: IMPLEMENTED — bounded deterministic recovery; non-retryable authorization/credential failures fail closed
 
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
