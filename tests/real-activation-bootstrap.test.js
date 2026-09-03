@@ -14,5 +14,7 @@ const { createAriaRuntime } = require('../activation/bootstrap');
   assert.equal(typeof aria.selfDevelopment, 'object');
   assert.equal(typeof aria.multiIA.runMultiIA, 'function');
   assert.equal(typeof aria.agents.runAgentDelegation, 'function');
+  assert.equal(typeof aria.core, 'object');
+  assert.ok(Object.hasOwn(aria.core, 'session'));
   console.log('REAL ACTIVATION BOOTSTRAP PASS');
 })();
