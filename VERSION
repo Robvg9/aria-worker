@@ -1,3 +1,12 @@
+aria-core-v1.0.0
+package-version: 1.5.0
+BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
+1.1 ARIA Core Identity: IMPLEMENTED — pure identity/context, no secrets/network/execution
+1.2 Session Engine: IMPLEMENTED — active/paused/closed lifecycle, injectable persistence boundary
+1.3 Planning Engine: IMPLEMENTED — validated plans only, no execution authority, dependency validation
+1.4 Task State Machine: IMPLEMENTED — explicit fail-closed transitions, terminal completed/cancelled states
+1.5 Self-State: IMPLEMENTED — read-only allowlisted snapshot, no credential/secret export
+
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
 9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate
