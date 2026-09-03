@@ -1,6 +1,6 @@
 # ARIA — Fase de Activación e Integración Real
 
-Version: 2.4.2
+Version: 2.4.3
 Estado: PR de preparación para merge; **no merge** hasta completar CI final.
 
 ## Objetivo
@@ -59,7 +59,9 @@ Los conectores externos usan referencias canónicas `secret://provider/account`.
 
 `npm run test:activation` ejecuta pruebas con transports simulados pero usando las mismas rutas, headers y contratos de los adapters LIVE.
 
-La suite también verifica: cobertura de risk contracts, rechazo de downgrade de riesgo, codificación Base64 de GitHub Contents, bloqueo por origen no confiable, redacción exacta de secretos y bootstrap de todas las piezas del Core.
+La suite verifica: cobertura de risk contracts, rechazo de downgrade de riesgo, codificación Base64 de GitHub Contents, bloqueo por origen no confiable, redacción exacta de secretos y bootstrap de todas las piezas del Core.
+
+`npm run smoke:live` activa para probing los conectores externos que tengan su credential_ref configurado en el entorno y deja desactivados los que no tengan credencial.
 
 ## Activación humana posterior al merge
 
