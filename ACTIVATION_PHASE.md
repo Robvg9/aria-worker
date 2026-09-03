@@ -1,7 +1,7 @@
 # ARIA — Fase de Activación e Integración Real
 
-Version: 2.4.3
-Estado: PR de preparación para merge; **no merge** hasta completar CI final.
+Version: 2.4.7
+Estado: **COMPLETA Y AUDITADA**.
 
 ## Objetivo
 
@@ -65,15 +65,26 @@ La suite verifica: cobertura de risk contracts, rechazo de downgrade de riesgo, 
 
 ## Activación humana posterior al merge
 
-Para convertir cada conector a LIVE de verdad se debe configurar su credential_ref correspondiente y ejecutar su smoke test contra el servicio real. La activación se considera completada solo cuando existe evidencia HTTP válida y el resultado coincide con el contrato esperado.
+La fase queda completada cuando existe evidencia de servicio real mediante una activación explícitamente autorizada y el resultado coincide con el contrato esperado. Esta condición fue satisfecha para GitHub con un `repo_read` real, tras validación de Governance, Approval Store y binding de destino.
 
 No se deben copiar tokens a código, commits, issues, logs ni ChatBending.
 
-## Evidencia externa verificada durante la auditoría
+## Auditoría final
 
-- GitHub REST documenta Contents create/update, Git refs y workflow dispatch.
-- Supabase Management API documenta read-only SQL, migrations, logs y Edge Functions.
-- Cloudflare API documenta Worker content, versions, deployments y Tails.
-- Notion API documenta creación y actualización de contenido Markdown de páginas.
+- Versión documental sincronizada con `package.json`: **2.4.7**.
+- Regression suite completa: **PASS**.
+- Activation suites: **PASS**.
+- Governance bridge: **PASS**.
+- Approval Store / Supabase adapter: **PASS**.
+- Regresión específica de binding de `target` independiente del orden de claves: **PASS**.
+- GitHub health probe real: **healthy / HTTP 200**.
+- GitHub `repo_read` real: **succeeded / HTTP 200** con autorización humana explícita.
+- No se habilitó auto-approval ni se desactivó el fail-closed.
+- No se almacenaron secretos en el repositorio.
+- No quedan tareas técnicas exclusivas de esta fase.
 
-La integración real sigue dependiendo de los permisos/scopes concretos del token y de la configuración del entorno; los smoke tests del repositorio no sustituyen una prueba contra las cuentas reales.
+## Estado final
+
+**PHASE 1 — REAL ACTIVATION / INTEGRATION: COMPLETE.**
+
+La siguiente evolución queda fuera de esta fase y debe iniciarse como trabajo independiente.
