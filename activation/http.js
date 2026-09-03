@@ -1,5 +1,7 @@
 'use strict';
 
+const { redact } = require('./redaction');
+
 function sanitizeHeaders(headers = {}) {
   const blocked = /authorization|api[-_]?key|token|secret|password/i;
   const out = {};
@@ -21,7 +23,7 @@ async function request({ url, method='GET', headers={}, body, fetchImpl=globalTh
     const text = await response.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text ? { raw: text } : null; }
-    return { ok: response.ok, status: response.status, data, diagnostics:{ method, url, headers:sanitizeHeaders(headers) } };
+    return { ok: response.ok, status: response.status, data: redact(data), diagnostics:{ method, url, headers:sanitizeHeaders(headers) } };
   } finally {
     if (timer) clearTimeout(timer);
   }
