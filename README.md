@@ -1,10 +1,12 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-Current package version: **2.4.3**.
+Current package version: **2.4.7**.
 
 This repository contains ARIA's governed control-plane, execution adapters, autonomous layers and the real-activation integration runtime. Architecture completion does not imply that every external account is configured or that production operations have been executed.
 
 ## Real Activation / Integration — Phase 1
+
+**Status: COMPLETE AND AUDITED.** Phase 1 has been validated with the full regression suite and a real, explicitly human-approved GitHub `repo_read` E2E. No remaining technical work belongs exclusively to this phase.
 
 `activation/` is the operational bridge from declared connectors to real service calls.
 
@@ -34,9 +36,9 @@ External operations are never enabled merely because a connector exists. A conne
 
 ### External API surfaces verified for this phase
 
-GitHub REST supports repository Contents writes, Git refs and workflow dispatch. Supabase Management API supports read-only SQL, migrations, logs and Edge Functions. Cloudflare Workers API supports script content, versions, deployments and Tails. Notion API supports page search/read and Markdown content updates.
+The activation architecture defines controlled adapter boundaries for GitHub, Supabase, Cloudflare and Notion/ChatBending, with host/provider boundaries for Web, Filesystem/Workspace and Image/Multimedia.
 
-The implementation keeps protocol-specific details behind adapters. Provider-specific permissions/scopes and runtime payloads remain explicit; tests use mock transports and do not claim production connectivity.
+The implementation keeps protocol-specific details behind adapters. Provider-specific permissions/scopes and runtime payloads remain explicit. The phase's live validation includes GitHub repository-read execution through the governed runtime; other providers remain configuration-dependent and are not claimed as live-verified merely by contract tests.
 
 ## Existing architecture
 
@@ -48,4 +50,4 @@ Provider → Model → Capability → Account → Quota → Router → Fallback 
 Core → Tools → Connectors → Execution → Self-Development → Autonomy → Multi-IA → Multi-Agent → Platform → Activation
 ```
 
-The Grok external-client flow remains opt-in and paused; it is not required for the real-service activation layer described here.
+The Grok external-client flow remains opt-in and paused; it is not required for the completed real-service activation layer described here.
