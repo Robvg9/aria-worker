@@ -52,14 +52,15 @@ const adapters = {
     if(op==='page_write') return providerRequest(c,{url:`${base}/pages/${encodeURIComponent(c.page_id)}/markdown`,method:'PATCH',headers:{...h,'Content-Type':'application/json'},body:c.update_content||c.markdown_update,fetchImpl:c.fetchImpl});
     return {ok:false,status:400,data:{error:'unsupported_operation'}};
   }),
-  web: createAdapter({connector_id:'web',operations:['fetch'],operation_risk:{fetch:'READ'}}, async (op,c) => op==='health' ? {ok:true,status:200,data:{status:'ready'}} : request({url:c.url,method:c.method||'GET',headers:c.headers||{},body:c.body,fetchImpl:c.fetchImpl})),
+  web: createAdapter({connector_id:'web',operations:['fetch'],operation_risk:{fetch:'READ'}}, async (op,c) => op==='health' ? {ok:typeof c.fetchImpl==='function',status:typeof c.fetchImpl==='function'?200:503,data:{status:typeof c.fetchImpl==='function'?'ready':'fetch_unavailable'}} : request({url:c.url,method:c.method||'GET',headers:c.headers||{},body:c.body,fetchImpl:c.fetchImpl})),
   filesystem: createAdapter({connector_id:'filesystem',operations:['read','write','list'],operation_risk:{read:'READ',write:'HIGH_RISK_WRITE',list:'READ'}}, async (op,c) => {
-    if(op==='health') return {ok:true,status:200,data:{status:'ready'}};
+    if(op==='health') return {ok:typeof c.hostRuntime?.health==='function',status:typeof c.hostRuntime?.health==='function'?200:503,data:{status:typeof c.hostRuntime?.health==='function'?'ready':'host_runtime_unavailable'}};
     if(typeof c.hostRuntime !== 'object' || c.hostRuntime === null) return {ok:false,status:503,data:{error:'filesystem_host_runtime_required'}};
     if(typeof c.hostRuntime[op] !== 'function') return {ok:false,status:501,data:{error:'filesystem_operation_not_bound'}};
     const value=await c.hostRuntime[op](c); return {ok:true,status:200,data:value};
   }),
   image: createAdapter({connector_id:'image',operations:['generate','edit'],operation_risk:{generate:'LOW_RISK_WRITE',edit:'LOW_RISK_WRITE'}}, async (op,c) => {
+    if(op==='health') return {ok:typeof c.providerRuntime?.health==='function',status:typeof c.providerRuntime?.health==='function'?200:503,data:{status:typeof c.providerRuntime?.health==='function'?'ready':'provider_runtime_unavailable'}};
     if(typeof c.providerRuntime !== 'object' || c.providerRuntime === null || typeof c.providerRuntime[op] !== 'function') return {ok:false,status:503,data:{error:'image_provider_runtime_required'}};
     const value=await c.providerRuntime[op](c); return {ok:true,status:200,data:value};
   })
