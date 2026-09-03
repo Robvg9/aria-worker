@@ -17,7 +17,7 @@
     "credential": "secret://cloudflare/default",
     "health": "GET /accounts/{account_id}",
     "read": ["account_read","worker_read","deployments_read","logs"],
-    "write": ["deployment_create","worker_write"],
+    "write": ["worker_write","deployment_create"],
     "write_requires_governance": true
   },
   "notion": {
@@ -27,7 +27,7 @@
     "write": ["page_write"],
     "write_requires_governance": true
   },
-  "web": { "credential": null, "read": ["fetch","search"], "write_requires_governance": true },
+  "web": { "credential": null, "read": ["fetch"], "write_requires_governance": true },
   "filesystem": { "credential": null, "read": ["read","list"], "write": ["write"], "write_requires_governance": true },
   "image": { "credential": null, "read": [], "write": ["generate","edit"], "write_requires_governance": true }
 }
