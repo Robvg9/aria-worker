@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 2.4.2
+package-version: 2.4.3
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity, sessions, planning, task state, self-state
 BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager boundary, credential boundary, discovery, permissions, governed multi-tool execution, recovery
 BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED AS CONTROLLED ADAPTER BOUNDARIES — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web/Research, Filesystem/Workspace, Image/Multimedia; live provider activation remains credential/configuration dependent
@@ -19,7 +19,7 @@ BLOCK 9/9 ARIA PLATFORM: IMPLEMENTED — platform registry, extension contract, 
 9.8 Continuous Maintenance: IMPLEMENTED — injected inspection/repair/test/document pipeline
 9.9 Platform Coordinator: IMPLEMENTED — governed extension registration, activation, publishing, scheduling and inspection
 
-PHASE 1 — REAL ACTIVATION / INTEGRATION: IMPLEMENTED IN PR — runtime configuration manifest, environment-backed credential resolver, live connector adapters, health probes, governance-bound dispatch, response redaction, activation smoke tests, human/live activation runbook. Phase 2 audit fixes applied: provider-origin allowlist, adapter-declared risk enforcement, complete provider operation contracts, exact-secret response redaction, truthful host-runtime health, and full ARIA core bootstrap wiring. Merge pending final CI verification.
+PHASE 1 — REAL ACTIVATION / INTEGRATION: AUDITED IN PR — runtime configuration manifest, environment-backed credential resolver, live connector adapters, health probes, governance-bound dispatch, response redaction, activation smoke tests, human/live activation runbook. Phase 2 audit fixes: trusted provider origins, adapter-declared risk enforcement, provider operation contracts, exact-secret redaction, truthful host-runtime health, actual Core bootstrap paths, and live smoke enabling for configured providers. Merge pending final CI verification.
 
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
