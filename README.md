@@ -1,6 +1,6 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-Current package version: **2.4.2**.
+Current package version: **2.4.3**.
 
 This repository contains ARIA's governed control-plane, execution adapters, autonomous layers and the real-activation integration runtime. Architecture completion does not imply that every external account is configured or that production operations have been executed.
 
@@ -16,7 +16,7 @@ This repository contains ARIA's governed control-plane, execution adapters, auto
 - `activation/connectors.js` — live adapter surfaces for GitHub, Supabase, Cloudflare and Notion, plus explicit host/provider boundaries for Web, Filesystem and Image/Multimedia.
 - `activation/runtime.js` — health probes, state snapshot and governance-bound execution with operation-risk enforcement.
 - `activation/bootstrap.js` — unified ARIA runtime entry point including the actual Core module paths.
-- `activation/live-smoke.js` — real-environment smoke runner; it reports only redacted state.
+- `activation/live-smoke.js` — real-environment smoke runner that probes credentialed providers actually configured in the environment.
 - `activation/integration-matrix.json` — connector/capability/risk matrix.
 - `ACTIVATION_PHASE.md` — operator runbook and activation gate.
 
