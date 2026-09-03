@@ -16,12 +16,13 @@ function hasString(value) {
 
 function toGovernanceAuthorization(record) {
   if (!record || typeof record !== 'object') return null;
+  const evidenceRef = record.verification_ref ?? (record.authorization_id ? `approval://${record.authorization_id}` : null);
   return {
     ...record,
     decision: DECISION_MAP[record.status] || 'invalid',
     reviewed_by: record.approved_by ?? null,
     reviewed_at: record.approved_at ?? null,
-    evidence_ref: record.verification_ref ?? null
+    evidence_ref: evidenceRef
   };
 }
 
