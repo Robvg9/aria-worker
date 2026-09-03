@@ -17,7 +17,7 @@ const { recoverAgent } = require('../agents/recovery');
   registry.register({ id:'blocked', role:'helper', capabilities:['research'], status:'blocked' });
   assert.equal(registry.available('research'), true);
   assert.equal(registry.get('research').max_risk, 'medium');
-  assert.equal(registry.get('blocked'), null === false ? false : true);
+  assert.equal(registry.available('blocked'), false);
 
   const scope = createScope({ capabilities:['research'], tools:['web'], operations:['search'], max_risk:'medium' });
   assert.equal(scopeAllows(scope,{ capability:'research', tool:'web', operation:'search', risk:'low' }), true);
@@ -35,13 +35,16 @@ const { recoverAgent } = require('../agents/recovery');
   assert.equal(verifyAgentResult(result).verified, true);
   assert.equal(acceptVerifiedResult(result), true);
   assert.equal(acceptVerifiedResult({ ...result, verified:false }), false);
+  assert.equal(verifyAgentResult({ ...result, output:'api_key=LEAK' }).reason, 'sensitive_output');
 
   const guard = createAgentGuard({ max_depth:1, max_agents:1, max_steps:2 });
   assert.equal(guard.canSpawn(0), true); assert.equal(guard.spawned(), true); assert.equal(guard.canSpawn(0), false); guard.finished();
 
-  const out = await runAgentDelegation({ registry, agent_id:'research', task_id:'t4', objective:'find', request:{ capability:'research', risk:'low' }, executeAgent: async () => ({ status:'succeeded', output:'done', verified:true }) });
+  const out = await runAgentDelegation({ registry, agent_id:'research', task_id:'t4', objective:'find', request:{ capability:'research', risk:'low' }, executeAgent: async () => ({ status:'succeeded', output:'done', verified:true, agent_id:'spoof', task_id:'spoof' }) });
   assert.equal(out.status, 'completed');
   assert.equal(out.result.verified, true);
+  assert.equal(out.result.agent_id, 'research');
+  assert.equal(out.result.task_id, 't4');
 
   assert.equal(authorizeAgentAction({ agent:registry.get('research'), request:{ risk:'low' } }).allowed, true);
   assert.equal(authorizeAgentAction({ agent:registry.get('research'), request:{ risk:'high' } }).reason, 'risk_exceeded');
