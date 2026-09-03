@@ -1,11 +1,11 @@
 aria-core-v1.0.0
 package-version: 2.1.0
-BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
-BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager, credential manager, discovery, permission resolution, governed multi-tool execution, recovery
-BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web, Filesystem, Image Generation boundaries
-BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED — coordination, dependencies, multi-step execution, monitoring, recovery, verification, rollback, long-running checkpoints
-BLOCK 5/9 SELF-DEVELOPMENT ENGINE: IMPLEMENTED — inspection, diagnosis, planning, governed change, testing, verification, rollback, documentation, coordination
-BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED — bounded autonomous goals, scheduling, resource limits, verification and fail-safe stop
+BLOCK 1/9 ARIA CORE: IMPLEMENTED
+BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED
+BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED
+BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED
+BLOCK 5/9 SELF-DEVELOPMENT ENGINE: IMPLEMENTED
+BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED
 BLOCK 7/9 MULTI-IA: IMPLEMENTED — provider-neutral adapter registry, capability negotiation, request/response normalization, governed selection, bounded fallback, isolation and coordinator
 7.1 Multi-IA Adapter Registry: IMPLEMENTED
 7.2 Capability Negotiation: IMPLEMENTED
@@ -16,8 +16,9 @@ BLOCK 7/9 MULTI-IA: IMPLEMENTED — provider-neutral adapter registry, capabilit
 7.7 Multi-IA Coordinator: IMPLEMENTED
 7.8 External-Result Isolation Boundary: IMPLEMENTED
 
-Historical execution-engine and governance records retained below.
-9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate; PAUSED
+aria-execution-engine-v1.1.0
+package-version: 1.3.0
+9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — owner-side Grok authorization remains the final external E2E gate; PAUSED
 9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — real external client activation remains deferred until explicitly enabled.
 10.9 Tool Registry: PASS
 10.10 Observability: PASS
