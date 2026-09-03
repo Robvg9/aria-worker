@@ -18,7 +18,6 @@ function toGovernanceAuthorization(record) {
   if (!record || typeof record !== 'object') return null;
   return {
     ...record,
-    task_id: record.task_id ?? null,
     decision: DECISION_MAP[record.status] || 'invalid',
     reviewed_by: record.approved_by ?? null,
     reviewed_at: record.approved_at ?? null,
@@ -43,7 +42,6 @@ function createGovernanceAuthorizer({ approvalStore, policy = null, now = () => 
     const request = {
       execution_id: input.execution_id,
       request_id: input.request_id,
-      task_id: input.task_id ?? null,
       tool_id: input.tool_id,
       operation,
       risk_class,
@@ -51,7 +49,6 @@ function createGovernanceAuthorizer({ approvalStore, policy = null, now = () => 
     const binding = {
       request_id: input.request_id,
       execution_id: input.execution_id,
-      task_id: input.task_id ?? null,
       tool_id: input.tool_id,
       operation,
       risk_class,
