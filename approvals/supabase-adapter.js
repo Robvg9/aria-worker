@@ -16,11 +16,18 @@ function createSupabaseApprovalAdapter(client) {
   }
 
   function sameTarget(left, right) {
-    try {
-      return JSON.stringify(left) === JSON.stringify(right);
-    } catch {
-      return false;
-    }
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object' || Array.isArray(left) || Array.isArray(right)) return false;
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) return false;
+    return leftKeys.every(key => sameTargetValue(left[key], right[key]));
+  }
+
+  function sameTargetValue(left, right) {
+    if (left === right) return true;
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object' || Array.isArray(left) !== Array.isArray(right)) return false;
+    if (Array.isArray(left)) return left.length === right.length && left.every((value, index) => sameTargetValue(value, right[index]));
+    return sameTarget(left, right);
   }
 
   return {
@@ -50,7 +57,6 @@ function createSupabaseApprovalAdapter(client) {
         if (record[key] !== binding[key]) return false;
       }
 
-      if (!binding.target || typeof binding.target !== 'object' || Array.isArray(binding.target)) return false;
       if (!sameTarget(record.target, binding.target)) return false;
 
       const expiresAt = Date.parse(record.expires_at);
