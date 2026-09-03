@@ -14,6 +14,8 @@ function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.en
   function status(id) { return normalizeState(state.get(id)); }
 
   async function probe(entry) {
+    const check = validateConnectorConfig(entry);
+    if (!check.valid) { state.set(entry.connector_id, 'unavailable'); return { connector_id:entry.connector_id, state:'unavailable', healthy:false, reason:check.reason }; }
     const adapter = adapters[entry.connector_id];
     if (!entry.enabled) return { connector_id:entry.connector_id, state:'disabled', healthy:false, reason:'disabled' };
     if (!adapter) { state.set(entry.connector_id,'unavailable'); return { connector_id:entry.connector_id, state:'unavailable', healthy:false, reason:'adapter_missing' }; }
