@@ -1,11 +1,11 @@
 'use strict';
 
 const { DEFAULT_MANIFEST, normalizeManifest } = require('./config');
-const { CONNECTOR_STATES, normalizeState, validateConnectorConfig } = require('./contract');
-const { createEnvironmentSecretResolver } = require('./secrets');
+const { CONNECTOR_STATES, normalizeState, validateConnectorConfig, RISK_CLASSES } = require('./contract');
+const { createEnvironmentSecretResolver, envNameForRef } = require('./secrets');
 const { adapters } = require('./connectors');
 
-function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.env, fetchImpl = globalThis.fetch } = {}) {
+function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.env, fetchImpl = globalThis.fetch, authorize = null } = {}) {
   const entries = normalizeManifest(manifest);
   const resolver = createEnvironmentSecretResolver(env);
   const state = new Map(entries.map(e => [e.connector_id, e.enabled ? 'configured' : 'disabled']));
@@ -46,6 +46,11 @@ function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.en
     const adapter = adapters[id];
     if (!adapter || !adapter.descriptor.operations.includes(operation)) return { status:'blocked', reason:'operation_not_supported' };
     if (status(id) !== 'healthy') return { status:'blocked', reason:'connector_not_healthy', state:status(id) };
+    const risk = context.risk_class || 'READ';
+    if (!RISK_CLASSES.includes(risk)) return { status:'blocked', reason:'invalid_risk_class' };
+    if (typeof authorize !== 'function') return { status:'blocked', reason:'authorization_unavailable' };
+    const auth = await authorize({ connector_id:id, operation, risk_class:risk, input:context.input || {} });
+    if (!auth || auth.status !== 'approved') return { status:'blocked', reason:'authorization_not_approved' };
     const cred = entry.credential_ref ? await resolver.resolve(entry.credential_ref) : { status:'resolved', secret:null };
     if (cred.status !== 'resolved') return { status:'blocked', reason:'credential_unconfigured' };
     const result = await adapter.execute(operation, { ...context, ...entry, secret:cred.secret, fetchImpl });
@@ -53,7 +58,7 @@ function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.en
   }
 
   function snapshot() {
-    return entries.map(entry => ({ connector_id:entry.connector_id, enabled:entry.enabled, state:status(entry.connector_id), required:entry.required, credential_configured: entry.credential_ref ? Boolean(env && env[require('./secrets').envNameForRef(entry.credential_ref)]) : true }));
+    return entries.map(entry => ({ connector_id:entry.connector_id, enabled:entry.enabled, state:status(entry.connector_id), required:entry.required, credential_configured: entry.credential_ref ? Boolean(env && env[envNameForRef(entry.credential_ref)]) : true }));
   }
 
   return Object.freeze({ manifest:entries, snapshot, status, probe, probeAll, execute, resolver });
