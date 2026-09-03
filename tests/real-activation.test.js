@@ -81,9 +81,10 @@ const { adapters } = require('../activation/connectors');
 
   const missing = createActivationRuntime({ manifest:DEFAULT_MANIFEST, env:{}, fetchImpl:fakeFetch, authorize:async()=>({status:'approved'}) });
   const p = await missing.probe(DEFAULT_MANIFEST[0]);
-  assert.equal(p.state, 'unconfigured');
+  assert.equal(p.state, 'disabled');
   const notHealthy = await missing.execute('github','repo_read',{risk_class:'READ',owner:'x',repo:'y'});
   assert.equal(notHealthy.status, 'blocked');
+  assert.equal(notHealthy.reason, 'connector_disabled');
 
   console.log('REAL ACTIVATION TESTS PASS');
 })();
