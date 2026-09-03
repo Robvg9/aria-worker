@@ -33,9 +33,9 @@ assert.equal(registry.get('tool_b').status,'available');
 
   const permission = createPermissionResolver({ approvalStore: { getApproval: async () => ({status:'approved'}) } });
   assert.equal((await permission.resolve({tool:READ, operation:'read', requestedRisk:'read', requestId:'r1', executionId:'e1'})).status,'approved');
-  assert.equal((await permission.resolve({tool:WRITE, operation:'write', requestedRisk:'high_risk_write', requestId:'r1', executionId:'e1'})).status,'approved');
+  assert.equal((await permission.resolve({tool:registry.get('tool_b'), operation:'write', requestedRisk:'high_risk_write', requestId:'r1', executionId:'e1'})).status,'approved');
   const noApproval = createPermissionResolver();
-  assert.equal((await noApproval.resolve({tool:WRITE, operation:'write', requestedRisk:'high_risk_write'})).status,'blocked');
+  assert.equal((await noApproval.resolve({tool:registry.get('tool_b'), operation:'write', requestedRisk:'high_risk_write'})).status,'blocked');
 
   const router = { route: async ({tool_id,operation}) => tool_id && operation ? {status:'selected',tool_id,operation} : {status:'no_route'} };
   const gateway = { execute: async ({route}) => ({status:'succeeded',tool_id:route.tool_id}) };
