@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { DEFAULT_MANIFEST, normalizeManifest, activationSummary } = require('../activation/config');
+const { DEFAULT_MANIFEST, activationSummary } = require('../activation/config');
 const { isSecretRef, validateConnectorConfig } = require('../activation/contract');
 const { envNameForRef, createEnvironmentSecretResolver } = require('../activation/secrets');
 const { createActivationRuntime } = require('../activation/runtime');
@@ -62,15 +62,22 @@ const { adapters } = require('../activation/connectors');
   assert.equal(notion.state, 'healthy');
   assert.match(calls[3].url, /api\.notion\.com\/v1\/users\/me$/);
 
-  const blocked = await runtime.execute('github','workflow_dispatch',{risk_class:'HIGH_RISK_WRITE',input:{}});
+  const blockedRuntime = createActivationRuntime({ manifest, env:{...env}, fetchImpl:fakeFetch, authorize:async()=>({status:'pending'}) });
+  await blockedRuntime.probe(manifest.find(x=>x.connector_id==='github'));
+  const beforeBlocked = calls.length;
+  const blocked = await blockedRuntime.execute('github','workflow_dispatch',{risk_class:'HIGH_RISK_WRITE',input:{}});
   assert.equal(blocked.status, 'blocked');
   assert.equal(blocked.reason, 'authorization_not_approved');
+  assert.equal(calls.length, beforeBlocked);
 
   const runtime2 = createActivationRuntime({ manifest, env:{...env}, fetchImpl:fakeFetch, authorize:async()=>({status:'approved'}) });
   await runtime2.probe(manifest.find(x=>x.connector_id==='github'));
+  const beforeApproved = calls.length;
   const workflow = await runtime2.execute('github','workflow_dispatch',{risk_class:'HIGH_RISK_WRITE',owner:'Robvg9',repo:'aria-worker',workflow_id:'ci.yml',ref:'main',inputs:{}});
   assert.equal(workflow.status, 'succeeded');
+  assert.equal(calls.length, beforeApproved + 1);
   assert.match(calls.at(-1).url, /actions\/workflows\/ci\.yml\/dispatches$/);
+  assert.equal(calls.at(-1).opts.method, 'POST');
 
   const missing = createActivationRuntime({ manifest:DEFAULT_MANIFEST, env:{}, fetchImpl:fakeFetch, authorize:async()=>({status:'approved'}) });
   const p = await missing.probe(DEFAULT_MANIFEST[0]);
