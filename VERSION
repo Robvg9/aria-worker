@@ -1,29 +1,23 @@
 aria-core-v1.0.0
-package-version: 2.2.0
-BLOCK 1/9 ARIA CORE: IMPLEMENTED
-BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED
-BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED
-BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED
-BLOCK 5/9 SELF-DEVELOPMENT ENGINE: IMPLEMENTED
-BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED
-BLOCK 7/9 MULTI-IA: IMPLEMENTED — provider-neutral adapter registry, capability negotiation, request/response normalization, governed selection, bounded fallback, isolation and coordinator
-7.1 Multi-IA Adapter Registry: IMPLEMENTED
-7.2 Capability Negotiation: IMPLEMENTED
-7.3 Provider-Neutral Request Envelope: IMPLEMENTED
-7.4 Response Normalization: IMPLEMENTED
-7.5 Governed IA Selection: IMPLEMENTED
-7.6 Bounded Multi-IA Fallback: IMPLEMENTED
-7.7 Multi-IA Coordinator: IMPLEMENTED
-7.8 External-Result Isolation Boundary: IMPLEMENTED
-BLOCK 8/9 MULTI-AGENT: IMPLEMENTED — governed agent registry, bounded delegation, scoped actions, inter-agent messaging, hierarchy/resource limits, verification, recovery and audit
-8.1 Agent Registry & Identity: IMPLEMENTED
-8.2 Agent Capability/Scope Model: IMPLEMENTED
-8.3 Delegation Planner: IMPLEMENTED
-8.4 Agent Execution Coordinator: IMPLEMENTED
-8.5 Inter-Agent Messaging & Result Contract: IMPLEMENTED
-8.6 Hierarchy/Depth & Resource Guard: IMPLEMENTED
-8.7 Agent Verification & Recovery: IMPLEMENTED
-8.8 Multi-Agent Governance & Audit: IMPLEMENTED
+package-version: 2.3.0
+BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity, sessions, planning, task state, self-state
+BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager boundary, credential boundary, discovery, permissions, governed multi-tool execution, recovery
+BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED AS CONTROLLED ADAPTER BOUNDARIES — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web/Research, Filesystem/Workspace, Image/Multimedia; live provider activation remains credential/configuration dependent
+BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED — task coordination, dependency resolution, multi-step execution, monitoring, recovery, verification, rollback, resumable tasks
+BLOCK 5/9 SELF-DEVELOPMENT: IMPLEMENTED AS GOVERNED ENGINE — inspection, diagnosis, planning, code-change boundary, testing, verification, rollback, documentation
+BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED AS BOUNDED AUTONOMY CORE — policy, goals, queue, scheduler, loop, resource limits, stop control, coordinator
+BLOCK 7/9 MULTI-IA: IMPLEMENTED AS PROVIDER-NEUTRAL CONTROL PLANE — registry, capabilities, envelopes, normalization, selection, fallback, coordination, result isolation; external clients remain opt-in
+BLOCK 8/9 MULTI-AGENT: IMPLEMENTED — governed registry, scopes, delegation, coordinator, messaging, hierarchy/resource guards, verification/recovery, governance/audit
+BLOCK 9/9 ARIA PLATFORM: IMPLEMENTED — platform registry, extension contract, lifecycle manager, tool/agent/connector/plugin factories, capability discovery, internal marketplace, bounded scheduler, continuous maintenance, platform coordinator
+9.1 Platform Registry & Extension Contract: IMPLEMENTED
+9.2 Plugin Lifecycle Manager: IMPLEMENTED
+9.3 Tool Factory: IMPLEMENTED
+9.4 Agent/Connector/Plugin Factories: IMPLEMENTED
+9.5 Capability Discovery: IMPLEMENTED
+9.6 Internal Tool Marketplace: IMPLEMENTED — verification required before publish
+9.7 Scheduled Execution: IMPLEMENTED — explicit due-time scheduler with cancellation
+9.8 Continuous Maintenance: IMPLEMENTED — injected inspection/repair/test/document pipeline
+9.9 Platform Coordinator: IMPLEMENTED — governed extension registration, activation, publishing, scheduling and inspection
 
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
