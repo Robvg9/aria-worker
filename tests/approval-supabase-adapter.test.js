@@ -24,7 +24,18 @@ async function run() {
       return {
         from(table) {
           calls.push(['from', table]);
-          return makeQuery({ authorization_id: 'auth_1', status: 'approved' });
+          return makeQuery({
+            authorization_id: 'auth_1',
+            status: 'approved',
+            request_id: 'req_1',
+            execution_id: 'exec_1',
+            tool_id: 'github:repo_read',
+            operation: 'repo_read',
+            risk_class: 'READ',
+            policy_version: 'aria-governance-v1.0.0',
+            target: { repo: 'aria-worker', owner: 'Robvg9' },
+            expires_at: '2099-01-01T00:00:00.000Z'
+          });
         }
       };
     }
@@ -42,7 +53,19 @@ async function run() {
     updated_at: '2026-09-02T12:00:01.000Z'
   });
   assert.equal(transitioned.status, 'approved');
-  assert.equal(calls.filter((x) => x[0] === 'schema').length >= 3, true);
+
+  const executable = await adapter.canExecute('auth_1', {
+    request_id: 'req_1',
+    execution_id: 'exec_1',
+    tool_id: 'github:repo_read',
+    operation: 'repo_read',
+    risk_class: 'READ',
+    policy_version: 'aria-governance-v1.0.0',
+    target: { owner: 'Robvg9', repo: 'aria-worker' }
+  }, new Date('2026-09-03T23:30:00.000Z'));
+  assert.equal(executable, true, 'target matching must ignore object key order');
+
+  assert.equal(calls.filter((x) => x[0] === 'schema').length >= 4, true);
 
   assert.throws(() => createSupabaseApprovalAdapter(null), /supabase client must be injected/);
   assert.equal(await adapter.get(''), null);
