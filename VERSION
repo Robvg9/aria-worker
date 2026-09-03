@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 1.6.0
+package-version: 1.8.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
 1.1 ARIA Core Identity: IMPLEMENTED — pure identity/context, no secrets/network/execution
 1.2 Session Engine: IMPLEMENTED — active/paused/closed lifecycle, injectable persistence boundary
@@ -14,11 +14,28 @@ BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager, cr
 2.5 Permission Resolver: IMPLEMENTED — risk-aware authorization boundary; high-risk/destructive require approval evidence
 2.6 Multi-tool Execution: IMPLEMENTED — ordered dependency-aware execution through router + gateway; no bypass of governance
 2.7 Tool Recovery: IMPLEMENTED — bounded deterministic recovery; non-retryable authorization/credential failures fail closed
+BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED — canonical connector registry, provider adapter boundary, injected transports, runtime health inspection for GitHub/Supabase/Cloudflare/Notion/Web/Filesystem/Image Generation
+3.1 GitHub: IMPLEMENTED — connector contract and adapter boundary
+3.2 Supabase: IMPLEMENTED — connector contract and adapter boundary
+3.3 Cloudflare: IMPLEMENTED — connector contract and adapter boundary
+3.4 Notion / ChatBending: IMPLEMENTED — connector contract and adapter boundary
+3.5 Web Research: IMPLEMENTED — connector contract and adapter boundary
+3.6 Workspace Filesystem: IMPLEMENTED — connector contract and adapter boundary
+3.7 Image Generation: IMPLEMENTED — connector contract and adapter boundary
+BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED — coordinated task execution layered above governed Execution Engine
+4.1 Task Execution Coordinator: IMPLEMENTED — task lifecycle orchestration with governed step execution
+4.2 Dependency Resolver: IMPLEMENTED — validated DAG ordering with cycle/self/unknown dependency rejection
+4.3 Multi-step Executor: IMPLEMENTED — ordered execution honoring dependencies
+4.4 Execution Monitor: IMPLEMENTED — task/step state tracking and event boundary
+4.5 Failure Recovery: IMPLEMENTED — bounded optional retry with fail-closed stop
+4.6 Verification Engine: IMPLEMENTED — status and injected custom verification
+4.7 Rollback Engine: IMPLEMENTED — reverse-order compensation with partial rollback reporting
+4.8 Long-running Tasks: IMPLEMENTED — injected checkpoint/resume persistence boundary
 
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
-9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate
-9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — additional real client connections remain pending
+9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate; PAUSED
+9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — additional real client connections remain pending and outside current critical path
 10.9 Tool Registry: PASS
 10.10 Observability: PASS (span_id + timestamp + canonical validate)
 10.11 Health/Availability: DESIGN CONTROLLED — aria-health-availability-v1.0.0, unknown-by-default; explicit probe boundary; no live probes enabled
