@@ -23,9 +23,9 @@ assert.equal(registry.get('tool_b').status,'available');
   assert.equal((await manager.inspect('tool_a')).probe.status,'available');
   assert.equal((await manager.syncStatus('tool_b')).status,'available');
 
-  const credentials = createCredentialManager({ resolver: async (ref) => ref === 'secret://test/key' ? 'secret-value' : null });
-  assert.equal(await credentials.resolve('secret://test/key'),'secret-value');
-  await assert.rejects(() => credentials.resolve('raw-secret'), /invalid_credential_ref/);
+  const credentials = createCredentialManager({ allowRef: (ref) => ref === 'cred://test', resolver: async (ref) => ref === 'cred://test' ? 'placeholder' : null });
+  assert.equal(await credentials.resolve('cred://test'),'placeholder');
+  await assert.rejects(() => credentials.resolve('raw-value'), /invalid_credential_ref/);
 
   const discovery = createToolDiscovery({ registry });
   assert.equal(discovery.discover({operation:'read'}).length, 1);
