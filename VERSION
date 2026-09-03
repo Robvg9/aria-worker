@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 1.9.0
+package-version: 2.0.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
 1.1 ARIA Core Identity: IMPLEMENTED — pure identity/context, no secrets/network/execution
 1.2 Session Engine: IMPLEMENTED — active/paused/closed lifecycle, injectable persistence boundary
@@ -41,6 +41,15 @@ BLOCK 5/9 SELF-DEVELOPMENT ENGINE: IMPLEMENTED — controlled self-inspection, d
 5.7 Self Rollback: IMPLEMENTED — reverse-order snapshot restoration boundary
 5.8 Self Documentation: IMPLEMENTED — structured durable improvement record boundary
 5.9 Self-Development Coordinator: IMPLEMENTED — inspect → diagnose → plan → change → test → verify → rollback/document flow
+BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED — bounded, policy-governed autonomous goal processing with deterministic scheduling, resource limits, stop control, and verification
+6.1 Autonomy Policy: IMPLEMENTED — explicit enablement, risk ceiling, step/runtime bounds, approval/background policy
+6.2 Autonomous Goal Manager: IMPLEMENTED — validated goals with explicit lifecycle transitions
+6.3 Priority Queue: IMPLEMENTED — deterministic priority ordering
+6.4 Trigger Scheduler: IMPLEMENTED — bounded due-job scheduling with cancellation
+6.5 Autonomous Loop: IMPLEMENTED — bounded goal execution with stop/time/step limits and verification gate
+6.6 Resource Guard: IMPLEMENTED — action/failure budgets with fail-closed limits
+6.7 Stop Controller: IMPLEMENTED — explicit fail-safe stop state and reason
+6.8 Autonomy Coordinator: IMPLEMENTED — governed composition of policy, goals, queue, loop, resources and stop control
 
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
