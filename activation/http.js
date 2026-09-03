@@ -9,7 +9,7 @@ function sanitizeHeaders(headers = {}) {
   return out;
 }
 
-async function request({ url, method='GET', headers={}, body, rawBody, fetchImpl=globalThis.fetch, timeout_ms=30000 } = {}) {
+async function request({ url, method='GET', headers={}, body, rawBody, fetchImpl=globalThis.fetch, timeout_ms=30000, redaction_secrets=[] } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('fetch_unavailable');
   if (body !== undefined && rawBody !== undefined) throw new Error('body_conflict');
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -24,7 +24,7 @@ async function request({ url, method='GET', headers={}, body, rawBody, fetchImpl
     const text = await response.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text ? { raw: text.slice(0, 20000) } : null; }
-    return { ok: response.ok, status: response.status, data: redact(data), diagnostics:{ method, url, headers:sanitizeHeaders(headers) } };
+    return { ok: response.ok, status: response.status, data: redact(data, '', redaction_secrets), diagnostics:{ method, url, headers:sanitizeHeaders(headers) } };
   } finally {
     if (timer) clearTimeout(timer);
   }
