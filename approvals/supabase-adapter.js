@@ -15,6 +15,14 @@ function createSupabaseApprovalAdapter(client) {
     return schema.from('execution_approvals');
   }
 
+  function sameTarget(left, right) {
+    try {
+      return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+      return false;
+    }
+  }
+
   return {
     async create(record) {
       const { data, error } = await table().insert(record).select().single();
@@ -27,6 +35,30 @@ function createSupabaseApprovalAdapter(client) {
       const { data, error } = await table().select('*').eq('authorization_id', authorizationId).maybeSingle();
       if (error) throw new Error('approval_store_read_failed');
       return data ?? null;
+    },
+
+    async canExecute(authorizationId, binding, now = new Date()) {
+      if (!authorizationId || !binding || typeof binding !== 'object') return false;
+
+      const record = await this.get(authorizationId);
+      if (!record || record.status !== 'approved') return false;
+      if (record.authorization_id !== authorizationId) return false;
+
+      const required = ['request_id', 'execution_id', 'tool_id', 'operation', 'risk_class', 'policy_version'];
+      for (const key of required) {
+        if (typeof binding[key] !== 'string' || binding[key].trim().length === 0) return false;
+        if (record[key] !== binding[key]) return false;
+      }
+
+      if (!binding.target || typeof binding.target !== 'object' || Array.isArray(binding.target)) return false;
+      if (!sameTarget(record.target, binding.target)) return false;
+
+      const expiresAt = Date.parse(record.expires_at);
+      const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
+      if (!Number.isFinite(expiresAt) || !Number.isFinite(nowMs)) return false;
+      if (expiresAt <= nowMs) return false;
+
+      return true;
     },
 
     async transition(authorizationId, expectedStatus, nextStatus, decision) {
