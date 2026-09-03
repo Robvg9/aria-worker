@@ -1,79 +1,43 @@
 aria-core-v1.0.0
-package-version: 2.0.0
+package-version: 2.1.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
-1.1 ARIA Core Identity: IMPLEMENTED — pure identity/context, no secrets/network/execution
-1.2 Session Engine: IMPLEMENTED — active/paused/closed lifecycle, injectable persistence boundary
-1.3 Planning Engine: IMPLEMENTED — validated plans only, no execution authority, dependency validation
-1.4 Task State Machine: IMPLEMENTED — explicit fail-closed transitions, terminal completed/cancelled states
-1.5 Self-State: IMPLEMENTED — read-only allowlisted snapshot, no credential/secret export
 BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager, credential manager, discovery, permission resolution, governed multi-tool execution, recovery
-2.1 Tool Registry Runtime: IMPLEMENTED — validated runtime registry with stable IDs and fail-safe status/risk vocabularies
-2.2 Connector Manager: IMPLEMENTED — injectable interface probes and status synchronization; no protocol-specific execution
-2.3 Credential Manager Runtime: IMPLEMENTED — canonical secret:// references only; secret resolution remains injected
-2.4 Tool Discovery: IMPLEMENTED — capability/operation/interface discovery; unknown tools excluded by default
-2.5 Permission Resolver: IMPLEMENTED — risk-aware authorization boundary; high-risk/destructive require approval evidence
-2.6 Multi-tool Execution: IMPLEMENTED — ordered dependency-aware execution through router + gateway; no bypass of governance
-2.7 Tool Recovery: IMPLEMENTED — bounded deterministic recovery; non-retryable authorization/credential failures fail closed
-BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED — canonical connector registry, provider adapter boundary, injected transports, runtime health inspection for GitHub/Supabase/Cloudflare/Notion/Web/Filesystem/Image Generation
-3.1 GitHub: IMPLEMENTED — connector contract and adapter boundary
-3.2 Supabase: IMPLEMENTED — connector contract and adapter boundary
-3.3 Cloudflare: IMPLEMENTED — connector contract and adapter boundary
-3.4 Notion / ChatBending: IMPLEMENTED — connector contract and adapter boundary
-3.5 Web Research: IMPLEMENTED — connector contract and adapter boundary
-3.6 Workspace Filesystem: IMPLEMENTED — connector contract and adapter boundary
-3.7 Image Generation: IMPLEMENTED — connector contract and adapter boundary
-BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED — coordinated task execution layered above governed Execution Engine
-4.1 Task Execution Coordinator: IMPLEMENTED — task lifecycle orchestration with governed step execution
-4.2 Dependency Resolver: IMPLEMENTED — validated DAG ordering with cycle/self/unknown dependency rejection
-4.3 Multi-step Executor: IMPLEMENTED — ordered execution honoring dependencies
-4.4 Execution Monitor: IMPLEMENTED — task/step state tracking and event boundary
-4.5 Failure Recovery: IMPLEMENTED — bounded optional retry with fail-closed stop
-4.6 Verification Engine: IMPLEMENTED — status and injected custom verification
-4.7 Rollback Engine: IMPLEMENTED — reverse-order compensation with partial rollback reporting
-4.8 Long-running Tasks: IMPLEMENTED — injected checkpoint/resume persistence boundary
-BLOCK 5/9 SELF-DEVELOPMENT ENGINE: IMPLEMENTED — controlled self-inspection, diagnosis, planning, governed change application, testing, verification, rollback, documentation
-5.1 Self Inspection: IMPLEMENTED — read-only allowlisted system snapshot
-5.2 Self Diagnosis: IMPLEMENTED — injectable diagnostic rules produce findings only
-5.3 Improvement Planner: IMPLEMENTED — bounded mutation plans with policy filtering
-5.4 Change Executor: IMPLEMENTED — injected workspace write boundary with pre-change snapshots
-5.5 Self Testing: IMPLEMENTED — injected test runner boundary
-5.6 Change Verification: IMPLEMENTED — test and post-change inspection gate
-5.7 Self Rollback: IMPLEMENTED — reverse-order snapshot restoration boundary
-5.8 Self Documentation: IMPLEMENTED — structured durable improvement record boundary
-5.9 Self-Development Coordinator: IMPLEMENTED — inspect → diagnose → plan → change → test → verify → rollback/document flow
-BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED — bounded, policy-governed autonomous goal processing with deterministic scheduling, resource limits, stop control, and verification
-6.1 Autonomy Policy: IMPLEMENTED — explicit enablement, risk ceiling, step/runtime bounds, approval/background policy
-6.2 Autonomous Goal Manager: IMPLEMENTED — validated goals with explicit lifecycle transitions
-6.3 Priority Queue: IMPLEMENTED — deterministic priority ordering
-6.4 Trigger Scheduler: IMPLEMENTED — bounded due-job scheduling with cancellation
-6.5 Autonomous Loop: IMPLEMENTED — bounded goal execution with stop/time/step limits and verification gate
-6.6 Resource Guard: IMPLEMENTED — action/failure budgets with fail-closed limits
-6.7 Stop Controller: IMPLEMENTED — explicit fail-safe stop state and reason
-6.8 Autonomy Coordinator: IMPLEMENTED — governed composition of policy, goals, queue, loop, resources and stop control
+BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web, Filesystem, Image Generation boundaries
+BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED — coordination, dependencies, multi-step execution, monitoring, recovery, verification, rollback, long-running checkpoints
+BLOCK 5/9 SELF-DEVELOPMENT ENGINE: IMPLEMENTED — inspection, diagnosis, planning, governed change, testing, verification, rollback, documentation, coordination
+BLOCK 6/9 ARIA AUTONOMY: IMPLEMENTED — bounded autonomous goals, scheduling, resource limits, verification and fail-safe stop
+BLOCK 7/9 MULTI-IA: IMPLEMENTED — provider-neutral adapter registry, capability negotiation, request/response normalization, governed selection, bounded fallback, isolation and coordinator
+7.1 Multi-IA Adapter Registry: IMPLEMENTED
+7.2 Capability Negotiation: IMPLEMENTED
+7.3 Provider-Neutral Request Envelope: IMPLEMENTED
+7.4 Response Normalization: IMPLEMENTED
+7.5 Governed IA Selection: IMPLEMENTED
+7.6 Bounded Multi-IA Fallback: IMPLEMENTED
+7.7 Multi-IA Coordinator: IMPLEMENTED
+7.8 External-Result Isolation Boundary: IMPLEMENTED
 
-aria-execution-engine-v1.1.0
-package-version: 1.3.0
+Historical execution-engine and governance records retained below.
 9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — OAuth 2.1/PKCE authorization server + authenticated MCP resource deployed to Supabase; owner-side Grok authorization remains the final external E2E gate; PAUSED
-9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — additional real client connections remain pending and outside current critical path
+9.6 Universal Multi-IA Adapter: INTERFACE CLOSED/TESTED — real external client activation remains deferred until explicitly enabled.
 10.9 Tool Registry: PASS
-10.10 Observability: PASS (span_id + timestamp + canonical validate)
-10.11 Health/Availability: DESIGN CONTROLLED — aria-health-availability-v1.0.0, unknown-by-default; explicit probe boundary; no live probes enabled
-10.12 Governance: DESIGN CONTROLLED — aria-governance-v1.0.0, fail-closed; no live execution
-10.13 Adapter Boundary: PASS (consolidation on 10.8)
+10.10 Observability: PASS
+10.11 Health/Availability: DESIGN CONTROLLED
+10.12 Governance: DESIGN CONTROLLED — fail-closed
+10.13 Adapter Boundary: PASS
 10.14 Universal/Cost-Latency: NOT IMPLEMENTED (STOP — ownership not recoverable)
-11.1 Tool/MCP Gateway: CONTROLLED RUNTIME — aria-tool-mcp-gateway-v1.1.0, governed injected-adapter dispatch; live dispatch disabled by default
-11.2 Tool Router: CONTROLLED RUNTIME — aria-tool-router-v1.1.0, deterministic registry-backed selection; no authorization/execution authority
-11.3 Tool Operation Planner: CONTROLLED RUNTIME — ordered scope-preserving normalization; no execution authority
-11.4 Tool Adapter Boundary: CONTROLLED RUNTIME — governed injected adapter boundary; protocol-specific I/O remains adapter-owned
-Block A1 Credential Secret Boundary: DESIGN CONTROLLED — resolver injected; no secrets stored or returned
-Block A2 Human Approval Store: DESIGN CONTROLLED — durable adapter + Supabase migration; no auto-approval
-Block A3 Health Observation: DESIGN CONTROLLED — injectable HTTP probe boundary; live probing remains disabled by default
-Block B1 Concrete Credential Resolver: IMPLEMENTED — injected secret-store boundary; canonical refs only; no persistence
-Block B2 OpenRouter Adapter Execution: IMPLEMENTED — one-call provider adapter; credential passed only to transport
-Block B3 Execution Wiring: IMPLEMENTED — async resolver support; existing governance/routing/quota gates preserved
-Block B4 Verification: COMPLETE — dedicated tests added and included in npm test
-Block C11 Stage 11 Gateway/Router/Planner/Adapter: IMPLEMENTED — controlled end-to-end boundary with fail-closed authorization, deterministic planning, injected adapter dispatch and sensitive-output rejection
-Block C Verification: COMPLETE — dedicated integration/security coverage included in npm test
+11.1 Tool/MCP Gateway: CONTROLLED RUNTIME
+11.2 Tool Router: CONTROLLED RUNTIME
+11.3 Tool Operation Planner: CONTROLLED RUNTIME
+11.4 Tool Adapter Boundary: CONTROLLED RUNTIME
+Block A1 Credential Secret Boundary: DESIGN CONTROLLED
+Block A2 Human Approval Store: DESIGN CONTROLLED
+Block A3 Health Observation: DESIGN CONTROLLED
+Block B1 Concrete Credential Resolver: IMPLEMENTED
+Block B2 OpenRouter Adapter Execution: IMPLEMENTED
+Block B3 Execution Wiring: IMPLEMENTED
+Block B4 Verification: COMPLETE
+Block C11 Stage 11 Gateway/Router/Planner/Adapter: IMPLEMENTED
+Block C Verification: COMPLETE
 memory_authority: none
 canonical_write: false
 live_execution: not_performed_without_explicit_production_credentials
