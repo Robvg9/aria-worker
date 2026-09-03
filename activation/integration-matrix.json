@@ -1,0 +1,33 @@
+{
+  "github": {
+    "credential": "secret://github/default",
+    "health": "GET /rate_limit",
+    "read": ["repo_read","file_read"],
+    "write": ["file_write","branch_create","pull_request","workflow_dispatch"],
+    "write_requires_governance": true
+  },
+  "supabase": {
+    "credential": "secret://supabase/default",
+    "health": "GET /v1/projects",
+    "read": ["project_read","db_read","logs"],
+    "write": ["migration","edge_function"],
+    "write_requires_governance": true
+  },
+  "cloudflare": {
+    "credential": "secret://cloudflare/default",
+    "health": "GET /accounts/{account_id}",
+    "read": ["account_read","worker_read","deployments_read","logs"],
+    "write": ["deployment_create","worker_write"],
+    "write_requires_governance": true
+  },
+  "notion": {
+    "credential": "secret://notion/default",
+    "health": "GET /users/me",
+    "read": ["search","page_read"],
+    "write": ["page_write"],
+    "write_requires_governance": true
+  },
+  "web": { "credential": null, "read": ["fetch","search"], "write_requires_governance": true },
+  "filesystem": { "credential": null, "read": ["read","list"], "write": ["write"], "write_requires_governance": true },
+  "image": { "credential": null, "read": [], "write": ["generate","edit"], "write_requires_governance": true }
+}
