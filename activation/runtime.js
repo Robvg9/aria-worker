@@ -7,7 +7,7 @@ const { adapters } = require('./connectors');
 
 const RISK_ORDER = Object.freeze({ READ:0, LOW_RISK_WRITE:1, HIGH_RISK_WRITE:2, DESTRUCTIVE:3 });
 
-function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.env, fetchImpl = globalThis.fetch, authorize = null } = {}) {
+function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.env, fetchImpl = globalThis.fetch, authorize = null, hostRuntime = null, providerRuntime = null } = {}) {
   const entries = normalizeManifest(manifest);
   const resolver = createEnvironmentSecretResolver(env);
   const state = new Map(entries.map(e => [e.connector_id, e.enabled ? 'configured' : 'disabled']));
@@ -23,7 +23,7 @@ function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.en
     const cred = ref ? await resolver.resolve(ref) : { status:'resolved', secret:null };
     if (ref && cred.status !== 'resolved') { state.set(entry.connector_id,'unconfigured'); return { connector_id:entry.connector_id, state:'unconfigured', healthy:false, reason:'credential_unconfigured' }; }
     try {
-      const result = await adapter.health({ ...entry, secret:cred.secret, fetchImpl });
+      const result = await adapter.health({ ...entry, secret:cred.secret, fetchImpl, hostRuntime, providerRuntime });
       const healthy = result && result.ok === true;
       const next = healthy ? 'healthy' : (result && result.status >= 400 && result.status < 500 ? 'unavailable' : 'degraded');
       state.set(entry.connector_id, next);
@@ -51,11 +51,13 @@ function createActivationRuntime({ manifest = DEFAULT_MANIFEST, env = process.en
     if (!RISK_CLASSES.includes(requestedRisk)) return { status:'blocked', reason:'invalid_risk_class' };
     if (RISK_ORDER[requestedRisk] < RISK_ORDER[declaredRisk]) return { status:'blocked', reason:'risk_class_insufficient', required:declaredRisk };
     if (typeof authorize !== 'function') return { status:'blocked', reason:'authorization_unavailable' };
-    const auth = await authorize({ connector_id:id, operation, risk_class:declaredRisk, input:context.input || {} });
+    const authorizationInput = { ...(context.input || {}) };
+    for (const key of ['owner','repo','path','branch','workflow_id','ref','project_ref','account_id','script_name','page_id','url','slug']) if (context[key] !== undefined) authorizationInput[key] = context[key];
+    const auth = await authorize({ connector_id:id, operation, risk_class:declaredRisk, input:authorizationInput });
     if (!auth || auth.status !== 'approved') return { status:'blocked', reason:'authorization_not_approved' };
     const cred = entry.credential_ref ? await resolver.resolve(entry.credential_ref) : { status:'resolved', secret:null };
     if (cred.status !== 'resolved') return { status:'blocked', reason:'credential_unconfigured' };
-    const result = await adapter.execute(operation, { ...context, ...entry, secret:cred.secret, fetchImpl });
+    const result = await adapter.execute(operation, { ...context, ...entry, secret:cred.secret, fetchImpl, hostRuntime, providerRuntime });
     return { status:result && result.ok ? 'succeeded' : 'failed', connector_id:id, operation, risk_class:declaredRisk, http_status:result && result.status || null, data:result && result.data || null };
   }
 
