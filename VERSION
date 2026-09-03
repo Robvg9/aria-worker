@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 1.8.0
+package-version: 1.9.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity core, session engine, planning engine, task state machine, self-state provider
 1.1 ARIA Core Identity: IMPLEMENTED — pure identity/context, no secrets/network/execution
 1.2 Session Engine: IMPLEMENTED — active/paused/closed lifecycle, injectable persistence boundary
@@ -31,6 +31,16 @@ BLOCK 4/9 EXECUTION ENGINE: IMPLEMENTED — coordinated task execution layered a
 4.6 Verification Engine: IMPLEMENTED — status and injected custom verification
 4.7 Rollback Engine: IMPLEMENTED — reverse-order compensation with partial rollback reporting
 4.8 Long-running Tasks: IMPLEMENTED — injected checkpoint/resume persistence boundary
+BLOCK 5/9 SELF-DEVELOPMENT ENGINE: IMPLEMENTED — controlled self-inspection, diagnosis, planning, governed change application, testing, verification, rollback, documentation
+5.1 Self Inspection: IMPLEMENTED — read-only allowlisted system snapshot
+5.2 Self Diagnosis: IMPLEMENTED — injectable diagnostic rules produce findings only
+5.3 Improvement Planner: IMPLEMENTED — bounded mutation plans with policy filtering
+5.4 Change Executor: IMPLEMENTED — injected workspace write boundary with pre-change snapshots
+5.5 Self Testing: IMPLEMENTED — injected test runner boundary
+5.6 Change Verification: IMPLEMENTED — test and post-change inspection gate
+5.7 Self Rollback: IMPLEMENTED — reverse-order snapshot restoration boundary
+5.8 Self Documentation: IMPLEMENTED — structured durable improvement record boundary
+5.9 Self-Development Coordinator: IMPLEMENTED — inspect → diagnose → plan → change → test → verify → rollback/document flow
 
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
