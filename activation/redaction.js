@@ -1,7 +1,7 @@
 'use strict';
 
 const SENSITIVE_KEY = /authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|bearer|private[-_]?key|credential/i;
-const SENSITIVE_VALUE = /Bearer\s+\S+|(?:sk|or-v1|gh[pousr]_[A-Za-z0-9_]+)[A-Za-z0-9._-]{8,}/i;
+const SENSITIVE_VALUE = /Bearer\s+\S+|(?:sk-[A-Za-z0-9_-]{16,}|or-v1-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})/i;
 
 function redact(value, key = '', secrets = []) {
   if (SENSITIVE_KEY.test(key)) return '[redacted]';

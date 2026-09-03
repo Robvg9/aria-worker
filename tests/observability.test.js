@@ -186,4 +186,21 @@ test('redact removes bearer and keys', () => {
 });
 
 console.log('\nResults: ' + passed + ' passed, ' + failed + ' failed');
+
+
+test('redaction preserves GitHub Base64 content while masking token-shaped secrets', () => {
+  const { redact } = require('../activation/redaction');
+
+  const base64 = 'J3VzZSBzdHJpY3QnOwoKY29uc3QgZ2l0aHViID0gY3JlYXRlQWRhcHRlcigpOw==';
+  const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456';
+
+  const result = redact({
+    content: base64,
+    token: secret
+  });
+
+  assert.equal(result.content, base64);
+  assert.equal(result.token, '[redacted]');
+});
+
 process.exit(failed > 0 ? 1 : 0);
