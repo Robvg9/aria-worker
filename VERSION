@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 2.3.0
+package-version: 2.4.0
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity, sessions, planning, task state, self-state
 BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager boundary, credential boundary, discovery, permissions, governed multi-tool execution, recovery
 BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED AS CONTROLLED ADAPTER BOUNDARIES — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web/Research, Filesystem/Workspace, Image/Multimedia; live provider activation remains credential/configuration dependent
@@ -19,6 +19,8 @@ BLOCK 9/9 ARIA PLATFORM: IMPLEMENTED — platform registry, extension contract, 
 9.8 Continuous Maintenance: IMPLEMENTED — injected inspection/repair/test/document pipeline
 9.9 Platform Coordinator: IMPLEMENTED — governed extension registration, activation, publishing, scheduling and inspection
 
+PHASE 1 — REAL ACTIVATION / INTEGRATION: IMPLEMENTED IN PR — runtime configuration manifest, environment-backed credential resolver, live connector adapters, health probes, governance-bound dispatch, response redaction, activation smoke tests, human/live activation runbook. Merge intentionally deferred pending Phase 2 audit.
+
 aria-execution-engine-v1.1.0
 package-version: 1.3.0
 9.5 First External AI / Grok: CONTROLLED RUNTIME IMPLEMENTED — owner-side Grok authorization remains the final external E2E gate; PAUSED
@@ -28,7 +30,6 @@ package-version: 1.3.0
 10.11 Health/Availability: DESIGN CONTROLLED
 10.12 Governance: DESIGN CONTROLLED — fail-closed
 10.13 Adapter Boundary: PASS
-10.14 Universal/Cost-Latency: NOT IMPLEMENTED (STOP — ownership not recoverable)
 11.1 Tool/MCP Gateway: CONTROLLED RUNTIME
 11.2 Tool Router: CONTROLLED RUNTIME
 11.3 Tool Operation Planner: CONTROLLED RUNTIME
@@ -45,4 +46,4 @@ Block C Verification: COMPLETE
 memory_authority: none
 canonical_write: false
 live_execution: not_performed_without_explicit_production_credentials
-credential_resolver: INJECTED CONCRETE RESOLVER AVAILABLE
+credential_resolver: ENVIRONMENT-BACKED ACTIVATION RESOLVER AVAILABLE
