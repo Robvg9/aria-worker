@@ -1,0 +1,15 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -eu
+
+SUPERVISOR="$HOME/aria-agent/agents/termux/start-agent.sh"
+
+if [ ! -f "$SUPERVISOR" ]; then
+  echo "[ARIA] supervisor not found: $SUPERVISOR" >&2
+  exit 1
+fi
+
+if command -v termux-wake-lock >/dev/null 2>&1; then
+  termux-wake-lock || true
+fi
+
+exec "$SUPERVISOR"
