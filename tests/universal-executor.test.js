@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const { createUniversalExecutor } = require('../autonomy/universal-executor');
+const { createAriaRuntime } = require('../activation/bootstrap');
 
 (async () => {
   const calls = [];
@@ -23,41 +24,30 @@ const { createUniversalExecutor } = require('../autonomy/universal-executor');
 
   const connectorResult = await universal.execute({
     missionId: 'm1',
-    step: {
-      id: 's1',
-      operation: 'repo_read',
-      target: { type: 'connector', connector_id: 'github' },
-      input: { owner: 'Robvg9', repo: 'aria-worker' },
-      risk_class: 'READ'
-    }
+    step: { id: 's1', operation: 'repo_read', target: { type: 'connector', connector_id: 'github' }, input: { owner: 'Robvg9', repo: 'aria-worker' }, risk_class: 'READ' }
   });
   assert.strictEqual(connectorResult.status, 'succeeded');
   assert.strictEqual(calls[0].connectorId, 'github');
 
   const deviceResult = await universal.execute({
     missionId: 'm1',
-    step: {
-      id: 's2',
-      operation: 'shell.execute',
-      executor_type: 'device',
-      target: { type: 'device', device_id: 'android-termux-test' },
-      input: { command: 'echo ok' }
-    }
+    step: { id: 's2', operation: 'shell.execute', executor_type: 'device', target: { type: 'device', device_id: 'android-termux-test' }, input: { command: 'echo ok' } }
   });
   assert.strictEqual(deviceResult.status, 'succeeded');
   assert.strictEqual(calls[1].device, 'android-termux-test');
 
   const universalAgent = createUniversalExecutor({
     activation,
-    agentExecutors: {
-      grok: async ({ step }) => ({ status: 'succeeded', agent_id: step.target.agent_id })
-    }
+    agentExecutors: { grok: async ({ step }) => ({ status: 'succeeded', agent_id: step.target.agent_id }) }
   });
   const agentResult = await universalAgent.execute({
-    missionId: 'm2',
-    step: { id: 's3', operation: 'delegate', executor_type: 'agent', target: { agent_id: 'grok' } }
+    missionId: 'm2', step: { id: 's3', operation: 'delegate', executor_type: 'agent', target: { agent_id: 'grok' } }
   });
   assert.strictEqual(agentResult.agent_id, 'grok');
+
+  const runtime = createAriaRuntime();
+  assert.strictEqual(typeof runtime.autonomy.universalExecutor.createUniversalExecutor, 'function');
+  assert.strictEqual(typeof runtime.execution.deviceDispatcher.createDeviceDispatcher, 'function');
 
   console.log('universal executor tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
