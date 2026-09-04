@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 2.5.5
+package-version: 2.5.6
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity, sessions, planning, task state, self-state
 BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager boundary, credential boundary, discovery, permissions, governed multi-tool execution, recovery
 BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED AS CONTROLLED ADAPTER BOUNDARIES — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web/Research, Filesystem/Workspace, Image/Multimedia; live provider activation remains credential/configuration dependent
