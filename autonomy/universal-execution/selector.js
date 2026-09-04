@@ -1,6 +1,6 @@
 'use strict';
 
-const { listExecutors, resolveExecutor } = require('./lookup');
+const { listExecutors } = require('./lookup');
 
 function fail(code, message, details = {}) {
   const error = new Error(message);
@@ -25,6 +25,35 @@ function descriptorFor(executor) {
     status: executor.status,
     operations: [...operationsFor(executor)]
   };
+}
+
+function resolveAgainstEntry(step, executor) {
+  const target = step.target && typeof step.target === 'object' ? step.target : {};
+  const requiredKey = executor.type === 'connector'
+    ? 'connector_id'
+    : executor.type === 'device'
+      ? 'device_id'
+      : 'agent_id';
+
+  if (typeof target[requiredKey] !== 'string' || target[requiredKey].trim() === '') {
+    fail('executor_target_missing', `${executor.type} target ${requiredKey} missing`);
+  }
+
+  const operation = step.operation;
+  if (typeof operation !== 'string' || operation.trim() === '') {
+    fail('operation_missing', 'step operation missing');
+  }
+
+  if (!supportsOperation(executor, operation)) {
+    fail('operation_not_registered', `${executor.type} operation not registered: ${operation}`);
+  }
+
+  return Object.freeze({
+    executor_id: executor.executor_id,
+    type: executor.type,
+    operation,
+    target: Object.freeze({ ...target })
+  });
 }
 
 /**
@@ -75,11 +104,8 @@ function selectExecutor(step, registry = { list: listExecutors }) {
     if (selected.status !== 'registered' && selected.status !== 'ready') {
       fail('executor_unavailable', `executor unavailable: ${requestedType}`);
     }
-    if (!supportsOperation(selected, operation)) {
-      fail('operation_not_registered', `operation not registered for executor: ${operation}`);
-    }
 
-    const resolved = resolveExecutor(step);
+    const resolved = resolveAgainstEntry(step, selected);
     return Object.freeze({
       ...resolved,
       selection_reason: explicitType ? 'explicit_executor_type' : 'explicit_target_type',
@@ -102,7 +128,11 @@ function selectExecutor(step, registry = { list: listExecutors }) {
   }
 
   const selected = matches[0];
-  const resolved = resolveExecutor({ ...step, executor_type: selected.type, target: { ...(step.target || {}), type: selected.type } });
+  const resolved = resolveAgainstEntry({
+    ...step,
+    executor_type: selected.type,
+    target: { ...(step.target || {}), type: selected.type }
+  }, selected);
 
   return Object.freeze({
     ...resolved,
