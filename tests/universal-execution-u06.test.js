@@ -23,9 +23,9 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
   }
 
   const plan = [
-    { id: 'step_1', operation: 'noop', executor_type: 'device', risk: 'READ', retryable: false },
-    { id: 'step_2', operation: 'noop', executor_type: 'device', risk: 'READ', retryable: false },
-    { id: 'step_3', operation: 'noop', executor_type: 'device', risk: 'READ', retryable: false }
+    { id: 'step_1', operation: 'noop', executor_type: 'device', risk: 'low', retryable: true },
+    { id: 'step_2', operation: 'noop', executor_type: 'device', risk: 'low', retryable: false },
+    { id: 'step_3', operation: 'noop', executor_type: 'device', risk: 'low', retryable: false }
   ];
 
   // UO-6A: transient failure retries the same step and then continues.
@@ -41,7 +41,7 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
         return { status: 'succeeded', stdout: step.id };
       },
       verify: async ({ final, result }) => final ? true : result?.status === 'succeeded',
-      policy: { enabled: true, max_steps: 10, max_runtime_ms: 10000, max_risk: 'READ' }
+      policy: { enabled: true, max_steps: 10, max_runtime_ms: 10000, max_risk: 'low' }
     });
     const result = await orchestrator.run('u06-retry');
     assert.strictEqual(result.status, 'succeeded');
@@ -67,7 +67,7 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
         return { status: 'succeeded', stdout: step.id };
       },
       verify: async ({ final, result }) => final ? true : result?.status === 'succeeded',
-      policy: { enabled: true, max_steps: 10, max_runtime_ms: 10000, max_risk: 'READ' }
+      policy: { enabled: true, max_steps: 10, max_runtime_ms: 10000, max_risk: 'low' }
     });
     const result = await orchestrator.run('u06-resume');
     assert.strictEqual(result.status, 'succeeded');
@@ -84,7 +84,7 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
       planner: async () => plan.slice(0, 1),
       executor: async () => { calls += 1; return { status: 'succeeded' }; },
       verify: async ({ final }) => final ? false : false,
-      policy: { enabled: true, max_steps: 10, max_runtime_ms: 10000, max_risk: 'READ', max_attempts_per_step: 1 }
+      policy: { enabled: true, max_steps: 10, max_runtime_ms: 10000, max_risk: 'low', max_attempts_per_step: 1 }
     });
     const result = await orchestrator.run('u06-verify');
     assert.strictEqual(result.status, 'verification_failed');
