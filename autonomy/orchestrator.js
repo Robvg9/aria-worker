@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { createAutonomyPolicy, riskAllowed } = require('./policy');
+const { normalizePlan, nextReadyStep, dependenciesSatisfied } = require('./universal-execution/plan');
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const RETRYABLE = new Set(['failed', 'timeout']);
@@ -43,39 +44,72 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
     let plan = mission.checkpoint && Array.isArray(mission.checkpoint.plan) ? mission.checkpoint.plan : null;
     if (!plan) {
       plan = await planner({ mission, checkpoint: mission.checkpoint || {}, policy: p });
-      if (!Array.isArray(plan) || plan.length === 0) {
+      try {
+        plan = normalizePlan(plan).map((step, index) => ({
+          id: step.id || stableId({ missionId, index, action: step.action || step.operation || null }),
+          action: step.action || step.operation || 'unknown',
+          operation: step.operation || null,
+          target: step.target || null,
+          input: step.input && typeof step.input === 'object' ? step.input : {},
+          policy: step.policy && typeof step.policy === 'object' ? step.policy : {},
+          verify: step.verify && typeof step.verify === 'object' ? step.verify : {},
+          retryable: step.retryable !== false,
+          risk: step.risk || step.policy?.risk || 'critical',
+          depends_on: step.depends_on || []
+        }));
+      } catch (error) {
+        await missionStore.transition(missionId, 'blocked', { next_action: `human_gate: invalid plan (${String(error.message || error)})` });
+        return { status: 'blocked', reason: 'plan_invalid' };
+      }
+      if (plan.length === 0) {
         await missionStore.transition(missionId, 'blocked', { next_action: 'human_gate: planner returned no executable steps' });
         return { status: 'blocked', reason: 'plan_missing' };
       }
-      plan = plan.map((step, index) => ({
-        id: step.id || stableId({ missionId, index, action: step.action || step.operation || null }),
-        action: step.action || step.operation || 'unknown',
-        operation: step.operation || null,
-        target: step.target || null,
-        input: step.input && typeof step.input === 'object' ? step.input : {},
-        policy: step.policy && typeof step.policy === 'object' ? step.policy : {},
-        verify: step.verify && typeof step.verify === 'object' ? step.verify : {},
-        retryable: step.retryable !== false,
-        risk: step.risk || step.policy?.risk || 'critical'
-      }));
       mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, planned_at: now() }, { total_steps: plan.length, current_step: mission.current_step || 0 });
+    } else {
+      try { plan = normalizePlan(plan); } catch (error) {
+        await missionStore.transition(missionId, 'blocked', { next_action: `human_gate: stored plan invalid (${String(error.message || error)})` });
+        return { status: 'blocked', reason: 'plan_invalid' };
+      }
     }
 
     mission = await missionStore.transition(missionId, 'running', { total_steps: plan.length });
 
-    for (let index = mission.completed_steps || 0; index < plan.length; index += 1) {
-      if (index >= limits.max_steps || Date.now() - started >= p.max_runtime_ms) {
-        await missionStore.transition(missionId, 'paused', {
-          current_step: index,
-          next_action: index >= limits.max_steps ? 'resume: step budget exhausted' : 'resume: runtime budget exhausted'
-        });
-        return { status: index >= limits.max_steps ? 'step_limit' : 'time_limit', mission };
+    const completedIds = new Set((mission.checkpoint?.completed_steps || []).map(String));
+    if (mission.completed_step) completedIds.add(String(mission.completed_step));
+    let completedCount = Number.isInteger(mission.completed_steps) ? mission.completed_steps : completedIds.size;
+    const startedIds = new Set();
+
+    while (completedCount < plan.length) {
+      if (Date.now() - started >= p.max_runtime_ms) {
+        await missionStore.transition(missionId, 'paused', { current_step: completedCount, next_action: 'resume: runtime budget exhausted' });
+        return { status: 'time_limit', mission };
+      }
+      if (completedCount >= limits.max_steps) {
+        await missionStore.transition(missionId, 'paused', { current_step: completedCount, next_action: 'resume: step budget exhausted' });
+        return { status: 'step_limit', mission };
       }
 
-      const step = plan[index];
+      const step = nextReadyStep(plan, completedIds, startedIds);
+      if (!step) {
+        const unresolved = plan.filter(item => !completedIds.has(item.id));
+        const waiting = unresolved.filter(item => !item.depends_on.every(dep => completedIds.has(dep)));
+        await missionStore.transition(missionId, 'blocked', {
+          current_step: completedCount,
+          next_action: waiting.length ? 'human_gate: dependency graph cannot make progress' : 'human_gate: executable step unavailable'
+        });
+        return { status: 'blocked', reason: waiting.length ? 'dependencies_unsatisfied' : 'no_ready_step' };
+      }
+
+      startedIds.add(step.id);
+      if (!dependenciesSatisfied(step, completedIds)) {
+        await missionStore.transition(missionId, 'blocked', { current_step: completedCount, next_action: `human_gate: dependencies unsatisfied for ${step.id}` });
+        return { status: 'blocked', reason: 'dependencies_unsatisfied', step };
+      }
+
       if (!riskAllowed(step.risk, p)) {
         await missionStore.transition(missionId, 'blocked', {
-          current_step: index,
+          current_step: completedCount,
           next_action: `human_gate: risk ${step.risk} exceeds max_risk ${p.max_risk}`
         });
         return { status: 'blocked', reason: 'risk_blocked', step };
@@ -86,8 +120,8 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
       while (attempt < limits.max_attempts_per_step) {
         if (Date.now() - started >= p.max_runtime_ms) break;
         attempt += 1;
-        await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, active_step: step, active_step_index: index, last_attempt_at: now() }, {
-          current_step: index,
+        await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, active_step: step, active_step_index: plan.indexOf(step), last_attempt_at: now() }, {
+          current_step: completedCount,
           attempt_count: attempt,
           next_action: step.action
         });
@@ -105,14 +139,15 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
         if (!step.retryable || !RETRYABLE.has(outcome.result?.status || 'failed') || attempt >= limits.max_attempts_per_step) break;
       }
 
+      const stepIndex = plan.findIndex(item => item.id === step.id);
       if (Date.now() - started >= p.max_runtime_ms && !outcome?.passed) {
-        await missionStore.transition(missionId, 'paused', { current_step: index, next_action: 'resume: runtime budget exhausted' });
+        await missionStore.transition(missionId, 'paused', { current_step: completedCount, next_action: 'resume: runtime budget exhausted' });
         return { status: 'time_limit', mission, step, outcome };
       }
 
       if (!outcome || !outcome.passed) {
         await missionStore.transition(missionId, 'failed', {
-          current_step: index,
+          current_step: completedCount,
           attempt_count: outcome?.attempt || limits.max_attempts_per_step,
           next_action: 'recover_or_human_gate',
           last_stderr: outcome?.error || outcome?.result?.stderr || null,
@@ -122,17 +157,27 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
         return { status: 'failed', step, outcome };
       }
 
+      completedIds.add(step.id);
+      completedCount += 1;
       mission = await missionStore.checkpoint(missionId, {
-        ...(mission.checkpoint || {}), plan, completed_step: step.id, completed_at: now(), last_result: outcome.result
+        ...(mission.checkpoint || {}),
+        plan,
+        completed_step: step.id,
+        completed_steps: [...completedIds],
+        completed_at: now(),
+        last_result: outcome.result
       }, {
-        current_step: index + 1,
-        completed_steps: index + 1,
+        current_step: completedCount,
+        completed_steps: completedCount,
         last_command: outcome.result?.command || null,
         last_exit_code: outcome.result?.exit_code ?? null,
         last_stdout: outcome.result?.stdout ?? null,
         last_stderr: outcome.result?.stderr ?? null,
-        next_action: index + 1 < plan.length ? plan[index + 1].action : 'verify_goal'
+        next_action: completedCount < plan.length ? 'next_ready_step' : 'verify_goal'
       });
+
+      startedIds.delete(step.id);
+      void stepIndex;
     }
 
     const finalVerification = await verify({ missionId, mission, final: true, plan });
