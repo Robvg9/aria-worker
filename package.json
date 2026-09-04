@@ -1,6 +1,6 @@
 {
   "name": "aria-adapters",
-  "version": "2.5.7",
+  "version": "2.5.8",
   "private": true,
   "type": "commonjs",
   "description": "ARIA autonomous core and governed tool execution control plane.",
