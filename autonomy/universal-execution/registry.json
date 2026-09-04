@@ -1,0 +1,35 @@
+{
+  "version": "aria-universal-execution-v1.0.0",
+  "kind": "executor_registry",
+  "executors": [
+    {
+      "executor_id": "connector",
+      "type": "connector",
+      "status": "registered",
+      "operations": ["*"],
+      "target_schema": {"type":"connector","connector_id":"string"}
+    },
+    {
+      "executor_id": "device",
+      "type": "device",
+      "status": "registered",
+      "operations": ["shell.execute"],
+      "target_schema": {"type":"device","device_id":"string"}
+    },
+    {
+      "executor_id": "agent",
+      "type": "agent",
+      "status": "registered",
+      "operations": ["delegate"],
+      "target_schema": {"type":"agent","agent_id":"string"}
+    }
+  ],
+  "invariants": [
+    "executor_type is explicit or derived only from target.type",
+    "unknown executor types are rejected",
+    "missing executor target identifiers are rejected",
+    "the registry selects no provider, model, account, credential, or fallback route",
+    "no executor receives secrets through the registry",
+    "registry metadata is deterministic and side-effect free"
+  ]
+}
