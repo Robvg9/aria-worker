@@ -2,6 +2,7 @@
 
 const { createUniversalMissionRunner } = require('./universal-mission');
 const { createMissionEntrypoint } = require('./mission-entrypoint');
+const { createMissionHttpHandler } = require('./mission-http');
 const { createDeviceDispatcher } = require('../execution/device-dispatcher');
 const { createSupabaseMissionRepository } = require('../execution/supabase-mission-repository');
 const { createMissionStateStore } = require('../execution/mission-state');
@@ -53,6 +54,11 @@ function createAutonomousRuntime({
     runMission: mission.run
   });
 
+  const http = createMissionHttpHandler({
+    startMission: entrypoint.startMission,
+    auth: device.auth || null
+  });
+
   return Object.freeze({
     missionRepository,
     missionStore,
@@ -61,7 +67,8 @@ function createAutonomousRuntime({
     executor: mission.executor,
     orchestrator: mission.orchestrator,
     runMission: mission.run,
-    startMission: entrypoint.startMission
+    startMission: entrypoint.startMission,
+    missionHttp: http
   });
 }
 

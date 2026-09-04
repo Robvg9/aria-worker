@@ -21,6 +21,8 @@ const runtime = createAutonomousRuntime({
 });
 
 assert.strictEqual(typeof runtime.runMission, 'function');
+assert.strictEqual(typeof runtime.startMission, 'function');
+assert.strictEqual(typeof runtime.missionHttp, 'function');
 assert.strictEqual(typeof runtime.orchestrator.run, 'function');
 assert.strictEqual(typeof runtime.executor.execute, 'function');
 assert.strictEqual(typeof runtime.deviceDispatcher.execute, 'function');
