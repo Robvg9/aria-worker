@@ -24,6 +24,8 @@ assert.strictEqual(typeof runtime.runMission, 'function');
 assert.strictEqual(typeof runtime.orchestrator.run, 'function');
 assert.strictEqual(typeof runtime.executor.execute, 'function');
 assert.strictEqual(typeof runtime.deviceDispatcher.execute, 'function');
-assert.strictEqual(typeof runtime.missionStore.getMission, 'function');
+assert.strictEqual(typeof runtime.missionStore.get, 'function');
+assert.strictEqual(typeof runtime.missionStore.transition, 'function');
+assert.strictEqual(typeof runtime.missionStore.checkpoint, 'function');
 
 console.log('Autonomous runtime assembly: PASS');
