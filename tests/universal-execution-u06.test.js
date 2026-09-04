@@ -56,7 +56,7 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
       status: 'paused',
       completed_steps: 2,
       current_step: 2,
-      checkpoint: { plan, completed_step: 'step_2' }
+      checkpoint: { plan, completed_step: 'step_2', completed_steps: ['step_1', 'step_2'] }
     });
     const calls = [];
     const orchestrator = createAutonomousMissionOrchestrator({
