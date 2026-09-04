@@ -25,7 +25,7 @@ const { createMissionEntrypoint } = require('../autonomy/mission-entrypoint');
 
   assert.throws(() => createMissionEntrypoint(), /missionStore.create function required/);
   assert.throws(() => createMissionEntrypoint({ missionStore }), /runMission function required/);
-  assert.throws(() => entrypoint.startMission({ goal: '' }), /goal must be a non-empty string/);
+  await assert.rejects(() => entrypoint.startMission({ goal: '' }), /goal must be a non-empty string/);
 
   const result = await entrypoint.startMission({
     goal: 'build test application',
