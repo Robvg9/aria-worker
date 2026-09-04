@@ -1,5 +1,5 @@
 aria-core-v1.0.0
-package-version: 2.4.7
+package-version: 2.5.6
 BLOCK 1/9 ARIA CORE: IMPLEMENTED — identity, sessions, planning, task state, self-state
 BLOCK 2/9 TOOL UNIVERSE: IMPLEMENTED — runtime registry, connector manager boundary, credential boundary, discovery, permissions, governed multi-tool execution, recovery
 BLOCK 3/9 REAL CONNECTORS: IMPLEMENTED AS CONTROLLED ADAPTER BOUNDARIES — GitHub, Supabase, Cloudflare, Notion/ChatBending, Web/Research, Filesystem/Workspace, Image/Multimedia; live provider activation remains credential/configuration dependent
@@ -47,3 +47,5 @@ memory_authority: none
 canonical_write: false
 live_execution: verified only through explicit human-approved activation
 credential_resolver: ENVIRONMENT-BACKED ACTIVATION RESOLVER AVAILABLE
+
+Termux autonomous lifecycle: supervisor + reboot boot launcher + local secret boundary IMPLEMENTED; device-level Termux:Boot installation and Android battery/background policy remain external prerequisites.
