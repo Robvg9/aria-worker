@@ -8,6 +8,10 @@ if [ ! -f "$SUPERVISOR" ]; then
   exit 1
 fi
 
+# A prior SIGTERM creates this marker to stop the supervisor cleanly.
+# Android boot is an explicit new lifecycle, so clear the stale marker here.
+rm -f "$HOME/.aria-agent.stop"
+
 if command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock || true
 fi
