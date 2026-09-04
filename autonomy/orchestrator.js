@@ -26,11 +26,12 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
 
   const p = createAutonomyPolicy(policy);
   const limits = Object.freeze({
-    max_steps: Math.min(p.max_steps, Number.isInteger(policy.max_steps) ? policy.max_steps : p.max_steps),
+    max_steps: p.max_steps,
     max_attempts_per_step: Number.isInteger(policy.max_attempts_per_step) && policy.max_attempts_per_step > 0 ? policy.max_attempts_per_step : 2
   });
 
   async function run(missionId) {
+    if (!p.enabled) return { status: 'disabled', reason: 'autonomy_disabled' };
     const started = Date.now();
     let mission = await missionStore.get(missionId);
     if (!mission) throw new Error(`mission not found: ${missionId}`);
@@ -41,7 +42,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
 
     let plan = mission.checkpoint && Array.isArray(mission.checkpoint.plan) ? mission.checkpoint.plan : null;
     if (!plan) {
-      plan = await planner({ mission, checkpoint: mission.checkpoint || {} });
+      plan = await planner({ mission, checkpoint: mission.checkpoint || {}, policy: p });
       if (!Array.isArray(plan) || plan.length === 0) {
         await missionStore.transition(missionId, 'blocked', { next_action: 'human_gate: planner returned no executable steps' });
         return { status: 'blocked', reason: 'plan_missing' };
@@ -100,6 +101,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
         } catch (error) {
           outcome = { error: String(error && error.message || error), passed: false, attempt };
         }
+
         if (!step.retryable || !RETRYABLE.has(outcome.result?.status || 'failed') || attempt >= limits.max_attempts_per_step) break;
       }
 
