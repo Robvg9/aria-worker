@@ -1,8 +1,34 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-Current package version: **2.4.7**.
+Current package version: **2.5.2**.
 
 This repository contains ARIA's governed control-plane, execution adapters, autonomous layers and the real-activation integration runtime. Architecture completion does not imply that every external account is configured or that production operations have been executed.
+
+## Autonomous Execution Fabric
+
+### AF-2 — Mission State
+
+Persistent mission lifecycle, steps, checkpoints and mission events provide the durable state boundary for autonomous work.
+
+### AF-3 — Device / Terminal Execution
+
+A transport-neutral device execution contract with Termux as the first executor. Device tokens are hashed, the device never receives the service-role secret, jobs are atomically claimed, and results are returned with explicit success/failure/timeout states.
+
+### AF-4 — Autonomous Mission Orchestrator
+
+`autonomy/orchestrator.js` is the mission-level orchestration layer. It connects persistent mission state to an injected planner, executor and verifier while preserving existing governance boundaries.
+
+- plans are persisted as checkpoints and can resume from `completed_steps`;
+- steps receive deterministic IDs for stable recovery;
+- autonomy requires explicit `enabled: true`;
+- per-mission step and runtime budgets are enforced;
+- step risk is checked against the autonomy policy before execution;
+- retries are bounded and restricted to retryable `failed`/`timeout` outcomes;
+- each step is verified before the next step runs;
+- final goal verification is mandatory before `succeeded`;
+- planning failures and policy violations become explicit `blocked` states rather than silent execution.
+
+AF-4 is the orchestration layer; executors such as Termux remain the data-plane workers.
 
 ## Real Activation / Integration — Phase 1
 
@@ -28,7 +54,7 @@ External operations are never enabled merely because a connector exists. A conne
 
 ### Commands
 
-`npm test` runs the full regression suite, including real-activation contract tests.
+`npm test` runs the full regression suite, including real-activation and AF-4 orchestration tests.
 
 `npm run test:activation` runs only the activation suites with mock transports.
 
@@ -47,7 +73,7 @@ Provider → Model → Capability → Account → Quota → Router → Fallback 
 ```
 
 ```
-Core → Tools → Connectors → Execution → Self-Development → Autonomy → Multi-IA → Multi-Agent → Platform → Activation
+Core → Tools → Connectors → Execution → Self-Development → Autonomy → Multi-IA → Multi-Agent → Platform → Activation → Autonomous Execution Fabric
 ```
 
 The Grok external-client flow remains opt-in and paused; it is not required for the completed real-service activation layer described here.
