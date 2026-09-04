@@ -9,6 +9,7 @@ const toolUniverse = require('../tool-universe/registry');
 const execution = require('../execution/lookup');
 const missionState = require('../execution/mission-state');
 const deviceDispatcher = require('../execution/device-dispatcher');
+const { createSupabaseMissionRepository } = require('../execution/supabase-mission-repository');
 const selfDevelopment = require('../self-development/coordinator');
 const autonomy = require('../autonomy/coordinator');
 const autonomousMission = require('../autonomy/orchestrator');
@@ -32,7 +33,7 @@ function createAriaRuntime(options = {}) {
     identity: coreIdentity,
     core: { session, planning, taskState, selfState },
     tools: toolUniverse,
-    execution: Object.freeze({ ...execution, missionState, deviceDispatcher }),
+    execution: Object.freeze({ ...execution, missionState, deviceDispatcher, createSupabaseMissionRepository }),
     selfDevelopment,
     autonomy: Object.freeze({
       coordinator: autonomy,
