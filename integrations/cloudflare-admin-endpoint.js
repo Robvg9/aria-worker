@@ -126,6 +126,8 @@ function createCloudflareAdminEndpoint({
       account_read: 'account',
       worker_read: 'worker',
       deployments_read: 'deployments',
+      content_read: 'content',
+      logs_read: 'settings',
       logs: 'settings'
     };
     const operation = operationAliases[requestedOperation] || requestedOperation;
