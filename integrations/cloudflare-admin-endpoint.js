@@ -52,7 +52,14 @@ function createCloudflareAdminEndpoint({
     const incoming = bearer(request);
 
     if (!expected || !token || !accountId) {
-      return json({ error: 'cloudflare_admin_not_configured' }, 500);
+      return json({
+        error: 'cloudflare_admin_not_configured',
+        configured: {
+          runtime_secret: Boolean(expected),
+          api_token: Boolean(token),
+          account_id: Boolean(accountId)
+        }
+      }, 500);
     }
     if (!incoming || !constantTimeEqual(incoming, expected)) {
       return json({ error: 'unauthorized' }, 401);
