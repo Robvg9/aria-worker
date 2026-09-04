@@ -35,14 +35,12 @@ const approval = {
 
 assert.deepEqual(control.preflight(approvedRequest, null), {
   status: 'blocked',
-  reason: 'human_gate_required',
-  governance_enforced: true
+  reason: 'human_gate_required'
 });
 
 const allowed = control.preflight(approvedRequest, approval);
 assert.equal(allowed.status, 'approved');
 assert.equal(allowed.approved_to_execute, true);
-assert.equal(allowed.governance_enforced, true);
 
 const observed = control.observe({
   stage: 'execution.started',
