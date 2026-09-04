@@ -121,11 +121,19 @@ function createCloudflareAdminEndpoint({
 
     const accountId = resolved.accountId;
     const url = new URL(request.url);
-    const operation = url.searchParams.get('operation') || 'deployments';
+    const requestedOperation = url.searchParams.get('operation') || 'deployments';
+    const operationAliases = {
+      account_read: 'account',
+      worker_read: 'worker',
+      deployments_read: 'deployments',
+      logs: 'settings'
+    };
+    const operation = operationAliases[requestedOperation] || requestedOperation;
     const base = `${API_BASE}/accounts/${encodeURIComponent(accountId)}`;
     const script = encodeURIComponent(scriptName);
 
     const routes = {
+      account: `${base}`,
       worker: `${base}/workers/workers/${script}`,
       deployments: `${base}/workers/scripts/${script}/deployments`,
       content: `${base}/workers/scripts/${script}/content/v2`,
@@ -153,7 +161,8 @@ function createCloudflareAdminEndpoint({
       }
 
       return json({
-        operation,
+        operation: requestedOperation,
+        resolved_operation: operation,
         account_resolution: resolved.source,
         ...safeResult(payload)
       }, 200);
