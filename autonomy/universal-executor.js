@@ -1,12 +1,18 @@
 'use strict';
 
-function createUniversalExecutor({ activation, deviceDispatcher, agentExecutors = {} } = {}) {
+const { selectExecutor } = require('./universal-execution/selector');
+const { listExecutors } = require('./universal-execution/lookup');
+
+function createUniversalExecutor({ activation, deviceDispatcher, agentExecutors = {}, executorRegistry = null } = {}) {
   if (!activation || typeof activation.execute !== 'function') throw new TypeError('activation runtime required');
+
+  const registry = executorRegistry || { list: listExecutors };
 
   async function execute({ missionId, step, attempt, policy, request = {} } = {}) {
     if (!step || typeof step !== 'object') throw new TypeError('step required');
 
-    const executorType = step.executor_type || step.target?.type || step.target?.executor_type || null;
+    const selected = selectExecutor(step, registry);
+    const executorType = selected.type;
 
     if (executorType === 'device') {
       if (!deviceDispatcher || typeof deviceDispatcher.execute !== 'function') throw new Error('device dispatcher unavailable');
@@ -21,9 +27,7 @@ function createUniversalExecutor({ activation, deviceDispatcher, agentExecutors 
     }
 
     const connectorId = step.target?.connector_id || step.connector_id;
-    if (!connectorId) throw new Error('executor target missing');
     const operation = step.operation;
-    if (!operation) throw new Error('step operation missing');
 
     const context = {
       ...request,
@@ -34,11 +38,12 @@ function createUniversalExecutor({ activation, deviceDispatcher, agentExecutors 
       tool_id: step.tool_id || request.tool_id,
       target: step.target || request.target,
       policy_version: step.policy_version || request.policy_version,
-      authorization_id: step.authorization_id || request.authorization_id
+      authorization_id: step.authorization_id || request.authorization_id,
+      executor_selection: selected
     };
 
     const result = await activation.execute(connectorId, operation, context);
-    return { ...result, executor_type: 'connector', connector_id: connectorId };
+    return { ...result, executor_type: 'connector', connector_id: connectorId, executor_selection: selected };
   }
 
   return Object.freeze({ execute });
