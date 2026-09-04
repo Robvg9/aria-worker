@@ -31,12 +31,7 @@ function containsSensitive(value, seen = new Set()) {
 }
 
 function sanitizeResult(result) {
-  if (containsSensitive(result)) {
-    return {
-      status: 'blocked',
-      reason: 'sensitive_output_rejected'
-    };
-  }
+  if (containsSensitive(result)) return { status: 'blocked', reason: 'sensitive_output_rejected' };
   return result;
 }
 
@@ -57,8 +52,11 @@ function operationAllowed(adapter, operation) {
 }
 
 function scopeMatches(step = {}, adapter = {}) {
-  const stepType = step.executor_type || step.target?.type;
-  return stepType === adapter.executor_type;
+  const explicitType = step.executor_type || null;
+  const targetType = step.target?.type || null;
+  if (explicitType && explicitType !== adapter.executor_type) return false;
+  if (targetType && targetType !== adapter.executor_type) return false;
+  return true;
 }
 
 function createDispatchBoundary({ adapters } = {}) {
@@ -79,18 +77,11 @@ function createDispatchBoundary({ adapters } = {}) {
       return { status: 'blocked', executor_type: executorType, reason: error.message };
     }
 
-    if (!scopeMatches(step, adapter)) {
-      return { status: 'blocked', executor_type: executorType, reason: 'scope_mismatch' };
-    }
-
-    if (!operationAllowed(adapter, step.operation)) {
-      return { status: 'blocked', executor_type: executorType, reason: 'operation_not_supported' };
-    }
+    if (!scopeMatches(step, adapter)) return { status: 'blocked', executor_type: executorType, reason: 'scope_mismatch' };
+    if (!operationAllowed(adapter, step.operation)) return { status: 'blocked', executor_type: executorType, reason: 'operation_not_supported' };
 
     const targetId = targetIdentifier(step);
-    if (!targetId) {
-      return { status: 'blocked', executor_type: executorType, reason: `${executorType}_target_missing` };
-    }
+    if (!targetId) return { status: 'blocked', executor_type: executorType, reason: `${executorType}_target_missing` };
 
     try {
       const result = await adapter.execute({
