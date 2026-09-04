@@ -1,6 +1,6 @@
 # ARIA Worker — Adapter Layer + Control Plane
 
-Current package version: **2.5.2**.
+Current package version: **2.5.5**.
 
 This repository contains ARIA's governed control-plane, execution adapters, autonomous layers and the real-activation integration runtime. Architecture completion does not imply that every external account is configured or that production operations have been executed.
 
@@ -29,6 +29,20 @@ A transport-neutral device execution contract with Termux as the first executor.
 - planning failures and policy violations become explicit `blocked` states rather than silent execution.
 
 AF-4 is the orchestration layer; executors such as Termux remain the data-plane workers.
+
+## Termux autonomous control
+
+`agents/termux/aria-agent.js` is the live device worker. Once it is running and authenticated, ARIA can dispatch governed `shell.execute` jobs remotely; the device reports heartbeat, claims work, executes the command, and returns stdout/stderr/exit status.
+
+`agents/termux/start-agent.sh` adds the missing lifecycle layer for zero-touch operation: local secret loading, optional fast-forward-only update from `origin/main`, wake-lock acquisition when available, supervision and automatic restart after unexpected agent exits.
+
+`agents/termux/boot/start-aria-agent` is the Termux:Boot launcher. This lets the Android device start the ARIA worker automatically after boot instead of requiring Robert to paste startup commands after every restart.
+
+The device token stays outside GitHub. The default local environment file is `~/.aria-agent.env`; it must remain private to the Termux user. The service-role key is never sent to the device.
+
+### Device-level prerequisite
+
+Cloudflare/Supabase cannot turn on a Termux process that Android has not started. The official Termux:Boot add-on must be installed and opened once, its boot directory must contain the launcher, and Android battery/background restrictions should be configured so Termux is not aggressively stopped. These are one-time phone-level prerequisites; they are not recurring mission steps.
 
 ## Real Activation / Integration — Phase 1
 
