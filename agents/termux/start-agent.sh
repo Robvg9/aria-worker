@@ -7,6 +7,7 @@ AGENT_SCRIPT="$AGENT_DIR/agents/termux/aria-agent.js"
 LOG_DIR="$AGENT_DIR/logs"
 STOP_FILE="$HOME/.aria-agent.stop"
 RESTART_DELAY_SEC="${ARIA_AGENT_RESTART_DELAY_SEC:-5}"
+STOPPING=0
 
 mkdir -p "$LOG_DIR"
 chmod 700 "$AGENT_DIR" "$LOG_DIR" 2>/dev/null || true
@@ -22,28 +23,32 @@ fi
 : "${ARIA_DEVICE_TOKEN:?ARIA_DEVICE_TOKEN is required}"
 : "${ARIA_DEVICE_ID:?ARIA_DEVICE_ID is required}"
 
-if [ ! -x "$(command -v node)" ]; then
+if ! command -v node >/dev/null 2>&1; then
   echo "[ARIA] node is required" >&2
   exit 127
 fi
 
 rm -f "$STOP_FILE"
 
-if command -v termux-wake-lock >/dev/null 2>&1; then
-  termux-wake-lock || true
-fi
-
-cleanup() {
-  touch "$STOP_FILE"
+unlock() {
   if command -v termux-wake-unlock >/dev/null 2>&1; then
     termux-wake-unlock || true
   fi
 }
-trap cleanup INT TERM EXIT
+stop() {
+  STOPPING=1
+  touch "$STOP_FILE"
+}
+trap stop INT TERM
+trap unlock EXIT
+
+if command -v termux-wake-lock >/dev/null 2>&1; then
+  termux-wake-lock || true
+fi
 
 cd "$AGENT_DIR"
 
-while [ ! -f "$STOP_FILE" ]; do
+while [ "$STOPPING" -eq 0 ] && [ ! -f "$STOP_FILE" ]; do
   if [ "${ARIA_AGENT_AUTO_PULL:-true}" = "true" ] && git -C "$AGENT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git -C "$AGENT_DIR" pull --ff-only origin main >/dev/null 2>&1 || true
   fi
@@ -57,6 +62,7 @@ while [ ! -f "$STOP_FILE" ]; do
   echo "[ARIA] supervisor starting agent $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   node "$AGENT_SCRIPT" >>"$LOG_DIR/agent.log" 2>&1 || true
 
+  [ "$STOPPING" -eq 1 ] && break
   [ -f "$STOP_FILE" ] && break
   sleep "$RESTART_DELAY_SEC"
 done
