@@ -43,7 +43,7 @@ assert.equal(allowed.status, 'approved');
 assert.equal(allowed.approved_to_execute, true);
 
 const observed = control.observe({
-  stage: 'execution.started',
+  stage: 'execution',
   status: 'started',
   execution_id: 'exec_u07',
   request_id: 'req_u07',
