@@ -7,25 +7,52 @@ const SUPABASE_BASE_URL = process.env.ARIA_SUPABASE_BASE_URL || 'https://icuqsst
 const RUNNER_FUNCTION = process.env.ARIA_LIVE_RUNNER_FUNCTION || 'aria-mission-runner-v5';
 const SECRET = process.env.ARIA_RUNTIME_SHARED_SECRET;
 const GOAL = 'Execute exactly two independent shell.execute steps on the Android Termux device: step 1 must print the current working directory; step 2 must print ARIA_REAL_RUNTIME_OK. Do not combine these into one command.';
+const RETRIES = 3;
+const RETRY_MS = 1500;
+const TIMEOUT_MS = 20_000;
 
 if (!SECRET) {
   console.error('ARIA_RUNTIME_SHARED_SECRET is required in the environment');
   process.exit(2);
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function post(url, payload) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${SECRET}`
-    },
-    body: JSON.stringify(payload)
-  });
-  const text = await response.text();
-  let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
-  return { response, body };
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${SECRET}`
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const text = await response.text();
+      let body = null;
+      try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+      return { response, body };
+    } catch (error) {
+      lastError = error;
+      if (attempt < RETRIES) await sleep(RETRY_MS);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const detail = lastError?.name === 'AbortError'
+    ? 'request_timeout'
+    : `${lastError?.name || 'Error'}: ${lastError?.message || 'unknown fetch error'}`;
+  throw new Error(`fetch failed after ${RETRIES} attempts: ${url} (${detail})`);
 }
 
 async function main() {
