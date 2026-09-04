@@ -10,6 +10,7 @@ const read = (relativePath) => fs.readFileSync(path.join(ROOT, relativePath), 'u
 const requiredFiles = [
   'autonomy/universal-execution/registry.json',
   'autonomy/universal-execution/contract.md',
+  'autonomy/universal-execution/dispatch-contract.md',
   'autonomy/universal-execution/lookup.js',
   'autonomy/universal-execution/selector.js',
   'autonomy/universal-execution/plan.js',
@@ -92,5 +93,12 @@ assert.match(boundary, /scope_mismatch/);
 assert.match(boundary, /operation_not_supported/);
 assert.match(boundary, /sensitive_output_rejected/);
 assert.match(boundary, /adapter_error/);
+assert.match(boundary, /access[_-]?token/);
+
+const boundaryContract = read('autonomy/universal-execution/dispatch-contract.md');
+assert.match(boundaryContract, /UO-11\.4/);
+assert.match(boundaryContract, /scope_mismatch/);
+assert.match(boundaryContract, /sensitive_output_rejected/);
+assert.match(boundaryContract, /adapter_error/);
 
 console.log('UO-9 audit + no-regression structural tests passed');
