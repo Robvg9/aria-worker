@@ -13,6 +13,7 @@ const selfDevelopment = require('../self-development/coordinator');
 const autonomy = require('../autonomy/coordinator');
 const autonomousMission = require('../autonomy/orchestrator');
 const universalExecutor = require('../autonomy/universal-executor');
+const universalMission = require('../autonomy/universal-mission');
 const multiIA = require('../multi-ia/coordinator');
 const agents = require('../agents/coordinator');
 const platform = require('../platform/coordinator');
@@ -36,7 +37,8 @@ function createAriaRuntime(options = {}) {
     autonomy: Object.freeze({
       coordinator: autonomy,
       missionOrchestrator: autonomousMission,
-      universalExecutor
+      universalExecutor,
+      universalMission
     }),
     multiIA,
     agents,
