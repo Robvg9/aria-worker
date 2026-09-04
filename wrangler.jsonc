@@ -2,5 +2,8 @@
   "$schema": "https://developers.cloudflare.com/workers/wrangler/config-schema.json",
   "name": "aria",
   "main": "./worker.js",
-  "compatibility_date": "2026-09-04"
+  "compatibility_date": "2026-09-04",
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
 }
