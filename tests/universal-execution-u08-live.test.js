@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 
 const BASE_URL = process.env.ARIA_LIVE_BASE_URL || 'https://aria.robvg9.workers.dev';
 const SUPABASE_BASE_URL = process.env.ARIA_SUPABASE_BASE_URL || 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1';
+const RUNNER_FUNCTION = process.env.ARIA_LIVE_RUNNER_FUNCTION || 'aria-mission-runner-v5';
 const SECRET = process.env.ARIA_RUNTIME_SHARED_SECRET;
 const GOAL = 'Show the current working directory and print ARIA_REAL_RUNTIME_OK';
 
@@ -33,7 +34,7 @@ async function main() {
   const missionId = intake.body?.mission?.mission_id || intake.body?.mission_id || null;
   assert.ok(missionId, 'mission_id missing from live intake response');
 
-  const runner = await post(`${SUPABASE_BASE_URL}/aria-mission-runner-v4`, { mission_id: missionId });
+  const runner = await post(`${SUPABASE_BASE_URL}/${RUNNER_FUNCTION}`, { mission_id: missionId });
   assert.equal(runner.response.ok, true, `mission runner HTTP ${runner.response.status}`);
 
   const runnerStatus = runner.body?.status || runner.body?.execution?.status || null;
