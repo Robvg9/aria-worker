@@ -25,6 +25,11 @@ const { createDispatchBoundary } = require('../autonomy/universal-execution/disp
   assert.deepEqual(ok, { status: 'succeeded', output: { ok: true }, adapter_id: 'mock-adapter-v1', executor_type: 'connector' });
   assert.equal(calls.length, 1);
 
+  const badScope = await boundary.dispatch({
+    step: { executor_type: 'connector', operation: 'github:read', target: { type: 'device', device_id: 'android-termux' } }
+  });
+  assert.deepEqual(badScope, { status: 'blocked', executor_type: 'connector', reason: 'scope_mismatch' });
+
   const unavailable = await boundary.dispatch({
     step: { executor_type: 'device', operation: 'github:read', target: { type: 'device', device_id: 'android-termux' } }
   });
