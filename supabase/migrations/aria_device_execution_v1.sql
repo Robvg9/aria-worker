@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS aria_internal.execution_job_events (
 CREATE INDEX IF NOT EXISTS device_registry_status_idx ON aria_internal.device_registry(status);
 CREATE INDEX IF NOT EXISTS execution_jobs_claim_idx ON aria_internal.execution_jobs(status, requested_at);
 CREATE INDEX IF NOT EXISTS execution_jobs_mission_idx ON aria_internal.execution_jobs(mission_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS execution_jobs_device_idx ON aria_internal.execution_jobs(device_id);
 CREATE INDEX IF NOT EXISTS execution_job_events_job_idx ON aria_internal.execution_job_events(job_id, created_at DESC);
 
 ALTER TABLE aria_internal.device_registry ENABLE ROW LEVEL SECURITY;
