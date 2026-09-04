@@ -12,7 +12,7 @@ const { createDispatchBoundary } = require('../autonomy/universal-execution/disp
     operations: ['github:read'],
     async execute(input) {
       calls.push(input);
-      return { status: 'succeeded', output: { ok: true } };
+      return { status: 'succeeded', output: { ok: true, tokens_used: 3 } };
     }
   };
 
@@ -22,7 +22,7 @@ const { createDispatchBoundary } = require('../autonomy/universal-execution/disp
     missionId: 'm1',
     step: { id: 'step_1', executor_type: 'connector', operation: 'github:read', target: { type: 'connector', connector_id: 'github' }, input: {} }
   });
-  assert.deepEqual(ok, { status: 'succeeded', output: { ok: true }, adapter_id: 'mock-adapter-v1', executor_type: 'connector' });
+  assert.deepEqual(ok, { status: 'succeeded', output: { ok: true, tokens_used: 3 }, adapter_id: 'mock-adapter-v1', executor_type: 'connector' });
   assert.equal(calls.length, 1);
 
   const badScope = await boundary.dispatch({
@@ -45,7 +45,7 @@ const { createDispatchBoundary } = require('../autonomy/universal-execution/disp
   });
   assert.deepEqual(badTarget, { status: 'blocked', executor_type: 'connector', reason: 'connector_target_missing' });
 
-  const sensitiveAdapter = { ...adapter, async execute() { return { status: 'succeeded', output: { token: 'hidden' } }; } };
+  const sensitiveAdapter = { ...adapter, async execute() { return { status: 'succeeded', output: { access_token: 'hidden' } }; } };
   const sensitiveBoundary = createDispatchBoundary({ adapters: { get: () => sensitiveAdapter } });
   const sensitive = await sensitiveBoundary.dispatch({ step: { executor_type: 'connector', operation: 'github:read', target: { type: 'connector', connector_id: 'github' } } });
   assert.deepEqual(sensitive, { status: 'blocked', reason: 'sensitive_output_rejected' });
