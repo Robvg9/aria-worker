@@ -28,7 +28,6 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
     { id: 'step_3', operation: 'noop', executor_type: 'device', risk: 'low', retryable: false }
   ];
 
-  // UO-6A: transient failure retries the same step and then continues.
   {
     const store = createStore({ mission_id: 'u06-retry', status: 'queued', checkpoint: {} });
     let calls = 0;
@@ -49,7 +48,6 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
     assert.strictEqual(store.state.completed_steps, 3);
   }
 
-  // UO-6B: a mission resumed from a checkpoint skips already completed steps.
   {
     const store = createStore({
       mission_id: 'u06-resume',
@@ -75,7 +73,6 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
     assert.strictEqual(store.state.completed_steps, 3);
   }
 
-  // UO-6C: failed verification does not mark the step complete.
   {
     const store = createStore({ mission_id: 'u06-verify', status: 'queued', checkpoint: {} });
     let calls = 0;
@@ -87,9 +84,10 @@ const { createAutonomousMissionOrchestrator } = require('../autonomy/orchestrato
       policy: { enabled: true, max_steps: 10, max_runtime_ms: 10000, max_risk: 'low', max_attempts_per_step: 1 }
     });
     const result = await orchestrator.run('u06-verify');
-    assert.strictEqual(result.status, 'verification_failed');
+    assert.strictEqual(result.status, 'failed');
     assert.strictEqual(calls, 1);
-    assert.notStrictEqual(store.state.completed_steps, 1);
+    assert.strictEqual(store.state.completed_steps || 0, 0);
+    assert.strictEqual(store.state.next_action, 'recover_or_human_gate');
   }
 
   console.log('UO-6 recovery + resume tests passed');
