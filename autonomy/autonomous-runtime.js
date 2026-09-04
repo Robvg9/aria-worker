@@ -3,6 +3,7 @@
 const { createUniversalMissionRunner } = require('./universal-mission');
 const { createDeviceDispatcher } = require('../execution/device-dispatcher');
 const { createSupabaseMissionRepository } = require('../execution/supabase-mission-repository');
+const { createMissionStateStore } = require('../execution/mission-state');
 const { createServiceDeviceClient } = require('../execution/live-device-client');
 
 function createAutonomousRuntime({
@@ -20,7 +21,8 @@ function createAutonomousRuntime({
   if (typeof planner !== 'function') throw new TypeError('planner function required');
   if (typeof verify !== 'function') throw new TypeError('verify function required');
 
-  const missionStore = createSupabaseMissionRepository({ supabaseUrl, serviceRoleKey });
+  const missionRepository = createSupabaseMissionRepository({ supabaseUrl, serviceRoleKey });
+  const missionStore = createMissionStateStore(missionRepository);
   const deviceClient = createServiceDeviceClient({
     supabaseUrl,
     serviceRoleKey,
@@ -46,6 +48,7 @@ function createAutonomousRuntime({
   });
 
   return Object.freeze({
+    missionRepository,
     missionStore,
     deviceClient,
     deviceDispatcher,
