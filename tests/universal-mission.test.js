@@ -69,7 +69,7 @@ const { createUniversalMissionRunner } = require('../autonomy/universal-mission'
       target: { type: 'device', device_id: 'android-test' }, input: { command: 'echo ok' }
     },
     {
-      id: 's3', action: 'agent.task', risk: 'low',
+      id: 's3', action: 'agent.task', operation: 'delegate', risk: 'low',
       target: { type: 'agent', agent_id: 'agent.test' }, input: { prompt: 'finish' }
     }
   ];
