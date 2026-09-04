@@ -1,113 +1,13 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
-
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-);
-const MAX_OUTPUT = 256 * 1024;
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-}
-function tokenHash(token: string) {
-  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)).then(bytes =>
-    Array.from(new Uint8Array(bytes)).map(b => b.toString(16).padStart(2, '0')).join('')
-  );
-}
-function bounded(value: unknown) {
-  const text = typeof value === 'string' ? value : '';
-  return text.length > MAX_OUTPUT ? text.slice(-MAX_OUTPUT) : text;
-}
-function sanitize(value: unknown) {
-  let text = bounded(value);
-  const patterns = [ /Bearer\s+[A-Za-z0-9._\-]+/g, /\bsk-[A-Za-z0-9_\-]{8,}/g, /\bor-v1-[A-Za-z0-9_\-]{8,}/g, /(api[_-]?key|token|secret|password)\s*[=:]\s*\S+/gi ];
-  for (const pattern of patterns) text = text.replace(pattern, '[redacted]');
-  return text;
-}
-async function authenticate(req: Request, suppliedDeviceId?: string) {
-  const header = req.headers.get('authorization') || '';
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  if (!match) return { error: json({ error: 'unauthorized' }, 401) };
-  const deviceId = suppliedDeviceId || req.headers.get('x-aria-device-id');
-  if (!deviceId) return { error: json({ error: 'device_id_required' }, 400) };
-  const hash = await tokenHash(match[1]);
-  const { data, error } = await supabase.from('device_registry').select('device_id,agent_type,status,capabilities').eq('device_id', deviceId).eq('token_hash', hash).maybeSingle();
-  if (error || !data) return { error: json({ error: 'unauthorized' }, 401) };
-  if (data.status === 'disabled') return { error: json({ error: 'device_disabled' }, 403) };
-  return { device: data };
-}
-async function body(req: Request) {
-  try { return await req.json(); } catch { return {}; }
-}
-
-Deno.serve(async (req) => {
-  const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/aria-device-gateway/, '').replace(/\/+$/, '') || '/';
-
-  if (req.method === 'GET' && path === '/health') return json({ ok: true, service: 'aria-device-gateway', version: '1' });
-
-  const payload = await body(req);
-  const auth = await authenticate(req, payload.device_id);
-  if (auth.error) return auth.error;
-  const device = auth.device!;
-
-  if (req.method === 'POST' && path === '/v1/devices/heartbeat') {
-    const { error } = await supabase.from('device_registry').update({
-      status: 'online',
-      capabilities: Array.isArray(payload.capabilities) ? payload.capabilities : device.capabilities,
-      metadata: { agent_type: payload.agent_type || device.agent_type },
-      last_seen_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }).eq('device_id', device.device_id);
-    if (error) return json({ error: 'heartbeat_failed' }, 500);
-    return json({ ok: true, device_id: device.device_id });
-  }
-
-  if (req.method === 'POST' && path === '/v1/jobs/claim') {
-    const { data, error } = await supabase.rpc('claim_execution_job', { p_device_id: device.device_id });
-    if (error) return json({ error: 'claim_failed' }, 500);
-    const job = Array.isArray(data) ? data[0] ?? null : data ?? null;
-    return json({ job });
-  }
-
-  const start = path.match(/^\/v1\/jobs\/([^/]+)\/start$/);
-  if (req.method === 'POST' && start) {
-    const jobId = decodeURIComponent(start[1]);
-    const { data, error } = await supabase.from('execution_jobs').update({ status: 'running', started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('job_id', jobId).eq('device_id', device.device_id).eq('status', 'claimed').select('job_id,device_id,status').maybeSingle();
-    if (error) return json({ error: 'start_failed' }, 500);
-    if (!data) return json({ error: 'job_not_owned_or_not_claimed' }, 409);
-    return json({ ok: true, job: data });
-  }
-
-  const result = path.match(/^\/v1\/jobs\/([^/]+)\/result$/);
-  if (req.method === 'POST' && result) {
-    const jobId = decodeURIComponent(result[1]);
-    if (!payload.result || typeof payload.result !== 'object') return json({ error: 'result_required' }, 400);
-    const r = payload.result as Record<string, unknown>;
-    const status = ['succeeded','failed','timeout','cancelled'].includes(String(r.status)) ? String(r.status) : 'failed';
-    const exitCode = Number.isInteger(r.exit_code) ? r.exit_code : null;
-    const cleanResult = {
-      status,
-      exit_code: exitCode,
-      stdout: sanitize(r.stdout),
-      stderr: sanitize(r.stderr),
-      duration_ms: Number.isFinite(Number(r.duration_ms)) ? Number(r.duration_ms) : null,
-      metadata: r.metadata && typeof r.metadata === 'object' ? r.metadata : {}
-    };
-    const { data, error } = await supabase.from('execution_jobs').update({
-      status,
-      exit_code: exitCode,
-      stdout: cleanResult.stdout,
-      stderr: cleanResult.stderr,
-      result: cleanResult,
-      completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }).eq('job_id', jobId).eq('device_id', device.device_id).in('status', ['running','claimed']).select('job_id,status').maybeSingle();
-    if (error) return json({ error: 'result_failed' }, 500);
-    if (!data) return json({ error: 'job_not_owned_or_already_finished' }, 409);
-    await supabase.from('execution_job_events').insert({ job_id: jobId, device_id: device.device_id, event_type: `job.${status}`, payload: { exit_code: exitCode, duration_ms: cleanResult.duration_ms } });
-    return json({ ok: true, job: data });
-  }
-
-  return json({ error: 'not_found' }, 404);
-});
+const supabase=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+function json(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}})}
+async function hash(t:string){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function body(r:Request){try{return await r.json()}catch{return {}}}
+async function auth(r:Request,id?:string){const m=(r.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i);if(!m)return{error:json({error:'unauthorized'},401)};const deviceId=id||r.headers.get('x-aria-device-id');if(!deviceId)return{error:json({error:'device_id_required'},400)};const tokenHash=await hash(m[1]);const {data,error}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities').eq('device_id',deviceId).eq('token_hash',tokenHash).maybeSingle();if(error||!data)return{error:json({error:'unauthorized'},401)};if(data.status==='disabled')return{error:json({error:'device_disabled'},403)};return{device:data}}
+Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'5'});
+if(req.method==='POST'&&p==='/v1/devices/enroll'){if(typeof b.device_id!=='string'||typeof b.token!=='string')return json({error:'device_id_and_token_required'},400);const {data,error}=await supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token});if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);return json(data)}
+const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;
+if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.isArray(b.capabilities)?b.capabilities:d.capabilities,p_agent_type:String(b.agent_type||d.agent_type)});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id})}
+if(req.method==='POST'&&p==='/v1/jobs/claim'){const {data,error}=await supabase.rpc('claim_execution_job_gateway',{p_device_id:d.device_id});if(error)return json({error:'claim_failed'},500);return json({job:data??null})}
+const s=p.match(/^\/v1\/jobs\/([^/]+)\/start$/);if(req.method==='POST'&&s){const jobId=decodeURIComponent(s[1]);const {data,error}=await supabase.rpc('start_execution_job_gateway',{p_job_id:jobId,p_device_id:d.device_id});if(error)return json({error:'start_failed'},500);if(!data)return json({error:'job_not_owned_or_not_claimed'},409);return json({ok:true,job:data})}
+const z=p.match(/^\/v1\/jobs\/([^/]+)\/result$/);if(req.method==='POST'&&z){const jobId=decodeURIComponent(z[1]);if(!b.result||typeof b.result!=='object')return json({error:'result_required'},400);const r=b.result as Record<string,unknown>;const status=['succeeded','failed','timeout','cancelled'].includes(String(r.status))?String(r.status):'failed';const exitCode=Number.isInteger(r.exit_code)?Number(r.exit_code):null;const clean={status,exit_code:exitCode,stdout:typeof r.stdout==='string'?r.stdout:'',stderr:typeof r.stderr==='string'?r.stderr:'',duration_ms:Number.isFinite(Number(r.duration_ms))?Number(r.duration_ms):null,metadata:r.metadata&&typeof r.metadata==='object'?r.metadata:{}};const {data,error}=await supabase.rpc('complete_execution_job_gateway',{p_job_id:jobId,p_device_id:d.device_id,p_status:status,p_exit_code:exitCode,p_stdout:clean.stdout,p_stderr:clean.stderr,p_result:clean});if(error)return json({error:'result_failed'},500);if(!data)return json({error:'job_not_owned_or_already_finished'},409);return json({ok:true,job:{job_id:jobId,status}})}return json({error:'not_found'},404)})
