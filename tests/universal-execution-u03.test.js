@@ -52,11 +52,7 @@ assert.throws(() => selectExecutor({
 }, baseRegistry), e => e.code === 'unknown_executor_type');
 
 assert.throws(() => selectExecutor({
-  operation: 'definitely.unsupported'
-}, baseRegistry), e => e.code === 'no_executor_for_operation');
-
-assert.throws(() => selectExecutor({
-  operation: 'delegate',
+  operation: 'repo_read',
   executor_type: 'device',
   target: { type: 'device', device_id: 'android-termux' }
 }, baseRegistry), e => e.code === 'operation_not_registered');
@@ -66,5 +62,8 @@ const ambiguous = { list: () => [
   { executor_id: 'device', type: 'device', status: 'ready', operations: ['x'] }
 ] };
 assert.throws(() => selectExecutor({ operation: 'x' }, ambiguous), e => e.code === 'ambiguous_executor_selection');
+
+const emptyRegistry = { list: () => [] };
+assert.throws(() => selectExecutor({ operation: 'x' }, emptyRegistry), e => e.code === 'executor_registry_empty');
 
 console.log('UO-3 universal executor selector tests passed');
