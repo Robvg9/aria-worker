@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { createAutonomyPolicy, riskAllowed } = require('./policy');
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const RETRYABLE = new Set(['failed', 'timeout']);
@@ -23,16 +24,17 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
   requireFn(executor, 'executor');
   requireFn(verify, 'verify');
 
+  const p = createAutonomyPolicy(policy);
   const limits = Object.freeze({
-    max_steps: Number.isInteger(policy.max_steps) && policy.max_steps > 0 ? policy.max_steps : 20,
+    max_steps: Math.min(p.max_steps, Number.isInteger(policy.max_steps) ? policy.max_steps : p.max_steps),
     max_attempts_per_step: Number.isInteger(policy.max_attempts_per_step) && policy.max_attempts_per_step > 0 ? policy.max_attempts_per_step : 2
   });
 
   async function run(missionId) {
+    const started = Date.now();
     let mission = await missionStore.get(missionId);
     if (!mission) throw new Error(`mission not found: ${missionId}`);
     if (TERMINAL.has(mission.status)) return { status: mission.status, mission };
-
     if (mission.status === 'queued' || mission.status === 'blocked' || mission.status === 'paused' || mission.status === 'failed') {
       mission = await missionStore.transition(missionId, 'planning');
     }
@@ -52,7 +54,8 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
         input: step.input && typeof step.input === 'object' ? step.input : {},
         policy: step.policy && typeof step.policy === 'object' ? step.policy : {},
         verify: step.verify && typeof step.verify === 'object' ? step.verify : {},
-        retryable: step.retryable !== false
+        retryable: step.retryable !== false,
+        risk: step.risk || step.policy?.risk || 'critical'
       }));
       mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, planned_at: now() }, { total_steps: plan.length, current_step: mission.current_step || 0 });
     }
@@ -60,15 +63,27 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
     mission = await missionStore.transition(missionId, 'running', { total_steps: plan.length });
 
     for (let index = mission.completed_steps || 0; index < plan.length; index += 1) {
-      if (index >= limits.max_steps) {
-        await missionStore.transition(missionId, 'paused', { current_step: index, next_action: 'resume: step budget exhausted' });
-        return { status: 'step_limit', mission };
+      if (index >= limits.max_steps || Date.now() - started >= p.max_runtime_ms) {
+        await missionStore.transition(missionId, 'paused', {
+          current_step: index,
+          next_action: index >= limits.max_steps ? 'resume: step budget exhausted' : 'resume: runtime budget exhausted'
+        });
+        return { status: index >= limits.max_steps ? 'step_limit' : 'time_limit', mission };
       }
 
       const step = plan[index];
+      if (!riskAllowed(step.risk, p)) {
+        await missionStore.transition(missionId, 'blocked', {
+          current_step: index,
+          next_action: `human_gate: risk ${step.risk} exceeds max_risk ${p.max_risk}`
+        });
+        return { status: 'blocked', reason: 'risk_blocked', step };
+      }
+
       let attempt = 0;
       let outcome = null;
       while (attempt < limits.max_attempts_per_step) {
+        if (Date.now() - started >= p.max_runtime_ms) break;
         attempt += 1;
         await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, active_step: step, active_step_index: index, last_attempt_at: now() }, {
           current_step: index,
@@ -77,7 +92,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
         });
 
         try {
-          const result = await executor({ missionId, mission, step, attempt });
+          const result = await executor({ missionId, mission, step, attempt, policy: p });
           const passed = await verify({ missionId, mission, step, result, attempt });
           outcome = { result, passed, attempt };
           if (passed) break;
@@ -85,9 +100,12 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
         } catch (error) {
           outcome = { error: String(error && error.message || error), passed: false, attempt };
         }
-
-        if (outcome.passed) break;
         if (!step.retryable || !RETRYABLE.has(outcome.result?.status || 'failed') || attempt >= limits.max_attempts_per_step) break;
+      }
+
+      if (Date.now() - started >= p.max_runtime_ms && !outcome?.passed) {
+        await missionStore.transition(missionId, 'paused', { current_step: index, next_action: 'resume: runtime budget exhausted' });
+        return { status: 'time_limit', mission, step, outcome };
       }
 
       if (!outcome || !outcome.passed) {
@@ -125,7 +143,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, executor, 
     return { status: 'succeeded', mission };
   }
 
-  return Object.freeze({ limits, run });
+  return Object.freeze({ policy: p, limits, run });
 }
 
 module.exports = Object.freeze({ createAutonomousMissionOrchestrator, stableId });
