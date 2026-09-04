@@ -21,6 +21,12 @@ const RESOURCE_METADATA =
 
 const SCOPES = ["openid", "profile", "email"];
 
+const { createCloudflareAdminEndpoint } = require("./integrations/cloudflare-admin-endpoint");
+
+const cloudflareAdmin = createCloudflareAdminEndpoint({
+  scriptName: "aria"
+});
+
 function json(body, status = 200, extra = {}) {
   return new Response(JSON.stringify(body), {
     status,
@@ -90,7 +96,7 @@ function rewriteAuthChallenge(response) {
 
   headers.set(
     "WWW-Authenticate",
-    `Bearer resource_metadata="${RESOURCE_METADATA}", scope="${SCOPES.join(" ")}"`
+    `Bearer resource_metadata="${RESOURCE_METADATA}", scope="${SCOPES.join(" " )}"`
   );
 
   headers.set(
@@ -236,9 +242,6 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    /*
-     * Protected Resource Metadata
-     */
     if (
       request.method === "GET" &&
       (
@@ -251,9 +254,6 @@ export default {
       });
     }
 
-    /*
-     * OAuth Authorization Server Metadata
-     */
     if (
       request.method === "GET" &&
       (
@@ -267,9 +267,6 @@ export default {
       });
     }
 
-    /*
-     * Autonomous Mission Intake
-     */
     if (
       url.pathname === "/mission" ||
       url.pathname === "/mission/"
@@ -277,9 +274,6 @@ export default {
       return startMission(request, env);
     }
 
-    /*
-     * Runtime Gateway
-     */
     if (
       url.pathname === "/runtime" ||
       url.pathname === "/runtime/"
@@ -287,9 +281,13 @@ export default {
       return proxyRuntime(request, env);
     }
 
-    /*
-     * MCP endpoint
-     */
+    if (
+      url.pathname === "/admin/cloudflare" ||
+      url.pathname === "/admin/cloudflare/"
+    ) {
+      return cloudflareAdmin(request, env);
+    }
+
     if (
       url.pathname === "/mcp" ||
       url.pathname === "/mcp/"
