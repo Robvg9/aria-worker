@@ -6,7 +6,7 @@ const BASE_URL = process.env.ARIA_LIVE_BASE_URL || 'https://aria.robvg9.workers.
 const SUPABASE_BASE_URL = process.env.ARIA_SUPABASE_BASE_URL || 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1';
 const RUNNER_FUNCTION = process.env.ARIA_LIVE_RUNNER_FUNCTION || 'aria-mission-runner-v5';
 const SECRET = process.env.ARIA_RUNTIME_SHARED_SECRET;
-const GOAL = 'Show the current working directory and print ARIA_REAL_RUNTIME_OK';
+const GOAL = 'Execute exactly two independent shell.execute steps on the Android Termux device: step 1 must print the current working directory; step 2 must print ARIA_REAL_RUNTIME_OK. Do not combine these into one command.';
 
 if (!SECRET) {
   console.error('ARIA_RUNTIME_SHARED_SECRET is required in the environment');
