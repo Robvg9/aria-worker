@@ -1,6 +1,6 @@
 'use strict';
 
-const SECRET_KEY_PATTERN = /(authorization|api[_-]?key|token|secret|password|credential)/i;
+const SECRET_KEY_PATTERN = /^(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|password|credential)(_|$)/i;
 const SECRET_VALUE_PATTERNS = [
   /Bearer\s+[A-Za-z0-9._-]{8,}/i,
   /\bsk-[A-Za-z0-9_-]{16,}\b/,
