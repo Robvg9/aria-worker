@@ -22,7 +22,7 @@ function createUniversalMissionRunner({
   const orchestrator = createAutonomousMissionOrchestrator({
     missionStore,
     planner,
-    executor,
+    executor: executor.execute,
     verify,
     policy,
     now
