@@ -28,7 +28,7 @@ function createConnectorAdapter({ activation } = {}) {
       try {
         const result = await activation.execute(connectorId, operation, context);
         return { ...result, executor_type: 'connector', connector_id: connectorId, attempt };
-      } catch (error) {
+      } catch (_error) {
         return {
           status: 'failed',
           executor_type: 'connector',
@@ -36,7 +36,7 @@ function createConnectorAdapter({ activation } = {}) {
           attempt,
           error: {
             code: 'adapter_error',
-            message: error instanceof Error ? error.message : String(error)
+            message: 'connector adapter execution failed'
           }
         };
       }
