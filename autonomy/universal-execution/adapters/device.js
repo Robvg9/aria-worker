@@ -23,14 +23,14 @@ function createDeviceAdapter({ deviceDispatcher } = {}) {
           request
         });
         return { ...result, executor_type: 'device', attempt };
-      } catch (error) {
+      } catch (_error) {
         return {
           status: 'failed',
           executor_type: 'device',
           attempt,
           error: {
             code: 'adapter_error',
-            message: error instanceof Error ? error.message : String(error)
+            message: 'device adapter execution failed'
           }
         };
       }
