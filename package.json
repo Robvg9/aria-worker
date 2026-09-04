@@ -1,6 +1,6 @@
 {
   "name": "aria-adapters",
-  "version": "2.5.2",
+  "version": "2.5.3",
   "private": true,
   "type": "commonjs",
   "description": "ARIA autonomous core and governed tool execution control plane.",
@@ -9,6 +9,7 @@
     "test:activation": "node tests/real-activation.test.js && node tests/real-activation-bootstrap.test.js && node tests/activation-governance.test.js",
     "smoke:live": "node activation/live-smoke.js",
     "test:uo8-live": "node tests/universal-execution-u08-live.test.js",
+    "test:uo9": "node tests/universal-execution-u09.test.js",
     "test:grok-paused": "node tests/mission-9-5.test.js && node tests/mission-9-5-grok-discovery.test.js && node tests/mission-9-5-grok-provisioning.test.js"
   }
 }
