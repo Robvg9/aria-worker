@@ -1,6 +1,7 @@
 'use strict';
 
 const { createUniversalMissionRunner } = require('./universal-mission');
+const { createMissionEntrypoint } = require('./mission-entrypoint');
 const { createDeviceDispatcher } = require('../execution/device-dispatcher');
 const { createSupabaseMissionRepository } = require('../execution/supabase-mission-repository');
 const { createMissionStateStore } = require('../execution/mission-state');
@@ -47,6 +48,11 @@ function createAutonomousRuntime({
     now
   });
 
+  const entrypoint = createMissionEntrypoint({
+    missionStore,
+    runMission: mission.run
+  });
+
   return Object.freeze({
     missionRepository,
     missionStore,
@@ -54,7 +60,8 @@ function createAutonomousRuntime({
     deviceDispatcher,
     executor: mission.executor,
     orchestrator: mission.orchestrator,
-    runMission: mission.run
+    runMission: mission.run,
+    startMission: entrypoint.startMission
   });
 }
 
