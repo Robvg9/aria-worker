@@ -47,6 +47,7 @@ assert.throws(() => selectExecutor({
 
 assert.throws(() => selectExecutor({
   operation: 'shell.execute',
+  executor_type: 'unknown',
   target: { type: 'unknown', id: 'x' }
 }, baseRegistry), e => e.code === 'unknown_executor_type');
 
