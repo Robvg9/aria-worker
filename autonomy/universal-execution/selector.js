@@ -56,14 +56,28 @@ function resolveAgainstEntry(step, executor) {
   });
 }
 
+function targetTypeHint(target) {
+  if (!target || typeof target !== 'object') return null;
+  const hints = [];
+  if (typeof target.connector_id === 'string' && target.connector_id.trim()) hints.push('connector');
+  if (typeof target.device_id === 'string' && target.device_id.trim()) hints.push('device');
+  if (typeof target.agent_id === 'string' && target.agent_id.trim()) hints.push('agent');
+  if (hints.length === 1) return hints[0];
+  if (hints.length > 1) {
+    fail('executor_target_ambiguous', 'target contains multiple executor identity hints', { hints });
+  }
+  return null;
+}
+
 /**
  * Select exactly one executor for a mission step.
  *
  * Precedence:
  * 1. explicit executor_type
  * 2. explicit target.type
- * 3. unique operation match across registered executors
- * 4. otherwise fail closed (ambiguous / unavailable / unsupported)
+ * 3. unique executor identity hint in target (connector_id/device_id/agent_id)
+ * 4. unique operation match across registered executors
+ * 5. otherwise fail closed (ambiguous / unavailable / unsupported)
  *
  * This layer does not select providers, models, accounts or credentials.
  */
@@ -82,7 +96,8 @@ function selectExecutor(step, registry = { list: listExecutors }) {
 
   const explicitType = step.executor_type || null;
   const targetType = step.target && typeof step.target.type === 'string' ? step.target.type : null;
-  const requestedType = explicitType || targetType || null;
+  const hintType = !explicitType && !targetType ? targetTypeHint(step.target) : null;
+  const requestedType = explicitType || targetType || hintType || null;
 
   if (explicitType && targetType && explicitType !== targetType) {
     fail('executor_type_conflict', 'executor_type conflicts with target.type', {
@@ -108,8 +123,12 @@ function selectExecutor(step, registry = { list: listExecutors }) {
     const resolved = resolveAgainstEntry(step, selected);
     return Object.freeze({
       ...resolved,
-      selection_reason: explicitType ? 'explicit_executor_type' : 'explicit_target_type',
-      selection_confidence: 'explicit',
+      selection_reason: explicitType
+        ? 'explicit_executor_type'
+        : targetType
+          ? 'explicit_target_type'
+          : 'target_identity_hint',
+      selection_confidence: explicitType || targetType ? 'explicit' : 'deterministic',
       descriptor: descriptorFor(selected)
     });
   }
@@ -142,4 +161,4 @@ function selectExecutor(step, registry = { list: listExecutors }) {
   });
 }
 
-module.exports = Object.freeze({ selectExecutor, supportsOperation, descriptorFor });
+module.exports = Object.freeze({ selectExecutor, supportsOperation, descriptorFor, targetTypeHint });
