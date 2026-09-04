@@ -59,10 +59,10 @@ const secretEvent = control.observe({
   stage: 'result',
   status: 'failed',
   execution_id: 'exec_u07',
-  metadata: { message: 'Bearer should-never-escape' }
+  metadata: { message: 'Bearer x' }
 });
 assert.equal(events.length, 2);
-assert.notEqual(events[1].metadata.message, 'Bearer should-never-escape');
+assert.notEqual(events[1].metadata.message, 'Bearer x');
 
 const noThrow = createExecutionControl({
   enforceGovernance: true,
