@@ -14,6 +14,7 @@ const requiredFiles = [
   'autonomy/universal-execution/selector.js',
   'autonomy/universal-execution/plan.js',
   'autonomy/universal-execution/control.js',
+  'autonomy/universal-execution/dispatch-boundary.js',
   'autonomy/universal-execution/adapters/index.js',
   'autonomy/universal-execution/adapters/connector.js',
   'autonomy/universal-execution/adapters/device.js',
@@ -25,7 +26,8 @@ const requiredFiles = [
   'tests/universal-execution-u05.test.js',
   'tests/universal-execution-u06.test.js',
   'tests/universal-execution-u07.test.js',
-  'tests/universal-execution-u08-live.test.js'
+  'tests/universal-execution-u08-live.test.js',
+  'tests/universal-execution-u10.test.js'
 ];
 
 for (const file of requiredFiles) {
@@ -35,13 +37,14 @@ for (const file of requiredFiles) {
 const pkg = JSON.parse(read('package.json'));
 assert.equal(pkg.name, 'aria-adapters');
 assert.equal(typeof pkg.version, 'string');
-assert.match(pkg.version, /^2\.5\.3$/);
+assert.match(pkg.version, /^2\.5\.4$/);
 
 const testScript = pkg.scripts?.test || '';
-for (const id of ['u01', 'u02', 'u03', 'u04', 'u05', 'u06', 'u07']) {
+for (const id of ['u01', 'u02', 'u03', 'u04', 'u05', 'u06', 'u07', 'u10']) {
   assert.match(testScript, new RegExp(`universal-execution-${id}\\.test\\.js`), `npm test missing ${id}`);
 }
 assert.match(pkg.scripts?.['test:uo8-live'] || '', /universal-execution-u08-live\.test\.js/);
+assert.match(pkg.scripts?.['test:uo10'] || '', /universal-execution-u10\.test\.js/);
 
 const registry = JSON.parse(read('autonomy/universal-execution/registry.json'));
 assert.deepEqual(registry.executors.map(e => e.executor_id), ['connector', 'device', 'agent']);
@@ -83,5 +86,11 @@ const selector = read('autonomy/universal-execution/selector.js');
 assert.match(selector, /connector_id/);
 assert.match(selector, /device_id/);
 assert.match(selector, /agent_id/);
+
+const boundary = read('autonomy/universal-execution/dispatch-boundary.js');
+assert.match(boundary, /scope_mismatch/);
+assert.match(boundary, /operation_not_supported/);
+assert.match(boundary, /sensitive_output_rejected/);
+assert.match(boundary, /adapter_error/);
 
 console.log('UO-9 audit + no-regression structural tests passed');
