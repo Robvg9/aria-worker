@@ -13,6 +13,7 @@ mkdir -p "$LOG_DIR"
 chmod 700 "$AGENT_DIR" "$LOG_DIR" 2>/dev/null || true
 
 if [ -f "$ENV_FILE" ]; then
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
   set -a
   # shellcheck disable=SC1090
   . "$ENV_FILE"
@@ -27,8 +28,6 @@ if ! command -v node >/dev/null 2>&1; then
   echo "[ARIA] node is required" >&2
   exit 127
 fi
-
-rm -f "$STOP_FILE"
 
 unlock() {
   if command -v termux-wake-unlock >/dev/null 2>&1; then
@@ -50,7 +49,7 @@ cd "$AGENT_DIR"
 
 while [ "$STOPPING" -eq 0 ] && [ ! -f "$STOP_FILE" ]; do
   if [ "${ARIA_AGENT_AUTO_PULL:-true}" = "true" ] && git -C "$AGENT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$AGENT_DIR" pull --ff-only origin main >/dev/null 2>&1 || true
+    GIT_TERMINAL_PROMPT=0 git -C "$AGENT_DIR" pull --ff-only origin main >/dev/null 2>&1 || true
   fi
 
   if [ ! -f "$AGENT_SCRIPT" ]; then
