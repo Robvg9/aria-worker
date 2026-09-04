@@ -52,7 +52,7 @@ assert.throws(() => selectExecutor({
 
 assert.throws(() => selectExecutor({
   operation: 'unknown.operation'
-}, baseRegistry), e => e.code === 'no_executor_for_operation');
+}, baseRegistry), e => e.code === 'ambiguous_executor_selection');
 
 assert.throws(() => selectExecutor({
   operation: 'delegate',
@@ -64,6 +64,7 @@ const ambiguous = { list: () => [
   { executor_id: 'a', type: 'a', status: 'ready', operations: ['x'] },
   { executor_id: 'b', type: 'b', status: 'ready', operations: ['x'] }
 ] };
+assert.throws(() => selectExecutor({ operation: 'x', target: { type: 'a', id: 'x' } }, ambiguous), e => e.code === 'ambiguous_executor_selection');
 assert.throws(() => selectExecutor({ operation: 'x' }, ambiguous), e => e.code === 'ambiguous_executor_selection');
 
 console.log('UO-3 universal executor selector tests passed');
