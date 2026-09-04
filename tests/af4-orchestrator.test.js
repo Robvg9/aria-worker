@@ -34,12 +34,12 @@ function makeStore() {
   const orchestrator = createAutonomousMissionOrchestrator({
     missionStore: store,
     planner: async () => [
-      { id: 's1', action: 'create', operation: 'shell.execute' },
-      { id: 's2', action: 'test', operation: 'shell.execute' }
+      { id: 's1', action: 'create', operation: 'shell.execute', risk: 'low' },
+      { id: 's2', action: 'test', operation: 'shell.execute', risk: 'low' }
     ],
     executor: async ({ step }) => { executed.push(step.id); return { status: 'succeeded', exit_code: 0, stdout: step.id }; },
     verify: async ({ result, final }) => final ? executed.length === 2 : result.status === 'succeeded',
-    policy: { max_steps: 5, max_attempts_per_step: 2 }
+    policy: { max_steps: 5, max_attempts_per_step: 2, max_risk: 'low', max_runtime_ms: 5000 }
   });
   const result = await orchestrator.run('m1');
   assert.strictEqual(result.status, 'succeeded');
@@ -55,6 +55,17 @@ function makeStore() {
     verify: async () => true
   });
   assert.strictEqual((await blocked.run('m2')).status, 'blocked');
+
+  const riskStore = makeStore();
+  riskStore.missions.set('m3', { mission_id: 'm3', goal: 'risky', status: 'queued', current_step: 0, completed_steps: 0, checkpoint: {} });
+  const risk = createAutonomousMissionOrchestrator({
+    missionStore: riskStore,
+    planner: async () => [{ id: 'danger', action: 'delete', risk: 'high' }],
+    executor: async () => { throw new Error('must not execute blocked step'); },
+    verify: async () => true,
+    policy: { max_risk: 'low' }
+  });
+  assert.strictEqual((await risk.run('m3')).reason, 'risk_blocked');
 
   console.log('AF-4 orchestrator tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
