@@ -3,6 +3,7 @@
 const { selectExecutor } = require('./universal-execution/selector');
 const { listExecutors } = require('./universal-execution/lookup');
 const { createAdapterRegistry } = require('./universal-execution/adapters');
+const { createDispatchBoundary } = require('./universal-execution/dispatch-boundary');
 
 function createUniversalExecutor({
   activation,
@@ -19,26 +20,16 @@ function createUniversalExecutor({
     deviceDispatcher,
     agentExecutors
   });
+  const dispatchBoundary = createDispatchBoundary({ adapters });
 
   async function execute({ missionId, mission, step, attempt, policy, request = {} } = {}) {
     if (!step || typeof step !== 'object') throw new TypeError('step required');
 
     const selected = selectExecutor(step, registry);
-    const adapter = adapters.get(selected.type);
-
-    if (!adapter || typeof adapter.execute !== 'function') {
-      return {
-        status: 'blocked',
-        executor_type: selected.type,
-        executor_selection: selected,
-        reason: 'executor_adapter_unavailable'
-      };
-    }
-
-    const result = await adapter.execute({
+    const result = await dispatchBoundary.dispatch({
       missionId,
       mission,
-      step,
+      step: { ...step, executor_type: selected.type },
       attempt,
       policy,
       request,
@@ -52,7 +43,7 @@ function createUniversalExecutor({
     };
   }
 
-  return Object.freeze({ execute, adapters });
+  return Object.freeze({ execute, adapters, dispatchBoundary });
 }
 
 module.exports = Object.freeze({ createUniversalExecutor });
