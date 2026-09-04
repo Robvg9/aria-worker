@@ -10,6 +10,7 @@ const execution = require('../execution/lookup');
 const missionState = require('../execution/mission-state');
 const deviceDispatcher = require('../execution/device-dispatcher');
 const { createSupabaseMissionRepository } = require('../execution/supabase-mission-repository');
+const { createAutonomousRuntime } = require('../autonomy/autonomous-runtime');
 const selfDevelopment = require('../self-development/coordinator');
 const autonomy = require('../autonomy/coordinator');
 const autonomousMission = require('../autonomy/orchestrator');
@@ -29,6 +30,8 @@ function createAriaRuntime(options = {}) {
     : null;
   const activationOptions = { ...(options.activation || {}) };
   if (!activationOptions.authorize && governanceAuthorize) activationOptions.authorize = governanceAuthorize;
+  const activation = createActivationRuntime(activationOptions);
+
   return Object.freeze({
     identity: coreIdentity,
     core: { session, planning, taskState, selfState },
@@ -39,13 +42,14 @@ function createAriaRuntime(options = {}) {
       coordinator: autonomy,
       missionOrchestrator: autonomousMission,
       universalExecutor,
-      universalMission
+      universalMission,
+      createAutonomousRuntime: runtimeOptions => createAutonomousRuntime({ activation, ...runtimeOptions })
     }),
     multiIA,
     agents,
     platform,
     governance: Object.freeze({ authorize: governanceAuthorize }),
-    activation: createActivationRuntime(activationOptions),
+    activation,
     version
   });
 }
