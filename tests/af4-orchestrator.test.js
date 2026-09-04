@@ -39,12 +39,20 @@ function makeStore() {
     ],
     executor: async ({ step }) => { executed.push(step.id); return { status: 'succeeded', exit_code: 0, stdout: step.id }; },
     verify: async ({ result, final }) => final ? executed.length === 2 : result.status === 'succeeded',
-    policy: { max_steps: 5, max_attempts_per_step: 2, max_risk: 'low', max_runtime_ms: 5000 }
+    policy: { enabled: true, max_steps: 5, max_attempts_per_step: 2, max_risk: 'low', max_runtime_ms: 5000 }
   });
   const result = await orchestrator.run('m1');
   assert.strictEqual(result.status, 'succeeded');
   assert.deepStrictEqual(executed, ['s1', 's2']);
   assert.strictEqual(store.missions.get('m1').completed_steps, 2);
+
+  const disabled = createAutonomousMissionOrchestrator({
+    missionStore: store,
+    planner: async () => [{ id: 'never', risk: 'low' }],
+    executor: async () => ({ status: 'succeeded' }),
+    verify: async () => true
+  });
+  assert.strictEqual((await disabled.run('m1')).status, 'disabled');
 
   const blockedStore = makeStore();
   blockedStore.missions.set('m2', { mission_id: 'm2', goal: 'unknown', status: 'queued', current_step: 0, completed_steps: 0, checkpoint: {} });
@@ -52,7 +60,8 @@ function makeStore() {
     missionStore: blockedStore,
     planner: async () => [],
     executor: async () => ({ status: 'succeeded' }),
-    verify: async () => true
+    verify: async () => true,
+    policy: { enabled: true }
   });
   assert.strictEqual((await blocked.run('m2')).status, 'blocked');
 
@@ -63,7 +72,7 @@ function makeStore() {
     planner: async () => [{ id: 'danger', action: 'delete', risk: 'high' }],
     executor: async () => { throw new Error('must not execute blocked step'); },
     verify: async () => true,
-    policy: { max_risk: 'low' }
+    policy: { enabled: true, max_risk: 'low' }
   });
   assert.strictEqual((await risk.run('m3')).reason, 'risk_blocked');
 
