@@ -24,7 +24,7 @@ function createAgentAdapter({ agentExecutors = {} } = {}) {
       try {
         const result = await fn({ missionId, step, attempt, policy, request });
         return { ...result, executor_type: 'agent', agent_id: agentId, attempt };
-      } catch (error) {
+      } catch (_error) {
         return {
           status: 'failed',
           executor_type: 'agent',
@@ -32,7 +32,7 @@ function createAgentAdapter({ agentExecutors = {} } = {}) {
           attempt,
           error: {
             code: 'adapter_error',
-            message: error instanceof Error ? error.message : String(error)
+            message: 'agent adapter execution failed'
           }
         };
       }
