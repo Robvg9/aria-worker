@@ -8,9 +8,11 @@ const selfState = require('../self/state');
 const toolUniverse = require('../tool-universe/registry');
 const execution = require('../execution/lookup');
 const missionState = require('../execution/mission-state');
+const deviceDispatcher = require('../execution/device-dispatcher');
 const selfDevelopment = require('../self-development/coordinator');
 const autonomy = require('../autonomy/coordinator');
 const autonomousMission = require('../autonomy/orchestrator');
+const universalExecutor = require('../autonomy/universal-executor');
 const multiIA = require('../multi-ia/coordinator');
 const agents = require('../agents/coordinator');
 const platform = require('../platform/coordinator');
@@ -29,11 +31,12 @@ function createAriaRuntime(options = {}) {
     identity: coreIdentity,
     core: { session, planning, taskState, selfState },
     tools: toolUniverse,
-    execution: Object.freeze({ ...execution, missionState }),
+    execution: Object.freeze({ ...execution, missionState, deviceDispatcher }),
     selfDevelopment,
     autonomy: Object.freeze({
       coordinator: autonomy,
-      missionOrchestrator: autonomousMission
+      missionOrchestrator: autonomousMission,
+      universalExecutor
     }),
     multiIA,
     agents,
