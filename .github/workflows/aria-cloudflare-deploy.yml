@@ -8,6 +8,8 @@ on:
       - 'integrations/**'
       - 'credentials/**'
       - 'activation/**'
+      - 'autonomy/**'
+      - 'wrangler.toml'
       - 'package.json'
       - '.github/workflows/aria-cloudflare-deploy.yml'
   workflow_dispatch:
