@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/functions/**'
+      - 'supabase/migrations/**'
       - '.github/workflows/supabase-canonical-deploy.yml'
   workflow_dispatch:
 
@@ -41,3 +42,4 @@ jobs:
           supabase functions deploy aria-mission-runner-v16 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-canonical-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
