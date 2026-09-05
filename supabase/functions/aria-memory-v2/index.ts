@@ -109,13 +109,12 @@ async function embedMissing(limit = 10) {
 }
 
 async function authorized(request: Request) {
-  if (SECRET) {
-    const token = bearer(request);
-    if (token && equal(token, SECRET)) return true;
-  }
+  const token = bearer(request);
+  if (token && SECRET && equal(token, SECRET)) return true;
   const cronToken = request.headers.get("x-aria-autonomy-token");
-  if (!cronToken) return false;
-  const { data, error } = await supabase.rpc("aria_autonomy_cron_authorize", { p_token: cronToken });
+  const fallback = cronToken ?? token;
+  if (!fallback) return false;
+  const { data, error } = await supabase.rpc("aria_autonomy_cron_authorize", { p_token: fallback });
   return !error && data === true;
 }
 
