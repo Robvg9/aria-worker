@@ -8,6 +8,8 @@ const MISSION_INTAKE =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-intake-v1";
 const RUNNER_URL =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-runner-v16";
+const CRON_AUTH_URL =
+  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const RESOURCE = "https://aria.robvg9.workers.dev/mcp";
 const RESOURCE_METADATA = "https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp";
 const SCOPES = ["openid", "profile", "email"];
@@ -47,6 +49,27 @@ function extractBearer(request) {
   const value = request.headers.get("authorization");
   const match = value && value.match(/^Bearer\s+(.+)$/i);
   return match ? match[1] : null;
+}
+async function vaultCronAuthorized(request, fetchImpl = globalThis.fetch) {
+  const token = request.headers.get("x-aria-autonomy-token");
+  if (!token) return false;
+  try {
+    const response = await fetchImpl(CRON_AUTH_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-aria-autonomy-token": token },
+      body: "{}"
+    });
+    if (!response.ok) return false;
+    const body = await response.json().catch(() => null);
+    return body?.authorized === true;
+  } catch (_) {
+    return false;
+  }
+}
+async function autonomyHealth(request) {
+  if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+  if (!(await vaultCronAuthorized(request))) return json({ error: "unauthorized" }, 401);
+  return json({ ok: true, service: "aria-worker", executor: "cloudflare-worker", version: "phase1" });
 }
 function rewriteAuthChallenge(response) {
   const headers = new Headers(response.headers);
@@ -114,6 +137,7 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/autonomy-health") return autonomyHealth(request);
     if (request.method === "GET" && (url.pathname === "/.well-known/oauth-protected-resource" || url.pathname === "/.well-known/oauth-protected-resource/mcp")) {
       return json(protectedResourceMetadata(), 200, { "access-control-allow-origin": "*" });
     }
