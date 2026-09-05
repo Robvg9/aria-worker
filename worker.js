@@ -8,6 +8,8 @@ const MISSION_INTAKE =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-intake-v1";
 const CANONICAL_RUNTIME =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-canonical-runtime-v1";
+const DIRECT_ARIA =
+  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-direct-v1";
 const CRON_AUTH_URL =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const RESOURCE = "https://aria.robvg9.workers.dev/mcp";
@@ -111,6 +113,24 @@ async function startMission(request, env) {
     headers: { "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8", "cache-control": "no-store" }
   });
 }
+async function directAria(request, env) {
+  if (request.method === "GET") return fetch(DIRECT_ARIA, { method: "GET" });
+  if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (!env.ARIA_RUNTIME_SHARED_SECRET) return json({ error: "runtime_secret_not_configured" }, 500);
+  const incomingToken = extractBearer(request);
+  if (!incomingToken || !constantTimeEqual(incomingToken, env.ARIA_RUNTIME_SHARED_SECRET)) return json({ error: "unauthorized" }, 401);
+  const body = await request.text();
+  const upstream = await fetch(DIRECT_ARIA, {
+    method: "POST",
+    headers: { "content-type": "application/json", "authorization": `Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}` },
+    body
+  });
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: { "content-type": upstream.headers.get("content-type") || "application/json; charset=utf-8", "cache-control": "no-store" }
+  });
+}
 async function runScheduledMission(env) {
   if (!env.ARIA_RUNTIME_SHARED_SECRET) {
     console.error("[ARIA CRON] runtime secret not configured");
@@ -144,6 +164,7 @@ export default {
     if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2")) {
       return json(authorizationServerMetadata(), 200, { "access-control-allow-origin": "*" });
     }
+    if (url.pathname === "/aria" || url.pathname === "/aria/") return directAria(request, env);
     if (url.pathname === "/mission" || url.pathname === "/mission/") return startMission(request, env);
     if (url.pathname === "/runtime" || url.pathname === "/runtime/") return proxyRuntime(request, env);
     if (url.pathname === "/admin/cloudflare" || url.pathname === "/admin/cloudflare/") return cloudflareAdmin(request, env);
