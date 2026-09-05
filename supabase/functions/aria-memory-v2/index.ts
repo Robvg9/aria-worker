@@ -85,6 +85,40 @@ async function access(body: Record<string, unknown>) {
   return { memory_id: id, accessed: true };
 }
 
+async function embedMissing(limit = 10) {
+  const safeLimit = Math.max(1, Math.min(20, Math.floor(limit)));
+  const { data, error } = await supabase
+    .from("memory_items")
+    .select("memory_id,title,content")
+    .is("embedding", null)
+    .eq("status", "active")
+    .order("created_at", { ascending: true })
+    .limit(safeLimit);
+  if (error) throw new Error(`embed_list:${error.message}`);
+  let embedded = 0;
+  for (const item of data ?? []) {
+    const vector = await embedding(`${item.title}\n${item.content}`);
+    const result = await supabase.rpc("set_embedding", {
+      p_memory_id: item.memory_id,
+      p_embedding_text: `[${vector.join(",")}]`
+    });
+    if (result.error) throw new Error(`embed_write:${result.error.message}`);
+    if (result.data === true) embedded += 1;
+  }
+  return { embedded, remaining_checked: data?.length ?? 0, embedding_model: "gte-small", dimensions: 384 };
+}
+
+async function authorized(request: Request) {
+  if (SECRET) {
+    const token = bearer(request);
+    if (token && equal(token, SECRET)) return true;
+  }
+  const cronToken = request.headers.get("x-aria-autonomy-token");
+  if (!cronToken) return false;
+  const { data, error } = await supabase.rpc("aria_autonomy_cron_authorize", { p_token: cronToken });
+  return !error && data === true;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "GET") {
     return out({
@@ -94,13 +128,11 @@ Deno.serve(async (request) => {
       memory_authority: "aria_memory",
       embedding_model: "gte-small",
       dimensions: 384,
-      capabilities: ["remember", "search", "access", "maintenance"]
+      capabilities: ["remember", "search", "access", "maintenance", "semantic_backfill"]
     });
   }
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
-  if (!SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
-  const token = bearer(request);
-  if (!token || !equal(token, SECRET)) return out({ error: "unauthorized" }, 401);
+  if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return out({ error: "invalid_json" }, 400);
   const action = typeof body.action === "string" ? body.action : "search";
@@ -113,6 +145,7 @@ Deno.serve(async (request) => {
       if (error) throw new Error(`maintenance:${error.message}`);
       return out({ ok: true, action, maintenance: data });
     }
+    if (action === "embed_missing") return out({ ok: true, action, ...(await embedMissing(Number(body.limit) || 10)) });
     return out({ error: "unsupported_action" }, 400);
   } catch (error) {
     return out({ ok: false, action, error: error instanceof Error ? error.message : String(error) }, 400);
