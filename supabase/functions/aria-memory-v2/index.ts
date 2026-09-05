@@ -5,7 +5,6 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-const memoryDb = supabase.schema("aria_memory");
 const model = new Supabase.ai.Session("gte-small");
 
 const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -88,13 +87,7 @@ async function access(body: Record<string, unknown>) {
 
 async function embedMissing(limit = 10) {
   const safeLimit = Math.max(1, Math.min(20, Math.floor(limit)));
-  const { data, error } = await memoryDb
-    .from("memory_items")
-    .select("memory_id,title,content")
-    .is("embedding", null)
-    .eq("status", "active")
-    .order("created_at", { ascending: true })
-    .limit(safeLimit);
+  const { data, error } = await supabase.rpc("list_unembedded", { p_limit: safeLimit });
   if (error) throw new Error(`embed_list:${error.message}`);
   let embedded = 0;
   for (const item of data ?? []) {
@@ -106,7 +99,7 @@ async function embedMissing(limit = 10) {
     if (result.error) throw new Error(`embed_write:${result.error.message}`);
     if (result.data === true) embedded += 1;
   }
-  return { embedded, remaining_checked: data?.length ?? 0, embedding_model: "gte-small", dimensions: 384 };
+  return { embedded, checked: data?.length ?? 0, embedding_model: "gte-small", dimensions: 384 };
 }
 
 async function authorized(request: Request) {
