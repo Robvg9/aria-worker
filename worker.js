@@ -6,8 +6,8 @@ const RUNTIME_GATEWAY =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1";
 const MISSION_INTAKE =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-intake-v1";
-const RUNNER_URL =
-  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mission-runner-v16";
+const CANONICAL_RUNTIME =
+  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-canonical-runtime-v1";
 const CRON_AUTH_URL =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const RESOURCE = "https://aria.robvg9.workers.dev/mcp";
@@ -69,7 +69,7 @@ async function vaultCronAuthorized(request, fetchImpl = globalThis.fetch) {
 async function autonomyHealth(request) {
   if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
   if (!(await vaultCronAuthorized(request))) return json({ error: "unauthorized" }, 401);
-  return json({ ok: true, service: "aria-worker", executor: "cloudflare-worker", version: "phase1" });
+  return json({ ok: true, service: "aria-worker", executor: "cloudflare-worker", version: "canonical-runtime-v1" });
 }
 function rewriteAuthChallenge(response) {
   const headers = new Headers(response.headers);
@@ -117,18 +117,18 @@ async function runScheduledMission(env) {
     return;
   }
   try {
-    const response = await fetch(RUNNER_URL, {
+    const response = await fetch(CANONICAL_RUNTIME, {
       method: "POST",
       headers: { "content-type": "application/json", "authorization": `Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}` },
       body: "{}"
     });
-    console.log(`[ARIA CRON] runner status=${response.status}`);
+    console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      console.error(`[ARIA CRON] runner failure status=${response.status} body=${text.slice(0, 500)}`);
+      console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0, 500)}`);
     }
   } catch (error) {
-    console.error(`[ARIA CRON] runner request failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 export default {
