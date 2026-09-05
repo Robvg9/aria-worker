@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const MISSION_INTAKE = `${SUPABASE_URL}/functions/v1/aria-mission-intake-v1`;
+const MEMORY_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 
 const out = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -27,6 +28,25 @@ const equal = (a: string, b: string) => {
   return d === 0;
 };
 
+async function recall(goal: string) {
+  if (!SHARED_SECRET) return [];
+  try {
+    const response = await fetch(MEMORY_GATEWAY, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${SHARED_SECRET}`
+      },
+      body: JSON.stringify({ action: "search", query: goal, limit: 5 })
+    });
+    if (!response.ok) return [];
+    const body = await response.json().catch(() => null);
+    return Array.isArray(body?.results) ? body.results : [];
+  } catch (_) {
+    return [];
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === "GET") {
     return out({
@@ -36,7 +56,7 @@ Deno.serve(async (request) => {
       execution_authority: "aria-canonical-runtime-v1",
       mission_intake: "canonical",
       memory_authority: "aria_memory",
-      capabilities: ["goal_submission", "mission_intake", "canonical_runtime"]
+      capabilities: ["goal_submission", "mission_intake", "canonical_runtime", "cognitive_recall"]
     });
   }
 
@@ -54,12 +74,23 @@ Deno.serve(async (request) => {
   const goal = typeof body.goal === "string" ? body.goal.trim() : "";
   if (!goal) return out({ error: "goal_required" }, 400);
 
-  const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+  const userMetadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
     ? body.metadata
     : {};
   const missionId = typeof body.mission_id === "string" && body.mission_id.trim()
     ? body.mission_id.trim()
     : undefined;
+
+  const memoryContext = await recall(goal);
+  const metadata = {
+    ...userMetadata,
+    cognitive_memory: {
+      source: "aria-memory-v2",
+      recalled_at: new Date().toISOString(),
+      result_count: memoryContext.length,
+      results: memoryContext
+    }
+  };
 
   const upstream = await fetch(MISSION_INTAKE, {
     method: "POST",
@@ -75,6 +106,7 @@ Deno.serve(async (request) => {
     ok: upstream.ok,
     interface: "aria-direct-v1",
     canonical_runtime: "aria-canonical-runtime-v1",
+    memory_recall: { count: memoryContext.length },
     ...payload
   }, upstream.status);
 });
