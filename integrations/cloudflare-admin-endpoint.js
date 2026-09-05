@@ -1,6 +1,7 @@
 'use strict';
 
 const API_BASE = 'https://api.cloudflare.com/client/v4';
+const CRON_AUTH_URL = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1';
 
 function constantTimeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
@@ -18,10 +19,7 @@ function bearer(request) {
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store'
-    }
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
   });
 }
 
@@ -31,10 +29,7 @@ function safeResult(payload) {
     success: payload.success === true,
     result: payload.result ?? null,
     errors: Array.isArray(payload.errors)
-      ? payload.errors.map(error => ({
-          code: error?.code ?? null,
-          message: error?.message ?? 'unknown'
-        }))
+      ? payload.errors.map(error => ({ code: error?.code ?? null, message: error?.message ?? 'unknown' }))
       : []
   };
 }
@@ -43,41 +38,37 @@ async function resolveAccountId(token, configuredAccountId, fetchImpl) {
   if (typeof configuredAccountId === 'string' && configuredAccountId.trim()) {
     return { accountId: configuredAccountId.trim(), source: 'binding' };
   }
-
   const response = await fetchImpl(`${API_BASE}/accounts?per_page=50`, {
-    method: 'GET',
-    headers: { authorization: `Bearer ${token}` }
+    method: 'GET', headers: { authorization: `Bearer ${token}` }
   });
-
   const text = await response.text();
   let payload = null;
-  try { payload = text ? JSON.parse(text) : null; } catch (_) { payload = null; }
-
-  if (!response.ok) {
-    return {
-      error: 'cloudflare_account_discovery_error',
-      status: response.status,
-      ...safeResult(payload)
-    };
-  }
-
+  try { payload = text ? JSON.parse(text) : null; } catch (_) {}
+  if (!response.ok) return { error: 'cloudflare_account_discovery_error', status: response.status, ...safeResult(payload) };
   const accounts = Array.isArray(payload?.result) ? payload.result : [];
-
-  if (accounts.length !== 1) {
-    return {
-      error: accounts.length === 0
-        ? 'cloudflare_no_accessible_account'
-        : 'cloudflare_multiple_accounts_require_account_id',
-      account_count: accounts.length
-    };
-  }
-
+  if (accounts.length !== 1) return {
+    error: accounts.length === 0 ? 'cloudflare_no_accessible_account' : 'cloudflare_multiple_accounts_require_account_id',
+    account_count: accounts.length
+  };
   const id = accounts[0]?.id;
-  if (typeof id !== 'string' || !id) {
-    return { error: 'cloudflare_account_id_missing_from_discovery' };
-  }
-
+  if (typeof id !== 'string' || !id) return { error: 'cloudflare_account_id_missing_from_discovery' };
   return { accountId: id, source: 'discovery' };
+}
+
+async function authorizeCronToken(token, fetchImpl) {
+  if (!token) return false;
+  try {
+    const response = await fetchImpl(CRON_AUTH_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-aria-autonomy-token': token },
+      body: '{}'
+    });
+    if (!response.ok) return false;
+    const payload = await response.json().catch(() => null);
+    return payload?.authorized === true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function createCloudflareAdminEndpoint({
@@ -94,79 +85,51 @@ function createCloudflareAdminEndpoint({
     const token = env?.[apiTokenEnv];
     const configuredAccountId = env?.[accountIdEnv];
     const incoming = bearer(request);
+    const cronToken = request.headers.get('x-aria-autonomy-token');
 
-    if (!expected || !token) {
-      return json({
-        error: 'cloudflare_admin_not_configured',
-        configured: {
-          runtime_secret: Boolean(expected),
-          api_token: Boolean(token),
-          account_id: Boolean(configuredAccountId)
-        }
-      }, 500);
+    if (!token) {
+      return json({ error: 'cloudflare_admin_not_configured', configured: {
+        runtime_secret: Boolean(expected), api_token: false, account_id: Boolean(configuredAccountId)
+      } }, 500);
     }
 
-    if (!incoming || !constantTimeEqual(incoming, expected)) {
-      return json({ error: 'unauthorized' }, 401);
-    }
+    const runtimeAuthorized = Boolean(incoming && expected && constantTimeEqual(incoming, expected));
+    const cronAuthorized = !runtimeAuthorized && Boolean(cronToken) && await authorizeCronToken(cronToken, fetchImpl);
+    if (!runtimeAuthorized && !cronAuthorized) return json({ error: 'unauthorized' }, 401);
 
     const resolved = await resolveAccountId(token, configuredAccountId, fetchImpl);
-    if (resolved.error) {
-      return json({
-        error: resolved.error,
-        status: resolved.status ?? 500,
-        account_count: resolved.account_count ?? null
-      }, resolved.status && resolved.status >= 400 ? resolved.status : 500);
-    }
+    if (resolved.error) return json({
+      error: resolved.error, status: resolved.status ?? 500, account_count: resolved.account_count ?? null
+    }, resolved.status && resolved.status >= 400 ? resolved.status : 500);
 
     const accountId = resolved.accountId;
     const url = new URL(request.url);
     const requestedOperation = url.searchParams.get('operation') || 'deployments';
     const operationAliases = {
-      account_read: 'account',
-      worker_read: 'worker',
-      deployments_read: 'deployments',
-      content_read: 'content',
-      logs_read: 'settings',
-      logs: 'settings'
+      account_read: 'account', worker_read: 'worker', deployments_read: 'deployments',
+      content_read: 'content', logs_read: 'settings', logs: 'settings'
     };
     const operation = operationAliases[requestedOperation] || requestedOperation;
     const base = `${API_BASE}/accounts/${encodeURIComponent(accountId)}`;
     const script = encodeURIComponent(scriptName);
-
     const routes = {
-      account: `${base}`,
-      worker: `${base}/workers/workers/${script}`,
+      account: `${base}`, worker: `${base}/workers/workers/${script}`,
       deployments: `${base}/workers/scripts/${script}/deployments`,
       content: `${base}/workers/scripts/${script}/content/v2`,
       settings: `${base}/workers/scripts/${script}/script-settings`
     };
-
     const target = routes[operation];
     if (!target) return json({ error: 'unsupported_operation' }, 400);
 
     try {
-      const response = await fetchImpl(target, {
-        method: 'GET',
-        headers: { authorization: `Bearer ${token}` }
-      });
+      const response = await fetchImpl(target, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
       const text = await response.text();
       let payload = null;
-      try { payload = text ? JSON.parse(text) : null; } catch (_) { payload = null; }
-
-      if (!response.ok) {
-        return json({
-          error: 'cloudflare_api_error',
-          status: response.status,
-          ...safeResult(payload)
-        }, response.status);
-      }
-
+      try { payload = text ? JSON.parse(text) : null; } catch (_) {}
+      if (!response.ok) return json({ error: 'cloudflare_api_error', status: response.status, ...safeResult(payload) }, response.status);
       return json({
-        operation: requestedOperation,
-        resolved_operation: operation,
-        account_resolution: resolved.source,
-        ...safeResult(payload)
+        operation: requestedOperation, resolved_operation: operation,
+        account_resolution: resolved.source, ...safeResult(payload)
       }, 200);
     } catch (_) {
       return json({ error: 'cloudflare_network_error' }, 502);
