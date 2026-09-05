@@ -1,0 +1,120 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
+const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+const model = new Supabase.ai.Session("gte-small");
+
+const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status,
+  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
+});
+
+const bearer = (request: Request) => {
+  const h = request.headers.get("authorization") ?? "";
+  return h.startsWith("Bearer ") ? h.slice(7) : null;
+};
+
+const equal = (a: string, b: string) => {
+  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
+  if (x.length !== y.length) return false;
+  let d = 0;
+  for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i];
+  return d === 0;
+};
+
+const sha256 = async (value: string) => {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes)).map((x) => x.toString(16).padStart(2, "0")).join("");
+};
+
+async function embedding(text: string) {
+  const value = await model.run(text, { mean_pool: true, normalize: true });
+  return Array.from(value as number[]);
+}
+
+async function remember(body: Record<string, unknown>) {
+  const content = typeof body.content === "string" ? body.content.trim() : "";
+  const title = typeof body.title === "string" ? body.title.trim() : "Untitled";
+  if (!content) throw new Error("content_required");
+  const memoryType = typeof body.memory_type === "string" ? body.memory_type : "semantic";
+  const sourceType = typeof body.source_type === "string" ? body.source_type : "aria";
+  const contentHash = await sha256(`${memoryType}|${title}|${content}`);
+  const vector = await embedding(`${title}\n${content}`);
+  const { data, error } = await supabase.rpc("remember_with_embedding", {
+    p_memory_type: memoryType,
+    p_title: title,
+    p_content: content,
+    p_content_hash: contentHash,
+    p_source_type: sourceType,
+    p_source_ref: typeof body.source_ref === "string" ? body.source_ref : null,
+    p_provenance: body.provenance && typeof body.provenance === "object" ? body.provenance : {},
+    p_metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+    p_confidence: typeof body.confidence === "number" ? body.confidence : 0.5,
+    p_importance: typeof body.importance === "number" ? body.importance : 0.5,
+    p_salience: typeof body.salience === "number" ? body.salience : 0.5,
+    p_embedding_text: `[${vector.join(",")}]`
+  });
+  if (error) throw new Error(`remember:${error.message}`);
+  return { memory_id: data, embedded: true, embedding_model: "gte-small", dimensions: 384 };
+}
+
+async function search(body: Record<string, unknown>) {
+  const query = typeof body.query === "string" ? body.query.trim() : "";
+  if (!query) throw new Error("query_required");
+  const vector = await embedding(query);
+  const { data, error } = await supabase.rpc("search_hybrid_text", {
+    p_query: query,
+    p_query_embedding_text: `[${vector.join(",")}]`,
+    p_limit: Number.isInteger(body.limit) ? Math.max(1, Math.min(50, Number(body.limit))) : 12,
+    p_lexical_weight: typeof body.lexical_weight === "number" ? body.lexical_weight : 0.55,
+    p_semantic_weight: typeof body.semantic_weight === "number" ? body.semantic_weight : 0.45,
+    p_rrf_k: Number.isInteger(body.rrf_k) ? Number(body.rrf_k) : 50
+  });
+  if (error) throw new Error(`search:${error.message}`);
+  return { results: data ?? [], embedding_model: "gte-small", dimensions: 384 };
+}
+
+async function access(body: Record<string, unknown>) {
+  const id = typeof body.memory_id === "string" ? body.memory_id : "";
+  if (!id) throw new Error("memory_id_required");
+  const { error } = await supabase.rpc("touch_access", { p_memory_id: id });
+  if (error) throw new Error(`access:${error.message}`);
+  return { memory_id: id, accessed: true };
+}
+
+Deno.serve(async (request) => {
+  if (request.method === "GET") {
+    return out({
+      ok: true,
+      service: "aria-cognitive-memory",
+      version: "aria-memory-v2",
+      memory_authority: "aria_memory",
+      embedding_model: "gte-small",
+      dimensions: 384,
+      capabilities: ["remember", "search", "access", "maintenance"]
+    });
+  }
+  if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
+  if (!SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
+  const token = bearer(request);
+  if (!token || !equal(token, SECRET)) return out({ error: "unauthorized" }, 401);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return out({ error: "invalid_json" }, 400);
+  const action = typeof body.action === "string" ? body.action : "search";
+  try {
+    if (action === "remember") return out({ ok: true, action, ...(await remember(body)) });
+    if (action === "search") return out({ ok: true, action, ...(await search(body)) });
+    if (action === "access") return out({ ok: true, action, ...(await access(body)) });
+    if (action === "maintenance") {
+      const { data, error } = await supabase.rpc("run_maintenance");
+      if (error) throw new Error(`maintenance:${error.message}`);
+      return out({ ok: true, action, maintenance: data });
+    }
+    return out({ error: "unsupported_action" }, 400);
+  } catch (error) {
+    return out({ ok: false, action, error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+});
