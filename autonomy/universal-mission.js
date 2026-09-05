@@ -6,6 +6,7 @@ const { createUniversalExecutor } = require('./universal-executor');
 function createUniversalMissionRunner({
   missionStore,
   planner,
+  replanner = null,
   verify,
   activation,
   deviceDispatcher,
@@ -13,28 +14,17 @@ function createUniversalMissionRunner({
   policy = {},
   now
 } = {}) {
-  const executor = createUniversalExecutor({
-    activation,
-    deviceDispatcher,
-    agentExecutors
-  });
-
+  const executor = createUniversalExecutor({ activation, deviceDispatcher, agentExecutors });
   const orchestrator = createAutonomousMissionOrchestrator({
     missionStore,
     planner,
+    replanner,
     executor: executor.execute,
     verify,
     policy,
     now
   });
-
-  return Object.freeze({
-    executor,
-    orchestrator,
-    run: orchestrator.run,
-    policy: orchestrator.policy,
-    limits: orchestrator.limits
-  });
+  return Object.freeze({ executor, orchestrator, run: orchestrator.run, policy: orchestrator.policy, limits: orchestrator.limits });
 }
 
 module.exports = Object.freeze({ createUniversalMissionRunner });
