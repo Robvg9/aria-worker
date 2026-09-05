@@ -44,4 +44,4 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
-          wrangler deploy worker.js --name aria --var CLOUDFLARE_ACCOUNT_ID:"$CLOUDFLARE_ACCOUNT_ID"
+          wrangler deploy worker.js --name aria --account-id "$CLOUDFLARE_ACCOUNT_ID"
