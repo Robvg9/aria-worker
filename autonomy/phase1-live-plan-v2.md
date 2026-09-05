@@ -1,0 +1,1 @@
+Phase 1 live integration uses aria-mission-runner-v16 with Cloudflare scheduled() and autonomous recovery.
