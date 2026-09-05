@@ -58,3 +58,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           printf '%s' "$CLOUDFLARE_API_TOKEN" | wrangler secret put CLOUDFLARE_API_TOKEN --name aria
+
+      - name: Smoke test direct ARIA interface
+        run: |
+          set -euo pipefail
+          body="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 https://aria.robvg9.workers.dev/aria)"
+          echo "$body"
+          node -e 'const x=JSON.parse(process.argv[1]); if(x.ok!==true || x.service!=="aria-direct-interface" || x.version!=="aria-direct-v1" || x.execution_authority!=="aria-canonical-runtime-v1") process.exit(1)' "$body"
