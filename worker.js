@@ -166,3 +166,5 @@ export default {
     return new Response("ARIA MCP Worker", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
   }
 };
+
+// Phase 1 certification trigger: keep deployment path exercised after autonomous fallback rollout.
