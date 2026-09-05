@@ -1,9 +1,10 @@
 'use strict';
 
+const { createCloudflareRuntimeAdapter } = require('./cloudflare-runtime-adapter-v2');
+
 /**
  * Provider lifecycle contracts for ARIA Identity & Credential Manager.
- * These adapters deliberately separate bootstrap authority from renewable
- * credentials. They never return raw secret material to callers.
+ * Providers never return raw secret material to callers.
  */
 
 function createGitHubAppAdapter({ appId, installationId } = {}) {
@@ -15,9 +16,7 @@ function createGitHubAppAdapter({ appId, installationId } = {}) {
       steps: ['create/install GitHub App once', 'store private key in ARIA secret store']
     }),
     async provision() {
-      if (!appId || !installationId) {
-        return { status: 'human_gate', reason: 'github_app_bootstrap_required' };
-      }
+      if (!appId || !installationId) return { status: 'human_gate', reason: 'github_app_bootstrap_required' };
       return { status: 'configured', secret_ref: 'secret://github/app_installation', expires_at: null };
     },
     async renew() {
@@ -29,7 +28,11 @@ function createGitHubAppAdapter({ appId, installationId } = {}) {
   });
 }
 
-function createCloudflareApiAdapter({ rootTokenConfigured = false } = {}) {
+function createCloudflareApiAdapter({ rootTokenConfigured = false, workerUrl, runtimeSecret, secretStore, fetchImpl } = {}) {
+  const liveIssuer = workerUrl && runtimeSecret && secretStore && typeof secretStore.putSecret === 'function'
+    ? createCloudflareRuntimeAdapter({ workerUrl, runtimeSecret, secretStore, fetchImpl })
+    : null;
+
   return Object.freeze({
     provider: 'cloudflare',
     capabilities: ['token_minting', 'token_rotation', 'health'],
@@ -42,16 +45,18 @@ function createCloudflareApiAdapter({ rootTokenConfigured = false } = {}) {
       ]
     }),
     async provision(request = {}) {
-      if (!rootTokenConfigured && !request.bootstrapAvailable) {
-        return { status: 'human_gate', reason: 'cloudflare_root_token_required' };
-      }
-      return { status: 'configured', secret_ref: `secret://cloudflare/${request.credential_id || 'default'}`, expires_at: request.expires_at || null };
+      if (!rootTokenConfigured) return { status: 'human_gate', reason: 'cloudflare_root_token_required' };
+      if (!liveIssuer) return { status: 'unavailable', reason: 'cloudflare_live_issuer_not_configured' };
+      return liveIssuer.issue({
+        credential_id: request.credential_id,
+        profileName: request.profileName || 'worker_readonly'
+      });
     },
-    async renew(request = {}) {
-      return { secret_ref: `secret://cloudflare/${request.credential_id || 'default'}`, state: 'healthy', expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() };
+    async renew() {
+      return { status: 'unavailable', reason: 'cloudflare_rotation_requires_live_provider_operation' };
     },
     async health() {
-      return { ok: Boolean(rootTokenConfigured), state: rootTokenConfigured ? 'healthy' : 'bootstrap_required' };
+      return { ok: Boolean(rootTokenConfigured && liveIssuer), state: rootTokenConfigured && liveIssuer ? 'healthy' : 'bootstrap_required' };
     }
   });
 }
@@ -69,9 +74,7 @@ function createSupabaseOAuthAdapter({ clientConfigured = false } = {}) {
       ]
     }),
     async provision() {
-      if (!clientConfigured) {
-        return { status: 'human_gate', reason: 'supabase_oauth_bootstrap_required' };
-      }
+      if (!clientConfigured) return { status: 'human_gate', reason: 'supabase_oauth_bootstrap_required' };
       return { status: 'configured', secret_ref: 'secret://supabase/management_oauth', expires_at: null };
     },
     async renew() {
