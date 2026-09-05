@@ -1,0 +1,3 @@
+ARIA GitHub App write-path proof.
+Created on an isolated branch for autonomous write-path validation.
+No production code is changed by this proof.
