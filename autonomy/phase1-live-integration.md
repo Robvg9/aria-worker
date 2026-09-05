@@ -1,0 +1,1 @@
+Phase 1 live integration: Scheduler -> runner-v16 -> universal executor -> recovery/resume. The runner is deployed in Supabase as aria-mission-runner-v16. Cloudflare Worker will point scheduled() at this canonical runner.
