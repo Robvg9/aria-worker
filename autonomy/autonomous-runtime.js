@@ -13,6 +13,7 @@ function createAutonomousRuntime({
   serviceRoleKey,
   activation,
   planner,
+  replanner = null,
   verify,
   device = {},
   agentExecutors = {},
@@ -22,25 +23,17 @@ function createAutonomousRuntime({
   if (!activation || typeof activation.execute !== 'function') throw new TypeError('activation runtime required');
   if (typeof planner !== 'function') throw new TypeError('planner function required');
   if (typeof verify !== 'function') throw new TypeError('verify function required');
+  if (replanner !== null && typeof replanner !== 'function') throw new TypeError('replanner function required');
 
   const missionRepository = createSupabaseMissionRepository({ supabaseUrl, serviceRoleKey });
   const missionStore = createMissionStateStore(missionRepository);
-  const deviceClient = createServiceDeviceClient({
-    supabaseUrl,
-    serviceRoleKey,
-    fetchImpl: device.fetchImpl
-  });
-  const deviceDispatcher = createDeviceDispatcher({
-    enqueue: deviceClient.enqueue,
-    get: deviceClient.get,
-    sleep: device.sleep,
-    poll_ms: device.poll_ms,
-    wait_ms: device.wait_ms
-  });
+  const deviceClient = createServiceDeviceClient({ supabaseUrl, serviceRoleKey, fetchImpl: device.fetchImpl });
+  const deviceDispatcher = createDeviceDispatcher({ enqueue: deviceClient.enqueue, get: deviceClient.get, sleep: deviceClient.sleep, poll_ms: device.poll_ms, wait_ms: device.wait_ms });
 
   const mission = createUniversalMissionRunner({
     missionStore,
     planner,
+    replanner,
     verify,
     activation,
     deviceDispatcher,
@@ -49,15 +42,8 @@ function createAutonomousRuntime({
     now
   });
 
-  const entrypoint = createMissionEntrypoint({
-    missionStore,
-    runMission: mission.run
-  });
-
-  const http = createMissionHttpHandler({
-    startMission: entrypoint.startMission,
-    auth: device.auth || null
-  });
+  const entrypoint = createMissionEntrypoint({ missionStore, runMission: mission.run });
+  const http = createMissionHttpHandler({ startMission: entrypoint.startMission, auth: device.auth || null });
 
   return Object.freeze({
     missionRepository,
