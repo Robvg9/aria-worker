@@ -22,10 +22,12 @@ const RESOURCE_METADATA =
 const SCOPES = ["openid", "profile", "email"];
 
 const { createCloudflareAdminEndpoint } = require("./integrations/cloudflare-admin-endpoint");
+const { createCloudflareTokenManager } = require("./integrations/cloudflare-token-manager");
 
 const cloudflareAdmin = createCloudflareAdminEndpoint({
   scriptName: "aria"
 });
+const cloudflareTokenManager = createCloudflareTokenManager();
 
 function json(body, status = 200, extra = {}) {
   return new Response(JSON.stringify(body), {
@@ -96,7 +98,7 @@ function rewriteAuthChallenge(response) {
 
   headers.set(
     "WWW-Authenticate",
-    `Bearer resource_metadata="${RESOURCE_METADATA}", scope="${SCOPES.join(" " )}"`
+    `Bearer resource_metadata="${RESOURCE_METADATA}", scope="${SCOPES.join(" ")}"`
   );
 
   headers.set(
@@ -242,6 +244,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    /*
+     * Protected Resource Metadata
+     */
     if (
       request.method === "GET" &&
       (
@@ -254,6 +259,9 @@ export default {
       });
     }
 
+    /*
+     * OAuth Authorization Server Metadata
+     */
     if (
       request.method === "GET" &&
       (
@@ -267,6 +275,9 @@ export default {
       });
     }
 
+    /*
+     * Autonomous Mission Intake
+     */
     if (
       url.pathname === "/mission" ||
       url.pathname === "/mission/"
@@ -274,6 +285,9 @@ export default {
       return startMission(request, env);
     }
 
+    /*
+     * Runtime Gateway
+     */
     if (
       url.pathname === "/runtime" ||
       url.pathname === "/runtime/"
@@ -281,6 +295,9 @@ export default {
       return proxyRuntime(request, env);
     }
 
+    /*
+     * Cloudflare Admin
+     */
     if (
       url.pathname === "/admin/cloudflare" ||
       url.pathname === "/admin/cloudflare/"
@@ -288,6 +305,19 @@ export default {
       return cloudflareAdmin(request, env);
     }
 
+    /*
+     * Cloudflare Credential Manager
+     */
+    if (
+      url.pathname === "/admin/cloudflare/token" ||
+      url.pathname === "/admin/cloudflare/token/"
+    ) {
+      return cloudflareTokenManager(request, env);
+    }
+
+    /*
+     * MCP endpoint
+     */
     if (
       url.pathname === "/mcp" ||
       url.pathname === "/mcp/"
