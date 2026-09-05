@@ -1,0 +1,1 @@
+Phase 1 live safety: no human secret copy/paste; runner v16 handles retries, checkpoints, leases, and dead-letter recovery.
