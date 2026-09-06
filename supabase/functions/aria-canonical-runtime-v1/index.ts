@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const RUNNER = `${Deno.env.get("SUPABASE_URL")}/functions/v1/aria-mission-runner-v16`;
+const RUNNER = `${Deno.env.get("SUPABASE_URL")}/functions/v1/aria-mission-runner-v17`;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 
 const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
