@@ -75,7 +75,7 @@ function deriveFromCapabilityGap(row) {
   const notes = text(row.notes);
   if (!capability) return null;
   return {
-    goal_id: generatedId('capability_gap', capability, capability),
+    goal_id: generatedId('capability_gap', `${capability}:${model || 'any'}`, capability),
     goal: `Close the capability gap for ${capability}${model ? ` on ${model}` : ''}: verify capability, implement the smallest governed path, test it, and register evidence.`.slice(0, 500),
     priority: 68,
     urgency: 60,
