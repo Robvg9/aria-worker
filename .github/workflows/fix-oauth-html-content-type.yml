@@ -1,0 +1,41 @@
+name: Harden OAuth HTML Content-Type
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-oauth-html-content-type.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch Worker OAuth HTML response
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('worker.js')
+          s = p.read_text()
+          old = '''async function proxyOAuth(request, url) {\n  const upstreamUrl = new URL(SUPABASE_OAUTH);\n  const suffix = url.pathname.replace(/^\\/(?:oauth\\/)?/, "");\n  if (suffix) upstreamUrl.pathname = `${upstreamUrl.pathname.replace(/\\/$/, "")}/${suffix.replace(/^\\//, "")}`;\n  upstreamUrl.search = url.search;\n  const headers = new Headers(request.headers);\n  headers.delete("host");\n  return fetch(new Request(upstreamUrl.toString(), {\n    method: request.method,\n    headers,\n    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,\n    redirect: "manual"\n  }));\n}'''
+          new = '''async function proxyOAuth(request, url) {\n  const upstreamUrl = new URL(SUPABASE_OAUTH);\n  const suffix = url.pathname.replace(/^\\/(?:oauth\\/)?/, "");\n  if (suffix) upstreamUrl.pathname = `${upstreamUrl.pathname.replace(/\\/$/, "")}/${suffix.replace(/^\\//, "")}`;\n  upstreamUrl.search = url.search;\n  const headers = new Headers(request.headers);\n  headers.delete("host");\n  const upstream = await fetch(new Request(upstreamUrl.toString(), {\n    method: request.method,\n    headers,\n    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,\n    redirect: "manual"\n  }));\n  if (url.pathname === "/authorize" || url.pathname === "/authorize/") {\n    const responseHeaders = new Headers(upstream.headers);\n    responseHeaders.set("content-type", "text/html; charset=utf-8");\n    responseHeaders.set("cache-control", "no-store");\n    return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });\n  }\n  return upstream;\n}'''
+          if old not in s:
+              raise SystemExit('proxyOAuth target not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Validate Worker with Wrangler
+        run: |
+          npx --yes wrangler@latest deploy worker.js --dry-run --outdir=.wrangler-dry-run
+      - name: Commit patch and remove one-shot workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/fix-oauth-html-content-type.yml
+          git add worker.js
+          git commit -m 'fix: force OAuth authorize responses to HTML'
+          git push origin HEAD:main
