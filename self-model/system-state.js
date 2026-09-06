@@ -1,0 +1,4 @@
+'use strict';
+function buildSelfModel({identity,canonicalEntrypoint,version,capabilities=[],dependencies=[],providers=[],tools=[],agents=[],deployment={}}={}){if(!identity||!canonicalEntrypoint)throw new Error('self_model_identity_required');return Object.freeze({version:1,identity,canonical_entrypoint:canonicalEntrypoint,software_version:version||null,capabilities:[...new Set(capabilities)],dependencies:[...new Set(dependencies)],providers:[...new Set(providers)],tools:[...new Set(tools)],agents:[...new Set(agents)],deployment:{...deployment},generated_at:new Date().toISOString()});}
+function diffSelfModel(previous,current){const changed=[];for(const key of ['identity','canonical_entrypoint','software_version','capabilities','dependencies','providers','tools','agents','deployment'])if(JSON.stringify(previous?.[key])!==JSON.stringify(current?.[key]))changed.push(key);return{changed,unchanged:changed.length===0};}
+module.exports={buildSelfModel,diffSelfModel};
