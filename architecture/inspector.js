@@ -1,0 +1,6 @@
+'use strict';
+function inspectArchitecture({components=[],authorities=[],entrypoints=[]}={}){
+ const ids=new Set(),duplicates=[]; for(const c of components){if(!c?.id)continue;if(ids.has(c.id))duplicates.push(c.id);ids.add(c.id);} const auth=new Set(authorities.map(String)); const duplicateAuthorities=[...auth].filter(name=>authorities.filter(x=>String(x)===name).length>1); const canonical=entrypoints.filter(e=>e?.canonical===true).length; const findings=[]; if(duplicates.length)findings.push({code:'duplicate_component_ids',items:duplicates}); if(duplicateAuthorities.length)findings.push({code:'duplicate_authority',items:duplicateAuthorities}); if(canonical>1)findings.push({code:'multiple_canonical_entrypoints',count:canonical}); if(canonical===0)findings.push({code:'missing_canonical_entrypoint'}); return {healthy:findings.length===0,findings,summary:{components:components.length,canonical_entrypoints:canonical}};
+}
+function proposeArchitectureChange(finding,change){if(!finding||!change?.objective)throw new Error('architecture_proposal_invalid');const risk=change.risk||'medium';return {type:'architecture_change',objective:change.objective,reason:finding.code,risk,requires_evaluation:true,requires_human_gate:risk==='high'||risk==='destructive'};}
+module.exports={inspectArchitecture,proposeArchitectureChange};
