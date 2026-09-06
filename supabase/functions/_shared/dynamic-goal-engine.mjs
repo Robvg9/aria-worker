@@ -26,12 +26,18 @@ export function scoreCandidate(candidate, context = {}) {
   const confidence = clamp(candidate.confidence, 0, 1) * 10;
   const freshness = freshnessScore(candidate.created_at || candidate.source_created_at, now);
   const sourceSignal = sourceWeight(source);
+  const strategicSignal = candidate.strategic ? 8 : 0;
   const attemptsPenalty = Math.min(15, Math.max(0, Number(candidate.attempts || 0) * 3));
-  return Number((base + urgency + impact + confidence + freshness + sourceSignal - attemptsPenalty).toFixed(6));
+  const historicalPenalty = candidate.historical ? 20 : 0;
+  return Number((base + urgency + impact + confidence + freshness + sourceSignal + strategicSignal - attemptsPenalty - historicalPenalty).toFixed(6));
 }
 
 function candidateFromGoal(goal) {
-  return { goal_id: text(goal.goal_id), goal: text(goal.goal), priority: Number(goal.priority || 0), source_type: text(goal.source_type) || 'seed', source_ref: text(goal.source_ref) || text(goal.goal_id), created_at: goal.created_at, attempts: Number(goal.attempts || 0), status: text(goal.status) || 'queued', urgency: Number(goal.urgency || 0), impact: Number(goal.impact || 0), confidence: Number(goal.confidence ?? 0.5) };
+  const priority = Number(goal.priority || 0);
+  const metadata = goal.metadata && typeof goal.metadata === 'object' ? goal.metadata : {};
+  const strategic = Boolean(metadata.strategic || metadata.strategic_priority || metadata.roadmap_priority || priority >= 75);
+  const historical = ['blocked', 'completed'].includes(text(goal.status)) || Boolean(metadata.historical);
+  return { goal_id: text(goal.goal_id), goal: text(goal.goal), priority, source_type: strategic ? 'priority' : (text(goal.source_type) || 'seed'), source_ref: text(goal.source_ref) || text(goal.goal_id), created_at: goal.created_at, attempts: Number(goal.attempts || 0), status: text(goal.status) || 'queued', urgency: Number(goal.urgency || 0), impact: Number(goal.impact || 0), confidence: Number(goal.confidence ?? 0.5), strategic, historical };
 }
 
 function generatedId(source, ref, objective) {
@@ -66,7 +72,7 @@ function deriveFromLearning(learning) {
 
 function normalizeCandidate(candidate, context = {}) {
   const id = text(candidate.goal_id) || generatedId(text(candidate.source_type) || 'dynamic', text(candidate.source_ref), candidate.goal);
-  const normalized = { ...candidate, goal_id: id, goal: text(candidate.goal), status: text(candidate.status) || 'queued', source_type: text(candidate.source_type) || 'seed', source_ref: text(candidate.source_ref), priority: clamp(candidate.priority, 0, 100), urgency: clamp(candidate.urgency, 0, 100), impact: clamp(candidate.impact, 0, 100), confidence: clamp(candidate.confidence ?? 0.5, 0, 1) };
+  const normalized = { ...candidate, goal_id: id, goal: text(candidate.goal), status: text(candidate.status) || 'queued', source_type: text(candidate.source_type) || 'seed', source_ref: text(candidate.source_ref), priority: clamp(candidate.priority, 0, 100), urgency: clamp(candidate.urgency, 0, 100), impact: clamp(candidate.impact, 0, 100), confidence: clamp(candidate.confidence ?? 0.5, 0, 1), strategic: Boolean(candidate.strategic), historical: Boolean(candidate.historical) };
   return { ...normalized, dynamic_score: scoreCandidate(normalized, context) };
 }
 
@@ -79,7 +85,7 @@ export function generateCandidates({ goals = [], failures = [], capabilityGaps =
   for (const item of [...roadmap, ...priorities]) {
     const goal = text(item.goal || item.objective || item.title);
     if (!goal) continue;
-    raw.push({ goal_id: text(item.goal_id) || generatedId('roadmap', item.ref || item.id, goal), goal, priority: item.priority ?? 50, urgency: item.urgency ?? 50, impact: item.impact ?? 60, confidence: item.confidence ?? 0.8, source_type: text(item.source_type) || 'roadmap', source_ref: text(item.source_ref || item.ref || item.id), source_created_at: item.created_at, metadata: item.metadata || {} });
+    raw.push({ goal_id: text(item.goal_id) || generatedId('roadmap', item.ref || item.id, goal), goal, priority: item.priority ?? 50, urgency: item.urgency ?? 50, impact: item.impact ?? 60, confidence: item.confidence ?? 0.8, source_type: text(item.source_type) || 'roadmap', source_ref: text(item.source_ref || item.ref || item.id), source_created_at: item.created_at, metadata: item.metadata || {}, strategic: true });
   }
   const dedup = new Map();
   for (const candidate of raw) {
