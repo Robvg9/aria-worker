@@ -35,13 +35,12 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
     max_replans: Number.isInteger(policy.max_replans) && policy.max_replans >= 0 ? policy.max_replans : 2
   });
 
-  async function executeStep({ missionId, mission, step, completedCount, plan, replanCount, started }) {
+  async function executeStep({ missionId, mission, step, plan, replanCount, started }) {
     let attempt = 0;
     let outcome = null;
     while (attempt < limits.max_attempts_per_step) {
       if (Date.now() - started >= p.max_runtime_ms) break;
       attempt += 1;
-      await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, active_step: step, active_step_index: plan.indexOf(step), last_attempt_at: now(), replan_count: replanCount }, { current_step: completedCount, attempt_count: attempt, next_action: step.action });
       try {
         const result = await executor({ missionId, mission, step, attempt, policy: p });
         const passed = await verify({ missionId, mission, step, result, attempt });
@@ -138,7 +137,18 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
       }
 
       const batchMission = mission;
-      const outcomes = await Promise.all(ready.map(step => executeStep({ missionId, mission: batchMission, step, completedCount, plan, replanCount, started })));
+      await missionStore.checkpoint(missionId, {
+        ...(mission.checkpoint || {}),
+        plan,
+        active_steps: ready.map(step => step.id),
+        active_batch_started_at: now(),
+        replan_count: replanCount
+      }, {
+        current_step: completedCount,
+        next_action: 'executing_parallel_batch'
+      });
+
+      const outcomes = await Promise.all(ready.map(step => executeStep({ missionId, mission: batchMission, step, plan, replanCount, started })));
       const failures = [];
       for (let i = 0; i < ready.length; i++) {
         const outcome = outcomes[i];
@@ -161,7 +171,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
             if (remaining.length === 0) throw new Error('replanner returned no remaining work');
             plan = remaining.map((item, index) => ({ ...item, id: item.id || stableId({ missionId, index, action: item.action || item.operation || null }), depends_on: Array.isArray(item.depends_on) ? item.depends_on.map(String).filter(dep => !completedIds.has(dep)) : [] }));
             replanCount += 1;
-            await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], replanned_from_step: primary.step.id, replan_count: replanCount, last_replan_reason: primary.outcome?.error || primary.outcome?.result?.status || 'execution_or_verification_failure' }, { total_steps: completedCount + plan.length, current_step: completedCount, next_action: 'replanned_next_ready_batch' });
+            await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], active_steps: [], replanned_from_step: primary.step.id, replan_count: replanCount, last_replan_reason: primary.outcome?.error || primary.outcome?.result?.status || 'execution_or_verification_failure' }, { total_steps: completedCount + plan.length, current_step: completedCount, next_action: 'replanned_next_ready_batch' });
             continue;
           } catch (replanError) {
             primary.outcome.replan_error = String(replanError && replanError.message || replanError);
@@ -171,7 +181,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
         return { status: 'failed', step: primary.step, outcome: primary.outcome, failed_steps: failures.map(item => item.step) };
       }
 
-      mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], completed_at: now(), replan_count: replanCount }, { current_step: completedCount, completed_steps: completedCount, next_action: completedCount < plan.length ? 'next_ready_batch' : 'verify_goal' });
+      mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], active_steps: [], completed_at: now(), replan_count: replanCount }, { current_step: completedCount, completed_steps: completedCount, next_action: completedCount < plan.length ? 'next_ready_batch' : 'verify_goal' });
     }
 
     const finalVerification = await verify({ missionId, mission, final: true, plan });
