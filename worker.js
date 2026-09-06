@@ -186,7 +186,10 @@ export default {
       if (upstream.status === 401) return rewriteAuthChallenge(upstream);
       return upstream;
     }
-    return new Response("ARIA MCP Worker", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+    if (url.pathname === "/" || url.pathname === "") {
+      return Response.redirect(`${url.origin}/mcp`, 308);
+    }
+    return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
   }
 };
 
