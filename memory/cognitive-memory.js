@@ -38,6 +38,12 @@ function createCognitiveMemory({ supabaseUrl, serviceRoleKey, fetchImpl = global
     return payload;
   }
 
+  async function search(query, options = {}) {
+    assert(typeof query === 'string' && query.trim(), 'memory query required');
+    const limit = Number.isInteger(options.limit) ? Math.max(1, Math.min(20, options.limit)) : 8;
+    return rpc('aria_memory_search_lexical', { p_query: query.trim(), p_limit: limit });
+  }
+
   return Object.freeze({
     hashContent,
     remember: (input = {}) => rpc('aria_memory_remember', {
@@ -53,7 +59,8 @@ function createCognitiveMemory({ supabaseUrl, serviceRoleKey, fetchImpl = global
       p_importance: input.importance == null ? 0.5 : input.importance,
       p_salience: input.salience == null ? 0.5 : input.salience
     }),
-    searchLexical: (query, limit = 10) => rpc('aria_memory_search_lexical', { p_query: query, p_limit: limit }),
+    searchLexical: search,
+    search,
     recordAccess: (memoryId) => rpc('aria_memory_record_access', { p_memory_id: memoryId })
   });
 }
