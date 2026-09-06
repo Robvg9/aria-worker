@@ -1,0 +1,27 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {topologicalBatches}=require('../autonomy/mission-graph');
+const {gradeTrace}=require('../evaluation/trace-grader');
+const {STATES,transitionTask}=require('../tools/task-state');
+const {createManifest,validateManifest}=require('../runtime/sandbox-manifest');
+const {createTrigger,shouldFire}=require('../autonomy/triggers');
+const {addClaim,verifyClaims}=require('../research/evidence-ledger');
+const {redact,safeEvent}=require('../security/redactor');
+const {optimize}=require('../intelligence/cost-optimizer');
+const {chooseFallback}=require('../intelligence/failover');
+const {transitionExtension}=require('../platform/extension-lifecycle');
+const {upsertEntity,addRelation,activeAt,contradictions}=require('../memory/world-model');
+(async()=>{
+ assert.deepEqual(topologicalBatches([{id:'a'},{id:'b'},{id:'c',depends_on:['a','b']}]),[['a','b'],['c']]);
+ assert.equal(gradeTrace({expectedOperations:['read'],events:[{operation:'read'}]}).passed,true);
+ assert.equal(transitionTask({task_id:'t',status:'submitted'},'working').status,'working');assert.ok(STATES.includes('completed'));
+ const m=createManifest({tools:['read'],network:'deny'});assert.equal(validateManifest(m).valid,true);assert.equal(validateManifest({...m,network:'open'}).valid,false);
+ const tr=createTrigger({id:'x',type:'failure',goal_template:'fix'});assert.equal(shouldFire(tr,{}),true);assert.equal(shouldFire({...tr,enabled:false},{}),false);
+ let l=addClaim([],{id:'c',statement:'s',sources:['src'],confidence:.8});assert.equal(verifyClaims(l)[0].status,'supported');
+ assert.equal(redact('Bearer abcdefghijklmnopqrstuvwxyz'),'[REDACTED]');assert.equal(safeEvent({x:'normal'}).x,'normal');
+ assert.equal(optimize([{model_id:'a',quality:1,reliability:1,latency_ms:10,usd_per_1k:.1},{model_id:'b',quality:.5,reliability:.5,latency_ms:100,usd_per_1k:1}]).model_id,'a');
+ assert.equal(chooseFallback([{key:'a',available:false},{key:'b',available:true,reliability:.8}]).key,'b');
+ assert.equal(transitionExtension({id:'x',state:'validated'},'enabled',{tests_passed:true,security_passed:true}).state,'enabled');
+ let es=upsertEntity([],{id:'e',type:'mission'});es=upsertEntity(es,{id:'e',status:'done'});assert.equal(es[0].status,'done');assert.equal(addRelation([],{from:'e',to:'e2',type:'caused'}).length,1);assert.equal(activeAt({valid_from:'2026-01-01T00:00:00Z'},'2026-02-01T00:00:00Z'),true);assert.equal(contradictions([{subject:'x',content:'a'},{subject:'x',content:'b'}]).length,1);
+ console.log('AUTONOMY EXPANSION V3 TESTS PASS');
+})().catch(e=>{console.error(e);process.exit(1)});
