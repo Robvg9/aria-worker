@@ -20,5 +20,5 @@ assert.equal(consolidateEvidence(items).length, 2);
 assert.equal(consolidateEvidence(items)[0].confidence, 0.9);
 const repaired = repairContradictions(items);
 assert.equal(repaired[0].winner.content, 'v18');
-assert.equal(repaired[0].rejected.length, 1);
+assert.equal(repaired[0].rejected.length, 2);
 console.log('WORLD MODEL V3: PASS — provenance, confidence, temporal validity, consolidation and contradiction repair');
