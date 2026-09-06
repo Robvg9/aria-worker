@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getTraceId, traceHeaders } from "../_shared/aria-trace.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
@@ -21,18 +20,11 @@ const enc = (value: string) => encodeURIComponent(value);
 async function deriveKey() { return crypto.subtle.importKey("raw", await hash(SERVICE_ROLE_KEY), "AES-GCM", false, ["encrypt", "decrypt"]); }
 async function encryptSecret(value: string) { const iv = crypto.getRandomValues(new Uint8Array(12)); const key = await deriveKey(); const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(value))); return `${b64(iv)}.${b64(ciphertext)}`; }
 async function decryptSecret(value: string) { const [iv64, ciphertext64] = value.split("."); const key = await deriveKey(); const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv64) }, key, unb64(ciphertext64)); return new TextDecoder().decode(plaintext); }
-const json = (status: number, body: Record<string, unknown>, traceId: string, extra: HeadersInit = {}) => new Response(JSON.stringify(body), { status, headers: { ...headers, ...traceHeaders(traceId), ...extra } });
-const html = (status: number, body: string, traceId: string) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...traceHeaders(traceId) } });
-function metadata() { return { issuer: ISSUER, resource: RESOURCE, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, registration_endpoint: `${ISSUER}/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], scopes_supported: SCOPES, authorization_response_iss_parameter_supported: true, client_id_metadata_document_supported: true }; }
+const json = (status: number, body: Record<string, unknown>, traceId: string, extra: HeadersInit = {}) => new Response(JSON.stringify(body), { status, headers: { ...headers, ...extra, "x-aria-trace-id": traceId } });
+const html = (status: number, body: string, traceId: string) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-aria-trace-id": traceId } });
+function metadata() { return { issuer: ISSUER, resource: RESOURCE, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, registration_endpoint: `${ISSUER}/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], scopes_supported: SCOPES, authorization_response_iss_parameter_supported: true, client_id_metadata_document_supported: false }; }
 async function clientFromRequest(clientId: string, redirectUri: string) {
-  if (/^https:\/\//.test(clientId)) {
-    const response = await fetch(clientId, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
-    if (!response.ok) return null;
-    const doc = await response.json().catch(() => null) as Record<string, unknown> | null;
-    if (!doc || doc.client_id !== clientId || typeof doc.client_name !== "string" || !Array.isArray(doc.redirect_uris)) return null;
-    const redirectUris = doc.redirect_uris.filter((v): v is string => typeof v === "string");
-    return redirectUris.includes(redirectUri) ? { client_id: clientId, redirect_uris: redirectUris } : null;
-  }
+  if (/^https:\/\//.test(clientId)) return null;
   const { data } = await db().from("aria_mcp_oauth_clients").select("client_id,redirect_uris").eq("client_id", clientId).maybeSingle();
   return data && Array.isArray(data.redirect_uris) && data.redirect_uris.includes(redirectUri) ? data : null;
 }
@@ -40,8 +32,8 @@ function loginPage(pendingId: string) { return `<!doctype html><html><body style
 function checkPage(email: string) { return `<!doctype html><html><body style="font-family:system-ui;max-width:520px;margin:40px auto;padding:16px"><h1>Check your email</h1><p>We sent a secure sign-in link to ${email.replace(/[<>&"]/g, "")}. Open it to continue the ARIA authorization.</p></body></html>`; }
 function magicPage(pendingId: string) { return `<!doctype html><html><body style="font-family:system-ui;max-width:520px;margin:40px auto;padding:16px"><h1 id="h">Completing authorization…</h1><p id="p">Please wait.</p><script>(async()=>{try{const q=new URLSearchParams(location.hash.slice(1));const token=q.get('access_token');if(!token)throw new Error('No session token returned');const r=await fetch(${JSON.stringify(ISSUER)}+'/authorize/consume',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pending_id:${JSON.stringify(pendingId)},access_token:token})});const d=await r.json();if(!r.ok||!d.redirect_uri)throw new Error(d.error||'authorization_failed');location.replace(d.redirect_uri)}catch(e){document.getElementById('h').textContent='Authorization failed';document.getElementById('p').textContent=e?.message||String(e)}})()</script></body></html>`; }
 Deno.serve(async req => {
-  const traceId = getTraceId(req); const u = new URL(req.url);
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...headers, ...traceHeaders(traceId), "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type,authorization" } });
+  const traceId = crypto.randomUUID(); const u = new URL(req.url);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...headers, "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type,authorization" } });
   if (req.method === "GET" && u.pathname.endsWith("/.well-known/oauth-authorization-server")) return json(200, metadata(), traceId, { "access-control-allow-origin": "*" });
   if (req.method === "POST" && u.pathname.endsWith("/register")) {
     const body = await req.json().catch(() => null) as Record<string, unknown> | null;
@@ -80,8 +72,8 @@ Deno.serve(async req => {
     const { data: pending } = await db().from("aria_mcp_oauth_pending").select("*").eq("id", pendingId).maybeSingle(); const flowTrace = pending?.trace_id ?? traceId;
     if (!pending || !accessToken || new Date(pending.expires_at).getTime() <= Date.now()) return json(400, { error: "authorization_expired" }, flowTrace);
     const { data: userData, error: userError } = await auth().auth.getUser(accessToken); if (userError || !userData.user) return json(400, { error: "invalid_session" }, flowTrace);
-    const code = `aria_code_${crypto.randomUUID()}`; const encryptedAccessToken = await encryptSecret(accessToken);
-    const { error: insertError } = await db().from("aria_mcp_oauth_codes").insert({ code, client_id: pending.client_id, redirect_uri: pending.redirect_uri, code_challenge: pending.code_challenge, code_challenge_method: pending.code_challenge_method, user_id: userData.user.id, encrypted_access_token: encryptedAccessToken, scope: SCOPES.join(" "), trace_id: flowTrace, expires_at: new Date(Date.now() + codeTtl).toISOString() });
+    const code = `aria_code_${crypto.randomUUID()}`;
+    const { error: insertError } = await db().from("aria_mcp_oauth_codes").insert({ code, client_id: pending.client_id, redirect_uri: pending.redirect_uri, code_challenge: pending.code_challenge, code_challenge_method: pending.code_challenge_method, user_id: userData.user.id, encrypted_access_token: await encryptSecret(accessToken), scope: SCOPES.join(" "), trace_id: flowTrace, expires_at: new Date(Date.now() + codeTtl).toISOString() });
     if (insertError) return json(500, { error: "authorization_failed" }, flowTrace);
     await db().from("aria_mcp_oauth_pending").delete().eq("id", pendingId);
     const redirect = new URL(pending.redirect_uri); redirect.searchParams.set("code", code); redirect.searchParams.set("state", pending.state); redirect.searchParams.set("iss", ISSUER); return json(200, { redirect_uri: redirect.toString() }, flowTrace);
