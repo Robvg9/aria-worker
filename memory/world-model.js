@@ -1,6 +1,72 @@
 'use strict';
-function upsertEntity(entities=[],entity){if(!entity?.id)throw new Error('entity_id_required');const i=entities.findIndex(e=>e.id===entity.id);if(i<0)return[...entities,{...entity}];const out=[...entities];out[i]={...out[i],...entity};return out;}
-function addRelation(relations=[],relation){if(!relation?.from||!relation?.to||!relation?.type)throw new Error('relation_invalid');if(relations.some(r=>r.from===relation.from&&r.to===relation.to&&r.type===relation.type))return relations;return[...relations,{...relation}];}
-function activeAt(item,at=new Date().toISOString()){const t=Date.parse(at);const start=item.valid_from?Date.parse(item.valid_from):-Infinity;const end=item.valid_until?Date.parse(item.valid_until):Infinity;return t>=start&&t<end;}
-function contradictions(items=[]){const groups=new Map();for(const x of items){const k=String(x.subject||x.title||'').toLowerCase();if(!k)continue;(groups.get(k)||groups.set(k,[]).get(k)).push(x);}return[...groups.entries()].flatMap(([subject,xs])=>{const values=new Set(xs.map(x=>String(x.content||'')));return values.size>1?[{subject,items:xs}]:[]});}
-module.exports={upsertEntity,addRelation,activeAt,contradictions};
+
+function validateConfidence(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error('confidence_invalid');
+  return n;
+}
+
+function upsertEntity(entities = [], entity) {
+  if (!entity?.id) throw new Error('entity_id_required');
+  const normalized = { ...entity };
+  if (normalized.confidence !== undefined) normalized.confidence = validateConfidence(normalized.confidence);
+  const i = entities.findIndex(e => e.id === entity.id);
+  if (i < 0) return [...entities, normalized];
+  const out = [...entities];
+  out[i] = { ...out[i], ...normalized };
+  return out;
+}
+
+function addRelation(relations = [], relation) {
+  if (!relation?.from || !relation?.to || !relation?.type) throw new Error('relation_invalid');
+  if (relation.confidence !== undefined) validateConfidence(relation.confidence);
+  if (relations.some(r => r.from === relation.from && r.to === relation.to && r.type === relation.type)) return relations;
+  return [...relations, { ...relation }];
+}
+
+function activeAt(item, at = new Date().toISOString()) {
+  const t = Date.parse(at);
+  const start = item.valid_from ? Date.parse(item.valid_from) : -Infinity;
+  const end = item.valid_until ? Date.parse(item.valid_until) : Infinity;
+  return t >= start && t < end;
+}
+
+function contradictions(items = []) {
+  const groups = new Map();
+  for (const x of items) {
+    const k = String(x.subject || x.title || '').toLowerCase();
+    if (!k) continue;
+    (groups.get(k) || groups.set(k, []).get(k)).push(x);
+  }
+  return [...groups.entries()].flatMap(([subject, xs]) => {
+    const values = new Set(xs.map(x => String(x.content ?? '')));
+    return values.size > 1 ? [{ subject, items: xs }] : [];
+  });
+}
+
+function attachProvenance(item, provenance = {}) {
+  const source = provenance.source || provenance.source_id;
+  if (!source) throw new Error('provenance_source_required');
+  const confidence = provenance.confidence === undefined ? (item.confidence ?? 0.5) : validateConfidence(provenance.confidence);
+  return Object.freeze({ ...item, confidence, provenance: Object.freeze({ ...provenance, source, recorded_at: provenance.recorded_at || new Date().toISOString() }) });
+}
+
+function consolidateEvidence(items = []) {
+  const valid = items.filter(item => item && (item.provenance?.source || item.provenance?.source_id));
+  const byValue = new Map();
+  for (const item of valid) {
+    const key = `${item.subject || item.title || ''}|${item.content || ''}`.toLowerCase();
+    const current = byValue.get(key);
+    if (!current || Number(item.confidence ?? 0) > Number(current.confidence ?? 0)) byValue.set(key, item);
+  }
+  return [...byValue.values()].sort((a, b) => Number(b.confidence ?? 0) - Number(a.confidence ?? 0));
+}
+
+function repairContradictions(items = []) {
+  return contradictions(items).map(group => {
+    const ranked = [...group.items].sort((a, b) => Number(b.confidence ?? 0) - Number(a.confidence ?? 0));
+    return Object.freeze({ subject: group.subject, winner: ranked[0] || null, rejected: ranked.slice(1), repaired: ranked.length > 0 });
+  });
+}
+
+module.exports = Object.freeze({ upsertEntity, addRelation, activeAt, contradictions, attachProvenance, consolidateEvidence, repairContradictions, validateConfidence });
