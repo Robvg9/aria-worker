@@ -77,7 +77,7 @@ async function autonomyHealth(request) {
 }
 function rewriteAuthChallenge(response) {
   const headers = new Headers(response.headers);
-  headers.set("WWW-Authenticate", `Bearer resource_metadata=\"${RESOURCE_METADATA}\", scope=\"${SCOPES.join(" \")}\"`);
+  headers.set("WWW-Authenticate", 'Bearer resource_metadata="' + RESOURCE_METADATA + '", scope="' + SCOPES.join(" ") + '"');
   headers.set("Access-Control-Expose-Headers", "WWW-Authenticate, X-ARIA-Trace-Id");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
