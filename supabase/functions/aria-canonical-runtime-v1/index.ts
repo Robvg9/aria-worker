@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const URL = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const RUNNER = `${URL}/functions/v1/aria-mission-runner-v17`;
+const RUNNER = `${URL}/functions/v1/aria-mission-runner-v18`;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const sb = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
