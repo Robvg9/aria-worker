@@ -187,7 +187,8 @@ export default {
     if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v3")) {
       return json(authorizationServerMetadata(), 200, { "access-control-allow-origin": "*" });
     }
-    if (["/authorize", "/authorize/", "/token", "/token/", "/register", "/register/"].includes(url.pathname)) return proxyOAuth(request, url);
+    if (url.pathname === "/authorize" || url.pathname === "/authorize/" || url.pathname.startsWith("/authorize/")) return proxyOAuth(request, url);
+    if (["/token", "/token/", "/register", "/register/"].includes(url.pathname)) return proxyOAuth(request, url);
     if (url.pathname === "/aria" || url.pathname === "/aria/") return directAria(request, env);
     if (url.pathname === "/mission" || url.pathname === "/mission/") return startMission(request, env);
     if (url.pathname === "/runtime" || url.pathname === "/runtime/") return proxyRuntime(request, env);
