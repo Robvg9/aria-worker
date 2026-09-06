@@ -39,7 +39,7 @@ const { createCognitiveLoop, normalizeRecall } = require('../autonomy/cognitive-
 
   const bounded = normalizeRecall(Array.from({ length: 30 }, (_, i) => ({ memory_id: `m${i}`, content: `x${i}` })));
   assert.strictEqual(bounded.length, 12);
-  assert.throws(() => loop.run({ goal: '' }), /goal must be a non-empty string/);
+  await assert.rejects(loop.run({ goal: '' }), /goal must be a non-empty string/);
 
   console.log('cognitive-loop-v2.test.js: ok');
 })().catch((error) => {
