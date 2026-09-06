@@ -87,12 +87,12 @@ async function access(body: Record<string, unknown>) {
 
 async function embedMissing(limit = 10) {
   const safeLimit = Math.max(1, Math.min(20, Math.floor(limit)));
-  const { data, error } = await supabase.rpc("list_unembedded", { p_limit: safeLimit });
+  const { data, error } = await supabase.rpc("aria_memory_list_unembedded", { p_limit: safeLimit });
   if (error) throw new Error(`embed_list:${error.message}`);
   let embedded = 0;
   for (const item of data ?? []) {
     const vector = await embedding(`${item.title}\n${item.content}`);
-    const result = await supabase.rpc("set_embedding", {
+    const result = await supabase.rpc("aria_memory_set_embedding", {
       p_memory_id: item.memory_id,
       p_embedding_text: `[${vector.join(",")}]`
     });
