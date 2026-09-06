@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { toOtelEvent } = require('../observability/otel-mapping');
+const out = toOtelEvent({ stage:'execution', timestamp:'2026-09-06T04:00:00.000Z', mission_id:'m1', execution_id:'e1', task_id:'t1', provider_id:'openai', model_id:'model-x', capability_id:'text_generation' });
+assert.equal(out.name, 'aria.execution');
+assert.equal(out.attributes['aria.mission_id'], 'm1');
+assert.equal(out.attributes['gen_ai.request.model'], 'model-x');
+assert.equal(out.sensitive_content_included, false);
+assert.throws(() => toOtelEvent({ stage:'invalid' }), /stage_invalid/);
+console.log('OTEL MAPPING TESTS PASS');
