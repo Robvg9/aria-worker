@@ -1,7 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const RUNNER = `${Deno.env.get("SUPABASE_URL")}/functions/v1/aria-mission-runner-v17`;
+const URL = Deno.env.get("SUPABASE_URL")!;
+const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const RUNNER = `${URL}/functions/v1/aria-mission-runner-v17`;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
+const sb = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -22,17 +26,24 @@ function constantTimeEqual(a: string, b: string) {
   return diff === 0;
 }
 
+async function authorized(request: Request) {
+  const token = bearer(request);
+  if (token && SECRET && constantTimeEqual(token, SECRET)) return true;
+  const autonomyToken = request.headers.get("x-aria-autonomy-token") ?? token;
+  if (!autonomyToken) return false;
+  const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: autonomyToken });
+  return !error && data === true;
+}
+
 Deno.serve(async (request) => {
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
-  if (!SECRET) return out({ error: "runtime_secret_not_configured" }, 500);
-
-  const token = bearer(request) ?? request.headers.get("x-aria-autonomy-token");
-  if (!token || !constantTimeEqual(token, SECRET)) return out({ error: "unauthorized" }, 401);
+  if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
 
   const body = await request.text();
+  const forwardToken = bearer(request) ?? request.headers.get("x-aria-autonomy-token") ?? "";
   const headers = new Headers({
     "content-type": "application/json",
-    "authorization": `Bearer ${SECRET}`
+    authorization: `Bearer ${forwardToken || SECRET}`
   });
   const trace = request.headers.get("X-ARIA-Trace-Id");
   if (trace) headers.set("X-ARIA-Trace-Id", trace);
