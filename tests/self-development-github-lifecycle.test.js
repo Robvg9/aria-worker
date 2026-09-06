@@ -1,6 +1,8 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { createGitHubBranchWorkspace } = require('../self-development/github-branch-workspace');
+const { createEvaluationLedger } = require('../evaluation/ledger');
+const { runEvalSuite } = require('../evaluation/engine');
 
 (async () => {
   const calls = [];
@@ -26,5 +28,16 @@ const { createGitHubBranchWorkspace } = require('../self-development/github-bran
   assert.equal(calls.filter(c => c.init.method === 'PUT').length, 1);
   assert.equal(calls.filter(c => c.init.method === 'POST').length, 2);
   assert.equal(calls.some(c => c.url.includes('/pulls')), true);
-  console.log('SELF-DEVELOPMENT GITHUB LIFECYCLE: PASS — branch, read, governed low-risk write and PR boundary');
+
+  const saved = [];
+  const ledger = createEvaluationLedger({
+    store: { save: async entry => saved.push(entry), list: async suiteId => saved.filter(entry => entry.suite_id === suiteId) },
+    now: () => '2026-09-06T00:00:00.000Z'
+  });
+  const suite = await runEvalSuite({ cases: [{ id: 'ledger-case', run: async () => ({ ok: true }), expect: value => value.ok === true }] });
+  const record = await ledger.record({ suite_id: 'selfdev-evaluation', suite, metadata: { source: 'lifecycle-test' } });
+  assert.equal(record.status, 'passed');
+  assert.equal((await ledger.history('selfdev-evaluation')).length, 1);
+
+  console.log('SELF-DEVELOPMENT GITHUB LIFECYCLE: PASS — branch, read, governed low-risk write, PR boundary and evaluation ledger');
 })().catch(error => { console.error(error); process.exit(1); });
