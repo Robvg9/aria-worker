@@ -1,0 +1,35 @@
+name: ARIA Autonomous PR Broker
+
+on:
+  push:
+    branches:
+      - 'aria/autonomous/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  broker:
+    if: github.actor == 'aria-autonomous-agent[bot]' || startsWith(github.ref_name, 'aria/autonomous/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PR for autonomous branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          existing="$(gh pr list --repo "$GH_REPO" --head "$BRANCH" --state open --json number,url --jq '.[0]')"
+          if [ -n "$existing" ]; then
+            echo "PR already exists: $existing"
+            exit 0
+          fi
+          gh pr create \
+            --repo "$GH_REPO" \
+            --head "$BRANCH" \
+            --base main \
+            --title "ARIA autonomous change: $BRANCH" \
+            --body "Automated PR broker for ARIA autonomous branch. Changes were created by the governed ARIA runtime. Human review remains required before merge." \
+            --draft
