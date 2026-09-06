@@ -1,0 +1,3 @@
+'use strict';
+function consolidate(items=[]){const groups=new Map();for(const item of items){const key=String(item.subject||item.title||item.content_hash||'').trim().toLowerCase();if(!key)continue;const arr=groups.get(key)||[];arr.push(item);groups.set(key,arr);}const out=[];for(const group of groups.values()){group.sort((a,b)=>Number(b.confidence||0)-Number(a.confidence||0)||String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||'')));const winner=group[0];out.push({...winner,merged_memory_ids:group.slice(1).map(x=>x.memory_id||x.id).filter(Boolean)});}return out;}
+module.exports={consolidate};
