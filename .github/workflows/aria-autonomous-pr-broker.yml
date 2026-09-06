@@ -4,32 +4,45 @@ on:
   push:
     branches:
       - 'aria/autonomous/**'
+  schedule:
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   broker:
-    if: github.actor == 'aria-autonomous-agent[bot]' || startsWith(github.ref_name, 'aria/autonomous/')
     runs-on: ubuntu-latest
     steps:
-      - name: Create PR for autonomous branch
+      - name: Scan autonomous branches and broker review artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
+          PUSH_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          existing="$(gh pr list --repo "$GH_REPO" --head "$BRANCH" --state open --json number,url --jq '.[0]')"
-          if [ -n "$existing" ]; then
-            echo "PR already exists: $existing"
-            exit 0
+          branches=()
+          if [[ "$PUSH_BRANCH" == aria/autonomous/* ]]; then
+            branches+=("$PUSH_BRANCH")
           fi
-          gh pr create \
-            --repo "$GH_REPO" \
-            --head "$BRANCH" \
-            --base main \
-            --title "ARIA autonomous change: $BRANCH" \
-            --body "Automated PR broker for ARIA autonomous branch. Changes were created by the governed ARIA runtime. Human review remains required before merge." \
-            --draft
+          while IFS= read -r b; do
+            [[ -n "$b" ]] && branches+=("$b")
+          done < <(gh api --paginate "repos/$GH_REPO/branches?per_page=100" --jq '.[] | select(.name | startswith("aria/autonomous/")) | .name')
+
+          printf '%s\n' "${branches[@]}" | sort -u | while IFS= read -r branch; do
+            [[ -z "$branch" ]] && continue
+            existing_pr="$(gh pr list --repo "$GH_REPO" --head "$branch" --base main --state open --json number,url --jq '.[0]')"
+            [[ -n "$existing_pr" ]] && { echo "PR exists for $branch: $existing_pr"; continue; }
+
+            existing_issue="$(gh issue list --repo "$GH_REPO" --state open --search "ARIA change proposal $branch in:title" --json number,url --jq '.[0]')"
+            [[ -n "$existing_issue" ]] && { echo "Review issue exists for $branch: $existing_issue"; continue; }
+
+            if gh pr create --repo "$GH_REPO" --head "$branch" --base main --title "ARIA autonomous change: $branch" --body "Automated PR broker for ARIA autonomous branch. Changes were created by the governed ARIA runtime. Human review remains required before merge." --draft; then
+              echo "PR created for $branch"
+            else
+              gh issue create --repo "$GH_REPO" --title "ARIA change proposal $branch" --body "ARIA autonomous branch awaiting governed review.\n\nBranch: $branch\nBase: main\n\nThe GitHub App could create the branch and code change, but PR creation was unavailable. This issue is the automatic review fallback. A maintainer can promote the branch into a PR without changing the branch contents."
+              echo "Issue fallback created for $branch"
+            fi
+          done
