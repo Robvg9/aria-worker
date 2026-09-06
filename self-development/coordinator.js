@@ -8,7 +8,7 @@ const { createSelfRollback } = require('./rollback');
 
 const RISK_ORDER = Object.freeze({ low: 0, medium: 1, high: 2, critical: 3 });
 
-function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunner, writer, snapshotStore = null, policy = {} } = {}) {
+function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunner, writer, snapshotStore = null, evaluationLedger = null, evaluationSuiteId = 'self-development', policy = {} } = {}) {
   const inspector = createSelfInspector({ snapshot });
   const diagnoser = createSelfDiagnoser({ rules });
   const planner = createImprovementPlanner({ allowMutation: async (change) => {
@@ -45,16 +45,24 @@ function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunn
       if (snapshotStore && typeof snapshotStore.save === 'function') await snapshotStore.save(before.find(x => x.path === change.path));
     }
     const tests = typeof testRunner === 'function' ? await testRunner({ scope: applied, reason: objective }) : { status: 'failed', summary: 'test_runner_required' };
+    let evaluation = null;
+    if (evaluationLedger && typeof evaluationLedger.record === 'function') {
+      evaluation = await evaluationLedger.record({
+        suite_id: evaluationSuiteId,
+        suite: tests,
+        metadata: { objective, scope: applied, source: 'self-development' }
+      });
+    }
     const verification = await verifyChange({ tests, inspection: async () => {
       const after = await inspector.inspect({ include: ['version','identity','capabilities','tools','connectors','tests','git'] });
       return after.status === 'succeeded';
     }});
     if (!verification.verified) {
       const rollbackResult = rollback ? await rollback.rollback(applied) : { status: 'blocked', reason: 'rollback_boundary_unavailable' };
-      return { status: 'failed', stage: 'verification', applied, before, tests, verification, rollback: rollbackResult };
+      return { status: 'failed', stage: 'verification', applied, before, tests, evaluation, verification, rollback: rollbackResult };
     }
-    const documentation = typeof writer === 'function' ? await writer({ objective, findings: diagnosis.findings, changes: actionable, tests, verification }) : { status: 'skipped' };
-    return { status: 'succeeded', objective, inspection, diagnosis, plan, applied, tests, verification, documentation };
+    const documentation = typeof writer === 'function' ? await writer({ objective, findings: diagnosis.findings, changes: actionable, tests, evaluation, verification }) : { status: 'skipped' };
+    return { status: 'succeeded', objective, inspection, diagnosis, plan, applied, tests, evaluation, verification, documentation };
   }
 
   return Object.freeze({ improve, inspector, diagnoser, planner });
