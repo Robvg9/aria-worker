@@ -88,12 +88,19 @@ async function proxyOAuth(request, url) {
   upstreamUrl.search = url.search;
   const headers = new Headers(request.headers);
   headers.delete("host");
-  return fetch(new Request(upstreamUrl.toString(), {
+  const upstream = await fetch(new Request(upstreamUrl.toString(), {
     method: request.method,
     headers,
     body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
     redirect: "manual"
   }));
+  if (url.pathname === "/authorize" || url.pathname === "/authorize/") {
+    const responseHeaders = new Headers(upstream.headers);
+    responseHeaders.set("content-type", "text/html; charset=utf-8");
+    responseHeaders.set("cache-control", "no-store");
+    return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
+  }
+  return upstream;
 }
 async function proxyRuntime(request, env) {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
