@@ -88,12 +88,24 @@ async function proxyOAuth(request, url) {
   upstreamUrl.search = url.search;
   const headers = new Headers(request.headers);
   headers.delete("host");
-  const upstream = await fetch(new Request(upstreamUrl.toString(), {
-    method: request.method,
-    headers,
-    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
-    redirect: "manual"
-  }));
+  let upstream;
+  if (url.pathname === "/authorize/start" && request.method === "GET") {
+    const params = new URLSearchParams(url.search);
+    const startUrl = `${SUPABASE_OAUTH}/authorize/start`;
+    upstream = await fetch(new Request(startUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html" },
+      body: params.toString(),
+      redirect: "manual"
+    }));
+  } else {
+    upstream = await fetch(new Request(upstreamUrl.toString(), {
+      method: request.method,
+      headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+      redirect: "manual"
+    }));
+  }
   if (url.pathname === "/authorize" || url.pathname === "/authorize/") {
     const responseHeaders = new Headers(upstream.headers);
     responseHeaders.set("content-type", "text/html; charset=utf-8");
@@ -101,8 +113,16 @@ async function proxyOAuth(request, url) {
     const html = await upstream.text();
     const publicStart = `${url.origin}/authorize/start`;
     const upstreamStart = `action="${SUPABASE_OAUTH}/authorize/start"`;
-    const rewritten = html.replace(upstreamStart, `action="${publicStart}"`);
+    const rewritten = html
+      .replace(upstreamStart, `action="${publicStart}"`)
+      .replace('<form method="post"', '<form method="get"');
     return new Response(rewritten, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
+  }
+  if (url.pathname === "/authorize/start" && request.method === "GET") {
+    const responseHeaders = new Headers(upstream.headers);
+    responseHeaders.set("content-type", "text/html; charset=utf-8");
+    responseHeaders.set("cache-control", "no-store");
+    return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
   }
   return upstream;
 }
