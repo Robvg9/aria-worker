@@ -6,6 +6,7 @@ on:
       - main
       - aria/10-12-governance-v1
       - aria/roadmap-v3-foundation-20260906
+      - aria/autonomy-expansion-v3-20260906
   pull_request:
     branches:
       - main
