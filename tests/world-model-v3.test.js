@@ -2,7 +2,9 @@
 const assert = require('node:assert/strict');
 const { upsertEntity, addRelation, activeAt, contradictions, attachProvenance, consolidateEvidence, repairContradictions, validateConfidence } = require('../memory/world-model');
 
-const entity = attachProvenance(upsertEntity([], { id:'e1', name:'ARIA', confidence:0.8 }), { source:'chatbending', kind:'fact' });
+const stored = upsertEntity([], { id:'e1', name:'ARIA', confidence:0.8 });
+assert.equal(stored[0].confidence, 0.8);
+const entity = attachProvenance(stored[0], { source:'chatbending', kind:'fact', confidence:0.8 });
 assert.equal(entity.confidence, 0.8);
 assert.equal(entity.provenance.source, 'chatbending');
 assert.throws(() => validateConfidence(1.1), /confidence_invalid/);
