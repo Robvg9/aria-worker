@@ -100,7 +100,8 @@ async function proxyOAuth(request, url) {
     responseHeaders.set("cache-control", "no-store");
     const html = await upstream.text();
     const publicStart = `${url.origin}/authorize/start`;
-    const rewritten = html.replace(/action=[\"']https:\\/\\/icuqsstxfdbvjytkhlog\\.supabase\\.co\\/functions\\/v1\\/aria-mcp-oauth-grok-v3\\/authorize\\/start[\"']/g, `action=\"${publicStart}\"`);
+    const upstreamStart = `action="${SUPABASE_OAUTH}/authorize/start"`;
+    const rewritten = html.replace(upstreamStart, `action="${publicStart}"`);
     return new Response(rewritten, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
   }
   return upstream;
