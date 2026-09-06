@@ -1,0 +1,25 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {createDurableSessionStore}=require('../execution-engine/durable-session');
+const {runEvalSuite,compareSuites}=require('../evaluation/engine');
+const {evaluateAction}=require('../security/agent-policy');
+const {toOtelEvent}=require('../observability/otel-mapping');
+const {createResearchPlan,detectContradictions}=require('../research/pipeline');
+const {inspectArchitecture}=require('../architecture/inspector');
+const {chooseModel}=require('../intelligence/benchmark');
+const {assessExtension}=require('../platform/trust');
+const {createCapabilityFactoryPlan,nextFactoryStage}=require('../autonomy/factory');
+const {createNodeIdentity,canDelegate,createDelegationEnvelope}=require('../federation/node');
+(async()=>{
+ const saved=new Map();const s=createDurableSessionStore({save:async x=>saved.set(x.session_id,x),load:async id=>saved.get(id)});await s.checkpoint({session_id:'s',state:'running'});await s.transition('s','waiting');assert.equal((await s.resume('s')).state,'waiting');
+ const ev=await runEvalSuite({cases:[{id:'a',run:async()=>1,expect:x=>x===1},{id:'b',run:async()=>2,expect:x=>x===3}]});assert.equal(ev.status,'failed');assert.deepEqual(compareSuites({results:[{id:'a',status:'passed'}]},ev).regressions,[]);
+ assert.equal(evaluateAction({capability:'x',allowedCapabilities:['x'],operation:'read',risk:'low',maxRisk:'low',input:{}}).allowed,true);assert.equal(evaluateAction({capability:'x',allowedCapabilities:['x'],operation:'write',risk:'high',maxRisk:'low'}).allowed,false);
+ assert.equal(toOtelEvent({stage:'execution'}).sensitive_content_included,false);
+ assert.equal(createResearchPlan({question:'q',sources:[{url:'https://b',credibility:.2},{url:'https://a',credibility:.9}]}).sources[0].url,'https://a');assert.equal(detectContradictions([{topic:'q',position:'a'},{topic:'q',position:'b'}]).length,1);
+ assert.equal(inspectArchitecture({components:[{id:'a'}],authorities:['core'],entrypoints:[{canonical:true}]}).healthy,true);
+ assert.equal(chooseModel([{model_id:'a',capabilities:['x'],quality:1,reliability:1,latency:0,cost:0}],{capability:'x'}).model_id,'a');
+ assert.equal(assessExtension({verified:1,successRate:1,failures:0,ageDays:30,security_passed:true,tests_passed:true}).publishable,true);
+ const p=createCapabilityFactoryPlan({capability:'browser.use'});assert.equal(nextFactoryStage(p,'gap_analysis'),'research');
+ const n=createNodeIdentity({node_id:'n1',name:'N1',url:'https://n1',capabilities:['x'],status:'available'});assert.equal(canDelegate(n,'x'),true);assert.equal(createDelegationEnvelope({correlation_id:'c',source_node:'a',target_node:'b',capability:'x',task_ref:'t'}).version,1);
+ console.log('FRONTIER V3 TESTS PASS');
+})().catch(e=>{console.error(e);process.exit(1)});
