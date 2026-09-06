@@ -38,7 +38,7 @@ jobs:
           PY
 
       - name: Validate syntax
-        run: node --check worker.js
+        run: node --input-type=module --check < worker.js
 
       - name: Commit and push
         run: |
