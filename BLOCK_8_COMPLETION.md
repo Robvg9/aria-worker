@@ -1,6 +1,6 @@
 # BLOCK 8/9 — MULTI-AGENT
 
-Status: IMPLEMENTED
+Status: CERTIFIED V1 — implementation + E2E/audit evidence.
 Version: 2.2.0
 
 Implemented:
@@ -13,9 +13,15 @@ Implemented:
 - 8.7 Agent Verification & Recovery
 - 8.8 Multi-Agent Governance & Audit
 
+Certification evidence:
+- Multi-Agent E2E and governance/audit/no-regression evidence recorded in ChatBending.
+- Agent spoofing, secret-boundary, risk, depth and recovery tests pass in the repository suite.
+
 Safety boundaries:
 - No secrets are stored or read by the agent layer.
 - Agent execution is injected; the layer does not bypass existing execution/governance boundaries.
 - High-risk actions require explicit approval evidence.
 - Delegation depth and resource usage are bounded.
 - External AI clients remain inactive unless explicitly enabled.
+
+Future specialist teams, reputation, arbitration, federation and dynamic agent ecosystems are extensions beyond Block 8 V1 and are tracked separately in the master roadmap.
