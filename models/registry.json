@@ -1,5 +1,5 @@
 {
-  "version": "aria-model-registry-v1.0.1",
+  "version": "aria-model-registry-v1.0.2",
   "mission": "10.2+10.3",
   "kind": "model_registry",
   "memory_authority": false,
@@ -12,7 +12,7 @@
     {
       "model_id": "google/gemini-2.5-flash-lite",
       "provider_id": "openrouter",
-      "canonical_name": "Gemini 2.5 Flash Lite",
+      "canonical_name": "Gemini 2.5 Flash Lite via OpenRouter",
       "upstream_model": "google/gemini-2.5-flash-lite",
       "upstream_provider_id": "google",
       "status": "available",
@@ -21,19 +21,35 @@
         "access_path": "openrouter",
         "verified_at": "2026-08-31",
         "evidence": "Control Plane materialization seed",
-        "notes": "Only verified AI model path at materialization time"
+        "notes": "Mediated route; existing verified account path."
       },
-      "capability_refs": [
-        "text_generation"
-      ]
+      "capability_refs": ["text_generation"]
+    },
+    {
+      "model_id": "google/gemini-2.5-flash-lite-direct",
+      "provider_id": "google",
+      "canonical_name": "Gemini 2.5 Flash Lite (direct API)",
+      "upstream_model": "gemini-2.5-flash-lite",
+      "upstream_provider_id": "google",
+      "status": "unknown",
+      "availability": "public",
+      "metadata": {
+        "access_path": "google_gemini_direct",
+        "verified_at": "2026-09-06",
+        "evidence": "Official Google Gemini API model documentation",
+        "notes": "Model exists and is documented; ARIA account/credential availability is not yet physically verified. Do not route until a Google credential is configured and LIVE health succeeds."
+      },
+      "capability_refs": ["text_generation"]
     }
   ],
   "indexes": {
     "by_provider": {
-      "openrouter": ["google/gemini-2.5-flash-lite"]
+      "openrouter": ["google/gemini-2.5-flash-lite"],
+      "google": ["google/gemini-2.5-flash-lite-direct"]
     },
     "by_model_id": {
-      "google/gemini-2.5-flash-lite": "openrouter"
+      "google/gemini-2.5-flash-lite": "openrouter",
+      "google/gemini-2.5-flash-lite-direct": "google"
     }
   },
   "rules": [
@@ -41,6 +57,8 @@
     "provider_id must exist in Provider Registry",
     "no secrets",
     "capability_refs point to canonical IDs defined in Capability Matrix",
-    "do not invent models not verified in ChatBending / physical seed"
+    "unknown is preserved until physical credential/account health is verified",
+    "do not route a model with unknown status",
+    "do not invent models not verified in authoritative external documentation or the physical control-plane seed"
   ]
 }
