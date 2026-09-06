@@ -6,3 +6,4 @@ compatibility_date = "2026-09-05"
 crons = ["* * * * *"]
 
 # OAuth proxy deployment sync checkpoint
+# OAuth HTML response hardening deployment trigger
