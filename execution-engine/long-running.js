@@ -21,7 +21,7 @@ function createLongRunningStore({ save, load, appendEvent } = {}) {
       if (!taskId) throw new TypeError('task_id_required');
       const session = await durable.resume(taskId);
       if (session?.status === 'not_found') return null;
-      const { session_id: _sessionId, ...task } = structuredClone(session);
+      const { session_id: _sessionId, updated_at: _updatedAt, ...task } = structuredClone(session);
       return task;
     },
     async transition(taskId, state, patch = {}) {
