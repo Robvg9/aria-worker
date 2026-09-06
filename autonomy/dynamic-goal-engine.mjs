@@ -28,7 +28,7 @@ export function scoreCandidate(candidate, context = {}) {
   const sourceSignal = sourceWeight(source);
   const strategicSignal = candidate.strategic ? 8 : 0;
   const attemptsPenalty = Math.min(15, Math.max(0, Number(candidate.attempts || 0) * 3));
-  const historicalPenalty = candidate.historical ? 8 : 0;
+  const historicalPenalty = candidate.historical ? 20 : 0;
   return Number((base + urgency + impact + confidence + freshness + sourceSignal + strategicSignal - attemptsPenalty - historicalPenalty).toFixed(6));
 }
 
