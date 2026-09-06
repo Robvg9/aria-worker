@@ -1,0 +1,50 @@
+name: Verify Claude OAuth LIVE
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/verify-claude-oauth-live.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify protected-resource metadata
+        run: |
+          curl -fsS https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp | tee prm.json
+          grep -q 'https://aria.robvg9.workers.dev/mcp' prm.json
+          grep -q 'aria-mcp-oauth-grok-v3' prm.json
+      - name: Verify authorization metadata
+        run: |
+          curl -fsS https://aria.robvg9.workers.dev/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v3 | tee asm.json
+          grep -q 'client_id_metadata_document_supported' asm.json
+          grep -q 'code_challenge_methods_supported' asm.json
+      - name: Verify real authorization page
+        run: |
+          curl -fsS -D headers.txt -o authorize.html --get \
+            --data-urlencode 'client_id=claude-aria-public-v1' \
+            --data-urlencode 'redirect_uri=https://claude.ai/api/mcp/auth_callback' \
+            --data-urlencode 'response_type=code' \
+            --data-urlencode 'state=live-verification' \
+            --data-urlencode 'code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+            --data-urlencode 'code_challenge_method=S256' \
+            --data-urlencode 'resource=https://aria.robvg9.workers.dev/mcp' \
+            https://aria.robvg9.workers.dev/authorize
+          grep -qi '^content-type: text/html' headers.txt
+          grep -q '<h1>Authorize ARIA</h1>' authorize.html
+          grep -q '<form method="get"' authorize.html
+          grep -q 'https://aria.robvg9.workers.dev/authorize/start' authorize.html
+          grep -q 'name="pending_id"' authorize.html
+          echo 'LIVE_AUTHORIZE_PAGE_PASS'
+      - name: Verify GET start route rejects invalid pending state cleanly
+        run: |
+          curl -sS -D start-headers.txt -o start-body.txt --get \
+            --data-urlencode 'pending_id=00000000-0000-0000-0000-000000000000' \
+            --data-urlencode 'email=invalid-email' \
+            https://aria.robvg9.workers.dev/authorize/start
+          grep -q 'invalid_request' start-body.txt
+          echo 'LIVE_START_ROUTE_PASS'
+      - name: Cleanup
+        if: always()
+        run: echo 'One-shot verification; workflow file can be removed after review.'
