@@ -42,5 +42,14 @@ const assert = require('node:assert/strict');
   }, { now });
   assert.equal(deduped.length, 2, 'distinct source refs remain distinct');
 
+  const modelSpecific = generateCandidates({
+    capabilityGaps: [
+      { capability_id: 'github.file_write', model_id: 'model-a', status: 'unknown', updated_at: now },
+      { capability_id: 'github.file_write', model_id: 'model-b', status: 'unknown', updated_at: now }
+    ]
+  }, { now });
+  assert.equal(modelSpecific.length, 2, 'same capability on distinct models must remain distinct');
+  assert.notEqual(modelSpecific[0].goal_id, modelSpecific[1].goal_id, 'capability-goal IDs include model identity');
+
   console.log('dynamic goal engine tests: PASS');
 })();
