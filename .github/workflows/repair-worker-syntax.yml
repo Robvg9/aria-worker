@@ -34,7 +34,7 @@ jobs:
                   out.append(line)
           if not changed:
               raise SystemExit('target header line not found')
-          p.write_text('\\n'.join(out) + '\\n')
+          p.write_text("\n".join(out) + "\n")
           PY
 
       - name: Validate syntax
