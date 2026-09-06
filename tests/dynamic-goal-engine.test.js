@@ -22,6 +22,20 @@ const assert = require('node:assert/strict');
   assert.equal(candidates[0].goal_id, 'dyn-failure-m-fail-1');
   assert.ok(Number.isFinite(candidates[0].dynamic_score));
 
+  const strategic = generateCandidates({
+    goals: [
+      { goal_id: 'strategic-a', goal: 'Current strategic roadmap objective', priority: 80, status: 'queued', created_at: now },
+      { goal_id: 'historical-a', goal: 'Completed high priority historical objective', priority: 100, status: 'completed', created_at: now }
+    ],
+    failures: []
+  }, { now });
+  const strategicCandidate = strategic.find((candidate) => candidate.goal_id === 'strategic-a');
+  const historicalCandidate = strategic.find((candidate) => candidate.goal_id === 'historical-a');
+  assert.equal(strategicCandidate.source_type, 'priority', 'high-priority live goals project into priority tier');
+  assert.equal(strategicCandidate.strategic, true);
+  assert.equal(historicalCandidate.historical, true);
+  assert.ok(strategicCandidate.dynamic_score > historicalCandidate.dynamic_score, 'historical debt must not outrank a live strategic goal');
+
   const deterministicAgain = generateCandidates({
     goals: [{ goal_id: 'seed-b', goal: 'High priority roadmap work', priority: 70, status: 'queued', created_at: '2026-09-06T01:50:00.000Z' }]
   }, { now });
