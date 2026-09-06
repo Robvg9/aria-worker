@@ -26,24 +26,18 @@ export function scoreCandidate(candidate, context = {}) {
   const confidence = clamp(candidate.confidence, 0, 1) * 10;
   const freshness = freshnessScore(candidate.created_at || candidate.source_created_at, now);
   const sourceSignal = sourceWeight(source);
+  const strategicSignal = candidate.strategic ? 8 : 0;
   const attemptsPenalty = Math.min(15, Math.max(0, Number(candidate.attempts || 0) * 3));
-  return Number((base + urgency + impact + confidence + freshness + sourceSignal - attemptsPenalty).toFixed(6));
+  const historicalPenalty = candidate.historical ? 20 : 0;
+  return Number((base + urgency + impact + confidence + freshness + sourceSignal + strategicSignal - attemptsPenalty - historicalPenalty).toFixed(6));
 }
 
 function candidateFromGoal(goal) {
-  return {
-    goal_id: text(goal.goal_id),
-    goal: text(goal.goal),
-    priority: Number(goal.priority || 0),
-    source_type: text(goal.source_type) || 'seed',
-    source_ref: text(goal.source_ref) || text(goal.goal_id),
-    created_at: goal.created_at,
-    attempts: Number(goal.attempts || 0),
-    status: text(goal.status) || 'queued',
-    urgency: Number(goal.urgency || 0),
-    impact: Number(goal.impact || 0),
-    confidence: Number(goal.confidence ?? 0.5)
-  };
+  const priority = Number(goal.priority || 0);
+  const metadata = goal.metadata && typeof goal.metadata === 'object' ? goal.metadata : {};
+  const strategic = Boolean(metadata.strategic || metadata.strategic_priority || metadata.roadmap_priority || priority >= 75);
+  const historical = ['blocked', 'completed'].includes(text(goal.status)) || Boolean(metadata.historical);
+  return { goal_id: text(goal.goal_id), goal: text(goal.goal), priority, source_type: strategic ? 'priority' : (text(goal.source_type) || 'seed'), source_ref: text(goal.source_ref) || text(goal.goal_id), created_at: goal.created_at, attempts: Number(goal.attempts || 0), status: text(goal.status) || 'queued', urgency: Number(goal.urgency || 0), impact: Number(goal.impact || 0), confidence: Number(goal.confidence ?? 0.5), strategic, historical };
 }
 
 function generatedId(source, ref, objective) {
@@ -55,18 +49,7 @@ function deriveFromFailure(failure) {
   const stderr = text(failure.last_stderr || failure.error || failure.summary);
   if (!goal && !stderr) return null;
   const ref = text(failure.mission_id) || keyOf(goal).slice(0, 48);
-  return {
-    goal_id: generatedId('failure', ref, goal),
-    goal: `Diagnose and resolve the verified failure from mission ${ref}: ${stderr || goal}`.slice(0, 500),
-    priority: 72,
-    urgency: 82,
-    impact: 86,
-    confidence: 0.85,
-    source_type: 'failure',
-    source_ref: ref,
-    source_created_at: failure.updated_at || failure.created_at,
-    metadata: { derived_from_failure: ref, original_goal: goal || null }
-  };
+  return { goal_id: generatedId('failure', ref, goal), goal: `Diagnose and resolve the verified failure from mission ${ref}: ${stderr || goal}`.slice(0, 500), priority: 72, urgency: 82, impact: 86, confidence: 0.85, source_type: 'failure', source_ref: ref, source_created_at: failure.updated_at || failure.created_at, metadata: { derived_from_failure: ref, original_goal: goal || null } };
 }
 
 function deriveFromCapabilityGap(row) {
@@ -74,55 +57,22 @@ function deriveFromCapabilityGap(row) {
   const model = text(row.model_id);
   const notes = text(row.notes);
   if (!capability) return null;
-  return {
-    goal_id: generatedId('capability_gap', `${capability}:${model || 'any'}`, capability),
-    goal: `Close the capability gap for ${capability}${model ? ` on ${model}` : ''}: verify capability, implement the smallest governed path, test it, and register evidence.`.slice(0, 500),
-    priority: 68,
-    urgency: 60,
-    impact: 78,
-    confidence: row.status === 'verified' ? 0.6 : 0.9,
-    source_type: 'capability_gap',
-    source_ref: `${capability}:${model || 'any'}`,
-    source_created_at: row.updated_at || row.verified_at,
-    metadata: { capability_id: capability, model_id: model || null, notes: notes || null }
-  };
+  const sourceRef = `${capability}:${model || 'any'}`;
+  return { goal_id: generatedId('capability_gap', sourceRef, capability), goal: `Close the capability gap for ${capability}${model ? ` on ${model}` : ''}: verify capability, implement the smallest governed path, test it, and register evidence.`.slice(0, 500), priority: 68, urgency: 60, impact: 78, confidence: row.status === 'verified' ? 0.6 : 0.9, source_type: 'capability_gap', source_ref: sourceRef, source_created_at: row.updated_at || row.verified_at, metadata: { capability_id: capability, model_id: model || null, notes: notes || null } };
 }
 
 function deriveFromLearning(learning) {
   const summary = text(learning.summary);
   const goalId = text(learning.goal_id);
-  if (!summary) return null;
-  if (!['operational_failure', 'verified_success'].includes(text(learning.category))) return null;
+  if (!summary || !['operational_failure', 'verified_success'].includes(text(learning.category))) return null;
   const ref = text(learning.lesson_id) || goalId || keyOf(summary).slice(0, 48);
   const isFailure = learning.category === 'operational_failure';
-  return {
-    goal_id: generatedId('learning', ref, summary),
-    goal: `${isFailure ? 'Turn this reusable failure lesson into a verified corrective action' : 'Turn this verified success into a reusable hardening/automation improvement'}: ${summary}`.slice(0, 500),
-    priority: isFailure ? 64 : 42,
-    urgency: isFailure ? 70 : 35,
-    impact: isFailure ? 72 : 58,
-    confidence: clamp(learning.confidence ?? 0.7, 0, 1),
-    source_type: 'learning',
-    source_ref: ref,
-    source_created_at: learning.created_at,
-    metadata: { lesson_id: learning.lesson_id || null, goal_id: goalId || null, category: learning.category }
-  };
+  return { goal_id: generatedId('learning', ref, summary), goal: `${isFailure ? 'Turn this reusable failure lesson into a verified corrective action' : 'Turn this verified success into a reusable hardening/automation improvement'}: ${summary}`.slice(0, 500), priority: isFailure ? 64 : 42, urgency: isFailure ? 70 : 35, impact: isFailure ? 72 : 58, confidence: clamp(learning.confidence ?? 0.7, 0, 1), source_type: 'learning', source_ref: ref, source_created_at: learning.created_at, metadata: { lesson_id: learning.lesson_id || null, goal_id: goalId || null, category: learning.category } };
 }
 
 function normalizeCandidate(candidate, context = {}) {
   const id = text(candidate.goal_id) || generatedId(text(candidate.source_type) || 'dynamic', text(candidate.source_ref), candidate.goal);
-  const normalized = {
-    ...candidate,
-    goal_id: id,
-    goal: text(candidate.goal),
-    status: text(candidate.status) || 'queued',
-    source_type: text(candidate.source_type) || 'seed',
-    source_ref: text(candidate.source_ref),
-    priority: clamp(candidate.priority, 0, 100),
-    urgency: clamp(candidate.urgency, 0, 100),
-    impact: clamp(candidate.impact, 0, 100),
-    confidence: clamp(candidate.confidence ?? 0.5, 0, 1)
-  };
+  const normalized = { ...candidate, goal_id: id, goal: text(candidate.goal), status: text(candidate.status) || 'queued', source_type: text(candidate.source_type) || 'seed', source_ref: text(candidate.source_ref), priority: clamp(candidate.priority, 0, 100), urgency: clamp(candidate.urgency, 0, 100), impact: clamp(candidate.impact, 0, 100), confidence: clamp(candidate.confidence ?? 0.5, 0, 1), strategic: Boolean(candidate.strategic), historical: Boolean(candidate.historical) };
   return { ...normalized, dynamic_score: scoreCandidate(normalized, context) };
 }
 
@@ -135,9 +85,8 @@ export function generateCandidates({ goals = [], failures = [], capabilityGaps =
   for (const item of [...roadmap, ...priorities]) {
     const goal = text(item.goal || item.objective || item.title);
     if (!goal) continue;
-    raw.push({ goal_id: text(item.goal_id) || generatedId('roadmap', item.ref || item.id, goal), goal, priority: item.priority ?? 50, urgency: item.urgency ?? 50, impact: item.impact ?? 60, confidence: item.confidence ?? 0.8, source_type: text(item.source_type) || 'roadmap', source_ref: text(item.source_ref || item.ref || item.id), source_created_at: item.created_at, metadata: item.metadata || {} });
+    raw.push({ goal_id: text(item.goal_id) || generatedId('roadmap', item.ref || item.id, goal), goal, priority: item.priority ?? 50, urgency: item.urgency ?? 50, impact: item.impact ?? 60, confidence: item.confidence ?? 0.8, source_type: text(item.source_type) || 'roadmap', source_ref: text(item.source_ref || item.ref || item.id), source_created_at: item.created_at, metadata: item.metadata || {}, strategic: true });
   }
-
   const dedup = new Map();
   for (const candidate of raw) {
     const normalized = normalizeCandidate(candidate, context);
@@ -152,11 +101,7 @@ export function generateCandidates({ goals = [], failures = [], capabilityGaps =
 export function selectDynamicGoal(candidates, { blockedIds = new Set(), activeIds = new Set() } = {}) {
   const blocked = blockedIds instanceof Set ? blockedIds : new Set(blockedIds);
   const active = activeIds instanceof Set ? activeIds : new Set(activeIds);
-  return (candidates || []).find((candidate) => {
-    const state = text(candidate.status) || 'queued';
-    if (blocked.has(candidate.goal_id) || active.has(candidate.goal_id)) return false;
-    return state === 'queued' || state === 'paused';
-  }) || null;
+  return (candidates || []).find((candidate) => { const state = text(candidate.status) || 'queued'; if (blocked.has(candidate.goal_id) || active.has(candidate.goal_id)) return false; return state === 'queued' || state === 'paused'; }) || null;
 }
 
 export const dynamicGoalEngine = Object.freeze({ generateCandidates, selectDynamicGoal, scoreCandidate });
