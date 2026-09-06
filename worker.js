@@ -1,7 +1,7 @@
 const SUPABASE_MCP =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-server-grok-v2";
 const SUPABASE_OAUTH =
-  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-oauth-grok-v2";
+  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-oauth-grok-v3";
 const RUNTIME_GATEWAY =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1";
 const MISSION_INTAKE =
@@ -38,7 +38,9 @@ function authorizationServerMetadata() {
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: SCOPES
+    scopes_supported: SCOPES,
+    authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true
   };
 }
 function constantTimeEqual(a, b) {
@@ -161,7 +163,7 @@ export default {
     if (request.method === "GET" && (url.pathname === "/.well-known/oauth-protected-resource" || url.pathname === "/.well-known/oauth-protected-resource/mcp")) {
       return json(protectedResourceMetadata(), 200, { "access-control-allow-origin": "*" });
     }
-    if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2")) {
+    if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v3")) {
       return json(authorizationServerMetadata(), 200, { "access-control-allow-origin": "*" });
     }
     if (url.pathname === "/aria" || url.pathname === "/aria/") return directAria(request, env);
