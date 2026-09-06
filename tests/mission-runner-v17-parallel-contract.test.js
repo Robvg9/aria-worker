@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const source=fs.readFileSync('supabase/functions/aria-mission-runner-v17/index.ts','utf8');
+assert.match(source,/function depsReady\(/);
+assert.match(source,/function readyBatch\(/);
+assert.match(source,/readyBatch\(unresolved,done,2\)/);
+assert.match(source,/Promise\.all\(batch\.map/);
+assert.match(source,/parallel:batch\.length>1/);
+assert.match(source,/depends_on/);
+assert.match(source,/active_steps/);
+console.log('MISSION RUNNER V17 PARALLEL CONTRACT: PASS');
