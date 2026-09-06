@@ -86,8 +86,34 @@ function createSupabaseOAuthAdapter({ clientConfigured = false } = {}) {
   });
 }
 
+function createGoogleGeminiApiAdapter({ credentialConfigured = false } = {}) {
+  return Object.freeze({
+    provider: 'google',
+    capabilities: ['gemini_api_key', 'text_generation', 'health'],
+    bootstrap: () => ({
+      human_gate: !credentialConfigured,
+      steps: [
+        'create a Google Gemini API authorization key or approved OAuth credential',
+        'store the credential only in the ARIA secret store',
+        'bind it to the selected Gemini account/model route'
+      ]
+    }),
+    async provision() {
+      if (!credentialConfigured) return { status: 'human_gate', reason: 'google_gemini_credential_required' };
+      return { status: 'configured', secret_ref: 'secret://google/gemini_primary', expires_at: null };
+    },
+    async renew() {
+      return { status: 'unavailable', reason: 'google_gemini_key_rotation_requires_provider_operation' };
+    },
+    async health() {
+      return { ok: Boolean(credentialConfigured), state: credentialConfigured ? 'healthy' : 'bootstrap_required' };
+    }
+  });
+}
+
 module.exports = {
   createGitHubAppAdapter,
   createCloudflareApiAdapter,
-  createSupabaseOAuthAdapter
+  createSupabaseOAuthAdapter,
+  createGoogleGeminiApiAdapter
 };
