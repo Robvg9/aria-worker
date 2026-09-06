@@ -77,9 +77,23 @@ async function autonomyHealth(request) {
 }
 function rewriteAuthChallenge(response) {
   const headers = new Headers(response.headers);
-  headers.set("WWW-Authenticate", `Bearer resource_metadata="${RESOURCE_METADATA}", scope="${SCOPES.join(" ")}"`);
+  headers.set("WWW-Authenticate", `Bearer resource_metadata=\"${RESOURCE_METADATA}\", scope=\"${SCOPES.join(" \")}\"`);
   headers.set("Access-Control-Expose-Headers", "WWW-Authenticate, X-ARIA-Trace-Id");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+async function proxyOAuth(request, url) {
+  const upstreamUrl = new URL(SUPABASE_OAUTH);
+  const suffix = url.pathname.replace(/^\/(?:oauth\/)?/, "");
+  if (suffix) upstreamUrl.pathname = `${upstreamUrl.pathname.replace(/\/$/, "")}/${suffix.replace(/^\//, "")}`;
+  upstreamUrl.search = url.search;
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  return fetch(new Request(upstreamUrl.toString(), {
+    method: request.method,
+    headers,
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+    redirect: "manual"
+  }));
 }
 async function proxyRuntime(request, env) {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -166,6 +180,7 @@ export default {
     if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v3")) {
       return json(authorizationServerMetadata(), 200, { "access-control-allow-origin": "*" });
     }
+    if (["/authorize", "/authorize/", "/token", "/token/", "/register", "/register/"].includes(url.pathname)) return proxyOAuth(request, url);
     if (url.pathname === "/aria" || url.pathname === "/aria/") return directAria(request, env);
     if (url.pathname === "/mission" || url.pathname === "/mission/") return startMission(request, env);
     if (url.pathname === "/runtime" || url.pathname === "/runtime/") return proxyRuntime(request, env);
