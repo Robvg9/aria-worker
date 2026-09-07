@@ -27,6 +27,6 @@ assert.match(resolver, /createBindingCredentialResolver/);
 const execution = fs.readFileSync(path.join(__dirname, '..', 'execution', 'lookup.js'), 'utf8');
 assert.match(execution, /await credentials\.resolveCredential/);
 assert.match(execution, /authorization_not_approved/);
-assert.match(execution, /attempt: 1/);
+assert.match(execution, /attempt:\s*1/);
 
 console.log('PASS: Block B source security checks');
