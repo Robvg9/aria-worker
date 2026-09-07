@@ -19,10 +19,10 @@ const { createSelfDevelopmentV2 } = require('../self-development/self-developmen
     dependencies: { dom_recovery: ['browser_state_perception'], login_state_persistence: ['browser_state_perception'] }
   });
   assert.equal(gaps.status, 'gaps_detected');
-  assert.equal(gaps.gap_count, 2);
+  assert.equal(gaps.gap_count, 3);
   assert.equal(gaps.satisfied[0].capability_id, 'planner');
   assert.equal(gaps.gaps[0].priority, 'high');
-  assert.deepEqual(gaps.gaps.map(x => x.capability_id), ['dom_recovery', 'login_state_persistence']);
+  assert.deepEqual(gaps.gaps.map(x => x.capability_id), ['browser_state_perception', 'dom_recovery', 'login_state_persistence']);
 
   const planner = createDevelopmentPlanner();
   const developmentPlan = planner.plan({ goal: gaps.goal, gaps: gaps.gaps });
