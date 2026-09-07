@@ -37,3 +37,5 @@ Controlled self-improvement orchestration.
 
 ## LIVE certification
 The repository contains a one-shot GitHub Actions certification for the 2.0 sandbox boundary. It validates the real branch workspace, read/write isolation, regression generation, and governed PR promotion, then closes and deletes its temporary artifacts.
+
+Certification workflow hardening: the runner executes the live probe inside an explicit CommonJS async boundary.
