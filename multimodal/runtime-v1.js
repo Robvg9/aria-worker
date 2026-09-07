@@ -58,7 +58,8 @@ function createMultimodalRuntime({perceivers={},cognition=null,voiceRenderer=nul
       const adapter=perceivers[input.modality];
       if(typeof adapter!=='function') return {status:'blocked',reason:'perceiver_unavailable',modality:input.modality};
       const perception=await adapter(input);
-      const state=normalizePerception({...perception,modality:input.modality});
+      if(!perception||typeof perception!=='object') return {status:'blocked',reason:'perception_invalid',modality:input.modality};
+      const state=normalizePerception({...perception,modality:input.modality,source_ref:perception.source_ref??input.source_ref});
       let cognitionResult=null;
       if(typeof cognition==='function') cognitionResult=await cognition(state);
       return {status:'succeeded',state,cognition:cognitionResult};
