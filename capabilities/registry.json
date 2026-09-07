@@ -1,42 +1,15 @@
 {
-  "version": "aria-capability-matrix-v1.0.0",
-  "mission": "10.3",
-  "kind": "capability_matrix",
-  "memory_authority": false,
-  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
-  "source_of_truth": {
-    "persistent": "aria_internal.capability_matrix (Supabase ARIA)",
-    "declarative": "this file"
-  },
-  "capabilities": [
-    {
-      "capability_id": "text_generation",
-      "model_id": "google/gemini-2.5-flash-lite",
-      "status": "verified",
-      "evidence": "Control Plane materialization seed 2026-08-31 + ChatBending Roadmap",
-      "metadata": {
-        "verified_at": "2026-08-31",
-        "notes": "Only capability with explicit verified evidence for the seed model"
-      }
-    }
+  "version":"aria-capability-matrix-v1.1.0",
+  "mission":"10.3+10.14",
+  "kind":"capability_matrix",
+  "memory_authority":false,
+  "pipeline":"PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
+  "source_of_truth":{"persistent":"aria_internal.capability_matrix (Supabase ARIA)","declarative":"this file"},
+  "capabilities":[
+    {"capability_id":"text_generation","model_id":"google/gemini-2.5-flash-lite","status":"verified","evidence":"LIVE Google Gemini 2.5 Flash Lite via OpenRouter","metadata":{"verified_at":"2026-08-31","access_path":"openrouter"}},
+    {"capability_id":"text_generation","model_id":"google/gemini-3.5-flash-lite-direct","status":"verified","evidence":"LIVE direct Google Gemini API smoke + canonical execution certification","metadata":{"verified_at":"2026-09-07","access_path":"google_gemini_direct","billing_tier":"free"}}
   ],
-  "indexes": {
-    "by_model": {
-      "google/gemini-2.5-flash-lite": ["text_generation"]
-    },
-    "by_capability": {
-      "text_generation": ["google/gemini-2.5-flash-lite"]
-    }
-  },
-  "canonical_capability_ids": [
-    "text_generation"
-  ],
-  "rules": [
-    "capability_id must be canonical",
-    "no duplicate (model_id, capability_id)",
-    "status=verified only with evidence",
-    "no secrets",
-    "no router/account/quota logic",
-    "do not invent capabilities"
-  ]
+  "indexes":{"by_model":{"google/gemini-2.5-flash-lite":["text_generation"],"google/gemini-3.5-flash-lite-direct":["text_generation"]},"by_capability":{"text_generation":["google/gemini-2.5-flash-lite","google/gemini-3.5-flash-lite-direct"]}},
+  "canonical_capability_ids":["text_generation"],
+  "rules":["capability_id must be canonical","no duplicate (model_id, capability_id)","status=verified only with evidence","no secrets","no router/account/quota logic","do not invent capabilities"]
 }
