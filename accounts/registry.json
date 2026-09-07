@@ -8,19 +8,19 @@
     "persistent": "aria_internal.account_registry (Supabase ARIA)",
     "declarative": "this file"
   },
-  "credential_ref_scheme": "secret://{provider_id}/{account_id}",
+  "credential_ref_scheme": "secret://{provider_id}/{credential_id_or_alias}",
   "accounts": [
     {
       "account_id": "acct_openrouter_primary",
       "provider_id": "openrouter",
-      "credential_ref": "secret://openrouter/acct_openrouter_primary",
+      "credential_ref": "secret://openrouter/aria_openrouter_primary",
       "status": "active",
       "model_refs": [
         "google/gemini-2.5-flash-lite"
       ],
       "metadata": {
-        "verified_at": "2026-08-31",
-        "evidence": "Control Plane materialization seed + ChatBending route openrouter → acct_openrouter_primary → google/gemini-2.5-flash-lite",
+        "verified_at": "2026-09-07",
+        "evidence": "Control Plane account + Supabase Vault secret aria_openrouter_primary",
         "notes": "Credential reference only. Secret lives in the credential store, never in this registry."
       }
     }
