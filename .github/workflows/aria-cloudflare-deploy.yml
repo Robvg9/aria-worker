@@ -167,5 +167,5 @@ jobs:
           submit_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$submit_headers" -o /tmp/authorize-submit-body -w '%{http_code}' -X POST "$base/authorize/start" -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode "pending_id=$pending_id" --data-urlencode 'email=not-an-email')"
           echo "authorize_start_invalid_email_status=$submit_code"
           test "$submit_code" = "400"
-          grep -qi 'authorization' /tmp/authorize-submit-body
-          test "$(grep -ci '<html' /tmp/authorize-submit-body)" -ge 1
+          grep -qi 'Authorization could not continue' /tmp/authorize-submit-body
+          grep -qi 'text/html' "$submit_headers"
