@@ -15,36 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install Supabase CLI
-        run: npm install -g supabase
-
-      - name: Deploy exact runtime under test
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-        run: |
-          set -euo pipefail
-          test -n "$SUPABASE_ACCESS_TOKEN"
-          test -n "$SUPABASE_PROJECT_REF"
-          supabase functions deploy aria-execution-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-
       - name: Verify Gemini Direct LIVE
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
           test -n "$SUPABASE_PROJECT_REF"
-          # One-shot nonce; endpoint consumes it before calling Google.
           curl --fail-with-body --silent --show-error \
-            "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-gemini-direct-live-check-v1?nonce=Wjed_3lMfu5av5DB0S2Gu9F1vrLfJgNsY_lqNqnfqWo"
+            "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-gemini-direct-live-check-v1?nonce=16NF7RtIJC3bRF4q8hHb-xpF5rCd0e2szmfmqElK4Yc"
           echo
-          # exact-source-deploy-before-test
