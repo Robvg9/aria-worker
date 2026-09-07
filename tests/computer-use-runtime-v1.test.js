@@ -20,7 +20,7 @@ const runtime=createComputerRuntime({adapter,learning});
 (async()=>{
  const r=await runtime.executeMission({mission_id:'m1',intent:'login',target:{role:'button',name:'Login',action:'click'},expectation:{url:'https://example.test/home'}});
  assert.equal(r.status,'succeeded'); assert.equal(executions,1); assert.equal(lessons[0].kind,'computer_use_lesson_candidate'); assert.equal(lessons[0].reusable,true);
- const blocked=await runtime.executeMission({mission_id:'m2',intent:'submit',target:{role:'button',name:'Submit',action:'click'},risk:'high_risk_write',approval:{status:'pending'},recovery:false});
+ const blocked=await runtime.executeMission({mission_id:'m2',intent:'login',target:{role:'button',name:'Login',action:'click'},risk:'high_risk_write',approval:{status:'pending'},recovery:false});
  assert.equal(blocked.status,'blocked'); assert.equal(blocked.reason,'human_approval_required');
  console.log('COMPUTER USE RUNTIME V1: PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});
