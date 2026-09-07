@@ -13,7 +13,7 @@
     {
       "account_id": "acct_openrouter_primary",
       "provider_id": "openrouter",
-      "credential_ref": "secret://openrouter/aria_openrouter_primary",
+      "credential_ref": "secret://openrouter/acct_openrouter_primary",
       "status": "active",
       "model_refs": [
         "google/gemini-2.5-flash-lite"
