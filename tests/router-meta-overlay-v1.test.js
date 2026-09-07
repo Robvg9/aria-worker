@@ -6,7 +6,10 @@ let r = decideRoute({
   task:'prepare a safe analysis',
   capability:'text_generation',
   confidence:0.95,
-  evidence:[{source_id:'s1',observed:true,verified:true,relevant:true}]
+  evidence:[
+    {source_id:'s1',observed:true,verified:true,relevant:true},
+    {source_id:'s2',observed:true,verified:true,relevant:true}
+  ]
 });
 assert.equal(r.status, 'proceed');
 assert.equal(r.meta_overlay_version, version);
