@@ -23,44 +23,20 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
     const learningState=extra.learning || learning?.state || learning?.current || null;
     const doing=extra.current_activity ?? extra.currentActivity ?? null;
     const model=Object.freeze({
-      version:'self-model-v2.0.0',
-      identity:current.identity,
-      canonical_entrypoint:current.canonical_entrypoint,
-      software_version:current.software_version,
+      version:'self-model-v2.0.0',identity:current.identity,canonical_entrypoint:current.canonical_entrypoint,software_version:current.software_version,
       what_i_can_do:Object.freeze(graph.nodes.filter(x=>['verified','active','available'].includes(x.status)).map(x=>x.capability)),
       what_i_cannot_do:Object.freeze(graph.nodes.filter(x=>['blocked','unavailable','deprecated'].includes(x.status)).map(x=>x.capability)),
-      capabilities:Object.freeze(graph.nodes),
-      capability_graph:graph,
-      what_i_am_currently_doing:doing,
-      resources:Object.freeze(recentList(extra.resources || resources)),
-      tools:Object.freeze([...new Set(tools.map(String))].sort()),
-      providers:Object.freeze([...new Set(providers.map(String))].sort()),
+      capabilities:Object.freeze(graph.nodes),capability_graph:graph,what_i_am_currently_doing:doing,
+      resources:Object.freeze(recentList(extra.resources || resources)),tools:Object.freeze([...new Set(tools.map(String))].sort()),providers:Object.freeze([...new Set(providers.map(String))].sort()),
       verified_capabilities:Object.freeze(graph.nodes.filter(x=>x.status==='verified').map(x=>x.capability)),
       uncertain_capabilities:Object.freeze(graph.nodes.filter(x=>['uncertain','unknown','learning'].includes(x.status)).map(x=>x.capability)),
-      what_changed_recently:Object.freeze(changes),
-      what_i_am_learning:learningState,
-      what_failed_recently:Object.freeze(failures),
+      what_changed_recently:Object.freeze(changes),what_i_am_learning:learningState,what_failed_recently:Object.freeze(failures),
       why_it_failed:Object.freeze(failures.map(f=>({id:f.id||null,reason:f.reason||f.error||null,capability:f.capability||null}))),
-      authority:{router:Boolean(router),memory:Boolean(memory),learning:Boolean(learning),planner:Boolean(planner),self_development:Boolean(selfDevelopment)},
-      generated_at:new Date().toISOString()
+      authority:{router:Boolean(router),memory:Boolean(memory),learning:Boolean(learning),planner:Boolean(planner),self_development:Boolean(selfDevelopment)},generated_at:new Date().toISOString()
     });
     return Object.freeze({...model,integrity_hash:hash({...model,generated_at:undefined})});
   }
-
-  function refresh(extra={}){
-    const model=snapshot(extra);
-    current=buildSelfModel({
-      identity:model.identity,
-      canonicalEntrypoint:model.canonical_entrypoint,
-      version:model.software_version,
-      capabilities:model.what_i_can_do,
-      dependencies:model.capability_graph.edges.map(e=>`${e.from}->${e.to}`),
-      providers:model.providers,
-      tools:model.tools,
-      deployment:{self_model_version:model.version}
-    });
-    return model;
-  }
+  function refresh(extra={}){const model=snapshot(extra);current=buildSelfModel({identity:model.identity,canonicalEntrypoint:model.canonical_entrypoint,version:model.software_version,capabilities:model.what_i_can_do,dependencies:model.capability_graph.edges.map(e=>`${e.from}->${e.to}`),providers:model.providers,tools:model.tools,deployment:{self_model_version:model.version}});return model;}
   function answer(question,extra={}){
     const m=refresh(extra); const q=String(question||'').toLowerCase();
     if(q.includes('who am i')||q.includes('quién soy')) return {answer:m.identity,model:m};
@@ -81,7 +57,7 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
     const routerResolve=typeof router?.resolveCapability==='function'
       ? (cap)=>router.resolveCapability(cap)
       : typeof router?.route==='function'
-        ? (cap)=>router.route({capability:cap})
+        ? (cap)=>{ const result=router.route({capability:cap}); if(result) return result; return router.route(cap); }
         : null;
     return bestCapability(m.capability_graph,id,{routerResolve,minConfidence:extra.minConfidence??0});
   }
