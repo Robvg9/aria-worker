@@ -27,7 +27,18 @@ function systemProjection(model){
   };
 }
 
-function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-runtime-v1',softwareVersion=null,capabilities=[],dependencies={},resources=[],tools=[],providers=[],router=null,memory=null,learning=null,planner=null,selfDevelopment=null,stateStore=null}={}){
+function reliabilityMap(capabilityRecords=[], evaluation=null, extraMap=null){
+  const map={};
+  for(const record of capabilityRecords){
+    const id=typeof record==='string'?record:record.id||record.capability;
+    if(!id) continue;
+    const evaluated=extraMap?.[id] ?? (typeof evaluation?.reliabilityFor==='function' ? evaluation.reliabilityFor(id) : null);
+    map[id]=evaluated ?? (typeof record==='object' ? {score:record.reliability ?? null,state:record.reliability==null?'unknown':'declared',success_rate:null,verification_rate:null,recovery_rate:null,regression_rate:null,average_attempts:null,failure_modes:{}} : {score:null,state:'unknown'});
+  }
+  return Object.freeze(map);
+}
+
+function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-runtime-v1',softwareVersion=null,capabilities=[],dependencies={},resources=[],tools=[],providers=[],router=null,memory=null,learning=null,planner=null,selfDevelopment=null,evaluation=null,stateStore=null}={}){
   const staticBase=buildSelfModel({identity,canonicalEntrypoint,version:softwareVersion,capabilities:capabilities.map(c=>typeof c==='string'?c:c.id),dependencies:Object.keys(dependencies),providers,tools,agents:[],deployment:{}});
   let current=staticBase;
 
@@ -37,6 +48,7 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
     const changes=recentList(extra.recent_changes || memory?.recent_changes || memory?.changes);
     const learningState=extra.learning || learning?.state || learning?.current || null;
     const doing=extra.current_activity ?? extra.currentActivity ?? null;
+    const evaluatedReliability=reliabilityMap(capabilities,evaluation,extra.reliability_by_capability);
     const model=Object.freeze({
       version:'self-model-v2.0.0',identity:current.identity,canonical_entrypoint:current.canonical_entrypoint,software_version:current.software_version,
       what_i_can_do:Object.freeze(graph.nodes.filter(x=>['verified','active','available'].includes(x.status)).map(x=>x.capability)),
@@ -45,9 +57,10 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
       resources:Object.freeze(recentList(extra.resources || resources)),tools:Object.freeze([...new Set(tools.map(String))].sort()),providers:Object.freeze([...new Set(providers.map(String))].sort()),
       verified_capabilities:Object.freeze(graph.nodes.filter(x=>x.status==='verified').map(x=>x.capability)),
       uncertain_capabilities:Object.freeze(graph.nodes.filter(x=>['uncertain','unknown','learning'].includes(x.status)).map(x=>x.capability)),
+      reliability_by_capability:evaluatedReliability,
       what_changed_recently:Object.freeze(changes),what_i_am_learning:learningState,what_failed_recently:Object.freeze(failures),
       why_it_failed:Object.freeze(failures.map(f=>({id:f.id||null,reason:f.reason||f.error||null,capability:f.capability||null}))),
-      authority:{router:Boolean(router),memory:Boolean(memory),learning:Boolean(learning),planner:Boolean(planner),self_development:Boolean(selfDevelopment)},generated_at:new Date().toISOString()
+      authority:{router:Boolean(router),memory:Boolean(memory),learning:Boolean(learning),planner:Boolean(planner),self_development:Boolean(selfDevelopment),evaluation_engine:Boolean(evaluation)},generated_at:new Date().toISOString()
     });
     return Object.freeze({...model,integrity_hash:hash({...model,generated_at:undefined})});
   }
@@ -61,6 +74,7 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
     if(q.includes('resources')||q.includes('recursos')) return {answer:m.resources,model:m};
     if(q.includes('verified')) return {answer:m.verified_capabilities,model:m};
     if(q.includes('uncertain')) return {answer:m.uncertain_capabilities,model:m};
+    if(q.includes('reliability')||q.includes('fiabilidad')) return {answer:m.reliability_by_capability,model:m};
     if(q.includes('learning')) return {answer:m.what_i_am_learning,model:m};
     if(q.includes('failed')||q.includes('falló')||q.includes('fallo')) return {answer:m.why_it_failed,model:m};
     if(q.includes('changed')||q.includes('cambió')) return {answer:m.what_changed_recently,model:m};
