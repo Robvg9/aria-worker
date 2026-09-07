@@ -1,0 +1,25 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {createUiState,findElement,createAction,planAction,verifyObservation,createComputerRuntime}=require('../computer-use/runtime-v1');
+const ui=createUiState({surface:'browser',url:'https://example.test',title:'Demo',nodes:[{id:'login',role:'button',name:'Login'},{id:'search',role:'textbox',name:'Search'},{id:'submit-a',role:'button',name:'Submit',parent_id:'form-a'},{id:'submit-b',role:'button',name:'Submit',parent_id:'form-b'}]});
+assert.equal(findElement(ui,{role:'button',name:'Login'}).status,'found');
+assert.equal(findElement(ui,{role:'button',name:'Missing'}).status,'not_found');
+assert.equal(findElement(ui,{role:'button',name:'Submit'}).status,'ambiguous');
+assert.throws(()=>createUiState({nodes:[{id:'x',role:'button',text:'Bearer sk-1234567890123456'}]}),/secret_material_rejected/);
+assert.equal(createAction({id:'a1',action:'click',target:{ref:'login'}}).action,'click');
+assert.throws(()=>createAction({id:'a2',action:'type',target:{ref:'search'}}),/text_required/);
+assert.equal(planAction({id:'p1',intent:'Open login',ui,preferredTarget:{role:'button',name:'Login',action:'click'}}).status,'planned');
+assert.equal(planAction({id:'p2',intent:'Open missing',ui,preferredTarget:{role:'button',name:'Missing',action:'click'}}).reason,'element_not_found');
+assert.equal(planAction({id:'p3',intent:'Submit',ui,preferredTarget:{role:'button',name:'Submit',action:'click'}}).reason,'element_ambiguous');
+const after=createUiState({surface:'browser',url:'https://example.test/home',title:'Home',nodes:[{id:'logout',role:'button',name:'Logout'}],metadata:{body_text:'Welcome'}});
+assert.equal(verifyObservation({before:ui,after,expectation:{url:'https://example.test/home',present:[{role:'button',name:'Logout'}],text:'Welcome'}}).valid,true);
+let executions=0,lessons=[];
+const adapter={async observe(){return ui},async execute(){executions++;return {status:'succeeded',ui:after}}};
+const runtime=createComputerRuntime({adapter,learning:{recordSuccess:x=>{lessons.push(x);return {status:'recorded'}},recordFailure:x=>{lessons.push(x);return {status:'recorded'}}}});
+(async()=>{
+ const r=await runtime.executeMission({mission_id:'m1',intent:'login',target:{role:'button',name:'Login',action:'click'},expectation:{url:'https://example.test/home'}});
+ assert.equal(r.status,'succeeded'); assert.equal(executions,1); assert.equal(lessons[0].kind,'computer_use_lesson_candidate');
+ const blocked=await runtime.executeMission({mission_id:'m2',intent:'submit',target:{role:'button',name:'Submit',action:'click'},risk:'high_risk_write',approval:{status:'pending'},recovery:false});
+ assert.equal(blocked.status,'blocked'); assert.equal(blocked.reason,'human_approval_required');
+ console.log('COMPUTER USE RUNTIME V1: PASS');
+})().catch(e=>{console.error(e);process.exitCode=1});
