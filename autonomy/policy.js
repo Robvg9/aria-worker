@@ -3,7 +3,7 @@
 const LEVELS = Object.freeze(['low', 'medium', 'high', 'critical']);
 
 function createAutonomyPolicy(input = {}) {
-  const maxRisk = input.max_risk || 'low';
+  const maxRisk = String(input.max_risk || 'low').toLowerCase();
   if (!LEVELS.includes(maxRisk)) throw new Error('invalid max_risk');
   const maxSteps = Number.isInteger(input.max_steps) && input.max_steps > 0 ? input.max_steps : 20;
   const maxRuntimeMs = Number.isInteger(input.max_runtime_ms) && input.max_runtime_ms > 0 ? input.max_runtime_ms : 30000;
@@ -20,8 +20,8 @@ function createAutonomyPolicy(input = {}) {
 }
 
 function riskAllowed(risk, policy) {
-  const r = LEVELS.indexOf(risk || 'critical');
-  const max = LEVELS.indexOf(policy.max_risk);
+  const r = LEVELS.indexOf(String(risk || 'critical').toLowerCase());
+  const max = LEVELS.indexOf(String(policy.max_risk || 'low').toLowerCase());
   return r >= 0 && r <= max;
 }
 
