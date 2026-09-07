@@ -66,4 +66,27 @@ jobs:
           echo "$body"
           node -e 'const x=JSON.parse(process.argv[1]); if(x.ok!==true || x.service!=="aria-direct-interface" || x.version!=="aria-direct-v1" || x.execution_authority!=="aria-canonical-runtime-v1") process.exit(1)' "$body"
 
-# Triggered redeploy to propagate the canonical MCP v4 routing after OAuth alignment.
+      - name: Smoke test MCP OAuth discovery
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev"
+          meta="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "$base/.well-known/oauth-protected-resource/mcp")"
+          echo "$meta"
+          META="$meta" python - <<'PY'
+          import json, os
+          x=json.loads(os.environ['META'])
+          assert x['resource']== 'https://aria.robvg9.workers.dev/mcp'
+          assert x['authorization_servers'], 'authorization_servers missing'
+          PY
+
+          headers="$(mktemp)"
+          code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$headers" -o /tmp/mcp-body -w '%{http_code}' "$base/mcp" -H 'Accept: application/json, text/event-stream')"
+          cat /tmp/mcp-body
+          test "$code" = "401"
+          grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$headers"
+
+          init_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -o /tmp/mcp-init-body -w '%{http_code}' "$base/mcp" \
+            -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"aria-ci","version":"1.0.0"}}}')"
+          cat /tmp/mcp-init-body
+          test "$init_code" = "401"
