@@ -9,12 +9,16 @@ jobs:
   verify:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Verify LIVE agent catalog
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         shell: bash
         run: |
           set -euo pipefail
-          URL="https://${{ vars.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/aria-agent-runtime-v1"
+          test -n "$SUPABASE_PROJECT_REF"
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-agent-runtime-v1"
           for i in {1..12}; do
             body="$(curl -fsS --max-time 15 "$URL")" && break || body=""
             sleep 5
