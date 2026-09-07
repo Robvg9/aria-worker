@@ -11,12 +11,11 @@ function requireFn(value, name) {
 }
 
 function safeStatus(value, fallback = 'failed') {
-  const status = value && typeof value.status === 'string' ? value.status : fallback;
-  return status;
+  return value && typeof value.status === 'string' ? value.status : fallback;
 }
 
 function normalizeStageResult(stage, value) {
-  const result = value && typeof value === 'object' ? value : { value };
+  const result = value && typeof value === 'object' && !Array.isArray(value) ? value : { value };
   return Object.freeze({ stage, ...result });
 }
 
@@ -55,9 +54,10 @@ function createContinuousSelfImprovementLoop({
         const value = await fns[stage]({ ...context, cycle, stage, trace: trace.slice() });
         const normalized = normalizeStageResult(stage, value);
         results[stage] = normalized;
-        trace.push({ cycle, stage, status: safeStatus(normalized, 'ok') });
+        context = { ...context, [stage]: normalized };
+        trace.push({ cycle, stage, status: safeStatus(normalized, 'failed') });
 
-        const status = safeStatus(normalized, 'ok');
+        const status = safeStatus(normalized, 'failed');
         if (status === 'blocked' || status === 'failed') {
           stopped = true;
           break;
@@ -66,10 +66,9 @@ function createContinuousSelfImprovementLoop({
 
       const cycleRecord = Object.freeze({ cycle, results: Object.freeze(results), stopped });
       cycleResults.push(cycleRecord);
-      context = { ...context, ...results, previous_cycle: cycleRecord };
+      context = { ...context, previous_cycle: cycleRecord };
 
-      const finalStage = results.better_aria;
-      if (safeStatus(finalStage, null) === 'completed') {
+      if (safeStatus(results.better_aria, null) === 'completed') {
         return Object.freeze({
           status: 'completed', version: 'continuous-self-improvement-v1', stages: STAGES,
           cycles: cycleResults, trace, stop_reason: 'better_aria'
