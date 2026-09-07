@@ -69,8 +69,8 @@ jobs:
           assert.equal(self.worldImpact('fn_x').count,3);
           assert.equal(self.explainWorldChange({entity_id:'fn_x',change:{state:'degraded'}}).affected_entities.length,3);
           const src=fs.readFileSync('memory/world-model-v2.js','utf8');
-          assert.equal(/process\\.env/.test(src),false);
-          assert.equal(/fetch\\s*\\(/.test(src),false);
+          assert.equal(src.includes('process.env'),false);
+          assert.equal(src.includes('fetch('),false);
           assert.equal(/BEGIN (RSA|OPENSSH|PRIVATE) KEY/.test(src),false);
           assert.equal(JSON.stringify(world.snapshot()).includes('super-secret-value'),false);
           console.log(JSON.stringify({ok:true,certification:'ARIA_WORLD_MODEL_2_LIVE_OK',version:world.version,entities:world.snapshot().entities.length,relationships:world.snapshot().relationships.length,events:world.snapshot().events.length,causes:world.snapshot().causes.length,dependencies:world.snapshot().dependencies.length,impact_target:'fn_x',impacted:impact.impacted.map(x=>x.entity_id),prerequisites:explanation.prerequisite_entities.map(x=>x.id),self_model_world_model:true}));
