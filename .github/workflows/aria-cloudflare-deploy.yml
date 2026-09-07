@@ -152,8 +152,8 @@ jobs:
           echo "authorize_status=$auth_code"
           test "$auth_code" = "200"
           grep -q 'Authorize ARIA' /tmp/authorize-body
-          grep -q 'https://aria.robvg9.workers.dev/authorize/start' /tmp/authorize-body
-          grep -q '<form method="post" action="https://aria.robvg9.workers.dev/authorize/start">' /tmp/authorize-body
+          grep -q 'method="get"' /tmp/authorize-body
+          grep -q 'action="https://aria.robvg9.workers.dev/authorize/go"' /tmp/authorize-body
 
           pending_id="$(python - <<'PY'
           import re
@@ -163,9 +163,9 @@ jobs:
           print(m.group(1))
           PY
           )"
-          submit_headers="$(mktemp)"
-          submit_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$submit_headers" -o /tmp/authorize-submit-body -w '%{http_code}' -X POST "$base/authorize/start" -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode "pending_id=$pending_id" --data-urlencode 'email=not-an-email')"
-          echo "authorize_start_invalid_email_status=$submit_code"
-          test "$submit_code" = "400"
-          grep -qi 'Authorization could not continue' /tmp/authorize-submit-body
-          grep -qi 'text/html' "$submit_headers"
+          go_headers="$(mktemp)"
+          go_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$go_headers" -o /tmp/authorize-go-body -w '%{http_code}' "$base/authorize/go?pending_id=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$pending_id")&email=not-an-email")"
+          echo "authorize_go_invalid_email_status=$go_code"
+          test "$go_code" = "400"
+          grep -qi 'Authorization could not continue' /tmp/authorize-go-body
+          grep -qi 'text/html' "$go_headers"
