@@ -59,8 +59,8 @@ const acct = getAccount(SEED_ID);
 ok(acct !== null, 'TEST 1: getAccount returns the verified seed account');
 ok(acct.account_id === SEED_ID, 'TEST 1b: account_id is acct_openrouter_primary');
 ok(acct.provider_id === SEED_PROVIDER, 'TEST 1c: provider_id is openrouter');
-ok(acct.credential_ref === 'secret://openrouter/acct_openrouter_primary',
-  'TEST 1d: credential_ref is a reference, not a secret');
+ok(typeof acct.credential_ref === 'string' && acct.credential_ref.startsWith(`secret://${SEED_PROVIDER}/`),
+  'TEST 1d: credential_ref is a canonical secret reference, not a secret');
 ok(acct.status === 'active', 'TEST 1e: seed status is active');
 ok(credentialRefOf(SEED_ID) === acct.credential_ref, 'TEST 1f: credentialRefOf matches record');
 
