@@ -11,12 +11,6 @@ function stable(value){
 }
 function hash(value){return crypto.createHash('sha256').update(stable(value)).digest('hex');}
 function recentList(value){return Array.isArray(value)?value.slice(-50).map(x=>structuredClone(x)):[];}
-function classifyAvailability(r){
-  if(!r) return 'unknown';
-  if(r.status==='verified'||r.status==='active'||r.status==='available') return 'available';
-  if(r.status==='uncertain'||r.status==='unknown'||r.status==='learning') return 'uncertain';
-  return 'unavailable';
-}
 
 function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-runtime-v1',softwareVersion=null,capabilities=[],dependencies={},resources=[],tools=[],providers=[],router=null,memory=null,learning=null,planner=null,selfDevelopment=null,stateStore=null}={}){
   const staticBase=buildSelfModel({identity,canonicalEntrypoint,version:softwareVersion,capabilities:capabilities.map(c=>typeof c==='string'?c:c.id),dependencies:Object.keys(dependencies),providers,tools,agents:[],deployment:{}});
@@ -54,13 +48,24 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
   }
 
   function refresh(extra={}){
-    const model=snapshot(extra); current=buildSelfModel({identity:model.identity,canonicalEntrypoint:model.canonical_entrypoint,version:model.software_version,capabilities:model.what_i_can_do,dependencies:model.capability_graph.edges.map(e=>`${e.from}->${e.to}`),providers:model.providers,tools:model.tools,deployment:{self_model_version:model.version}}); return model;
+    const model=snapshot(extra);
+    current=buildSelfModel({
+      identity:model.identity,
+      canonicalEntrypoint:model.canonical_entrypoint,
+      version:model.software_version,
+      capabilities:model.what_i_can_do,
+      dependencies:model.capability_graph.edges.map(e=>`${e.from}->${e.to}`),
+      providers:model.providers,
+      tools:model.tools,
+      deployment:{self_model_version:model.version}
+    });
+    return model;
   }
   function answer(question,extra={}){
     const m=refresh(extra); const q=String(question||'').toLowerCase();
     if(q.includes('who am i')||q.includes('quién soy')) return {answer:m.identity,model:m};
     if(q.includes('what can i do')||q.includes('qué puedo')) return {answer:m.what_i_can_do,model:m};
-    if(q.includes('what can')&&q.includes("can't")) return {answer:m.what_i_cannot_do,model:m};
+    if((q.includes('what can')&&q.includes("can't"))||q.includes('qué no puedo')) return {answer:m.what_i_cannot_do,model:m};
     if(q.includes('currently doing')||q.includes('haciendo')) return {answer:m.what_i_am_currently_doing,model:m};
     if(q.includes('resources')||q.includes('recursos')) return {answer:m.resources,model:m};
     if(q.includes('verified')) return {answer:m.verified_capabilities,model:m};
@@ -71,7 +76,15 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
     return {answer:m,model:m};
   }
   function capability(id,extra={}){const m=refresh(extra);return m.capabilities.find(x=>x.capability===id)||null;}
-  function chooseBest(id,extra={}){const m=refresh(extra);return bestCapability(m.capability_graph,id,{routerResolve:router?.resolveCapability||router?.route||null,minConfidence:extra.minConfidence??0);}
+  function chooseBest(id,extra={}){
+    const m=refresh(extra);
+    const routerResolve=typeof router?.resolveCapability==='function'
+      ? (cap)=>router.resolveCapability(cap)
+      : typeof router?.route==='function'
+        ? (cap)=>router.route({capability:cap})
+        : null;
+    return bestCapability(m.capability_graph,id,{routerResolve,minConfidence:extra.minConfidence??0});
+  }
   function observe(event){if(stateStore?.append) stateStore.append(event);return event;}
   function compare(previous){const next=refresh();return Object.freeze({system:diffSelfModel(previous?.system||previous,current),capabilities:diffCapabilityGraph(previous?.capability_graph||previous?.capabilityGraph||{nodes:[]},next.capability_graph)});}
   return Object.freeze({snapshot,refresh,answer,capability,chooseBest,observe,compare,normalizeCapability,version:'self-model-v2.0.0'});
