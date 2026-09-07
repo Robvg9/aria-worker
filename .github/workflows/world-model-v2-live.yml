@@ -1,0 +1,77 @@
+name: World Model 2.0 LIVE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  world-model-v2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full test suite
+        run: npm test
+      - name: World Model 2.0 LIVE certification
+        run: |
+          node <<'NODE'
+          'use strict';
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const {createWorldModelV2}=require('./memory/world-model-v2');
+          const {createSelfModelV2}=require('./self-model/self-model-v2');
+          const p=source=>({source,confidence:0.95,kind:'live-cert'});
+          const world=createWorldModelV2({
+            entities:[
+              {id:'supabase',type:'platform',name:'Supabase',state:'available',provenance:p('live-registry')},
+              {id:'fn_x',type:'function',name:'function X',state:'healthy',provenance:p('live-supabase')},
+              {id:'db_y',type:'database',name:'database Y',state:'healthy',provenance:p('live-supabase')},
+              {id:'secret_z',type:'secret_ref',name:'secret Z',state:'configured',metadata:{ref:'ref:live-secret-z'},provenance:p('live-credential-registry')},
+              {id:'runtime_a',type:'runtime',name:'runtime A',state:'active',provenance:p('live-runtime')},
+              {id:'worker',type:'worker',name:'Cloudflare Worker',state:'deployed',provenance:p('live-cloudflare')}
+            ],
+            relationships:[
+              {from:'supabase',to:'fn_x',type:'contains',provenance:p('live-registry')},
+              {from:'supabase',to:'db_y',type:'contains',provenance:p('live-registry')},
+              {from:'supabase',to:'secret_z',type:'contains',provenance:p('live-credential-registry')},
+              {from:'supabase',to:'runtime_a',type:'runs_on',provenance:p('live-runtime')}
+            ],
+            dependencies:[
+              {from:'worker',to:'fn_x',type:'depends_on',provenance:p('live-architecture')},
+              {from:'runtime_a',to:'fn_x',type:'calls',provenance:p('live-runtime')},
+              {from:'db_y',to:'fn_x',type:'writes_to',provenance:p('live-schema')},
+              {from:'fn_x',to:'secret_z',type:'requires',provenance:p('live-credential-registry')}
+            ]
+          });
+          assert.equal(world.version,'world-model-v2.0.0');
+          assert.equal(world.integrity().valid,true);
+          const impact=world.impactOf('fn_x');
+          assert.deepEqual(impact.impacted.map(x=>x.entity_id),['db_y','runtime_a','worker'].sort());
+          const explanation=world.explainChange({entity_id:'fn_x',change:{state:'degraded'}});
+          assert.equal(explanation.affected_entities.length,3);
+          assert.deepEqual(explanation.prerequisite_entities.map(x=>x.id),['secret_z']);
+          const observation=world.observeState('fn_x','degraded',p('live-state-probe'));
+          assert.equal(observation.event.type,'state_observed');
+          assert.deepEqual(observation.event.changes,{from:'healthy',to:'degraded'});
+          world.recordEvent({id:'evt_live_failure',type:'failure',entity_ids:['fn_x'],changes:{state:'degraded'},provenance:p('live-incident')});
+          world.recordEvent({id:'evt_live_worker',type:'worker_affected',entity_ids:['worker'],provenance:p('live-incident')});
+          world.addCause({cause_event:'evt_live_failure',effect_event:'evt_live_worker',confidence:0.9,mechanism:'dependency_propagation',provenance:p('live-causal-analysis')});
+          assert.equal(world.causeChain('evt_live_worker')[0].event_id,'evt_live_failure');
+          const self=createSelfModelV2({identity:'ARIA',canonicalEntrypoint:'aria-canonical-runtime-v1',softwareVersion:require('./package.json').version,capabilities:[{id:'world_model_v2',status:'verified',confidence:1,reliability:1}],worldModel:world});
+          const snapshot=self.refresh();
+          assert.equal(snapshot.authority.world_model,true);
+          assert.equal(snapshot.world_model.version,'world-model-v2.0.0');
+          assert.equal(self.worldImpact('fn_x').count,3);
+          assert.equal(self.explainWorldChange({entity_id:'fn_x',change:{state:'degraded'}}).affected_entities.length,3);
+          const src=fs.readFileSync('memory/world-model-v2.js','utf8');
+          assert.equal(/process\\.env/.test(src),false);
+          assert.equal(/fetch\\s*\\(/.test(src),false);
+          assert.equal(/BEGIN (RSA|OPENSSH|PRIVATE) KEY/.test(src),false);
+          assert.equal(JSON.stringify(world.snapshot()).includes('super-secret-value'),false);
+          console.log(JSON.stringify({ok:true,certification:'ARIA_WORLD_MODEL_2_LIVE_OK',version:world.version,entities:world.snapshot().entities.length,relationships:world.snapshot().relationships.length,events:world.snapshot().events.length,causes:world.snapshot().causes.length,dependencies:world.snapshot().dependencies.length,impact_target:'fn_x',impacted:impact.impacted.map(x=>x.entity_id),prerequisites:explanation.prerequisite_entities.map(x=>x.id),self_model_world_model:true}));
+          NODE
