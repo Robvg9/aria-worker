@@ -9,6 +9,7 @@ function createUniversalExecutor({
   activation,
   deviceDispatcher,
   agentExecutors = {},
+  modelExecution = null,
   executorRegistry = null,
   adapterRegistry = null
 } = {}) {
@@ -18,7 +19,8 @@ function createUniversalExecutor({
   const adapters = adapterRegistry || createAdapterRegistry({
     activation,
     deviceDispatcher,
-    agentExecutors
+    agentExecutors,
+    modelExecution: modelExecution || undefined
   });
   const dispatchBoundary = createDispatchBoundary({ adapters });
 
