@@ -1,0 +1,25 @@
+name: ARIA Meta-Reasoning 1 LIVE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'meta-reasoning/**'
+      - 'router/meta-route-v1.js'
+      - 'tests/meta-reasoning-v1.test.js'
+      - 'tests/router-meta-overlay-v1.test.js'
+      - 'package.json'
+      - '.github/workflows/meta-reasoning-v1-live.yml'
+  workflow_dispatch:
+
+jobs:
+  meta-reasoning-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+      - run: node tests/meta-reasoning-v1.test.js
+      - run: node tests/router-meta-overlay-v1.test.js
