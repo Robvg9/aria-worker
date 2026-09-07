@@ -14,6 +14,7 @@ function targetIdentifier(step = {}) {
   if (type === 'connector') return target.connector_id || step.connector_id || null;
   if (type === 'device') return target.device_id || step.device_id || null;
   if (type === 'agent') return target.agent_id || step.agent_id || null;
+  if (type === 'model') return target.model_id || step.model_id || null;
   return null;
 }
 
@@ -118,5 +119,6 @@ module.exports = Object.freeze({
   sanitizeResult,
   validateAdapter,
   operationAllowed,
-  scopeMatches
+  scopeMatches,
+  targetIdentifier
 });
