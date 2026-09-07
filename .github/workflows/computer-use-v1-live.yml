@@ -22,32 +22,20 @@ jobs:
           node <<'NODE'
           'use strict';
           const assert=require('node:assert/strict');
-          const {createUiState,findElement,planAction,createComputerRuntime}=require('./computer-use/runtime-v1');
-          const initial=createUiState({surface:'browser',url:'https://example.test/login',title:'Login',nodes:[
-            {id:'email',role:'textbox',name:'Email'},
-            {id:'login',role:'button',name:'Login'}
-          ]});
-          const success=createUiState({surface:'browser',url:'https://example.test/dashboard',title:'Dashboard',nodes:[
-            {id:'profile',role:'button',name:'Profile'}
-          ],metadata:{body_text:'Welcome back'}});
+          const {createUiState,findElement,planAction,createLearningBridge,createComputerRuntime}=require('./computer-use/runtime-v1');
+          const initial=createUiState({surface:'browser',url:'https://example.test/login',title:'Login',nodes:[{id:'email',role:'textbox',name:'Email'},{id:'login',role:'button',name:'Login'}]});
+          const success=createUiState({surface:'browser',url:'https://example.test/dashboard',title:'Dashboard',nodes:[{id:'profile',role:'button',name:'Profile'}],metadata:{body_text:'Welcome back'}});
           let executed=0; const lessons=[];
-          const adapter={
-            async observe(){ return initial; },
-            async execute({action}){ executed++; assert.equal(action.target.ref,'login'); return {status:'succeeded',ui:success}; }
-          };
-          const runtime=createComputerRuntime({adapter,learning:{recordSuccess:x=>{lessons.push(x);return {status:'recorded'}},recordFailure:x=>{lessons.push(x);return {status:'recorded'}}}});
+          const adapter={async observe(){return initial},async execute({action}){executed++;assert.equal(action.target.ref,'login');return {status:'succeeded',ui:success}}};
+          const learning=createLearningBridge({recordLesson:x=>{lessons.push(x);return {status:'recorded'}}});
+          const runtime=createComputerRuntime({adapter,learning});
           assert.equal(findElement(initial,{role:'button',name:'Login'}).status,'found');
           assert.equal(planAction({id:'cert-p1',intent:'Open dashboard',ui:initial,preferredTarget:{role:'button',name:'Login',action:'click'}}).status,'planned');
           (async()=>{
             const result=await runtime.executeMission({mission_id:'computer-use-live-cert',intent:'Login semantically',target:{role:'button',name:'Login',action:'click'},expectation:{url:'https://example.test/dashboard',present:[{role:'button',name:'Profile'}],text:'Welcome back'}});
-            assert.equal(result.status,'succeeded');
-            assert.equal(executed,1);
-            assert.equal(lessons.length,1);
-            assert.equal(lessons[0].reusable,true);
-            assert.equal(result.verification.valid,true);
+            assert.equal(result.status,'succeeded'); assert.equal(executed,1); assert.equal(lessons.length,1); assert.equal(lessons[0].reusable,true); assert.equal(result.verification.valid,true);
             const blocked=await runtime.executeMission({mission_id:'computer-use-gov-cert',intent:'Destructive change',target:{role:'button',name:'Login',action:'click'},risk:'destructive',approval:{status:'pending'},recovery:false});
-            assert.equal(blocked.status,'blocked');
-            assert.equal(blocked.reason,'human_approval_required');
+            assert.equal(blocked.status,'blocked'); assert.equal(blocked.reason,'human_approval_required');
             console.log(JSON.stringify({ok:true,certification:'ARIA_COMPUTER_USE_V1_LIVE_OK',version:runtime.version,executed,lesson_kind:lessons[0].kind,verified:true,governance_fail_closed:true}));
           })().catch(e=>{console.error(e);process.exitCode=1});
           NODE
