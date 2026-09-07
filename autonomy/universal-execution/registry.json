@@ -1,5 +1,5 @@
 {
-  "version": "aria-universal-execution-v1.0.0",
+  "version": "aria-universal-execution-v1.1.0",
   "kind": "executor_registry",
   "executors": [
     {
@@ -22,6 +22,20 @@
       "status": "registered",
       "operations": ["delegate"],
       "target_schema": {"type":"agent","agent_id":"string"}
+    },
+    {
+      "executor_id": "model",
+      "type": "model",
+      "status": "registered",
+      "operations": ["text_generation"],
+      "capabilities": ["text_generation"],
+      "transport": "execution-engine",
+      "risk_classes": ["READ", "LOW_RISK_WRITE", "HIGH_RISK_WRITE"],
+      "auth_mode": "authorization+credential_ref",
+      "health": "healthy",
+      "availability": "available",
+      "version": "aria-model-executor-v1",
+      "target_schema": {"type":"model","provider_id":"string","account_id":"string","model_id":"string"}
     }
   ],
   "invariants": [
@@ -30,6 +44,7 @@
     "missing executor target identifiers are rejected",
     "the registry selects no provider, model, account, credential, or fallback route",
     "no executor receives secrets through the registry",
-    "registry metadata is deterministic and side-effect free"
+    "registry metadata is deterministic and side-effect free",
+    "executor availability is explicit; unknown is never treated as available"
   ]
 }
