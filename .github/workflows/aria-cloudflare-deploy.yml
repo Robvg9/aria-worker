@@ -65,3 +65,5 @@ jobs:
           body="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 https://aria.robvg9.workers.dev/aria)"
           echo "$body"
           node -e 'const x=JSON.parse(process.argv[1]); if(x.ok!==true || x.service!=="aria-direct-interface" || x.version!=="aria-direct-v1" || x.execution_authority!=="aria-canonical-runtime-v1") process.exit(1)' "$body"
+
+# Triggered redeploy to propagate the canonical MCP v4 routing after OAuth alignment.
