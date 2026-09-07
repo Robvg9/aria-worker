@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {createUiState,findElement,createAction,planAction,verifyObservation,createComputerRuntime}=require('../computer-use/runtime-v1');
+const {createUiState,findElement,createAction,planAction,verifyObservation,createLearningBridge,createComputerRuntime}=require('../computer-use/runtime-v1');
 const ui=createUiState({surface:'browser',url:'https://example.test',title:'Demo',nodes:[{id:'login',role:'button',name:'Login'},{id:'search',role:'textbox',name:'Search'},{id:'submit-a',role:'button',name:'Submit',parent_id:'form-a'},{id:'submit-b',role:'button',name:'Submit',parent_id:'form-b'}]});
 assert.equal(findElement(ui,{role:'button',name:'Login'}).status,'found');
 assert.equal(findElement(ui,{role:'button',name:'Missing'}).status,'not_found');
@@ -15,10 +15,11 @@ const after=createUiState({surface:'browser',url:'https://example.test/home',tit
 assert.equal(verifyObservation({before:ui,after,expectation:{url:'https://example.test/home',present:[{role:'button',name:'Logout'}],text:'Welcome'}}).valid,true);
 let executions=0,lessons=[];
 const adapter={async observe(){return ui},async execute(){executions++;return {status:'succeeded',ui:after}}};
-const runtime=createComputerRuntime({adapter,learning:{recordSuccess:x=>{lessons.push(x);return {status:'recorded'}},recordFailure:x=>{lessons.push(x);return {status:'recorded'}}}});
+const learning=createLearningBridge({recordLesson:x=>{lessons.push(x);return {status:'recorded'}}});
+const runtime=createComputerRuntime({adapter,learning});
 (async()=>{
  const r=await runtime.executeMission({mission_id:'m1',intent:'login',target:{role:'button',name:'Login',action:'click'},expectation:{url:'https://example.test/home'}});
- assert.equal(r.status,'succeeded'); assert.equal(executions,1); assert.equal(lessons[0].kind,'computer_use_lesson_candidate');
+ assert.equal(r.status,'succeeded'); assert.equal(executions,1); assert.equal(lessons[0].kind,'computer_use_lesson_candidate'); assert.equal(lessons[0].reusable,true);
  const blocked=await runtime.executeMission({mission_id:'m2',intent:'submit',target:{role:'button',name:'Submit',action:'click'},risk:'high_risk_write',approval:{status:'pending'},recovery:false});
  assert.equal(blocked.status,'blocked'); assert.equal(blocked.reason,'human_approval_required');
  console.log('COMPUTER USE RUNTIME V1: PASS');
