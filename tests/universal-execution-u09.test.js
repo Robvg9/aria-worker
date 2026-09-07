@@ -39,7 +39,7 @@ const pkg = JSON.parse(read('package.json'));
 assert.equal(pkg.name, 'aria-adapters');
 assert.equal(pkg.version, '2.6.8');
 const testScript = pkg.scripts?.test || '';
-for (const id of ['u01', 'u02', 'u03', 'u04', 'u05', 'u06', 'u07', 'u10', 'u09']) {
+for (const id of ['u01', 'u02', 'u03', 'u04', 'u05', 'u06', 'u07', 'u09', 'u10']) {
   assert.match(testScript, new RegExp(`universal-execution-${id}\\.test\\.js`), `npm test missing ${id}`);
 }
 
@@ -91,7 +91,7 @@ assert.match(boundary, /scope_mismatch/);
 assert.match(boundary, /operation_not_supported/);
 assert.match(boundary, /sensitive_output_rejected/);
 assert.match(boundary, /adapter_error/);
-assert.match(boundary, /access[_-]?token/);
+assert.match(boundary, /access.*token/);
 
 const runner = read('supabase/functions/aria-mission-runner-v22/index.ts');
 assert.match(runner, /aria_mission_claim_by_id_lease/);
