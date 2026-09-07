@@ -6,10 +6,11 @@ const { createImprovementPlanner } = require('./planner');
 const { verifyChange } = require('./verifier');
 const { createSelfRollback } = require('./rollback');
 const { createSelfDevelopmentV2 } = require('./self-development-v2');
+const { createSelfModelV2 } = require('../self-model/self-model-v2');
 
 const RISK_ORDER = Object.freeze({ low: 0, medium: 1, high: 2, critical: 3 });
 
-function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunner, writer, snapshotStore = null, evaluationLedger = null, evaluationSuiteId = 'self-development', policy = {} } = {}) {
+function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunner, writer, snapshotStore = null, evaluationLedger = null, evaluationSuiteId = 'self-development', policy = {}, selfModel = {} } = {}) {
   const inspector = createSelfInspector({ snapshot });
   const diagnoser = createSelfDiagnoser({ rules });
   const planner = createImprovementPlanner({ allowMutation: async (change) => {
@@ -23,6 +24,21 @@ function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunn
   const advanced = workspace && typeof workspace.createBranch === 'function' && typeof workspace.openPullRequest === 'function'
     ? createSelfDevelopmentV2({ workspace, protectedPaths: policy.protected_paths || [] , policy })
     : null;
+  const model = createSelfModelV2({
+    identity: selfModel.identity || 'ARIA',
+    canonicalEntrypoint: selfModel.canonicalEntrypoint || 'aria-canonical-runtime-v1',
+    softwareVersion: selfModel.softwareVersion || null,
+    capabilities: selfModel.capabilities || [],
+    dependencies: selfModel.dependencies || {},
+    resources: selfModel.resources || [],
+    tools: selfModel.tools || [],
+    providers: selfModel.providers || [],
+    router: selfModel.router || null,
+    memory: selfModel.memory || null,
+    learning: selfModel.learning || null,
+    planner: selfModel.planner || planner,
+    selfDevelopment: selfModel.selfDevelopment || advanced
+  });
 
   async function improve({ objective = 'self_improvement', proposed_changes = [], scope = null } = {}) {
     const inspection = await inspector.inspect({ include: scope || inspector.allowedScopes });
@@ -71,6 +87,11 @@ function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunn
     diagnoser,
     planner,
     advanced,
+    selfModel: model,
+    capabilityGraph: model.refresh().capability_graph,
+    answerSelf: model.answer,
+    chooseBestCapability: model.chooseBest,
+    compareSelfModel: model.compare,
     capabilityGaps: advanced?.analyzeGoal || null,
     developmentPlan: advanced?.planCapabilityAcquisition || null,
     changeRisk: advanced?.assessChange || null,
