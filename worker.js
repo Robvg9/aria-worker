@@ -15,7 +15,7 @@ const DIRECT_ARIA =
 const CRON_AUTH_URL =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const RESOURCE = PUBLIC_RESOURCE;
-const RESOURCE_METADATA = `${PUBLIC_RESOURCE}/.well-known/oauth-protected-resource`;
+const RESOURCE_METADATA = `${PUBLIC_ISSUER}/.well-known/oauth-protected-resource/mcp`;
 const SCOPES = ["openid", "profile", "email"];
 const { createCloudflareAdminEndpoint } = require("./integrations/cloudflare-admin-endpoint");
 const { createCloudflareTokenManager } = require("./integrations/cloudflare-token-manager");
@@ -186,7 +186,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/autonomy-health") return autonomyHealth(request);
-    if (request.method === "GET" && (url.pathname === "/.well-known/oauth-protected-resource" || url.pathname === "/.well-known/oauth-protected-resource/mcp")) {
+    if (request.method === "GET" && (url.pathname === "/.well-known/oauth-protected-resource" || url.pathname === "/.well-known/oauth-protected-resource/mcp" || url.pathname === "/mcp/.well-known/oauth-protected-resource")) {
       return json(protectedResourceMetadata(), 200, { "access-control-allow-origin": "*" });
     }
     if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v3" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v4")) {
