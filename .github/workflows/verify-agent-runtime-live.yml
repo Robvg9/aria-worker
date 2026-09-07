@@ -1,0 +1,44 @@
+name: Verify ARIA Agent Runtime LIVE
+
+on:
+  workflow_run:
+    workflows: ["Deploy ARIA Supabase Runtime"]
+    types: [completed]
+
+jobs:
+  verify:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify LIVE agent catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://${{ vars.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/aria-agent-runtime-v1"
+          for i in {1..12}; do
+            body="$(curl -fsS --max-time 15 "$URL")" && break || body=""
+            sleep 5
+          done
+          test -n "$body"
+          export BODY="$body"
+          python - <<'PY'
+          import json, os
+          body = json.loads(os.environ['BODY'])
+          assert body.get('ok') is True, body
+          assert body.get('catalog_source') == 'aria_agent_catalog', body
+          agents = body.get('available_agents') or []
+          ids = {a.get('agent_id') for a in agents}
+          expected = {
+              'aria-agent-planner-v1',
+              'aria-agent-reviewer-v1',
+              'aria-agent-research-v1',
+              'aria-agent-coding-v1',
+              'aria-agent-security-v1',
+              'aria-agent-memory-v1',
+              'aria-agent-business-v1',
+              'aria-agent-device-v1',
+          }
+          assert expected.issubset(ids), {'expected': sorted(expected), 'actual': sorted(ids)}
+          assert len(agents) >= 8, agents
+          print('LIVE agent runtime catalog verification passed:', sorted(ids))
+          PY
