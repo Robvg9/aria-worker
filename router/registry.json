@@ -6,7 +6,7 @@
   "pipeline":"PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
   "source_of_truth":{"persistent":"none — selection is derived","declarative":"this file (metadata only)"},
   "consumes":["models/lookup.js","capabilities/lookup.js","accounts/lookup.js","quota/lookup.js"],
-  "selection_rule":"deterministic evidence-weighted ranking: explicit model availability +35? No — scoring is implemented by lookup.js from only evidenced registry signals; lexical order is the final tie-breaker; prefer_* filters remain supported.",
+  "selection_rule":"deterministic evidence-weighted ranking from only observed registry signals; lexical order is the final tie-breaker; prefer_* filters remain supported.",
   "score_signals":{"model_available":50,"quota_available":35,"direct_provider_path":10,"usage_observed":5},
   "unknown_policy":"capacity/quota must be explicitly available; unknown rate_limit is preserved and does not block a candidate; cost, latency and risk_quality remain unknown until evidenced.",
   "canonical_status":["selected","no_route"],
