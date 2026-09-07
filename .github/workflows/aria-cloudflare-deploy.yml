@@ -9,7 +9,6 @@ on:
       - 'credentials/**'
       - 'activation/**'
       - 'autonomy/**'
-      - 'wrangler.toml'
       - 'package.json'
       - '.github/workflows/aria-cloudflare-deploy.yml'
   workflow_dispatch:
@@ -76,17 +75,66 @@ jobs:
           import json, os
           x=json.loads(os.environ['META'])
           assert x['resource']== 'https://aria.robvg9.workers.dev/mcp'
-          assert x['authorization_servers'], 'authorization_servers missing'
+          assert x['authorization_servers'] == ['https://aria.robvg9.workers.dev']
+          assert x['bearer_methods_supported'] == ['header']
+          assert x['scopes_supported'] == ['openid','profile','email']
+          PY
+
+          oauth="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "$base/.well-known/oauth-authorization-server")"
+          echo "$oauth"
+          OAUTH="$oauth" python - <<'PY'
+          import json, os
+          x=json.loads(os.environ['OAUTH'])
+          assert x['issuer']== 'https://aria.robvg9.workers.dev'
+          assert x['resource']== 'https://aria.robvg9.workers.dev/mcp'
+          assert x['authorization_endpoint']== 'https://aria.robvg9.workers.dev/authorize'
+          assert x['token_endpoint']== 'https://aria.robvg9.workers.dev/token'
+          assert x['registration_endpoint']== 'https://aria.robvg9.workers.dev/register'
+          assert x['code_challenge_methods_supported']== ['S256']
+          assert x['token_endpoint_auth_methods_supported']== ['none']
           PY
 
           headers="$(mktemp)"
           code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$headers" -o /tmp/mcp-body -w '%{http_code}' "$base/mcp" -H 'Accept: application/json, text/event-stream')"
+          echo "mcp_get_status=$code"
           cat /tmp/mcp-body
           test "$code" = "401"
           grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$headers"
 
-          init_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -o /tmp/mcp-init-body -w '%{http_code}' "$base/mcp" \
+          init_headers="$(mktemp)"
+          init_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$init_headers" -o /tmp/mcp-init-body -w '%{http_code}' "$base/mcp" \
             -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
             -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"aria-ci","version":"1.0.0"}}}')"
+          echo "mcp_initialize_unauth_status=$init_code"
           cat /tmp/mcp-init-body
           test "$init_code" = "401"
+          grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$init_headers"
+
+      - name: Smoke test Grok OAuth DCR and authorization bootstrap
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev"
+          register_payload='{"client_name":"aria-grok-ci","redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"]}'
+          registration="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d "$register_payload")"
+          echo "$registration"
+          REG="$registration" python - <<'PY'
+          import json, os
+          x=json.loads(os.environ['REG'])
+          assert x.get('client_id','').startswith('aria_')
+          assert x['token_endpoint_auth_method']=='none'
+          assert x['grant_types']==['authorization_code']
+          assert x['response_types']==['code']
+          assert x['authorization_endpoint']=='https://aria.robvg9.workers.dev/authorize'
+          assert x['token_endpoint']=='https://aria.robvg9.workers.dev/token'
+          assert x['issuer']=='https://aria.robvg9.workers.dev'
+          assert x['resource']=='https://aria.robvg9.workers.dev/mcp'
+          PY
+          client_id="$(REG="$registration" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
+          challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+          auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')"
+          auth_headers="$(mktemp)"
+          auth_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$auth_headers" -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
+          echo "authorize_status=$auth_code"
+          test "$auth_code" = "200"
+          grep -q 'Authorize ARIA' /tmp/authorize-body
+          grep -q 'https://aria.robvg9.workers.dev/authorize/start' /tmp/authorize-body
