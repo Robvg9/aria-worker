@@ -11,6 +11,9 @@ const { STAGES, createContinuousSelfImprovementLoop } = require('../autonomy/con
   const seen = [];
   const loop = createContinuousSelfImprovementLoop(Object.fromEntries(STAGES.map((stage) => [stage, async (ctx) => {
     seen.push(stage);
+    if (stage === 'execute') assert.equal(ctx.plan.status, 'ok');
+    if (stage === 'verify') assert.equal(ctx.execute.status, 'ok');
+    if (stage === 'promote') assert.equal(ctx.test.status, 'ok');
     return { status: stage === 'better_aria' ? 'completed' : 'ok', received: Object.keys(ctx).length > 0 };
   }])));
 
@@ -21,6 +24,9 @@ const { STAGES, createContinuousSelfImprovementLoop } = require('../autonomy/con
   assert.equal(out.cycles.length, 1);
   assert.equal(out.cycles[0].stopped, false);
   assert.deepEqual(out.trace.map(x => x.stage), STAGES);
+  assert.ok(Object.isFrozen(out));
+  assert.ok(Object.isFrozen(out.cycles[0]));
+  assert.ok(Object.isFrozen(out.cycles[0].results.mission));
 
   const failOrder = [];
   const failing = createContinuousSelfImprovementLoop({
@@ -33,6 +39,18 @@ const { STAGES, createContinuousSelfImprovementLoop } = require('../autonomy/con
   assert.equal(failed.status, 'failed');
   assert.equal(failed.stop_reason, 'stage_verify');
   assert.deepEqual(failOrder, ['mission','observe','plan','execute','verify']);
+
+  const malformedOrder = [];
+  const malformed = createContinuousSelfImprovementLoop({
+    ...Object.fromEntries(STAGES.map((stage) => [stage, async () => {
+      malformedOrder.push(stage);
+      return stage === 'verify' ? 'malformed' : { status: stage === 'better_aria' ? 'completed' : 'ok' };
+    }]))
+  });
+  const malformedResult = await malformed.run({ goal: 'malformed stage must fail closed' });
+  assert.equal(malformedResult.status, 'failed');
+  assert.equal(malformedResult.stop_reason, 'stage_verify');
+  assert.deepEqual(malformedOrder, ['mission','observe','plan','execute','verify']);
 
   const blocked = createContinuousSelfImprovementLoop({
     ...Object.fromEntries(STAGES.map((stage) => [stage, async () => ({ status: stage === 'promote' ? 'blocked' : 'ok' })]))
@@ -53,7 +71,7 @@ const { STAGES, createContinuousSelfImprovementLoop } = require('../autonomy/con
   assert.throws(() => createContinuousSelfImprovementLoop({ ...Object.fromEntries(STAGES.map(s => [s, async () => ({status:'ok'})])), maxCycles: 11 }), /maxCycles/);
   assert.throws(() => createContinuousSelfImprovementLoop({}), /mission function required/);
 
-  console.log('CONTINUOUS SELF-IMPROVEMENT V1: PASS — full cognitive evolution loop, fail-closed gates, bounded cycles, deterministic stage trace');
+  console.log('CONTINUOUS SELF-IMPROVEMENT V1: PASS — full cognitive evolution loop, context propagation, fail-closed malformed results, bounded cycles, immutable results');
 })().catch((error) => {
   console.error(error);
   process.exit(1);
