@@ -63,13 +63,16 @@ jobs:
             try {
               session = await sandbox.create({ objective: 'Self-Development 2.0 LIVE certification', seed });
               assert.match(session.branch, /^aria\/self-development\//);
-              await sandbox.stage(session.id, { type: 'add_file', path: targetPath, content: `ARIA_SELF_DEVELOPMENT_LIVE_OK:${seed}` });
+              await sandbox.stage(session.id, { type: 'add_file', path: targetPath, content: `ARIA_SELF_DEVELOPMENT_LIVE_OK:${seed}`, risk_level: risk.max_risk });
               const dry = await sandbox.run(session.id);
               assert.equal(dry.mode, 'dry_run');
               const applied = await sandbox.run(session.id, { apply: true });
               assert.equal(applied.status, 'succeeded');
               const readback = await workspace.read(targetPath, session.branch);
-              assert.match(String(readback.content || ''), /ARIA_SELF_DEVELOPMENT_LIVE_OK/);
+              const readbackText = readback.encoding === 'base64'
+                ? Buffer.from(String(readback.content || '').replace(/\s+/g, ''), 'base64').toString('utf8')
+                : String(readback.content || '');
+              assert.match(readbackText, /ARIA_SELF_DEVELOPMENT_LIVE_OK/);
 
               const regression = buildRegression({
                 capability: 'live_sandbox',
