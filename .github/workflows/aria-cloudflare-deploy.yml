@@ -86,7 +86,7 @@ jobs:
           import json, os
           x=json.loads(os.environ['OAUTH'])
           assert x['issuer']== 'https://aria.robvg9.workers.dev'
-          assert x['authorization_endpoint']== 'https://aria.robvg9.workers.dev/authorize'
+          assert x['authorization_endpoint']== 'https://aria.robvg9.workers.dev/authorize-grok-v2'
           assert x['token_endpoint']== 'https://aria.robvg9.workers.dev/token'
           assert x['registration_endpoint']== 'https://aria.robvg9.workers.dev/register'
           assert x['code_challenge_methods_supported']== ['S256']
@@ -127,7 +127,7 @@ jobs:
           assert x['grant_types']==['authorization_code']
           assert x['response_types']==['code']
           assert x['redirect_uris']==['https://grok.com/connectors-oauth-exchange-code/']
-          assert x['authorization_endpoint']=='https://aria.robvg9.workers.dev/authorize'
+          assert x['authorization_endpoint']=='https://aria.robvg9.workers.dev/authorize-grok-v2'
           assert x['token_endpoint']=='https://aria.robvg9.workers.dev/token'
           assert x['issuer']=='https://aria.robvg9.workers.dev'
           assert x['resource']=='https://aria.robvg9.workers.dev/mcp'
@@ -146,14 +146,14 @@ jobs:
 
           client_id="$(REG="$registration" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
           challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-          auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')"
+          auth_url="$base/authorize-grok-v2?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')"
           auth_headers="$(mktemp)"
           auth_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$auth_headers" -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
           echo "authorize_status=$auth_code"
           test "$auth_code" = "200"
           grep -q 'Authorize ARIA' /tmp/authorize-body
           grep -q 'method="get"' /tmp/authorize-body
-          grep -q 'action="https://aria.robvg9.workers.dev/authorize/go"' /tmp/authorize-body
+          grep -q 'action="https://aria.robvg9.workers.dev/authorize-grok-v2/go"' /tmp/authorize-body
 
           pending_id="$(python - <<'PY'
           import re
@@ -164,7 +164,7 @@ jobs:
           PY
           )"
           go_headers="$(mktemp)"
-          go_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$go_headers" -o /tmp/authorize-go-body -w '%{http_code}' "$base/authorize/go?pending_id=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$pending_id")&email=not-an-email")"
+          go_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$go_headers" -o /tmp/authorize-go-body -w '%{http_code}' "$base/authorize-grok-v2/go?pending_id=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$pending_id")&email=not-an-email")"
           echo "authorize_go_invalid_email_status=$go_code"
           test "$go_code" = "400"
           grep -qi 'Authorization could not continue' /tmp/authorize-go-body
