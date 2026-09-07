@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GOOGLE_API_KEY = Deno.env.get("GOOGLE_API_KEY") ?? "";
@@ -21,14 +20,14 @@ Deno.serve(async (request) => {
   const started = Date.now();
   let response: Response;
   try {
-    response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent", {
+    response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": GOOGLE_API_KEY },
-      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Reply exactly: ARIA_GEMINI_DIRECT_LIVE_OK" }] }], generationConfig: { temperature: 0, maxOutputTokens: 20 } })
+      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Reply exactly: ARIA_GEMINI_DIRECT_LIVE_OK" }] }], generationConfig: { maxOutputTokens: 20 } })
     });
   } catch { return out({ ok: false, provider: "google", route: "direct", status: "failed", reason: "transport_error", latency_ms: Date.now() - started }, 502); }
   const body = await response.json().catch(() => null);
   if (!response.ok) return out({ ok: false, provider: "google", route: "direct", status: "failed", reason: "provider_error", provider_status: response.status, message: sanitize(body?.error?.message), latency_ms: Date.now() - started }, 502);
   const text = Array.isArray(body?.candidates?.[0]?.content?.parts) ? body.candidates[0].content.parts.filter((x: any) => typeof x?.text === "string").map((x: any) => x.text).join("") : "";
-  return out({ ok: text === "ARIA_GEMINI_DIRECT_LIVE_OK", provider: "google", route: "direct", model: "google/gemini-2.5-flash-lite-direct", upstream_model: "gemini-2.5-flash-lite", status: text ? "succeeded" : "failed", verification: text === "ARIA_GEMINI_DIRECT_LIVE_OK", usage: body?.usageMetadata ? { prompt_tokens: body.usageMetadata.promptTokenCount ?? null, completion_tokens: body.usageMetadata.candidatesTokenCount ?? null, total_tokens: body.usageMetadata.totalTokenCount ?? null } : { status: "unknown" }, latency_ms: Date.now() - started });
+  return out({ ok: text === "ARIA_GEMINI_DIRECT_LIVE_OK", provider: "google", route: "direct", model: "google/gemini-3.5-flash-lite-direct", upstream_model: "gemini-3.5-flash-lite", status: text ? "succeeded" : "failed", verification: text === "ARIA_GEMINI_DIRECT_LIVE_OK", usage: body?.usageMetadata ? { prompt_tokens: body.usageMetadata.promptTokenCount ?? null, completion_tokens: body.usageMetadata.candidatesTokenCount ?? null, total_tokens: body.usageMetadata.totalTokenCount ?? null } : { status: "unknown" }, latency_ms: Date.now() - started });
 });
