@@ -12,6 +12,21 @@ function stable(value){
 function hash(value){return crypto.createHash('sha256').update(stable(value)).digest('hex');}
 function recentList(value){return Array.isArray(value)?value.slice(-50).map(x=>structuredClone(x)):[];}
 
+function systemProjection(model){
+  return {
+    version:1,
+    identity:model.identity,
+    canonical_entrypoint:model.canonical_entrypoint,
+    software_version:model.software_version,
+    capabilities:[...(model.verified_capabilities||[])],
+    dependencies:(model.capability_graph?.edges||[]).map(e=>`${e.from}->${e.to}`),
+    providers:[...(model.providers||[])],
+    tools:[...(model.tools||[])],
+    agents:[],
+    deployment:{self_model_version:model.version}
+  };
+}
+
 function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-runtime-v1',softwareVersion=null,capabilities=[],dependencies={},resources=[],tools=[],providers=[],router=null,memory=null,learning=null,planner=null,selfDevelopment=null,stateStore=null}={}){
   const staticBase=buildSelfModel({identity,canonicalEntrypoint,version:softwareVersion,capabilities:capabilities.map(c=>typeof c==='string'?c:c.id),dependencies:Object.keys(dependencies),providers,tools,agents:[],deployment:{}});
   let current=staticBase;
@@ -62,7 +77,13 @@ function createSelfModelV2({identity='ARIA',canonicalEntrypoint='aria-canonical-
     return bestCapability(m.capability_graph,id,{routerResolve,minConfidence:extra.minConfidence??0});
   }
   function observe(event){if(stateStore?.append) stateStore.append(event);return event;}
-  function compare(previous){const next=refresh();return Object.freeze({system:diffSelfModel(previous?.system||previous,current),capabilities:diffCapabilityGraph(previous?.capability_graph||previous?.capabilityGraph||{nodes:[]},next.capability_graph)});}
+  function compare(previous){
+    const next=refresh();
+    const previousModel=previous?.version==='self-model-v2.0.0' ? previous : null;
+    const previousSystem=previousModel ? systemProjection(previousModel) : (previous?.system || previous || null);
+    const currentSystem=systemProjection(next);
+    return Object.freeze({system:previousSystem?diffSelfModel(previousSystem,currentSystem):Object.freeze({added:[],removed:[],changed:[],unchanged:true}),capabilities:diffCapabilityGraph(previousModel?.capability_graph||previous?.capability_graph||previous?.capabilityGraph||{nodes:[]},next.capability_graph)});
+  }
   return Object.freeze({snapshot,refresh,answer,capability,chooseBest,observe,compare,normalizeCapability,version:'self-model-v2.0.0'});
 }
 module.exports=Object.freeze({createSelfModelV2});
