@@ -70,6 +70,25 @@ async function catalogFor(agentId: string) {
   return catalog.find((a) => a.agent_id === agentId && a.status === "available") ?? null;
 }
 
+const RISK_RANK: Record<string, number> = {
+  READ: 0, read: 0, LOW: 1, low: 1, LOW_RISK_WRITE: 1,
+  MEDIUM: 2, medium: 2, MEDIUM_RISK_WRITE: 2,
+  HIGH: 3, high: 3, HIGH_RISK_WRITE: 3,
+  DESTRUCTIVE: 4, destructive: 4, CRITICAL: 4, critical: 4
+};
+const MAX_RISK_RANK: Record<string, number> = { low: 1, medium: 2, high: 3, destructive: 4 };
+
+function riskAllowed(requested: string, maximum: string) {
+  const requestedRank = RISK_RANK[requested] ?? 4;
+  const maximumRank = MAX_RISK_RANK[maximum] ?? -1;
+  return requestedRank <= maximumRank;
+}
+
+function scopeAllows(agent: CatalogAgent, requestedOperation: string) {
+  if (requestedOperation === "delegate") return agent.scope.includes("reason");
+  return agent.scope.includes(requestedOperation);
+}
+
 Deno.serve(async r => {
   if (r.method === "GET") {
     const catalog = await loadCatalog();
@@ -111,6 +130,18 @@ Deno.serve(async r => {
   if (!missionId || !stepId) return out({ ok: false, status: "blocked", error: { code: "mission_or_step_missing" } }, 200);
 
   const requestedRisk = String(b.risk || "READ");
+  if (!riskAllowed(requestedRisk, catalogAgent.max_risk)) {
+    return out({ ok: false, status: "blocked", error: {
+      code: "agent_risk_exceeded",
+      agent_id: agentId,
+      requested_risk: requestedRisk,
+      max_risk: catalogAgent.max_risk
+    } }, 200);
+  }
+  if (!scopeAllows(catalogAgent, "delegate")) {
+    return out({ ok: false, status: "blocked", error: { code: "agent_scope_denied", agent_id: agentId, required_scope: "reason" } }, 200);
+  }
+
   const prompt = typeof b.input?.prompt === "string" ? b.input.prompt.trim() : String(b.input?.message || "").trim();
   if (!prompt) return out({ ok: false, status: "blocked", error: { code: "prompt_missing" } }, 200);
 
@@ -149,26 +180,14 @@ Deno.serve(async r => {
 
   const x: any = await rr.json().catch(() => null);
   if (!rr.ok || x?.status !== "succeeded") {
-    return out({
-      ok: false,
-      status: "failed",
-      agent_id: agentId,
-      executor_type: "agent",
-      error: { code: "agent_execution_failed", message: String(x?.error?.message || x?.error || `execution_${rr.status}`) }
-    }, 200);
+    return out({ ok: false, status: "failed", agent_id: agentId, executor_type: "agent",
+      error: { code: "agent_execution_failed", message: String(x?.error?.message || x?.error || `execution_${rr.status}`) } }, 200);
   }
 
   return out({
-    ok: true,
-    status: "succeeded",
-    executor_type: "agent",
-    agent_id: agentId,
-    role: catalogAgent.role,
-    operation: "delegate",
-    provider_id: route.provider_id,
-    model_id: route.model_id,
-    response: x.response,
-    usage: x.usage,
+    ok: true, status: "succeeded", executor_type: "agent", agent_id: agentId,
+    role: catalogAgent.role, operation: "delegate", provider_id: route.provider_id,
+    model_id: route.model_id, response: x.response, usage: x.usage,
     metadata: { mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog" }
   });
 });
