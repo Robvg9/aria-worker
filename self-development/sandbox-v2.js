@@ -26,12 +26,22 @@ function createSelfDevelopmentSandbox({ workspace, snapshotStore = null, protect
     return Object.freeze({ ...state });
   }
 
+  async function readBefore(path, branch, type) {
+    try {
+      return await workspace.read(path, branch);
+    } catch (error) {
+      if (type === 'add_file' && String(error?.message || '') === 'github_404') return null;
+      throw error;
+    }
+  }
+
   async function stage(id, change) {
     const state = sessions.get(id);
     if (!state || state.status !== 'open') throw new Error('sandbox_session_closed');
     if (!change || typeof change.path !== 'string') throw new TypeError('change_required');
     assertMutable(change.path);
-    const before = await workspace.read(change.path, state.branch);
+    const before = await readBefore(change.path, state.branch, change.type);
+    if (change.type === 'delete_file' && !before) throw new Error('target_missing');
     const entry = { type: change.type, path: change.path, content: change.content, before, staged_at: new Date().toISOString() };
     state.changes.push(entry);
     return Object.freeze({ status: 'staged', session_id: id, branch: state.branch, path: change.path, before });
