@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const src=fs.readFileSync('memory/world-model-v2.js','utf8');
+const contract=fs.readFileSync('memory/world-model-contract-v2.md','utf8');
+assert.equal(/api[_-]?key\s*[:=]\s*["'][A-Za-z0-9_\-]{12,}["']/.test(src),false);
+assert.equal(/BEGIN (RSA|OPENSSH|PRIVATE) KEY/.test(src),false);
+assert.equal(/process\.env/.test(src),false);
+assert.equal(/globalThis\.fetch|fetch\s*\(/.test(src),false);
+assert.ok(contract.includes('does not authorize execution'));
+assert.ok(contract.includes('Unknown state remains `unknown`'));
+console.log('WORLD MODEL V2 SECURITY: PASS — no embedded secret material, environment access or network authority');
