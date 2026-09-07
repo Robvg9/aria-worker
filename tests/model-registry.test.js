@@ -1,4 +1,4 @@
-/** Mission 10.2 — Model Registry tests */
+/** Mission 10.2 — Model Registry tests; direct Gemini is now LIVE-certified */
 const assert=require('assert');
 const {getModel,modelsByProvider,providerOf,listModelIds,version}=require('../models/lookup.js');
 let passed=0;function ok(cond,msg){assert.ok(cond,msg);passed++;console.log('PASS:',msg);} console.log('=== Model Registry 10.2 tests ===');console.log('version:',version);
