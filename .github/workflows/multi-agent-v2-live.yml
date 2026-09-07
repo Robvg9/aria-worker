@@ -1,4 +1,5 @@
 name: Multi-Agent 2.0 LIVE
+# Canonical certification: manager + runtime + catalog adapter + verifier.
 on:
   workflow_dispatch:
   push:
