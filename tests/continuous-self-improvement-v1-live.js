@@ -13,13 +13,13 @@ const { STAGES, createContinuousSelfImprovementLoop } = require('../autonomy/con
     return { status: stage === 'better_aria' ? 'completed' : 'ok', index };
   }]));
 
-  const loop = createContinuousSelfImprovementLoop(stages, { maxCycles: 1 });
+  const loop = createContinuousSelfImprovementLoop({ ...stages, maxCycles: 1 });
   const result = await loop.run({ goal: 'LIVE cognitive evolution contract' });
 
   assert.equal(result.status, 'completed');
   assert.equal(result.version, 'continuous-self-improvement-v1');
   assert.deepEqual(result.stages, STAGES);
-  assert.deepEqual(result.cycles[0].results.better_aria.status, 'completed');
+  assert.equal(result.cycles[0].results.better_aria.status, 'completed');
   assert.equal(result.trace.length, STAGES.length);
   assert.deepEqual(result.trace.map(x => x.stage), STAGES);
 
