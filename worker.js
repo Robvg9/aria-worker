@@ -2,6 +2,8 @@ const SUPABASE_MCP =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-server-grok-v4";
 const SUPABASE_OAUTH =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-oauth-grok-v4";
+const PUBLIC_ISSUER = "https://aria.robvg9.workers.dev";
+const PUBLIC_RESOURCE = `${PUBLIC_ISSUER}/mcp`;
 const RUNTIME_GATEWAY =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1";
 const MISSION_INTAKE =
@@ -12,8 +14,8 @@ const DIRECT_ARIA =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-direct-v1";
 const CRON_AUTH_URL =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
-const RESOURCE = "https://aria.robvg9.workers.dev/mcp";
-const RESOURCE_METADATA = "https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp";
+const RESOURCE = PUBLIC_RESOURCE;
+const RESOURCE_METADATA = `${PUBLIC_RESOURCE}/.well-known/oauth-protected-resource`;
 const SCOPES = ["openid", "profile", "email"];
 const { createCloudflareAdminEndpoint } = require("./integrations/cloudflare-admin-endpoint");
 const { createCloudflareTokenManager } = require("./integrations/cloudflare-token-manager");
@@ -26,14 +28,14 @@ function json(body, status = 200, extra = {}) {
   });
 }
 function protectedResourceMetadata() {
-  return { resource: RESOURCE, authorization_servers: [SUPABASE_OAUTH], bearer_methods_supported: ["header"], scopes_supported: SCOPES };
+  return { resource: RESOURCE, authorization_servers: [PUBLIC_ISSUER], bearer_methods_supported: ["header"], scopes_supported: SCOPES };
 }
 function authorizationServerMetadata() {
   return {
-    issuer: SUPABASE_OAUTH,
-    authorization_endpoint: `${SUPABASE_OAUTH}/authorize`,
-    token_endpoint: `${SUPABASE_OAUTH}/token`,
-    registration_endpoint: `${SUPABASE_OAUTH}/register`,
+    issuer: PUBLIC_ISSUER,
+    authorization_endpoint: `${PUBLIC_ISSUER}/authorize`,
+    token_endpoint: `${PUBLIC_ISSUER}/token`,
+    registration_endpoint: `${PUBLIC_ISSUER}/register`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
@@ -215,6 +217,5 @@ export default {
   }
 };
 
-// Phase 1 certification trigger: keep deployment path exercised after autonomous fallback rollout.
-// Public MCP surface is intentionally pinned to v4; no secrets are present in this source.
-// Deploy trigger: v4 public MCP + OAuth alignment verification.
+// Phase 1 certification trigger: public identifiers remain canonical at the Worker boundary.
+// Deploy trigger: align MCP protected-resource metadata with public OAuth issuer/resource.
