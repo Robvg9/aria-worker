@@ -5,6 +5,7 @@ const { createSelfDiagnoser } = require('./diagnosis');
 const { createImprovementPlanner } = require('./planner');
 const { verifyChange } = require('./verifier');
 const { createSelfRollback } = require('./rollback');
+const { createSelfDevelopmentV2 } = require('./self-development-v2');
 
 const RISK_ORDER = Object.freeze({ low: 0, medium: 1, high: 2, critical: 3 });
 
@@ -18,6 +19,9 @@ function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunn
   }});
   const rollback = snapshotStore && workspace && typeof workspace.restore === 'function'
     ? createSelfRollback({ workspace, snapshotStore })
+    : null;
+  const advanced = workspace && typeof workspace.createBranch === 'function' && typeof workspace.openPullRequest === 'function'
+    ? createSelfDevelopmentV2({ workspace, protectedPaths: policy.protected_paths || [] , policy })
     : null;
 
   async function improve({ objective = 'self_improvement', proposed_changes = [], scope = null } = {}) {
@@ -47,11 +51,7 @@ function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunn
     const tests = typeof testRunner === 'function' ? await testRunner({ scope: applied, reason: objective }) : { status: 'failed', summary: 'test_runner_required' };
     let evaluation = null;
     if (evaluationLedger && typeof evaluationLedger.record === 'function') {
-      evaluation = await evaluationLedger.record({
-        suite_id: evaluationSuiteId,
-        suite: tests,
-        metadata: { objective, scope: applied, source: 'self-development' }
-      });
+      evaluation = await evaluationLedger.record({ suite_id: evaluationSuiteId, suite: tests, metadata: { objective, scope: applied, source: 'self-development' } });
     }
     const verification = await verifyChange({ tests, inspection: async () => {
       const after = await inspector.inspect({ include: ['version','identity','capabilities','tools','connectors','tests','git'] });
@@ -65,7 +65,19 @@ function createSelfDevelopmentEngine({ snapshot, rules = [], workspace, testRunn
     return { status: 'succeeded', objective, inspection, diagnosis, plan, applied, tests, evaluation, verification, documentation };
   }
 
-  return Object.freeze({ improve, inspector, diagnoser, planner });
+  return Object.freeze({
+    improve,
+    inspector,
+    diagnoser,
+    planner,
+    advanced,
+    capabilityGaps: advanced?.analyzeGoal || null,
+    developmentPlan: advanced?.planCapabilityAcquisition || null,
+    changeRisk: advanced?.assessChange || null,
+    sandbox: advanced?.prepareSandbox || null,
+    promoteSandbox: advanced?.promoteSandbox || null,
+    buildRegression: advanced?.createRegression || null,
+  });
 }
 
 module.exports = { createSelfDevelopmentEngine };
