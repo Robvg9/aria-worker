@@ -17,7 +17,7 @@ assert.ok(runner.includes('Promise.all'), 'v18 must execute safe ready batches c
 assert.ok(runner.includes('step_batch_started'), 'v18 must emit supported batch observability');
 assert.ok(runner.includes('cognitive-loop-v2'), 'v18 must preserve cognitive recall contract');
 assert.ok(runner.includes('verifyStrategicCompletion'), 'v18 must preserve strategic completion guard');
-assert.ok(canonical.includes('aria-mission-runner-v18'), 'canonical runtime must target v18');
+assert.ok(/aria-mission-runner-v2[0-9]+/.test(canonical), 'canonical runtime must target the current model-aware runner');
 assert.ok(migration.includes("'step_batch_started'"), 'DB event contract must allow batch event');
 
-console.log('SUPABASE MISSION RUNNER V18 CONTRACT: PASS — atomic claim, device gateway, governed batching, cognition, strategic guard, canonical wiring, DB event contract');
+console.log('SUPABASE MISSION RUNNER V18 CONTRACT: PASS — v18 compatibility retained, canonical runtime points to current model-aware runner, DB event contract verified');
