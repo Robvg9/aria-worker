@@ -1,0 +1,167 @@
+'use strict';
+
+const crypto = require('node:crypto');
+
+const VERSION = 'world-model-v2.0.0';
+const RELATIONSHIP_TYPES = Object.freeze(['contains','uses','runs_on','exposes','owns','part_of','related_to']);
+const DEPENDENCY_TYPES = Object.freeze(['depends_on','requires','backed_by','deployed_by','calls','reads_from','writes_to']);
+
+function stable(value) {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
+  return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stable(value[k])).join(',') + '}';
+}
+function hash(value) { return crypto.createHash('sha256').update(stable(value)).digest('hex'); }
+function boundedConfidence(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error('confidence_invalid');
+  return n;
+}
+function requiredId(value, name) { if (!value || typeof value !== 'string') throw new Error(name + '_required'); return value; }
+function sourceOf(provenance) {
+  const source = provenance?.source || provenance?.source_id;
+  if (!source || typeof source !== 'string') throw new Error('provenance_source_required');
+  return source;
+}
+function normalizeProvenance(provenance = {}, fallbackConfidence = 0.5) {
+  const source = sourceOf(provenance);
+  const confidence = Object.prototype.hasOwnProperty.call(provenance, 'confidence') ? boundedConfidence(provenance.confidence) : boundedConfidence(fallbackConfidence);
+  return Object.freeze({ ...provenance, source, confidence });
+}
+function normalizeEntity(entity = {}) {
+  const id = requiredId(entity.id, 'entity_id');
+  const provenance = normalizeProvenance(entity.provenance || {}, entity.confidence ?? 0.5);
+  return Object.freeze({ id, type: String(entity.type || 'unknown'), name: entity.name == null ? null : String(entity.name), state: entity.state === undefined ? 'unknown' : entity.state, metadata: entity.metadata || {}, provenance, updated_by: provenance.source });
+}
+function normalizeRelationship(input = {}) {
+  const from = requiredId(input.from, 'relationship_from');
+  const to = requiredId(input.to, 'relationship_to');
+  const type = requiredId(input.type, 'relationship_type');
+  const confidence = boundedConfidence(input.confidence ?? input.provenance?.confidence ?? 0.5);
+  if (from === to && input.acyclic !== false) throw new Error('self_relationship_invalid');
+  return Object.freeze({ id: input.id || `rel_${hash({from,to,type}).slice(0,16)}`, from, to, type, confidence, metadata: input.metadata || {}, provenance: normalizeProvenance(input.provenance || {}, confidence) });
+}
+function normalizeEvent(input = {}) {
+  const id = requiredId(input.id, 'event_id');
+  const entityIds = [...new Set((input.entity_ids || input.entities || []).map(String))].sort();
+  const provenance = normalizeProvenance(input.provenance || {}, input.confidence ?? 0.5);
+  return Object.freeze({ id, type: String(input.type || 'state_change'), entity_ids: entityIds, changes: input.changes || {}, observed_at: input.observed_at || null, provenance });
+}
+function normalizeCause(input = {}) {
+  const causeEvent = requiredId(input.cause_event, 'cause_event');
+  const effect = requiredId(input.effect_event || input.effect_entity || input.effect, 'effect_required');
+  const confidence = boundedConfidence(input.confidence ?? input.provenance?.confidence ?? 0.5);
+  return Object.freeze({ id: input.id || `cause_${hash({causeEvent,effect}).slice(0,16)}`, cause_event: causeEvent, effect, confidence, mechanism: input.mechanism || null, provenance: normalizeProvenance(input.provenance || {}, confidence) });
+}
+function normalizeDependency(input = {}) {
+  const from = requiredId(input.from, 'dependency_from');
+  const to = requiredId(input.to, 'dependency_to');
+  const type = requiredId(input.type || 'depends_on', 'dependency_type');
+  const confidence = boundedConfidence(input.confidence ?? input.provenance?.confidence ?? 0.5);
+  if (from === to) throw new Error('self_dependency_invalid');
+  return Object.freeze({ id: input.id || `dep_${hash({from,to,type}).slice(0,16)}`, from, to, type, direct: input.direct !== false, confidence, metadata: input.metadata || {}, provenance: normalizeProvenance(input.provenance || {}, confidence) });
+}
+function mergeUnique(items, item, keyFn) {
+  const key = keyFn(item);
+  if (items.some(x => keyFn(x) === key)) return items;
+  return [...items, item];
+}
+function entityMap(entities) { return new Map(entities.map(e => [e.id, e])); }
+function adjacency(dependencies = [], reverse = false) {
+  const map = new Map();
+  for (const d of dependencies) {
+    const a = reverse ? d.to : d.from;
+    const b = reverse ? d.from : d.to;
+    if (!map.has(a)) map.set(a, []);
+    map.get(a).push(d);
+  }
+  for (const list of map.values()) list.sort((a,b)=>a.id.localeCompare(b.id));
+  return map;
+}
+
+function createWorldModelV2(seed = {}) {
+  let entities = [];
+  let relationships = [];
+  let events = [];
+  let causes = [];
+  let dependencies = [];
+
+  function upsertEntity(input) {
+    const item = normalizeEntity(input);
+    const i = entities.findIndex(e => e.id === item.id);
+    if (i < 0) entities = [...entities, item];
+    else { const next = {...entities[i], ...item, provenance: item.provenance}; entities = [...entities.slice(0,i), Object.freeze(next), ...entities.slice(i+1)]; }
+    return item;
+  }
+  function addRelationship(input) { const item = normalizeRelationship(input); relationships = mergeUnique(relationships,item,x=>`${x.from}|${x.to}|${x.type}`); return item; }
+  function recordEvent(input) { const item = normalizeEvent(input); if (!events.some(e=>e.id===item.id)) events=[...events,item]; return item; }
+  function addCause(input) { const item = normalizeCause(input); causes = mergeUnique(causes,item,x=>`${x.cause_event}|${x.effect}`); return item; }
+  function addDependency(input) { const item = normalizeDependency(input); dependencies = mergeUnique(dependencies,item,x=>`${x.from}|${x.to}|${x.type}`); return item; }
+
+  function observeState(entityId, state, provenance = {}) {
+    const existing = entityMap(entities).get(entityId);
+    if (!existing) throw new Error('entity_not_found');
+    const next = upsertEntity({ ...existing, state, provenance });
+    const event = recordEvent({ id:`evt_${hash({entityId,state,provenance}).slice(0,20)}`, type:'state_observed', entity_ids:[entityId], changes:{from:existing.state,to:state}, provenance });
+    return { entity: next, event };
+  }
+  function snapshot() {
+    const payload = { version: VERSION, entities, relationships, events, causes, dependencies };
+    return Object.freeze({ ...payload, integrity_hash: hash(payload) });
+  }
+  function getEntity(id) { return entities.find(e=>e.id===id) || null; }
+  function dependenciesOf(id, options = {}) {
+    const maxDepth = Math.max(1, Math.min(32, Number(options.maxDepth || 32)));
+    const reverse = options.direction !== 'downstream';
+    const graph = adjacency(dependencies, reverse);
+    const seen = new Set([id]); const queue = [{id,depth:0,path:[]}]; const result=[];
+    while(queue.length){ const cur=queue.shift(); if(cur.depth>=maxDepth) continue; for(const d of graph.get(cur.id)||[]){ if(seen.has(d.from===cur.id?d.to:d.from)) continue; const next=d.from===cur.id?d.to:d.from; seen.add(next); const path=[...cur.path,d.id]; result.push({entity_id:next,depth:cur.depth+1,path,confidence:path.reduce((acc,p)=>acc*(dependencies.find(x=>x.id===p)?.confidence??0.5),1)}); queue.push({id:next,depth:cur.depth+1,path}); }}
+    return result;
+  }
+  function impactOf(targetId, options = {}) {
+    requiredId(targetId, 'target_id');
+    const dependents = dependenciesOf(targetId, {direction:'upstream', maxDepth:options.maxDepth || 16});
+    return Object.freeze({ target: targetId, impacted: dependents.sort((a,b)=>a.depth-b.depth || a.entity_id.localeCompare(b.entity_id)), count: dependents.length, reasoning:'reverse dependency traversal', integrity_hash:hash({target:targetId,dependents}) });
+  }
+  function explainChange(input = {}) {
+    const entityId = input.entity_id || input.entityId;
+    const impact = impactOf(entityId, input);
+    const entity = getEntity(entityId);
+    return Object.freeze({ entity, change: input.change || null, impact, affected_entities: impact.impacted.map(x=>getEntity(x.entity_id)).filter(Boolean), confidence: impact.impacted.length ? Math.min(...impact.impacted.map(x=>x.confidence)) : 1 });
+  }
+  function causeChain(eventId, options = {}) {
+    requiredId(eventId,'event_id');
+    const maxDepth=Math.max(1,Math.min(32,Number(options.maxDepth||16))); const incoming=new Map();
+    for(const c of causes){ if(!incoming.has(c.effect)) incoming.set(c.effect,[]); incoming.get(c.effect).push(c); }
+    const seen=new Set([eventId]); const result=[]; const q=[{id:eventId,depth:0,path:[]}];
+    while(q.length){ const cur=q.shift(); if(cur.depth>=maxDepth) continue; for(const c of incoming.get(cur.id)||[]){ if(seen.has(c.cause_event)) continue; seen.add(c.cause_event); const path=[...cur.path,c.id]; result.push({event_id:c.cause_event,depth:cur.depth+1,path,confidence:path.reduce((acc,p)=>acc*(causes.find(x=>x.id===p)?.confidence??0.5),1)}); q.push({id:c.cause_event,depth:cur.depth+1,path}); }}
+    return result.sort((a,b)=>a.depth-b.depth||a.event_id.localeCompare(b.event_id));
+  }
+  function stateEvidence(entityId) {
+    const observations=events.filter(e=>e.entity_ids.includes(entityId)&&e.type==='state_observed').sort((a,b)=>String(b.observed_at||'').localeCompare(String(a.observed_at||'')));
+    return Object.freeze({entity_id:entityId,current_state:getEntity(entityId)?.state ?? 'unknown',observations,confidence:observations.length?Math.max(...observations.map(e=>e.provenance.confidence)):null});
+  }
+  function integrity() {
+    const ids = new Set(entities.map(e=>e.id));
+    const refs = [...relationships.map(r=>[r.from,r.to]),...dependencies.map(d=>[d.from,d.to])].flat();
+    const missing_refs = [...new Set(refs.filter(x=>!ids.has(x)))].sort();
+    const secretKeys = /(^|_)(secret|token|password|api[_-]?key|private[_-]?key|access[_-]?key)(_|$)/i;
+    const exposed = entities.some(e=>Object.keys(e.metadata||{}).some(k=>secretKeys.test(k)) && Object.values(e.metadata||{}).some(v=>typeof v==='string' && v.length>10 && !String(v).startsWith('ref:')));
+    return Object.freeze({valid:missing_refs.length===0&&!exposed,missing_refs,secret_material_exposed:exposed});
+  }
+
+  for (const e of seed.entities || []) upsertEntity(e);
+  for (const r of seed.relationships || []) addRelationship(r);
+  for (const e of seed.events || []) recordEvent(e);
+  for (const c of seed.causes || []) addCause(c);
+  for (const d of seed.dependencies || []) addDependency(d);
+
+  return Object.freeze({
+    version: VERSION,
+    upsertEntity, addRelationship, recordEvent, addCause, addDependency, observeState,
+    getEntity, snapshot, dependenciesOf, dependentsOf:(id,o={})=>dependenciesOf(id,{...o,direction:'upstream'}), impactOf, explainChange, causeChain, stateEvidence, integrity
+  });
+}
+
+module.exports = Object.freeze({ VERSION, RELATIONSHIP_TYPES, DEPENDENCY_TYPES, createWorldModelV2, stable, hash, normalizeProvenance });
