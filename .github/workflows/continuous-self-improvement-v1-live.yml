@@ -1,0 +1,19 @@
+name: ARIA Continuous Self-Improvement v1 LIVE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  continuous-self-improvement-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Full regression
+        run: npm test
+      - name: Continuous Self-Improvement LIVE certification
+        run: node tests/continuous-self-improvement-v1-live.js
