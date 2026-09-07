@@ -12,20 +12,18 @@ const RUNTIME = `${URL}/functions/v1/aria-runtime-gateway-v1`;
 const AGENT = `${URL}/functions/v1/aria-agent-runtime-v1`;
 const LEASE_FOR = "00:15:00";
 const MAX_STEP_ATTEMPTS = 2;
-const DEVICE_POLL_MS = 30000;
-const DEVICE_POLL_INTERVAL_MS = 500;
-const RETRYABLE_STATUSES = new Set(["failed", "timeout", "waiting", "blocked"]);
+const RETRYABLE_STATUSES = new Set(["failed", "timeout"]);
 
 const sb = createClient(URL, KEY, {
   auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false },
 });
 
-const out = (b: unknown, s = 200) => new Response(JSON.stringify(b), {
-  status: s,
+const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status,
   headers: { "content-type": "application/json", "cache-control": "no-store" },
 });
 
-const eq = (a: string, b: string) => {
+const constantTimeEqual = (a: string, b: string) => {
   const x = new TextEncoder().encode(a);
   const y = new TextEncoder().encode(b);
   if (x.length !== y.length) return false;
@@ -34,16 +32,16 @@ const eq = (a: string, b: string) => {
   return d === 0;
 };
 
-const tokenOf = (r: Request) => {
-  const h = r.headers.get("authorization") ?? "";
-  return h.startsWith("Bearer ") ? h.slice(7) : r.headers.get("x-aria-autonomy-token");
+const tokenOf = (request: Request) => {
+  const auth = request.headers.get("authorization") ?? "";
+  return auth.startsWith("Bearer ") ? auth.slice(7) : request.headers.get("x-aria-autonomy-token");
 };
 
-const headersFor = (token: string | null) => {
-  const h: Record<string, string> = { "content-type": "application/json" };
-  if (token) h["x-aria-autonomy-token"] = token;
-  else if (SECRET) h.authorization = `Bearer ${SECRET}`;
-  return h;
+const downstreamHeaders = (token: string | null) => {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers["x-aria-autonomy-token"] = token;
+  else if (SECRET) headers.authorization = `Bearer ${SECRET}`;
+  return headers;
 };
 
 const internalHeaders = () => ({
@@ -57,81 +55,84 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
   return data;
 };
 
-async function auth(r: Request) {
-  const token = tokenOf(r);
-  if (token && SECRET && eq(token, SECRET)) return true;
+async function authorized(request: Request) {
+  const token = tokenOf(request);
+  if (token && SECRET && constantTimeEqual(token, SECRET)) return true;
   if (!token) return false;
   const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: token });
   return !error && data === true;
 }
 
-async function recall(goal: string, token: string | null) {
-  try {
-    const r = await fetch(MEMORY, {
-      method: "POST",
-      headers: headersFor(token),
-      body: JSON.stringify({ action: "search", query: goal, limit: 8 }),
-    });
-    const b = await r.json().catch(() => null);
-    return {
-      available: r.ok && b?.ok === true,
-      results: Array.isArray(b?.results) ? b.results : [],
-    };
-  } catch {
-    return { available: false, results: [] };
-  }
-}
-
-async function plan(goal: string, context: unknown, token: string | null) {
-  const r = await fetch(PLANNER, {
-    method: "POST",
-    headers: headersFor(token),
-    body: JSON.stringify({ goal, context }),
-  });
-  const b = await r.json().catch(() => null);
-  if (!r.ok || !b?.ok || !Array.isArray(b.plan?.steps)) throw new Error(`planner_${r.status}`);
-  return b.plan.steps;
-}
-
-async function renewLease(id: string, workerId = V) {
+async function renewLease(missionId: string) {
   const renewed = await rpc("aria_internal.aria_mission_renew_lease", {
-    p_mission_id: id,
-    p_worker_id: workerId,
+    p_mission_id: missionId,
+    p_worker_id: V,
     p_lease_for: LEASE_FOR,
   });
   if (!renewed) throw new Error("mission_lease_lost");
   return renewed;
 }
 
-async function emit(id: string, event_type: string, payload: unknown) {
-  const result = await rpc("aria_mission_append_event_lease", {
-    p_mission_id: id,
-    p_worker_id: V,
-    p_event: { event_type, payload },
-  });
-  if (!result) throw new Error("mission_event_lease_lost");
-  return result;
-}
-
-async function update(id: string, patch: Record<string, unknown>) {
-  const result = await rpc("aria_mission_update_lease", {
-    p_mission_id: id,
+async function updateMission(missionId: string, patch: Record<string, unknown>) {
+  const updated = await rpc("aria_mission_update_lease", {
+    p_mission_id: missionId,
     p_worker_id: V,
     p_mission: patch,
   });
-  if (!result) throw new Error("mission_lease_lost");
-  return result;
+  if (!updated) throw new Error("mission_lease_lost");
+  return updated;
 }
 
-function targetType(step: any) {
+async function emitEvent(missionId: string, event_type: string, payload: unknown) {
+  const event = await rpc("aria_mission_append_event_lease", {
+    p_mission_id: missionId,
+    p_worker_id: V,
+    p_event: { event_type, payload },
+  });
+  if (!event) throw new Error("mission_event_lease_lost");
+  return event;
+}
+
+async function recall(goal: string, token: string | null) {
+  try {
+    const response = await fetch(MEMORY, {
+      method: "POST",
+      headers: downstreamHeaders(token),
+      body: JSON.stringify({ action: "search", query: goal, limit: 8 }),
+    });
+    const body = await response.json().catch(() => null);
+    return {
+      available: response.ok && body?.ok === true,
+      results: Array.isArray(body?.results) ? body.results : [],
+    };
+  } catch {
+    return { available: false, results: [] };
+  }
+}
+
+async function createPlan(goal: string, context: unknown, token: string | null) {
+  const response = await fetch(PLANNER, {
+    method: "POST",
+    headers: downstreamHeaders(token),
+    body: JSON.stringify({ goal, context }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.ok || !Array.isArray(body.plan?.steps)) {
+    throw new Error(`planner_${response.status}`);
+  }
+  return body.plan.steps;
+}
+
+function executorType(step: any) {
   return String(step?.executor_type || step?.target?.type || "");
 }
 
 function validateStep(step: any) {
-  const type = targetType(step);
-  const operation = String(step?.operation || "");
-  if (!["connector", "device", "model", "agent"].includes(type)) throw new Error(`unknown_executor_type:${type}`);
-  if (!operation) throw new Error("operation_missing");
+  const type = executorType(step);
+  if (!["connector", "device", "model", "agent"].includes(type)) {
+    throw new Error(`unknown_executor_type:${type}`);
+  }
+  if (!step?.operation) throw new Error("operation_missing");
   if (type === "connector" && !step.target?.connector_id) throw new Error("connector_target_missing");
   if (type === "device" && !step.target?.device_id) throw new Error("device_target_missing");
   if (type === "model" && (!step.target?.provider_id || !step.target?.account_id || !step.target?.model_id)) {
@@ -151,81 +152,86 @@ function verifyStep(step: any, result: any) {
   return true;
 }
 
-async function connectorExecute(id: string, step: any) {
-  const connector = String(step.target.connector_id);
-  const op = String(step.operation);
-  if (connector === "supabase" && (op === "health" || op === "mission_read")) {
-    return {
-      status: "succeeded",
-      executor_type: "connector",
-      connector_id: connector,
-      operation: op,
-      data: op === "mission_read" ? await rpc("aria_mission_get", { p_mission_id: id }) : { ok: true },
-    };
-  }
-  if (connector === "cloudflare" && ["health", "worker_read", "deployment_read"].includes(op)) {
-    const r = await fetch("https://aria.robvg9.workers.dev/", { headers: { "user-agent": `${V}-connector-probe` } });
-    if (!r.ok) throw new Error(`cloudflare_unavailable_${r.status}`);
-    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation: op, http_status: r.status };
-  }
-  throw new Error(`connector_operation_not_allowed:${connector}:${op}`);
+function jobIdFor(missionId: string, stepId: string) {
+  const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 28);
+  return `uo_${safe(missionId)}_${safe(stepId)}`;
 }
 
-async function readJob(jobId: string) {
-  const r = await fetch(RUNTIME, {
+async function getExecutionJob(jobId: string) {
+  const response = await fetch(RUNTIME, {
     method: "POST",
     headers: internalHeaders(),
     body: JSON.stringify({ action: "get_job", job_id: jobId }),
   });
-  const b = await r.json().catch(() => null);
-  return { r, b };
+  const body = await response.json().catch(() => null);
+  return { response, body };
 }
 
-async function deviceExecute(id: string, step: any, attempt: number) {
-  const safeId = (v: string) => v.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 24);
-  const jobId = `uo_${safeId(id)}_${safeId(String(step.id))}_a${attempt}`;
-  const terminal = ["succeeded", "failed", "timeout", "cancelled", "blocked"];
-  let current = await readJob(jobId);
-  if (!(current.r.ok && current.b?.ok && current.b.job)) {
-    const req = {
+async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
+  const response = await fetch(RUNTIME, {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({
       action: "enqueue_device_job",
       job_id: jobId,
-      mission_id: id,
+      mission_id: missionId,
       device_id: step.target.device_id,
       operation: "shell.execute",
       command: String(step.input?.command || "echo ARIA_UO_LIVE"),
       cwd: typeof step.input?.cwd === "string" ? step.input.cwd : null,
       timeout_ms: Number.isInteger(step.timeout_ms) ? step.timeout_ms : 30000,
       policy: step.policy || {},
-      metadata: { runner: V, executor_type: "device", attempt, idempotency_key: jobId },
-    };
-    const enq = await fetch(RUNTIME, { method: "POST", headers: internalHeaders(), body: JSON.stringify(req) });
-    const b = await enq.json().catch(() => null);
-    if (!enq.ok || !b?.ok) throw new Error(`device_enqueue_${enq.status}`);
-  }
-  const deadline = Date.now() + DEVICE_POLL_MS;
-  while (Date.now() < deadline) {
-    await renewLease(id);
-    current = await readJob(jobId);
-    const job = current.b?.job;
-    const status = String(job?.status || "");
-    if (current.r.ok && current.b?.ok && job && terminal.includes(status)) {
-      return {
-        status,
-        executor_type: "device",
-        operation: "shell.execute",
-        job_id: jobId,
-        exit_code: job.exit_code,
-        stdout: job.stdout,
-        stderr: job.stderr,
-      };
-    }
-    await new Promise((resolve) => setTimeout(resolve, DEVICE_POLL_INTERVAL_MS));
-  }
-  return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId };
+      metadata: { runner: V, executor_type: "device", idempotency_key: jobId },
+    }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.ok) throw new Error(`device_enqueue_${response.status}`);
+  return body.job || body;
 }
 
-async function modelExecute(id: string, step: any, token: string | null) {
+async function deviceExecute(missionId: string, step: any) {
+  const jobId = jobIdFor(missionId, String(step.id));
+  let current = await getExecutionJob(jobId);
+  if (!(current.response.ok && current.body?.ok && current.body.job)) {
+    await enqueueDeviceJob(missionId, step, jobId);
+    current = await getExecutionJob(jobId);
+  }
+  const job = current.body?.job;
+  if (!job) return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId };
+  const status = String(job.status || "");
+  if (["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
+    return {
+      status,
+      executor_type: "device",
+      operation: "shell.execute",
+      job_id: jobId,
+      exit_code: job.exit_code,
+      stdout: job.stdout,
+      stderr: job.stderr,
+      result: job.result,
+    };
+  }
+  return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId, job_status: status };
+}
+
+async function connectorExecute(missionId: string, step: any) {
+  const connector = String(step.target.connector_id);
+  const operation = String(step.operation);
+  if (connector === "supabase" && operation === "health") {
+    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: { ok: true } };
+  }
+  if (connector === "supabase" && operation === "mission_read") {
+    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: await rpc("aria_mission_get", { p_mission_id: missionId }) };
+  }
+  if (connector === "cloudflare" && ["health", "worker_read", "deployment_read"].includes(operation)) {
+    const response = await fetch("https://aria.robvg9.workers.dev/", { headers: { "user-agent": `${V}-connector-probe` } });
+    if (!response.ok) throw new Error(`cloudflare_unavailable_${response.status}`);
+    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, http_status: response.status };
+  }
+  throw new Error(`connector_operation_not_allowed:${connector}:${operation}`);
+}
+
+async function modelExecute(missionId: string, step: any, token: string | null) {
   const route = {
     status: "selected",
     provider_id: String(step.target.provider_id),
@@ -235,343 +241,260 @@ async function modelExecute(id: string, step: any, token: string | null) {
   };
   const authorization = step.authorization && typeof step.authorization === "object"
     ? step.authorization
-    : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${id}` };
-  const r = await fetch(EXEC, {
+    : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
+  const response = await fetch(EXEC, {
     method: "POST",
-    headers: headersFor(token),
+    headers: downstreamHeaders(token),
     body: JSON.stringify({
       execution_version: "1",
-      request_id: `${id}:${step.id}`,
+      request_id: `${missionId}:${step.id}`,
       task_id: step.id,
       capability: String(step.operation),
       selected_route: route,
       authorization,
       input: step.input || {},
       policy: step.policy || {},
-      metadata: { mission_id: id, step_id: step.id, executor_type: "model", runner: V },
+      metadata: { mission_id: missionId, step_id: step.id, executor_type: "model", runner: V },
     }),
   });
-  const b = await r.json().catch(() => null);
-  if (!r.ok || b?.status !== "succeeded") throw new Error(String(b?.error?.message || b?.error || `execution_${r.status}`));
-  return {
-    ...b,
-    executor_type: "model",
-    operation: step.operation,
-    provider_id: route.provider_id,
-    account_id: route.account_id,
-    model_id: route.model_id,
-  };
+  const body = await response.json().catch(() => null);
+  if (!response.ok || body?.status !== "succeeded") throw new Error(String(body?.error?.message || body?.error || `execution_${response.status}`));
+  return { ...body, executor_type: "model", operation: step.operation, provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id };
 }
 
-async function agentExecute(id: string, step: any, token: string | null) {
-  const agentId = String(step.target?.agent_id || step.agent_id || "");
-  const r = await fetch(AGENT, {
+async function agentExecute(missionId: string, step: any, token: string | null) {
+  const agentId = String(step.target.agent_id);
+  const response = await fetch(AGENT, {
     method: "POST",
-    headers: headersFor(token),
-    body: JSON.stringify({
-      mission_id: id,
-      step_id: String(step.id),
-      agent_id: agentId,
-      operation: String(step.operation || "delegate"),
-      risk: step.risk || "READ",
-      policy: step.policy || {},
-      input: step.input || {},
-    }),
+    headers: downstreamHeaders(token),
+    body: JSON.stringify({ mission_id: missionId, step_id: String(step.id), agent_id: agentId, operation: String(step.operation || "delegate"), risk: step.risk || "READ", policy: step.policy || {}, input: step.input || {} }),
   });
-  const b = await r.json().catch(() => null);
-  if (!r.ok || b?.status !== "succeeded") throw new Error(String(b?.error?.message || b?.error || `agent_execution_${r.status}`));
-  return { ...b, executor_type: "agent", operation: "delegate", agent_id: b.agent_id || agentId };
+  const body = await response.json().catch(() => null);
+  if (!response.ok || body?.status !== "succeeded") throw new Error(String(body?.error?.message || body?.error || `agent_execution_${response.status}`));
+  return { ...body, executor_type: "agent", operation: "delegate", agent_id: body.agent_id || agentId };
 }
 
-async function executeStep(id: string, step: any, attempt: number, token: string | null) {
+async function executeStep(missionId: string, step: any, token: string | null) {
   validateStep(step);
-  const type = targetType(step);
-  if (type === "connector") return connectorExecute(id, step);
-  if (type === "device") return deviceExecute(id, step, attempt);
-  if (type === "model") return modelExecute(id, step, token);
-  if (type === "agent") return agentExecute(id, step, token);
+  const type = executorType(step);
+  if (type === "connector") return connectorExecute(missionId, step);
+  if (type === "device") return deviceExecute(missionId, step);
+  if (type === "model") return modelExecute(missionId, step, token);
+  if (type === "agent") return agentExecute(missionId, step, token);
   throw new Error(`unknown_executor_type:${type}`);
 }
 
-function depsReady(step: any, done: Set<string>) {
-  return (Array.isArray(step?.depends_on) ? step.depends_on : []).every((d: any) => done.has(String(d)));
+function dependenciesSatisfied(step: any, completed: Set<string>) {
+  return (Array.isArray(step?.depends_on) ? step.depends_on : []).every((dependency: any) => completed.has(String(dependency)));
 }
 
-function parallelSafe(step: any) {
-  const t = targetType(step);
-  const r = String(step?.risk || "READ").toUpperCase();
-  return (t === "connector" || t === "model" || t === "agent") && r === "READ";
+function readyBatch(steps: any[], completed: Set<string>) {
+  const ready = steps.filter((step) => !completed.has(String(step.id)) && dependenciesSatisfied(step, completed));
+  if (ready.length > 1 && ready.slice(0, 2).every((step) => String(step.risk || "READ").toUpperCase() === "READ" && executorType(step) !== "device")) {
+    return ready.slice(0, 2);
+  }
+  return ready.slice(0, 1);
 }
 
-function batch(steps: any[], done: Set<string>) {
-  const ready = steps.filter((s) => !done.has(String(s.id)) && depsReady(s, done));
-  return ready.length > 1 && ready.slice(0, 2).every(parallelSafe) ? ready.slice(0, 2) : ready.slice(0, 1);
-}
+Deno.serve(async (request) => {
+  if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
+  if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
 
-Deno.serve(async (r) => {
-  if (r.method !== "POST") return out({ error: "method_not_allowed" }, 405);
-  if (!(await auth(r))) return out({ error: "unauthorized" }, 401);
-
-  const body = await r.json().catch(() => ({}));
-  const token = tokenOf(r);
+  const body = await request.json().catch(() => ({}));
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
+  const token = tokenOf(request);
 
   try {
     await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
-
     const mission = requestedMissionId
-      ? await rpc("aria_mission_claim_by_id_lease", {
-          p_mission_id: requestedMissionId,
-          p_worker_id: V,
-          p_lease_for: LEASE_FOR,
-        })
-      : await rpc("aria_mission_claim_next_lease", {
-          p_worker_id: V,
-          p_lease_for: LEASE_FOR,
-        });
-
+      ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
+      : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
     if (!mission) return out({ ok: true, status: "idle", runtime: V });
 
-    const id = String(mission.mission_id);
-    const goal = String(mission.goal || "");
-    await renewLease(id);
+    const missionId = String(mission.mission_id);
+    await renewLease(missionId);
 
-    const recalled = await recall(goal, token);
-    const context = {
+    const recalled = await recall(String(mission.goal || ""), token);
+    const cognitiveContext = {
       version: "cognitive-loop-v2",
       available: recalled.available,
       recall_count: recalled.results.length,
-      memory_ids: recalled.results.map((x: any) => x.memory_id || x.id).filter(Boolean),
+      memory_ids: recalled.results.map((item: any) => item.memory_id || item.id).filter(Boolean),
     };
-    await emit(id, "cognitive_recall_completed", context);
+    await emitEvent(missionId, "cognitive_recall_completed", cognitiveContext);
 
     const steps = Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length
       ? mission.checkpoint.plan
-      : await plan(goal, context, token);
+      : await createPlan(String(mission.goal || ""), cognitiveContext, token);
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
     for (const step of steps) validateStep(step);
 
-    const done = new Set<string>(Array.isArray(mission.checkpoint?.completed_steps)
-      ? mission.checkpoint.completed_steps.map(String)
-      : []);
-    const attempts: Record<string, number> = mission.checkpoint?.attempts && typeof mission.checkpoint.attempts === "object"
-      ? { ...mission.checkpoint.attempts }
-      : {};
-    const results: Record<string, unknown> = mission.checkpoint?.results && typeof mission.checkpoint.results === "object"
-      ? { ...mission.checkpoint.results }
-      : {};
+    const completed = new Set<string>(Array.isArray(mission.checkpoint?.completed_steps) ? mission.checkpoint.completed_steps.map(String) : []);
+    const attempts: Record<string, number> = mission.checkpoint?.attempts && typeof mission.checkpoint.attempts === "object" ? { ...mission.checkpoint.attempts } : {};
+    const results: Record<string, unknown> = mission.checkpoint?.results && typeof mission.checkpoint.results === "object" ? { ...mission.checkpoint.results } : {};
+    const pendingJobs: Record<string, unknown> = mission.checkpoint?.pending_jobs && typeof mission.checkpoint.pending_jobs === "object" ? { ...mission.checkpoint.pending_jobs } : {};
 
-    let checkpoint: Record<string, unknown> = {
-      ...(mission.checkpoint || {}),
-      cognitive_context: context,
-      cognitive_loop: { version: "cognitive-loop-v2", recalled_before_planning: true },
-      plan: steps,
-      completed_steps: [...done],
-      attempts,
-      results,
-    };
-
-    await update(id, {
+    await updateMission(missionId, {
       status: "running",
       total_steps: steps.length,
-      current_step: done.size,
-      completed_steps: done.size,
-      next_action: done.size < steps.length ? "next_ready_batch" : "verify_goal",
-      checkpoint,
-    });
-
-    while (done.size < steps.length) {
-      await renewLease(id);
-      const b = batch(steps, done);
-      if (!b.length) throw new Error("dependencies_unsatisfied");
-
-      await emit(id, "step_batch_started", {
-        step_ids: b.map((s: any) => String(s.id)),
-        executor_types: b.map((s: any) => targetType(s)),
-        parallel: b.length > 1,
-      });
-
-      const batchResults = await Promise.all(b.map(async (step: any) => {
-        const sid = String(step.id);
-        const maxAttempts = Math.min(
-          Math.max(1, Number.isInteger(step.max_attempts) ? step.max_attempts : MAX_STEP_ATTEMPTS),
-          3,
-        );
-
-        let result: any = null;
-        let passed = false;
-        let finalAttempt = Number(attempts[sid] || 0);
-
-        for (let localAttempt = 1; localAttempt <= maxAttempts; localAttempt += 1) {
-          finalAttempt += 1;
-          attempts[sid] = finalAttempt;
-          await renewLease(id);
-          await emit(id, "step_started", {
-            step_id: sid,
-            operation: step.operation,
-            executor_type: targetType(step),
-            attempt: finalAttempt,
-          });
-
-          try {
-            result = await executeStep(id, step, finalAttempt, token);
-            passed = verifyStep(step, result);
-            if (passed) {
-              results[sid] = result;
-              await emit(id, "step_succeeded", {
-                step_id: sid,
-                executor_type: result.executor_type,
-                operation: result.operation || step.operation,
-                agent_id: result.agent_id || null,
-                attempt: finalAttempt,
-                verified: true,
-              });
-              break;
-            }
-            await emit(id, "step_failed", {
-              step_id: sid,
-              executor_type: targetType(step),
-              operation: step.operation,
-              attempt: finalAttempt,
-              status: result?.status || "verification_failed",
-              reason: "verification_failed",
-            });
-          } catch (e) {
-            const reason = e instanceof Error ? e.message : String(e);
-            result = {
-              status: "failed",
-              executor_type: targetType(step),
-              operation: step.operation,
-              error: { code: "executor_error", message: reason },
-            };
-            passed = false;
-            await emit(id, "step_failed", {
-              step_id: sid,
-              executor_type: targetType(step),
-              operation: step.operation,
-              attempt: finalAttempt,
-              reason,
-              agent_id: step.target?.agent_id || null,
-            });
-          }
-
-          const retryable = step.retryable !== false && RETRYABLE_STATUSES.has(String(result?.status || "failed"));
-          if (!passed && retryable && localAttempt < maxAttempts) {
-            await emit(id, "step_retrying", {
-              step_id: sid,
-              executor_type: targetType(step),
-              previous_attempt: finalAttempt,
-              next_attempt: finalAttempt + 1,
-              max_attempts: maxAttempts,
-              reason: result?.error?.code || result?.status || "verification_failed",
-            });
-          }
-        }
-
-        return { step, result, passed, attempt: finalAttempt };
-      }));
-
-      const failures = batchResults.filter((x: any) => !x.passed);
-      for (const x of batchResults) if (x.passed) done.add(String(x.step.id));
-
-      checkpoint = {
-        ...checkpoint,
-        completed_steps: [...done],
+      current_step: completed.size,
+      completed_steps: completed.size,
+      next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal",
+      checkpoint: {
+        ...(mission.checkpoint || {}),
+        cognitive_context: cognitiveContext,
+        cognitive_loop: { version: "cognitive-loop-v2", recalled_before_planning: true },
+        plan: steps,
+        completed_steps: [...completed],
         attempts,
         results,
-        last_batch: b.map((s: any) => String(s.id)),
-        last_executor_types: b.map((s: any) => targetType(s)),
+        pending_jobs: pendingJobs,
+      },
+    });
+
+    while (completed.size < steps.length) {
+      await renewLease(missionId);
+      const batch = readyBatch(steps, completed);
+      if (!batch.length) throw new Error("dependencies_unsatisfied");
+
+      await emitEvent(missionId, "step_batch_started", {
+        step_ids: batch.map((step) => String(step.id)),
+        executor_types: batch.map(executorType),
+        parallel: batch.length > 1,
+      });
+
+      const outcomes = await Promise.all(batch.map(async (step) => {
+        const id = String(step.id);
+        const nextAttempt = Number(attempts[id] || 0) + 1;
+        attempts[id] = nextAttempt;
+        await renewLease(missionId);
+        await emitEvent(missionId, "step_started", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt });
+
+        let result: any;
+        try {
+          result = await executeStep(missionId, step, token);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
+        }
+
+        const passed = verifyStep(step, result);
+        if (passed) {
+          results[id] = result;
+          pendingJobs[id] = undefined;
+          await emitEvent(missionId, "step_succeeded", { step_id: id, executor_type: result.executor_type, operation: result.operation || step.operation, agent_id: result.agent_id || null, attempt: nextAttempt, verified: true });
+          return { step, result, passed: true };
+        }
+
+        if (String(result?.status) === "waiting" && executorType(step) === "device") {
+          pendingJobs[id] = { job_id: result.job_id, status: result.job_status || "queued", attempt: nextAttempt };
+          await emitEvent(missionId, "mission_waiting", { step_id: id, executor_type: "device", job_id: result.job_id, attempt: nextAttempt });
+          return { step, result, waiting: true, passed: false };
+        }
+
+        await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || result?.status || "verification_failed" });
+        return { step, result, passed: false, waiting: false };
+      }));
+
+      const waiting = outcomes.find((item) => item.waiting);
+      for (const outcome of outcomes) if (outcome.passed) completed.add(String(outcome.step.id));
+
+      const checkpoint = {
+        ...(mission.checkpoint || {}),
+        cognitive_context: cognitiveContext,
+        plan: steps,
+        completed_steps: [...completed],
+        attempts,
+        results,
+        pending_jobs: Object.fromEntries(Object.entries(pendingJobs).filter(([, value]) => value !== undefined)),
+        last_batch: batch.map((step) => String(step.id)),
+        last_executor_types: batch.map(executorType),
       };
 
-      if (failures.length) {
-        checkpoint = {
-          ...checkpoint,
-          recovery: {
-            status: "retry_exhausted",
-            failed_step_ids: failures.map((x: any) => String(x.step.id)),
-            attempted_at: new Date().toISOString(),
-          },
-        };
-        await update(id, {
-          status: "failed",
-          current_step: done.size,
-          completed_steps: done.size,
-          next_action: "recovery: scheduler may resume from checkpoint",
-          checkpoint,
+      if (waiting) {
+        await updateMission(missionId, {
+          status: "paused",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: `resume: pending device job ${String(waiting.step.id)}`,
+          checkpoint: { ...checkpoint, recovery: { status: "waiting_for_async_executor" } },
+          lease_owner: null,
+          lease_until: null,
         });
-        return out({
-          ok: false,
-          status: "failed",
-          mission_id: id,
-          runtime: V,
-          completed_steps: done.size,
-          failed_steps: failures.map((x: any) => String(x.step.id)),
-        }, 200);
+        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id) });
       }
 
-      checkpoint = {
-        ...checkpoint,
-        recovery: { status: "clear" },
-      };
-      await update(id, {
-        current_step: done.size,
-        completed_steps: done.size,
-        next_action: done.size < steps.length ? "next_ready_batch" : "verify_goal",
-        checkpoint,
+      const failures = outcomes.filter((item) => !item.passed);
+      if (failures.length) {
+        const retryableFailure = failures.find((item) => item.step.retryable !== false && RETRYABLE_STATUSES.has(String(item.result?.status || "failed")) && Number(attempts[String(item.step.id)]) < Math.min(3, Number(item.step.max_attempts || MAX_STEP_ATTEMPTS)));
+        if (retryableFailure) {
+          await updateMission(missionId, {
+            status: "running",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: `retry: ${String(retryableFailure.step.id)}`,
+            checkpoint: { ...checkpoint, recovery: { status: "retry_scheduled", failed_step_id: String(retryableFailure.step.id) } },
+          });
+          await emitEvent(missionId, "step_retrying", { step_id: String(retryableFailure.step.id), executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[String(retryableFailure.step.id)]) + 1 });
+          continue;
+        }
+
+        await updateMission(missionId, {
+          status: "failed",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: "recovery: scheduler may resume from checkpoint",
+          checkpoint: { ...checkpoint, recovery: { status: "retry_exhausted", failed_step_ids: failures.map((item) => String(item.step.id)) } },
+        });
+        return out({ ok: false, status: "failed", mission_id: missionId, runtime: V, completed_steps: completed.size, failed_steps: failures.map((item) => String(item.step.id)) });
+      }
+
+      await updateMission(missionId, {
+        status: "running",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal",
+        checkpoint: { ...checkpoint, recovery: { status: "clear" } },
       });
     }
 
-    const finalVerification = steps.every((step: any) => done.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
-    if (!finalVerification) throw new Error("final_verification_failed");
+    const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
+    if (!finalVerified) throw new Error("final_verification_failed");
 
-    const executorTypes = [...new Set(steps.map((s: any) => targetType(s)))];
-    const agentIds = steps.filter((s: any) => targetType(s) === "agent")
-      .map((s: any) => String(s.target?.agent_id || s.agent_id || ""))
-      .filter(Boolean);
+    const executorTypes = [...new Set(steps.map(executorType))];
+    const agentIds = steps.filter((step) => executorType(step) === "agent").map((step) => String(step.target?.agent_id || "")).filter(Boolean);
+    await emitEvent(missionId, "mission_verified", { steps: steps.length, completed_steps: completed.size, executor_types: executorTypes, agent_ids: agentIds, verified: true });
 
-    await emit(id, "mission_verified", {
-      steps: steps.length,
-      completed_steps: done.size,
-      executor_types: executorTypes,
-      agent_ids: agentIds,
-      verified: true,
-    });
-
-    await update(id, {
+    await updateMission(missionId, {
       status: "succeeded",
       current_step: steps.length,
       total_steps: steps.length,
       completed_steps: steps.length,
       next_action: null,
+      finished_at: new Date().toISOString(),
       lease_owner: null,
       lease_until: null,
-      finished_at: new Date().toISOString(),
       checkpoint: {
-        ...checkpoint,
-        completed_steps: [...done],
+        ...(mission.checkpoint || {}),
+        cognitive_context: cognitiveContext,
+        plan: steps,
+        completed_steps: [...completed],
         attempts,
         results,
-        model_execution_verified: steps.some((s: any) => targetType(s) === "model"),
-        agent_execution_verified: steps.some((s: any) => targetType(s) === "agent"),
+        pending_jobs: {},
+        model_execution_verified: steps.some((step) => executorType(step) === "model"),
+        agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
         universal_execution_verified: true,
         executor_types: executorTypes,
       },
     });
 
-    return out({
-      ok: true,
-      status: "succeeded",
-      mission_id: id,
-      runtime: V,
-      executor_types: executorTypes,
-      results: done.size,
-    });
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
-    const id = requestedMissionId;
-    if (id) {
+    return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    if (requestedMissionId) {
       try {
-        await update(id, {
+        await updateMission(requestedMissionId, {
           status: "paused",
           next_action: "recovery: universal runner exception",
           last_stderr: reason,
@@ -579,9 +502,9 @@ Deno.serve(async (r) => {
           lease_until: null,
         });
       } catch {
-        // Lease fencing intentionally prevents a stale worker from mutating mission state.
+        // Lease fencing intentionally rejects stale mutation.
       }
     }
-    return out({ ok: false, status: "paused", mission_id: id, runtime: V }, 200);
+    return out({ ok: false, status: "paused", mission_id: requestedMissionId, runtime: V });
   }
 });
