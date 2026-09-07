@@ -23,7 +23,11 @@ function descriptorFor(executor) {
     executor_id: executor.executor_id,
     type: executor.type,
     status: executor.status,
-    operations: [...operationsFor(executor)]
+    operations: [...operationsFor(executor)],
+    capabilities: Array.isArray(executor.capabilities) ? [...executor.capabilities] : [],
+    health: executor.health ?? null,
+    availability: executor.availability ?? null,
+    version: executor.version ?? null
   };
 }
 
@@ -33,10 +37,14 @@ function resolveAgainstEntry(step, executor) {
     ? 'connector_id'
     : executor.type === 'device'
       ? 'device_id'
-      : 'agent_id';
+      : executor.type === 'agent'
+        ? 'agent_id'
+        : executor.type === 'model'
+          ? 'model_id'
+          : null;
 
-  if (typeof target[requiredKey] !== 'string' || target[requiredKey].trim() === '') {
-    fail('executor_target_missing', `${executor.type} target ${requiredKey} missing`);
+  if (!requiredKey || typeof target[requiredKey] !== 'string' || target[requiredKey].trim() === '') {
+    fail('executor_target_missing', `${executor.type} target ${requiredKey || 'identifier'} missing`);
   }
 
   const operation = step.operation;
@@ -46,6 +54,10 @@ function resolveAgainstEntry(step, executor) {
 
   if (!supportsOperation(executor, operation)) {
     fail('operation_not_registered', `${executor.type} operation not registered: ${operation}`);
+  }
+
+  if (executor.availability != null && executor.availability !== 'available') {
+    fail('executor_unavailable', `executor unavailable: ${executor.type}`);
   }
 
   return Object.freeze({
@@ -62,6 +74,7 @@ function targetTypeHint(target) {
   if (typeof target.connector_id === 'string' && target.connector_id.trim()) hints.push('connector');
   if (typeof target.device_id === 'string' && target.device_id.trim()) hints.push('device');
   if (typeof target.agent_id === 'string' && target.agent_id.trim()) hints.push('agent');
+  if (typeof target.model_id === 'string' && target.model_id.trim()) hints.push('model');
   if (hints.length === 1) return hints[0];
   if (hints.length > 1) {
     fail('executor_target_ambiguous', 'target contains multiple executor identity hints', { hints });
@@ -75,11 +88,11 @@ function targetTypeHint(target) {
  * Precedence:
  * 1. explicit executor_type
  * 2. explicit target.type
- * 3. unique executor identity hint in target (connector_id/device_id/agent_id)
+ * 3. unique executor identity hint in target
  * 4. unique operation match across registered executors
  * 5. otherwise fail closed (ambiguous / unavailable / unsupported)
  *
- * This layer does not select providers, models, accounts or credentials.
+ * This layer never selects a provider, model, account or credential.
  */
 function selectExecutor(step, registry = { list: listExecutors }) {
   if (!step || typeof step !== 'object') {
@@ -134,7 +147,9 @@ function selectExecutor(step, registry = { list: listExecutors }) {
   }
 
   const matches = executors.filter(e =>
-    (e.status === 'registered' || e.status === 'ready') && supportsOperation(e, operation)
+    (e.status === 'registered' || e.status === 'ready') &&
+    (e.availability == null || e.availability === 'available') &&
+    supportsOperation(e, operation)
   );
 
   if (matches.length === 0) {
