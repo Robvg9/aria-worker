@@ -37,11 +37,11 @@ const {createMultiAgentRuntime}=require('../agents/runtime-v2');
 
   const dissentRuntime=createMultiAgentRuntime({
     agents:agents.slice(0,2),
-    executors:{planner:async()=>({status:'succeeded',claim:'A'}),researcher:async()=>({status:'succeeded',claim:'B'})},
+    executors:{planner:async()=>({status:'succeeded',claim:'A',evidence:'planner'}),researcher:async()=>({status:'succeeded',claim:'B',evidence:'researcher'})},
     maxParallel:2,
     verifier:()=>false
   });
-  const dissent=await dissentRuntime.run({goal:'detect disagreement',tasks:[{id:'d1',cost:1},{id:'d2',cost:1}]});
+  const dissent=await dissentRuntime.run({goal:'detect disagreement',tasks:[{id:'d1',cost:1,claim:'A'},{id:'d2',cost:1,claim:'B'}]});
   assert.equal(dissent.status,'needs_review');
   assert.equal(dissent.decision.arbitration.agreement,'disagreement');
 
