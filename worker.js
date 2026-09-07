@@ -83,6 +83,16 @@ function rewriteAuthChallenge(response) {
   headers.set("Access-Control-Expose-Headers", "WWW-Authenticate, X-ARIA-Trace-Id");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
+function rewriteAuthorizeHtml(html, origin) {
+  const publicStart = `${origin}/authorize/start`;
+  return html
+    .replace(/<form\b[^>]*\baction\s*=\s*["'][^"']*\/authorize\/start[^"']*["'][^>]*>/gi,
+      `<form method="post" action="${publicStart}">`)
+    .replace(/<form\b(?![^>]*\baction\s*=)[^>]*>/gi,
+      `<form method="post" action="${publicStart}">`)
+    .replace(/action\s*=\s*["']\/authorize\/start["']/gi,
+      `action="${publicStart}"`);
+}
 async function proxyOAuth(request, url) {
   const upstreamUrl = new URL(SUPABASE_OAUTH);
   const suffix = url.pathname.replace(/^\/(?:oauth\/)?/, "");
@@ -100,10 +110,20 @@ async function proxyOAuth(request, url) {
     const responseHeaders = new Headers(upstream.headers);
     responseHeaders.set("content-type", "text/html; charset=utf-8");
     responseHeaders.set("cache-control", "no-store");
+    responseHeaders.set("x-content-type-options", "nosniff");
     const html = await upstream.text();
-    const publicStart = `${url.origin}/authorize/start`;
-    const rewritten = html.replace(new RegExp(`action=[\"']${SUPABASE_OAUTH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\/authorize\/start[\"']`), `action="${publicStart}"`);
+    const rewritten = rewriteAuthorizeHtml(html, url.origin);
     return new Response(rewritten, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
+  }
+  if (url.pathname === "/authorize/start" || url.pathname === "/authorize/start/") {
+    const responseHeaders = new Headers(upstream.headers);
+    responseHeaders.set("content-type", "text/html; charset=utf-8");
+    responseHeaders.set("cache-control", "no-store");
+    if (upstream.status >= 400) {
+      const body = await upstream.text();
+      return new Response(`<h1>Authorization could not continue</h1><p>Please go back and try again.</p><pre style="white-space:pre-wrap">${body.replace(/[<>&\"]/g, "")}</pre>`, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
+    }
+    return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
   }
   return upstream;
 }
@@ -218,4 +238,4 @@ export default {
 };
 
 // Phase 1 certification trigger: public identifiers remain canonical at the Worker boundary.
-// Deploy trigger: align MCP protected-resource metadata with public OAuth issuer/resource.
+// Deploy trigger: make OAuth login form deterministic for browser submission.
