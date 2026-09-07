@@ -25,3 +25,4 @@ jobs:
           curl --fail-with-body --silent --show-error \
             "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-gemini-direct-live-check-v1?nonce=w8ARLkNjrXg8GVjU19mqbl05kKdv_YIjhasaeAbcx40"
           echo
+          # trigger
