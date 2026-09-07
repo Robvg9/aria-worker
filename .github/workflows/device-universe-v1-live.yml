@@ -1,0 +1,23 @@
+name: Device Universe v1 LIVE
+# Phase 8 certification: abstract device resources -> capabilities -> health -> security -> cognition/executor boundary.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full regression suite
+        run: npm test
+      - name: Device Universe v1 LIVE certification
+        run: node tests/device-universe-v1-live.js
