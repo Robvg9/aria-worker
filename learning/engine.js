@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { buildRegression } = require('../self-development/regression-builder-v2');
 
 function normalizeText(value, max = 4000) {
   return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
@@ -47,13 +48,22 @@ function promoteToSkill(lesson, { minConfidence = 0.90, minEvidence = 1 } = {}) 
   return Object.freeze({ promoted, status: promoted ? 'verified' : 'candidate', reason: promoted ? 'verified_reusable_evidence' : 'insufficient_verified_reusable_evidence' });
 }
 
-function createLearningEngine({ persistLesson = null, persistSkill = null, minConfidence = 0.90, minEvidence = 1 } = {}) {
+function createLearningEngine({ persistLesson = null, persistSkill = null, persistRegression = null, regressionBuilder = buildRegression, minConfidence = 0.90, minEvidence = 1 } = {}) {
   async function learn({ episode, verifier } = {}) {
     const lesson = extractLesson({ episode, verifier });
     const promotion = promoteToSkill(lesson, { minConfidence, minEvidence });
+    let regression = null;
     if (typeof persistLesson === 'function') await persistLesson(lesson, episode);
-    if (promotion.promoted && typeof persistSkill === 'function') await persistSkill({ ...lesson, promotion }, episode);
-    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion });
+    if (promotion.promoted && typeof persistSkill === 'function') {
+      const skill = { ...lesson, promotion };
+      regression = typeof regressionBuilder === 'function'
+        ? regressionBuilder({ capability: episode?.capability_id || episode?.capability || episode?.goal, procedure: { steps: lesson.procedure }, evidence: lesson.evidence })
+        : null;
+      if (regression) skill.regression = regression;
+      await persistSkill(skill, episode);
+      if (regression && typeof persistRegression === 'function') await persistRegression(regression, episode);
+    }
+    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression });
   }
   return Object.freeze({ version: 'skills-learning-v2', learn });
 }
