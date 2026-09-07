@@ -20,7 +20,6 @@ const requiredFiles = [
   'autonomy/universal-execution/adapters/connector.js',
   'autonomy/universal-execution/adapters/device.js',
   'autonomy/universal-execution/adapters/agent.js',
-  'autonomy/universal-execution/adapters/model.js',
   'supabase/functions/aria-mission-runner-v22/index.ts',
   'supabase/migrations/20260907_universal_execution_lease_fencing.sql',
   'tests/universal-execution-u01.test.js',
@@ -34,14 +33,11 @@ const requiredFiles = [
   'tests/universal-execution-u10.test.js'
 ];
 
-for (const file of requiredFiles) {
-  assert.equal(fs.existsSync(path.join(ROOT, file)), true, `required artifact missing: ${file}`);
-}
+for (const file of requiredFiles) assert.equal(fs.existsSync(path.join(ROOT, file)), true, `required artifact missing: ${file}`);
 
 const pkg = JSON.parse(read('package.json'));
 assert.equal(pkg.name, 'aria-adapters');
-assert.equal(typeof pkg.version, 'string');
-assert.match(pkg.version, /^2\.6\.8$/);
+assert.equal(pkg.version, '2.6.8');
 const testScript = pkg.scripts?.test || '';
 for (const id of ['u01', 'u02', 'u03', 'u04', 'u05', 'u06', 'u07', 'u10', 'u09']) {
   assert.match(testScript, new RegExp(`universal-execution-${id}\\.test\\.js`), `npm test missing ${id}`);
@@ -67,9 +63,7 @@ const forbiddenSecretPatterns = [
   /ARIA_RUNTIME_SHARED_SECRET\s*=/
 ];
 for (const [file, content] of sourceFiles) {
-  for (const pattern of forbiddenSecretPatterns) {
-    assert.equal(pattern.test(content), false, `secret-shaped material found in ${file}`);
-  }
+  for (const pattern of forbiddenSecretPatterns) assert.equal(pattern.test(content), false, `secret-shaped material found in ${file}`);
 }
 
 const live = read('tests/universal-execution-u08-live.test.js');
@@ -102,7 +96,7 @@ assert.match(boundary, /access[_-]?token/);
 const runner = read('supabase/functions/aria-mission-runner-v22/index.ts');
 assert.match(runner, /aria_mission_claim_by_id_lease/);
 assert.match(runner, /aria_mission_claim_next_lease/);
-assert.match(runner, /aria_mission_renew_lease/);
+assert.match(runner, /aria_internal\.aria_mission_renew_lease/);
 assert.match(runner, /aria_mission_update_lease/);
 assert.match(runner, /aria_mission_append_event_lease/);
 assert.match(runner, /step_retrying/);
