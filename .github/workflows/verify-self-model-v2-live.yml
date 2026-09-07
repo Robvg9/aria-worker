@@ -1,0 +1,58 @@
+name: Verify Self-Model 2.0 LIVE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'self-model/**'
+      - 'self-development/coordinator.js'
+      - 'tests/self-model-v2.test.js'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  live-cert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full test suite
+        run: npm test
+      - name: Self-Model real runtime certification
+        run: |
+          node <<'NODE'
+          'use strict';
+          const assert=require('node:assert/strict');
+          const {createSelfModelV2}=require('./self-model/self-model-v2');
+          const router=require('./router/lookup');
+          const modelRegistry=require('./models/lookup');
+          const capRegistry=require('./capabilities/lookup');
+          const accountRegistry=require('./accounts/lookup');
+          const quotaRegistry=require('./quota/lookup');
+          const model=createSelfModelV2({
+            identity:'ARIA',canonicalEntrypoint:'aria-canonical-runtime-v1',softwareVersion:require('./package.json').version,
+            capabilities:[
+              {id:'text_generation',status:'verified',confidence:.99,last_verified:'2026-09-07',evidence:{source:'capability_registry'},risk:'low',reliability:.98},
+              {id:'model_routing',status:'verified',confidence:.98,evidence:{source:'router/lookup'},dependencies:['text_generation'],risk:'medium',reliability:.97},
+              {id:'self_model',status:'verified',confidence:1,evidence:{source:'self-model-v2'},risk:'low',reliability:1},
+              {id:'external_multi_ia',status:'blocked',confidence:0,evidence:{source:'human_gate'},risk:'critical',reliability:0}
+            ],
+            dependencies:{model_routing:['text_generation']},resources:['models','capabilities','accounts','quota'],tools:['router'],providers:router.collectCandidates('text_generation').map(x=>x.provider_id),router
+          });
+          const snapshot=model.refresh({current_activity:{mission_id:'phase2-live-cert',state:'certifying'}});
+          assert.equal(snapshot.version,'self-model-v2.0.0');
+          assert.ok(snapshot.what_i_can_do.includes('model_routing'));assert.ok(snapshot.what_i_cannot_do.includes('external_multi_ia'));
+          const route=router.route({capability:'text_generation'});assert.equal(route.status,'selected');
+          const selection=model.chooseBest('text_generation');assert.equal(selection.status,'selected');assert.equal(selection.route.status,'selected');assert.equal(selection.route.model_id,route.model_id);
+          assert.ok(modelRegistry.getModel(route.model_id));assert.equal(capRegistry.supports(route.model_id,'text_generation'),true);assert.ok(accountRegistry.getAccount(route.account_id));assert.ok(quotaRegistry.getCapacity(route.account_id));assert.ok(quotaRegistry.getQuota(route.account_id));
+          assert.ok(model.answer('What can I do?').answer.includes('text_generation'));
+          assert.deepEqual(model.compare(snapshot).capabilities,{added:[],removed:[],changed:[],unchanged:true});
+          assert.equal(JSON.stringify(snapshot).includes('api_key'),false);
+          console.log(JSON.stringify({ok:true,certification:'ARIA_SELF_MODEL_2_LIVE_OK',capabilities:snapshot.capabilities.length,verified:snapshot.verified_capabilities,uncertain:snapshot.uncertain_capabilities,router_status:route.status,router_model:route.model_id,router_provider:route.provider_id,choice:selection.status,blocked:snapshot.what_i_cannot_do}));
+          NODE
