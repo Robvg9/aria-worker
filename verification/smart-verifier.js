@@ -49,7 +49,7 @@ function verifyProvider(step = {}, result = {}) {
 function verifySecurity(step = {}, result = {}) {
   const auth = step.authorization && typeof step.authorization === 'object' ? step.authorization : {};
   const serialized = JSON.stringify({ step, result });
-  const forbidden = /(api[_-]?key|bearer\s+[A-Za-z0-9._-]{12,}|secret|password)\s*[:=]/i;
+  const forbidden = /(?:["']?(?:api[_-]?key|bearer\s+[A-Za-z0-9._-]{12,}|secret|password)["']?)\s*[:=]/i;
   const checks = [
     check(auth.status === 'approved' || auth.status === 'verified' || auth.status === undefined, 'authorization_state_valid'),
     check(!forbidden.test(serialized), 'secret_material_not_exposed'),
