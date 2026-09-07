@@ -34,3 +34,6 @@ Controlled self-improvement orchestration.
 - Deployment is not implicit; this block does not bypass Router, Permission, Gateway, Credential Boundary, or Governance.
 - No secrets or hidden durable state are introduced.
 - A failed/unverified learning result can create diagnostics but cannot produce an active reusable capability.
+
+## LIVE certification
+The repository contains a one-shot GitHub Actions certification for the 2.0 sandbox boundary. It validates the real branch workspace, read/write isolation, regression generation, and governed PR promotion, then closes and deletes its temporary artifacts.
