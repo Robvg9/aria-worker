@@ -1,19 +1,7 @@
 'use strict';
 
 const STAGES = Object.freeze([
-  'mission',
-  'observe',
-  'plan',
-  'execute',
-  'verify',
-  'reflect',
-  'learn',
-  'update_skill',
-  'identify_gap',
-  'self_develop',
-  'test',
-  'promote',
-  'better_aria'
+  'mission','observe','plan','execute','verify','reflect','learn','update_skill','identify_gap','self_develop','test','promote','better_aria'
 ]);
 
 const TERMINAL = Object.freeze(['completed', 'blocked', 'failed']);
@@ -33,22 +21,22 @@ function normalizeStageResult(stage, value) {
 }
 
 function createContinuousSelfImprovementLoop({
-  mission,
-  observe,
-  plan,
-  execute,
-  verify,
-  reflect,
-  learn,
-  updateSkill,
-  identifyGap,
-  selfDevelop,
-  test,
-  promote,
-  betterAria,
+  mission, observe, plan, execute, verify, reflect, learn,
+  updateSkill, update_skill,
+  identifyGap, identify_gap,
+  selfDevelop, self_develop,
+  test, promote,
+  betterAria, better_aria,
   maxCycles = 1
 } = {}) {
-  const fns = { mission, observe, plan, execute, verify, reflect, learn, updateSkill, identifyGap, selfDevelop, test, promote, betterAria };
+  const fns = {
+    mission, observe, plan, execute, verify, reflect, learn,
+    update_skill: update_skill || updateSkill,
+    identify_gap: identify_gap || identifyGap,
+    self_develop: self_develop || selfDevelop,
+    test, promote,
+    better_aria: better_aria || betterAria
+  };
   for (const stage of STAGES) requireFn(fns[stage], stage);
   if (!Number.isInteger(maxCycles) || maxCycles < 1 || maxCycles > 10) {
     throw new TypeError('maxCycles must be an integer between 1 and 10');
@@ -64,8 +52,7 @@ function createContinuousSelfImprovementLoop({
       let stopped = false;
 
       for (const stage of STAGES) {
-        const fn = fns[stage];
-        const value = await fn({ ...context, cycle, stage, trace: trace.slice() });
+        const value = await fns[stage]({ ...context, cycle, stage, trace: trace.slice() });
         const normalized = normalizeStageResult(stage, value);
         results[stage] = normalized;
         trace.push({ cycle, stage, status: safeStatus(normalized, 'ok') });
@@ -77,40 +64,29 @@ function createContinuousSelfImprovementLoop({
         }
       }
 
-      cycleResults.push(Object.freeze({ cycle, results: Object.freeze(results), stopped }));
-      context = { ...context, ...results, previous_cycle: cycleResults[cycleResults.length - 1] };
+      const cycleRecord = Object.freeze({ cycle, results: Object.freeze(results), stopped });
+      cycleResults.push(cycleRecord);
+      context = { ...context, ...results, previous_cycle: cycleRecord };
 
       const finalStage = results.better_aria;
-      const finalStatus = safeStatus(finalStage, null);
-      if (finalStatus === 'completed') {
+      if (safeStatus(finalStage, null) === 'completed') {
         return Object.freeze({
-          status: 'completed',
-          version: 'continuous-self-improvement-v1',
-          stages: STAGES,
-          cycles: cycleResults,
-          trace,
-          stop_reason: 'better_aria'
+          status: 'completed', version: 'continuous-self-improvement-v1', stages: STAGES,
+          cycles: cycleResults, trace, stop_reason: 'better_aria'
         });
       }
       if (stopped) {
+        const last = Object.values(results).at(-1);
         return Object.freeze({
-          status: safeStatus(Object.values(results).at(-1), 'failed'),
-          version: 'continuous-self-improvement-v1',
-          stages: STAGES,
-          cycles: cycleResults,
-          trace,
-          stop_reason: `stage_${Object.values(results).at(-1)?.stage || 'unknown'}`
+          status: safeStatus(last, 'failed'), version: 'continuous-self-improvement-v1', stages: STAGES,
+          cycles: cycleResults, trace, stop_reason: `stage_${last?.stage || 'unknown'}`
         });
       }
     }
 
     return Object.freeze({
-      status: 'blocked',
-      version: 'continuous-self-improvement-v1',
-      stages: STAGES,
-      cycles: cycleResults,
-      trace,
-      stop_reason: 'max_cycles'
+      status: 'blocked', version: 'continuous-self-improvement-v1', stages: STAGES,
+      cycles: cycleResults, trace, stop_reason: 'max_cycles'
     });
   }
 
