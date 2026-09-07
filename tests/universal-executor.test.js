@@ -45,6 +45,41 @@ const { createAriaRuntime } = require('../activation/bootstrap');
   });
   assert.strictEqual(agentResult.agent_id, 'grok');
 
+  const modelCalls = [];
+  const modelExecution = {
+    async execute(request) {
+      modelCalls.push(request);
+      return {
+        execution_id: 'exec_model_test',
+        status: 'succeeded',
+        route: request.selected_route,
+        response: { output_text: 'model ok' },
+        usage: { status: 'known', prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+        metadata: { engine_version: 'test', canonical_write: false }
+      };
+    }
+  };
+  const universalModel = createUniversalExecutor({ activation, deviceDispatcher, modelExecution });
+  const modelResult = await universalModel.execute({
+    missionId: 'm3',
+    step: {
+      id: 's4',
+      operation: 'text_generation',
+      executor_type: 'model',
+      target: { type: 'model', provider_id: 'openrouter', account_id: 'acct_openrouter_primary', model_id: 'google/gemini-2.5-flash-lite' },
+      authorization: { status: 'approved', risk_class: 'READ', evidence_ref: 'test:model' },
+      input: { payload: { prompt: 'hello' } }
+    }
+  });
+  assert.strictEqual(modelResult.status, 'succeeded');
+  assert.strictEqual(modelResult.executor_type, 'model');
+  assert.strictEqual(modelResult.model_execution, true);
+  assert.strictEqual(modelCalls.length, 1);
+  assert.deepStrictEqual(modelCalls[0].selected_route, {
+    status: 'selected', provider_id: 'openrouter', account_id: 'acct_openrouter_primary', model_id: 'google/gemini-2.5-flash-lite', capability: 'text_generation'
+  });
+  assert.strictEqual(modelCalls[0].authorization.status, 'approved');
+
   const runtime = createAriaRuntime();
   assert.strictEqual(typeof runtime.autonomy.universalExecutor.createUniversalExecutor, 'function');
   assert.strictEqual(typeof runtime.execution.deviceDispatcher.createDeviceDispatcher, 'function');
