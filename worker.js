@@ -216,3 +216,5 @@ export default {
 };
 
 // Phase 1 certification trigger: keep deployment path exercised after autonomous fallback rollout.
+// Public MCP surface is intentionally pinned to v4; no secrets are present in this source.
+// Deploy trigger: v4 public MCP + OAuth alignment verification.
