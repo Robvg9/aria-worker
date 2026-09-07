@@ -1,0 +1,22 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {adaptCatalog,catalogCoverage}=require('../agents/catalog-adapter-v2');
+const {createVerifierV2}=require('../agents/verifier-v2');
+const {createAgentManager}=require('../agents/manager-v2');
+
+const ids={planner:'planner',reviewer:'reviewer',researcher:'research',coder:'coding',security:'security',memory:'memory',business:'business',device:'device'};
+const catalog=Object.entries(ids).map(([role,suffix])=>({agent_id:`aria-agent-${suffix}-v1`,status:'available',capabilities:[role],scope:['reason'],max_risk:'low',model_id:`model-${role}`}));
+const adapted=adaptCatalog(catalog);
+assert.equal(adapted.length,8);
+assert.equal(catalogCoverage(adapted).complete,true);
+assert.throws(()=>adaptCatalog([{agent_id:'evil-agent',status:'available'}]),/catalog_agent_unrecognized/);
+assert.deepEqual(adaptCatalog([{agent_id:'aria-agent-planner-v1',status:'revoked'}]),[]);
+const verifier=createVerifierV2();
+assert.equal(verifier.inspect({agentId:'a',status:'succeeded',evidence:'e',claim:'SAFE'}).passed,true);
+assert.equal(verifier.inspect({agentId:'a',status:'succeeded',evidence:'e',claim:'SAFE',api_key:'secret'}).passed,false);
+assert.equal(verifier.verify([{agentId:'a',status:'succeeded',evidence:'e',claim:'SAFE'},{agentId:'b',status:'succeeded',evidence:'e',claim:'SAFE'}],{agreement:'consensus'}).passed,true);
+assert.equal(verifier.verify([{agentId:'a',status:'succeeded',evidence:'e',claim:'A'},{agentId:'b',status:'succeeded',evidence:'e',claim:'B'}],{agreement:'disagreement'}).passed,false);
+const manager=createAgentManager({agents:adapted,maxAgents:2});
+const plan=manager.plan({goal:'protect release',requiredCapabilities:['security'],tasks:[{id:'s',cost:1}]});
+assert.equal(plan.agents[0].id,'aria-agent-security-v1');
+console.log('MULTI-AGENT V2 SECURITY: PASS');
