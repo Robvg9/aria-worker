@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createAdvancedPlannerRuntime } from '../autonomy/advanced-planner-runtime.js';
+import { createAutonomousMissionOrchestrator } from '../autonomy/orchestrator.js';
+
+test('advanced planner integrates with autonomous orchestrator: failure -> replan -> success', async () => {
+  const runtime = createAdvancedPlannerRuntime({
+    candidatesProvider: async () => [
+      { id: 'primary', score: 100, steps: [{ id: 'primary_1', action: 'primary', operation: 'primary', risk: 'READ', retryable: false }] },
+      { id: 'fallback', score: 90, steps: [{ id: 'fallback_1', action: 'fallback', operation: 'fallback', risk: 'READ', retryable: false }] },
+    ],
+    policy: { max_alternatives: 2, max_replans: 1, max_risk: 'READ' },
+  });
+
+  const planned = await runtime.plan({ goal: 'orchestrated advanced replan' });
+  let plannerState = runtime.start(planned);
+
+  const mission = {
+    mission_id: 'advanced-orchestrator-e2e',
+    status: 'queued',
+    goal: 'orchestrated advanced replan',
+    current_step: 0,
+    completed_steps: 0,
+    checkpoint: {},
+  };
+  const store = {
+    async get() { return mission; },
+    async transition(_id, status, patch = {}) {
+      mission.status = status;
+      Object.assign(mission, patch);
+      return mission;
+    },
+    async checkpoint(_id, checkpoint, patch = {}) {
+      mission.checkpoint = checkpoint;
+      Object.assign(mission, patch);
+      return mission;
+    },
+  };
+
+  let executions = 0;
+  const orchestrator = createAutonomousMissionOrchestrator({
+    missionStore: store,
+    planner: async () => {
+      plannerState = runtime.start(planned);
+      return plannerState.selected_plan;
+    },
+    replanner: async ({ outcome }) => {
+      plannerState = runtime.replan(plannerState, { reason: outcome?.error || 'executor_failed' });
+      return plannerState.selected_plan;
+    },
+    executor: async ({ step }) => {
+      executions += 1;
+      return step.id === 'fallback_1'
+        ? { status: 'succeeded', executor_type: 'test' }
+        : { status: 'failed', executor_type: 'test' };
+    },
+    verify: async ({ result, final }) => final ? true : result?.status === 'succeeded',
+    policy: { enabled: true, max_risk: 'critical', max_replans: 1, max_steps: 10 },
+  });
+
+  const result = await orchestrator.run(mission.mission_id);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(executions, 2);
+  assert.equal(plannerState.selected, 'fallback');
+  assert.equal(plannerState.replanning.count, 1);
+});
