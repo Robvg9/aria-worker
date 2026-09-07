@@ -1,32 +1,14 @@
 {
-  "version": "aria-intelligent-router-v1.0.0",
-  "mission": "10.6",
-  "kind": "intelligent_router",
-  "memory_authority": false,
-  "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
-  "source_of_truth": {
-    "persistent": "none — selection is derived",
-    "declarative": "this file (metadata only)"
-  },
-  "consumes": [
-    "models/lookup.js",
-    "capabilities/lookup.js",
-    "accounts/lookup.js",
-    "quota/lookup.js"
-  ],
-  "selection_rule": "deterministic lexical sort: provider_id ASC, account_id ASC, model_id ASC; prefer_* filters applied after sort when supplied",
-  "unknown_policy": "capacity/quota/rate_limit status === 'unknown' → candidate not selectable (unknown ≠ available)",
-  "canonical_status": [
-    "selected",
-    "no_route"
-  ],
-  "rules": [
-    "does not own provider/model/account/capability/quota data",
-    "does not execute models or call providers",
-    "does not mutate registries",
-    "does not store secrets",
-    "selection is pure and deterministic",
-    "no complex scoring or fallback engine",
-    "unknown capacity/quota never coerced to available"
-  ]
+  "version":"aria-intelligent-router-v1.1.0",
+  "mission":"10.6",
+  "kind":"intelligent_router",
+  "memory_authority":false,
+  "pipeline":"PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
+  "source_of_truth":{"persistent":"none — selection is derived","declarative":"this file (metadata only)"},
+  "consumes":["models/lookup.js","capabilities/lookup.js","accounts/lookup.js","quota/lookup.js"],
+  "selection_rule":"deterministic evidence-weighted ranking: explicit model availability +35? No — scoring is implemented by lookup.js from only evidenced registry signals; lexical order is the final tie-breaker; prefer_* filters remain supported.",
+  "score_signals":{"model_available":50,"quota_available":35,"direct_provider_path":10,"usage_observed":5},
+  "unknown_policy":"capacity/quota must be explicitly available; unknown rate_limit is preserved and does not block a candidate; cost, latency and risk_quality remain unknown until evidenced.",
+  "canonical_status":["selected","no_route"],
+  "rules":["does not own provider/model/account/capability/quota data","does not execute models or call providers","does not mutate registries","does not store secrets","selection is pure and deterministic","only evidenced signals affect score","unknown dimensions are never invented","cost/latency/risk_quality remain unknown until physically evidenced"]
 }
