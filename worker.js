@@ -1,7 +1,7 @@
 const SUPABASE_MCP =
-  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-server-grok-v2";
+  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-server-grok-v4";
 const SUPABASE_OAUTH =
-  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-oauth-grok-v3";
+  "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-oauth-grok-v4";
 const RUNTIME_GATEWAY =
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1";
 const MISSION_INTAKE =
@@ -40,7 +40,7 @@ function authorizationServerMetadata() {
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: SCOPES,
     authorization_response_iss_parameter_supported: true,
-    client_id_metadata_document_supported: true
+    client_id_metadata_document_supported: false
   };
 }
 function constantTimeEqual(a, b) {
@@ -88,41 +88,20 @@ async function proxyOAuth(request, url) {
   upstreamUrl.search = url.search;
   const headers = new Headers(request.headers);
   headers.delete("host");
-  let upstream;
-  if (url.pathname === "/authorize/start" && request.method === "GET") {
-    const params = new URLSearchParams(url.search);
-    const startUrl = `${SUPABASE_OAUTH}/authorize/start`;
-    upstream = await fetch(new Request(startUrl, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html" },
-      body: params.toString(),
-      redirect: "manual"
-    }));
-  } else {
-    upstream = await fetch(new Request(upstreamUrl.toString(), {
-      method: request.method,
-      headers,
-      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
-      redirect: "manual"
-    }));
-  }
+  const upstream = await fetch(new Request(upstreamUrl.toString(), {
+    method: request.method,
+    headers,
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+    redirect: "manual"
+  }));
   if (url.pathname === "/authorize" || url.pathname === "/authorize/") {
     const responseHeaders = new Headers(upstream.headers);
     responseHeaders.set("content-type", "text/html; charset=utf-8");
     responseHeaders.set("cache-control", "no-store");
     const html = await upstream.text();
     const publicStart = `${url.origin}/authorize/start`;
-    const upstreamStart = `action="${SUPABASE_OAUTH}/authorize/start"`;
-    const rewritten = html
-      .replace(upstreamStart, `action="${publicStart}"`)
-      .replace('<form method="post"', '<form method="get"');
+    const rewritten = html.replace(new RegExp(`action=[\"']${SUPABASE_OAUTH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\/authorize\/start[\"']`), `action="${publicStart}"`);
     return new Response(rewritten, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
-  }
-  if (url.pathname === "/authorize/start" && request.method === "GET") {
-    const responseHeaders = new Headers(upstream.headers);
-    responseHeaders.set("content-type", "text/html; charset=utf-8");
-    responseHeaders.set("cache-control", "no-store");
-    return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
   }
   return upstream;
 }
@@ -208,7 +187,7 @@ export default {
     if (request.method === "GET" && (url.pathname === "/.well-known/oauth-protected-resource" || url.pathname === "/.well-known/oauth-protected-resource/mcp")) {
       return json(protectedResourceMetadata(), 200, { "access-control-allow-origin": "*" });
     }
-    if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v3")) {
+    if (request.method === "GET" && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v2" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v3" || url.pathname === "/.well-known/oauth-authorization-server/functions/v1/aria-mcp-oauth-grok-v4")) {
       return json(authorizationServerMetadata(), 200, { "access-control-allow-origin": "*" });
     }
     if (url.pathname === "/authorize" || url.pathname === "/authorize/" || url.pathname.startsWith("/authorize/")) return proxyOAuth(request, url);
@@ -222,8 +201,6 @@ export default {
       const upstreamUrl = new URL(SUPABASE_MCP);
       upstreamUrl.search = url.search;
       const headers = new Headers(request.headers);
-      const incomingTrace = headers.get("X-ARIA-Trace-Id");
-      if (incomingTrace) headers.set("X-ARIA-Trace-Id", incomingTrace);
       const upstream = await fetch(new Request(upstreamUrl.toString(), {
         method: request.method,
         headers,
@@ -233,9 +210,7 @@ export default {
       if (upstream.status === 401) return rewriteAuthChallenge(upstream);
       return upstream;
     }
-    if (url.pathname === "/" || url.pathname === "") {
-      return Response.redirect(`${url.origin}/mcp`, 308);
-    }
+    if (url.pathname === "/" || url.pathname === "") return Response.redirect(`${url.origin}/mcp`, 308);
     return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
   }
 };
