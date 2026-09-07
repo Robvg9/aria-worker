@@ -52,6 +52,6 @@ const { createSecureDispatch } = require('../security/secure-dispatch');
   assert.ok(audits.some(e=>e.action==='kill.global_activate'));
   assert.strictEqual(digest(snap).length,64);
   const signature=sign({a:1},secret);
-  assert.strictEqual(verifySignature({a:1},signature,secret),true);
+  assert.strictEqual(verifySignature({a:1},secret,signature),true);
   console.log('ARIA Security 2.0 contract tests passed');
 })().catch(error=>{ console.error(error); process.exit(1); });
