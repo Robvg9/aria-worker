@@ -1,0 +1,24 @@
+name: ARIA Resource Intelligence 1 LIVE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'resource-intelligence/**'
+      - 'router/economic-route-v1.js'
+      - 'tests/resource-intelligence-v1*'
+      - 'tests/router-economic-overlay-v1.test.js'
+      - 'package.json'
+      - '.github/workflows/resource-intelligence-v1-live.yml'
+  workflow_dispatch:
+
+jobs:
+  resource-intelligence-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+      - run: node tests/resource-intelligence-v1-live.js
