@@ -40,11 +40,14 @@ function createSelfDevelopmentSandbox({ workspace, snapshotStore = null, protect
     if (!state || state.status !== 'open') throw new Error('sandbox_session_closed');
     if (!change || typeof change.path !== 'string') throw new TypeError('change_required');
     assertMutable(change.path);
+    const risk = String(change.risk_level || '').toLowerCase();
+    if (!risk) throw new Error('risk_approval_required');
+    if (!['safe', 'low'].includes(risk)) throw new Error('risk_not_allowed');
     const before = await readBefore(change.path, state.branch, change.type);
     if (change.type === 'delete_file' && !before) throw new Error('target_missing');
-    const entry = { type: change.type, path: change.path, content: change.content, before, staged_at: new Date().toISOString() };
+    const entry = { type: change.type, path: change.path, content: change.content, risk_level: risk, before, staged_at: new Date().toISOString() };
     state.changes.push(entry);
-    return Object.freeze({ status: 'staged', session_id: id, branch: state.branch, path: change.path, before });
+    return Object.freeze({ status: 'staged', session_id: id, branch: state.branch, path: change.path, risk_level: risk, before });
   }
 
   async function run(id, { apply = false } = {}) {
@@ -52,10 +55,11 @@ function createSelfDevelopmentSandbox({ workspace, snapshotStore = null, protect
     if (!state || state.status !== 'open') throw new Error('sandbox_session_closed');
     const results = [];
     for (const change of state.changes) {
-      if (!apply) results.push({ path: change.path, status: 'simulated', type: change.type, branch: state.branch });
+      if (!apply) results.push({ path: change.path, status: 'simulated', type: change.type, branch: state.branch, risk_level: change.risk_level });
       else {
         assertMutable(change.path);
-        const result = await workspace.apply({ ...change, branch: state.branch, risk_level: change.risk_level || 'low' });
+        if (!['safe', 'low'].includes(change.risk_level)) throw new Error('risk_not_allowed');
+        const result = await workspace.apply({ ...change, branch: state.branch, risk_level: change.risk_level });
         results.push({ path: change.path, result });
       }
     }
