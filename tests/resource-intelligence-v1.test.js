@@ -27,7 +27,9 @@ const bad = ri.decide({task:'',candidates});
 assert.equal(bad.status,'insufficient_evidence');
 assert.equal(bad.reason,'invalid_task');
 
-const missingCompute = ri.decide({task:'summarize this',candidates:[{...candidates[1],compute_units:undefined}]});
+const incomplete = {...candidates[1]};
+delete incomplete.compute_units;
+const missingCompute = ri.decide({task:'summarize this',candidates:[incomplete]});
 assert.equal(missingCompute.status,'selected');
 assert.ok(missingCompute.unknown_dimensions.some(x=>x.endsWith(':compute_units')));
 
