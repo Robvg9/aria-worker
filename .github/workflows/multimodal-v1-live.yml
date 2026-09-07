@@ -1,4 +1,5 @@
 name: Multimodal + Voice v1 LIVE
+# Final certification workflow: perception -> structured state -> cognition + voice output boundary.
 
 on:
   push:
