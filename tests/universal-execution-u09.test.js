@@ -100,10 +100,15 @@ assert.match(runner, /aria_internal\.aria_mission_renew_lease/);
 assert.match(runner, /aria_mission_update_lease/);
 assert.match(runner, /aria_mission_append_event_lease/);
 assert.match(runner, /step_retrying/);
+assert.match(runner, /mission_waiting/);
+assert.match(runner, /pending_jobs/);
+assert.match(runner, /jobIdFor/);
 assert.match(runner, /MAX_STEP_ATTEMPTS/);
 assert.match(runner, /verifyStep/);
 assert.match(runner, /universal_execution_verified/);
 assert.match(runner, /failed_steps/);
+assert.doesNotMatch(runner, /DEVICE_POLL_MS/);
+assert.doesNotMatch(runner, /setTimeout\(resolve/);
 assert.doesNotMatch(runner, /aria_mission_update\("/);
 assert.doesNotMatch(runner, /aria_mission_append_event\("/);
 
