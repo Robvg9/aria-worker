@@ -5,6 +5,8 @@
 const router = require('./lookup.js');
 const economics = require('../resource-intelligence/engine.js');
 
+const VERSION = 'router-economic-overlay-v1';
+
 function economicallySelect(input) {
   if (!input || typeof input !== 'object') return { status: 'insufficient_evidence', reason: 'invalid_input' };
   const base = typeof input.capability === 'string' ? router.route({
@@ -36,8 +38,9 @@ function economicallySelect(input) {
     ...decision,
     base_route: base,
     router_version: router.version,
-    economic_overlay_version: economics.version,
+    economic_overlay_version: VERSION,
+    economic_engine_version: economics.version,
   };
 }
 
-module.exports = { economicallySelect, version: 'router-economic-overlay-v1' };
+module.exports = { economicallySelect, version: VERSION };
