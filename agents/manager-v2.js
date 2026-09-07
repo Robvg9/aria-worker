@@ -100,7 +100,7 @@ function arbitrate(results=[]){
   const [winner,count]=ranked[0];
   const confidence=count/valid.length;
   const disagreements=valid.filter(r=>String(r.claimHash || r.claim || r.output || r.status || 'unknown')!==winner).map(r=>r.agentId||r.id||'unknown');
-  const agreement=ranked.length===1?'consensus':confidence>=0.5?'majority':'disagreement';
+  const agreement=ranked.length===1?'consensus':count*2>valid.length?'majority':'disagreement';
   return {decision:winner,agreement,confidence,disagreements};
 }
 
