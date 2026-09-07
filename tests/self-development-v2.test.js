@@ -54,14 +54,15 @@ const { createSelfDevelopmentV2 } = require('../self-development/self-developmen
   const sandbox = createSelfDevelopmentSandbox({ workspace, protectedPaths: ['production.js'] });
   const session = await sandbox.create({ objective: 'learn capability', seed: 'x' });
   assert.match(session.branch, /^aria\/self-development\//);
-  await sandbox.stage(session.id, { type: 'modify_file', path: 'safe.js', content: 'new' });
+  await assert.rejects(() => sandbox.stage(session.id, { type: 'modify_file', path: 'safe.js', content: 'new' }), /risk_approval_required/);
+  await sandbox.stage(session.id, { type: 'modify_file', path: 'safe.js', content: 'new', risk_level: 'low' });
   const dry = await sandbox.run(session.id);
   assert.equal(dry.mode, 'dry_run');
   assert.equal(state.files.get('safe.js'), 'old');
   const applied = await sandbox.run(session.id, { apply: true });
   assert.equal(applied.mode, 'sandbox_apply');
   assert.equal(state.files.get('safe.js'), 'new');
-  await assert.rejects(() => sandbox.stage(session.id, { type: 'modify_file', path: 'production.js', content: 'bad' }), /protected_path/);
+  await assert.rejects(() => sandbox.stage(session.id, { type: 'modify_file', path: 'production.js', content: 'bad', risk_level: 'low' }), /protected_path/);
   const blocked = await sandbox.promote(session.id, { verifier: async () => ({ passed: false }) });
   assert.equal(blocked.status, 'blocked');
   const pending = await sandbox.promote(session.id, { verifier: async () => ({ passed: true, checks: ['tests', 'security'] }) });
@@ -74,7 +75,7 @@ const { createSelfDevelopmentV2 } = require('../self-development/self-developmen
     evidence: { mission_id: 'm1', confidence: 0.95 }
   });
   assert.equal(regression.status, 'generated');
-  const regressionResult = evaluateRegression(regression, { capability: { status: 'verified' }, procedure: { steps: ['observe'] } });
+  const regressionResult = evaluateRegression(regression, { capability: { status: 'verified' }, procedure: regression.procedure_snapshot });
   assert.equal(regressionResult.status, 'passed');
   const failingRegression = evaluateRegression(regression, { capability: { status: 'active' }, procedure: { steps: [] } });
   assert.equal(failingRegression.status, 'failed');
