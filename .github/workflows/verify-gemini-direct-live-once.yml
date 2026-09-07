@@ -21,6 +21,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SUPABASE_PROJECT_REF"
+          # One-shot nonce; endpoint consumes it before calling Google.
           curl --fail-with-body --silent --show-error \
             "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-gemini-direct-live-check-v1?nonce=w8ARLkNjrXg8GVjU19mqbl05kKdv_YIjhasaeAbcx40"
           echo
