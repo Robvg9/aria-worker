@@ -1,0 +1,122 @@
+name: Verify Self-Development 2.0 LIVE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'self-development/**'
+      - 'learning/engine.js'
+      - 'tests/self-development-v2.test.js'
+      - 'tests/skills-learning-v2.test.js'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  live-cert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full test suite
+        run: npm test
+      - name: Live branch workspace certification
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          node <<'NODE'
+          'use strict';
+          const assert = require('node:assert/strict');
+          const { createGitHubBranchWorkspace } = require('./self-development/github-branch-workspace');
+          const { createSelfDevelopmentSandbox } = require('./self-development/sandbox-v2');
+          const { analyzeChangeRisk } = require('./self-development/change-risk-analyzer-v2');
+          const { buildRegression, evaluateRegression } = require('./self-development/regression-builder-v2');
+          const { analyzeCapabilityGaps } = require('./self-development/capability-gap-engine');
+          const { createDevelopmentPlanner } = require('./self-development/development-planner-v2');
+          const crypto = require('node:crypto');
+
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+          const token = process.env.GITHUB_TOKEN;
+          const fetchImpl = globalThis.fetch;
+          const workspace = createGitHubBranchWorkspace({ token, owner, repo, fetchImpl });
+          const seed = `live-${process.env.GITHUB_SHA}-${Date.now()}`;
+          const protectedPath = 'self-development/contract.md';
+          const targetPath = `self-development/.live-cert-${crypto.createHash('sha256').update(seed).digest('hex').slice(0, 12)}.txt`;
+          const sandbox = createSelfDevelopmentSandbox({ workspace, protectedPaths: [protectedPath] });
+          const gaps = analyzeCapabilityGaps({ goal: 'live self-development certification', required: ['planner', 'live_sandbox'], available: [{ id: 'planner', status: 'verified' }] });
+          const plan = createDevelopmentPlanner().plan({ goal: gaps.goal, gaps: gaps.gaps });
+          const risk = analyzeChangeRisk({ changes: [{ type: 'add_file', path: targetPath }], protectedPaths: [protectedPath] });
+          assert.equal(gaps.status, 'gaps_detected');
+          assert.equal(plan.status, 'planned');
+          assert.equal(risk.max_risk, 'low');
+
+          let session;
+          let prNumber = null;
+          try {
+            session = await sandbox.create({ objective: 'Self-Development 2.0 LIVE certification', seed });
+            assert.match(session.branch, /^aria\/self-development\//);
+            await sandbox.stage(session.id, { type: 'add_file', path: targetPath, content: `ARIA_SELF_DEVELOPMENT_LIVE_OK:${seed}` });
+            const dry = await sandbox.run(session.id);
+            assert.equal(dry.mode, 'dry_run');
+            const applied = await sandbox.run(session.id, { apply: true });
+            assert.equal(applied.status, 'succeeded');
+            const readback = await workspace.read(targetPath, session.branch);
+            assert.match(String(readback.content || ''), /ARIA_SELF_DEVELOPMENT_LIVE_OK/);
+
+            const regression = buildRegression({
+              capability: 'live_sandbox',
+              procedure: { steps: ['create_branch', 'stage', 'apply', 'readback', 'promote'] },
+              evidence: { commit_sha: process.env.GITHUB_SHA, branch: session.branch }
+            });
+            const regressionResult = evaluateRegression(regression, { capability: { status: 'verified' }, procedure: regression.procedure_snapshot });
+            assert.equal(regressionResult.status, 'passed');
+
+            const promotion = await sandbox.promote(session.id, {
+              verifier: async () => ({ passed: true, checks: ['npm_test', 'readback', 'risk', 'regression'] }),
+              tests: { status: 'passed', regression: regressionResult }
+            });
+            assert.equal(promotion.status, 'promotion_pending');
+            prNumber = promotion.pull_request;
+            assert.ok(prNumber);
+
+            console.log(JSON.stringify({
+              ok: true,
+              certification: 'ARIA_SELF_DEVELOPMENT_2_LIVE_OK',
+              commit_sha: process.env.GITHUB_SHA,
+              session_id: session.id,
+              branch: session.branch,
+              target_path: targetPath,
+              gap_status: gaps.status,
+              plan_steps: plan.steps.length,
+              risk: risk.max_risk,
+              dry_run: dry.mode,
+              applied: applied.status,
+              readback: 'verified',
+              regression_test_id: regression.test_id,
+              regression: regressionResult.status,
+              promotion: promotion.status,
+              pull_request: prNumber
+            }));
+          } finally {
+            if (prNumber) {
+              await fetchImpl(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`, {
+                method: 'PATCH',
+                headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10', 'content-type': 'application/json' },
+                body: JSON.stringify({ state: 'closed' })
+              });
+            }
+            if (session?.branch) {
+              await fetchImpl(`https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(session.branch)}`, {
+                method: 'DELETE',
+                headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' }
+              });
+            }
+          }
+          NODE
