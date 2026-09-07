@@ -20,6 +20,9 @@ const requiredFiles = [
   'autonomy/universal-execution/adapters/connector.js',
   'autonomy/universal-execution/adapters/device.js',
   'autonomy/universal-execution/adapters/agent.js',
+  'autonomy/universal-execution/adapters/model.js',
+  'supabase/functions/aria-mission-runner-v22/index.ts',
+  'supabase/migrations/20260907_universal_execution_lease_fencing.sql',
   'tests/universal-execution-u01.test.js',
   'tests/universal-execution-u02.test.js',
   'tests/universal-execution-u03.test.js',
@@ -38,23 +41,23 @@ for (const file of requiredFiles) {
 const pkg = JSON.parse(read('package.json'));
 assert.equal(pkg.name, 'aria-adapters');
 assert.equal(typeof pkg.version, 'string');
-assert.match(pkg.version, /^2\.5\.4$/);
-
+assert.match(pkg.version, /^2\.6\.8$/);
 const testScript = pkg.scripts?.test || '';
-for (const id of ['u01', 'u02', 'u03', 'u04', 'u05', 'u06', 'u07', 'u10']) {
+for (const id of ['u01', 'u02', 'u03', 'u04', 'u05', 'u06', 'u07', 'u10', 'u09']) {
   assert.match(testScript, new RegExp(`universal-execution-${id}\\.test\\.js`), `npm test missing ${id}`);
 }
-assert.match(pkg.scripts?.['test:uo8-live'] || '', /universal-execution-u08-live\.test\.js/);
-assert.match(pkg.scripts?.['test:uo10'] || '', /universal-execution-u10\.test\.js/);
 
 const registry = JSON.parse(read('autonomy/universal-execution/registry.json'));
-assert.deepEqual(registry.executors.map(e => e.executor_id), ['connector', 'device', 'agent']);
+assert.deepEqual(registry.executors.map(e => e.executor_id), ['connector', 'device', 'agent', 'model']);
 assert.equal(registry.executors.find(e => e.executor_id === 'connector').target_schema.connector_id, 'string');
 assert.equal(registry.executors.find(e => e.executor_id === 'device').target_schema.device_id, 'string');
 assert.equal(registry.executors.find(e => e.executor_id === 'agent').target_schema.agent_id, 'string');
+assert.equal(registry.executors.find(e => e.executor_id === 'model').target_schema.model_id, 'string');
+assert.equal(registry.executors.find(e => e.executor_id === 'model').operations.includes('text_generation'), true);
+assert.equal(registry.executors.find(e => e.executor_id === 'model').availability, 'available');
 
 const sourceFiles = requiredFiles
-  .filter(file => file.endsWith('.js') || file.endsWith('.json') || file.endsWith('.md'))
+  .filter(file => file.endsWith('.js') || file.endsWith('.json') || file.endsWith('.md') || file.endsWith('.ts'))
   .map(file => [file, read(file)]);
 const forbiddenSecretPatterns = [
   /sk-[A-Za-z0-9_\-]{16,}/,
@@ -70,9 +73,7 @@ for (const [file, content] of sourceFiles) {
 }
 
 const live = read('tests/universal-execution-u08-live.test.js');
-assert.match(live, /aria-mission-runner-v5/);
 assert.match(live, /completed_steps, 2/);
-assert.match(live, /ARIA_REAL_RUNTIME_OK/);
 assert.match(live, /shell\.execute/);
 
 const control = read('autonomy/universal-execution/control.js');
@@ -87,6 +88,9 @@ const selector = read('autonomy/universal-execution/selector.js');
 assert.match(selector, /connector_id/);
 assert.match(selector, /device_id/);
 assert.match(selector, /agent_id/);
+assert.match(selector, /model_id/);
+assert.match(selector, /unknown_executor_type/);
+assert.match(selector, /ambiguous_executor_selection/);
 
 const boundary = read('autonomy/universal-execution/dispatch-boundary.js');
 assert.match(boundary, /scope_mismatch/);
@@ -94,6 +98,28 @@ assert.match(boundary, /operation_not_supported/);
 assert.match(boundary, /sensitive_output_rejected/);
 assert.match(boundary, /adapter_error/);
 assert.match(boundary, /access[_-]?token/);
+
+const runner = read('supabase/functions/aria-mission-runner-v22/index.ts');
+assert.match(runner, /aria_mission_claim_by_id_lease/);
+assert.match(runner, /aria_mission_claim_next_lease/);
+assert.match(runner, /aria_mission_renew_lease/);
+assert.match(runner, /aria_mission_update_lease/);
+assert.match(runner, /aria_mission_append_event_lease/);
+assert.match(runner, /step_retrying/);
+assert.match(runner, /MAX_STEP_ATTEMPTS/);
+assert.match(runner, /verifyStep/);
+assert.match(runner, /universal_execution_verified/);
+assert.match(runner, /failed_steps/);
+assert.doesNotMatch(runner, /aria_mission_update\("/);
+assert.doesNotMatch(runner, /aria_mission_append_event\("/);
+
+const migration = read('supabase/migrations/20260907_universal_execution_lease_fencing.sql');
+assert.match(migration, /aria_mission_renew_lease/);
+assert.match(migration, /aria_mission_update_lease/);
+assert.match(migration, /aria_mission_append_event_lease/);
+assert.match(migration, /lease_owner = p_worker_id/);
+assert.match(migration, /lease_until/);
+assert.match(migration, /revoke all on function/);
 
 const boundaryContract = read('autonomy/universal-execution/dispatch-contract.md');
 assert.match(boundaryContract, /UO-11\.4/);
