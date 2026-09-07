@@ -1,6 +1,6 @@
 {
-  "version": "aria-model-registry-v1.0.2",
-  "mission": "10.2+10.3",
+  "version": "aria-model-registry-v1.0.3",
+  "mission": "10.2+10.3+10.14",
   "kind": "model_registry",
   "memory_authority": false,
   "pipeline": "PROVIDER → MODEL → CAPABILITY → ACCOUNT → QUOTA → ROUTER",
@@ -17,39 +17,40 @@
       "upstream_provider_id": "google",
       "status": "available",
       "availability": "public",
-      "metadata": {
-        "access_path": "openrouter",
-        "verified_at": "2026-08-31",
-        "evidence": "Control Plane materialization seed",
-        "notes": "Mediated route; existing verified account path."
-      },
+      "metadata": {"access_path":"openrouter","verified_at":"2026-08-31","evidence":"Control Plane materialization seed","notes":"Mediated route; existing verified account path."},
+      "capability_refs": ["text_generation"]
+    },
+    {
+      "model_id": "google/gemini-3.5-flash-lite-direct",
+      "provider_id": "google",
+      "canonical_name": "Gemini 3.5 Flash Lite (direct API)",
+      "upstream_model": "gemini-3.5-flash-lite",
+      "upstream_provider_id": "google",
+      "status": "available",
+      "availability": "public",
+      "metadata": {"access_path":"google_gemini_direct","verified_at":"2026-09-07","evidence":"LIVE direct provider smoke + canonical mission pending final route certification","notes":"Direct route through Google Gemini API; Free Tier credential in ARIA secret boundary."},
       "capability_refs": ["text_generation"]
     },
     {
       "model_id": "google/gemini-2.5-flash-lite-direct",
       "provider_id": "google",
-      "canonical_name": "Gemini 2.5 Flash Lite (direct API)",
+      "canonical_name": "Gemini 2.5 Flash Lite (direct API, retired)",
       "upstream_model": "gemini-2.5-flash-lite",
       "upstream_provider_id": "google",
-      "status": "unknown",
-      "availability": "public",
-      "metadata": {
-        "access_path": "google_gemini_direct",
-        "verified_at": "2026-09-06",
-        "evidence": "Official Google Gemini API model documentation",
-        "notes": "Model exists and is documented; ARIA account/credential availability is not yet physically verified. Do not route until a Google credential is configured and LIVE health succeeds."
-      },
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {"access_path":"google_gemini_direct","verified_at":"2026-09-07","evidence":"Google provider response","notes":"Retired from Direct routing after Google rejected the model for this new-user account."},
       "capability_refs": ["text_generation"]
     }
   ],
   "indexes": {
     "by_provider": {
       "openrouter": ["google/gemini-2.5-flash-lite"],
-      "google": ["google/gemini-2.5-flash-lite-direct"]
+      "google": ["google/gemini-3.5-flash-lite-direct"]
     },
     "by_model_id": {
       "google/gemini-2.5-flash-lite": "openrouter",
-      "google/gemini-2.5-flash-lite-direct": "google"
+      "google/gemini-3.5-flash-lite-direct": "google"
     }
   },
   "rules": [
