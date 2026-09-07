@@ -14,7 +14,7 @@ const result = economicallySelect({
 
 assert.equal(result.status, 'selected');
 assert.equal(result.selected.model_id, 'm-efficient');
-assert.equal(result.router_version, 'aria-intelligent-router-v1.1');
+assert.equal(result.router_version, 'aria-intelligent-router-v1.1.0');
 assert.equal(result.economic_overlay_version, 'router-economic-overlay-v1');
 assert.ok(result.base_route && ['selected','no_route'].includes(result.base_route.status));
 
