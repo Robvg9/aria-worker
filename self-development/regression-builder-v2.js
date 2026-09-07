@@ -2,7 +2,11 @@
 
 const crypto = require('crypto');
 
-function stable(value) { return JSON.stringify(value, Object.keys(value || {}).sort()); }
+function stable(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
+}
 
 function buildRegression({ capability, procedure, evidence = {}, assertions = [] } = {}) {
   const capabilityId = typeof capability === 'string' ? capability.trim() : String(capability?.id || '').trim();
@@ -18,11 +22,10 @@ function buildRegression({ capability, procedure, evidence = {}, assertions = []
     status: 'generated',
     test_id: testId,
     capability_id: capabilityId,
-    source_evidence: evidence,
+    source_evidence: structuredClone(evidence),
     assertions: Object.freeze(sourceAssertions.map(assertion => Object.freeze({ ...assertion }))),
     procedure_snapshot: structuredClone(procedure),
-    generated_at: new Date().toISOString(),
-    builder_version: 'regression-builder-v2.0.0'
+    builder_version: 'regression-builder-v2.0.1'
   });
 }
 
@@ -39,4 +42,4 @@ function evaluateRegression(regression, context = {}) {
   return Object.freeze({ status: results.every(result => result.passed) ? 'passed' : 'failed', test_id: regression.test_id, results });
 }
 
-module.exports = Object.freeze({ buildRegression, evaluateRegression });
+module.exports = Object.freeze({ buildRegression, evaluateRegression, stable });
