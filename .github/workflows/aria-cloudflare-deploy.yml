@@ -86,12 +86,13 @@ jobs:
           import json, os
           x=json.loads(os.environ['OAUTH'])
           assert x['issuer']== 'https://aria.robvg9.workers.dev'
-          assert x['resource']== 'https://aria.robvg9.workers.dev/mcp'
           assert x['authorization_endpoint']== 'https://aria.robvg9.workers.dev/authorize'
           assert x['token_endpoint']== 'https://aria.robvg9.workers.dev/token'
           assert x['registration_endpoint']== 'https://aria.robvg9.workers.dev/register'
           assert x['code_challenge_methods_supported']== ['S256']
           assert x['token_endpoint_auth_methods_supported']== ['none']
+          assert x['response_types_supported']== ['code']
+          assert x['grant_types_supported']== ['authorization_code']
           PY
 
           headers="$(mktemp)"
@@ -114,7 +115,8 @@ jobs:
         run: |
           set -euo pipefail
           base="https://aria.robvg9.workers.dev"
-          register_payload='{"client_name":"aria-grok-ci","redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"]}'
+          callback="https://grok.com/connectors-oauth-exchange-code/"
+          register_payload='{"client_name":"aria-grok-ci","redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"],"grant_types":["authorization_code"],"response_types":["code"],"token_endpoint_auth_method":"none"}'
           registration="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d "$register_payload")"
           echo "$registration"
           REG="$registration" python - <<'PY'
@@ -124,11 +126,23 @@ jobs:
           assert x['token_endpoint_auth_method']=='none'
           assert x['grant_types']==['authorization_code']
           assert x['response_types']==['code']
+          assert x['redirect_uris']==['https://grok.com/connectors-oauth-exchange-code/']
           assert x['authorization_endpoint']=='https://aria.robvg9.workers.dev/authorize'
           assert x['token_endpoint']=='https://aria.robvg9.workers.dev/token'
           assert x['issuer']=='https://aria.robvg9.workers.dev'
-          assert x['resource']=='https://aria.robvg9.workers.dev/mcp'
           PY
+
+          minimal="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d '{"redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"]}')"
+          echo "$minimal"
+          MINIMAL="$minimal" python - <<'PY'
+          import json, os
+          x=json.loads(os.environ['MINIMAL'])
+          assert x.get('client_id','').startswith('aria_')
+          assert x['client_name']
+          assert x['redirect_uris']==['https://grok.com/connectors-oauth-exchange-code/']
+          assert x['token_endpoint_auth_method']=='none'
+          PY
+
           client_id="$(REG="$registration" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
           challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
           auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')"
