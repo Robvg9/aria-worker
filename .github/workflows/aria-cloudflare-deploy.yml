@@ -130,6 +130,7 @@ jobs:
           assert x['authorization_endpoint']=='https://aria.robvg9.workers.dev/authorize'
           assert x['token_endpoint']=='https://aria.robvg9.workers.dev/token'
           assert x['issuer']=='https://aria.robvg9.workers.dev'
+          assert x['resource']=='https://aria.robvg9.workers.dev/mcp'
           PY
 
           minimal="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d '{"redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"]}')"
@@ -152,3 +153,19 @@ jobs:
           test "$auth_code" = "200"
           grep -q 'Authorize ARIA' /tmp/authorize-body
           grep -q 'https://aria.robvg9.workers.dev/authorize/start' /tmp/authorize-body
+          grep -q '<form method="post" action="https://aria.robvg9.workers.dev/authorize/start">' /tmp/authorize-body
+
+          pending_id="$(python - <<'PY'
+          import re
+          html=open('/tmp/authorize-body',encoding='utf-8').read()
+          m=re.search(r'name="pending_id" value="([^"]+)"',html)
+          assert m, 'pending_id input missing'
+          print(m.group(1))
+          PY
+          )"
+          submit_headers="$(mktemp)"
+          submit_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$submit_headers" -o /tmp/authorize-submit-body -w '%{http_code}' -X POST "$base/authorize/start" -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode "pending_id=$pending_id" --data-urlencode 'email=not-an-email')"
+          echo "authorize_start_invalid_email_status=$submit_code"
+          test "$submit_code" = "400"
+          grep -qi 'authorization' /tmp/authorize-submit-body
+          test "$(grep -ci '<html' /tmp/authorize-submit-body)" -ge 1
