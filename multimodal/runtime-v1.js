@@ -55,6 +55,7 @@ function createMultimodalRuntime({perceivers={},cognition=null,voiceRenderer=nul
     async perceive(input){
       if(!input||!input.modality) return {status:'blocked',reason:'modality_missing'};
       assertKnownModality(input.modality);
+      if(containsSecretLike(input)) return {status:'blocked',reason:'secret_material_rejected',modality:input.modality};
       const adapter=perceivers[input.modality];
       if(typeof adapter!=='function') return {status:'blocked',reason:'perceiver_unavailable',modality:input.modality};
       const perception=await adapter(input);
