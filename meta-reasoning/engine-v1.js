@@ -26,14 +26,7 @@ function normalizeEvidence(input = {}) {
   const verified = valid.filter(e => e.verified === true).length;
   const contradictions = valid.filter(e => e.contradiction === true).length;
   const relevant = valid.filter(e => e.relevant !== false).length;
-  return {
-    count: valid.length,
-    independent_sources: independent.size,
-    observed,
-    verified,
-    contradictions,
-    relevant
-  };
+  return { count: valid.length, independent_sources: independent.size, observed, verified, contradictions, relevant };
 }
 
 function evaluateFailures(input = {}) {
@@ -42,34 +35,19 @@ function evaluateFailures(input = {}) {
   const failures = history.filter(h => h && h.outcome === 'failed');
   const same = failures.filter(h => typeof h.strategy === 'string' && h.strategy.trim() === current).length;
   const recentSame = failures.slice(-3).filter(h => typeof h.strategy === 'string' && h.strategy.trim() === current).length;
-  return {
-    failed_attempts: failures.length,
-    same_strategy_failures: same,
-    recent_same_strategy_failures: recentSame,
-    repeated_failure_pattern: same >= 2 || recentSame >= 2,
-    current_strategy_known_failed: same >= 1
-  };
+  return { failed_attempts: failures.length, same_strategy_failures: same, recent_same_strategy_failures: recentSame, repeated_failure_pattern: same >= 2 || recentSame >= 2, current_strategy_known_failed: same >= 1 };
 }
 
 function evaluateOptions(input = {}) {
   const skills = Array.isArray(input.skills) ? input.skills : [];
-  const bestSkill = skills
-    .filter(s => s && s.available === true && Number.isFinite(s.fit_score))
-    .sort((a,b) => (b.fit_score - a.fit_score) || String(a.skill_id || '').localeCompare(String(b.skill_id || '')))[0] || null;
+  const bestSkill = skills.filter(s => s && s.available === true && Number.isFinite(s.fit_score)).sort((a,b) => (b.fit_score - a.fit_score) || String(a.skill_id || '').localeCompare(String(b.skill_id || '')))[0] || null;
   const agents = Array.isArray(input.agents) ? input.agents : [];
-  const bestAgent = agents
-    .filter(a => a && a.available === true && Number.isFinite(a.fit_score))
-    .sort((a,b) => (b.fit_score - a.fit_score) || String(a.agent_id || '').localeCompare(String(b.agent_id || '')))[0] || null;
-  return {
-    better_skill: bestSkill && bestSkill.fit_score >= 0.80 ? bestSkill : null,
-    better_agent: bestAgent && bestAgent.fit_score >= 0.80 ? bestAgent : null
-  };
+  const bestAgent = agents.filter(a => a && a.available === true && Number.isFinite(a.fit_score)).sort((a,b) => (b.fit_score - a.fit_score) || String(a.agent_id || '').localeCompare(String(b.agent_id || '')))[0] || null;
+  return { better_skill: bestSkill && bestSkill.fit_score >= 0.80 ? bestSkill : null, better_agent: bestAgent && bestAgent.fit_score >= 0.80 ? bestAgent : null };
 }
 
 function assess(input) {
-  if (!input || typeof input !== 'object' || typeof input.task !== 'string' || !input.task.trim()) {
-    return { status: 'abstain', reason: 'invalid_task', version: VERSION };
-  }
+  if (!input || typeof input !== 'object' || typeof input.task !== 'string' || !input.task.trim()) return { status: 'abstain', reason: 'invalid_task', version: VERSION };
 
   const evidence = normalizeEvidence(input);
   const failures = evaluateFailures(input);
@@ -98,67 +76,25 @@ function assess(input) {
 
   let action = ACTIONS.PROCEED;
   let reason = 'sufficient_evidence_and_no_higher_priority_metacognitive_block';
-
-  if (explicitlyHuman) {
-    action = ACTIONS.HUMAN_GATE;
-    reason = 'explicit_human_approval_required';
-  } else if (!evidenceSufficient || computedConfidence < minimumEvidence) {
-    action = researchNeeded ? ACTIONS.INVESTIGATE : ACTIONS.ABSTAIN;
-    reason = researchNeeded ? 'evidence_insufficient_research_first' : 'evidence_or_confidence_below_threshold';
-  } else if (failures.repeated_failure_pattern) {
-    action = options.better_skill ? ACTIONS.BETTER_SKILL : options.better_agent ? ACTIONS.DELEGATE : experimentUseful ? ACTIONS.EXPERIMENT : ACTIONS.REPLAN;
-    reason = 'current_strategy_repeats_known_failure_pattern';
-  } else if (failures.current_strategy_known_failed) {
-    action = options.better_skill ? ACTIONS.BETTER_SKILL : experimentUseful ? ACTIONS.EXPERIMENT : ACTIONS.REPLAN;
-    reason = 'current_strategy_has_prior_failure';
-  } else if (options.better_skill && options.better_skill.fit_score >= 0.90) {
-    action = ACTIONS.BETTER_SKILL;
-    reason = 'higher_fit_skill_available';
-  } else if (researchNeeded || ambiguity >= 0.70) {
-    action = ACTIONS.INVESTIGATE;
-    reason = researchNeeded ? 'research_explicitly_required' : 'material_ambiguity_requires_information';
-  } else if (options.better_agent && options.better_agent.fit_score >= 0.90) {
-    action = ACTIONS.DELEGATE;
-    reason = 'specialized_agent_has_substantially_better_fit';
-  } else if (experimentUseful || (risk >= 0.65 && expectedValue < 1.0)) {
-    action = ACTIONS.EXPERIMENT;
-    reason = 'bounded_experiment_reduces_downside_or_uncertainty';
-  } else if (risk >= 0.90 && expectedValue < 0.50) {
-    action = ACTIONS.ABSTAIN;
-    reason = 'risk_exceeds_justified_value';
-  }
+  if (explicitlyHuman) { action = ACTIONS.HUMAN_GATE; reason = 'explicit_human_approval_required'; }
+  else if (!evidenceSufficient || computedConfidence < minimumEvidence) { action = researchNeeded ? ACTIONS.INVESTIGATE : ACTIONS.ABSTAIN; reason = researchNeeded ? 'evidence_insufficient_research_first' : 'evidence_or_confidence_below_threshold'; }
+  else if (failures.repeated_failure_pattern) { action = options.better_skill ? ACTIONS.BETTER_SKILL : options.better_agent ? ACTIONS.DELEGATE : experimentUseful ? ACTIONS.EXPERIMENT : ACTIONS.REPLAN; reason = 'current_strategy_repeats_known_failure_pattern'; }
+  else if (failures.current_strategy_known_failed) { action = options.better_skill ? ACTIONS.BETTER_SKILL : experimentUseful ? ACTIONS.EXPERIMENT : ACTIONS.REPLAN; reason = 'current_strategy_has_prior_failure'; }
+  else if (options.better_skill && options.better_skill.fit_score >= 0.90) { action = ACTIONS.BETTER_SKILL; reason = 'higher_fit_skill_available'; }
+  else if (researchNeeded || ambiguity >= 0.70) { action = ACTIONS.INVESTIGATE; reason = researchNeeded ? 'research_explicitly_required' : 'material_ambiguity_requires_information'; }
+  else if (options.better_agent && options.better_agent.fit_score >= 0.90) { action = ACTIONS.DELEGATE; reason = 'specialized_agent_has_substantially_better_fit'; }
+  else if (experimentUseful || (risk >= 0.65 && expectedValue < 1.0)) { action = ACTIONS.EXPERIMENT; reason = 'bounded_experiment_reduces_downside_or_uncertainty'; }
+  else if (risk >= 0.90 && expectedValue < 0.50) { action = ACTIONS.ABSTAIN; reason = 'risk_exceeds_justified_value'; }
 
   const shouldNotAct = [ACTIONS.INVESTIGATE, ACTIONS.REPLAN, ACTIONS.BETTER_SKILL, ACTIONS.DELEGATE, ACTIONS.EXPERIMENT, ACTIONS.HUMAN_GATE, ACTIONS.ABSTAIN].includes(action);
   return {
-    status: action,
-    version: VERSION,
-    task: input.task.trim(),
-    confidence: Number(computedConfidence.toFixed(8)),
-    evidence_score: Number(evidenceScore.toFixed(8)),
-    evidence_sufficient: evidenceSufficient,
-    minimum_evidence_threshold: minimumEvidence,
-    evidence_summary: evidence,
-    failure_assessment: failures,
-    options: {
-      better_skill: options.better_skill && { skill_id: options.better_skill.skill_id, fit_score: options.better_skill.fit_score },
-      better_agent: options.better_agent && { agent_id: options.better_agent.agent_id, fit_score: options.better_agent.fit_score }
-    },
-    signals: { ambiguity, risk, expected_value, research_needed: researchNeeded, destructive, explicitly_human: explicitlyHuman },
-    should_not_act: shouldNotAct,
-    recommended_action: action,
-    reason,
-    stop_conditions: [
-      'new_contradictory_evidence',
-      'confidence_below_threshold',
-      'risk_increase_without_new_evidence',
-      'human_gate_triggered'
-    ],
-    uncertainty: [
-      ...(evidence.contradictions ? ['evidence_conflict'] : []),
-      ...(evidence.count === 0 ? ['no_evidence'] : []),
-      ...(ambiguity >= 0.70 ? ['material_ambiguity'] : []),
-      ...(failures.current_strategy_known_failed ? ['strategy_failure_history'] : [])
-    ]
+    status: action, version: VERSION, task: input.task.trim(), confidence: Number(computedConfidence.toFixed(8)), evidence_score: Number(evidenceScore.toFixed(8)), evidence_sufficient: evidenceSufficient, minimum_evidence_threshold: minimumEvidence,
+    evidence_summary: evidence, failure_assessment: failures,
+    options: { better_skill: options.better_skill && { skill_id: options.better_skill.skill_id, fit_score: options.better_skill.fit_score }, better_agent: options.better_agent && { agent_id: options.better_agent.agent_id, fit_score: options.better_agent.fit_score } },
+    signals: { ambiguity, risk, expected_value: expectedValue, research_needed: researchNeeded, destructive, explicitly_human: explicitlyHuman },
+    should_not_act: shouldNotAct, recommended_action: action, reason,
+    stop_conditions: ['new_contradictory_evidence','confidence_below_threshold','risk_increase_without_new_evidence','human_gate_triggered'],
+    uncertainty: [...(evidence.contradictions ? ['evidence_conflict'] : []), ...(evidence.count === 0 ? ['no_evidence'] : []), ...(ambiguity >= 0.70 ? ['material_ambiguity'] : []), ...(failures.current_strategy_known_failed ? ['strategy_failure_history'] : [])]
   };
 }
 
