@@ -69,12 +69,16 @@ const { createSelfDevelopmentV2 } = require('../self-development/self-developmen
   assert.equal(pending.status, 'promotion_pending');
   assert.equal(pending.pull_request, 123);
 
-  const regression = buildRegression({
+  const regressionInput = {
     capability: 'browser_state_perception',
     procedure: { steps: ['observe', 'normalize'] },
     evidence: { mission_id: 'm1', confidence: 0.95 }
-  });
+  };
+  const regression = buildRegression(regressionInput);
+  const regressionRepeat = buildRegression(regressionInput);
   assert.equal(regression.status, 'generated');
+  assert.equal(regression.test_id, regressionRepeat.test_id);
+  assert.deepEqual(regression, regressionRepeat);
   const regressionResult = evaluateRegression(regression, { capability: { status: 'verified' }, procedure: regression.procedure_snapshot });
   assert.equal(regressionResult.status, 'passed');
   const failingRegression = evaluateRegression(regression, { capability: { status: 'active' }, procedure: { steps: [] } });
@@ -86,5 +90,5 @@ const { createSelfDevelopmentV2 } = require('../self-development/self-developmen
   assert.equal(facade.planCapabilityAcquisition({ goal: 'demo', gaps: facadeGaps.gaps }).steps.length, 7);
   assert.equal(facade.assessChange({ changes: [{ type: 'modify_file', path: 'x.js' }] }).max_risk, 'medium');
 
-  console.log('SELF-DEVELOPMENT 2.0: PASS — capability gaps, acquisition planning, sandbox isolation, risk analysis, regression generation, and governed facade');
+  console.log('SELF-DEVELOPMENT 2.0: PASS — capability gaps, acquisition planning, sandbox isolation, risk analysis, deterministic regression generation, and governed facade');
 })();
