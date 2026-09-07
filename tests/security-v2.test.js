@@ -5,7 +5,8 @@ const { createSecureDispatch } = require('../security/secure-dispatch');
 
 (async () => {
   const audits=[];
-  const security=createSecurityControlPlane({ secret:'0123456789abcdef-secret', auditStore:{append:e=>audits.push(e)}, now:()=> '2026-09-07T23:00:00.000Z' });
+  const secret='0123456789abcdef-secret';
+  const security=createSecurityControlPlane({ secret, auditStore:{append:e=>audits.push(e)}, now:()=> '2026-09-07T23:00:00.000Z' });
 
   security.registerIdentity({id:'agent-coder',kind:'agent',capabilities:['code.read','code.write'],maxRisk:'high'});
   security.grantCapabilities('agent-coder',['code.read','code.write'],'high');
@@ -25,7 +26,10 @@ const { createSecureDispatch } = require('../security/secure-dispatch');
   security.killSwitch('executors','test-stop');
   assert.strictEqual((await dispatch.dispatch({envelope})).reason,'kill_switch_active');
   assert.strictEqual(executed,1);
-  security.releaseKillSwitch('executors');
+  assert.strictEqual(security.releaseKillSwitch('executors','bad', '0'.repeat(64)).reason,'invalid_release_proof');
+  const releaseReason='resume-test';
+  const proof=security.releaseProof('executors',releaseReason);
+  assert.strictEqual(security.releaseKillSwitch('executors',releaseReason,proof).released,true);
 
   security.revokeCapability('agent-coder','code.write');
   assert.strictEqual(security.authorize({identityId:'agent-coder',capability:'code.write',risk:'high',scope:'executors',operation:'merge'}).reason,'capability_denied');
@@ -36,14 +40,18 @@ const { createSecureDispatch } = require('../security/secure-dispatch');
   security.registerIdentity({id:'agent-device',kind:'agent',capabilities:['device.read','device.write'],maxRisk:'medium'});
   security.grantCapabilities('agent-device',['device.read','device.write'],'medium');
   const snap=security.snapshot();
+  assert.ok(!JSON.stringify(snap).includes(secret));
   security.emergencyStop('global-test');
   for (const scope of SCOPES) assert.strictEqual(security.isStopped(scope),true);
   security.recover(snap);
   for (const scope of SCOPES) assert.strictEqual(security.isStopped(scope),false);
   assert.strictEqual(security.integrity().valid,true);
-  assert.strictEqual(digest(snap).length,64);
-  const signature=sign({a:1},'0123456789abcdef-secret');
-  assert.strictEqual(verifySignature({a:1},signature,'0123456789abcdef-secret'),true);
+  assert.strictEqual(security.auditIntegrity().valid,true);
+  assert.strictEqual(security.auditIntegrity().count,audits.length);
+  assert.ok(audits.every(e=>!JSON.stringify(e).includes(secret)));
   assert.ok(audits.some(e=>e.action==='kill.global_activate'));
+  assert.strictEqual(digest(snap).length,64);
+  const signature=sign({a:1},secret);
+  assert.strictEqual(verifySignature({a:1},signature,secret),true);
   console.log('ARIA Security 2.0 contract tests passed');
 })().catch(error=>{ console.error(error); process.exit(1); });
