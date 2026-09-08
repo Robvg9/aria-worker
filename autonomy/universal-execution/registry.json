@@ -1,50 +1,12 @@
 {
-  "version": "aria-universal-execution-v1.1.0",
+  "version": "aria-universal-execution-v1.2.0",
   "kind": "executor_registry",
   "executors": [
-    {
-      "executor_id": "connector",
-      "type": "connector",
-      "status": "registered",
-      "operations": ["*"],
-      "target_schema": {"type":"connector","connector_id":"string"}
-    },
-    {
-      "executor_id": "device",
-      "type": "device",
-      "status": "registered",
-      "operations": ["shell.execute"],
-      "target_schema": {"type":"device","device_id":"string"}
-    },
-    {
-      "executor_id": "agent",
-      "type": "agent",
-      "status": "registered",
-      "operations": ["delegate"],
-      "target_schema": {"type":"agent","agent_id":"string"}
-    },
-    {
-      "executor_id": "model",
-      "type": "model",
-      "status": "registered",
-      "operations": ["text_generation"],
-      "capabilities": ["text_generation"],
-      "transport": "execution-engine",
-      "risk_classes": ["READ", "LOW_RISK_WRITE", "HIGH_RISK_WRITE"],
-      "auth_mode": "authorization+credential_ref",
-      "health": "healthy",
-      "availability": "available",
-      "version": "aria-model-executor-v1",
-      "target_schema": {"type":"model","provider_id":"string","account_id":"string","model_id":"string"}
-    }
+    {"executor_id":"connector","type":"connector","status":"registered","operations":["*"],"target_schema":{"type":"connector","connector_id":"string"}},
+    {"executor_id":"device","type":"device","status":"registered","operations":["shell.execute"],"target_schema":{"type":"device","device_id":"string"}},
+    {"executor_id":"agent","type":"agent","status":"registered","operations":["delegate"],"target_schema":{"type":"agent","agent_id":"string"}},
+    {"executor_id":"model","type":"model","status":"registered","operations":["text_generation"],"capabilities":["text_generation"],"transport":"execution-engine","risk_classes":["READ","LOW_RISK_WRITE","HIGH_RISK_WRITE"],"auth_mode":"authorization+credential_ref","health":"healthy","availability":"available","version":"aria-model-executor-v1","target_schema":{"type":"model","provider_id":"string","account_id":"string","model_id":"string"}},
+    {"executor_id":"eas","type":"eas","status":"registered","operations":["eas.connection_status","eas.workflow_definitions","eas.workflow_list","eas.workflow_info","eas.workflow_dispatch","eas.build_list","eas.build_info","eas.build_logs"],"capabilities":["workflow_observation","workflow_dispatch","build_observation","build_logs"],"transport":"eas-control-plane","risk_classes":["READ","LOW_RISK_WRITE"],"auth_mode":"credential_ref","health":"unknown","availability":"unknown","version":"aria-eas-executor-v1","target_schema":{"type":"eas","project_id":"string"}}
   ],
-  "invariants": [
-    "executor_type is explicit or derived only from target.type",
-    "unknown executor types are rejected",
-    "missing executor target identifiers are rejected",
-    "the registry selects no provider, model, account, credential, or fallback route",
-    "no executor receives secrets through the registry",
-    "registry metadata is deterministic and side-effect free",
-    "executor availability is explicit; unknown is never treated as available"
-  ]
+  "invariants":["executor_type is explicit or derived only from target.type","unknown executor types are rejected","missing executor target identifiers are rejected","the registry selects no provider, model, account, credential, or fallback route","no executor receives secrets through the registry","registry metadata is deterministic and side-effect free","executor availability is explicit; unknown is never treated as available","EAS credentials never enter planner, registry, or mission artifacts"]
 }
