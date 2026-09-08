@@ -16,7 +16,7 @@ const required = [
   'aria_eas_build_list',
   'aria_eas_build_info',
   'aria_eas_build_logs',
-  'https://api.expo.dev/graphql',
+  'EAS_GRAPHQL = `${EAS_API}/graphql`',
   '/v2/workflows/runs/',
   '/v2/workflows/dispatch',
   'logFiles',
