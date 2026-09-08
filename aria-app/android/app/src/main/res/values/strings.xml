@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ARIA</string>
+    <string name="aria_accessibility_service_description">Permite a ARIA observar y operar interfaces de usuario mediante acciones explícitas y verificadas.</string>
+</resources>
