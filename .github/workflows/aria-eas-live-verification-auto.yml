@@ -16,220 +16,107 @@ concurrency:
 env:
   EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
   EAS_API: https://api.expo.dev
-  ARIA_WORKFLOW_RUN_ID: 01a082b3-b13b-71fc-997e-7dc0624c4b53
-  ARIA_BUILD_ID: c2b45a20-a56a-4440-9037-905ac72f99d0
+  ARIA_GIT_REF: aria/android-browser-bridge-v1
+  ARIA_EAS_WORKFLOW_FILE: android-development.yml
 
 jobs:
   verify:
-    name: Verify EAS Robot access (read-only)
+    name: Verify EAS Robot access and Android build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - name: Verify EXPO_TOKEN is present
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
+          set -euo pipefail
           test -n "$EXPO_TOKEN"
           echo "EXPO_TOKEN present (value not printed)."
 
-      - name: Verify EAS project access via GraphQL
+      - name: Verify EAS project access
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -fsS --max-time 30 "$EAS_API/graphql" \
+          curl -fsS --max-time 30 "$EAS_API/graphql" \
             -H "Authorization: Bearer $EXPO_TOKEN" \
             -H "Content-Type: application/json" \
             --data-raw "$(cat <<JSON
-          {"query":"query App(\$appId: String!) { app { byId(appId: \$appId) { id name slug ownerAccount { id name } } } }","variables":{"appId":"$EAS_PROJECT_ID"}}
+          {"query":"query App(\$appId: String!) { app { byId(appId: \$appId) { id name slug } } }","variables":{"appId":"$EAS_PROJECT_ID"}}
           JSON
-          )")"
-          export EAS_RESPONSE="$response"
+          )" > app.json
           python - <<'PY'
-          import json, os
-          body = json.loads(os.environ['EAS_RESPONSE'])
-          errors = body.get('errors') or []
-          if errors:
-              raise SystemExit(f"EAS GraphQL errors: {errors}")
-          app = (((body.get('data') or {}).get('app') or {}).get('byId'))
-          if not app:
-              raise SystemExit('EAS project missing from response')
-          if app.get('id') != os.environ['EAS_PROJECT_ID']:
-              raise SystemExit(f"Unexpected EAS project id: {app.get('id')}")
-          print(f"EAS project access: PASS ({app.get('slug')})")
-          print(f"EAS project name: {app.get('name')}")
+          import json
+          d=json.load(open('app.json'))
+          if d.get('errors'): raise SystemExit(d['errors'])
+          app=((d.get('data') or {}).get('app') or {}).get('byId')
+          if not app or app.get('id') != '1b23b091-f7b6-4dc2-b328-c8e5ec07de57': raise SystemExit('EAS project access failed')
+          print('EAS project access: PASS', app.get('slug'))
           PY
 
-      - name: Verify known ARIA workflow run via REST
+      - name: Dispatch Android workflow from exact bridge branch
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -fsS --max-time 30 "$EAS_API/v2/workflows/runs/$ARIA_WORKFLOW_RUN_ID" \
-            -H "Authorization: Bearer $EXPO_TOKEN" \
-            -H "Accept: application/json")"
-          export EAS_RUN_RESPONSE="$response"
-          python - <<'PY'
-          import json, os
-          body = json.loads(os.environ['EAS_RUN_RESPONSE'])
-          if body.get('errors'):
-              raise SystemExit(f"EAS workflow response contains errors: {body['errors']}")
-          if not isinstance(body, dict):
-              raise SystemExit('Unexpected EAS workflow response shape')
-          print("Known ARIA workflow run lookup: PASS")
-          PY
-
-      - name: Verify EAS workflow definitions via GraphQL
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          response="$(curl -fsS --max-time 30 "$EAS_API/graphql" \
+          cat > dispatch.json <<JSON
+          {"appId":"$EAS_PROJECT_ID","gitRef":"$ARIA_GIT_REF","fileName":"$ARIA_EAS_WORKFLOW_FILE","inputs":{}}
+          JSON
+          curl -fsS --max-time 30 -X POST "$EAS_API/v2/workflows/dispatch" \
             -H "Authorization: Bearer $EXPO_TOKEN" \
             -H "Content-Type: application/json" \
-            --data-raw "$(cat <<JSON
-          {"query":"query Workflows(\$appId: String!) { app { byId(appId: \$appId) { id workflows { id name fileName } } } }","variables":{"appId":"$EAS_PROJECT_ID"}}
-          JSON
-          )")"
-          export EAS_WORKFLOWS_RESPONSE="$response"
+            --data @dispatch.json > dispatch-response.json
           python - <<'PY'
-          import json, os
-          body = json.loads(os.environ['EAS_WORKFLOWS_RESPONSE'])
-          errors = body.get('errors') or []
-          if errors:
-              raise SystemExit(f"EAS GraphQL workflow errors: {errors}")
-          app = (((body.get('data') or {}).get('app') or {}).get('byId'))
-          workflows = (app or {}).get('workflows') or []
-          if not workflows:
-              raise SystemExit('No EAS workflow definitions returned')
-          print(f"EAS workflow definition access: PASS ({len(workflows)} definitions visible)")
-          for item in workflows[:10]:
-              print(f"- {item.get('fileName') or item.get('name')}")
+          import json
+          d=json.load(open('dispatch-response.json'))
+          if d.get('errors'): raise SystemExit(d['errors'])
+          run_id=((d.get('data') or {}).get('id'))
+          if not run_id: raise SystemExit(f'No EAS run id: {d}')
+          print('EAS workflow dispatched:', run_id)
+          print(run_id)
+          PY
+          python - <<'PY'
+          import json
+          rid=((json.load(open('dispatch-response.json')).get('data') or {}).get('id'))
+          open('eas-run-id.txt','w').write(rid or '')
           PY
 
-      - name: Verify EAS build visibility via GraphQL
+      - name: Wait for EAS workflow and report build
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -fsS --max-time 30 "$EAS_API/graphql" \
-            -H "Authorization: Bearer $EXPO_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-raw "$(cat <<JSON
-          {"query":"query Builds(\$appId: String!) { app { byId(appId: \$appId) { id builds(offset: 0, limit: 10) { id status platform gitCommitHash gitCommitMessage createdAt completedAt artifacts { buildUrl applicationArchiveUrl } error { errorCode message } } } } }","variables":{"appId":"$EAS_PROJECT_ID"}}
-          JSON
-          )")"
-          export EAS_BUILDS_RESPONSE="$response"
-          python - <<'PY'
-          import json, os
-          body = json.loads(os.environ['EAS_BUILDS_RESPONSE'])
-          errors = body.get('errors') or []
-          if errors:
-              raise SystemExit(f"EAS GraphQL build errors: {errors}")
-          app = (((body.get('data') or {}).get('app') or {}).get('byId'))
-          builds = (app or {}).get('builds') or []
-          print(f"EAS build visibility: PASS ({len(builds)} recent builds visible)")
-          for build in builds[:10]:
-              print(f"- {build.get('id')} | {build.get('platform')} | {build.get('status')}")
+          RUN_ID=$(cat eas-run-id.txt)
+          deadline=$((SECONDS+1200))
+          while true; do
+            curl -fsS --max-time 30 "$EAS_API/v2/workflows/runs/$RUN_ID" \
+              -H "Authorization: Bearer $EXPO_TOKEN" \
+              -H "Accept: application/json" > run.json
+            python - <<'PY'
+          import json
+          d=json.load(open('run.json'))['data']
+          print('EAS status:', d.get('status'))
+          for j in d.get('jobs') or []:
+              if j.get('key')=='build_android':
+                  print('BUILD_ID:', j.get('buildId'))
+                  print('BUILD_STATUS:', j.get('status'))
           PY
-
-      - name: Inspect known Android build error via GraphQL
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          response="$(curl -fsS --max-time 30 "$EAS_API/graphql" \
-            -H "Authorization: Bearer $EXPO_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-raw "$(cat <<JSON
-          {"query":"query Build(\$buildId: ID!) { builds { byId(buildId: \$buildId) { id status platform error { errorCode message docsUrl } logFiles artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl } gitCommitHash gitCommitMessage createdAt completedAt } } }","variables":{"buildId":"$ARIA_BUILD_ID"}}
-          JSON
-          )")"
-          export EAS_BUILD_RESPONSE="$response"
-          python - <<'PY'
-          import json, os
-          body = json.loads(os.environ['EAS_BUILD_RESPONSE'])
-          errors = body.get('errors') or []
-          if errors:
-              raise SystemExit(f"EAS GraphQL build detail errors: {errors}")
-          build = (((body.get('data') or {}).get('builds') or {}).get('byId'))
-          if not build:
-              raise SystemExit('Known EAS build not found')
-          print('Known EAS build detail lookup: PASS')
-          print('Build ID:', build.get('id'))
-          print('Status:', build.get('status'))
-          print('Platform:', build.get('platform'))
-          print('Git commit:', build.get('gitCommitHash'))
-          print('Created:', build.get('createdAt'))
-          print('Completed:', build.get('completedAt'))
-          print('Error code:', (build.get('error') or {}).get('errorCode'))
-          print('Error message:', (build.get('error') or {}).get('message'))
-          print('Error docs:', (build.get('error') or {}).get('docsUrl'))
-          print('Artifacts present:', bool(build.get('artifacts')))
-          urls = build.get('logFiles') or []
-          if not urls:
-              raise SystemExit('No EAS build log file was returned')
-          print('Log files available:', len(urls))
-          with open('eas-build-detail.json', 'w') as f:
-              json.dump(build, f)
+            STATUS=$(python - <<'PY'
+          import json
+          print(json.load(open('run.json'))['data'].get('status',''))
           PY
-
-      - name: Decode EAS build log and extract dependency failure
-        shell: bash
-        run: |
-          set -euo pipefail
+          )
+            case "$STATUS" in success|failure|canceled) break;; esac
+            if [ "$SECONDS" -ge "$deadline" ]; then echo 'Timed out waiting for EAS workflow'; exit 2; fi
+            sleep 10
+          done
           python - <<'PY'
-          import gzip, json, re, subprocess, sys, tempfile
-          build = json.load(open('eas-build-detail.json'))
-          url = (build.get('logFiles') or [None])[0]
-          if not url:
-              raise SystemExit('Missing EAS log URL')
-          raw = subprocess.check_output(['curl', '-fsSL', '--max-time', '60', url])
-          print('EAS log download bytes:', len(raw))
-          data = raw
-          for decoder in ('gzip',):
-              try:
-                  if raw[:2] == b'\x1f\x8b':
-                      data = gzip.decompress(raw)
-                  break
-              except Exception as exc:
-                  print('gzip decode failed:', exc)
-          text = data.decode('utf-8', 'replace')
-          print('EAS log decoded characters:', len(text))
-          needles = re.compile(r'(install dependencies|npm (ERR|error)|yarn error|pnpm (ERR|error)|dependency|resolution|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed)', re.I)
-          lines = text.splitlines()
-          matches = [line for line in lines if needles.search(line)]
-          print('Relevant dependency/error lines:', len(matches))
-          for line in matches[-120:]:
-              # redact likely secrets/tokens without suppressing normal diagnostics
-              line = re.sub(r'(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+', r'\1[REDACTED]', line)
-              line = re.sub(r'(?i)(token|password|secret)\s*[:=]\s*[^\s]+', r'\1=[REDACTED]', line)
-              print(line[:2000])
-          if not matches:
-              print('No keyword match; last 80 decoded lines:')
-              for line in lines[-80:]:
-                  print(line[:2000])
+          import json
+          d=json.load(open('run.json'))['data']
+          print('FINAL_STATUS:', d.get('status'))
+          hit=next((j for j in d.get('jobs') or [] if j.get('key')=='build_android'),None)
+          if hit:
+              print('FINAL_BUILD_ID:',hit.get('buildId'))
+              print('FINAL_BUILD_STATUS:',hit.get('status'))
+              open('final-build-id.txt','w').write(hit.get('buildId') or '')
           PY
-
-      - name: Publish verification summary
-        run: |
-          {
-            echo "## ARIA EAS Live Verification"
-            echo ""
-            echo "- Project: \`$EAS_PROJECT_ID\`"
-            echo "- EXPO_TOKEN: present"
-            echo "- EAS project access: PASS"
-            echo "- Known ARIA workflow lookup: PASS"
-            echo "- EAS workflow definition access: PASS"
-            echo "- EAS build visibility: PASS"
-            echo "- Known Android build inspection: PASS"
-            echo "- Dependency-log extraction: PASS"
-            echo "- Workflow dispatch: NOT PERFORMED"
-            echo "- Build creation: NOT PERFORMED"
-            echo "- Secrets exposed: NO"
-          } >> "$GITHUB_STEP_SUMMARY"
