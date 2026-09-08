@@ -1,0 +1,22 @@
+name: ARIA EAS MCP Contract
+
+on:
+  push:
+    branches:
+      - feat/aria-eas-control-bridge-v1
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tests/aria-eas-mcp-contract.test.js
