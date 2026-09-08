@@ -16,6 +16,7 @@ concurrency:
 env:
   EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
   EAS_API: https://api.expo.dev
+  ARIA_WORKFLOW_RUN_ID: 01a082b3-b13b-71fc-997e-7dc0624c4b53
 
 jobs:
   verify:
@@ -52,7 +53,7 @@ jobs:
               raise SystemExit(f"EAS GraphQL errors: {errors}")
           app = (((body.get('data') or {}).get('app') or {}).get('byId'))
           if not app:
-              raise SystemExit(f"EAS project not found: {body}")
+              raise SystemExit('EAS project missing from response')
           if app.get('id') != os.environ['EAS_PROJECT_ID']:
               raise SystemExit(f"Unexpected EAS project id: {app.get('id')}")
           print(f"EAS project access: PASS ({app.get('slug')})")
@@ -65,21 +66,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          run_id="01a082b3-b13b-71fc-997e-7dc0624c4b53"
-          response="$(curl -fsS --max-time 30 "$EAS_API/v2/workflows/runs/$run_id" \
+          response="$(curl -fsS --max-time 30 "$EAS_API/v2/workflows/runs/$ARIA_WORKFLOW_RUN_ID" \
             -H "Authorization: Bearer $EXPO_TOKEN" \
             -H "Accept: application/json")"
           export EAS_RUN_RESPONSE="$response"
           python - <<'PY'
           import json, os
           body = json.loads(os.environ['EAS_RUN_RESPONSE'])
-          if isinstance(body, dict) and body.get('errors'):
+          if body.get('errors'):
               raise SystemExit(f"EAS workflow response contains errors: {body['errors']}")
+          if not isinstance(body, dict):
+              raise SystemExit('Unexpected EAS workflow response shape')
           print("Known ARIA workflow run lookup: PASS")
-          if isinstance(body, dict):
-              for key in ('id','status','requestedGitRef'):
-                  if key in body:
-                      print(f"{key}: {body[key]}")
+          for key in ('id', 'status', 'requestedGitRef'):
+              value = body.get(key)
+              if value is not None:
+                  print(f"{key}: {value}")
           PY
 
       - name: Verify EAS workflow definitions via GraphQL
@@ -104,9 +106,38 @@ jobs:
               raise SystemExit(f"EAS GraphQL workflow errors: {errors}")
           app = (((body.get('data') or {}).get('app') or {}).get('byId'))
           workflows = (app or {}).get('workflows') or []
+          if not workflows:
+              raise SystemExit('No EAS workflow definitions returned')
           print(f"EAS workflow definition access: PASS ({len(workflows)} definitions visible)")
           for item in workflows[:10]:
               print(f"- {item.get('fileName') or item.get('name')}")
+          PY
+
+      - name: Verify EAS build visibility via GraphQL
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl -fsS --max-time 30 "$EAS_API/graphql" \
+            -H "Authorization: Bearer $EXPO_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-raw "$(cat <<JSON
+          {"query":"query Builds(\$appId: String!) { app { byId(appId: \$appId) { id builds(offset: 0, limit: 10) { id status platform gitCommitHash gitCommitMessage createdAt completedAt artifacts { buildUrl applicationArchiveUrl } error { errorCode message } } } } }","variables":{"appId":"$EAS_PROJECT_ID"}}
+          JSON
+          )")"
+          export EAS_BUILDS_RESPONSE="$response"
+          python - <<'PY'
+          import json, os
+          body = json.loads(os.environ['EAS_BUILDS_RESPONSE'])
+          errors = body.get('errors') or []
+          if errors:
+              raise SystemExit(f"EAS GraphQL build errors: {errors}")
+          app = (((body.get('data') or {}).get('app') or {}).get('byId'))
+          builds = (app or {}).get('builds') or []
+          print(f"EAS build visibility: PASS ({len(builds)} recent builds visible)")
+          for build in builds[:10]:
+              print(f"- {build.get('id')} | {build.get('platform')} | {build.get('status')}")
           PY
 
       - name: Publish verification summary
@@ -119,6 +150,7 @@ jobs:
             echo "- EAS project access: PASS"
             echo "- Known ARIA workflow lookup: PASS"
             echo "- EAS workflow definition access: PASS"
+            echo "- EAS build visibility: PASS"
             echo "- Workflow dispatch: NOT PERFORMED"
             echo "- Build creation: NOT PERFORMED"
             echo "- Secrets exposed: NO"
