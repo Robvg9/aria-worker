@@ -11,89 +11,82 @@ permissions:
 env:
   ARIA_WORKFLOW_RUN_ID: 01a082b3-b13b-71fc-997e-7dc0624c4b53
   EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
+  EAS_API: https://api.expo.dev
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Install EAS CLI
-        run: npm install --global eas-cli@latest
-
-      - name: Create temporary Expo project context
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/aria-eas-project
-          cat > /tmp/aria-eas-project/app.json <<'JSON'
-          {
-            "expo": {
-              "name": "aria-app",
-              "slug": "aria-app",
-              "extra": { "eas": { "projectId": "1b23b091-f7b6-4dc2-b328-c8e5ec07de57" } }
-            }
-          }
-          JSON
-
-      - name: Inspect EAS workflow run and obtain job identifiers
+      - name: Verify Robot authentication
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
-          eas --version
+          npm install --global eas-cli@23.2.0 >/dev/null
           eas whoami --non-interactive
-          eas workflow:view "$ARIA_WORKFLOW_RUN_ID" --json > workflow-view.json
+
+      - name: Fetch EAS workflow run directly via REST
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 "$EAS_API/v2/workflows/runs/$ARIA_WORKFLOW_RUN_ID" \
+            -H "Authorization: Bearer $EXPO_TOKEN" \
+            -H "Accept: application/json" > workflow-run.json
           python - <<'PY'
           import json
-          d=json.load(open('workflow-view.json'))
-          print(json.dumps(d, indent=2)[:30000])
+          d=json.load(open('workflow-run.json'))
+          print(json.dumps(d, indent=2)[:50000])
           PY
 
-      - name: Fetch EAS workflow logs through official CLI using build_android job
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        working-directory: /tmp/aria-eas-project
+      - name: Extract EAS job identifiers
         run: |
           set -euo pipefail
-          JOB_ID="$(python - <<'PY'
+          python - <<'PY'
           import json
-          d=json.load(open('workflow-view.json'))
+          d=json.load(open('workflow-run.json'))
+          print('Top-level keys:', sorted(d.keys()))
+          def walk(x, path='root'):
+              if isinstance(x, dict):
+                  for k,v in x.items():
+                      low=k.lower()
+                      if low in {'jobs','job','steps','jobid','job_id','id','name'}:
+                          print(f'{path}.{k} = {v if isinstance(v,(str,int,float)) else type(v).__name__}')
+                      walk(v, f'{path}.{k}')
+              elif isinstance(x, list):
+                  for i,v in enumerate(x): walk(v, f'{path}[{i}]')
+          walk(d)
+          PY
+
+      - name: Fetch EAS workflow logs with REST candidates
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, re, subprocess
+          d=json.load(open('workflow-run.json'))
+          candidates=set()
           def walk(x):
               if isinstance(x,dict):
-                  # Prefer explicit build_android job id/name pairs.
-                  name=str(x.get('name','') or x.get('job',''))
-                  jid=x.get('id') or x.get('jobId') or x.get('job_id')
-                  if jid and name == 'build_android':
-                      return str(jid)
-                  for v in x.values():
-                      r=walk(v)
-                      if r:return r
+                  name=str(x.get('name','') or x.get('job','') or '')
+                  for key in ('id','jobId','job_id'):
+                      val=x.get(key)
+                      if val and (name == 'build_android' or 'job' in key.lower()): candidates.add(str(val))
+                  for v in x.values(): walk(v)
               elif isinstance(x,list):
-                  for v in x:
-                      r=walk(v)
-                      if r:return r
-              return None
-          r=walk(d)
-          if not r: raise SystemExit('build_android job id not found in workflow:view output')
-          print(r)
+                  for v in x: walk(v)
+          walk(d)
+          print('Candidate job IDs:', sorted(candidates))
           PY
-          )"
-          echo "EAS build_android job id: $JOB_ID"
-          eas workflow:logs "$JOB_ID" --non-interactive --all-steps 2>&1 | tee eas-workflow-logs.txt
 
-      - name: Extract dependency/build errors
-        working-directory: /tmp/aria-eas-project
+      - name: Publish diagnostic summary
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          import re
-          text=open('eas-workflow-logs.txt',encoding='utf-8',errors='replace').read()
-          patterns=re.compile(r'(install dependencies|npm (ERR|error)|yarn error|pnpm (ERR|error)|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed|fatal|error|ERR!)',re.I)
-          lines=text.splitlines()
-          hits=[x for x in lines if patterns.search(x)]
-          print('TOTAL_LINES',len(lines)); print('ERROR_RELATED_LINES',len(hits))
-          for x in hits[-300:]: print(x[:5000])
-          if not hits:
-              print('--- RAW LAST 300 LINES ---')
-              for x in lines[-300:]: print(x[:5000])
-          PY
+          {
+            echo '## ARIA EAS Log Format Debug'
+            echo ''
+            echo '- Robot authentication: PASS'
+            echo '- EAS workflow REST lookup: PASS'
+            echo '- Goal: identify the real build_android job/log endpoint without using the failing workflow:view command.'
+          } >> "$GITHUB_STEP_SUMMARY"
