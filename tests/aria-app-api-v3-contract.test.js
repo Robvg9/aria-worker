@@ -5,6 +5,7 @@ const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts),
 const appApi = read('supabase', 'functions', 'aria-app-api-v3', 'index.ts');
 const planner = read('supabase', 'functions', 'aria-planner-v11', 'index.ts');
 const plannerConfig = read('supabase', 'functions', 'aria-planner-v11', 'deno.json');
+const memory = read('supabase', 'functions', 'aria-memory-v2', 'index.ts');
 const executor = read('supabase', 'functions', 'aria-execution-runtime-v1', 'index.ts');
 const appWorkflow = read('.github', 'workflows', 'aria-app-api-v3-deploy.yml');
 const plannerWorkflow = read('.github', 'workflows', 'aria-planner-v11-deploy.yml');
@@ -23,6 +24,8 @@ assertContains(appApi, 'path.endsWith("/media/upload-url")', 'media upload prepa
 assertContains(appApi, 'aria-app-media', 'private media bucket missing');
 assertContains(appApi, 'const objectPath = `${user.id}/${mediaId}/${fileName}`', 'media object path is not user-scoped');
 assertContains(appApi, 'createSignedUploadUrl(objectPath)', 'signed media upload missing');
+assertContains(appApi, '"x-aria-user-id": userId', 'authenticated user scope not propagated to internal memory/mission boundary');
+assertContains(appApi, 'recall(goal, user.id)', 'conversation recall is not user-scoped');
 assertContains(appApi, 'target?.provider_id', 'conversation model route validation missing');
 assertContains(appApi, 'target?.account_id', 'conversation account route validation missing');
 assertContains(appApi, 'target?.model_id', 'conversation model id validation missing');
@@ -32,6 +35,12 @@ assertContains(appApi, 'aria-app-v1', 'app provenance missing');
 if (appApi.includes('SUPABASE_ANON_KEY')) throw new Error('v3 must not depend on legacy anon-key reauthentication');
 assertContains(appWorkflow, 'supabase functions deploy aria-app-api-v3 --project-ref', 'app v3 deployment command missing');
 if (appWorkflow.includes('--verify-jwt')) throw new Error('app v3 workflow uses removed Supabase CLI verify-jwt flag');
+
+// Memory v2: app-scoped operations must carry a user id and use scoped RPCs.
+assertContains(memory, 'x-aria-user-id', 'memory user-scope header missing');
+assertContains(memory, 'aria_memory_search_hybrid_user_scoped', 'scoped memory search RPC missing');
+assertContains(memory, 'aria_memory_remember_user_scoped', 'scoped memory remember RPC missing');
+assertContains(memory, 'scope:\'user\'', 'memory user-scope result marker missing');
 
 // Planner v11: ordinary conversational goals must never fall back to connector/file-read plans.
 assertContains(planner, 'goal.startsWith("IA conversacional:")', 'conversation-aware planner branch missing');
