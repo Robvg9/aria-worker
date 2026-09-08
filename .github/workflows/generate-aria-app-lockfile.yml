@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   generate:
@@ -66,17 +66,12 @@ jobs:
           set -euo pipefail
           npm install --package-lock-only --include=dev
           npm ci --include=dev
-      - name: Publish generated dependency files
+      - name: Stage generated dependency files
         run: |
           set -euo pipefail
           mkdir -p generated/aria-app
           cp /tmp/aria-app-lockfile/package-lock.json generated/aria-app/package-lock.json
           cp /tmp/aria-app-lockfile/.npmrc generated/aria-app/.npmrc
-          git config user.name "ARIA Robot"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add generated/aria-app/package-lock.json generated/aria-app/.npmrc
-          git commit -m "chore: publish generated ARIA app dependency lock"
-          git push
       - name: Upload dependency files
         uses: actions/upload-artifact@v4
         with:
