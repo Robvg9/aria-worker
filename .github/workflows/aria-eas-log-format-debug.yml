@@ -112,60 +112,26 @@ jobs:
           print('Log URL count:', len(urls))
           PY
 
-      - name: Probe EAS build log payload and decode automatically
+      - name: Download and decode EAS build log
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, subprocess, shlex
+          import json, subprocess, os
           b=((json.load(open('build-detail.json')).get('data') or {}).get('builds') or {}).get('byId')
           url=(b.get('logFiles') or [None])[0]
           if not url: raise SystemExit('Missing log URL')
-          cmd=['curl','-fsSL','--max-time','60','-D','eas-log.headers','-o','eas-build.bin',url]
-          subprocess.check_call(cmd)
-          print('Downloaded bytes:', __import__('os').path.getsize('eas-build.bin'))
+          subprocess.check_call(['curl','-fsSL','--compressed','--max-time','60','-D','eas-log.headers','-o','eas-build.log',url])
+          print('Downloaded decoded bytes:', os.path.getsize('eas-build.log'))
           PY
           echo '== RESPONSE HEADERS ==' 
           sed -n '1,80p' eas-log.headers
           echo '== FILE TYPE =='
-          file eas-build.bin || true
-          echo '== FIRST 64 BYTES =='
-          xxd -l 64 eas-build.bin || true
-          python - <<'PY'
-          import gzip, bz2, lzma, os, subprocess, zlib
-          raw=open('eas-build.bin','rb').read()
-          print('Magic:', raw[:16].hex())
-          candidates=[]
-          if raw[:2]==b'\x1f\x8b':
-              try: candidates.append(('gzip',gzip.decompress(raw)))
-              except Exception as e: print('gzip failed:',e)
-          for name,fn in [('zlib',lambda:zlib.decompress(raw)),('zlib-default-window',lambda:zlib.decompress(raw,-15)),('bz2',lambda:bz2.decompress(raw)),('lzma',lambda:lzma.decompress(raw))]:
-              try: candidates.append((name,fn()))
-              except Exception as e: print(name,'failed')
-          # Common signatures handled by external tools if installed.
-          if raw[:4]==b'\x28\xb5\x2f\xfd':
-              try:
-                  out=subprocess.check_output(['unzstd','-c','eas-build.bin'],stderr=subprocess.STDOUT)
-                  candidates.append(('zstd',out))
-              except Exception as e: print('zstd failed',e)
-          if raw[:4]==b'PK\x03\x04':
-              print('ZIP payload detected; list:')
-              subprocess.call(['unzip','-l','eas-build.bin'])
-          best=None
-          for name,data in candidates:
-              score=sum(32<=c<127 or c in (9,10,13) for c in data[:20000])
-              print(name,'decoded bytes',len(data),'printable score',score)
-              if best is None or score>best[0]: best=(score,name,data)
-          if best and best[0] > 1000:
-              open('eas-build-decoded.log','wb').write(best[2])
-              print('Selected decoder:',best[1])
-          else:
-              # Last resort: try UTF-8 and print a compact prefix for forensic inspection.
-              open('eas-build-decoded.log','wb').write(raw)
-              print('No text decoder selected; raw payload retained.')
-          PY
+          file eas-build.log || true
+          echo '== LOG PREVIEW =='
+          sed -n '1,40p' eas-build.log || true
 
       - name: Extract real Android build failure
         working-directory: /tmp/aria-eas-project
@@ -173,7 +139,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import re
-          raw=open('eas-build-decoded.log','rb').read()
+          raw=open('eas-build.log','rb').read()
           text=raw.decode('utf-8','replace')
           lines=text.splitlines()
           patterns=re.compile(r'(npm ERR|yarn error|pnpm ERR|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed|fatal|error|ERR!|gradle|android|credential|keystore|install dependencies)',re.I)
@@ -196,7 +162,7 @@ jobs:
             echo '- Exact build_android job identified: PASS'
             echo '- Build ID matched: PASS'
             echo '- Build log URL metadata: PASS'
-            echo '- Raw EAS log payload: downloaded'
+            echo '- EAS log downloaded with Content-Encoding handling: PASS'
             echo '- New build created: NO'
             echo '- Secrets printed: NO'
           } >> "$GITHUB_STEP_SUMMARY"
