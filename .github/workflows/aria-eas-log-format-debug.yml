@@ -32,11 +32,36 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/aria-eas-project
+          cat > /tmp/aria-eas-project/package.json <<'JSON'
+          {
+            "name": "aria-app",
+            "private": true,
+            "version": "1.0.0",
+            "dependencies": {
+              "expo": "57.0.21"
+            }
+          }
+          JSON
+          cat > /tmp/aria-eas-project/eas.json <<'JSON'
+          {
+            "cli": {
+              "version": ">= 23.2.0"
+            },
+            "build": {
+              "development": {
+                "developmentClient": true,
+                "distribution": "internal"
+              }
+            }
+          }
+          JSON
           cat > /tmp/aria-eas-project/app.json <<'JSON'
           {
             "expo": {
               "name": "aria-app",
               "slug": "aria-app",
+              "version": "1.0.0",
+              "runtimeVersion": "1.0.0",
               "extra": { "eas": { "projectId": "1b23b091-f7b6-4dc2-b328-c8e5ec07de57" } }
             }
           }
@@ -66,9 +91,9 @@ jobs:
       - name: Fetch official EAS workflow logs
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
+          cd /tmp/aria-eas-project
           eas workflow:logs "$ARIA_BUILD_JOB_ID" --non-interactive --all-steps 2>&1 | tee eas-build-job-logs.txt
 
       - name: Extract real Android build failure
