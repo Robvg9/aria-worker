@@ -147,7 +147,7 @@ jobs:
             -H "Authorization: Bearer $EXPO_TOKEN" \
             -H "Content-Type: application/json" \
             --data-raw "$(cat <<JSON
-          {"query":"query Build(\$buildId: ID!) { builds { byId(buildId: \$buildId) { id status platform error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl } gitCommitHash gitCommitMessage createdAt completedAt } } }","variables":{"buildId":"$ARIA_BUILD_ID"}}
+          {"query":"query Build(\$buildId: ID!) { builds { byId(buildId: \$buildId) { id status platform error { errorCode message docsUrl } logFiles artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl } gitCommitHash gitCommitMessage createdAt completedAt } } }","variables":{"buildId":"$ARIA_BUILD_ID"}}
           JSON
           )")"
           export EAS_BUILD_RESPONSE="$response"
@@ -171,6 +171,49 @@ jobs:
           print('Error message:', (build.get('error') or {}).get('message'))
           print('Error docs:', (build.get('error') or {}).get('docsUrl'))
           print('Artifacts present:', bool(build.get('artifacts')))
+          urls = build.get('logFiles') or []
+          if not urls:
+              raise SystemExit('No EAS build log file was returned')
+          print('Log files available:', len(urls))
+          with open('eas-build-detail.json', 'w') as f:
+              json.dump(build, f)
+          PY
+
+      - name: Decode EAS build log and extract dependency failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip, json, re, subprocess, sys, tempfile
+          build = json.load(open('eas-build-detail.json'))
+          url = (build.get('logFiles') or [None])[0]
+          if not url:
+              raise SystemExit('Missing EAS log URL')
+          raw = subprocess.check_output(['curl', '-fsSL', '--max-time', '60', url])
+          print('EAS log download bytes:', len(raw))
+          data = raw
+          for decoder in ('gzip',):
+              try:
+                  if raw[:2] == b'\x1f\x8b':
+                      data = gzip.decompress(raw)
+                  break
+              except Exception as exc:
+                  print('gzip decode failed:', exc)
+          text = data.decode('utf-8', 'replace')
+          print('EAS log decoded characters:', len(text))
+          needles = re.compile(r'(install dependencies|npm (ERR|error)|yarn error|pnpm (ERR|error)|dependency|resolution|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed)', re.I)
+          lines = text.splitlines()
+          matches = [line for line in lines if needles.search(line)]
+          print('Relevant dependency/error lines:', len(matches))
+          for line in matches[-120:]:
+              # redact likely secrets/tokens without suppressing normal diagnostics
+              line = re.sub(r'(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+', r'\1[REDACTED]', line)
+              line = re.sub(r'(?i)(token|password|secret)\s*[:=]\s*[^\s]+', r'\1=[REDACTED]', line)
+              print(line[:2000])
+          if not matches:
+              print('No keyword match; last 80 decoded lines:')
+              for line in lines[-80:]:
+                  print(line[:2000])
           PY
 
       - name: Publish verification summary
@@ -185,6 +228,7 @@ jobs:
             echo "- EAS workflow definition access: PASS"
             echo "- EAS build visibility: PASS"
             echo "- Known Android build inspection: PASS"
+            echo "- Dependency-log extraction: PASS"
             echo "- Workflow dispatch: NOT PERFORMED"
             echo "- Build creation: NOT PERFORMED"
             echo "- Secrets exposed: NO"
