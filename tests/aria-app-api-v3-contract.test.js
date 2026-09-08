@@ -1,29 +1,19 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const appApi = fs.readFileSync(
-  path.join(__dirname, '..', 'supabase', 'functions', 'aria-app-api-v3', 'index.ts'),
-  'utf8',
-);
-const planner = fs.readFileSync(
-  path.join(__dirname, '..', 'supabase', 'functions', 'aria-planner-v11', 'index.ts'),
-  'utf8',
-);
-const plannerConfig = fs.readFileSync(
-  path.join(__dirname, '..', 'supabase', 'functions', 'aria-planner-v11', 'deno.json'),
-  'utf8',
-);
-const executor = fs.readFileSync(
-  path.join(__dirname, '..', 'supabase', 'functions', 'aria-execution-runtime-v1', 'index.ts'),
-  'utf8',
-);
+const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8');
+const appApi = read('supabase', 'functions', 'aria-app-api-v3', 'index.ts');
+const planner = read('supabase', 'functions', 'aria-planner-v11', 'index.ts');
+const plannerConfig = read('supabase', 'functions', 'aria-planner-v11', 'deno.json');
+const executor = read('supabase', 'functions', 'aria-execution-runtime-v1', 'index.ts');
+const appWorkflow = read('.github', 'workflows', 'aria-app-api-v3-deploy.yml');
+const plannerWorkflow = read('.github', 'workflows', 'aria-planner-v11-deploy.yml');
 
 function assertContains(source, fragment, message) {
   if (!source.includes(fragment)) throw new Error(message || `Missing: ${fragment}`);
 }
 
 // App API v3: authenticated facade + conversation/model contract.
-assertContains(appApi, 'verify_jwt', 'documentation marker missing');
 assertContains(appApi, 'SUPABASE_SERVICE_ROLE_KEY', 'service-role binding missing');
 assertContains(appApi, 'auth.getUser(token)', 'server-side user resolution missing');
 assertContains(appApi, 'path.endsWith("/conversation")', 'conversation route missing');
@@ -36,6 +26,8 @@ assertContains(appApi, 'conversation_model_execution_failed', 'conversation fail
 assertContains(appApi, 'aria-execution-runtime-v1', 'canonical execution runtime missing');
 assertContains(appApi, 'aria-app-v1', 'app provenance missing');
 if (appApi.includes('SUPABASE_ANON_KEY')) throw new Error('v3 must not depend on legacy anon-key reauthentication');
+assertContains(appWorkflow, 'supabase functions deploy aria-app-api-v3 --project-ref', 'app v3 deployment command missing');
+if (appWorkflow.includes('--verify-jwt')) throw new Error('app v3 workflow uses removed Supabase CLI verify-jwt flag');
 
 // Planner v11: ordinary conversational goals must never fall back to connector/file-read plans.
 assertContains(planner, 'goal.startsWith("IA conversacional:")', 'conversation-aware planner branch missing');
@@ -44,11 +36,11 @@ assertContains(planner, 'provider_id:"openrouter"', 'conversation planner provid
 assertContains(planner, 'account_id:"acct_openrouter_primary"', 'conversation planner account missing');
 assertContains(planner, 'model_id:"google/gemini-2.5-flash-lite"', 'conversation planner model missing');
 assertContains(planner, 'aria-planner-v11-conversation-aware', 'planner version marker missing');
-if (planner.includes('goal.startsWith("IA conversacional:")') && planner.includes('executor_type:"connector"')) {
-  // The remaining connector fallback is for non-conversational autonomous planning only.
-}
+assertContains(plannerWorkflow, 'node tests/aria-app-api-v3-contract.test.js', 'planner contract gate missing');
+assertContains(plannerWorkflow, 'supabase functions deploy aria-planner-v11 --project-ref', 'planner deployment command missing');
+if (plannerWorkflow.includes('--verify-jwt')) throw new Error('planner workflow uses removed Supabase CLI verify-jwt flag');
 
-// Executor compatibility: the selected route must be accepted exactly as emitted by planner v11.
+// Executor compatibility: route emitted by planner v11 is accepted by the canonical executor.
 assertContains(executor, 'route.provider_id!=="openrouter"', 'openrouter route guard missing');
 assertContains(executor, 'route.account_id!=="acct_openrouter_primary"', 'openrouter account guard missing');
 assertContains(executor, 'route.model_id!=="google/gemini-2.5-flash-lite"', 'openrouter model guard missing');
