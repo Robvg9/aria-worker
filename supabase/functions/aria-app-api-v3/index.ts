@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const RUNTIME_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
+const MEDIA_BUCKET = "aria-app-media";
 const DIRECT = `${SUPABASE_URL}/functions/v1/aria-direct-v1`;
 const MEMORY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
@@ -35,8 +36,6 @@ function adminClient() {
 }
 
 async function authenticateUser(token: string) {
-  // The Edge gateway already validates Authorization because verify_jwt=true.
-  // This server-side lookup obtains the authoritative user object without depending on a legacy anon key env var.
   const { data, error } = await adminClient().auth.getUser(token);
   if (error || !data.user?.id) throw new Error("user_session_invalid");
   return data.user;
@@ -75,53 +74,38 @@ async function planConversation(goal: string, context: unknown) {
 
 async function executeConversation(step: any, prompt: string, conversationId: string) {
   const target = step?.target;
-  if (!target?.provider_id || !target?.account_id || !target?.model_id) {
-    throw new Error("executor_contract_route_incomplete");
-  }
+  if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
   const { response, body } = await internalFetch(EXEC, {
     execution_version: "1",
     request_id: `${conversationId}:${crypto.randomUUID()}`,
     task_id: `conversation:${conversationId}`,
     capability: "text_generation",
-    selected_route: {
-      status: "selected",
-      provider_id: target.provider_id,
-      account_id: target.account_id,
-      model_id: target.model_id,
-      capability: "text_generation",
-    },
-    authorization: {
-      status: "approved",
-      risk_class: "READ",
-      evidence_ref: "aria-app-api-v3",
-    },
+    selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" },
+    authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" },
     input: { payload: { prompt, max_tokens: 256, temperature: 0.3 } },
     policy: {},
     metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model" },
   });
-  if (!response.ok || body?.status !== "succeeded") {
-    throw new Error(`executor_http_${response.status}_${body?.error?.code ?? body?.reason ?? "execution_failed"}`);
-  }
+  if (!response.ok || body?.status !== "succeeded") throw new Error(`executor_http_${response.status}_${body?.error?.code ?? body?.reason ?? "execution_failed"}`);
   return body;
 }
 
 async function missionSubmit(goal: string, userId: string, conversationId: string) {
-  const { response, body } = await internalFetch(DIRECT, {
-    goal,
-    metadata: { source_application: "aria-app-v1", user_id: userId, conversation_id: conversationId, goal_source: "user" },
-  });
+  const { response, body } = await internalFetch(DIRECT, { goal, metadata: { source_application: "aria-app-v1", user_id: userId, conversation_id: conversationId, goal_source: "user" } });
   if (!response.ok) throw new Error(`mission_intake_http_${response.status}_${body?.error ?? "failed"}`);
   return body;
+}
+
+function sanitizeFileName(name: string) {
+  return name.trim().replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 120) || "upload";
 }
 
 Deno.serve(async (request) => {
   const traceId = request.headers.get("x-aria-trace-id") ?? crypto.randomUUID();
   try {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-
     const token = bearer(request);
     if (!token) return json({ error: "unauthorized", stage: "auth", trace_id: traceId }, 401);
-
     const user = await authenticateUser(token);
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
 
@@ -135,57 +119,39 @@ Deno.serve(async (request) => {
       return json({ ok: response.ok, service: "aria-app-api-v3", user_id: user.id, aria: body, trace_id: traceId }, response.ok ? 200 : 502);
     }
 
+    if (request.method === "POST" && path.endsWith("/media/upload-url")) {
+      const body = await request.json().catch(() => null);
+      const fileName = typeof body?.fileName === "string" ? sanitizeFileName(body.fileName) : "upload";
+      const contentType = typeof body?.contentType === "string" ? body.contentType.slice(0, 120) : "application/octet-stream";
+      const mediaId = crypto.randomUUID();
+      const objectPath = `${user.id}/${mediaId}/${fileName}`;
+      const { data, error } = await adminClient().storage.from(MEDIA_BUCKET).createSignedUploadUrl(objectPath);
+      if (error || !data?.signedUrl || !data?.token) throw new Error(`media_upload_url_failed:${error?.message ?? "unknown"}`);
+      return json({ ok: true, upload: { bucket: MEDIA_BUCKET, path: objectPath, signed_url: data.signedUrl, token: data.token, content_type: contentType, expires_in: 7200 }, trace_id: traceId });
+    }
+
     if (request.method === "POST" && path.endsWith("/conversation")) {
       const body = await request.json().catch(() => null);
       const parts = Array.isArray(body?.parts) ? body.parts : [];
-      const goal = parts.filter((part: any) => part?.type === "text")
-        .map((part: any) => String(part.text ?? "").trim()).filter(Boolean).join("\n");
+      const goal = parts.filter((part: any) => part?.type === "text").map((part: any) => String(part.text ?? "").trim()).filter(Boolean).join("\n");
       if (!goal) return json({ error: "text_required", stage: "input", trace_id: traceId }, 400);
-
-      const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim()
-        ? body.conversationId.trim() : crypto.randomUUID();
-
+      const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
+      const attachments = parts.filter((part: any) => ["image", "file", "audio"].includes(part?.type)).map((part: any) => ({ type: part.type, path: typeof part.path === "string" ? part.path : null, mimeType: typeof part.mimeType === "string" ? part.mimeType : null })).filter((part: any) => part.path && part.path.startsWith(`${user.id}/`));
       const remembered = await recall(goal);
       let step: any;
       try {
-        step = await planConversation(goal, {
-          version: "cognitive-loop-v2",
-          memory: remembered.results.slice(0, 6),
-          memory_available: remembered.ok,
-        });
+        step = await planConversation(goal, { version: "cognitive-loop-v2", memory: remembered.results.slice(0, 6), memory_available: remembered.ok, attachments });
       } catch (error) {
         return json({ error: "conversation_planner_failed", stage: "planner", detail: errorText(error), trace_id: traceId }, 503);
       }
-
-      const memoryText = remembered.results.slice(0, 6)
-        .map((item: any) => String(item?.content ?? "").trim()).filter(Boolean).join("\n\n");
-      const prompt = [
-        "Eres ARIA. Responde directamente al usuario.",
-        "No inventes acciones ejecutadas. Si una tarea requiere ejecución, debe convertirse en misión.",
-        "No reveles datos privados de otros usuarios ni secretos.",
-        memoryText ? `Memoria contextual autorizada:\n${memoryText}` : "",
-        `Usuario: ${goal}`,
-      ].filter(Boolean).join("\n\n");
-
+      const memoryText = remembered.results.slice(0, 6).map((item: any) => String(item?.content ?? "").trim()).filter(Boolean).join("\n\n");
+      const attachmentText = attachments.length ? `Adjuntos autorizados:\n${attachments.map((a: any) => `- ${a.type}: ${a.path}${a.mimeType ? ` (${a.mimeType})` : ""}`).join("\n")}` : "";
+      const prompt = ["Eres ARIA. Responde directamente al usuario.","No inventes acciones ejecutadas. Si una tarea requiere ejecución, debe convertirse en misión.","No reveles datos privados de otros usuarios ni secretos.",memoryText ? `Memoria contextual autorizada:\n${memoryText}` : "",attachmentText,`Usuario: ${goal}`].filter(Boolean).join("\n\n");
       try {
         const result = await executeConversation(step, prompt, conversationId);
         const content = result?.response?.content;
-        if (typeof content !== "string" || !content.trim()) {
-          return json({ error: "empty_conversation_response", stage: "model_execution", trace_id: traceId }, 502);
-        }
-        return json({
-          ok: true,
-          conversationId,
-          messageId: crypto.randomUUID(),
-          visualState: "success",
-          parts: [{ type: "text", text: content }],
-          cognitive: {
-            recall_count: remembered.results.length,
-            provider_id: step.target.provider_id,
-            model_id: step.target.model_id,
-          },
-          trace_id: traceId,
-        });
+        if (typeof content !== "string" || !content.trim()) return json({ error: "empty_conversation_response", stage: "model_execution", trace_id: traceId }, 502);
+        return json({ ok: true, conversationId, messageId: crypto.randomUUID(), visualState: "success", parts: [{ type: "text", text: content }], attachments, cognitive: { recall_count: remembered.results.length, provider_id: step.target.provider_id, model_id: step.target.model_id }, trace_id: traceId });
       } catch (error) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: errorText(error), trace_id: traceId }, 502);
       }
