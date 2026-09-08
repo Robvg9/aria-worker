@@ -117,6 +117,7 @@ async function getMissionEventsForUser(missionId: string, userId: string) {
   const mission = await getMissionForUser(missionId, userId);
   if (!mission) return null;
   const { data, error } = await serviceClient()
+    .schema("aria_internal")
     .from("mission_events")
     .select("*")
     .eq("mission_id", missionId)
