@@ -79,7 +79,6 @@ jobs:
           if not isinstance(body, dict):
               raise SystemExit('Unexpected EAS workflow response shape')
           print("Known ARIA workflow run lookup: PASS")
-          print(json.dumps(body, indent=2)[:12000])
           PY
 
       - name: Verify EAS workflow definitions via GraphQL
@@ -138,7 +137,7 @@ jobs:
               print(f"- {build.get('id')} | {build.get('platform')} | {build.get('status')}")
           PY
 
-      - name: Inspect known failed Android build via GraphQL
+      - name: Inspect known Android build error via GraphQL
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         shell: bash
@@ -148,7 +147,7 @@ jobs:
             -H "Authorization: Bearer $EXPO_TOKEN" \
             -H "Content-Type: application/json" \
             --data-raw "$(cat <<JSON
-          {"query":"query Build(\$buildId: ID!) { builds { byId(buildId: \$buildId) { id status platform error { errorCode message docsUrl } logFiles artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl } gitCommitHash gitCommitMessage createdAt completedAt } } }","variables":{"buildId":"$ARIA_BUILD_ID"}}
+          {"query":"query Build(\$buildId: ID!) { builds { byId(buildId: \$buildId) { id status platform error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl } gitCommitHash gitCommitMessage createdAt completedAt } } }","variables":{"buildId":"$ARIA_BUILD_ID"}}
           JSON
           )")"
           export EAS_BUILD_RESPONSE="$response"
@@ -168,32 +167,10 @@ jobs:
           print('Git commit:', build.get('gitCommitHash'))
           print('Created:', build.get('createdAt'))
           print('Completed:', build.get('completedAt'))
-          print('Error:', json.dumps(build.get('error'), ensure_ascii=False))
-          print('Log files:', len(build.get('logFiles') or []))
-          print('Artifacts:', json.dumps(build.get('artifacts'), ensure_ascii=False))
-          with open('eas-build-detail.json', 'w') as f:
-              json.dump(build, f)
-          PY
-
-      - name: Inspect EAS build log tails
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os, urllib.request
-          build = json.load(open('eas-build-detail.json'))
-          urls = build.get('logFiles') or []
-          print(f"Attempting bounded fetch of {min(len(urls), 5)} log files")
-          for i, url in enumerate(urls[:5], 1):
-              try:
-                  with urllib.request.urlopen(url, timeout=20) as r:
-                      text = r.read().decode('utf-8', 'replace')
-                  print(f"--- log {i} tail ---")
-                  print(text[-12000:])
-              except Exception as exc:
-                  print(f"log {i}: fetch failed: {exc}")
+          print('Error code:', (build.get('error') or {}).get('errorCode'))
+          print('Error message:', (build.get('error') or {}).get('message'))
+          print('Error docs:', (build.get('error') or {}).get('docsUrl'))
+          print('Artifacts present:', bool(build.get('artifacts')))
           PY
 
       - name: Publish verification summary
