@@ -1,0 +1,31 @@
+'use strict';
+
+const OPERATIONS = Object.freeze(['eas.connection_status','eas.workflow_definitions','eas.workflow_list','eas.workflow_info','eas.workflow_dispatch','eas.build_list','eas.build_info','eas.build_logs']);
+
+function createEasAdapter({ client } = {}) {
+  if (!client || typeof client !== 'object') throw new TypeError('eas client required');
+  for (const operation of OPERATIONS) {
+    const method = operation.slice('eas.'.length);
+    if (typeof client[method] !== 'function') throw new TypeError(`eas client method required: ${method}`);
+  }
+  return Object.freeze({
+    adapter_id: 'eas-runtime-v1', executor_type: 'eas', status: 'ready', operations: [...OPERATIONS],
+    async execute({ missionId, step, attempt = 1, policy } = {}) {
+      if (!step || typeof step !== 'object') throw new TypeError('step required');
+      const operation = String(step.operation || '');
+      if (!OPERATIONS.includes(operation)) return { status:'failed', executor_type:'eas', operation, error:{code:'operation_not_supported',message:'EAS operation not supported'} };
+      const projectId = step.target?.project_id;
+      if (typeof projectId !== 'string' || !projectId.trim()) return { status:'blocked', executor_type:'eas', operation, error:{code:'eas_project_id_required',message:'EAS project_id required'} };
+      const method = operation.slice('eas.'.length);
+      const input = step.input && typeof step.input === 'object' ? step.input : {};
+      const authorization = step.authorization && typeof step.authorization === 'object' ? step.authorization : {status:'blocked',risk_class:step.risk||'READ',evidence_ref:null};
+      try {
+        const result = await client[method]({ projectId, ...input, missionId:missionId||null, stepId:step.id||null, attempt, policy:policy||step.policy||{}, authorization });
+        return { ...(result&&typeof result==='object'?result:{result}), status:result?.status||'succeeded', executor_type:'eas', operation, project_id:projectId, attempt };
+      } catch (_error) {
+        return { status:'failed', executor_type:'eas', operation, project_id:projectId, attempt, error:{code:'eas_adapter_error',message:'EAS adapter execution failed'} };
+      }
+    }
+  });
+}
+module.exports = Object.freeze({ OPERATIONS, createEasAdapter });
