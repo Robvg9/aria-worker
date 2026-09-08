@@ -77,3 +77,11 @@ jobs:
           git add generated/aria-app/package-lock.json generated/aria-app/.npmrc
           git commit -m "chore: publish generated ARIA app dependency lock"
           git push
+      - name: Upload dependency files
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-app-dependency-files
+          path: |
+            generated/aria-app/package-lock.json
+            generated/aria-app/.npmrc
+          if-no-files-found: error
