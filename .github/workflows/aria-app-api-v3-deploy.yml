@@ -33,4 +33,4 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
-          supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF" --verify-jwt
+          supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF"
