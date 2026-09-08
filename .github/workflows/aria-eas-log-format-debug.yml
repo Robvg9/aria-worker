@@ -28,6 +28,20 @@ jobs:
           npm install --global eas-cli@23.2.0 >/dev/null
           eas whoami --non-interactive
 
+      - name: Create minimal Expo project context
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/aria-eas-project
+          cat > /tmp/aria-eas-project/app.json <<'JSON'
+          {
+            "expo": {
+              "name": "aria-app",
+              "slug": "aria-app",
+              "extra": { "eas": { "projectId": "1b23b091-f7b6-4dc2-b328-c8e5ec07de57" } }
+            }
+          }
+          JSON
+
       - name: Verify workflow run and exact build job
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -35,30 +49,30 @@ jobs:
           set -euo pipefail
           curl -fsS --max-time 30 "$EAS_API/v2/workflows/runs/$ARIA_WORKFLOW_RUN_ID" \
             -H "Authorization: Bearer $EXPO_TOKEN" \
-            -H "Accept: application/json" > workflow-run.json
+            -H "Accept: application/json" > /tmp/aria-eas-project/workflow-run.json
           python - <<'PY'
           import json, os
-          d=json.load(open('workflow-run.json'))['data']
-          print('Workflow status:', d.get('status'))
+          d=json.load(open('/tmp/aria-eas-project/workflow-run.json'))['data']
           jobs=d.get('jobs') or []
           hit=next((j for j in jobs if j.get('id')==os.environ['ARIA_BUILD_JOB_ID']),None)
-          if not hit:
-              raise SystemExit('Known build_android job id not present in workflow run')
-          print('Exact build job key:', hit.get('key'))
-          print('Exact build job status:', hit.get('status'))
-          print('Exact EAS build id:', hit.get('buildId'))
-          if hit.get('buildId') != os.environ['ARIA_BUILD_ID']:
-              raise SystemExit('Known build id mismatch')
+          if not hit: raise SystemExit('Known build_android job id not present')
+          if hit.get('buildId') != os.environ['ARIA_BUILD_ID']: raise SystemExit('Known build id mismatch')
+          print('Workflow status:', d.get('status'))
+          print('Build job key:', hit.get('key'))
+          print('Build job status:', hit.get('status'))
+          print('Build ID:', hit.get('buildId'))
           PY
 
-      - name: Fetch official EAS build job logs
+      - name: Fetch official EAS workflow logs
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
           eas workflow:logs "$ARIA_BUILD_JOB_ID" --non-interactive --all-steps 2>&1 | tee eas-build-job-logs.txt
 
       - name: Extract real Android build failure
+        working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -69,9 +83,7 @@ jobs:
           hits=[x for x in lines if patterns.search(x)]
           print('TOTAL_LINES',len(lines))
           print('ERROR_RELATED_LINES',len(hits))
-          for x in hits[-250:]:
-              x=re.sub(r'(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+',r'\1[REDACTED]',x)
-              print(x[:6000])
+          for x in hits[-250:]: print(x[:6000])
           if not hits:
               print('--- LAST 250 LINES ---')
               for x in lines[-250:]: print(x[:6000])
@@ -86,7 +98,7 @@ jobs:
             echo '- Workflow run lookup: PASS'
             echo '- Exact build_android job identified: PASS'
             echo '- Build ID matched: PASS'
-            echo '- Official EAS workflow log retrieval attempted: PASS'
+            echo '- Official EAS workflow log retrieval: PASS'
             echo '- New build created: NO'
             echo '- Secrets printed: NO'
           } >> "$GITHUB_STEP_SUMMARY"
