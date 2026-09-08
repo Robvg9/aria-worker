@@ -10,6 +10,7 @@ permissions:
 
 env:
   ARIA_WORKFLOW_RUN_ID: 01a082b3-b13b-71fc-997e-7dc0624c4b53
+  EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
 
 jobs:
   inspect:
@@ -19,15 +20,37 @@ jobs:
       - name: Install EAS CLI
         run: npm install --global eas-cli@latest
 
+      - name: Create temporary Expo project context
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/aria-eas-project
+          cat > /tmp/aria-eas-project/app.json <<'JSON'
+          {
+            "expo": {
+              "name": "aria-app",
+              "slug": "aria-app",
+              "extra": {
+                "eas": {
+                  "projectId": "1b23b091-f7b6-4dc2-b328-c8e5ec07de57"
+                }
+              }
+            }
+          }
+          JSON
+          cd /tmp/aria-eas-project
+          eas whoami --non-interactive
+
       - name: Fetch EAS workflow logs through official CLI
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
           eas --version
-          eas workflow:logs "$ARIA_WORKFLOW_RUN_ID" --non-interactive --all-steps 2>&1 | tee eas-workflow-logs.txt
+          eas workflow:logs "$ARIA_WORKFLOW_RUN_ID" --non-interactive --all-steps 2>&1 | tee /tmp/aria-eas-project/eas-workflow-logs.txt
 
       - name: Extract dependency/build errors
+        working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -38,6 +61,9 @@ jobs:
           hits=[x for x in lines if patterns.search(x)]
           print('TOTAL_LINES',len(lines))
           print('ERROR_RELATED_LINES',len(hits))
-          for x in hits[-200:]:
-              print(x[:4000])
+          for x in hits[-300:]:
+              print(x[:5000])
+          if not hits:
+              print('--- RAW LAST 300 LINES ---')
+              for x in lines[-300:]: print(x[:5000])
           PY
