@@ -3,6 +3,7 @@
 const { createConnectorAdapter } = require('./connector');
 const { createDeviceAdapter } = require('./device');
 const { createAgentAdapter } = require('./agent');
+const { createEasAdapter } = require('./eas');
 const canonicalExecution = require('../../../execution/lookup');
 
 function createModelAdapter({ executionEngine = canonicalExecution } = {}) {
@@ -50,13 +51,15 @@ function createModelAdapter({ executionEngine = canonicalExecution } = {}) {
   });
 }
 
-function createAdapterRegistry({ activation, deviceDispatcher, agentExecutors = {}, modelExecution = canonicalExecution } = {}) {
+function createAdapterRegistry({ activation, deviceDispatcher, agentExecutors = {}, modelExecution = canonicalExecution, easClient = null } = {}) {
   const adapters = {
     connector: createConnectorAdapter({ activation }),
     device: createDeviceAdapter({ deviceDispatcher }),
     agent: createAgentAdapter({ agentExecutors }),
     model: createModelAdapter({ executionEngine: modelExecution })
   };
+
+  if (easClient) adapters.eas = createEasAdapter({ client: easClient });
 
   function get(executorType) {
     return adapters[executorType] || null;
