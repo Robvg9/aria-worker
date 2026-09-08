@@ -1,0 +1,97 @@
+name: ARIA EAS Live Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-eas-live-verification
+  cancel-in-progress: false
+
+env:
+  EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
+
+jobs:
+  verify:
+    name: Verify EAS Robot User access (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Prepare minimal EAS project context
+        run: |
+          mkdir -p .eas-live-verification
+          cat > .eas-live-verification/app.json <<'EOF'
+          {
+            "expo": {
+              "name": "ARIA EAS Live Verification",
+              "slug": "aria-eas-live-verification",
+              "extra": {
+                "eas": {
+                  "projectId": "1b23b091-f7b6-4dc2-b328-c8e5ec07de57"
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Verify EXPO_TOKEN is present
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "ERROR: GitHub Actions secret EXPO_TOKEN is missing."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is present (value not printed)."
+
+      - name: Verify EAS project access
+        working-directory: .eas-live-verification
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx --yes eas-cli@latest status --json --non-interactive > eas-status.json
+          node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync("eas-status.json", "utf8");
+            const data = JSON.parse(raw);
+            console.log("EAS project access: OK");
+            console.log("Project ID:", process.env.EAS_PROJECT_ID);
+            if (data.projects) console.log("Project status returned successfully.");
+          '
+
+      - name: Verify EAS workflow-read access
+        working-directory: .eas-live-verification
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx --yes eas-cli@latest workflow:runs --json --non-interactive --limit 3 > eas-workflow-runs.json
+          node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync("eas-workflow-runs.json", "utf8");
+            JSON.parse(raw);
+            console.log("EAS workflow read access: OK");
+            console.log("No workflow was dispatched and no build was created.");
+          '
+
+      - name: Publish verification summary
+        run: |
+          {
+            echo "## ARIA EAS Live Verification"
+            echo ""
+            echo "- Project ID: \`$EAS_PROJECT_ID\`"
+            echo "- EXPO_TOKEN: present"
+            echo "- EAS project access: PASS"
+            echo "- EAS workflow read access: PASS"
+            echo "- Build dispatch: NOT PERFORMED"
+            echo "- Secrets exposed: NO"
+          } >> "$GITHUB_STEP_SUMMARY"
