@@ -20,9 +20,7 @@ assertContains(appApi,'const objectPath=`${u.id}/${crypto.randomUUID()}/${fileNa
 assertContains(appApi,'createSignedUploadUrl(objectPath)','signed media upload missing');
 assertContains(appApi,'"x-aria-user-id":userId','authenticated user scope not propagated to internal memory/mission boundary');
 assertContains(appApi,'recall(text||"Analiza los adjuntos proporcionados",u.id)','conversation recall is not user-scoped');
-assertContains(appApi,'target?.provider_id','conversation model route validation missing');
-assertContains(appApi,'target?.account_id','conversation account route validation missing');
-assertContains(appApi,'target?.model_id','conversation model id validation missing');
+assertContains(appApi,'!t?.provider_id||!t?.account_id||!t?.model_id','conversation model route validation missing');
 assertContains(appApi,'conversation_model_execution_failed','conversation failure boundary missing');
 assertContains(appApi,'aria-execution-runtime-v1','canonical execution runtime missing');
 assertContains(appApi,'aria-app-v1','app provenance missing');
