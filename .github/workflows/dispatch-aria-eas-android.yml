@@ -1,0 +1,92 @@
+name: Dispatch ARIA EAS Android Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/dispatch-aria-eas-android.yml
+
+permissions:
+  contents: read
+
+env:
+  EAS_API: https://api.expo.dev
+  EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
+  EAS_GIT_REF: aria/android-browser-bridge-v1
+  EAS_WORKFLOW_FILE: android-development.yml
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Dispatch EAS workflow from exact bridge branch
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          body=$(cat <<JSON
+          {
+            "appId":"$EAS_PROJECT_ID",
+            "gitRef":"$EAS_GIT_REF",
+            "fileName":"$EAS_WORKFLOW_FILE",
+            "inputs":{}
+          }
+          JSON
+          )
+          curl -fsS --max-time 30 -X POST "$EAS_API/v2/workflows/dispatch" \
+            -H "Authorization: Bearer $EXPO_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$body" > dispatch.json
+          cat dispatch.json
+          RUN_ID=$(python - <<'PY'
+          import json
+          d=json.load(open('dispatch.json'))['data']
+          print(d['id'])
+          PY
+          )
+          echo "EAS_RUN_ID=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Dispatched EAS workflow: $RUN_ID"
+      - name: Poll EAS workflow run
+        id: poll
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          RUN_ID=$(python - <<'PY'
+          import json
+          print(json.load(open('dispatch.json'))['data']['id'])
+          PY
+          )
+          deadline=$((SECONDS+1200))
+          while true; do
+            curl -fsS --max-time 30 "$EAS_API/v2/workflows/runs/$RUN_ID" \
+              -H "Authorization: Bearer $EXPO_TOKEN" \
+              -H "Accept: application/json" > run.json
+            python - <<'PY'
+          import json
+          d=json.load(open('run.json'))['data']
+          print('status=',d.get('status'))
+          for j in d.get('jobs') or []:
+              print('job=',j.get('key'), 'status=',j.get('status'), 'buildId=',j.get('buildId'))
+          PY
+            STATUS=$(python - <<'PY'
+          import json
+          print(json.load(open('run.json'))['data'].get('status',''))
+          PY
+          )
+            case "$STATUS" in
+              success|failure|canceled) break;;
+            esac
+            if [ "$SECONDS" -ge "$deadline" ]; then echo 'Timed out waiting for EAS workflow'; exit 2; fi
+            sleep 15
+          done
+          python - <<'PY'
+          import json
+          d=json.load(open('run.json'))['data']
+          print('FINAL_STATUS',d.get('status'))
+          for j in d.get('jobs') or []:
+              if j.get('key')=='build_android':
+                  print('BUILD_ID',j.get('buildId'))
+                  print('BUILD_STATUS',j.get('status'))
+          PY
