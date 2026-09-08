@@ -6,6 +6,8 @@ on:
     paths:
       - 'supabase/functions/**'
       - 'supabase/migrations/**'
+      - 'autonomy/**'
+      - 'scripts/patch-eas-into-mission-runner-v22.js'
       - '.github/workflows/supabase-canonical-deploy.yml'
   workflow_dispatch:
 
@@ -19,15 +21,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: Install Supabase CLI
         run: npm install -g supabase
-
+      - name: Validate EAS contracts
+        run: |
+          node tests/aria-eas-mcp-contract.test.js
+          node tests/eas-universal-executor.test.js
+          node tests/eas-runner-patch.test.js
       - name: Deploy canonical ARIA functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -36,6 +40,7 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
+          node scripts/patch-eas-into-mission-runner-v22.js supabase/functions/aria-mission-runner-v22/index.ts
           supabase functions deploy aria-planner-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-autonomy-supervisor-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mission-runner-v15 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt

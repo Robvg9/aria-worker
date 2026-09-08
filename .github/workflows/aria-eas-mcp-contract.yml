@@ -1,0 +1,27 @@
+name: ARIA EAS Control Plane Contract
+
+on:
+  push:
+    branches:
+      - feat/aria-eas-control-bridge-v1
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: EAS MCP contract
+        run: node tests/aria-eas-mcp-contract.test.js
+      - name: EAS universal executor contract
+        run: node tests/eas-universal-executor.test.js
+      - name: EAS runner patch transformer contract
+        run: node tests/eas-runner-patch.test.js

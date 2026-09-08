@@ -1,55 +1,7 @@
 'use strict';
-
-const registry = require('./registry.json');
-
-function fail(message, code) {
-  const error = new TypeError(message);
-  error.code = code;
-  throw error;
-}
-
-function listExecutors() {
-  return registry.executors.map((entry) => Object.freeze({ ...entry }));
-}
-
-function requiredTargetKey(type) {
-  if (type === 'connector') return 'connector_id';
-  if (type === 'device') return 'device_id';
-  if (type === 'agent') return 'agent_id';
-  if (type === 'model') return 'model_id';
-  return null;
-}
-
-function resolveExecutor(step) {
-  if (!step || typeof step !== 'object') fail('step required', 'step_required');
-
-  const type = step.executor_type || step.target?.type || step.target?.executor_type || null;
-  if (!type) fail('executor type missing', 'executor_type_missing');
-
-  const entry = registry.executors.find((item) => item.type === type);
-  if (!entry) fail(`unknown executor type: ${type}`, 'unknown_executor_type');
-
-  const target = step.target || {};
-  const requiredKey = requiredTargetKey(type);
-  if (!requiredKey || typeof target[requiredKey] !== 'string' || target[requiredKey].trim() === '') {
-    fail(`${type} target ${requiredKey || 'identifier'} missing`, 'executor_target_missing');
-  }
-
-  const operation = step.operation;
-  if (typeof operation !== 'string' || operation.trim() === '') {
-    fail('step operation missing', 'operation_missing');
-  }
-
-  const allowed = entry.operations.includes('*') || entry.operations.includes(operation);
-  if (!allowed) fail(`${type} operation not registered: ${operation}`, 'operation_not_registered');
-  if (entry.availability != null && entry.availability !== 'available') fail(`${type} executor unavailable`, 'executor_unavailable');
-
-  return Object.freeze({
-    executor_id: entry.executor_id,
-    type: entry.type,
-    operation,
-    target: Object.freeze({ ...target })
-  });
-}
-
-module.exports = Object.freeze({ listExecutors, resolveExecutor, requiredTargetKey });
+const registry=require('./registry.json');
+function fail(message,code){const e=new TypeError(message);e.code=code;throw e;}
+function listExecutors(){return registry.executors.map(entry=>Object.freeze({...entry}));}
+function requiredTargetKey(type){if(type==='connector')return'connector_id';if(type==='device')return'device_id';if(type==='agent')return'agent_id';if(type==='model')return'model_id';if(type==='eas')return'project_id';return null;}
+function resolveExecutor(step){if(!step||typeof step!=='object')fail('step required','step_required');const type=step.executor_type||step.target?.type||step.target?.executor_type||null;if(!type)fail('executor type missing','executor_type_missing');const entry=registry.executors.find(item=>item.type===type);if(!entry)fail(`unknown executor type: ${type}`,'unknown_executor_type');const target=step.target||{};const requiredKey=requiredTargetKey(type);if(!requiredKey||typeof target[requiredKey]!=='string'||!target[requiredKey].trim())fail(`${type} target ${requiredKey||'identifier'} missing`,'executor_target_missing');const operation=step.operation;if(typeof operation!=='string'||!operation.trim())fail('step operation missing','operation_missing');const allowed=entry.operations.includes('*')||entry.operations.includes(operation);if(!allowed)fail(`${type} operation not registered: ${operation}`,'operation_not_registered');if(entry.availability!=null&&entry.availability!=='available'&&entry.availability!=='unknown')fail(`${type} executor unavailable`,'executor_unavailable');return Object.freeze({executor_id:entry.executor_id,type:entry.type,operation,target:Object.freeze({...target})});}
+module.exports=Object.freeze({listExecutors,resolveExecutor,requiredTargetKey});

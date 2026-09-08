@@ -1,0 +1,20 @@
+'use strict';
+const EAS_API='https://api.expo.dev';
+function createEasClient({tokenProvider,fetchImpl=globalThis.fetch}={}){
+ if(typeof tokenProvider!=='function')throw new TypeError('tokenProvider required');
+ if(typeof fetchImpl!=='function')throw new TypeError('fetchImpl required');
+ async function token(){const value=await tokenProvider();if(typeof value!=='string'||!value.trim())throw new Error('eas_credential_unavailable');return value.trim();}
+ async function request(path,init={}){const t=await token();const r=await fetchImpl(EAS_API+path,{...init,headers:{authorization:'Bearer '+t,'content-type':'application/json',...(init.headers||{})}});const text=await r.text();let body;try{body=JSON.parse(text)}catch{body={raw:text.slice(0,12000)}}if(!r.ok){const e=new Error('eas_http_'+r.status);e.status=r.status;e.body=body;throw e}return body}
+ async function graphql(query,variables={}){const t=await token();const r=await fetchImpl(EAS_API+'/graphql',{method:'POST',headers:{authorization:'Bearer '+t,'content-type':'application/json'},body:JSON.stringify({query,variables})});const text=await r.text();let body;try{body=JSON.parse(text)}catch{body={raw:text.slice(0,12000)}}if(!r.ok||body?.errors?.length){const e=new Error('eas_graphql_'+r.status);e.status=r.status;e.body=body;throw e}return body}
+ return Object.freeze({
+  async connection_status({projectId}){return graphql('query App($appId: String!) { app { byId(appId: $appId) { id name slug ownerAccount { id name } } } }',{appId:projectId})},
+  async workflow_definitions({projectId}){return graphql('query Workflows($appId: String!) { app { byId(appId: $appId) { id workflows { id name fileName createdAt updatedAt } } } }',{appId:projectId})},
+  async workflow_list({projectId,limit=20,status}){const l=Math.max(1,Math.min(Number(limit)||20,100));return graphql('query Runs($appId: String!, $status: WorkflowRunStatus, $limit: Int!) { app { byId(appId: $appId) { id workflowRunsPaginated(first: $limit, filter: { status: $status }) { edges { node { id status gitCommitMessage gitCommitHash requestedGitRef triggeringLabelName triggerEventType createdAt updatedAt errors { title message } workflow { id name fileName } } } } } } }',{appId:projectId,status:status||null,limit:l})},
+  async workflow_info({runId}){return request('/v2/workflows/runs/'+encodeURIComponent(runId))},
+  async workflow_dispatch({projectId,gitRef,fileName,inputs}){return request('/v2/workflows/dispatch',{method:'POST',body:JSON.stringify({appId:projectId,gitRef,fileName,...(inputs?{inputs}:{})})})},
+  async build_list({projectId,limit=20,offset=0}){const l=Math.max(1,Math.min(Number(limit)||20,50));const o=Math.max(0,Number(offset)||0);return graphql('query Builds($appId: String!, $offset: Int!, $limit: Int!) { app { byId(appId: $appId) { id builds(offset: $offset, limit: $limit) { id status platform error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl } logFiles buildProfile appIdentifier sdkVersion appVersion appBuildVersion gitCommitHash gitCommitMessage createdAt updatedAt completedAt expirationDate } } } }',{appId:projectId,offset:o,limit:l})},
+  async build_info({buildId}){return graphql('query Build($buildId: ID!) { builds { byId(buildId: $buildId) { id status platform error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl } logFiles buildProfile distribution appIdentifier sdkVersion appVersion appBuildVersion gitCommitHash gitCommitMessage createdAt updatedAt completedAt expirationDate } } }',{buildId})},
+  async build_logs({buildId}){const info=await graphql('query Build($buildId: ID!) { builds { byId(buildId: $buildId) { id status logFiles } } }',{buildId});const build=info?.data?.builds?.byId||null;const logs=[];for(const url of Array.isArray(build?.logFiles)?build.logFiles.slice(0,10):[]){if(typeof url!=='string')continue;const r=await fetchImpl(url);logs.push({url,ok:r.ok,status:r.status,content:(await r.text()).slice(-50000)})}return{build,logs}}
+ });
+}
+module.exports=Object.freeze({createEasClient,EAS_API});
