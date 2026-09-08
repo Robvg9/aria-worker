@@ -1,4 +1,4 @@
-name: ARIA EAS MCP Contract
+name: ARIA EAS Control Plane Contract
 
 on:
   push:
@@ -19,4 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node tests/aria-eas-mcp-contract.test.js
+      - name: EAS MCP contract
+        run: node tests/aria-eas-mcp-contract.test.js
+      - name: EAS universal executor contract
+        run: node tests/eas-universal-executor.test.js
+      - name: EAS runner patch transformer contract
+        run: node tests/eas-runner-patch.test.js
