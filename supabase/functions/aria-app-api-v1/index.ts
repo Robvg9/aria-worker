@@ -101,6 +101,9 @@ function toConversationResponse(body: any, fallbackText: string) {
       goal: mission.goal,
       current_step: mission.current_step ?? 0,
       completed_steps: mission.completed_steps ?? 0,
+      total_steps: mission.total_steps ?? null,
+      next_action: mission.next_action ?? null,
+      last_stderr: mission.last_stderr ?? null,
     } : undefined,
   };
 }
@@ -116,15 +119,8 @@ async function getMissionForUser(missionId: string, userId: string) {
 async function getMissionEventsForUser(missionId: string, userId: string) {
   const mission = await getMissionForUser(missionId, userId);
   if (!mission) return null;
-  const { data, error } = await serviceClient()
-    .schema("aria_internal")
-    .from("mission_events")
-    .select("*")
-    .eq("mission_id", missionId)
-    .order("created_at", { ascending: true })
-    .limit(250);
-  if (error) throw new Error(`mission_events:${error.message}`);
-  return Array.isArray(data) ? data : [];
+  const events = await rpc("aria_mission_events_get", { p_mission_id: missionId });
+  return Array.isArray(events) ? events : [];
 }
 
 Deno.serve(async (request) => {
