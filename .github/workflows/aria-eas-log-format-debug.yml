@@ -10,6 +10,8 @@ permissions:
 
 env:
   ARIA_WORKFLOW_RUN_ID: 01a082b3-b13b-71fc-997e-7dc0624c4b53
+  ARIA_BUILD_JOB_ID: 01a082b3-b221-71e9-9b1f-5a49271cee80
+  ARIA_BUILD_ID: c2b45a20-a56a-4440-9037-905ac72f99d0
   EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
   EAS_API: https://api.expo.dev
 
@@ -26,7 +28,7 @@ jobs:
           npm install --global eas-cli@23.2.0 >/dev/null
           eas whoami --non-interactive
 
-      - name: Fetch EAS workflow run directly via REST
+      - name: Verify workflow run and exact build job
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
@@ -35,58 +37,56 @@ jobs:
             -H "Authorization: Bearer $EXPO_TOKEN" \
             -H "Accept: application/json" > workflow-run.json
           python - <<'PY'
-          import json
-          d=json.load(open('workflow-run.json'))
-          print(json.dumps(d, indent=2)[:50000])
+          import json, os
+          d=json.load(open('workflow-run.json'))['data']
+          print('Workflow status:', d.get('status'))
+          jobs=d.get('jobs') or []
+          hit=next((j for j in jobs if j.get('id')==os.environ['ARIA_BUILD_JOB_ID']),None)
+          if not hit:
+              raise SystemExit('Known build_android job id not present in workflow run')
+          print('Exact build job key:', hit.get('key'))
+          print('Exact build job status:', hit.get('status'))
+          print('Exact EAS build id:', hit.get('buildId'))
+          if hit.get('buildId') != os.environ['ARIA_BUILD_ID']:
+              raise SystemExit('Known build id mismatch')
           PY
 
-      - name: Extract EAS job identifiers
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          d=json.load(open('workflow-run.json'))
-          print('Top-level keys:', sorted(d.keys()))
-          def walk(x, path='root'):
-              if isinstance(x, dict):
-                  for k,v in x.items():
-                      low=k.lower()
-                      if low in {'jobs','job','steps','jobid','job_id','id','name'}:
-                          print(f'{path}.{k} = {v if isinstance(v,(str,int,float)) else type(v).__name__}')
-                      walk(v, f'{path}.{k}')
-              elif isinstance(x, list):
-                  for i,v in enumerate(x): walk(v, f'{path}[{i}]')
-          walk(d)
-          PY
-
-      - name: Fetch EAS workflow logs with REST candidates
+      - name: Fetch official EAS build job logs
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           set -euo pipefail
+          eas workflow:logs "$ARIA_BUILD_JOB_ID" --non-interactive --all-steps 2>&1 | tee eas-build-job-logs.txt
+
+      - name: Extract real Android build failure
+        run: |
+          set -euo pipefail
           python - <<'PY'
-          import json, re, subprocess
-          d=json.load(open('workflow-run.json'))
-          candidates=set()
-          def walk(x):
-              if isinstance(x,dict):
-                  name=str(x.get('name','') or x.get('job','') or '')
-                  for key in ('id','jobId','job_id'):
-                      val=x.get(key)
-                      if val and (name == 'build_android' or 'job' in key.lower()): candidates.add(str(val))
-                  for v in x.values(): walk(v)
-              elif isinstance(x,list):
-                  for v in x: walk(v)
-          walk(d)
-          print('Candidate job IDs:', sorted(candidates))
+          import re
+          text=open('eas-build-job-logs.txt',encoding='utf-8',errors='replace').read()
+          lines=text.splitlines()
+          patterns=re.compile(r'(npm ERR|yarn error|pnpm ERR|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed|fatal|error|ERR!|gradle|android|credential|keystore)',re.I)
+          hits=[x for x in lines if patterns.search(x)]
+          print('TOTAL_LINES',len(lines))
+          print('ERROR_RELATED_LINES',len(hits))
+          for x in hits[-250:]:
+              x=re.sub(r'(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+',r'\1[REDACTED]',x)
+              print(x[:6000])
+          if not hits:
+              print('--- LAST 250 LINES ---')
+              for x in lines[-250:]: print(x[:6000])
           PY
 
       - name: Publish diagnostic summary
         run: |
           {
-            echo '## ARIA EAS Log Format Debug'
+            echo '## ARIA EAS Build Diagnostic'
             echo ''
             echo '- Robot authentication: PASS'
-            echo '- EAS workflow REST lookup: PASS'
-            echo '- Goal: identify the real build_android job/log endpoint without using the failing workflow:view command.'
+            echo '- Workflow run lookup: PASS'
+            echo '- Exact build_android job identified: PASS'
+            echo '- Build ID matched: PASS'
+            echo '- Official EAS workflow log retrieval attempted: PASS'
+            echo '- New build created: NO'
+            echo '- Secrets printed: NO'
           } >> "$GITHUB_STEP_SUMMARY"
