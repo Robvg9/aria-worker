@@ -18,7 +18,11 @@ assertContains(appApi, 'SUPABASE_SERVICE_ROLE_KEY', 'service-role binding missin
 assertContains(appApi, 'auth.getUser(token)', 'server-side user resolution missing');
 assertContains(appApi, 'path.endsWith("/conversation")', 'conversation route missing');
 assertContains(appApi, 'path.endsWith("/missions")', 'mission route missing');
-assertContains(appApi, 'path.endsWith("/memory/search")', 'memory route missing');
+assertContains(appApi, 'path.endsWith("/memory/search")', 'memory search route missing');
+assertContains(appApi, 'path.endsWith("/media/upload-url")', 'media upload preparation route missing');
+assertContains(appApi, 'aria-app-media', 'private media bucket missing');
+assertContains(appApi, 'const objectPath = `${user.id}/${mediaId}/${fileName}`', 'media object path is not user-scoped');
+assertContains(appApi, 'createSignedUploadUrl(objectPath)', 'signed media upload missing');
 assertContains(appApi, 'target?.provider_id', 'conversation model route validation missing');
 assertContains(appApi, 'target?.account_id', 'conversation account route validation missing');
 assertContains(appApi, 'target?.model_id', 'conversation model id validation missing');
