@@ -29,25 +29,57 @@ jobs:
             "expo": {
               "name": "aria-app",
               "slug": "aria-app",
-              "extra": {
-                "eas": {
-                  "projectId": "1b23b091-f7b6-4dc2-b328-c8e5ec07de57"
-                }
-              }
+              "extra": { "eas": { "projectId": "1b23b091-f7b6-4dc2-b328-c8e5ec07de57" } }
             }
           }
           JSON
-          cd /tmp/aria-eas-project
-          eas whoami --non-interactive
 
-      - name: Fetch EAS workflow logs through official CLI
+      - name: Inspect EAS workflow run and obtain job identifiers
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         working-directory: /tmp/aria-eas-project
         run: |
           set -euo pipefail
           eas --version
-          eas workflow:logs "$ARIA_WORKFLOW_RUN_ID" --non-interactive --all-steps 2>&1 | tee /tmp/aria-eas-project/eas-workflow-logs.txt
+          eas whoami --non-interactive
+          eas workflow:view "$ARIA_WORKFLOW_RUN_ID" --json > workflow-view.json
+          python - <<'PY'
+          import json
+          d=json.load(open('workflow-view.json'))
+          print(json.dumps(d, indent=2)[:30000])
+          PY
+
+      - name: Fetch EAS workflow logs through official CLI using build_android job
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        working-directory: /tmp/aria-eas-project
+        run: |
+          set -euo pipefail
+          JOB_ID="$(python - <<'PY'
+          import json
+          d=json.load(open('workflow-view.json'))
+          def walk(x):
+              if isinstance(x,dict):
+                  # Prefer explicit build_android job id/name pairs.
+                  name=str(x.get('name','') or x.get('job',''))
+                  jid=x.get('id') or x.get('jobId') or x.get('job_id')
+                  if jid and name == 'build_android':
+                      return str(jid)
+                  for v in x.values():
+                      r=walk(v)
+                      if r:return r
+              elif isinstance(x,list):
+                  for v in x:
+                      r=walk(v)
+                      if r:return r
+              return None
+          r=walk(d)
+          if not r: raise SystemExit('build_android job id not found in workflow:view output')
+          print(r)
+          PY
+          )"
+          echo "EAS build_android job id: $JOB_ID"
+          eas workflow:logs "$JOB_ID" --non-interactive --all-steps 2>&1 | tee eas-workflow-logs.txt
 
       - name: Extract dependency/build errors
         working-directory: /tmp/aria-eas-project
@@ -59,10 +91,8 @@ jobs:
           patterns=re.compile(r'(install dependencies|npm (ERR|error)|yarn error|pnpm (ERR|error)|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed|fatal|error|ERR!)',re.I)
           lines=text.splitlines()
           hits=[x for x in lines if patterns.search(x)]
-          print('TOTAL_LINES',len(lines))
-          print('ERROR_RELATED_LINES',len(hits))
-          for x in hits[-300:]:
-              print(x[:5000])
+          print('TOTAL_LINES',len(lines)); print('ERROR_RELATED_LINES',len(hits))
+          for x in hits[-300:]: print(x[:5000])
           if not hits:
               print('--- RAW LAST 300 LINES ---')
               for x in lines[-300:]: print(x[:5000])
