@@ -41,7 +41,9 @@ function resolveAgainstEntry(step, executor) {
         ? 'agent_id'
         : executor.type === 'model'
           ? 'model_id'
-          : null;
+          : executor.type === 'eas'
+            ? 'project_id'
+            : null;
 
   if (!requiredKey || typeof target[requiredKey] !== 'string' || target[requiredKey].trim() === '') {
     fail('executor_target_missing', `${executor.type} target ${requiredKey || 'identifier'} missing`);
@@ -56,7 +58,7 @@ function resolveAgainstEntry(step, executor) {
     fail('operation_not_registered', `${executor.type} operation not registered: ${operation}`);
   }
 
-  if (executor.availability != null && executor.availability !== 'available') {
+  if (executor.availability != null && executor.availability !== 'available' && executor.availability !== 'unknown') {
     fail('executor_unavailable', `executor unavailable: ${executor.type}`);
   }
 
@@ -75,6 +77,7 @@ function targetTypeHint(target) {
   if (typeof target.device_id === 'string' && target.device_id.trim()) hints.push('device');
   if (typeof target.agent_id === 'string' && target.agent_id.trim()) hints.push('agent');
   if (typeof target.model_id === 'string' && target.model_id.trim()) hints.push('model');
+  if (typeof target.project_id === 'string' && target.project_id.trim()) hints.push('eas');
   if (hints.length === 1) return hints[0];
   if (hints.length > 1) {
     fail('executor_target_ambiguous', 'target contains multiple executor identity hints', { hints });
