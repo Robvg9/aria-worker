@@ -3,6 +3,7 @@ name: Dispatch ARIA EAS Android Build
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - .github/workflows/dispatch-aria-eas-android.yml
 
@@ -38,17 +39,17 @@ jobs:
             -H "Authorization: Bearer $EXPO_TOKEN" \
             -H "Content-Type: application/json" \
             --data "$body" > dispatch.json
-          cat dispatch.json
-          RUN_ID=$(python - <<'PY'
+          python - <<'PY'
           import json
-          d=json.load(open('dispatch.json'))['data']
-          print(d['id'])
+          d=json.load(open('dispatch.json'))
+          if d.get('errors'):
+              raise SystemExit(d['errors'])
+          run_id=d.get('data',{}).get('id')
+          if not run_id:
+              raise SystemExit(f'No EAS workflow run id returned: {d}')
+          print('DISPATCHED_EAS_RUN', run_id)
           PY
-          )
-          echo "EAS_RUN_ID=$RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Dispatched EAS workflow: $RUN_ID"
       - name: Poll EAS workflow run
-        id: poll
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
@@ -79,7 +80,7 @@ jobs:
               success|failure|canceled) break;;
             esac
             if [ "$SECONDS" -ge "$deadline" ]; then echo 'Timed out waiting for EAS workflow'; exit 2; fi
-            sleep 15
+            sleep 10
           done
           python - <<'PY'
           import json
