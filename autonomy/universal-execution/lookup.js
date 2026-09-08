@@ -17,6 +17,7 @@ function requiredTargetKey(type) {
   if (type === 'device') return 'device_id';
   if (type === 'agent') return 'agent_id';
   if (type === 'model') return 'model_id';
+  if (type === 'eas') return 'project_id';
   return null;
 }
 
@@ -42,7 +43,7 @@ function resolveExecutor(step) {
 
   const allowed = entry.operations.includes('*') || entry.operations.includes(operation);
   if (!allowed) fail(`${type} operation not registered: ${operation}`, 'operation_not_registered');
-  if (entry.availability != null && entry.availability !== 'available') fail(`${type} executor unavailable`, 'executor_unavailable');
+  if (entry.availability != null && entry.availability !== 'available' && entry.availability !== 'unknown') fail(`${type} executor unavailable`, 'executor_unavailable');
 
   return Object.freeze({
     executor_id: entry.executor_id,
