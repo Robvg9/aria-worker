@@ -41,20 +41,20 @@ async function authenticateUser(token: string) {
   return data.user;
 }
 
-async function internalFetch(url: string, payload: unknown) {
+async function internalFetch(url: string, payload: unknown, headers: Record<string,string> = {}) {
   if (!RUNTIME_SECRET) throw new Error("runtime_secret_not_configured");
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${RUNTIME_SECRET}` },
+    headers: { "content-type": "application/json", authorization: `Bearer ${RUNTIME_SECRET}`, ...headers },
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => null);
   return { response, body };
 }
 
-async function recall(query: string) {
+async function recall(query: string, userId?: string) {
   try {
-    const { response, body } = await internalFetch(MEMORY, { action: "search", query, limit: 8 });
+    const { response, body } = await internalFetch(MEMORY, { action: "search", query, limit: 8, ...(userId ? { user_id: userId } : {}) }, userId ? { "x-aria-user-id": userId } : {});
     return { ok: response.ok, results: Array.isArray(body?.results) ? body.results : [], status: response.status };
   } catch {
     return { ok: false, results: [], status: 0 };
@@ -62,13 +62,8 @@ async function recall(query: string) {
 }
 
 async function planConversation(goal: string, context: unknown) {
-  const { response, body } = await internalFetch(PLANNER, {
-    goal: `IA conversacional: responde al usuario de forma natural y útil. ${goal}`,
-    context,
-  });
-  if (!response.ok || body?.ok !== true || !Array.isArray(body?.plan?.steps) || !body.plan.steps[0]) {
-    throw new Error(`planner_http_${response.status}_${body?.error ?? "invalid_plan"}`);
-  }
+  const { response, body } = await internalFetch(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${goal}`, context });
+  if (!response.ok || body?.ok !== true || !Array.isArray(body?.plan?.steps) || !body.plan.steps[0]) throw new Error(`planner_http_${response.status}_${body?.error ?? "invalid_plan"}`);
   return body.plan.steps[0];
 }
 
@@ -91,7 +86,7 @@ async function executeConversation(step: any, prompt: string, conversationId: st
 }
 
 async function missionSubmit(goal: string, userId: string, conversationId: string) {
-  const { response, body } = await internalFetch(DIRECT, { goal, metadata: { source_application: "aria-app-v1", user_id: userId, conversation_id: conversationId, goal_source: "user" } });
+  const { response, body } = await internalFetch(DIRECT, { goal, metadata: { source_application: "aria-app-v1", user_id: userId, conversation_id: conversationId, goal_source: "user" } }, { "x-aria-user-id": userId });
   if (!response.ok) throw new Error(`mission_intake_http_${response.status}_${body?.error ?? "failed"}`);
   return body;
 }
@@ -109,12 +104,10 @@ Deno.serve(async (request) => {
     const user = await authenticateUser(token);
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
 
-    if (request.method === "GET" && path.endsWith("/session")) {
-      return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: traceId });
-    }
+    if (request.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: traceId });
 
     if (request.method === "GET" && path.endsWith("/system")) {
-      const response = await fetch(DIRECT);
+      const response = await fetch(DIRECT, { headers: { authorization: `Bearer ${RUNTIME_SECRET}` } });
       const body = await response.json().catch(() => null);
       return json({ ok: response.ok, service: "aria-app-api-v3", user_id: user.id, aria: body, trace_id: traceId }, response.ok ? 200 : 502);
     }
@@ -137,10 +130,10 @@ Deno.serve(async (request) => {
       if (!goal) return json({ error: "text_required", stage: "input", trace_id: traceId }, 400);
       const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
       const attachments = parts.filter((part: any) => ["image", "file", "audio"].includes(part?.type)).map((part: any) => ({ type: part.type, path: typeof part.path === "string" ? part.path : null, mimeType: typeof part.mimeType === "string" ? part.mimeType : null })).filter((part: any) => part.path && part.path.startsWith(`${user.id}/`));
-      const remembered = await recall(goal);
+      const remembered = await recall(goal, user.id);
       let step: any;
       try {
-        step = await planConversation(goal, { version: "cognitive-loop-v2", memory: remembered.results.slice(0, 6), memory_available: remembered.ok, attachments });
+        step = await planConversation(goal, { version: "cognitive-loop-v2", user_id: user.id, memory: remembered.results.slice(0, 6), memory_available: remembered.ok, attachments });
       } catch (error) {
         return json({ error: "conversation_planner_failed", stage: "planner", detail: errorText(error), trace_id: traceId }, 503);
       }
@@ -174,7 +167,7 @@ Deno.serve(async (request) => {
       const body = await request.json().catch(() => null);
       const query = typeof body?.query === "string" ? body.query.trim() : "";
       if (!query) return json({ error: "query_required" }, 400);
-      const result = await recall(query);
+      const result = await recall(query, user.id);
       return json({ ok: true, query, result_count: result.results.length, results: result.results });
     }
 
