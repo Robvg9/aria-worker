@@ -44,9 +44,7 @@ jobs:
           JSON
           cat > /tmp/aria-eas-project/eas.json <<'JSON'
           {
-            "cli": {
-              "version": ">= 23.2.0"
-            },
+            "cli": { "version": ">= 23.2.0" },
             "build": {
               "development": {
                 "developmentClient": true,
@@ -88,13 +86,86 @@ jobs:
           print('Build ID:', hit.get('buildId'))
           PY
 
-      - name: Fetch official EAS workflow logs
+      - name: Fetch build log URL metadata directly from EAS GraphQL
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           set -euo pipefail
-          cd /tmp/aria-eas-project
-          eas workflow:logs "$ARIA_BUILD_JOB_ID" --non-interactive --all-steps 2>&1 | tee eas-build-job-logs.txt
+          curl -fsS --max-time 30 "$EAS_API/graphql" \
+            -H "Authorization: Bearer $EXPO_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-raw "$(cat <<JSON
+          {"query":"query Build(\$buildId: ID!) { builds { byId(buildId: \$buildId) { id status platform logFiles error { errorCode message } } } }","variables":{"buildId":"$ARIA_BUILD_ID"}}
+          JSON
+          )" > /tmp/aria-eas-project/build-detail.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/aria-eas-project/build-detail.json'))
+          if body.get('errors'): raise SystemExit(body['errors'])
+          b=((body.get('data') or {}).get('builds') or {}).get('byId')
+          if not b: raise SystemExit('build detail not found')
+          urls=b.get('logFiles') or []
+          if not urls: raise SystemExit('No EAS build log URL returned')
+          print('Build detail: PASS')
+          print('Status:', b.get('status'))
+          print('Platform:', b.get('platform'))
+          print('Log URL count:', len(urls))
+          PY
+
+      - name: Probe EAS build log payload and decode automatically
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        working-directory: /tmp/aria-eas-project
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess, shlex
+          b=((json.load(open('build-detail.json')).get('data') or {}).get('builds') or {}).get('byId')
+          url=(b.get('logFiles') or [None])[0]
+          if not url: raise SystemExit('Missing log URL')
+          cmd=['curl','-fsSL','--max-time','60','-D','eas-log.headers','-o','eas-build.bin',url]
+          subprocess.check_call(cmd)
+          print('Downloaded bytes:', __import__('os').path.getsize('eas-build.bin'))
+          PY
+          echo '== RESPONSE HEADERS ==' 
+          sed -n '1,80p' eas-log.headers
+          echo '== FILE TYPE =='
+          file eas-build.bin || true
+          echo '== FIRST 64 BYTES =='
+          xxd -l 64 eas-build.bin || true
+          python - <<'PY'
+          import gzip, bz2, lzma, os, subprocess, zlib
+          raw=open('eas-build.bin','rb').read()
+          print('Magic:', raw[:16].hex())
+          candidates=[]
+          if raw[:2]==b'\x1f\x8b':
+              try: candidates.append(('gzip',gzip.decompress(raw)))
+              except Exception as e: print('gzip failed:',e)
+          for name,fn in [('zlib',lambda:zlib.decompress(raw)),('zlib-default-window',lambda:zlib.decompress(raw,-15)),('bz2',lambda:bz2.decompress(raw)),('lzma',lambda:lzma.decompress(raw))]:
+              try: candidates.append((name,fn()))
+              except Exception as e: print(name,'failed')
+          # Common signatures handled by external tools if installed.
+          if raw[:4]==b'\x28\xb5\x2f\xfd':
+              try:
+                  out=subprocess.check_output(['unzstd','-c','eas-build.bin'],stderr=subprocess.STDOUT)
+                  candidates.append(('zstd',out))
+              except Exception as e: print('zstd failed',e)
+          if raw[:4]==b'PK\x03\x04':
+              print('ZIP payload detected; list:')
+              subprocess.call(['unzip','-l','eas-build.bin'])
+          best=None
+          for name,data in candidates:
+              score=sum(32<=c<127 or c in (9,10,13) for c in data[:20000])
+              print(name,'decoded bytes',len(data),'printable score',score)
+              if best is None or score>best[0]: best=(score,name,data)
+          if best and best[0] > 1000:
+              open('eas-build-decoded.log','wb').write(best[2])
+              print('Selected decoder:',best[1])
+          else:
+              # Last resort: try UTF-8 and print a compact prefix for forensic inspection.
+              open('eas-build-decoded.log','wb').write(raw)
+              print('No text decoder selected; raw payload retained.')
+          PY
 
       - name: Extract real Android build failure
         working-directory: /tmp/aria-eas-project
@@ -102,16 +173,17 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import re
-          text=open('eas-build-job-logs.txt',encoding='utf-8',errors='replace').read()
+          raw=open('eas-build-decoded.log','rb').read()
+          text=raw.decode('utf-8','replace')
           lines=text.splitlines()
-          patterns=re.compile(r'(npm ERR|yarn error|pnpm ERR|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed|fatal|error|ERR!|gradle|android|credential|keystore)',re.I)
+          patterns=re.compile(r'(npm ERR|yarn error|pnpm ERR|EAI_|ETIMEDOUT|ECONN|401|403|404|ENOSPC|no matching|unable to resolve|failed|fatal|error|ERR!|gradle|android|credential|keystore|install dependencies)',re.I)
           hits=[x for x in lines if patterns.search(x)]
           print('TOTAL_LINES',len(lines))
           print('ERROR_RELATED_LINES',len(hits))
           for x in hits[-250:]: print(x[:6000])
           if not hits:
-              print('--- LAST 250 LINES ---')
-              for x in lines[-250:]: print(x[:6000])
+              print('--- LAST 120 LINES ---')
+              for x in lines[-120:]: print(x[:6000])
           PY
 
       - name: Publish diagnostic summary
@@ -123,7 +195,8 @@ jobs:
             echo '- Workflow run lookup: PASS'
             echo '- Exact build_android job identified: PASS'
             echo '- Build ID matched: PASS'
-            echo '- Official EAS workflow log retrieval: PASS'
+            echo '- Build log URL metadata: PASS'
+            echo '- Raw EAS log payload: downloaded'
             echo '- New build created: NO'
             echo '- Secrets printed: NO'
           } >> "$GITHUB_STEP_SUMMARY"
