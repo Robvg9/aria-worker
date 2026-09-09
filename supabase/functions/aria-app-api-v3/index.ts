@@ -1,12 +1,88 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-const URL=Deno.env.get("SUPABASE_URL")??"";const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")??"";const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";const DIRECT=`${URL}/functions/v1/aria-direct-v1`;const MEMORY=`${URL}/functions/v1/aria-memory-v2`;const PLANNER=`${URL}/functions/v1/aria-planner-v11`;const EXEC=`${URL}/functions/v1/aria-execution-runtime-v1`;
-const CORS={"access-control-allow-origin":"*","access-control-allow-headers":"authorization,apikey,x-client-info,x-aria-trace-id,content-type","access-control-allow-methods":"GET,POST,OPTIONS"};
-const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...CORS}});const tokenOf=(r:Request)=>{const h=r.headers.get("authorization")??"";return h.startsWith("Bearer ")?h.slice(7).trim():""};const db=()=>{if(!KEY)throw new Error("server_auth_not_configured");return createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}})};const err=(e:unknown)=>e instanceof Error?e.message:String(e);
-async function requireUser(token:string){if(!token)throw Object.assign(new Error("missing_authorization"),{status:401});const {data,error}=await db().auth.getUser(token);if(error||!data.user?.id)throw Object.assign(new Error("invalid_or_expired_session"),{status:401});return data.user}
-async function internal(url:string,payload:unknown,headers:Record<string,string>={}){if(!SECRET)throw new Error("runtime_secret_not_configured");const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${SECRET}`,...headers},body:JSON.stringify(payload)});const b=await r.json().catch(()=>null);return {r,b}}
-async function recall(q:string,userId:string){try{const x=await internal(MEMORY,{action:"search",query:q,limit:8,user_id:userId},{"x-aria-user-id":userId});return {ok:x.r.ok,results:Array.isArray(x.b?.results)?x.b.results:[]}}catch{return {ok:false,results:[]}}}
-async function plan(goal:string,context:unknown){const x=await internal(PLANNER,{goal:`IA conversacional: responde al usuario de forma natural y útil. ${goal}`,context});if(!x.r.ok||x.b?.ok!==true||!Array.isArray(x.b?.plan?.steps)||!x.b.plan.steps[0])throw new Error(`planner_http_${x.r.status}_${x.b?.error??"invalid_plan"}`);return x.b.plan.steps[0]}
-async function execute(step:any,prompt:string,cid:string){const t=step?.target;if(!t?.provider_id||!t?.account_id||!t?.model_id)throw new Error("executor_contract_route_incomplete");const x=await internal(EXEC,{execution_version:"1",request_id:`${cid}:${crypto.randomUUID()}`,task_id:`conversation:${cid}`,capability:"text_generation",selected_route:{status:"selected",provider_id:t.provider_id,account_id:t.account_id,model_id:t.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload:{messages:[{role:"user",content:[{type:"text",text:prompt}]}],max_tokens:512,temperature:.3}},policy:{},metadata:{conversation_id:cid,source_application:"aria-app-v1",executor_type:"model",multimodal:false}});if(!x.r.ok||x.b?.status!=="succeeded")throw new Error(`executor_http_${x.r.status}_${x.b?.error?.code??x.b?.reason??"execution_failed"}`);return x.b}
-async function bestEnsure(userId:string,cid:string,title:string){try{await db().rpc("aria_app_ensure_conversation",{p_user_id:userId,p_conversation_id:cid,p_title:(title||"Nueva conversación").slice(0,160)});return true}catch{return false}}async function bestSave(userId:string,cid:string,role:string,content:string|null,parts:any[],trace:string,state:string,p?:string,m?:string){try{const {data}=await db().rpc("aria_app_save_message",{p_user_id:userId,p_conversation_id:cid,p_role:role,p_content:content,p_parts:parts,p_trace_id:trace,p_visual_state:state,p_provider_id:p??null,p_model_id:m??null});return data??null}catch{return null}}async function listConv(id:string){const{data,error}=await db().rpc("aria_app_list_conversations",{p_user_id:id});if(error)throw new Error(`conversation_list_failed:${error.message}`);return Array.isArray(data)?data:[]}async function getConv(id:string,cid:string){const{data,error}=await db().rpc("aria_app_get_conversation",{p_user_id:id,p_conversation_id:cid});if(error)throw new Error(`conversation_get_failed:${error.message}`);return data??null}
-Deno.serve(async req=>{const trace=req.headers.get("x-aria-trace-id")??crypto.randomUUID();if(req.method==="OPTIONS")return new Response(null,{status:204,headers:CORS});let u:any;try{u=await requireUser(tokenOf(req))}catch(e){const s=(e as any)?.status===401?401:500;return json({error:s===401?"invalid_or_expired_session":"gateway_auth_failure",stage:"auth",detail:err(e),trace_id:trace},s)}try{const path=new URL(req.url).pathname.replace(/\/+$/g,"");if(req.method==="GET"&&path.endsWith("/session"))return json({ok:true,service:"aria-app-api-v3",user:{id:u.id,email:u.email??null},trace_id:trace});if(req.method==="GET"&&path.endsWith("/system")){if(!SECRET)throw new Error("runtime_secret_not_configured");const r=await fetch(DIRECT,{headers:{authorization:`Bearer ${SECRET}`}});const b=await r.json().catch(()=>null);if(!r.ok)return json({error:"direct_system_failed",stage:"system",upstream_status:r.status,detail:b,trace_id:trace},502);return json({ok:true,service:"aria-app-api-v3",user_id:u.id,aria:b,trace_id:trace})}if(req.method==="GET"&&path.endsWith("/conversations")){const {data,error}=await db().rpc("aria_app_list_conversations",{p_user_id:u.id});if(error)return json({ok:true,conversations:[],warning:"conversation_list_unavailable",trace_id:trace});return json({ok:true,conversations:Array.isArray(data)?data:[],trace_id:trace})}if(req.method==="POST"&&path.endsWith("/conversation")){const body=await req.json().catch(()=>null);const parts=Array.isArray(body?.parts)?body.parts:[];const text=parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n");if(!text)return json({error:"text_or_attachment_required",stage:"input",trace_id:trace},400);const cid=typeof body?.conversationId==="string"&&body.conversationId.trim()?body.conversationId.trim():crypto.randomUUID();const persistence:any={conversation:await bestEnsure(u.id,cid,text),user_message:false,assistant_message:false};const um=await bestSave(u.id,cid,"user",text,parts,trace,"processing");persistence.user_message=Boolean(um);const mem=await recall(text,u.id);let step:any;try{step=await plan(text,{version:"cognitive-loop-v2",user_id:u.id,memory:mem.results.slice(0,6),memory_available:mem.ok})}catch(e){return json({error:"conversation_planner_failed",stage:"planner",detail:err(e),persistence,trace_id:trace},503)}const ctx=mem.results.slice(0,6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");const prompt=["Eres ARIA. Responde directamente al usuario.","No inventes acciones ejecutadas.",ctx?`Memoria contextual autorizada:\n${ctx}`:"",`Usuario: ${text}`].filter(Boolean).join("\n\n");try{const result=await execute(step,prompt,cid);const content=typeof result?.response?.content==="string"?result.response.content.trim():"";if(!content)throw new Error("empty_conversation_response");const rp=[{type:"text",text:content}];await bestSave(u.id,cid,"assistant",content,rp,trace,"success",step.target.provider_id,step.target.model_id);if(um)try{await db().rpc("aria_app_set_message_state",{p_user_id:u.id,p_message_id:um.message_id,p_state:"success"})}catch{}persistence.assistant_message=true;return json({ok:true,conversationId:cid,visualState:"success",parts:rp,cognitive:{recall_count:mem.results.length,provider_id:step.target.provider_id,model_id:step.target.model_id},persistence,trace_id:trace})}catch(e){if(um)try{await db().rpc("aria_app_set_message_state",{p_user_id:u.id,p_message_id:um.message_id,p_state:"error"})}catch{}return json({error:"conversation_model_execution_failed",stage:"model_execution",detail:err(e),persistence,trace_id:trace},502)}}return json({error:"not_found",stage:"routing",trace_id:trace},404)}catch(e){return json({error:"internal_error",stage:"gateway",detail:err(e),trace_id:trace},500)}});
+
+const URL = Deno.env.get("SUPABASE_URL") ?? "";
+const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
+const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
+const DIRECT = `${URL}/functions/v1/aria-direct-v1`;
+const MEMORY = `${URL}/functions/v1/aria-memory-v2`;
+const PLANNER = `${URL}/functions/v1/aria-planner-v11`;
+const EXEC = `${URL}/functions/v1/aria-execution-runtime-v1`;
+
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,content-type",
+  "access-control-allow-methods": "GET,POST,OPTIONS"
+};
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status,
+  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS }
+});
+
+const bearer = (req: Request) => {
+  const value = req.headers.get("authorization") ?? "";
+  return value.startsWith("Bearer ") ? value.slice(7).trim() : "";
+};
+
+async function requireUser(token: string) {
+  if (!token) throw Object.assign(new Error("missing_authorization"), { status: 401 });
+  if (!ANON) throw new Error("supabase_auth_public_key_not_configured");
+  const r = await fetch(`${URL}/auth/v1/user`, { headers: { apikey: ANON, authorization: `Bearer ${token}` } });
+  const b = await r.json().catch(() => null);
+  if (!r.ok || !b?.id) throw Object.assign(new Error(`supabase_auth_${r.status}`), { status: 401 });
+  return b;
+}
+
+async function internal(url: string, payload: unknown) {
+  if (!SECRET) throw new Error("runtime_secret_not_configured");
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) });
+  const b = await r.json().catch(() => null);
+  return { r, b };
+}
+
+async function recall(text: string, userId: string) {
+  try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId }); return Array.isArray(x.b?.results) ? x.b.results : []; }
+  catch { return []; }
+}
+
+async function plan(text: string, context: unknown) {
+  const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context });
+  if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`);
+  return x.b.plan.steps[0];
+}
+
+async function execute(step: any, prompt: string, conversationId: string) {
+  const target = step?.target;
+  if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
+  const x = await internal(EXEC, { execution_version: "1", request_id: `${conversationId}:${crypto.randomUUID()}`, task_id: `conversation:${conversationId}`, capability: "text_generation", selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" }, input: { payload: { messages: [{ role: "user", content: [{ type: "text", text: prompt }] }], max_tokens: 512, temperature: 0.3 } }, policy: {}, metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model", multimodal: false } });
+  if (!x.r.ok || x.b?.status !== "succeeded") throw new Error(`executor_http_${x.r.status}_${x.b?.error?.code ?? x.b?.reason ?? "execution_failed"}`);
+  return x.b;
+}
+
+Deno.serve(async (req) => {
+  const trace = req.headers.get("x-aria-trace-id") ?? crypto.randomUUID();
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  let user: any;
+  try { user = await requireUser(bearer(req)); }
+  catch (e) { const status = (e as any)?.status === 401 ? 401 : 500; return json({ error: status === 401 ? "invalid_or_expired_session" : "gateway_auth_failure", stage: "auth", detail: String((e as any)?.message ?? e), trace_id: trace }, status); }
+
+  try {
+    const path = new URL(req.url).pathname.replace(/\/+$/, "");
+    if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
+    if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }
+    if (req.method === "POST" && path.endsWith("/conversation")) {
+      const body = await req.json().catch(() => null); const parts = Array.isArray(body?.parts) ? body.parts : []; const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n");
+      if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
+      const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
+      const memory = await recall(text, user.id);
+      let step: any;
+      try { step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 }); }
+      catch (e) { return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503); }
+      const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
+      const prompt = ["Eres ARIA. Responde directamente al usuario.","No inventes acciones ejecutadas.",context ? `Memoria contextual autorizada:\n${context}` : "",`Usuario: ${text}`].filter(Boolean).join("\n\n");
+      try { const result = await execute(step, prompt, conversationId); const content = typeof result?.response?.content === "string" ? result.response.content.trim() : ""; if (!content) throw new Error("empty_conversation_response"); return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: step.target.provider_id, model_id: step.target.model_id }, trace_id: trace }); }
+      catch (e) { return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), trace_id: trace }, 502); }
+    }
+    return json({ error: "not_found", stage: "routing", trace_id: trace }, 404);
+  } catch (e) { return json({ error: "internal_error", stage: "gateway", detail: String((e as any)?.message ?? e), trace_id: trace }, 500); }
+});
