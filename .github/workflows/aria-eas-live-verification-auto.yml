@@ -16,7 +16,7 @@ concurrency:
 env:
   EAS_PROJECT_ID: 1b23b091-f7b6-4dc2-b328-c8e5ec07de57
   EAS_API: https://api.expo.dev
-  ARIA_GIT_REF: aria/android-browser-bridge-v1
+  ARIA_GIT_REF: refs/heads/aria/android-browser-bridge-v1
   ARIA_EAS_WORKFLOW_FILE: android-development.yml
 
 jobs:
@@ -73,12 +73,7 @@ jobs:
           run_id=((d.get('data') or {}).get('id'))
           if not run_id: raise SystemExit(f'No EAS run id: {d}')
           print('EAS workflow dispatched:', run_id)
-          print(run_id)
-          PY
-          python - <<'PY'
-          import json
-          rid=((json.load(open('dispatch-response.json')).get('data') or {}).get('id'))
-          open('eas-run-id.txt','w').write(rid or '')
+          open('eas-run-id.txt','w').write(run_id)
           PY
 
       - name: Wait for EAS workflow and report build
@@ -113,10 +108,9 @@ jobs:
           python - <<'PY'
           import json
           d=json.load(open('run.json'))['data']
-          print('FINAL_STATUS:', d.get('status'))
+          print('FINAL_STATUS:',d.get('status'))
           hit=next((j for j in d.get('jobs') or [] if j.get('key')=='build_android'),None)
           if hit:
               print('FINAL_BUILD_ID:',hit.get('buildId'))
               print('FINAL_BUILD_STATUS:',hit.get('status'))
-              open('final-build-id.txt','w').write(hit.get('buildId') or '')
           PY
