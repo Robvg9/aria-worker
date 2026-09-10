@@ -1,0 +1,25 @@
+name: ARIA Capability Audit V1
+
+on:
+  push:
+    branches: ["main", "aria/capability-certification-v1"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capability-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Run capability audit
+        run: node tests/capability-audit-v1.test.js
