@@ -1,4 +1,4 @@
-name: ARIA Security 2.0 LIVE
+name: ARIA Security 2.0 CONTRACT
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
           node-version: 22
       - name: Full regression suite
         run: npm test
-      - name: Security 2.0 LIVE certification
+      - name: Security 2.0 contract certification
         run: node tests/security-v2.test.js
-      - name: Emit certification marker
-        run: echo ARIA_SECURITY_2_LIVE_OK
+      - name: Emit contract marker
+        run: echo ARIA_SECURITY_2_CONTRACT_OK
