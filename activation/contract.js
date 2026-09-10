@@ -6,7 +6,8 @@ const TRUSTED_BASE_URLS = Object.freeze({
   github:'https://api.github.com',
   supabase:'https://api.supabase.com',
   cloudflare:'https://api.cloudflare.com/client/v4',
-  notion:'https://api.notion.com/v1'
+  notion:'https://api.notion.com/v1',
+  bitrise:'https://api.bitrise.io/v0.1'
 });
 
 function isSecretRef(value) { return typeof value === 'string' && /^secret:\/\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(value.trim()); }

@@ -7,6 +7,7 @@ const DEFAULT_MANIFEST = Object.freeze([
   { connector_id:'supabase', credential_ref:'secret://supabase/default', base_url:'https://api.supabase.com', enabled:false, required:false },
   { connector_id:'cloudflare', credential_ref:'secret://cloudflare/default', base_url:'https://api.cloudflare.com/client/v4', enabled:false, required:false },
   { connector_id:'notion', credential_ref:'secret://notion/default', base_url:'https://api.notion.com/v1', enabled:false, required:false },
+  { connector_id:'bitrise', credential_ref:'secret://bitrise/default', base_url:'https://api.bitrise.io/v0.1', enabled:false, required:false },
   { connector_id:'web', credential_ref:null, base_url:null, enabled:true, required:false },
   { connector_id:'image', credential_ref:null, base_url:null, enabled:true, required:false },
   { connector_id:'filesystem', credential_ref:null, base_url:null, enabled:true, required:false }

@@ -64,6 +64,73 @@ const adapters = {
     if(op==='health') return {ok:typeof c.providerRuntime?.health==='function',status:typeof c.providerRuntime?.health==='function'?200:503,data:{status:typeof c.providerRuntime?.health==='function'?'ready':'provider_runtime_unavailable'}};
     if(typeof c.providerRuntime !== 'object' || c.providerRuntime === null || typeof c.providerRuntime[op] !== 'function') return {ok:false,status:503,data:{error:'image_provider_runtime_required'}};
     const value=await c.providerRuntime[op](c); return {ok:true,status:200,data:value};
+  }),
+  bitrise: createAdapter({
+    connector_id: 'bitrise',
+    operations: [
+      'bitrise_list_apps',
+      'bitrise_get_app',
+      'bitrise_get_yml',
+      'bitrise_list_builds',
+      'bitrise_get_build',
+      'bitrise_get_build_log',
+      'bitrise_list_artifacts',
+      'bitrise_get_artifact',
+      'bitrise_trigger_build',
+      'bitrise_update_yml'
+    ],
+    operation_risk: {
+      bitrise_list_apps: 'READ',
+      bitrise_get_app: 'READ',
+      bitrise_get_yml: 'READ',
+      bitrise_list_builds: 'READ',
+      bitrise_get_build: 'READ',
+      bitrise_get_build_log: 'READ',
+      bitrise_list_artifacts: 'READ',
+      bitrise_get_artifact: 'READ',
+      bitrise_trigger_build: 'LOW_RISK_WRITE',
+      bitrise_update_yml: 'HIGH_RISK_WRITE'
+    }
+  }, async (op, c) => {
+    const base = c.base_url || 'https://api.bitrise.io/v0.1';
+    // Bitrise API expects the raw personal access token in Authorization (not Bearer-prefixed).
+    const h = c.secret ? { Authorization: c.secret } : {};
+    const app = encodeURIComponent(c.app_slug || '');
+    const build = encodeURIComponent(c.build_slug || '');
+    const artifact = encodeURIComponent(c.artifact_slug || '');
+    if (op === 'health') return providerRequest(c, { url: `${base}/me`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_list_apps') return providerRequest(c, { url: `${base}/apps`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_get_app') return providerRequest(c, { url: `${base}/apps/${app}`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_get_yml') return providerRequest(c, { url: `${base}/apps/${app}/bitrise.yml`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_list_builds') return providerRequest(c, { url: `${base}/apps/${app}/builds`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_get_build') return providerRequest(c, { url: `${base}/apps/${app}/builds/${build}`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_get_build_log') return providerRequest(c, { url: `${base}/apps/${app}/builds/${build}/log`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_list_artifacts') return providerRequest(c, { url: `${base}/apps/${app}/builds/${build}/artifacts`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_get_artifact') return providerRequest(c, { url: `${base}/apps/${app}/builds/${build}/artifacts/${artifact}`, headers: h, fetchImpl: c.fetchImpl });
+    if (op === 'bitrise_trigger_build') {
+      const buildParams = {};
+      if (c.branch) buildParams.branch = c.branch;
+      if (c.commit_hash) buildParams.commit_hash = c.commit_hash;
+      if (c.workflow_id) buildParams.workflow_id = c.workflow_id;
+      if (c.pipeline_id) buildParams.pipeline_id = c.pipeline_id;
+      return providerRequest(c, {
+        url: `${base}/apps/${app}/builds`,
+        method: 'POST',
+        headers: { ...h, 'Content-Type': 'application/json' },
+        body: { hook_info: { type: 'bitrise' }, build_params: buildParams },
+        fetchImpl: c.fetchImpl
+      });
+    }
+    if (op === 'bitrise_update_yml') {
+      return providerRequest(c, {
+        url: `${base}/apps/${app}/bitrise.yml`,
+        method: 'POST',
+        headers: { ...h, 'Content-Type': 'application/json' },
+        body: { app_config_datastore_yaml: c.yml || c.app_config_datastore_yaml },
+        fetchImpl: c.fetchImpl
+      });
+    }
+    return { ok: false, status: 400, data: { error: 'unsupported_operation' } };
   })
 };
 module.exports = { adapters, authHeaders };
