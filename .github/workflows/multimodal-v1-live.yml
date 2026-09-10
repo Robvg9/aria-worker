@@ -1,5 +1,5 @@
-name: Multimodal + Voice v1 LIVE
-# Final certification workflow: perception -> structured state -> cognition + voice output boundary.
+name: Multimodal + Voice v1 CONTRACT
+# Contract certification: perception -> structured state -> cognition + voice output boundary.
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  certify:
+  contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,5 +19,5 @@ jobs:
           node-version: 22
       - name: Full regression suite
         run: npm test
-      - name: Multimodal + Voice v1 LIVE certification
+      - name: Multimodal + Voice contract test
         run: node tests/multimodal-v1-live.js
