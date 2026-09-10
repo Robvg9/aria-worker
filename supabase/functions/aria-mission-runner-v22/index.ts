@@ -11,6 +11,7 @@ const PLANNER = `${URL}/functions/v1/aria-planner-v11`;
 const EXEC = `${URL}/functions/v1/aria-execution-runtime-v1`;
 const RUNTIME = `${URL}/functions/v1/aria-runtime-gateway-v1`;
 const AGENT = `${URL}/functions/v1/aria-agent-runtime-v1`;
+const GITHUB_APP = `${URL}/functions/v1/aria-github-app-runtime-v1`;
 const EAS_API = 'https://api.expo.dev';
 const EAS_TOKEN = Deno.env.get('EXPO_TOKEN') ?? '';
 const EAS_PROJECT_ID = '1b23b091-f7b6-4dc2-b328-c8e5ec07de57';
@@ -219,7 +220,42 @@ async function deviceExecute(missionId: string, step: any) {
   return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId, job_status: status };
 }
 
-async function connectorExecute(missionId: string, step: any) {
+async function githubExecute(step: any, token: string | null) {
+  const operation = String(step.operation || "");
+  const input = step.input && typeof step.input === "object" ? step.input : {};
+  const readOps = new Set(["repo_read", "file_read"]);
+  const writeOps = new Set(["create_branch", "file_write", "open_pr"]);
+  if (!readOps.has(operation) && !writeOps.has(operation)) {
+    throw new Error(`github_operation_not_allowed:${operation}`);
+  }
+  if (writeOps.has(operation)) {
+    if (String(step.risk || "READ").toUpperCase() !== "LOW_RISK_WRITE") throw new Error("github_write_risk_not_allowed");
+    if (step.authorization?.status !== "approved") throw new Error("github_write_authorization_required");
+  }
+  if (!token && !SECRET) throw new Error("github_runtime_auth_unavailable");
+  const response = await fetch(GITHUB_APP, {
+    method: "POST",
+    headers: token ? { "content-type": "application/json", "x-aria-autonomy-token": token } : { "content-type": "application/json", "x-aria-autonomy-token": SECRET },
+    body: JSON.stringify({
+      operation,
+      owner: input.owner || step.target?.owner || "Robvg9",
+      repo: input.repo || step.target?.repo || "battlecruiser",
+      branch: input.branch || step.target?.branch || "main",
+      base: input.base || "main",
+      path: input.path,
+      content: input.content,
+      message: input.message,
+      title: input.title,
+      body: input.body,
+      risk_level: String(step.risk || "READ").toLowerCase().includes("low") ? "low" : "high",
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || result?.ok !== true) throw new Error(String(result?.error || `github_http_${response.status}`));
+  return { status: "succeeded", executor_type: "connector", connector_id: "github", operation, data: result.data };
+}
+
+async function connectorExecute(missionId: string, step: any, token: string | null) {
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
   if (connector === "supabase" && operation === "health") {
@@ -234,6 +270,7 @@ async function connectorExecute(missionId: string, step: any) {
     return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, http_status: response.status };
   }
   if (connector === "bitrise") return bitriseExecute(rpc, step);
+  if (connector === "github") return githubExecute(step, token);
   throw new Error(`connector_operation_not_allowed:${connector}:${operation}`);
 }
 
@@ -325,7 +362,7 @@ async function easExecute(step: any) {
 async function executeStep(missionId: string, step: any, token: string | null) {
   validateStep(step);
   const type = executorType(step);
-  if (type === "connector") return connectorExecute(missionId, step);
+  if (type === "connector") return connectorExecute(missionId, step, token);
   if (type === "device") return deviceExecute(missionId, step);
   if (type === "model") return modelExecute(missionId, step, token);
   if (type === "agent") return agentExecute(missionId, step, token);
