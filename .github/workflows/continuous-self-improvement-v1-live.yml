@@ -1,4 +1,4 @@
-name: ARIA Continuous Self-Improvement v1 LIVE
+name: ARIA Continuous Self-Improvement v1 CONTRACT
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  continuous-self-improvement-live:
+  continuous-self-improvement-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,5 +15,5 @@ jobs:
           node-version: 20
       - name: Full regression
         run: npm test
-      - name: Continuous Self-Improvement LIVE certification
+      - name: Continuous Self-Improvement contract test
         run: node tests/continuous-self-improvement-v1-live.js
