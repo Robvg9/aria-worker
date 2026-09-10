@@ -6,23 +6,30 @@ export async function bitriseExecute(rpc: (name: string, args: Record<string, un
   const input = step.input && typeof step.input === "object" ? step.input : {};
   const readOps = new Set(["bitrise_list_apps","bitrise_get_app","bitrise_get_yml","bitrise_list_builds","bitrise_get_build","bitrise_get_build_log","bitrise_list_artifacts","bitrise_get_artifact"]);
   const writeOps = new Set(["bitrise_trigger_build","bitrise_update_yml"]);
-  if (writeOps.has(operation)) {
-    const auth = step?.authorization;
-    if (!auth || typeof auth !== "object" || String(auth.status) !== "approved") {
-      throw new Error(`authorization_required:${operation === "bitrise_update_yml" ? "HIGH_RISK_WRITE" : "LOW_RISK_WRITE"}`);
-    }
-  } else if (!readOps.has(operation)) {
+  if (!readOps.has(operation) && !writeOps.has(operation)) {
     throw new Error(`connector_operation_not_allowed:bitrise:${operation}`);
   }
-
-  // PostgREST exposes only the public wrapper to the Edge Function runtime.
-  // The wrapper is SECURITY DEFINER and EXECUTE is restricted to service_role.
+  if (writeOps.has(operation)) {
+    const authorization = await rpc("aria_bitrise_authorization_resolve", {
+      p_execution_id: String(step.id || operation),
+      p_operation: operation,
+      p_target: { connector_id: "bitrise", app_slug: input.app_slug ?? null },
+      p_risk_class: operation === "bitrise_update_yml" ? "HIGH_RISK_WRITE" : "LOW_RISK_WRITE",
+    });
+    if (!authorization || typeof authorization !== "object") {
+      throw new Error(`authorization_required:${operation === "bitrise_update_yml" ? "HIGH_RISK_WRITE" : "LOW_RISK_WRITE"}`);
+    }
+    const status = String((authorization as any).status || "");
+    if (status !== "approved") {
+      const authorizationId = String((authorization as any).authorization_id || "");
+      throw new Error(`human_gate_required:${authorizationId || "pending"}`);
+    }
+  }
   const data = await rpc("aria_bitrise_credential_read_secret", { p_name: "bitrise_api_token" });
   let token = "";
   if (typeof data === "string" && data) token = data;
   else if (data && typeof (data as any).secret === "string") token = (data as any).secret;
   if (!token) throw new Error("credential_unconfigured:bitrise_api_token");
-
   const api = async (path: string, init: RequestInit = {}) => {
     const headers: Record<string, string> = { Authorization: token, Accept: "application/json", ...(init.headers as Record<string, string> || {}) };
     const res = await fetch(`https://api.bitrise.io/v0.1${path}`, { ...init, headers });
@@ -32,7 +39,6 @@ export async function bitriseExecute(rpc: (name: string, args: Record<string, un
     if (!res.ok) throw new Error(`bitrise_http_${res.status}`);
     return body;
   };
-
   const app = encodeURIComponent(String(input.app_slug || ""));
   const build = encodeURIComponent(String(input.build_slug || ""));
   const artifact = encodeURIComponent(String(input.artifact_slug || ""));
@@ -58,6 +64,6 @@ export async function bitriseExecute(rpc: (name: string, args: Record<string, un
     const yml = input.yml ?? input.app_config_datastore_yaml;
     if (yml === undefined || yml === null) throw new Error("yml_required");
     result = await api(`/apps/${app}/bitrise.yml`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app_config_datastore_yaml: yml }) });
-  } else throw new Error(`connector_operation_not_allowed:bitrise:${operation}`);
+  }
   return { status: "succeeded", executor_type: "connector", connector_id: "bitrise", operation, data: result };
 }

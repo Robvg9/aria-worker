@@ -1,0 +1,11 @@
+create or replace function public.aria_bitrise_authorization_resolve(p_execution_id text, p_operation text, p_target jsonb, p_risk_class text)
+returns jsonb
+language sql
+security definer
+set search_path = pg_catalog, public, aria_internal
+as 'with ins as (insert into aria_internal.execution_approvals (authorization_id,request_id,execution_id,tool_id,operation,risk_class,target,status,policy_version,expires_at) select ''bitrise:'' || md5(p_execution_id || '':'' || p_operation || '':'' || coalesce(p_target->>''app_slug'','''')), ''bitrise:'' || md5(p_execution_id || '':'' || p_operation || '':'' || coalesce(p_target->>''app_slug'','''')), p_execution_id, ''connector:bitrise'', p_operation, p_risk_class, coalesce(p_target,''{}''::jsonb), ''pending'', ''bitrise-human-gate-v1'', now() + interval ''24 hours'' where p_operation in (''bitrise_trigger_build'',''bitrise_update_yml'') and p_risk_class = case when p_operation=''bitrise_update_yml'' then ''HIGH_RISK_WRITE'' else ''LOW_RISK_WRITE'' end on conflict (authorization_id) do nothing returning *), rowx as (select * from ins union all select e.* from aria_internal.execution_approvals e where e.authorization_id = ''bitrise:'' || md5(p_execution_id || '':'' || p_operation || '':'' || coalesce(p_target->>''app_slug'','''')) and not exists (select 1 from ins)) select jsonb_build_object(''authorization_id'', authorization_id,''request_id'',request_id,''execution_id'',execution_id,''tool_id'',tool_id,''operation'',operation,''risk_class'',risk_class,''target'',target,''status'',status,''approved_by'',approved_by,''approved_at'',approved_at,''expires_at'',expires_at,''verification_ref'',verification_ref,''policy_version'',policy_version) from rowx limit 1';
+revoke all on function public.aria_bitrise_authorization_resolve(text,text,jsonb,text) from public;
+revoke all on function public.aria_bitrise_authorization_resolve(text,text,jsonb,text) from anon;
+revoke all on function public.aria_bitrise_authorization_resolve(text,text,jsonb,text) from authenticated;
+grant execute on function public.aria_bitrise_authorization_resolve(text,text,jsonb,text) to service_role;
+comment on function public.aria_bitrise_authorization_resolve(text,text,jsonb,text) is 'ARIA Bitrise write Human Gate. Creates or resolves durable approval record; never handles secrets.';
