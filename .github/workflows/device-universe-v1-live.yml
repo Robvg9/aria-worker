@@ -1,5 +1,5 @@
-name: Device Universe v1 LIVE
-# Phase 8 certification: abstract device resources -> capabilities -> health -> security -> cognition/executor boundary.
+name: Device Universe v1 CONTRACT
+# Phase 8 contract: abstract device resources -> capabilities -> health -> security -> cognition/executor boundary.
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  certify:
+  contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,5 +19,5 @@ jobs:
           node-version: 22
       - name: Full regression suite
         run: npm test
-      - name: Device Universe v1 LIVE certification
+      - name: Device Universe contract test
         run: node tests/device-universe-v1-live.js
