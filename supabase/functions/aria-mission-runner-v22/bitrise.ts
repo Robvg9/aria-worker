@@ -36,7 +36,7 @@ export async function bitriseExecute(rpc: (name: string, args: Record<string, un
     const text = await res.text();
     let body: unknown = null;
     try { body = text ? JSON.parse(text) : null; } catch { body = text ? { raw: text.slice(0, 20000) } : null; }
-    if (!res.ok) throw new Error(`bitrise_http_${res.status}`);
+    if (!res.ok) throw new Error(`bitrise_http_${res.status}_path_${path.replace(/\//g,"_")}`);
     return body;
   };
   const app = encodeURIComponent(String(input.app_slug || ""));
