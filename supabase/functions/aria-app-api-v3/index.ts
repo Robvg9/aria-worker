@@ -1,12 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
-const DIRECT = `${URL}/functions/v1/aria-direct-v1`;
-const MEMORY = `${URL}/functions/v1/aria-memory-v2`;
-const PLANNER = `${URL}/functions/v1/aria-planner-v11`;
-const EXEC = `${URL}/functions/v1/aria-execution-runtime-v1`;
+const DIRECT = `${SUPABASE_URL}/functions/v1/aria-direct-v1`;
+const MEMORY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
+const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
+const EXEC = `${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`;
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -27,7 +27,7 @@ const bearer = (req: Request) => {
 async function requireUser(token: string) {
   if (!token) throw Object.assign(new Error("missing_authorization"), { status: 401 });
   if (!ANON) throw new Error("supabase_auth_public_key_not_configured");
-  const r = await fetch(`${URL}/auth/v1/user`, { headers: { apikey: ANON, authorization: `Bearer ${token}` } });
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { apikey: ANON, authorization: `Bearer ${token}` } });
   const b = await r.json().catch(() => null);
   if (!r.ok || !b?.id) throw Object.assign(new Error(`supabase_auth_${r.status}`), { status: 401 });
   return b;
