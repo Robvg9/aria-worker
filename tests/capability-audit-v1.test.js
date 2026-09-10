@@ -16,7 +16,7 @@ const CAPABILITIES = Object.freeze([
   { id: 'execution', modules: ['execution/lookup.js'], tests: ['tests/execution.test.js', 'tests/universal-executor.test.js'] },
   { id: 'mission_runtime', modules: ['supabase/functions/aria-mission-runner-v22'], tests: ['tests/mission-state.test.js', 'tests/universal-mission.test.js'] },
   { id: 'smart_verifier', modules: ['verification/smart-verifier.js'], tests: ['tests/smart-verifier.test.js'] },
-  { id: 'learning', modules: ['learning/engine.js'], tests: ['tests/skills-learning-v2.test.js'] },
+  { id: 'learning', modules: ['learning/engine.js'], tests: ['tests/skills-learning-v2.test.js', 'tests/failure-prevention-learning-v1.test.js'] },
   { id: 'self_model', modules: ['self-model/self-model-v2.js', 'self-model/capability-graph-v2.js'], tests: ['tests/self-model-v2.test.js'] },
   { id: 'self_development', modules: ['self-development/self-development-v2.js'], tests: ['tests/self-development-v2.test.js', 'tests/self-development-github-lifecycle.test.js', 'tests/self-development-evaluation-ledger.test.js'] },
   { id: 'continuous_self_improvement', modules: ['autonomy/continuous-self-improvement-v1.js'], tests: ['tests/continuous-self-improvement-v1.test.js'] },
@@ -27,27 +27,11 @@ const CAPABILITIES = Object.freeze([
   { id: 'canonical_runtime', modules: ['supabase/functions/aria-canonical-runtime-v1'], tests: ['tests/canonical-runtime.test.js'] }
 ]);
 
-function exists(relativePath) {
-  return fs.existsSync(path.join(ROOT, relativePath));
-}
-
-function packageText() {
-  return fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8');
-}
-
+function exists(relativePath) { return fs.existsSync(path.join(ROOT, relativePath)); }
+function packageText() { return fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'); }
 function runTest(relativePath) {
-  const result = spawnSync(process.execPath, [path.join(ROOT, relativePath)], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    timeout: 120000,
-    env: process.env
-  });
-  return {
-    status: result.status,
-    signal: result.signal,
-    stdout: result.stdout || '',
-    stderr: result.stderr || ''
-  };
+  const result = spawnSync(process.execPath, [path.join(ROOT, relativePath)], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env: process.env });
+  return { status: result.status, signal: result.signal, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
 
 for (const capability of CAPABILITIES) {
@@ -62,6 +46,7 @@ const deterministicChecks = [
   'tests/advanced-planner-v1.test.js',
   'tests/smart-verifier.test.js',
   'tests/skills-learning-v2.test.js',
+  'tests/failure-prevention-learning-v1.test.js',
   'tests/self-model-v2.test.js',
   'tests/self-development-v2.test.js',
   'tests/continuous-self-improvement-v1.test.js',
