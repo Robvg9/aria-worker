@@ -15,7 +15,7 @@ export async function bitriseExecute(rpc: (name: string, args: Record<string, un
     throw new Error(`connector_operation_not_allowed:bitrise:${operation}`);
   }
 
-  const data = await rpc("aria_internal.credential_read_secret", { p_vault_secret_name: "bitrise_api_token" });
+  const data = await rpc("aria_internal.credential_read_secret", { p_name: "bitrise_api_token" });
   let token = "";
   if (typeof data === "string" && data) token = data;
   else if (data && typeof (data as any).secret === "string") token = (data as any).secret;
