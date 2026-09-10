@@ -1,55 +1,75 @@
 'use strict';
 
 const API = 'https://api.github.com';
-const FORBIDDEN = new Set(['main', 'master']);
+const FORBIDDEN_BASES = new Set(['main', 'master']);
 
-function assertBranch(branch) {
+function assertBranch(branch, { requiredPrefix = null } = {}) {
   if (typeof branch !== 'string' || !branch.trim()) throw new Error('branch_required');
-  const b = branch.trim();
-  if (FORBIDDEN.has(b)) throw new Error('main_branch_forbidden');
-  if (b.includes('..')) throw new Error('invalid_branch');
-  if (!/^[A-Za-z0-9._/-]{1,200}$/.test(b)) throw new Error('invalid_branch');
-  return b;
+  const safe = branch.trim();
+  if (FORBIDDEN_BASES.has(safe)) throw new Error('protected_branch_forbidden');
+  if (safe.includes('..') || !/^[A-Za-z0-9._/-]{1,200}$/.test(safe)) throw new Error('invalid_branch');
+  if (requiredPrefix && !safe.startsWith(requiredPrefix)) throw new Error('sandbox_branch_required');
+  return safe;
 }
 
-function headers(token) {
-  return { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10', 'content-type': 'application/json' };
-}
-
-async function request(fetchImpl, token, url, init = {}) {
-  const response = await fetchImpl(url, { ...init, headers: { ...headers(token), ...(init.headers || {}) } });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(`github_${response.status}`);
-  return body;
-}
-
-function createGitHubBranchWorkspace({ token, owner = 'Robvg9', repo = 'aria-worker', fetchImpl = globalThis.fetch } = {}) {
+function createGitHubBranchWorkspace({
+  token,
+  owner = 'Robvg9',
+  repo = 'aria-worker',
+  base = 'main',
+  requiredBranchPrefix = repo === 'battlecruiser' ? 'aria/self-development/battlecruiser/' : null,
+  fetchImpl = globalThis.fetch
+} = {}) {
   if (!token) throw new Error('github_token_required');
-  async function createBranch(branch, base = 'main') {
-    const safe = assertBranch(branch);
-    const ref = await request(fetchImpl, token, `${API}/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(base)}`);
-    return request(fetchImpl, token, `${API}/repos/${owner}/${repo}/git/refs`, { method: 'POST', body: JSON.stringify({ ref: `refs/heads/${safe}`, sha: ref.object?.sha }) });
+  if (FORBIDDEN_BASES.has(base)) base = 'main';
+
+  const headers = { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10', 'content-type': 'application/json' };
+  async function request(url, init = {}) {
+    const response = await fetchImpl(url, { ...init, headers: { ...headers, ...(init.headers || {}) } });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(`github_${response.status}`);
+    return body;
   }
-  async function read(path, branch = 'main') {
-    const response = await request(fetchImpl, token, `${API}/repos/${owner}/${repo}/contents/${path.replace(/^\/+/, '')}?ref=${encodeURIComponent(branch)}`);
-    return { path, branch, sha: response.sha || null, content: response.content || null, encoding: response.encoding || null };
+
+  async function createBranch(branch) {
+    const safe = assertBranch(branch, { requiredPrefix: requiredBranchPrefix });
+    const baseRef = await request(`${API}/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(base)}`);
+    return request(`${API}/repos/${owner}/${repo}/git/refs`, {
+      method: 'POST', body: JSON.stringify({ ref: `refs/heads/${safe}`, sha: baseRef.object?.sha })
+    });
   }
+
+  async function read(path, branch = base) {
+    const normalized = String(path || '').replace(/^\/+/, '');
+    if (!normalized || normalized.includes('..')) throw new Error('unsafe_path');
+    const response = await request(`${API}/repos/${owner}/${repo}/contents/${normalized}?ref=${encodeURIComponent(branch)}`);
+    return { path: normalized, branch, sha: response.sha || null, content: response.content || null, encoding: response.encoding || null };
+  }
+
   async function apply(change) {
-    const branch = assertBranch(change && change.branch);
-    if (!change || (change.risk_level && !['low'].includes(change.risk_level))) throw new Error('risk_not_allowed');
-    if (typeof change.path !== 'string' || !change.path.trim()) throw new Error('path_required');
-    if (change.path.startsWith('/') || change.path.includes('..')) throw new Error('unsafe_path');
-    const existing = await request(fetchImpl, token, `${API}/repos/${owner}/${repo}/contents/${change.path}?ref=${encodeURIComponent(branch)}`).catch(err => String(err.message) === 'github_404' ? null : Promise.reject(err));
-    const payload = { message: change.message || 'chore: ARIA governed self-development change', content: Buffer.from(String(change.content || ''), 'utf8').toString('base64'), branch };
+    const branch = assertBranch(change?.branch, { requiredPrefix: requiredBranchPrefix });
+    if (!change || (change.risk_level && change.risk_level !== 'low')) throw new Error('risk_not_allowed');
+    if (typeof change.path !== 'string' || !change.path.trim() || change.path.startsWith('/') || change.path.includes('..')) throw new Error('unsafe_path');
+    const existing = await request(`${API}/repos/${owner}/${repo}/contents/${change.path}?ref=${encodeURIComponent(branch)}`)
+      .catch(error => String(error.message) === 'github_404' ? null : Promise.reject(error));
+    const payload = {
+      message: change.message || 'chore: ARIA governed self-development change',
+      content: Buffer.from(String(change.content || ''), 'utf8').toString('base64'),
+      branch
+    };
     if (existing?.sha) payload.sha = existing.sha;
-    const result = await request(fetchImpl, token, `${API}/repos/${owner}/${repo}/contents/${change.path}`, { method: 'PUT', body: JSON.stringify(payload) });
+    const result = await request(`${API}/repos/${owner}/${repo}/contents/${change.path}`, { method: 'PUT', body: JSON.stringify(payload) });
     return { status: 'succeeded', branch, path: change.path, commit_sha: result.commit?.sha || null };
   }
+
   async function openPullRequest({ branch, title, body } = {}) {
-    const safe = assertBranch(branch);
-    return request(fetchImpl, token, `${API}/repos/${owner}/${repo}/pulls`, { method: 'POST', body: JSON.stringify({ title: title || 'chore: ARIA governed self-development change', body: body || 'Generated by ARIA after governed validation.', head: safe, base: 'main' }) });
+    const safe = assertBranch(branch, { requiredPrefix: requiredBranchPrefix });
+    return request(`${API}/repos/${owner}/${repo}/pulls`, {
+      method: 'POST', body: JSON.stringify({ title: title || 'chore: ARIA governed self-development change', body: body || 'Generated by ARIA after governed validation.', head: safe, base })
+    });
   }
-  return Object.freeze({ createBranch, read, apply, openPullRequest });
+
+  return Object.freeze({ createBranch, read, apply, openPullRequest, base, requiredBranchPrefix });
 }
 
-module.exports = { createGitHubBranchWorkspace, assertBranch };
+module.exports = Object.freeze({ createGitHubBranchWorkspace, assertBranch });
