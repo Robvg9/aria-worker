@@ -6,13 +6,16 @@ function createSelfDevelopmentSandbox({ workspace, snapshotStore = null, protect
   if (!workspace || typeof workspace.read !== 'function' || typeof workspace.apply !== 'function' || typeof workspace.createBranch !== 'function') throw new TypeError('branch_workspace_boundary_required');
   if (typeof workspace.openPullRequest !== 'function') throw new TypeError('pull_request_boundary_required');
   const protectedSet = new Set((Array.isArray(protectedPaths) ? protectedPaths : []).map(String));
+  const requiredBranchPrefix = typeof workspace.requiredBranchPrefix === 'string' && workspace.requiredBranchPrefix
+    ? workspace.requiredBranchPrefix
+    : 'aria/self-development/';
   const sessions = new Map();
 
   function sessionId(seed = '') {
     return `sandbox_${crypto.createHash('sha256').update(String(seed)).digest('hex').slice(0, 20)}`;
   }
 
-  function branchName(id) { return `aria/self-development/${id.slice(-20)}`; }
+  function branchName(id) { return `${requiredBranchPrefix}${id.slice(-20)}`; }
   function assertMutable(path) {
     if (!path || protectedSet.has(String(path))) throw new Error('protected_path');
   }
@@ -89,7 +92,7 @@ function createSelfDevelopmentSandbox({ workspace, snapshotStore = null, protect
     return Object.freeze({ status: 'discarded', session_id: id, branch: state.branch });
   }
 
-  return Object.freeze({ create, stage, run, promote, discard });
+  return Object.freeze({ create, stage, run, promote, discard, requiredBranchPrefix });
 }
 
 module.exports = Object.freeze({ createSelfDevelopmentSandbox });
