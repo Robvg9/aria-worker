@@ -1,5 +1,5 @@
 // Bitrise connector helpers for aria-mission-runner-v22
-// Token resolved server-side via aria_internal.credential_read_secret('bitrise_api_token')
+// Token resolved server-side via the Credential Manager; the value never enters mission state, logs, or results.
 
 export async function bitriseExecute(rpc: (name: string, args: Record<string, unknown>) => Promise<unknown>, step: any) {
   const operation = String(step.operation);
@@ -15,7 +15,9 @@ export async function bitriseExecute(rpc: (name: string, args: Record<string, un
     throw new Error(`connector_operation_not_allowed:bitrise:${operation}`);
   }
 
-  const data = await rpc("aria_internal.credential_read_secret", { p_name: "bitrise_api_token" });
+  // PostgREST exposes only the public wrapper to the Edge Function runtime.
+  // The wrapper is SECURITY DEFINER and EXECUTE is restricted to service_role.
+  const data = await rpc("aria_bitrise_credential_read_secret", { p_name: "bitrise_api_token" });
   let token = "";
   if (typeof data === "string" && data) token = data;
   else if (data && typeof (data as any).secret === "string") token = (data as any).secret;
