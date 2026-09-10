@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  certify:
+  contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +18,5 @@ jobs:
           node-version: 22
       - name: Full regression suite
         run: npm test
-      - name: Security 2.0 contract certification
+      - name: Security contract test
         run: node tests/security-v2.test.js
-      - name: Emit contract marker
-        run: echo ARIA_SECURITY_2_CONTRACT_OK
