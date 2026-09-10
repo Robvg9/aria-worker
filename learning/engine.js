@@ -21,23 +21,34 @@ function deriveConfidence({ verifier, outcome, evidenceCount = 0 } = {}) {
 function extractLesson({ episode = {}, verifier = {} } = {}) {
   const goal = normalizeText(episode.goal);
   const result = episode.result && typeof episode.result === 'object' ? episode.result : {};
-  const summary = verifier.passed
-    ? `Verified procedure for goal: ${goal}`
-    : `Failed/insufficient verification for goal: ${goal}`;
-  const procedure = Array.isArray(episode.procedure)
+  const prevention = episode.learning_mode === 'failure_prevention' && Array.isArray(episode.prevention_procedure)
+    ? episode.prevention_procedure : [];
+  const baseProcedure = Array.isArray(episode.procedure)
     ? episode.procedure.map((s) => normalizeText(s, 500)).filter(Boolean).slice(0, 12)
     : [];
+  const procedure = (episode.learning_mode === 'failure_prevention' && prevention.length > 0)
+    ? prevention.map((s) => normalizeText(s, 500)).filter(Boolean).slice(0, 12)
+    : baseProcedure;
+  const failurePreventionVerified = episode.learning_mode === 'failure_prevention'
+    && result.status === 'failed'
+    && prevention.length > 0
+    && verifier.passed === true;
+  const summary = failurePreventionVerified
+    ? `Verified prevention for failure: ${goal}`
+    : (verifier.passed ? `Verified procedure for goal: ${goal}` : `Failed/insufficient verification for goal: ${goal}`);
   const evidence = {
     verifier_version: verifier.version || null,
     verified: Boolean(verifier.passed),
     failed_checks: Array.isArray(verifier.failed_checks) ? verifier.failed_checks : [],
     outcome_status: result.status || null,
+    learning_mode: episode.learning_mode || 'success_learning',
     evidence_refs: Array.isArray(episode.evidence_refs) ? episode.evidence_refs.slice(0, 20) : [],
+    failure_mode: normalizeText(episode.failure_mode, 300) || null,
   };
-  const category = verifier.passed ? 'verified_procedure' : 'diagnostic';
+  const category = failurePreventionVerified ? 'failure_prevention' : (verifier.passed ? 'verified_procedure' : 'diagnostic');
   const confidence = deriveConfidence({ verifier, outcome: result, evidenceCount: evidence.evidence_refs.length });
-  const reusable = verifier.passed && result.status === 'succeeded' && procedure.length > 0;
-  const source = `${goal}|${JSON.stringify(procedure)}|${verifier.version || ''}`;
+  const reusable = failurePreventionVerified || (verifier.passed && result.status === 'succeeded' && procedure.length > 0);
+  const source = `${goal}|${JSON.stringify(procedure)}|${verifier.version || ''}|${evidence.learning_mode}|${evidence.failure_mode || ''}`;
   return Object.freeze({ category, summary: normalizeText(summary), procedure, evidence, confidence, reusable, content_hash: hash(source) });
 }
 
