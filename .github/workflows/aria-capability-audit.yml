@@ -2,7 +2,7 @@ name: ARIA Capability Audit V1
 
 on:
   push:
-    branches: ["aria/capability-certification-v1"]
+    branches: ["main", "aria/capability-certification-v1"]
   workflow_dispatch:
 
 permissions:
