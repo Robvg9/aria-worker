@@ -13,7 +13,9 @@ const workflows = [
   '.github/workflows/world-model-v2-live.yml',
   '.github/workflows/verify-self-model-v2-live.yml',
   '.github/workflows/evaluation-engine-v2-live.yml',
-  '.github/workflows/security-v2-live.yml'
+  '.github/workflows/security-v2-live.yml',
+  '.github/workflows/computer-use-v1-live.yml',
+  '.github/workflows/multimodal-v1-live.yml'
 ];
 
 for (const file of workflows) {
