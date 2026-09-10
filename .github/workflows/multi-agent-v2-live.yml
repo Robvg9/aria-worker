@@ -1,5 +1,5 @@
-name: Multi-Agent 2.0 LIVE
-# Canonical certification: manager + runtime + catalog adapter + verifier.
+name: Multi-Agent 2.0 CONTRACT
+# Contract certification: manager + runtime + catalog adapter + verifier.
 on:
   workflow_dispatch:
   push:
@@ -9,7 +9,7 @@ on:
       - 'tests/multi-agent-runtime-v2.test.js'
       - '.github/workflows/multi-agent-v2-live.yml'
 jobs:
-  certify:
+  contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,5 +18,5 @@ jobs:
           node-version: 22
       - name: Full regression suite
         run: npm test
-      - name: Multi-Agent 2.0 LIVE certification
+      - name: Multi-Agent contract test
         run: node tests/multi-agent-v2-live.js
