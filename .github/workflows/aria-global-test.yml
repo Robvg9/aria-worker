@@ -23,3 +23,10 @@ jobs:
           node-version: 22
       - name: Run full test suite
         run: npm test
+      - name: Verify BattleCruiser autonomous gates
+        run: |
+          node tests/battlecruiser-sandbox-controller.test.js
+          node tests/battlecruiser-regression-gate.test.js
+          node tests/battlecruiser-promotion-gate.test.js
+          node tests/battlecruiser-runtime-bridge.test.js
+          node tests/battlecruiser-autonomous-mission.test.js
