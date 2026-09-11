@@ -91,12 +91,22 @@ async function heartbeat() {
   } catch (error) { console.error(`[heartbeat] ${error.message}`); }
 }
 
+async function rejectClaimedJob(job, reason) {
+  const result = { status: 'failed', exit_code: null, stdout: '', stderr: reason, duration_ms: 0, metadata: { agent_version: 'aria-windows-agent-v1', operation: OPERATION, rejected: true } };
+  try {
+    await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, result }) });
+    log(`JOB REJECTED id=${job.job_id} reason=${reason}`);
+  } catch (error) { console.error(`[reject] ${error.message}`); }
+}
+
 async function claimAndExecute() {
   try {
     const body = await api('/v1/jobs/claim', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
     if (!body?.job) return;
     const job = body.job;
-    const payload = parseQwenPayload(job);
+    let payload;
+    try { payload = parseQwenPayload(job); }
+    catch (error) { await rejectClaimedJob(job, String(error.message || 'unsupported_job')); return; }
     log(`JOB RECEIVED id=${job.job_id} operation=${job.operation}`);
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
     log(`JOB START id=${job.job_id}`);
