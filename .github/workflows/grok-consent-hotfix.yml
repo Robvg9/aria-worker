@@ -19,18 +19,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Wrangler
-        run: npm install --global wrangler@latest
-
       - name: Verify consent UI uses direct HTTPS links
         run: |
           set -euo pipefail
           grep -q 'Authorize ARIA MCP' worker.js
           grep -q 'decision=allow' worker.js
           grep -q 'decision=deny' worker.js
-          grep -q 'encodeURIComponent(pendingId)' worker.js
-          if grep -q '<form method="post" action="${go}/authorize/consent"' worker.js; then
-            echo 'ERROR: legacy POST consent form remains in worker.js'
+          grep -q 'const id=encodeURIComponent(String(pendingId))' worker.js
+          grep -q '<a class="btn" href="${allow}">Authorize</a>' worker.js
+          grep -q '<a class="btn secondary" href="${deny}">Deny</a>' worker.js
+          if grep -q '<form' worker.js; then
+            echo 'ERROR: HTML form remains in worker.js; direct-link consent is required'
             exit 1
           fi
           echo CONSENT_UI_SOURCE=OK
@@ -40,6 +39,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
 
@@ -47,7 +47,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: wrangler deploy worker.js --name aria
+        run: npx wrangler@latest deploy worker.js --name aria
 
       - name: Validate LIVE consent page
         run: |
@@ -56,6 +56,7 @@ jobs:
           echo "$body" | grep -q 'decision=allow'
           echo "$body" | grep -q 'decision=deny'
           echo "$body" | grep -q 'Authorize ARIA MCP'
+          echo "$body" | grep -q '<a class="btn" href='
           if echo "$body" | grep -q '<form'; then
             echo 'ERROR: LIVE consent page still contains form elements'
             exit 1
