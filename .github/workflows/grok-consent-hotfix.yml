@@ -1,0 +1,81 @@
+name: Grok Consent Hotfix Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/grok-consent-hotfix.yml'
+      - 'worker.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Wrangler
+        run: npm install --global wrangler@latest
+
+      - name: Patch consent UI to direct HTTPS links
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('worker.js')
+          s = p.read_text()
+          marker = 'Grok embedded browser compatibility: use plain same-origin HTTPS links instead of HTML form submits'
+          if marker not in s:
+              pattern = re.compile(r'<form method="get" action="\\?\$\{go\\}">.*?<button class="btn" type="submit">Authorize</button>.*?</form>.*?<form method="get" action="\\?\$\{go\\}" style="margin-top:10px">.*?<button class="btn" type="submit" style="background:#2a3144">Deny</button>.*?</form>', re.S)
+              repl = '<div class="consent-actions"><a class="btn" href="${go}?pending_id=${encodeURIComponent(pendingId)}&decision=allow">Authorize</a><a class="btn" href="${go}?pending_id=${encodeURIComponent(pendingId)}&decision=deny" style="background:#2a3144;margin-top:10px">Deny</a></div>'
+              ns, count = pattern.subn(repl, s, count=1)
+              if count != 1:
+                  raise SystemExit(f'consent HTML anchor patch did not match exactly; matches={count}')
+              s = ns
+          if marker not in s:
+              raise SystemExit('consent compatibility marker missing after patch')
+          p.write_text(s)
+          print('CONSENT_ANCHORS=OK')
+          PY
+
+      - name: Verify patch
+        run: |
+          set -euo pipefail
+          grep -q 'Grok embedded browser compatibility: use plain same-origin HTTPS links instead of HTML form submits' worker.js
+          grep -q 'decision=allow' worker.js
+          grep -q 'decision=deny' worker.js
+          grep -q 'encodeURIComponent(pendingId)' worker.js
+          echo PATCH_VERIFY=OK
+
+      - name: Verify deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Deploy ARIA Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy worker.js --name aria
+
+      - name: Validate LIVE consent page
+        run: |
+          set -euo pipefail
+          body="$(curl --fail --silent --show-error --retry 5 --retry-delay 2 'https://aria.robvg9.workers.dev/authorize?client_id=aria-ci&redirect_uri=https%3A%2F%2Fgrok.com%2Fconnectors-oauth-exchange-code%2F&response_type=code&state=ci&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&scope=aria.mcp.inbound&resource=https%3A%2F%2Faria.robvg9.workers.dev%2Fmcp')"
+          echo "$body" | grep -q 'decision=allow'
+          echo "$body" | grep -q 'decision=deny'
+          echo "$body" | grep -q 'Authorize ARIA MCP'
+          if echo "$body" | grep -q '<form'; then
+            echo 'ERROR: consent page still contains form elements'
+            exit 1
+          fi
+          echo LIVE_CONSENT=OK
