@@ -9,6 +9,7 @@ const executor=read('supabase','functions','aria-execution-runtime-v1','index.ts
 const appWorkflow=read('.github','workflows','aria-app-api-v3-deploy.yml');
 const plannerWorkflow=read('.github','workflows','aria-planner-v11-deploy.yml');
 function assertContains(source,fragment,message){if(!source.includes(fragment))throw new Error(message||`Missing: ${fragment}`);}
+function assertAny(source,fragments,message){if(!fragments.some(f=>source.includes(f)))throw new Error(message||`Missing one of: ${fragments.join(' | ')}`);}
 assertContains(appApi,'SUPABASE_SERVICE_ROLE_KEY','service-role binding missing');
 assertContains(appApi,'auth.getUser(token)','server-side user resolution missing');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
@@ -18,9 +19,11 @@ assertContains(appApi,'path.endsWith("/media/upload-url")','media upload prepara
 assertContains(appApi,'aria-app-media','private media bucket missing');
 assertContains(appApi,'const objectPath=`${u.id}/${crypto.randomUUID()}/${fileName}`','media object path is not user-scoped');
 assertContains(appApi,'createSignedUploadUrl(objectPath)','signed media upload missing');
-assertContains(appApi,'"x-aria-user-id":userId','authenticated user scope not propagated to internal memory/mission boundary');
-assertContains(appApi,'recall(text||"Analiza los adjuntos proporcionados",u.id)','conversation recall is not user-scoped');
-assertContains(appApi,'!t?.provider_id||!t?.account_id||!t?.model_id','conversation model route validation missing');
+assertContains(appApi,'"x-aria-user-id": userId','authenticated user scope not propagated to internal memory/mission boundary');
+assertContains(appApi,'recall(text, user.id)','conversation recall must use authenticated user scope');
+assertContains(appApi,'target?.provider_id','conversation model provider validation missing');
+assertContains(appApi,'target?.account_id','conversation model account validation missing');
+assertContains(appApi,'target?.model_id','conversation model id validation missing');
 assertContains(appApi,'conversation_model_execution_failed','conversation failure boundary missing');
 assertContains(appApi,'aria-execution-runtime-v1','canonical execution runtime missing');
 assertContains(appApi,'aria-app-v1','app provenance missing');
