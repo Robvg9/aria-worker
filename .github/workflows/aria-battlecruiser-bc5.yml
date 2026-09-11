@@ -1,0 +1,20 @@
+name: ARIA BattleCruiser BC-5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'autonomy/battlecruiser/**'
+      - 'tests/battlecruiser-regression-gate.test.js'
+      - '.github/workflows/aria-battlecruiser-bc5.yml'
+  workflow_dispatch:
+
+jobs:
+  bc5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run BC-5 regression gate test
+        run: node tests/battlecruiser-regression-gate.test.js
+      - name: Verify BC-4 contract test
+        run: node tests/battlecruiser-sandbox-controller.test.js
