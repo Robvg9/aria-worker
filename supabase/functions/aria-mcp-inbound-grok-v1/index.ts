@@ -354,6 +354,25 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const path = url.pathname;
 
+  // Grok Web requires the OAuth challenge during the initial MCP handshake.
+  // Keep OAuth metadata/authorization endpoints public; protect the MCP resource itself.
+  const publicOAuthPath =
+    path.includes("/.well-known/oauth-protected-resource") ||
+    path.includes("/.well-known/oauth-authorization-server") ||
+    path.endsWith("/register") ||
+    path.endsWith("/authorize") ||
+    path.endsWith("/authorize/consent") ||
+    path.endsWith("/token");
+
+  if (!publicOAuthPath && req.method !== "OPTIONS") {
+    const access = await verifyAccessToken(bearer(req));
+    if (!access) {
+      return json(401, { error: "unauthorized" }, {
+        "WWW-Authenticate": wwwAuthenticate(),
+      });
+    }
+  }
+
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
