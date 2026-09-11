@@ -31,6 +31,25 @@ jobs:
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Run full test suite
         run: npm test
+      - name: Apply Grok embedded-browser consent compatibility patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('worker.js')
+          s = p.read_text()
+          marker = 'html = html.replace(/method\\s*=\\s*["\\\']post["\\\']/gi,\'method="get"\');'
+          if marker not in s:
+              raise SystemExit('expected consent rewrite marker not found')
+          if 'Grok embedded browser compatibility: use plain same-origin HTTPS links' not in s:
+              injected = '''\n    // Grok embedded browser compatibility: use plain same-origin HTTPS links instead of HTML form submits.\n    html = html.replace(/<form[^>]*action="([^"]*\\/authorize\\/consent)"[^>]*>\\s*<input[^>]*name="pending_id"[^>]*value="([^"]+)"[^>]*>\\s*<input[^>]*name="decision"[^>]*value="(allow|deny)"[^>]*>\\s*<button[^>]*>([^<]+)<\\/button>\\s*<\\/form>/gi,\n      (_, action, pendingId, decision, label) => `<a class="btn" href="${action}?pending_id=${encodeURIComponent(pendingId)}&decision=${decision}">${label}</a>`);'''
+              s = s.replace(marker, marker + injected, 1)
+              p.write_text(s)
+          print('CONSENT_LINK_PATCH=OK')
+          PY
+      - name: Verify Grok consent compatibility patch
+        run: |
+          grep -q 'plain same-origin HTTPS links instead of HTML form submits' worker.js
+          grep -q 'encodeURIComponent(pendingId)' worker.js
       - name: Verify required Cloudflare deployment secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -105,14 +124,16 @@ jobs:
           assert 'authorization_code' in x.get('grant_types', [])
           assert x['response_types']==['code']
           assert x['redirect_uris']==['https://grok.com/connectors-oauth-exchange-code/']
-          # Worker rewrites public endpoints on register response
-          assert x.get('authorization_endpoint') in (None, 'https://aria.robvg9.workers.dev/authorize') or True
           PY
           client_id="$(REG="$registration" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
           challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
           auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')&scope=aria.mcp.inbound"
-          auth_headers="$(mktemp)"
-          auth_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$auth_headers" -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
+          auth_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
           echo "authorize status=$auth_code"
-          # Accept 200 (consent page) or 400 if resource env not yet aligned on inbound
-          test "$auth_code" = "200" -o "$auth_code" = "400"
+          test "$auth_code" = "200"
+          grep -qi 'authorize' /tmp/authorize-body
+          grep -qi 'href=' /tmp/authorize-body
+          grep -q 'pending_id=' /tmp/authorize-body
+          grep -q 'decision=allow' /tmp/authorize-body
+          grep -q 'decision=deny' /tmp/authorize-body
+          echo GROK_CONSENT_LINKS_OK
