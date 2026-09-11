@@ -91,7 +91,8 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && path.endsWith("/media/upload-url")) {
       const body = await req.json().catch(() => null);
       const fileName = typeof body?.fileName === "string" && body.fileName.trim() ? body.fileName.trim().replace(/[^A-Za-z0-9._-]/g, "_") : "upload.bin";
-      const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`;
+      const u = user;
+      const objectPath=`${u.id}/${crypto.randomUUID()}/${fileName}`;
       const { data, error } = await serviceClient().storage.from(MEDIA_BUCKET).createSignedUploadUrl(objectPath);
       if (error || !data?.signedUrl) return json({ error: "media_upload_url_failed", stage: "media", trace_id: trace }, 502);
       return json({ ok: true, bucket: MEDIA_BUCKET, path: objectPath, signedUrl: data.signedUrl, trace_id: trace });
