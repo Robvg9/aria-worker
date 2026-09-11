@@ -8,6 +8,8 @@ const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
 const DEVICE_ID = process.env.ARIA_DEVICE_ID;
 const HEARTBEAT_MS = Math.max(10_000, Number(process.env.ARIA_HEARTBEAT_MS || 30_000));
 const POLL_MS = Math.max(1_000, Number(process.env.ARIA_POLL_MS || 3_000));
+const GATEWAY_TIMEOUT_MS = Math.max(3_000, Number(process.env.ARIA_GATEWAY_TIMEOUT_MS || 15_000));
+const GATEWAY_RETRIES = Math.max(0, Number(process.env.ARIA_GATEWAY_RETRIES || 2));
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
 const OPERATION = 'ollama.qwen3';
@@ -21,6 +23,12 @@ function redact(text) {
   for (const pattern of patterns) value = value.replace(pattern, '[redacted]');
   return value;
 }
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function normalizeQwenResponse(value) {
+  if (typeof value !== 'string') return '';
+  const withoutThink = value.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  return withoutThink.slice(0, MAX_OUTPUT);
+}
 
 if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
   console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');
@@ -31,12 +39,31 @@ function endpoint(path) { return `${GATEWAY_URL.replace(/\/$/, '')}${path}`; }
 function headers() { return { 'content-type': 'application/json', authorization: `Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id': DEVICE_ID }; }
 
 async function api(path, options = {}) {
-  const response = await fetch(endpoint(path), { ...options, headers: { ...headers(), ...(options.headers || {}) } });
-  const text = await response.text();
-  let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch (_) { body = { raw: text }; }
-  if (!response.ok) throw new Error(`gateway ${response.status}: ${body?.error || 'request failed'}`);
-  return body;
+  let lastError = null;
+  for (let attempt = 0; attempt <= GATEWAY_RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint(path), { ...options, headers: { ...headers(), ...(options.headers || {}) }, signal: controller.signal });
+      const text = await response.text();
+      let body = null;
+      try { body = text ? JSON.parse(text) : null; } catch (_) { body = { raw: text }; }
+      if (response.ok) return body;
+      const error = new Error(`gateway ${response.status}: ${body?.error || 'request failed'}`);
+      error.status = response.status;
+      lastError = error;
+      const retryable = response.status === 401 || response.status === 408 || response.status === 429 || response.status >= 500;
+      if (!retryable || attempt >= GATEWAY_RETRIES) throw error;
+    } catch (error) {
+      lastError = error;
+      const retryable = error?.name === 'AbortError' || !Number.isInteger(error?.status) || error.status === 401 || error.status === 408 || error.status === 429 || error.status >= 500;
+      if (!retryable || attempt >= GATEWAY_RETRIES) throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+    await sleep(Math.min(2_000, 500 * (attempt + 1)));
+  }
+  throw lastError || new Error('gateway_request_failed');
 }
 
 function parseQwenPayload(job) {
@@ -69,7 +96,7 @@ async function callOllama({ prompt, model, timeout_ms }) {
     let body;
     try { body = JSON.parse(text); } catch (_) { throw new Error('ollama_invalid_json'); }
     if (typeof body.response !== 'string') throw new Error('ollama_response_missing');
-    return { status: 'succeeded', exit_code: 0, stdout: body.response.slice(0, MAX_OUTPUT), stderr: '', duration_ms: Date.now() - started };
+    return { status: 'succeeded', exit_code: 0, stdout: normalizeQwenResponse(body.response), stderr: '', duration_ms: Date.now() - started, metadata: { raw_response_available: true } };
   } catch (error) {
     const aborted = error?.name === 'AbortError';
     return { status: aborted ? 'timeout' : 'failed', exit_code: null, stdout: '', stderr: redact(String(error?.message || error).slice(0, 4096)), duration_ms: Date.now() - started };
@@ -111,7 +138,7 @@ async function claimAndExecute() {
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
     log(`JOB START id=${job.job_id}`);
     const result = await callOllama(payload);
-    result.metadata = { agent_version: 'aria-windows-agent-v1', platform: `windows/${os.release()}`, request_nonce: crypto.randomUUID(), operation: OPERATION, ollama_url: OLLAMA_URL, model: OLLAMA_MODEL };
+    result.metadata = { ...result.metadata, agent_version: 'aria-windows-agent-v1', platform: `windows/${os.release()}`, request_nonce: crypto.randomUUID(), operation: OPERATION, ollama_url: OLLAMA_URL, model: OLLAMA_MODEL };
     log(`JOB RESULT id=${job.job_id} status=${result.status} duration_ms=${result.duration_ms}`);
     if (result.stdout) log(`STDOUT ${JSON.stringify(redact(result.stdout))}`);
     if (result.stderr) log(`STDERR ${JSON.stringify(redact(result.stderr))}`);
@@ -121,7 +148,6 @@ async function claimAndExecute() {
 }
 
 let stopping = false;
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 process.on('SIGTERM', () => { stopping = true; log('STOP requested'); });
 process.on('SIGINT', () => { stopping = true; log('STOP requested'); });
 
