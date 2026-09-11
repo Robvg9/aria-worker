@@ -25,20 +25,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify consent UI source
+        shell: bash
         run: |
           set -euo pipefail
-          grep -q 'Authorize ARIA MCP' worker.js
-          grep -q 'decision=allow' worker.js
-          grep -q 'decision=deny' worker.js
-          grep -q '<a class="btn" href="${allow}">Authorize</a>' worker.js
-          grep -q '<a class="btn secondary" href="${deny}">Deny</a>' worker.js
-          if grep -q '<form' worker.js; then
+          grep -Fq 'Authorize ARIA MCP' worker.js
+          grep -Fq 'decision=allow' worker.js
+          grep -Fq 'decision=deny' worker.js
+          grep -Fq '<a class="btn" href="${allow}">Authorize</a>' worker.js
+          grep -Fq '<a class="btn secondary" href="${deny}">Deny</a>' worker.js
+          if grep -Fq '<form' worker.js; then
             echo 'ERROR: consent page still contains HTML forms'
             exit 1
           fi
           echo CONSENT_UI_SOURCE=OK
 
       - name: Verify Cloudflare credentials
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -46,34 +48,75 @@ jobs:
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
+          echo CLOUDFLARE_AUTH=OK
 
       - name: Deploy ARIA Worker
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler@latest deploy worker.js --name aria
+        run: |
+          set -euo pipefail
+          npx wrangler@latest deploy worker.js --name aria
 
-      - name: Validate LIVE consent page
+      - name: Validate LIVE OAuth consent flow
+        shell: bash
         run: |
           set -euo pipefail
 
           python3 - <<'PY'
+          import json
           import urllib.parse
-          from pathlib import Path
+          import urllib.request
+          
+          origin = "https://aria.robvg9.workers.dev"
+          callback = "https://grok.com/connectors-oauth-exchange-code/"
+          resource = "https://aria.robvg9.workers.dev/mcp"
 
-          params = {
-              'client_id': 'aria-ci',
-              'redirect_uri': 'https://grok.com/connectors-oauth-exchange-code/',
-              'response_type': 'code',
-              'state': 'ci',
-              'code_challenge': 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
-              'code_challenge_method': 'S256',
-              'scope': 'aria.mcp.inbound',
-              'resource': 'https://aria.robvg9.workers.dev/mcp',
+          payload = {
+              "redirect_uris": [callback],
+              "client_name": "ARIA CI Grok Consent Test",
+              "response_types": ["code"],
+              "grant_types": ["authorization_code", "refresh_token"],
+              "token_endpoint_auth_method": "none"
           }
-          url = 'https://aria.robvg9.workers.dev/authorize?' + urllib.parse.urlencode(params)
-          Path('/tmp/authorize_url').write_text(url)
-          print(url)
+
+          request = urllib.request.Request(
+              origin + "/register",
+              data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json", "Accept": "application/json"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  status = response.status
+                  body = response.read().decode()
+          except urllib.error.HTTPError as exc:
+              status = exc.code
+              body = exc.read().decode()
+          
+          print(f"DCR_STATUS={status}")
+          print(f"DCR_BODY={body}")
+          if status != 201:
+              raise SystemExit("DCR failed")
+          
+          client_id = json.loads(body).get("client_id")
+          if not client_id:
+              raise SystemExit("DCR response did not contain client_id")
+          
+          params = {
+              "client_id": client_id,
+              "redirect_uri": callback,
+              "response_type": "code",
+              "state": "ci",
+              "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+              "code_challenge_method": "S256",
+              "scope": "aria.mcp.inbound",
+              "resource": resource,
+          }
+          auth_url = origin + "/authorize?" + urllib.parse.urlencode(params)
+          open("/tmp/authorize_url", "w").write(auth_url)
+          print("AUTHORIZE_URL_READY=OK")
           PY
 
           AUTH_URL="$(cat /tmp/authorize_url)"
@@ -84,16 +127,28 @@ jobs:
           echo
           echo '--- END AUTHORIZE BODY ---'
 
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo 'AUTHORIZE request did not return 200'
-            exit 1
-          fi
-          grep -q 'Authorize ARIA MCP' /tmp/authorize_body
-          grep -q 'decision=allow' /tmp/authorize_body
-          grep -q 'decision=deny' /tmp/authorize_body
-          grep -q '<a class="btn" href=' /tmp/authorize_body
-          if grep -q '<form' /tmp/authorize_body; then
+          test "$HTTP_CODE" = "200"
+          grep -Fq 'Authorize ARIA MCP' /tmp/authorize_body
+          grep -Fq 'decision=allow' /tmp/authorize_body
+          grep -Fq 'decision=deny' /tmp/authorize_body
+          grep -Fq '<a class="btn" href=' /tmp/authorize_body
+          if grep -Fq '<form' /tmp/authorize_body; then
             echo 'ERROR: LIVE consent page still contains HTML forms'
             exit 1
           fi
-          echo LIVE_CONSENT=OK
+          echo LIVE_CONSENT_FLOW=OK
+
+      - name: Validate LIVE OAuth metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          prm="$(curl -sS --fail --retry 5 --retry-delay 2 "$ARIA_ORIGIN/.well-known/oauth-protected-resource/mcp")"
+          echo "$prm" | grep -Fq 'aria.robvg9.workers.dev/mcp'
+          echo "$prm" | grep -Fq 'aria.mcp.inbound'
+
+          as="$(curl -sS --fail --retry 5 --retry-delay 2 "$ARIA_ORIGIN/.well-known/oauth-authorization-server")"
+          echo "$as" | grep -Fq 'aria.robvg9.workers.dev'
+          echo "$as" | grep -Fq 'authorization_code'
+          echo "$as" | grep -Fq 'refresh_token'
+          echo "$as" | grep -Fq 'S256'
+          echo LIVE_OAUTH_METADATA=OK
