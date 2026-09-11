@@ -8,9 +8,6 @@ on:
       - 'worker.js'
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 env:
   ARIA_ORIGIN: https://aria.robvg9.workers.dev
   GROK_CALLBACK: https://grok.com/connectors-oauth-exchange-code/
@@ -57,23 +54,33 @@ jobs:
       - name: Validate LIVE consent page with a valid DCR client
         run: |
           set -euo pipefail
-          register_body="$(curl --fail --silent --show-error --retry 5 --retry-delay 2 \
+          register_body="$(curl --silent --show-error --retry 5 --retry-delay 2 \
             -X POST "$ARIA_ORIGIN/register" \
             -H 'content-type: application/json' \
             -H 'accept: application/json' \
             --data "$(jq -nc --arg cb "$GROK_CALLBACK" --arg name 'ARIA CI Grok Consent Test' \
               '{redirect_uris:[$cb],client_name:$name,response_types:["code"],grant_types:["authorization_code","refresh_token"],token_endpoint_auth_method:"none"}')")")"
+          echo "DCR_RESPONSE=$register_body"
           client_id="$(echo "$register_body" | jq -r '.client_id // empty')"
           test -n "$client_id"
           echo "DCR_CLIENT=OK"
 
           auth_url="$ARIA_ORIGIN/authorize?client_id=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$client_id")&redirect_uri=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$GROK_CALLBACK")&response_type=code&state=ci&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&scope=aria.mcp.inbound&resource=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$ARIA_RESOURCE")"
-          body="$(curl --fail --silent --show-error --retry 5 --retry-delay 2 "$auth_url")"
-          echo "$body" | grep -q 'decision=allow'
-          echo "$body" | grep -q 'decision=deny'
-          echo "$body" | grep -q 'Authorize ARIA MCP'
-          echo "$body" | grep -q '<a class="btn" href='
-          if echo "$body" | grep -q '<form'; then
+
+          status="$(curl --silent --show-error --retry 5 --retry-delay 2 \
+            -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
+          echo "AUTHORIZE_STATUS=$status"
+          echo '--- AUTHORIZE BODY ---'
+          cat /tmp/authorize-body
+          echo
+          echo '--- END AUTHORIZE BODY ---'
+
+          test "$status" = "200"
+          grep -q 'decision=allow' /tmp/authorize-body
+          grep -q 'decision=deny' /tmp/authorize-body
+          grep -q 'Authorize ARIA MCP' /tmp/authorize-body
+          grep -q '<a class="btn" href=' /tmp/authorize-body
+          if grep -q '<form' /tmp/authorize-body; then
             echo 'ERROR: LIVE consent page still contains form elements'
             exit 1
           fi
