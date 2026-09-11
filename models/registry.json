@@ -1,5 +1,5 @@
 {
-  "version": "aria-model-registry-v1.0.3",
+  "version": "aria-model-registry-v1.0.4",
   "mission": "10.2+10.3+10.14",
   "kind": "model_registry",
   "memory_authority": false,
@@ -41,16 +41,29 @@
       "availability": "restricted",
       "metadata": {"access_path":"google_gemini_direct","verified_at":"2026-09-07","evidence":"Google provider response","notes":"Retired from Direct routing after Google rejected the model for this new-user account."},
       "capability_refs": ["text_generation"]
+    },
+    {
+      "model_id": "xai/grok-4.6",
+      "provider_id": "xai",
+      "canonical_name": "Grok 4.6 (xAI direct API)",
+      "upstream_model": "grok-4.6",
+      "upstream_provider_id": "xai",
+      "status": "available",
+      "availability": "public",
+      "metadata": {"access_path":"xai_responses","verified_at":"2026-09-10","evidence":"xAI official Responses API documentation","notes":"Direct route through xAI Responses API; credential in ARIA secret boundary. Supports Remote MCP tools."},
+      "capability_refs": ["text_generation"]
     }
   ],
   "indexes": {
     "by_provider": {
       "openrouter": ["google/gemini-2.5-flash-lite"],
-      "google": ["google/gemini-3.5-flash-lite-direct"]
+      "google": ["google/gemini-3.5-flash-lite-direct"],
+      "xai": ["xai/grok-4.6"]
     },
     "by_model_id": {
       "google/gemini-2.5-flash-lite": "openrouter",
-      "google/gemini-3.5-flash-lite-direct": "google"
+      "google/gemini-3.5-flash-lite-direct": "google",
+      "xai/grok-4.6": "xai"
     }
   },
   "rules": [
