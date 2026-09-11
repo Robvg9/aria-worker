@@ -21,7 +21,7 @@ jobs:
           Write-Host "NODE_PATH=$($node.Source)"
           Write-Host "NODE_VERSION=$version"
           if ([version]($version.TrimStart('v')) -lt [version]'20.0.0') {
-            throw "Node 20+ required"
+            throw 'Node 20+ required'
           }
 
       - name: Verify Ollama service
@@ -29,12 +29,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 10
-          Write-Host "OLLAMA=ONLINE"
+          Write-Host 'OLLAMA=ONLINE'
           $model = $response.models | Where-Object { $_.name -eq 'qwen3:4b' }
           if (-not $model) {
-            throw "Required model qwen3:4b is not installed"
+            throw 'Required model qwen3:4b is not installed'
           }
-          Write-Host "OLLAMA_MODEL=qwen3:4b"
+          Write-Host 'OLLAMA_MODEL=qwen3:4b'
 
       - name: Verify qwen3 execution locally
         shell: powershell
@@ -45,11 +45,11 @@ jobs:
           $text = [string]$result.response
           $text = [regex]::Replace($text, '(?is)<think>.*?</think>', '').Trim()
           if ($text -notmatch 'QWEN_ARIA_OK') {
-            throw "Qwen did not return the expected sentinel"
+            throw 'Qwen did not return the expected sentinel'
           }
           Write-Host 'QWEN_EXECUTION=PASS'
 
-      - name: Verify ARIA Gateway environment (no secret output)
+      - name: Verify ARIA Gateway environment and heartbeat
         shell: powershell
         env:
           ARIA_DEVICE_GATEWAY_URL: ${{ secrets.ARIA_DEVICE_GATEWAY_URL }}
@@ -63,11 +63,16 @@ jobs:
             }
           }
           $url = $env:ARIA_DEVICE_GATEWAY_URL.TrimEnd('/')
+          $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $env:ARIA_DEVICE_ID; 'content-type' = 'application/json' }
+          $body = @{ device_id = $env:ARIA_DEVICE_ID; agent_type = 'windows-ollama-qwen3'; capabilities = @('shell.execute','ollama.qwen3') } | ConvertTo-Json
           try {
-            $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $env:ARIA_DEVICE_ID }
-            $health = Invoke-RestMethod -Uri "$url/health" -Headers $headers -Method Get -TimeoutSec 15
-            Write-Host 'GATEWAY_HEALTH=PASS'
-            Write-Host ('GATEWAY_STATUS=' + [string]$health.status)
+            $heartbeat = Invoke-RestMethod -Uri "$url/v1/devices/heartbeat" -Headers $headers -Method Post -Body $body -TimeoutSec 15
           } catch {
-            throw "Gateway health probe failed: $($_.Exception.Message)"
+            throw "Gateway heartbeat probe failed: $($_.Exception.Message)"
           }
+          if ($null -eq $heartbeat) {
+            throw 'Gateway heartbeat returned an empty response'
+          }
+          Write-Host 'GATEWAY_HEARTBEAT=PASS'
+          Write-Host 'DEVICE_ID=present'
+          Write-Host 'CAPABILITY=ollama.qwen3'
