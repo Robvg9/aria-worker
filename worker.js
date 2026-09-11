@@ -27,7 +27,7 @@ async function vaultCronAuthorized(request,fetchImpl=globalThis.fetch){const tok
 async function autonomyHealth(request){if(request.method!=="GET")return json({error:"method_not_allowed"},405);if(!(await vaultCronAuthorized(request)))return json({error:"unauthorized"},401);return json({ok:true,service:"aria-worker",executor:"cloudflare-worker",version:"canonical-runtime-v1"})}
 function rewriteAuthChallenge(response){const headers=new Headers(response.headers);headers.set("WWW-Authenticate",'Bearer resource_metadata="'+RESOURCE_METADATA+'", scope="'+SCOPES.join(" ")+'"');headers.set("Access-Control-Expose-Headers","WWW-Authenticate, X-ARIA-Trace-Id");return new Response(response.body,{status:response.status,statusText:response.statusText,headers})}
 function escapeHtml(value){return String(value).replace(/[&<>'\"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[ch]))}
-function authorizationPage(pendingId,origin){const id=escapeHtml(pendingId);const go=`${origin}/authorize/consent`;return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize ARIA</title><style>:root{color-scheme:dark;--bg:#090b12;--card:#111522;--line:#252b3c;--text:#f6f7fb;--muted:#a5adc2;--accent:#8b5cf6;--accent2:#6366f1}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(900px 500px at 50% 0,#1a1634 0%,var(--bg) 58%);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text);padding:22px}.card{width:min(430px,100%);background:rgba(17,21,34,.96);border:1px solid var(--line);border-radius:22px;box-shadow:0 24px 80px rgba(0,0,0,.45);padding:30px}.logo{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));font-weight:800;font-size:20px;margin-bottom:22px}h1{font-size:26px;margin:0 0 10px}.sub{color:var(--muted);line-height:1.5;margin:0 0 26px}.btn{display:block;width:100%;margin-top:14px;padding:14px 16px;border-radius:12px;border:0;background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;font-weight:700;font-size:16px;text-align:center;text-decoration:none}.foot{margin-top:18px;font-size:12px;color:#7f879c;text-align:center}</style></head><body><main class="card"><div class="logo">A</div><h1>Authorize ARIA MCP</h1><p class="sub">Authorize this Grok connection to ARIA read-only MCP tools (aria_status, aria_context).</p><a class="btn" href="${go}?pending_id=${encodeURIComponent(id)}&decision=allow">Authorize</a><a class="btn" href="${go}?pending_id=${encodeURIComponent(id)}&decision=deny" style="background:#2a3144;margin-top:10px">Deny</a><div class="foot">Secure OAuth · ARIA MCP</div></main></body></html>`}
+function authorizationPage(pendingId,origin,clientName="Grok Custom Connector"){const id=encodeURIComponent(String(pendingId));const safeName=escapeHtml(clientName||"Grok Custom Connector");const allow=`${origin}/authorize/consent?pending_id=${id}&decision=allow`;const deny=`${origin}/authorize/consent?pending_id=${id}&decision=deny`;return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Authorize ARIA MCP</title><style>:root{color-scheme:dark;--bg:#090b12;--card:#111522;--line:#252b3c;--text:#f6f7fb;--muted:#a5adc2;--accent:#8b5cf6;--accent2:#6366f1}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(900px 500px at 50% 0,#1a1634 0%,var(--bg) 58%);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text);padding:22px}.card{width:min(430px,100%);background:rgba(17,21,34,.96);border:1px solid var(--line);border-radius:22px;box-shadow:0 24px 80px rgba(0,0,0,.45);padding:30px}.logo{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));font-weight:800;font-size:20px;margin-bottom:22px}h1{font-size:26px;margin:0 0 10px}.sub{color:var(--muted);line-height:1.5;margin:0 0 26px}.btn{display:block;width:100%;margin-top:14px;padding:14px 16px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;font-weight:700;font-size:16px;text-align:center;text-decoration:none}.btn.secondary{background:#2a3144}.foot{margin-top:18px;font-size:12px;color:#7f879c;text-align:center}</style></head><body><main class="card"><div class="logo">A</div><h1>Authorize ARIA MCP</h1><p class="sub"><strong>${safeName}</strong> is requesting access to ARIA read-only tools.</p><p class="sub">Scope: <code>aria.mcp.inbound</code><br>Resource: ARIA inbound MCP</p><a class="btn" href="${allow}">Authorize</a><a class="btn secondary" href="${deny}">Deny</a><div class="foot">Secure OAuth · ARIA MCP</div></main></body></html>`}
 async function proxyOAuth(request,url){
   const upstreamBase = new URL(SUPABASE_OAUTH);
   let suffix = "";
@@ -44,73 +44,29 @@ async function proxyOAuth(request,url){
   }
   const upstreamUrl = new URL(upstreamBase.toString());
   upstreamUrl.pathname = `${upstreamBase.pathname.replace(/\/$/,"")}/${suffix}`;
-
-  // Grok embedded browser: consent links use GET. Convert to POST for upstream.
   if(suffix === "authorize/consent" && request.method === "GET"){
-    const pendingId = url.searchParams.get("pending_id") || "";
-    const decision = url.searchParams.get("decision") || "";
-    if(!pendingId || (decision !== "allow" && decision !== "deny")){
-      return new Response("<h1>Invalid consent request</h1><p>Missing pending_id or decision.</p>",{
-        status:400,
-        headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}
-      });
-    }
-    const body = new URLSearchParams({pending_id:pendingId,decision:decision}).toString();
-    const upstream = await fetch(upstreamUrl.toString(),{
-      method:"POST",
-      headers:{"content-type":"application/x-www-form-urlencoded","accept":"text/html,application/json"},
-      body,
-      redirect:"manual"
-    });
-    const responseHeaders = new Headers(upstream.headers);
-    responseHeaders.set("cache-control","no-store");
-    return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:responseHeaders});
+    const pendingId=url.searchParams.get("pending_id")||"";const decision=url.searchParams.get("decision")||"";
+    if(!pendingId||!['allow','deny'].includes(decision))return new Response("Invalid consent request",{status:400,headers:{"content-type":"text/plain; charset=utf-8","cache-control":"no-store"}});
+    const body=new URLSearchParams({pending_id:pendingId,decision}).toString();
+    const upstream=await fetch(upstreamUrl.toString(),{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded","accept":"text/html,application/json"},body,redirect:"manual"});
+    const h=new Headers(upstream.headers);h.set("cache-control","no-store");return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:h});
   }
-
-  upstreamUrl.search = url.search;
-  const headers = new Headers(request.headers);
-  headers.delete("host");
-  const upstream = await fetch(new Request(upstreamUrl.toString(),{
-    method:request.method,
-    headers,
-    body:request.method==="GET"||request.method==="HEAD"?undefined:request.body,
-    redirect:"manual"
-  }));
-
+  upstreamUrl.search=url.search;
+  const headers=new Headers(request.headers);headers.delete("host");
+  const upstream=await fetch(new Request(upstreamUrl.toString(),{method:request.method,headers,body:request.method==="GET"||request.method==="HEAD"?undefined:request.body,redirect:"manual"}));
   if(url.pathname==="/register"||url.pathname==="/register/"){
-    const responseHeaders = new Headers(upstream.headers);
-    responseHeaders.set("content-type","application/json; charset=utf-8");
-    responseHeaders.set("cache-control","no-store");
-    const raw = await upstream.text();
-    try{
-      const body = JSON.parse(raw);
-      body.authorization_endpoint = PUBLIC_AUTH_ENDPOINT;
-      body.token_endpoint = PUBLIC_TOKEN_ENDPOINT;
-      body.registration_endpoint = PUBLIC_REGISTER_ENDPOINT;
-      body.issuer = PUBLIC_ISSUER;
-      body.resource = PUBLIC_RESOURCE;
-      return new Response(JSON.stringify(body),{status:upstream.status,statusText:upstream.statusText,headers:responseHeaders});
-    }catch(_){
-      return new Response(raw,{status:upstream.status,statusText:upstream.statusText,headers:responseHeaders});
-    }
+    const h=new Headers(upstream.headers);h.set("content-type","application/json; charset=utf-8");h.set("cache-control","no-store");const raw=await upstream.text();
+    try{const body=JSON.parse(raw);body.authorization_endpoint=PUBLIC_AUTH_ENDPOINT;body.token_endpoint=PUBLIC_TOKEN_ENDPOINT;body.registration_endpoint=PUBLIC_REGISTER_ENDPOINT;body.issuer=PUBLIC_ISSUER;body.resource=PUBLIC_RESOURCE;return new Response(JSON.stringify(body),{status:upstream.status,statusText:upstream.statusText,headers:h})}catch(_){return new Response(raw,{status:upstream.status,statusText:upstream.statusText,headers:h})}
   }
-
-  // Authorize GET: preserve upstream consent page but normalize it to direct links.
-  if((url.pathname==="/authorize"||url.pathname==="/authorize/"||url.pathname==="/authorize-grok-v2"||url.pathname==="/authorize-grok-v2/") && request.method==="GET"){
-    const responseHeaders = new Headers(upstream.headers);
-    responseHeaders.set("cache-control","no-store");
-    if(upstream.status>=300 && upstream.status<400){
-      return new Response(null,{status:upstream.status,headers:responseHeaders});
-    }
-    responseHeaders.set("content-type","text/html; charset=utf-8");
-    let html = await upstream.text();
-    html = html.replace(/<form method="post" action="([^"]*\/authorize\/consent)"[^>]*>\s*<input[^>]*name="pending_id"[^>]*value="([^"]+)"[^>]*>\s*<input[^>]*name="decision"[^>]*value="(allow|deny)"[^>]*>\s*<button[^>]*>([^<]+)<\/button>\s*<\/form>/gi,
-      (_, action, pendingId, decision, label) => `<a class="btn" href="${action}?pending_id=${encodeURIComponent(pendingId)}&decision=${decision}">${label}</a>`);
-    html = html.replace(/method\s*=\s*["']post["']/gi,'method="get"');
-    html = html.replace(/action\s*=\s*["'][^"']*authorize\/consent["']/gi,'action="'+PUBLIC_ISSUER+'/authorize/consent"');
-    return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:responseHeaders});
+  if((url.pathname==="/authorize"||url.pathname==="/authorize/"||url.pathname==="/authorize-grok-v2"||url.pathname==="/authorize-grok-v2/")&&request.method==="GET"){
+    const h=new Headers(upstream.headers);h.set("cache-control","no-store");
+    if(upstream.status>=300&&upstream.status<400)return new Response(null,{status:upstream.status,headers:h});
+    const html=await upstream.text();
+    const pending=(html.match(/name=["']pending_id["'][^>]*value=["']([^"']+)["']/i)||[])[1];
+    if(!pending){return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:h})}
+    const client=(html.match(/<strong>([^<]+)<\/strong>/i)||[])[1]||"Grok Custom Connector";
+    return new Response(authorizationPage(pending,PUBLIC_ISSUER,client),{status:200,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","x-aria-grok-consent":"direct-link-v2"}});
   }
-
   return upstream;
 }
 async function proxyRuntime(request,env){if(request.method!=="POST")return json({error:"method_not_allowed"},405);if(!env.ARIA_RUNTIME_SHARED_SECRET)return json({error:"runtime_secret_not_configured"},500);const incomingToken=extractBearer(request);if(!incomingToken||!constantTimeEqual(incomingToken,env.ARIA_RUNTIME_SHARED_SECRET))return json({error:"unauthorized"},401);const body=await request.text();const upstream=await fetch(RUNTIME_GATEWAY,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body});return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store"}})}
