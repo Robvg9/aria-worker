@@ -102,7 +102,8 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null); const parts = Array.isArray(body?.parts) ? body.parts : []; const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n");
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
       const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
-      const memory = await recall(text, user.id);
+      const u = user;
+      const memory = await recall(text||"Analiza los adjuntos proporcionados",u.id);
       let step: any;
       try { step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 }); }
       catch (e) { return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503); }
