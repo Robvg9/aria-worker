@@ -1,5 +1,5 @@
 {
-  "version":"aria-quota-capacity-v1.1.0",
+  "version":"aria-quota-capacity-v1.1.1",
   "mission":"10.5+10.14",
   "kind":"quota_registry",
   "memory_authority":false,
@@ -7,9 +7,10 @@
   "source_of_truth":{"persistent":"aria_internal.quota_registry (Supabase ARIA)","declarative":"this file"},
   "entries":[
     {"provider_id":"openrouter","account_id":"acct_openrouter_primary","model_id":"google/gemini-2.5-flash-lite","quota":{"status":"unknown","limits":null},"capacity":{"status":"unknown","max_known":null},"rate_limit":{"status":"unknown","limits":null},"usage":{"status":"unknown","requests_consumed":null,"tokens_consumed":null,"remaining":null,"reset_at":null},"metadata":{"verified_at":"2026-08-31","evidence":"Control Plane materialization seed","notes":"No numeric limits simulated."}},
-    {"provider_id":"google","account_id":"acct_google_gemini_free","model_id":"google/gemini-3.5-flash-lite-direct","quota":{"status":"available","limits":null},"capacity":{"status":"available","max_known":null},"rate_limit":{"status":"unknown","limits":null},"usage":{"status":"observed","requests_consumed":1,"tokens_consumed":25,"remaining":null,"reset_at":null},"metadata":{"verified_at":"2026-09-07","evidence":"LIVE Google Gemini Direct smoke; exact response marker returned","notes":"Availability is evidenced; numeric quota/rate limits remain unknown and are not invented."}}
+    {"provider_id":"google","account_id":"acct_google_gemini_free","model_id":"google/gemini-3.5-flash-lite-direct","quota":{"status":"available","limits":null},"capacity":{"status":"available","max_known":null},"rate_limit":{"status":"unknown","limits":null},"usage":{"status":"observed","requests_consumed":1,"tokens_consumed":25,"remaining":null,"reset_at":null},"metadata":{"verified_at":"2026-09-07","evidence":"LIVE Google Gemini Direct smoke; exact response marker returned","notes":"Availability is evidenced; numeric quota/rate limits remain unknown and are not invented."}},
+    {"provider_id":"xai","account_id":"acct_xai_primary","model_id":"xai/grok-4.6","quota":{"status":"available","limits":null},"capacity":{"status":"available","max_known":null},"rate_limit":{"status":"unknown","limits":null},"usage":{"status":"unknown","requests_consumed":null,"tokens_consumed":null,"remaining":null,"reset_at":null},"metadata":{"verified_at":"2026-09-10","evidence":"xAI account registered; capacity marked available for governed routing; numeric limits not invented","notes":"Availability declared for control-plane selection. Live usage remains unknown until observed."}}
   ],
-  "indexes":{"by_account_id":{"acct_openrouter_primary":["google/gemini-2.5-flash-lite"],"acct_google_gemini_free":["google/gemini-3.5-flash-lite-direct"]},"by_model_id":{"google/gemini-2.5-flash-lite":["acct_openrouter_primary"],"google/gemini-3.5-flash-lite-direct":["acct_google_gemini_free"]}},
+  "indexes":{"by_account_id":{"acct_openrouter_primary":["google/gemini-2.5-flash-lite"],"acct_google_gemini_free":["google/gemini-3.5-flash-lite-direct"],"acct_xai_primary":["xai/grok-4.6"]},"by_model_id":{"google/gemini-2.5-flash-lite":["acct_openrouter_primary"],"google/gemini-3.5-flash-lite-direct":["acct_google_gemini_free"],"xai/grok-4.6":["acct_xai_primary"]}},
   "canonical_status":["unknown","known","available","unavailable","exhausted"],
   "rules":["account_id must exist in Account Manager","model_id must exist in Model Registry","provider_id must exist in Provider Registry seed","do not copy provider/account/model/capability records","quota.limits and rate_limit.limits are null unless evidenced","usage numbers stay observed when actually returned; never simulate remaining/used","unknown ≠ 0 and unknown ≠ available and unknown ≠ exhausted","no secrets","no router/fallback/selection/execution logic","no billing/pricing fields","do not invent provider numeric limits"]
 }
