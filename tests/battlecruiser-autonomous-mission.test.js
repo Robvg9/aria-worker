@@ -26,7 +26,7 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
   });
 
   const planner = async () => [
-    { id: 'inspect', operation: 'repo_read', target: { type: 'connector', connector_id: 'github' }, risk: 'READ', retryable: false },
+    { id: 'inspect', operation: 'repo_read', target: { type: 'connector', connector_id: 'github' }, risk: 'low', retryable: false },
     { id: 'write', operation: 'file_write', target: { type: 'connector', connector_id: 'github' }, input: { path: 'docs/bc6-autonomous-proof.md', content: 'proof' }, risk: 'low', retryable: false }
   ];
 
@@ -45,13 +45,13 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
     return { status: run.status === 'passed' ? 'succeeded' : 'failed', data: run };
   };
 
-  const verify = async ({ step, result, final = false }) => final ? true : result?.status === 'succeeded';
+  const verify = async ({ result, final = false }) => final ? true : result?.status === 'succeeded';
   const orchestrator = createAutonomousMissionOrchestrator({
     missionStore: store,
     planner,
     executor,
     verify,
-    policy: { enabled: true, max_steps: 5, max_parallel: 1, max_attempts_per_step: 1 }
+    policy: { enabled: true, max_risk: 'low', max_steps: 5, max_parallel: 1, max_attempts_per_step: 1, require_human_approval: false }
   });
 
   const result = await orchestrator.run(missionId);
