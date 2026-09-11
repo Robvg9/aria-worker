@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   deploy:
@@ -18,10 +18,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Enforce OAuth challenge on MCP handshake
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('supabase/functions/aria-mcp-inbound-grok-v1/index.ts')
+          s = p.read_text()
+          marker = '''  if (req.method === "OPTIONS") {\n'''
+          guard = '''  // Grok Web requires the OAuth challenge during the initial MCP handshake.\n  // Keep OAuth metadata/authorization endpoints public; protect the MCP resource itself.\n  const publicOAuthPath =\n    path.includes("/.well-known/oauth-protected-resource") ||\n    path.includes("/.well-known/oauth-authorization-server") ||\n    path.endsWith("/register") ||\n    path.endsWith("/authorize") ||\n    path.endsWith("/authorize/consent") ||\n    path.endsWith("/token");\n\n  if (!publicOAuthPath && req.method !== "OPTIONS") {\n    const access = await verifyAccessToken(bearer(req));\n    if (!access) {\n      return json(401, { error: "unauthorized" }, {\n        "WWW-Authenticate": wwwAuthenticate(),\n      });\n    }\n  }\n\n'''
+          if guard.strip() not in s:
+              if marker not in s:
+                  raise SystemExit('MCP handler marker not found')
+              s = s.replace(marker, guard + marker, 1)
+              p.write_text(s)
+          PY
+          git diff --check
+          git diff -- supabase/functions/aria-mcp-inbound-grok-v1/index.ts
       - name: Install Supabase CLI
         run: npm install -g supabase
       - name: Offline OAuth crypto tests
@@ -37,3 +55,15 @@ jobs:
           supabase functions deploy aria-mcp-inbound-grok-v1 \
             --project-ref "$SUPABASE_PROJECT_REF" \
             --no-verify-jwt
+      - name: Commit source patch
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- supabase/functions/aria-mcp-inbound-grok-v1/index.ts; then
+            echo "No source patch needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/aria-mcp-inbound-grok-v1/index.ts
+          git commit -m "fix: require OAuth on initial MCP handshake"
+          git push origin HEAD:main
