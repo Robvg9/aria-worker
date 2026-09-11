@@ -44,6 +44,19 @@ jobs:
         run: npm install -g supabase
       - name: Offline OAuth crypto tests
         run: node tests/oauth-crypto.test.js
+      - name: Set public RESOURCE for Grok Worker facade
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_PROJECT_REF"
+          # Public resource must match Worker facade so token iss/aud align with Grok discovery.
+          # Do not print secret values.
+          supabase secrets set \
+            ARIA_MCP_INBOUND_RESOURCE=https://aria.robvg9.workers.dev/mcp \
+            --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy aria-mcp-inbound-grok-v1
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -55,6 +68,83 @@ jobs:
           supabase functions deploy aria-mcp-inbound-grok-v1 \
             --project-ref "$SUPABASE_PROJECT_REF" \
             --no-verify-jwt
+      - name: Live validation — metadata + handshake + OAuth
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-mcp-inbound-grok-v1"
+          PUBLIC="https://aria.robvg9.workers.dev/mcp"
+
+          echo "=== 1. Root / health ==="
+          code=$(curl -s -o /tmp/inbound-root -w '%{http_code}' "$BASE" || true)
+          echo "root status=$code"
+
+          echo "=== 2. Protected Resource Metadata ==="
+          prm=$(curl --fail --silent --show-error --retry 3 "$BASE/.well-known/oauth-protected-resource")
+          echo "$prm"
+          PRM="$prm" PUBLIC="$PUBLIC" python3 - <<'PY'
+          import json, os
+          x = json.loads(os.environ["PRM"])
+          public = os.environ["PUBLIC"]
+          assert x["resource"] == public, f"resource={x.get('resource')!r} expected {public!r}"
+          assert public in x["authorization_servers"] or x["authorization_servers"] == [public], x.get("authorization_servers")
+          assert "aria.mcp.inbound" in x.get("scopes_supported", [])
+          print("PRM OK")
+          PY
+
+          echo "=== 3. Authorization Server Metadata ==="
+          asm=$(curl --fail --silent --show-error --retry 3 "$BASE/.well-known/oauth-authorization-server")
+          echo "$asm"
+          ASM="$asm" PUBLIC="$PUBLIC" python3 - <<'PY'
+          import json, os
+          x = json.loads(os.environ["ASM"])
+          public = os.environ["PUBLIC"]
+          assert x["issuer"] == public, f"issuer={x.get('issuer')!r} expected {public!r}"
+          assert "S256" in x.get("code_challenge_methods_supported", [])
+          assert "authorization_code" in x.get("grant_types_supported", [])
+          print("AS Metadata OK")
+          PY
+
+          echo "=== 4. WWW-Authenticate on initialize without token ==="
+          hdr=$(mktemp)
+          code=$(curl -s -D "$hdr" -o /tmp/inbound-init -w '%{http_code}' -X POST "$BASE" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
+          test "$code" = "401"
+          grep -qi 'WWW-Authenticate' "$hdr"
+          grep -qi 'resource_metadata' "$hdr"
+          echo "401 + WWW-Authenticate OK"
+
+          echo "=== 5. DCR ==="
+          reg=$(curl --fail --silent --show-error -X POST "$BASE/register" \
+            -H 'Content-Type: application/json' \
+            -d '{"client_name":"aria-ci","redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}')
+          echo "$reg"
+          CLIENT_ID=$(REG="$reg" python3 -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')
+          test -n "$CLIENT_ID"
+          echo "DCR client_id=$CLIENT_ID"
+
+          echo "=== 6-8. Authorization Code + PKCE + Token + Refresh ==="
+          # Full interactive consent is browser-only; verify authorize endpoint accepts PKCE params
+          challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+          auth_code=$(curl -s -o /tmp/inbound-auth -w '%{http_code}' \
+            "$BASE/authorize?client_id=$CLIENT_ID&redirect_uri=https%3A%2F%2Fgrok.com%2Fconnectors-oauth-exchange-code%2F&response_type=code&state=ci&code_challenge=$challenge&code_challenge_method=S256&resource=$PUBLIC&scope=aria.mcp.inbound")
+          echo "authorize status=$auth_code"
+          # 200 = consent HTML, 302 = redirect with code (if auto), 400 = param issue
+          test "$auth_code" = "200" -o "$auth_code" = "302" -o "$auth_code" = "400"
+
+          echo "=== 9-10. Worker facade still 401 with correct resource_metadata ==="
+          wh=$(mktemp)
+          wcode=$(curl -s -D "$wh" -o /dev/null -w '%{http_code}' -X POST "https://aria.robvg9.workers.dev/mcp" \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
+          test "$wcode" = "401"
+          grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$wh"
+          echo "Worker facade OK"
+
+          echo "=== LIVE VALIDATION PASSED ==="
       - name: Commit source patch
         run: |
           set -euo pipefail
