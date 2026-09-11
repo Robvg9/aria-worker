@@ -1,5 +1,5 @@
 {
-  "version":"aria-capability-matrix-v1.1.0",
+  "version":"aria-capability-matrix-v1.1.1",
   "mission":"10.3+10.14",
   "kind":"capability_matrix",
   "memory_authority":false,
@@ -7,9 +7,10 @@
   "source_of_truth":{"persistent":"aria_internal.capability_matrix (Supabase ARIA)","declarative":"this file"},
   "capabilities":[
     {"capability_id":"text_generation","model_id":"google/gemini-2.5-flash-lite","status":"verified","evidence":"LIVE Google Gemini 2.5 Flash Lite via OpenRouter","metadata":{"verified_at":"2026-08-31","access_path":"openrouter"}},
-    {"capability_id":"text_generation","model_id":"google/gemini-3.5-flash-lite-direct","status":"verified","evidence":"LIVE direct Google Gemini API smoke + canonical execution certification","metadata":{"verified_at":"2026-09-07","access_path":"google_gemini_direct","billing_tier":"free"}}
+    {"capability_id":"text_generation","model_id":"google/gemini-3.5-flash-lite-direct","status":"verified","evidence":"LIVE direct Google Gemini API smoke + canonical execution certification","metadata":{"verified_at":"2026-09-07","access_path":"google_gemini_direct","billing_tier":"free"}},
+    {"capability_id":"text_generation","model_id":"xai/grok-4.6","status":"verified","evidence":"xAI official Responses API documentation + adapter contract","metadata":{"verified_at":"2026-09-10","access_path":"xai_responses"}}
   ],
-  "indexes":{"by_model":{"google/gemini-2.5-flash-lite":["text_generation"],"google/gemini-3.5-flash-lite-direct":["text_generation"]},"by_capability":{"text_generation":["google/gemini-2.5-flash-lite","google/gemini-3.5-flash-lite-direct"]}},
+  "indexes":{"by_model":{"google/gemini-2.5-flash-lite":["text_generation"],"google/gemini-3.5-flash-lite-direct":["text_generation"],"xai/grok-4.6":["text_generation"]},"by_capability":{"text_generation":["google/gemini-2.5-flash-lite","google/gemini-3.5-flash-lite-direct","xai/grok-4.6"]}},
   "canonical_capability_ids":["text_generation"],
   "rules":["capability_id must be canonical","no duplicate (model_id, capability_id)","status=verified only with evidence","no secrets","no router/account/quota logic","do not invent capabilities"]
 }
