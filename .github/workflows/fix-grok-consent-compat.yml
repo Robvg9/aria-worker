@@ -1,0 +1,69 @@
+name: Fix Grok OAuth Consent Compatibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-grok-consent-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch Worker consent transport
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('worker.js')
+          s = p.read_text()
+          old = '''  const headers=new Headers(request.headers);headers.delete("host");
+  const upstream=await fetch(new Request(upstreamUrl.toString(),{method:request.method,headers,body:request.method==="GET"||request.method==="HEAD"?undefined:request.body,redirect:"manual"}));'''
+          new = '''  const headers=new Headers(request.headers);headers.delete("host");
+  let upstreamMethod=request.method;
+  let upstreamBody=request.method==="GET"||request.method==="HEAD"?undefined:request.body;
+  if (suffix === "authorize/consent" && request.method === "GET") {
+    upstreamMethod="POST";
+    upstreamBody=new URLSearchParams(url.search).toString();
+    headers.set("content-type","application/x-www-form-urlencoded");
+  }
+  const upstream=await fetch(new Request(upstreamUrl.toString(),{method:upstreamMethod,headers,body:upstreamBody,redirect:"manual"}));'''
+          if old not in s:
+              raise SystemExit('proxy fetch block not found')
+          s=s.replace(old,new,1)
+
+          old2='''    const html=await upstream.text();
+    // If inbound already rendered consent page, return it (rewrite absolute ISSUER links is not needed if we set RESOURCE env)
+    return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:responseHeaders});'''
+          new2='''    let html=await upstream.text();
+    // Grok's embedded authorization view may not submit POST forms. Convert the consent
+    // forms to GET navigation; the Worker translates that GET back to the upstream POST.
+    if (url.pathname==="/authorize" || url.pathname==="/authorize/" || url.pathname==="/authorize-grok-v2" || url.pathname==="/authorize-grok-v2/") {
+      html=html.replace(/method=[\\\"']post[\\\"']/gi,'method="get"');
+    }
+    return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:responseHeaders});'''
+          if old2 not in s:
+              raise SystemExit('authorize html block not found')
+          s=s.replace(old2,new2,1)
+          p.write_text(s)
+          PY
+
+          node --check worker.js
+          git diff --check
+
+      - name: Persist and remove temporary workflow
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add worker.js .github/workflows/fix-grok-consent-compat.yml
+          git commit -m "fix(grok): make OAuth consent compatible with embedded connector"
+          git push origin HEAD:main
