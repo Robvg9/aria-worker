@@ -65,12 +65,10 @@ Deno.serve(async (req) => {
     return json(200, { resource: RESOURCE, bearer_methods_supported: ["header"], authorization_servers: [], scopes_supported: ["aria.mcp.inbound"] });
   }
   if (req.method === "GET" || req.method === "HEAD") {
-    if (!authorized(req)) return json(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer realm="aria-mcp-inbound", resource="${RESOURCE}"` });
     if (req.method === "HEAD") return new Response(null, { status: 200, headers: jsonHeaders() });
-    return json(200, { ok: true, transport: "streamable-http", resource: RESOURCE, tools: TOOLS.map((t) => t.name) });
+    return json(200, { ok: true, transport: "streamable-http", resource: RESOURCE, tools: TOOLS.map((t) => t.name), authentication: "tool_call_bearer" });
   }
   if (req.method !== "POST") return json(405, { error: "method_not_allowed" }, { allow: "GET,HEAD,POST,OPTIONS" });
-  if (!authorized(req)) return json(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer realm="aria-mcp-inbound", resource="${RESOURCE}"` });
 
   let body: any;
   try { body = await req.json(); } catch { return json(400, { error: "invalid_json" }); }
@@ -79,13 +77,18 @@ Deno.serve(async (req) => {
   const requested = body.params?.protocolVersion ?? req.headers.get("mcp-protocol-version") ?? DEFAULT_PROTOCOL;
   const protocol = PROTOCOL_VERSIONS.includes(requested) ? requested : null;
 
+  const isDiscovery = method === "initialize" || method === "notifications/initialized" || method === "ping" || method === "tools/list";
+  if (!isDiscovery && !authorized(req)) {
+    return json(401, { error: "unauthorized" }, { "WWW-Authenticate": `Bearer realm="aria-mcp-inbound", resource="${RESOURCE}"` });
+  }
+
   if (method === "initialize") {
     if (!protocol) return json(400, rpcError(id, -32022, "unsupported_protocol"), sessionHeaders(req));
     return json(200, rpc(id, {
       protocolVersion: protocol,
-      serverInfo: { name: "ARIA MCP Inbound Grok", version: "1.0.0" },
+      serverInfo: { name: "ARIA MCP Inbound Grok", version: "1.1.0" },
       capabilities: { tools: { listChanged: false } },
-      instructions: "ARIA inbound MCP for Grok Free Custom Connector. Direction: Grok \u2192 ARIA only."
+      instructions: "ARIA inbound MCP for Grok Free Custom Connector. Direction: Grok \u2192 ARIA only. Discovery is public; tool calls are authenticated."
     }), sessionHeaders(req, protocol));
   }
   if (method === "notifications/initialized") return new Response(null, { status: 202, headers: sessionHeaders(req) });
@@ -97,7 +100,7 @@ Deno.serve(async (req) => {
   const args = body.params?.arguments ?? {};
   const textResult = (payload: unknown) => json(200, rpc(id, { content: [{ type: "text", text: JSON.stringify(payload) }], isError: false }), sessionHeaders(req));
   if (name === "aria_status") {
-    return textResult({ ok: true, direction: "grok_to_aria", transport: "streamable-http", auth: "governed_bearer", tools: TOOLS.map((t) => t.name), protocolVersions: PROTOCOL_VERSIONS, xaiApi: "not_used" });
+    return textResult({ ok: true, direction: "grok_to_aria", transport: "streamable-http", auth: "governed_bearer_on_tool_call", tools: TOOLS.map((t) => t.name), protocolVersions: PROTOCOL_VERSIONS, xaiApi: "not_used" });
   }
   if (name === "aria_context") {
     const query = typeof args.query === "string" ? args.query.trim().slice(0, 500) : "";
