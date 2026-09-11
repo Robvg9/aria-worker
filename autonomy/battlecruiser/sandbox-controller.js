@@ -1,5 +1,7 @@
 'use strict';
 
+const { createGitHubBranchWorkspace } = require('../self-development/github-branch-workspace');
+
 const ALLOWED_PHASES = Object.freeze([
   'inspect',
   'plan',
@@ -12,6 +14,7 @@ const ALLOWED_PHASES = Object.freeze([
 const READ_OPERATIONS = new Set(['repo_read', 'file_read', 'dependency_map']);
 const MODIFY_OPERATIONS = new Set(['branch_create', 'file_write']);
 const VERIFY_OPERATIONS = new Set(['test_execute', 'evaluate_change']);
+const DEFAULT_REPOSITORY = 'Robvg9/battlecruiser';
 
 function fail(code, message, details = {}) {
   const error = new Error(message);
@@ -20,7 +23,7 @@ function fail(code, message, details = {}) {
   throw error;
 }
 
-function normalizeRepo(repo) {
+function normalizeRepo(repo = DEFAULT_REPOSITORY) {
   if (typeof repo !== 'string' || !/^[-A-Za-z0-9_.]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
     fail('invalid_repository', 'repository must use owner/name');
   }
@@ -30,7 +33,10 @@ function normalizeRepo(repo) {
 function normalizeSandboxBranch(branch) {
   if (typeof branch !== 'string' || !branch.trim()) fail('sandbox_branch_required', 'sandbox branch required');
   const value = branch.trim();
-  if (value === 'main' || value.startsWith('main/')) fail('main_branch_forbidden', 'main branch is never writable by BC-4');
+  if (value === 'main' || value === 'master' || value.startsWith('main/') || value.startsWith('master/')) {
+    fail('main_branch_forbidden', 'protected branches are never writable by BC-4');
+  }
+  if (value.includes('..') || !/^[A-Za-z0-9._/-]{1,200}$/.test(value)) fail('invalid_sandbox_branch', 'invalid sandbox branch');
   if (!value.startsWith('aria/sandbox/')) fail('invalid_sandbox_branch', 'sandbox branch must start with aria/sandbox/');
   return value;
 }
@@ -39,7 +45,7 @@ function assertPhase(phase) {
   if (!ALLOWED_PHASES.includes(phase)) fail('invalid_phase', `unsupported phase: ${phase}`);
 }
 
-function validateStep({ phase, operation, repo, branch = null } = {}) {
+function validateStep({ phase, operation, repo = DEFAULT_REPOSITORY, branch = null } = {}) {
   assertPhase(phase);
   normalizeRepo(repo);
 
@@ -55,7 +61,7 @@ function validateStep({ phase, operation, repo, branch = null } = {}) {
   }
 
   if (phase === 'modify') {
-    if (!MODIFY_OPERATIONS.has(operation) || operation === 'branch_create') fail('modify_operation_not_allowed', `operation ${operation} is not allowed during modify`);
+    if (operation !== 'file_write') fail('modify_operation_not_allowed', 'modify only permits file_write');
     normalizeSandboxBranch(branch);
     return Object.freeze({ phase, operation, mode: 'sandbox_write', repository: repo, branch });
   }
@@ -69,7 +75,7 @@ function validateStep({ phase, operation, repo, branch = null } = {}) {
   fail('unreachable_phase', 'phase validator reached an impossible state');
 }
 
-function buildSandboxPlan({ repository = 'Robvg9/battlecruiser', sandboxBranch, files = [] } = {}) {
+function buildSandboxPlan({ repository = DEFAULT_REPOSITORY, sandboxBranch, files = [] } = {}) {
   const repo = normalizeRepo(repository);
   const branch = normalizeSandboxBranch(sandboxBranch);
   if (!Array.isArray(files)) fail('invalid_files', 'files must be an array');
@@ -81,8 +87,8 @@ function buildSandboxPlan({ repository = 'Robvg9/battlecruiser', sandboxBranch, 
   });
 
   return Object.freeze([
-    validateStep({ phase: 'inspect', operation: 'repo_read', repo, branch: null }),
-    validateStep({ phase: 'plan', operation: 'file_read', repo, branch: null }),
+    validateStep({ phase: 'inspect', operation: 'repo_read', repo }),
+    validateStep({ phase: 'plan', operation: 'file_read', repo }),
     validateStep({ phase: 'branch_sandbox', operation: 'branch_create', repo, branch }),
     ...normalizedFiles.map(() => validateStep({ phase: 'modify', operation: 'file_write', repo, branch })),
     validateStep({ phase: 'regression', operation: 'test_execute', repo, branch }),
@@ -90,10 +96,33 @@ function buildSandboxPlan({ repository = 'Robvg9/battlecruiser', sandboxBranch, 
   ]);
 }
 
+function createBattleCruiserSandboxWorkspace({ token, fetchImpl = globalThis.fetch } = {}) {
+  if (!token) throw new Error('github_token_required');
+  const workspace = createGitHubBranchWorkspace({ token, owner: 'Robvg9', repo: 'battlecruiser', fetchImpl });
+
+  return Object.freeze({
+    async createBranch(branch) {
+      return workspace.createBranch(normalizeSandboxBranch(branch), 'main');
+    },
+    async read(path, branch = 'main') {
+      return workspace.read(path, branch);
+    },
+    async apply(change) {
+      const branch = normalizeSandboxBranch(change?.branch);
+      return workspace.apply({ ...change, branch, risk_level: 'low' });
+    },
+    async openPullRequest({ branch, title, body } = {}) {
+      return workspace.openPullRequest({ branch: normalizeSandboxBranch(branch), title, body });
+    }
+  });
+}
+
 module.exports = Object.freeze({
   ALLOWED_PHASES,
+  DEFAULT_REPOSITORY,
   validateStep,
   buildSandboxPlan,
+  createBattleCruiserSandboxWorkspace,
   normalizeSandboxBranch,
   normalizeRepo
 });
