@@ -5,10 +5,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  * ARIA MCP Inbound for Grok Web Custom Connector
  * Combined Resource Server + Authorization Server (OAuth 2.1 + PKCE S256).
  *
- * Canonical resource (RFC 8707) when fronted by Worker:
- *   https://aria.robvg9.workers.dev/mcp
- * Issuer (AS): https://aria.robvg9.workers.dev
- * Fallback resource without facade: Supabase function URL.
+ * Canonical resource (RFC 8707):
+ *   https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1
  *
  * Does NOT use XAI_API_KEY or api.x.ai.
  * Access tokens are ARIA-signed JWTs (HMAC), not Supabase user JWTs.
@@ -26,12 +24,7 @@ const RESOURCE =
   Deno.env.get("ARIA_MCP_INBOUND_RESOURCE") ??
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
 
-// Issuer is the Authorization Server identifier (RFC 8414). When fronted by the
-// Grok Worker facade, RESOURCE is the public MCP URL (.../mcp) and ISSUER is the
-// Worker origin so AS metadata and iss claims match Grok discovery.
-const ISSUER =
-  Deno.env.get("ARIA_MCP_INBOUND_ISSUER") ??
-  RESOURCE;
+const ISSUER = RESOURCE;
 const SCOPE = "aria.mcp.inbound";
 const ACCESS_TTL_SEC = 3600;
 const REFRESH_TTL_SEC = 30 * 24 * 3600;
@@ -245,11 +238,7 @@ function rpcError(id: unknown, code: number, message: string) {
 }
 
 function wwwAuthenticate(): string {
-  // Prefer path-aware PRM on the public issuer origin when RESOURCE is .../mcp
-  const meta =
-    ISSUER !== RESOURCE
-      ? `${ISSUER}/.well-known/oauth-protected-resource/mcp`
-      : `${RESOURCE}/.well-known/oauth-protected-resource`;
+  const meta = `${RESOURCE}/.well-known/oauth-protected-resource`;
   return `Bearer realm="aria-mcp-inbound", resource="${RESOURCE}", resource_metadata="${meta}"`;
 }
 
@@ -365,25 +354,6 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // Grok Web requires the OAuth challenge during the initial MCP handshake.
-  // Keep OAuth metadata/authorization endpoints public; protect the MCP resource itself.
-  const publicOAuthPath =
-    path.includes("/.well-known/oauth-protected-resource") ||
-    path.includes("/.well-known/oauth-authorization-server") ||
-    path.endsWith("/register") ||
-    path.endsWith("/authorize") ||
-    path.endsWith("/authorize/consent") ||
-    path.endsWith("/token");
-
-  if (!publicOAuthPath && req.method !== "OPTIONS") {
-    const access = await verifyAccessToken(bearer(req));
-    if (!access) {
-      return json(401, { error: "unauthorized" }, {
-        "WWW-Authenticate": wwwAuthenticate(),
-      });
-    }
-  }
-
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
@@ -444,7 +414,289 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Remaining handlers (authorize, consent, token, tools) preserved from certified implementation.
-  // Full source restored from pre-PLACEHOLDER revision with ISSUER/RESOURCE separation only.
-  return json(501, { error: "handler_incomplete_restore" });
+  if (req.method === "GET" && path.endsWith("/authorize")) {
+    const clientId = url.searchParams.get("client_id") ?? "";
+    const redirectUri = url.searchParams.get("redirect_uri") ?? "";
+    const responseType = url.searchParams.get("response_type") ?? "";
+    const state = url.searchParams.get("state") ?? "";
+    const challenge = url.searchParams.get("code_challenge") ?? "";
+    const method = url.searchParams.get("code_challenge_method") ?? "";
+    const resource = url.searchParams.get("resource") ?? "";
+    const scope = url.searchParams.get("scope") ?? SCOPE;
+
+    if (responseType !== "code" || method !== "S256" || !state || !challenge) {
+      return json(400, { error: "invalid_request" });
+    }
+    if (resource && resource !== RESOURCE) {
+      return json(400, { error: "invalid_target", error_description: "resource mismatch" });
+    }
+    if (scope.trim() && !scope.split(/\s+/).includes(SCOPE) && scope !== SCOPE) {
+      return json(400, { error: "invalid_scope" });
+    }
+    const client = await resolveClient(clientId, redirectUri);
+    if (!client) return json(400, { error: "invalid_client" });
+
+    const pendingId = crypto.randomUUID();
+    const { error } = await db().from("aria_mcp_oauth_pending").insert({
+      id: pendingId,
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      state,
+      code_challenge: challenge,
+      code_challenge_method: method,
+      expires_at: new Date(Date.now() + PENDING_TTL_MS).toISOString(),
+    });
+    if (error) return json(500, { error: "authorization_state_failed", detail: error.message });
+
+    const clientName =
+      /^https:\/\//i.test(clientId)
+        ? "Grok (CIMD)"
+        : clientId.startsWith("aria_")
+          ? "Grok Custom Connector"
+          : clientId;
+    return html(200, consentPage(pendingId, clientName));
+  }
+
+  if (req.method === "POST" && path.endsWith("/authorize/consent")) {
+    const form = await req.formData();
+    const pendingId = String(form.get("pending_id") ?? "");
+    const decision = String(form.get("decision") ?? "");
+    const { data: pending } = await db()
+      .from("aria_mcp_oauth_pending")
+      .select("*")
+      .eq("id", pendingId)
+      .maybeSingle();
+    if (!pending || new Date(pending.expires_at).getTime() <= Date.now()) {
+      return html(400, "<h1>Authorization expired</h1><p>Restart from Grok.</p>");
+    }
+    const redirect = new URL(pending.redirect_uri);
+    if (decision !== "allow") {
+      redirect.searchParams.set("error", "access_denied");
+      redirect.searchParams.set("state", pending.state);
+      await db().from("aria_mcp_oauth_pending").delete().eq("id", pendingId);
+      return Response.redirect(redirect.toString(), 302);
+    }
+    const code = `aria_code_${randomToken(24)}`;
+    const { error } = await db().from("aria_mcp_oauth_codes").insert({
+      code,
+      client_id: pending.client_id,
+      redirect_uri: pending.redirect_uri,
+      code_challenge: pending.code_challenge,
+      code_challenge_method: pending.code_challenge_method,
+      user_id: null,
+      encrypted_access_token: null,
+      scope: SCOPE,
+      resource: RESOURCE,
+      expires_at: new Date(Date.now() + CODE_TTL_MS).toISOString(),
+    });
+    if (error) return json(500, { error: "authorization_failed", detail: error.message });
+    await db().from("aria_mcp_oauth_pending").delete().eq("id", pendingId);
+    redirect.searchParams.set("code", code);
+    redirect.searchParams.set("state", pending.state);
+    redirect.searchParams.set("iss", ISSUER);
+    return Response.redirect(redirect.toString(), 302);
+  }
+
+  if (req.method === "POST" && path.endsWith("/token")) {
+    const ct = req.headers.get("content-type") ?? "";
+    let body: Record<string, string>;
+    try {
+      if (ct.includes("application/x-www-form-urlencoded")) {
+        body = Object.fromEntries(new URLSearchParams(await req.text())) as Record<string, string>;
+      } else {
+        body = (await req.json()) as Record<string, string>;
+      }
+    } catch {
+      return json(400, { error: "invalid_request" });
+    }
+
+    const grant = body.grant_type ?? "";
+
+    if (grant === "authorization_code") {
+      const code = body.code ?? "";
+      const clientId = body.client_id ?? "";
+      const redirectUri = body.redirect_uri ?? "";
+      const verifier = body.code_verifier ?? "";
+      const resource = body.resource ?? RESOURCE;
+      if (!code || !clientId || !redirectUri || !verifier) {
+        return json(400, { error: "invalid_request" });
+      }
+      if (resource !== RESOURCE) {
+        return json(400, { error: "invalid_target" });
+      }
+      const { data: record } = await db()
+        .from("aria_mcp_oauth_codes")
+        .select("*")
+        .eq("code", code)
+        .maybeSingle();
+      if (
+        !record ||
+        record.used_at ||
+        new Date(record.expires_at).getTime() <= Date.now() ||
+        record.client_id !== clientId ||
+        record.redirect_uri !== redirectUri
+      ) {
+        return json(400, { error: "invalid_grant" });
+      }
+      if (!(await pkceOk(verifier, record.code_challenge))) {
+        return json(400, { error: "invalid_grant" });
+      }
+      await db()
+        .from("aria_mcp_oauth_codes")
+        .update({ used_at: new Date().toISOString() })
+        .eq("code", code);
+
+      const access = await issueAccessToken(clientId);
+      const refresh = await issueRefreshToken(clientId);
+      return json(200, {
+        access_token: access.token,
+        token_type: "Bearer",
+        expires_in: access.expiresIn,
+        refresh_token: refresh,
+        scope: SCOPE,
+        resource: RESOURCE,
+      });
+    }
+
+    if (grant === "refresh_token") {
+      const refreshRaw = body.refresh_token ?? "";
+      const clientId = body.client_id ?? "";
+      if (!refreshRaw) return json(400, { error: "invalid_request" });
+      const consumed = await consumeRefreshToken(refreshRaw);
+      if (!consumed) return json(400, { error: "invalid_grant" });
+      if (clientId && clientId !== consumed.clientId) {
+        return json(400, { error: "invalid_client" });
+      }
+      const access = await issueAccessToken(consumed.clientId);
+      const newRefresh = await issueRefreshToken(consumed.clientId);
+      return json(200, {
+        access_token: access.token,
+        token_type: "Bearer",
+        expires_in: access.expiresIn,
+        refresh_token: newRefresh,
+        scope: SCOPE,
+        resource: RESOURCE,
+      });
+    }
+
+    return json(400, { error: "unsupported_grant_type" });
+  }
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    if (req.method === "HEAD") return new Response(null, { status: 200, headers: jsonHeaders() });
+    return json(200, {
+      ok: true,
+      transport: "streamable-http",
+      resource: RESOURCE,
+      issuer: ISSUER,
+      tools: TOOLS.map((t) => t.name),
+      authentication: "oauth2.1_pkce",
+      xaiApi: "not_used",
+    });
+  }
+
+  if (req.method !== "POST") {
+    return json(405, { error: "method_not_allowed" }, { allow: "GET,HEAD,POST,OPTIONS" });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return json(400, { error: "invalid_json" });
+  }
+  const id = body.id ?? null;
+  const method = typeof body.method === "string" ? body.method : "";
+  const params = (body.params ?? {}) as Record<string, unknown>;
+  const requested =
+    (typeof params.protocolVersion === "string" ? params.protocolVersion : null) ??
+    req.headers.get("mcp-protocol-version") ??
+    DEFAULT_PROTOCOL;
+  const protocol = PROTOCOL_VERSIONS.includes(requested) ? requested : null;
+
+  const isDiscovery =
+    method === "initialize" ||
+    method === "notifications/initialized" ||
+    method === "ping" ||
+    method === "tools/list";
+
+  const token = bearer(req);
+  const auth = token ? await verifyAccessToken(token) : null;
+
+  if (!isDiscovery && !auth) {
+    return json(401, { error: "unauthorized" }, { "WWW-Authenticate": wwwAuthenticate() });
+  }
+
+  if (method === "initialize") {
+    if (!protocol) {
+      return json(400, rpcError(id, -32022, "unsupported_protocol"), sessionHeaders(req));
+    }
+    return json(
+      200,
+      rpc(id, {
+        protocolVersion: protocol,
+        serverInfo: { name: "ARIA MCP Inbound Grok", version: "2.0.0" },
+        capabilities: { tools: { listChanged: false } },
+        instructions:
+          "ARIA inbound MCP for Grok Free Custom Connector. OAuth 2.1 + PKCE. Direction: Grok → ARIA only. xAI API not used.",
+      }),
+      sessionHeaders(req, protocol),
+    );
+  }
+  if (method === "notifications/initialized") {
+    return new Response(null, { status: 202, headers: sessionHeaders(req) });
+  }
+  if (method === "tools/list") {
+    return json(200, rpc(id, { tools: TOOLS }), sessionHeaders(req));
+  }
+  if (method === "ping") {
+    return json(200, rpc(id, {}), sessionHeaders(req));
+  }
+  if (method !== "tools/call") {
+    return json(200, rpcError(id, -32601, "unsupported_method"), sessionHeaders(req));
+  }
+
+  const name = typeof params.name === "string" ? params.name : "";
+  const args = (params.arguments ?? {}) as Record<string, unknown>;
+  const textResult = (payload: unknown) =>
+    json(
+      200,
+      rpc(id, {
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+        isError: false,
+      }),
+      sessionHeaders(req),
+    );
+
+  if (name === "aria_status") {
+    return textResult({
+      ok: true,
+      direction: "grok_to_aria",
+      transport: "streamable-http",
+      auth: "oauth2.1_pkce",
+      resource: RESOURCE,
+      tools: TOOLS.map((t) => t.name),
+      protocolVersions: PROTOCOL_VERSIONS,
+      xaiApi: "not_used",
+    });
+  }
+  if (name === "aria_context") {
+    const query = typeof args.query === "string" ? args.query.trim().slice(0, 500) : "";
+    return textResult({
+      ok: true,
+      direction: "grok_to_aria",
+      query: query || null,
+      context: {
+        system: "ARIA",
+        channel: "mcp-inbound",
+        mode: "read_only",
+        auth: "oauth2.1_pkce",
+        note: "Phase-1 context snapshot. Memory core is not written.",
+      },
+    });
+  }
+  if (name === "aria_run_task" || name === "aria_memory_query" || name === "aria_memory_capture") {
+    return json(200, rpcError(id, -32601, "tool_not_enabled_in_phase1"), sessionHeaders(req));
+  }
+  return json(200, rpcError(id, -32601, "unknown_tool"), sessionHeaders(req));
 });
