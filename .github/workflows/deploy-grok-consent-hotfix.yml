@@ -1,0 +1,91 @@
+name: Deploy Grok Consent Hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker.js'
+      - '.github/workflows/deploy-grok-consent-hotfix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply Grok consent anchor patch
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('worker.js')
+          s = p.read_text(encoding='utf-8')
+
+          # Replace consent forms in the HTML returned by /authorize with plain HTTPS links.
+          pattern = re.compile(
+              r'<form[^>]*action="([^"]*/authorize/consent)"[^>]*>'
+              r'\s*<input[^>]*name="pending_id"[^>]*value="([^"]+)"[^>]*>'
+              r'\s*<input[^>]*name="decision"[^>]*value="(allow|deny)"[^>]*>'
+              r'\s*<button[^>]*>([^<]+)</button>\s*</form>',
+              re.I,
+          )
+
+          def repl(m):
+              action, pending_id, decision, label = m.groups()
+              return (
+                  f'<a class="btn" href="{action}?pending_id='
+                  f'{pending_id}&decision={decision}">{label}</a>'
+              )
+
+          patched, count = pattern.subn(repl, s)
+          if count == 0:
+              # Fail closed if the expected consent page is not present.
+              if '<a class="btn" href="${action}?pending_id=' not in patched and 'authorize/consent' not in patched:
+                  raise SystemExit('CONSENT_PATCH_ABORT: expected /authorize/consent HTML not found')
+          p.write_text(patched, encoding='utf-8')
+          print(f'CONSENT_ANCHOR_PATCH_COUNT={count}')
+
+      - name: Verify consent patch
+        run: |
+          set -euo pipefail
+          grep -q 'authorize/consent' worker.js
+          grep -q 'pending_id=' worker.js
+          grep -q 'decision=allow' worker.js
+          grep -q 'decision=deny' worker.js
+          grep -q 'class="btn" href=' worker.js
+          echo CONSENT_ANCHOR_PATCH_VERIFIED
+
+      - name: Verify Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Install Wrangler
+        run: npm install --global wrangler@latest
+
+      - name: Deploy ARIA Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy worker.js --name aria
+
+      - name: Smoke consent page
+        run: |
+          set -euo pipefail
+          body="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 'https://aria.robvg9.workers.dev/authorize?client_id=aria_ci&redirect_uri=https%3A%2F%2Fgrok.com%2Fconnectors-oauth-exchange-code%2F&response_type=code&state=ci&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&resource=https%3A%2F%2Faria.robvg9.workers.dev%2Fmcp&scope=aria.mcp.inbound')"
+          echo "$body"
+          echo "$body" | grep -q 'authorize/consent'
+          echo "$body" | grep -q 'pending_id='
+          echo "$body" | grep -q 'decision=allow'
+          echo "$body" | grep -q 'decision=deny'
+          echo GROK_CONSENT_LIVE_VERIFIED
