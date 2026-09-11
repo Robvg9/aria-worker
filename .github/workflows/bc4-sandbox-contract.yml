@@ -1,0 +1,25 @@
+name: BC-4 Sandbox Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'autonomy/battlecruiser/**'
+      - 'self-development/github-branch-workspace.js'
+      - 'tests/battlecruiser-sandbox-controller.test.js'
+      - 'tests/self-development-github-lifecycle.test.js'
+      - '.github/workflows/bc4-sandbox-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run BC-4 sandbox contract
+        run: node tests/battlecruiser-sandbox-controller.test.js
+      - name: Run existing GitHub self-development lifecycle regression
+        run: node tests/self-development-github-lifecycle.test.js
