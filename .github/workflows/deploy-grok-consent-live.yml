@@ -1,0 +1,95 @@
+name: Deploy Grok Consent Live
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-grok-consent-live.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout canonical source
+        uses: actions/checkout@v4
+
+      - name: Patch Worker consent page to direct links
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('worker.js')
+          s = p.read_text(encoding='utf-8')
+
+          pattern = re.compile(
+              r'<form[^>]*action="([^"\x27]*?/authorize/consent)"[^>]*>'
+              r'\s*<input[^>]*name="pending_id"[^>]*value="([^"\x27]+)"[^>]*>'
+              r'\s*<input[^>]*name="decision"[^>]*value="(allow|deny)"[^>]*>'
+              r'\s*<button[^>]*>([^<]+)</button>\s*</form>',
+              re.I,
+          )
+
+          def replace(match):
+              action, pending_id, decision, label = match.groups()
+              return (
+                  '<a class="btn" href="%s?pending_id=%s&decision=%s">%s</a>'
+                  % (action, pending_id, decision, label)
+              )
+
+          patched, count = pattern.subn(replace, s)
+          if count != 2:
+              raise SystemExit(f'Expected exactly 2 consent forms, found {count}')
+
+          p.write_text(patched, encoding='utf-8')
+          print('CONSENT_ANCHORS_PATCHED=2')
+
+      - name: Verify Worker source
+        run: |
+          set -euo pipefail
+          test "$(grep -o 'class=\"btn\" href=' worker.js | wc -l)" -eq 2
+          test "$(grep -o '<form method=\"get\" action=' worker.js | wc -l)" -eq 0
+          grep -q 'authorize/consent' worker.js
+          grep -q 'decision=allow' worker.js
+          grep -q 'decision=deny' worker.js
+          echo WORKER_SOURCE_OK
+
+      - name: Verify Cloudflare credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Install Wrangler
+        run: npm install --global wrangler@latest
+
+      - name: Deploy ARIA Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy worker.js --name aria
+
+      - name: Live OAuth consent smoke
+        run: |
+          set -euo pipefail
+          base='https://aria.robvg9.workers.dev'
+          page=$(curl --fail --silent --show-error --retry 5 --retry-delay 2 \
+            "$base/authorize?client_id=aria_ci&redirect_uri=https%3A%2F%2Fgrok.com%2Fconnectors-oauth-exchange-code%2F&response_type=code&state=ci&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&resource=https%3A%2F%2Faria.robvg9.workers.dev%2Fmcp&scope=aria.mcp.inbound")
+          echo "$page"
+          echo "$page" | grep -q 'authorize/consent'
+          echo "$page" | grep -q 'decision=allow'
+          echo "$page" | grep -q 'decision=deny'
+          echo "$page" | grep -q 'class="btn" href='
+          if echo "$page" | grep -q '<form'; then
+            echo 'FORMS_STILL_PRESENT'
+            exit 1
+          fi
+          echo GROK_CONSENT_LIVE_OK
