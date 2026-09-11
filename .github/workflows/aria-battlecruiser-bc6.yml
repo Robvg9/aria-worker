@@ -21,3 +21,5 @@ jobs:
         run: node tests/battlecruiser-promotion-gate.test.js
       - name: Verify BC-6 runtime bridge
         run: node tests/battlecruiser-runtime-bridge.test.js
+
+# certification trigger: 2026-09-11 app-api-v3 contract recovery
