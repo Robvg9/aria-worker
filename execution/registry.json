@@ -1,5 +1,5 @@
 {
-  "version": "aria-execution-engine-v1.1.1",
+  "version": "aria-execution-engine-v1.1.0",
   "mission": "10.8",
   "kind": "execution_engine",
   "memory_authority": false,
