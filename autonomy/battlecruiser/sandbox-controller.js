@@ -1,6 +1,6 @@
 'use strict';
 
-const { createGitHubBranchWorkspace } = require('../self-development/github-branch-workspace');
+const { createGitHubBranchWorkspace } = require('../../self-development/github-branch-workspace');
 
 const ALLOWED_PHASES = Object.freeze([
   'inspect',
