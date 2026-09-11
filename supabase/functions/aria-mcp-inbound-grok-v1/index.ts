@@ -24,7 +24,10 @@ const RESOURCE =
   Deno.env.get("ARIA_MCP_INBOUND_RESOURCE") ??
   "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
 
-const ISSUER = RESOURCE;
+// Worker facade: RESOURCE=.../mcp (aud), ISSUER=Worker origin (iss / AS id).
+const ISSUER =
+  Deno.env.get("ARIA_MCP_INBOUND_ISSUER") ??
+  RESOURCE;
 const SCOPE = "aria.mcp.inbound";
 const ACCESS_TTL_SEC = 3600;
 const REFRESH_TTL_SEC = 30 * 24 * 3600;
@@ -238,7 +241,10 @@ function rpcError(id: unknown, code: number, message: string) {
 }
 
 function wwwAuthenticate(): string {
-  const meta = `${RESOURCE}/.well-known/oauth-protected-resource`;
+  const meta =
+    ISSUER !== RESOURCE
+      ? `${ISSUER}/.well-known/oauth-protected-resource/mcp`
+      : `${RESOURCE}/.well-known/oauth-protected-resource`;
   return `Bearer realm="aria-mcp-inbound", resource="${RESOURCE}", resource_metadata="${meta}"`;
 }
 
@@ -353,6 +359,24 @@ button{font:inherit;padding:12px 16px;width:100%;cursor:pointer;border-radius:8p
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const path = url.pathname;
+
+  // Grok Web requires the OAuth challenge during the initial MCP handshake.
+  const publicOAuthPath =
+    path.includes("/.well-known/oauth-protected-resource") ||
+    path.includes("/.well-known/oauth-authorization-server") ||
+    path.endsWith("/register") ||
+    path.endsWith("/authorize") ||
+    path.endsWith("/authorize/consent") ||
+    path.endsWith("/token");
+
+  if (!publicOAuthPath && req.method !== "OPTIONS") {
+    const access = await verifyAccessToken(bearer(req));
+    if (!access) {
+      return json(401, { error: "unauthorized" }, {
+        "WWW-Authenticate": wwwAuthenticate(),
+      });
+    }
+  }
 
   if (req.method === "OPTIONS") {
     return new Response(null, {
