@@ -9,7 +9,7 @@ const { redact } = require('../activation/redaction');
 const { adapters } = require('../activation/connectors');
 
 (async () => {
-  assert.equal(DEFAULT_MANIFEST.length, 7);
+  assert.equal(DEFAULT_MANIFEST.length, 8);
   assert.equal(isSecretRef('secret://github/default'), true);
   assert.equal(isSecretRef('plaintext'), false);
   assert.equal(validateConnectorConfig(DEFAULT_MANIFEST[0]).valid, true);
@@ -25,7 +25,7 @@ const { adapters } = require('../activation/connectors');
   assert.equal(safe.nested.ok, 'value');
   assert.equal(safe.nested.echo, '[redacted]');
 
-  for (const id of ['github','supabase','cloudflare','notion','web','image','filesystem']) {
+  for (const id of ['github','supabase','cloudflare','notion','bitrise','web','image','filesystem']) {
     assert.equal(typeof adapters[id].execute, 'function');
     assert.equal(typeof adapters[id].health, 'function');
     for (const operation of adapters[id].descriptor.operations) assert.ok(adapters[id].descriptor.operation_risk[operation], `${id}:${operation} risk declared`);
@@ -45,7 +45,7 @@ const { adapters } = require('../activation/connectors');
   const manifest = DEFAULT_MANIFEST.map(x => ({ ...x, enabled: ['github','supabase','cloudflare','notion','web'].includes(x.connector_id) }));
   const runtime = createActivationRuntime({ manifest, env, fetchImpl:fakeFetch, authorize:async()=>({ status:'approved' }) });
   const summary = activationSummary(manifest);
-  assert.equal(summary.length, 7);
+  assert.equal(summary.length, 8);
   assert.equal(runtime.snapshot().find(x=>x.connector_id==='github').credential_configured, true);
   assert.equal(runtime.snapshot().find(x=>x.connector_id==='filesystem').credential_configured, true);
 
