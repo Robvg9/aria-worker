@@ -93,3 +93,18 @@ It must not depend on a platform-specific field to choose a capability when an e
 ## Live status
 
 A registry declaration is not live evidence. Live availability is established only by the dedicated certification workflow or by an explicit runtime health observation.
+
+## Device job operations v1.1
+
+The existing Device Execution job contract supports exactly two operations:
+- `shell.execute`
+- `ollama.qwen3`
+
+`ollama.qwen3` is a separate, explicitly validated operation. It does **not** inherit `shell.execute` capability semantics and does not accept shell, PowerShell, cmd, filesystem-write instructions, arbitrary URLs, or arbitrary model names.
+
+Its `command` field carries a JSON object with only:
+- required `prompt` (non-empty string)
+- optional `model` (must be exactly `qwen3:4b` when supplied)
+- optional `timeout_ms` (integer 1000–3600000)
+
+For this operation, `cwd` must be null. The local implementation is responsible for contacting only its governed local Ollama endpoint; this contract does not expose Ollama as a public service.
