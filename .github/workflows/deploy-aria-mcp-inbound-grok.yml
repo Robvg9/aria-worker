@@ -73,63 +73,48 @@ jobs:
           BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-mcp-inbound-grok-v1"
           WORKER="https://aria.robvg9.workers.dev/mcp"
           ISSUER="https://aria.robvg9.workers.dev"
-
-          echo "=== protected resource metadata ==="
-          prm=$(curl --fail --silent --show-error --retry 5 "$BASE/.well-known/oauth-protected-resource")
+          prm=$(curl --fail --silent --show-error --retry 8 "$BASE/.well-known/oauth-protected-resource")
           echo "$prm"
           PRM="$prm" WORKER="$WORKER" ISSUER="$ISSUER" python3 - <<'PY'
           import json, os
-          x = json.loads(os.environ['PRM'])
-          assert x['resource'] == os.environ['WORKER']
-          assert x['authorization_servers'] == [os.environ['ISSUER']]
-          assert 'aria.mcp.inbound' in x.get('scopes_supported', [])
+          x=json.loads(os.environ['PRM'])
+          assert x['resource']==os.environ['WORKER']
+          assert x['authorization_servers']==[os.environ['ISSUER']]
+          assert 'aria.mcp.inbound' in x.get('scopes_supported',[])
           print('PRM_OK')
           PY
-
-          echo "=== authorization server metadata ==="
-          asm=$(curl --fail --silent --show-error --retry 5 "$BASE/.well-known/oauth-authorization-server")
+          asm=$(curl --fail --silent --show-error --retry 8 "$BASE/.well-known/oauth-authorization-server")
           echo "$asm"
           ASM="$asm" ISSUER="$ISSUER" python3 - <<'PY'
           import json, os
-          x = json.loads(os.environ['ASM'])
-          issuer = os.environ['ISSUER']
-          assert x['issuer'] == issuer
-          assert x['authorization_endpoint'] == issuer + '/authorize'
-          assert x['token_endpoint'] == issuer + '/token'
-          assert 'S256' in x.get('code_challenge_methods_supported', [])
+          x=json.loads(os.environ['ASM'])
+          issuer=os.environ['ISSUER']
+          assert x['issuer']==issuer
+          assert x['authorization_endpoint']==issuer+'/authorize'
+          assert x['token_endpoint']==issuer+'/token'
+          assert 'S256' in x.get('code_challenge_methods_supported',[])
           print('ASM_OK')
           PY
-
-          echo "=== initial MCP handshake must challenge OAuth ==="
           hdr=$(mktemp)
-          code=$(curl -s -D "$hdr" -o /tmp/inbound-init -w '%{http_code}' -X POST "$BASE" \
-            -H 'Content-Type: application/json' \
-            -H 'Accept: application/json, text/event-stream' \
-            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
+          code=$(curl -s -D "$hdr" -o /tmp/init -w '%{http_code}' -X POST "$BASE" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
           test "$code" = "401"
           grep -qi 'WWW-Authenticate' "$hdr"
           grep -qi 'resource_metadata' "$hdr"
-
-          echo "=== Worker facade must challenge OAuth ==="
           wh=$(mktemp)
-          wcode=$(curl -s -D "$wh" -o /dev/null -w '%{http_code}' -X POST "$WORKER" \
-            -H 'Content-Type: application/json' \
-            -H 'Accept: application/json, text/event-stream' \
-            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
+          wcode=$(curl -s -D "$wh" -o /dev/null -w '%{http_code}' -X POST "$WORKER" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
           test "$wcode" = "401"
           grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$wh"
-
           echo LIVE_OK
 
-      - name: Commit restored canonical source
+      - name: Persist canonical source to main
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add supabase/functions/aria-mcp-inbound-grok-v1/index.ts
           if git diff --cached --quiet; then
-            echo "no source change"
+            echo 'canonical source already clean'
             exit 0
           fi
-          git commit -m "fix(oauth): restore canonical inbound source"
+          git commit -m 'fix(oauth): persist canonical inbound source'
           git push origin HEAD:main
