@@ -1,0 +1,5 @@
+[mcp_servers.aria_inbound]
+url = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1"
+enabled = true
+oauth = false
+auth = "governed_bearer"
