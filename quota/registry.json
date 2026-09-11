@@ -1,5 +1,5 @@
 {
-  "version":"aria-quota-capacity-v1.1.1",
+  "version":"aria-quota-capacity-v1.1.0",
   "mission":"10.5+10.14",
   "kind":"quota_registry",
   "memory_authority":false,
