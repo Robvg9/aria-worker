@@ -1,0 +1,73 @@
+name: ARIA Windows Local Agent Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Windows Agent / Ollama Preflight
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Verify runner Node environment
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $node = Get-Command node -ErrorAction Stop
+          $version = node --version
+          Write-Host "NODE_PATH=$($node.Source)"
+          Write-Host "NODE_VERSION=$version"
+          if ([version]($version.TrimStart('v')) -lt [version]'20.0.0') {
+            throw "Node 20+ required"
+          }
+
+      - name: Verify Ollama service
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 10
+          Write-Host "OLLAMA=ONLINE"
+          $model = $response.models | Where-Object { $_.name -eq 'qwen3:4b' }
+          if (-not $model) {
+            throw "Required model qwen3:4b is not installed"
+          }
+          Write-Host "OLLAMA_MODEL=qwen3:4b"
+
+      - name: Verify qwen3 execution locally
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = @{ model = 'qwen3:4b'; prompt = 'Responde exactamente: QWEN_ARIA_OK'; stream = $false } | ConvertTo-Json
+          $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 60
+          $text = [string]$result.response
+          $text = [regex]::Replace($text, '(?is)<think>.*?</think>', '').Trim()
+          if ($text -notmatch 'QWEN_ARIA_OK') {
+            throw "Qwen did not return the expected sentinel"
+          }
+          Write-Host 'QWEN_EXECUTION=PASS'
+
+      - name: Verify ARIA Gateway environment (no secret output)
+        shell: powershell
+        env:
+          ARIA_DEVICE_GATEWAY_URL: ${{ secrets.ARIA_DEVICE_GATEWAY_URL }}
+          ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
+          ARIA_DEVICE_ID: ${{ secrets.ARIA_DEVICE_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('ARIA_DEVICE_GATEWAY_URL','ARIA_DEVICE_TOKEN','ARIA_DEVICE_ID')) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
+              throw "$name repository secret is missing"
+            }
+          }
+          $url = $env:ARIA_DEVICE_GATEWAY_URL.TrimEnd('/')
+          try {
+            $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $env:ARIA_DEVICE_ID }
+            $health = Invoke-RestMethod -Uri "$url/health" -Headers $headers -Method Get -TimeoutSec 15
+            Write-Host 'GATEWAY_HEALTH=PASS'
+            Write-Host ('GATEWAY_STATUS=' + [string]$health.status)
+          } catch {
+            throw "Gateway health probe failed: $($_.Exception.Message)"
+          }
