@@ -6,6 +6,7 @@ on:
     paths:
       - 'autonomy/battlecruiser/**'
       - 'tests/battlecruiser-promotion-gate.test.js'
+      - 'tests/battlecruiser-runtime-bridge.test.js'
       - '.github/workflows/aria-battlecruiser-bc6.yml'
   workflow_dispatch:
 
@@ -18,3 +19,5 @@ jobs:
         run: node tests/battlecruiser-regression-gate.test.js
       - name: Verify BC-6 promotion gate
         run: node tests/battlecruiser-promotion-gate.test.js
+      - name: Verify BC-6 runtime bridge
+        run: node tests/battlecruiser-runtime-bridge.test.js
