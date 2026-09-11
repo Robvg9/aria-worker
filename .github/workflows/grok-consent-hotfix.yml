@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+env:
+  ARIA_ORIGIN: https://aria.robvg9.workers.dev
+  GROK_CALLBACK: https://grok.com/connectors-oauth-exchange-code/
+  ARIA_RESOURCE: https://aria.robvg9.workers.dev/mcp
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -49,10 +54,21 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler@latest deploy worker.js --name aria
 
-      - name: Validate LIVE consent page
+      - name: Validate LIVE consent page with a valid DCR client
         run: |
           set -euo pipefail
-          body="$(curl --fail --silent --show-error --retry 5 --retry-delay 2 'https://aria.robvg9.workers.dev/authorize?client_id=aria-ci&redirect_uri=https%3A%2F%2Fgrok.com%2Fconnectors-oauth-exchange-code%2F&response_type=code&state=ci&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&scope=aria.mcp.inbound&resource=https%3A%2F%2Faria.robvg9.workers.dev%2Fmcp')"
+          register_body="$(curl --fail --silent --show-error --retry 5 --retry-delay 2 \
+            -X POST "$ARIA_ORIGIN/register" \
+            -H 'content-type: application/json' \
+            -H 'accept: application/json' \
+            --data "$(jq -nc --arg cb "$GROK_CALLBACK" --arg name 'ARIA CI Grok Consent Test' \
+              '{redirect_uris:[$cb],client_name:$name,response_types:["code"],grant_types:["authorization_code","refresh_token"],token_endpoint_auth_method:"none"}')")")"
+          client_id="$(echo "$register_body" | jq -r '.client_id // empty')"
+          test -n "$client_id"
+          echo "DCR_CLIENT=OK"
+
+          auth_url="$ARIA_ORIGIN/authorize?client_id=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$client_id")&redirect_uri=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$GROK_CALLBACK")&response_type=code&state=ci&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&scope=aria.mcp.inbound&resource=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$ARIA_RESOURCE")"
+          body="$(curl --fail --silent --show-error --retry 5 --retry-delay 2 "$auth_url")"
           echo "$body" | grep -q 'decision=allow'
           echo "$body" | grep -q 'decision=deny'
           echo "$body" | grep -q 'Authorize ARIA MCP'
