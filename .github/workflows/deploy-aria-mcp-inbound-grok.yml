@@ -21,7 +21,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Repair path: restore the known-good full OAuth source before deployment.
       - name: Restore full inbound source and separate ISSUER
         run: |
           set -euo pipefail
