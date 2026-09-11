@@ -1,5 +1,5 @@
 {
-  "version": "aria-execution-engine-v1.1.0",
+  "version": "aria-execution-engine-v1.1.1",
   "mission": "10.8",
   "kind": "execution_engine",
   "memory_authority": false,
@@ -49,6 +49,20 @@
     {
       "adapter_id": "openrouter_chat_completions",
       "provider_id": "openrouter",
+      "interface_type": "http_json",
+      "operations": ["text_generation"],
+      "status": "registered"
+    },
+    {
+      "adapter_id": "google_gemini_generate_content",
+      "provider_id": "google",
+      "interface_type": "http_json",
+      "operations": ["text_generation"],
+      "status": "registered"
+    },
+    {
+      "adapter_id": "xai_responses",
+      "provider_id": "xai",
       "interface_type": "http_json",
       "operations": ["text_generation"],
       "status": "registered"
