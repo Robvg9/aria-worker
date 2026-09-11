@@ -1,5 +1,5 @@
 {
-  "version": "aria-account-manager-v1.1.0",
+  "version": "aria-account-manager-v1.1.1",
   "mission": "10.4+10.14",
   "kind": "account_registry",
   "memory_authority": false,
@@ -25,11 +25,19 @@
       "status": "active",
       "model_refs": ["google/gemini-3.5-flash-lite-direct"],
       "metadata": {"verified_at":"2026-09-07","billing_tier":"free","live_verified":true,"evidence":"Google Gemini API Free Tier credential + LIVE direct provider execution","notes":"Credential reference only. Secret lives in the Supabase Edge Function secret boundary."}
+    },
+    {
+      "account_id": "acct_xai_primary",
+      "provider_id": "xai",
+      "credential_ref": "secret://xai/acct_xai_primary",
+      "status": "active",
+      "model_refs": ["xai/grok-4.6"],
+      "metadata": {"verified_at":"2026-09-10","evidence":"xAI API key bound via ARIA secret boundary","notes":"Credential reference only. XAI_API_KEY lives in the credential store, never in this registry or source."}
     }
   ],
   "indexes": {
-    "by_account_id": {"acct_openrouter_primary":"openrouter","acct_google_gemini_free":"google"},
-    "by_provider": {"openrouter":["acct_openrouter_primary"],"google":["acct_google_gemini_free"]}
+    "by_account_id": {"acct_openrouter_primary":"openrouter","acct_google_gemini_free":"google","acct_xai_primary":"xai"},
+    "by_provider": {"openrouter":["acct_openrouter_primary"],"google":["acct_google_gemini_free"],"xai":["acct_xai_primary"]}
   },
   "canonical_status": ["active","inactive","revoked","unknown"],
   "rules": [
