@@ -11,9 +11,10 @@ function hash(text) {
   return crypto.createHash('sha256').update(text).digest('hex');
 }
 
-function deriveConfidence({ verifier, outcome, evidenceCount = 0 } = {}) {
+function deriveConfidence({ verifier, outcome, evidenceCount = 0, failurePreventionVerified = false } = {}) {
   let score = verifier?.passed ? 0.80 : 0.20;
   if (outcome?.status === 'succeeded') score += 0.10;
+  if (failurePreventionVerified) score += 0.08;
   if (evidenceCount > 0) score += Math.min(0.08, evidenceCount * 0.02);
   return Math.min(0.98, Number(score.toFixed(3)));
 }
@@ -46,7 +47,12 @@ function extractLesson({ episode = {}, verifier = {} } = {}) {
     failure_mode: normalizeText(episode.failure_mode, 300) || null,
   };
   const category = failurePreventionVerified ? 'failure_prevention' : (verifier.passed ? 'verified_procedure' : 'diagnostic');
-  const confidence = deriveConfidence({ verifier, outcome: result, evidenceCount: evidence.evidence_refs.length });
+  const confidence = deriveConfidence({
+    verifier,
+    outcome: result,
+    evidenceCount: evidence.evidence_refs.length,
+    failurePreventionVerified
+  });
   const reusable = failurePreventionVerified || (verifier.passed && result.status === 'succeeded' && procedure.length > 0);
   const source = `${goal}|${JSON.stringify(procedure)}|${verifier.version || ''}|${evidence.learning_mode}|${evidence.failure_mode || ''}`;
   return Object.freeze({ category, summary: normalizeText(summary), procedure, evidence, confidence, reusable, content_hash: hash(source) });
