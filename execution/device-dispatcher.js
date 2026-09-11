@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { DEVICE_JOB_OPERATIONS, validateDeviceJobOperation } = require('./device-job-contract');
 
 const DEFAULT_POLL_MS = 1500;
 const DEFAULT_WAIT_MS = 120000;
@@ -20,20 +21,24 @@ function createDeviceDispatcher({ enqueue, get, sleep = ms => new Promise(resolv
 
   async function execute({ missionId, step, attempt = 1 }) {
     if (!missionId || !step || !step.id) throw new Error('missionId and step.id required');
-    if (step.operation !== 'shell.execute') throw new Error(`unsupported device operation: ${step.operation}`);
+    const operation = step.operation;
+    const command = operation === DEVICE_JOB_OPERATIONS.OLLAMA_QWEN3
+      ? JSON.stringify(step.input || step.command)
+      : (step.command || step.input?.command);
+    const validation = validateDeviceJobOperation(operation, command);
+    if (!validation.ok) throw new Error(validation.error);
+
     const deviceId = step.target?.device_id || step.policy?.device_id;
     if (!deviceId) throw new Error('device_id required');
-    if (typeof step.command !== 'string' && typeof step.input?.command !== 'string') throw new Error('shell command required');
 
-    const command = step.command || step.input.command;
     const id = jobId(missionId, step.id, attempt);
     const created = await enqueue({
       job_id: id,
       mission_id: missionId,
       device_id: deviceId,
-      operation: 'shell.execute',
+      operation,
       command,
-      cwd: step.cwd || step.input?.cwd || null,
+      cwd: operation === DEVICE_JOB_OPERATIONS.SHELL_EXECUTE ? (step.cwd || step.input?.cwd || null) : null,
       timeout_ms: Number.isInteger(step.timeout_ms) ? step.timeout_ms : 120000,
       policy: step.policy || {},
       metadata: { mission_step_id: step.id, attempt }
@@ -45,12 +50,7 @@ function createDeviceDispatcher({ enqueue, get, sleep = ms => new Promise(resolv
     while (Date.now() - started < wait_ms) {
       const current = await get(id);
       if (current && TERMINAL.has(current.status)) {
-        return {
-          ...current,
-          job_id: id,
-          status: current.status,
-          duration_ms: current.result?.duration_ms ?? null
-        };
+        return { ...current, job_id: id, status: current.status, duration_ms: current.result?.duration_ms ?? null };
       }
       await sleep(Math.max(250, poll_ms));
     }
