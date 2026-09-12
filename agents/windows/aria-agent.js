@@ -2,7 +2,14 @@
 const crypto = require('node:crypto');
 const os = require('node:os');
 const { parseShellJob, executePowerShell } = require('./windows-shell-executor');
-const { executeWindowsDesktop } = require('./windows-desktop-adapter');
+const { executeWindowsDesktop } = (() => {
+  try {
+    return require('./windows-desktop-adapter');
+  } catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    return require('../../computer-use/windows-desktop-adapter');
+  }
+})();
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
 const DEVICE_ID = process.env.ARIA_DEVICE_ID;
