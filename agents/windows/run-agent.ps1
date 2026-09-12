@@ -32,8 +32,9 @@ if (Test-Path $StagingTokenPath) {
 if (-not (Test-Path $TokenPath)) { throw "ARIA token store not found: $TokenPath" }
 
 $config = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
-$encrypted = Get-Content -Raw -Path $TokenPath
-$secure = $encrypted | ConvertTo-SecureString
+$encrypted = (Get-Content -Raw -Path $TokenPath).Trim()
+if ([string]::IsNullOrWhiteSpace($encrypted)) { throw 'ARIA token store is empty' }
+$secure = $encrypted | ConvertTo-SecureString -ErrorAction Stop
 $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 try {
     $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
