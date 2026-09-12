@@ -46,7 +46,6 @@ async function observeHasText(observed, text) {
   let chromePids = [];
 
   try {
-    // 1) Baseline + physical control
     const opened = await action('open-notepad', { action: 'open', path: 'notepad.exe' });
     notepadPid = opened.pid;
     await action('wait-after-open', { action: 'wait', ms: 250 }, 5000);
@@ -57,7 +56,6 @@ async function observeHasText(observed, text) {
     await action('type-final-marker', { action: 'type', text: 'ARIA DESKTOP 101 PASS' });
     await action('keypress-home', { action: 'keypress', key: 'HOME' });
 
-    // 2) Mouse surface
     const rect = JSON.parse(await runPs("Add-Type @'\nusing System; using System.Runtime.InteropServices; public static class WinRect { [DllImport(\"user32.dll\")] public static extern bool GetWindowRect(IntPtr h, out RECT r); public struct RECT { public int L,T,R,B; } }\n'@; $p=Get-Process -Name notepad | Where-Object {$_.MainWindowHandle -ne 0} | Select-Object -First 1; $r=New-Object WinRect+RECT; [WinRect]::GetWindowRect($p.MainWindowHandle,[ref]$r)|Out-Null; @{x1=$r.L+80;y1=$r.T+120;x2=$r.L+220;y2=$r.T+120}|ConvertTo-Json -Compress"));
     await action('move', { action: 'move', x: rect.x1, y: rect.y1 });
     await action('click', { action: 'click', x: rect.x1, y: rect.y1 });
@@ -66,21 +64,18 @@ async function observeHasText(observed, text) {
     await action('scroll', { action: 'scroll', delta: 240 });
     await action('wait', { action: 'wait', ms: 100 }, 5000);
 
-    // 3) Observe + screenshot + semantic UI verification
     const observedNotepad = await action('observe-notepad', { action: 'observe' }, 30000);
     assert.ok(Array.isArray(observedNotepad?.ui?.nodes) && observedNotepad.ui.nodes.length > 0, 'observe returned no UI evidence');
     assert.ok(await observeHasText(observedNotepad, 'Notepad'), 'observe did not expose Notepad UI');
     const shotNotepad = await action('screenshot-notepad', { action: 'screenshot' }, 30000);
     assert.ok(typeof shotNotepad.screenshot_base64 === 'string' && shotNotepad.screenshot_base64.length > 1000, 'screenshot payload missing');
 
-    // 4) 101% — controlled failure and recovery
     await expectFailure('controlled-timeout', { action: 'wait', ms: 2500 }, 1000, 'timeout');
     await action('recovery-wait', { action: 'wait', ms: 100 }, 5000);
     await action('recovery-focus-notepad', { action: 'focus', process: 'notepad' });
     const recovered = await action('recovery-observe', { action: 'observe' }, 30000);
     assert.ok(await observeHasText(recovered, 'Notepad'), 'recovery lost desktop control');
 
-    // 5) Browser mission
     const chrome = await action('open-chrome', { action: 'open', path: 'chrome.exe' });
     chromePids.push(chrome.pid);
     await action('wait-chrome', { action: 'wait', ms: 1000 }, 5000);
@@ -94,7 +89,6 @@ async function observeHasText(observed, text) {
     const shotChrome = await action('screenshot-chrome', { action: 'screenshot' }, 30000);
     assert.ok(typeof shotChrome.screenshot_base64 === 'string' && shotChrome.screenshot_base64.length > 1000, 'Chrome screenshot missing');
 
-    // 6) Persistence probe: app process is still controllable after browser mission
     await action('focus-notepad-final', { action: 'focus', process: 'notepad' });
     await action('keypress-end-final', { action: 'keypress', key: 'END' });
     await action('type-final-proof', { action: 'type', text: ' | RECOVERY_OK' });
@@ -103,11 +97,12 @@ async function observeHasText(observed, text) {
 
     console.log(`[physical-e2e] PASS_101 adapter=${VERSION} screen=${screen.width}x${screen.height} notepad_pid=${notepadPid} chrome_pid=${chrome.pid}`);
   } finally {
-    await runPs("Get-Process -Name notepad -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue").catch(() => {});
-    await runPs("Get-Process -Name chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue").catch(() => {});
+    await runPs("Get-Process -Id " + (notepadPid || 0) + " -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue").catch(() => {});
     console.log(`[physical-e2e] cleanup notepad_pid=${notepadPid || 'none'} chrome_pids=${chromePids.length}`);
   }
 })().catch((error) => {
   console.error(`[physical-e2e] FAIL ${error.stack || error.message}`);
   process.exit(1);
 });
+
+// Fresh physical-certification trigger: 101% recovery + semantic E2E.
