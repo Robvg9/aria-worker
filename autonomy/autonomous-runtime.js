@@ -13,6 +13,7 @@ function createAutonomousRuntime({
   serviceRoleKey,
   activation,
   planner,
+  desktopPlanner = null,
   replanner = null,
   verify,
   device = {},
@@ -21,7 +22,8 @@ function createAutonomousRuntime({
   now
 } = {}) {
   if (!activation || typeof activation.execute !== 'function') throw new TypeError('activation runtime required');
-  if (typeof planner !== 'function') throw new TypeError('planner function required');
+  if (typeof planner !== 'function' && (!desktopPlanner || typeof desktopPlanner.plan !== 'function')) throw new TypeError('planner function required');
+  if (desktopPlanner !== null && (typeof desktopPlanner !== 'object' || typeof desktopPlanner.plan !== 'function')) throw new TypeError('desktopPlanner.plan function required');
   if (typeof verify !== 'function') throw new TypeError('verify function required');
   if (replanner !== null && typeof replanner !== 'function') throw new TypeError('replanner function required');
 
@@ -29,10 +31,11 @@ function createAutonomousRuntime({
   const missionStore = createMissionStateStore(missionRepository);
   const deviceClient = createServiceDeviceClient({ supabaseUrl, serviceRoleKey, fetchImpl: device.fetchImpl });
   const deviceDispatcher = createDeviceDispatcher({ enqueue: deviceClient.enqueue, get: deviceClient.get, sleep: deviceClient.sleep, poll_ms: device.poll_ms, wait_ms: device.wait_ms });
+  const effectivePlanner = desktopPlanner ? (input => desktopPlanner.plan({ goal: input.mission?.goal, constraints: input.policy || {} })) : planner;
 
   const mission = createUniversalMissionRunner({
     missionStore,
-    planner,
+    planner: effectivePlanner,
     replanner,
     verify,
     activation,
