@@ -61,7 +61,8 @@ while ($true) {
             $node = $nodeCommand.Source
         }
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
-        $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -NoNewWindow -WindowStyle Hidden
+        # WindowStyle Hidden keeps the watchdog/agent invisible. Do not combine it with NoNewWindow.
+        $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
         $process.WaitForExit()
