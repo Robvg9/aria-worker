@@ -9,6 +9,8 @@ const runtime = createAutonomousRuntime({
   serviceRoleKey: 'test-service-role-placeholder',
   activation: { execute: async () => ({ status: 'succeeded' }) },
   desktopPlanner: createDesktopMissionPlanner({ device_id: 'windows-test' }),
+  desktopSemanticVerification: true,
+  desktopReplanning: true,
   verify: async () => true,
   device: {
     fetchImpl: async () => ({ ok: true, json: async () => ({}) })
@@ -19,9 +21,7 @@ assert.equal(typeof runtime.runMission, 'function');
 assert.equal(typeof runtime.startMission, 'function');
 assert.equal(typeof runtime.deviceDispatcher.execute, 'function');
 assert.equal(typeof runtime.orchestrator.run, 'function');
-
-const plannerInput = { mission: { goal: 'Abre PowerShell y escribe una prueba' }, policy: {} };
-const directPlan = runtime.orchestrator && runtime.orchestrator.policy ? null : null;
-assert.equal(directPlan, null);
+assert.equal(runtime.desktop.semantic_verification, true);
+assert.equal(runtime.desktop.replanning, true);
 
 console.log('DESKTOP_MISSION_RUNTIME_INTEGRATION_TEST=PASS');
