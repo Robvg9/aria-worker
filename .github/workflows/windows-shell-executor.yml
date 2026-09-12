@@ -1,0 +1,57 @@
+name: Windows Shell Executor
+
+on:
+  push:
+    paths:
+      - 'agents/windows/aria-agent.js'
+      - 'agents/windows/windows-shell-executor.js'
+      - 'autonomy/windows-shell-executor.js'
+      - 'tests/windows-shell-executor.test.js'
+      - 'agents/windows/install-v2.ps1'
+      - 'autonomy/universal-execution/registry.json'
+      - '.github/workflows/windows-shell-executor.yml'
+  pull_request:
+    paths:
+      - 'agents/windows/aria-agent.js'
+      - 'agents/windows/windows-shell-executor.js'
+      - 'autonomy/windows-shell-executor.js'
+      - 'tests/windows-shell-executor.test.js'
+      - 'agents/windows/install-v2.ps1'
+      - 'autonomy/universal-execution/registry.json'
+      - '.github/workflows/windows-shell-executor.yml'
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/windows-shell-executor.test.js
+
+  windows-live:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Parse and execute PowerShell
+        shell: pwsh
+        run: |
+          node - <<'NODE'
+          const { parseShellJob, executePowerShell } = require('./autonomy/windows-shell-executor');
+          (async () => {
+            const job = {
+              device_id: 'ci-windows',
+              operation: 'shell.execute',
+              command: JSON.stringify({ script: 'Write-Output ARIA_WINDOWS_SHELL_OK', cwd: process.env.GITHUB_WORKSPACE, timeout_ms: 30000 })
+            };
+            const payload = parseShellJob(job, 'ci-windows');
+            const result = await executePowerShell(payload);
+            console.log(JSON.stringify(result, null, 2));
+            if (result.status !== 'succeeded') process.exit(1);
+            if (!result.stdout.includes('ARIA_WINDOWS_SHELL_OK')) process.exit(2);
+          })().catch((error) => { console.error(error); process.exit(3); });
+          NODE
