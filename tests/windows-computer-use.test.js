@@ -41,10 +41,10 @@ assert.match(adapterSrc, /windows-ui-automation\.ps1/);
 assert.match(runnerSrc, /BitBlt/);
 assert.match(runnerSrc, /SetProcessDPIAware/);
 assert.match(runnerSrc, /FromHbitmap/);
-assert.match(runnerSrc, /CopyTo/); // image bytes are serialized through MemoryStream below
+assert.match(runnerSrc, /MemoryStream/);
 assert.match(runnerSrc, /System\.Drawing\.Image/);
+assert.match(runnerSrc, /\.Save\(\$ms/);
 assert.doesNotMatch(adapterSrc, /New-Object System\.Drawing\.Bitmap -ArgumentList @/);
-// Adapter must load under Node: no unescaped JS template ${vars} at module eval time.
 assert.equal(typeof require('../computer-use/windows-desktop-adapter').executeWindowsDesktop, 'function');
 
 console.log('WINDOWS COMPUTER USE CONTRACT: PASS');
