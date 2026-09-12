@@ -4,6 +4,10 @@ const { verifyDesktopResult } = require('./desktop-semantic-verifier');
 
 const VERSION = 'aria-desktop-semantic-runtime-v1';
 
+function verificationPassed(value) {
+  return value === true || (value && typeof value === 'object' && value.ok === true);
+}
+
 function createDesktopSemanticRuntimeVerifier({ deviceDispatcher, baseVerify = null } = {}) {
   if (!deviceDispatcher || typeof deviceDispatcher.execute !== 'function') {
     throw new TypeError('deviceDispatcher.execute function required');
@@ -15,21 +19,14 @@ function createDesktopSemanticRuntimeVerifier({ deviceDispatcher, baseVerify = n
   async function verify({ missionId, mission, step, result, attempt = 1, ...context } = {}) {
     if (baseVerify) {
       const base = await baseVerify({ missionId, mission, step, result, attempt, ...context });
-      if (base !== true) return base;
+      if (!verificationPassed(base)) return base;
     }
 
-    if (step?.operation !== 'computer.use') {
-      return true;
-    }
-
-    if (result?.status && !['succeeded', 'completed'].includes(result.status)) {
-      return false;
-    }
+    if (step?.operation !== 'computer.use') return true;
+    if (result?.status && !['succeeded', 'completed'].includes(result.status)) return false;
 
     const input = step.input && typeof step.input === 'object' ? step.input : {};
-    if (input.action === 'observe') {
-      return result?.status === 'succeeded' || result?.status === 'completed';
-    }
+    if (input.action === 'observe') return result?.status === 'succeeded' || result?.status === 'completed';
 
     const deviceId = step.target?.device_id || step.policy?.device_id;
     if (!deviceId) return false;
@@ -53,12 +50,7 @@ function createDesktopSemanticRuntimeVerifier({ deviceDispatcher, baseVerify = n
     });
 
     if (!observationResult || !['succeeded', 'completed'].includes(observationResult.status)) {
-      return Object.freeze({
-        ok: false,
-        reason: 'observation_failed',
-        version: VERSION,
-        observation_status: observationResult?.status || null
-      });
+      return Object.freeze({ ok: false, reason: 'observation_failed', version: VERSION, observation_status: observationResult?.status || null });
     }
 
     const observation = observationResult.observation || observationResult.ui || observationResult;
