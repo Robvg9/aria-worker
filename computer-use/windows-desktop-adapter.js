@@ -1,5 +1,7 @@
 'use strict';
 
+// Official runtime-sync trigger: changes in computer-use invoke aria-windows-runtime-repair.yml.
+// Do not remove this marker without preserving an equivalent trigger path.
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 
