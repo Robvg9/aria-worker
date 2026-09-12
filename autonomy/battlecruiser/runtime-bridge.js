@@ -10,7 +10,7 @@ function createBattleCruiserBridge({ workspace, executor } = {}) {
   }
   if (!executor || typeof executor.execute !== 'function') throw new TypeError('universal executor required');
 
-  async function run({ repository = 'Robvg9/battlecruiser', branch, files = [], changes = [], evaluationCases = [], baseline = null, policy = {} } = {}) {
+  async function run({ repository = 'Robvg9/battlecruiser', branch, files = [], changes = [], evaluationCases = [], baseline = null, policy = {}, autoPromote = false, title, body } = {}) {
     const plan = buildSandboxPlan({ repository, sandboxBranch: branch, files });
     const audit = [];
     audit.push({ phase: 'inspect', status: 'planned', operation: plan[0].operation });
@@ -30,8 +30,15 @@ function createBattleCruiserBridge({ workspace, executor } = {}) {
     audit.push({ phase: 'regression', status: evaluation.status, decision: evaluation.decision });
     audit.push({ phase: 'evaluate', status: evaluation.status, decision: evaluation.decision });
 
-    const promotion = decidePromotion({ evaluation, branch });
-    return Object.freeze({ status: evaluation.status, branch, evaluation, promotion, audit });
+    const promotion = decidePromotion({ evaluation, branch, title, body });
+    let pr = null;
+    if (autoPromote && promotion.status === 'approved') {
+      const promoted = await promoteCandidate({ workspace, evaluation, branch, title, body });
+      pr = promoted.pr || null;
+      audit.push({ phase: 'promotion', status: promoted.status, decision: promoted.decision, pr: pr ? { number: pr.number, html_url: pr.html_url } : null });
+    }
+
+    return Object.freeze({ status: evaluation.status, branch, evaluation, promotion, pr, audit });
   }
 
   async function promote({ evaluation, branch, title, body } = {}) {
