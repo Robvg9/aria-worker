@@ -55,7 +55,7 @@ function extractLesson({ episode = {}, verifier = {} } = {}) {
   });
   const reusable = failurePreventionVerified || (verifier.passed && result.status === 'succeeded' && procedure.length > 0);
   const source = `${goal}|${JSON.stringify(procedure)}|${verifier.version || ''}|${evidence.learning_mode}|${evidence.failure_mode || ''}`;
-  return Object.freeze({ category, summary: normalizeText(summary), procedure, evidence, confidence, reusable, content_hash: hash(source) });
+  return Object.freeze({ category, skill_key: episode.skill_key || episode.capability_id || episode.capability || goal, summary: normalizeText(summary), procedure, evidence, confidence, reusable, content_hash: hash(source) });
 }
 
 function promoteToSkill(lesson, { minConfidence = 0.90, minEvidence = 1 } = {}) {
@@ -65,22 +65,24 @@ function promoteToSkill(lesson, { minConfidence = 0.90, minEvidence = 1 } = {}) 
   return Object.freeze({ promoted, status: promoted ? 'verified' : 'candidate', reason: promoted ? 'verified_reusable_evidence' : 'insufficient_verified_reusable_evidence' });
 }
 
-function createLearningEngine({ persistLesson = null, persistSkill = null, persistRegression = null, regressionBuilder = buildRegression, minConfidence = 0.90, minEvidence = 1 } = {}) {
+function createLearningEngine({ persistLesson = null, persistSkill = null, persistRegression = null, regressionBuilder = buildRegression, skillRegistry = null, minConfidence = 0.90, minEvidence = 1 } = {}) {
   async function learn({ episode, verifier } = {}) {
     const lesson = extractLesson({ episode, verifier });
     const promotion = promoteToSkill(lesson, { minConfidence, minEvidence });
     let regression = null;
+    let registryEntry = null;
     if (typeof persistLesson === 'function') await persistLesson(lesson, episode);
-    if (promotion.promoted && typeof persistSkill === 'function') {
+    if (promotion.promoted) {
       const skill = { ...lesson, promotion };
       regression = typeof regressionBuilder === 'function'
         ? regressionBuilder({ capability: episode?.capability_id || episode?.capability || episode?.goal, procedure: { steps: lesson.procedure }, evidence: lesson.evidence })
         : null;
       if (regression) skill.regression = regression;
-      await persistSkill(skill, episode);
+      if (typeof skillRegistry?.put === 'function') registryEntry = skillRegistry.put(skill);
+      if (typeof persistSkill === 'function') await persistSkill({ ...skill, registry_entry: registryEntry }, episode);
       if (regression && typeof persistRegression === 'function') await persistRegression(regression, episode);
     }
-    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression });
+    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression, registry_entry: registryEntry });
   }
   return Object.freeze({ version: 'skills-learning-v2', learn });
 }
