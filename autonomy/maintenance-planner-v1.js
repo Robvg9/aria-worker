@@ -4,13 +4,14 @@ const PRIORITIES = Object.freeze(['critical', 'high', 'medium', 'low']);
 const CATEGORIES = Object.freeze(['regression', 'security', 'reliability', 'performance', 'dependency', 'documentation', 'observability', 'capability_gap']);
 
 function scoreFinding(finding = {}) {
-  const severity = PRIORITIES.indexOf(String(finding.severity || 'low').toLowerCase());
+  const severityIndex = PRIORITIES.indexOf(String(finding.severity || 'low').toLowerCase());
+  const severityWeight = (PRIORITIES.length - Math.max(0, severityIndex)) * 25;
   const confidence = Number.isFinite(finding.confidence) ? Math.max(0, Math.min(1, finding.confidence)) : 0.5;
   const recurrence = Number.isFinite(finding.recurrence) ? Math.max(0, finding.recurrence) : 0;
   const impact = Number.isFinite(finding.impact) ? Math.max(0, Math.min(10, finding.impact)) : 5;
   const gateWeight = finding.mutating_production || finding.irreversible || finding.requires_human_approval ? 8 : 0;
   const hardwareWeight = finding.requires_physical_device || finding.requires_local_hardware ? 4 : 0;
-  return Math.round(((severity + 1) * 25 + confidence * 25 + Math.min(recurrence, 10) * 2.5 + impact * 2.5 + gateWeight + hardwareWeight));
+  return Math.round(severityWeight + confidence * 25 + Math.min(recurrence, 10) * 2.5 + impact * 2.5 + gateWeight + hardwareWeight);
 }
 
 function classifyFinding(finding = {}) {
