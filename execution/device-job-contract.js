@@ -2,11 +2,13 @@
 
 const DEVICE_JOB_OPERATIONS = Object.freeze({
   SHELL_EXECUTE: 'shell.execute',
-  OLLAMA_QWEN3: 'ollama.qwen3'
+  OLLAMA_QWEN3: 'ollama.qwen3',
+  COMPUTER_USE: 'computer.use'
 });
 
 const OLLAMA_QWEN3_MODEL = 'qwen3:4b';
 const OLLAMA_QWEN3_ALLOWED_FIELDS = new Set(['prompt', 'model', 'timeout_ms']);
+const COMPUTER_USE_ACTIONS = new Set(['screenshot', 'observe', 'open', 'click', 'type', 'keypress', 'scroll', 'focus']);
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -31,7 +33,22 @@ function validateDeviceJobOperation(operation, command) {
     return { ok: true, payload: { ...payload, model: OLLAMA_QWEN3_MODEL } };
   }
 
+  if (operation === DEVICE_JOB_OPERATIONS.COMPUTER_USE) {
+    if (typeof command !== 'string' || command.trim().length === 0) return { ok: false, error: 'computer.use payload required' };
+    let payload;
+    try { payload = JSON.parse(command); } catch { return { ok: false, error: 'computer.use payload must be valid JSON' }; }
+    if (!isPlainObject(payload)) return { ok: false, error: 'computer.use payload must be an object' };
+    if (typeof payload.action !== 'string' || !COMPUTER_USE_ACTIONS.has(payload.action)) return { ok: false, error: 'computer.use action unsupported' };
+    if (payload.action === 'type' && (typeof payload.text !== 'string' || payload.text.length === 0 || payload.text.length > 32768)) return { ok: false, error: 'computer.use text invalid' };
+    if (payload.action === 'click' && (!Number.isInteger(payload.x) || !Number.isInteger(payload.y))) return { ok: false, error: 'computer.use click coordinates invalid' };
+    if (payload.action === 'keypress' && (typeof payload.key !== 'string' || !payload.key.trim())) return { ok: false, error: 'computer.use key invalid' };
+    if (payload.action === 'scroll' && !Number.isInteger(payload.delta)) return { ok: false, error: 'computer.use scroll delta invalid' };
+    if (payload.action === 'open' && (typeof payload.path !== 'string' || !payload.path.trim())) return { ok: false, error: 'computer.use path invalid' };
+    if (payload.action === 'focus' && (typeof payload.process !== 'string' || !payload.process.trim())) return { ok: false, error: 'computer.use process invalid' };
+    return { ok: true, payload };
+  }
+
   return { ok: false, error: 'unsupported operation' };
 }
 
-module.exports = Object.freeze({ DEVICE_JOB_OPERATIONS, OLLAMA_QWEN3_MODEL, validateDeviceJobOperation });
+module.exports = Object.freeze({ DEVICE_JOB_OPERATIONS, OLLAMA_QWEN3_MODEL, COMPUTER_USE_ACTIONS, validateDeviceJobOperation });
