@@ -3,7 +3,7 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 
-const VERSION = 'aria-windows-desktop-v1.2';
+const VERSION = 'aria-windows-desktop-v1.3';
 const MAX_TEXT = 32 * 1024;
 const MAX_SCREENSHOT_B64 = 8 * 1024 * 1024;
 const ACTIONS = new Set(['screenshot', 'observe', 'open', 'click', 'type', 'keypress', 'scroll', 'focus']);
@@ -22,13 +22,34 @@ function Invoke-Desktop($payload) {
   switch ($action) {
     'screenshot' {
       $screens = [System.Windows.Forms.Screen]::AllScreens
-      $left = ($screens.Bounds.Left | Measure-Object -Minimum).Minimum; $top = ($screens.Bounds.Top | Measure-Object -Minimum).Minimum
-      $right = ($screens.Bounds.Right | Measure-Object -Maximum).Maximum; $bottom = ($screens.Bounds.Bottom | Measure-Object -Maximum).Maximum
-      $width = $right - $left; $height = $bottom - $top
-      $bmp = New-Object System.Drawing.Bitmap $width,$height; $g = [System.Drawing.Graphics]::FromImage($bmp)
+      if ($null -eq $screens -or $screens.Count -lt 1) { throw 'desktop_no_screens' }
+
+      $left = [int]::MaxValue
+      $top = [int]::MaxValue
+      $right = [int]::MinValue
+      $bottom = [int]::MinValue
+      foreach ($screen in $screens) {
+        $b = $screen.Bounds
+        if ($b.Left -lt $left) { $left = $b.Left }
+        if ($b.Top -lt $top) { $top = $b.Top }
+        if ($b.Right -gt $right) { $right = $b.Right }
+        if ($b.Bottom -gt $bottom) { $bottom = $b.Bottom }
+      }
+
+      $width = [int]($right - $left)
+      $height = [int]($bottom - $top)
+      if ($width -le 0 -or $height -le 0) { throw "desktop_invalid_bounds:${left},${top},${right},${bottom}" }
+      if ($width -gt 32768 -or $height -gt 32768) { throw "desktop_bounds_too_large:${width}x${height}" }
+
+      $bmp = New-Object System.Drawing.Bitmap([int]$width,[int]$height)
+      $g = [System.Drawing.Graphics]::FromImage($bmp)
       try {
-        $g.CopyFromScreen($left,$top,0,0,$bmp.Size); $ms = New-Object System.IO.MemoryStream
-        try { $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png); $b64 = [Convert]::ToBase64String($ms.ToArray()) } finally { $ms.Dispose() }
+        $g.CopyFromScreen([int]$left,[int]$top,0,0,$bmp.Size)
+        $ms = New-Object System.IO.MemoryStream
+        try {
+          $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png)
+          $b64 = [Convert]::ToBase64String($ms.ToArray())
+        } finally { $ms.Dispose() }
       } finally { $g.Dispose(); $bmp.Dispose() }
       return @{status='succeeded'; action='screenshot'; screenshot_base64=$b64; width=$width; height=$height; bounds=@{left=$left;top=$top;right=$right;bottom=$bottom}}
     }
