@@ -25,6 +25,10 @@ jobs:
         run: |
           node --check autonomy/desktop-mission-orchestrator.js
           node --check autonomy/desktop-mission-planner.js
+          node --check autonomy/autonomous-runtime.js
           node --check tests/desktop-mission-planner-runtime.test.js
-      - name: Runtime planning and universal selection contract
+          node --check tests/desktop-mission-runtime-integration.test.js
+      - name: Desktop planner runtime contract
         run: node tests/desktop-mission-planner-runtime.test.js
+      - name: Autonomous runtime integration contract
+        run: node tests/desktop-mission-runtime-integration.test.js
