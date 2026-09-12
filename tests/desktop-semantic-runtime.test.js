@@ -10,8 +10,11 @@ const { createDesktopSemanticRuntimeVerifier } = require('../autonomy/desktop-se
       calls.push(step);
       return {
         status: 'succeeded',
-        observation: {
-          focused_process: 'powershell',
+        ui: {
+          version: 'ui-state-v1.0.1',
+          surface: 'windows-desktop',
+          title: null,
+          focused_id: null,
           nodes: [{ role: 'window', name: 'Windows PowerShell', visible: true, enabled: true }]
         }
       };
@@ -19,7 +22,6 @@ const { createDesktopSemanticRuntimeVerifier } = require('../autonomy/desktop-se
   };
 
   const verifier = createDesktopSemanticRuntimeVerifier({ deviceDispatcher });
-
   const result = await verifier.verify({
     missionId: 'm1',
     mission: { mission_id: 'm1' },
