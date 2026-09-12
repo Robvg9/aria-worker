@@ -1,0 +1,83 @@
+name: ARIA Windows Local Shell Executor
+
+on:
+  push:
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/windows-shell-executor.js'
+      - 'autonomy/universal-execution/registry.json'
+      - 'tests/windows-shell-executor.test.js'
+      - '.github/workflows/windows-shell-executor-local.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Node
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $node = Get-Command node -ErrorAction Stop
+          Write-Host "NODE=$($node.Source)"
+          node --version
+
+      - name: Sync Windows runtime to D
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
+          $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item (Join-Path $source 'aria-agent.js') (Join-Path $target 'aria-agent.js') -Force
+          Copy-Item (Join-Path $source 'run-agent.ps1') (Join-Path $target 'run-agent.ps1') -Force
+          Copy-Item (Join-Path $source 'windows-shell-executor.js') (Join-Path $target 'windows-shell-executor.js') -Force
+          Write-Host 'RUNTIME_SYNC=PASS'
+
+      - name: Restart ARIA watchdog
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
+          Start-Sleep -Seconds 2
+          & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' | Out-Null
+          Start-Sleep -Seconds 5
+          $status = 'D:\ARIA-Windows-Agent\Logs\status.json'
+          if (Test-Path $status) { Get-Content -Raw $status }
+          Write-Host 'WATCHDOG_RESTART=REQUESTED'
+
+      - name: Live PowerShell execution proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node - <<'NODE'
+          const { parseShellJob, executePowerShell } = require('./autonomy/windows-shell-executor');
+          (async () => {
+            const payload = parseShellJob({
+              device_id: 'ci-local',
+              operation: 'shell.execute',
+              command: JSON.stringify({ script: 'Write-Output ARIA_LOCAL_POWERSHELL_OK', cwd: process.env.GITHUB_WORKSPACE, timeout_ms: 30000 })
+            }, 'ci-local');
+            const result = await executePowerShell(payload);
+            console.log(JSON.stringify(result, null, 2));
+            if (result.status !== 'succeeded') process.exit(1);
+            if (!result.stdout.includes('ARIA_LOCAL_POWERSHELL_OK')) process.exit(2);
+          })().catch((e) => { console.error(e); process.exit(3); });
+          NODE
+
+      - name: Verify packaged runtime module
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $module = 'D:\ARIA-Windows-Agent\Runtime\windows\windows-shell-executor.js'
+          $agent = 'D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
+          if (-not (Test-Path $module)) { throw 'Packaged windows-shell-executor.js missing' }
+          if (-not (Test-Path $agent)) { throw 'Packaged aria-agent.js missing' }
+          $agentText = Get-Content -Raw $agent
+          if ($agentText -notmatch "shell\.execute") { throw 'aria-agent.js does not advertise shell.execute' }
+          Write-Host 'PACKAGED_RUNTIME=PASS'
