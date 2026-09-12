@@ -18,6 +18,15 @@ jobs:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
 
+      - name: Grant runner access to ARIA runtime directory
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = 'C:\Users\robvg\aria-worker\agents\windows'
+          if (-not (Test-Path $target)) { throw "ARIA runtime directory not found: $target" }
+          & icacls.exe $target /grant '*S-1-5-20:(OI)(CI)M' /T /C | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Unable to grant Network Service access. ExitCode=$LASTEXITCODE" }
+          Write-Host 'ARIA_RUNTIME_ACL=PASS'
+
       - name: Install persistent runtime on D
         run: |
           $ErrorActionPreference = 'Stop'
