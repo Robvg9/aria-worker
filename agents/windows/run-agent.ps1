@@ -13,6 +13,7 @@ $LogPath = Join-Path $PublicDir 'watchdog.log'
 $PidPath = Join-Path $PublicDir 'agent.pid'
 $StatusPath = Join-Path $PublicDir 'status.json'
 $WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
+$KillRequestPath = Join-Path $PublicDir 'kill-request'
 
 New-Item -ItemType Directory -Force -Path $PublicDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -85,7 +86,7 @@ while ($true) {
         }
 
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
-        # ONLY WindowStyle Hidden — never combine with -NoNewWindow (PowerShell throws).
+        # ONLY WindowStyle Hidden - never combine with -NoNewWindow (PowerShell throws).
         $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
@@ -96,7 +97,28 @@ while ($true) {
             started_at = (Get-Date -Format o)
         }
 
-        $process.WaitForExit()
+        # Wait for exit OR public kill-request (so NetworkService preflight can signal without process rights).
+        while (-not $process.HasExited) {
+            if (Test-Path $KillRequestPath) {
+                $req = ''
+                try { $req = (Get-Content -Raw $KillRequestPath).Trim() } catch {}
+                Write-Log "KILL_REQUEST_SEEN payload=$req agent_pid=$($process.Id)"
+                try { Remove-Item -Path $KillRequestPath -Force -ErrorAction SilentlyContinue } catch {}
+                try {
+                    Stop-Process -Id $process.Id -Force -ErrorAction Stop
+                    Write-Log "AGENT_KILLED_BY_WATCHDOG pid=$($process.Id)"
+                } catch {
+                    Write-Log "AGENT_KILL_FAILED $($_.Exception.Message)"
+                }
+                break
+            }
+            Start-Sleep -Milliseconds 500
+            try { $process.Refresh() } catch { break }
+        }
+
+        if (-not $process.HasExited) {
+            try { $process.WaitForExit(5000) | Out-Null } catch {}
+        }
         $code = $process.ExitCode
         Write-Log "AGENT_EXIT code=$code restarting_in_ms=5000"
         try { Remove-Item -Path $PidPath -Force -ErrorAction SilentlyContinue } catch {}

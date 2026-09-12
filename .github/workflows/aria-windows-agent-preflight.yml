@@ -38,8 +38,8 @@ jobs:
           if ($synced -match 'Start-Process[\s\S]{0,200}-NoNewWindow') {
             throw 'Synced run-agent.ps1 still uses -NoNewWindow on Start-Process'
           }
-          if ($synced -notmatch 'WindowStyle Hidden') {
-            throw 'Synced run-agent.ps1 missing WindowStyle Hidden launch'
+          if ($synced -notmatch 'kill-request') {
+            throw 'Synced run-agent.ps1 missing kill-request support'
           }
           Write-Host 'RUNTIME_SYNC=PASS'
 
@@ -77,7 +77,7 @@ jobs:
           Start-Sleep -Seconds 2
           & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
           Write-Host "SCHTASKS_RUN_EXIT=$LASTEXITCODE"
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 8
           Write-Host 'BOUNCE_DONE=True'
           exit 0
 
@@ -113,20 +113,13 @@ jobs:
       - name: Verify qwen3 execution locally
         run: |
           $ErrorActionPreference = 'Stop'
-          # Low-memory probe: tiny context window so KV cache fits on constrained host RAM.
           $payload = @{
             model = 'qwen3:4b'
             prompt = 'Say OK.'
             stream = $false
             think = $false
             keep_alive = '30s'
-            options = @{
-              temperature = 0
-              seed = 42
-              num_predict = 8
-              num_ctx = 512
-              num_batch = 16
-            }
+            options = @{ temperature = 0; seed = 42; num_predict = 8; num_ctx = 512; num_batch = 16 }
           } | ConvertTo-Json -Depth 10
           $result = $null
           $lastErr = $null
@@ -208,18 +201,19 @@ jobs:
           Write-Host 'RUNTIME_ROOT=D:\ARIA-Windows-Agent'
           if (Test-Path $StatusPath) { Write-Host "STATUS_JSON=$(Get-Content -Raw $StatusPath)" }
 
-      - name: Watchdog recovery proof kill then restart
+      - name: Watchdog recovery proof via kill-request signal
         run: |
           $ErrorActionPreference = 'Stop'
           $LogDir = 'D:\ARIA-Windows-Agent\Logs'
           $LogPath = Join-Path $LogDir 'watchdog.log'
           $PidPath = Join-Path $LogDir 'agent.pid'
           $StatusPath = Join-Path $LogDir 'status.json'
+          $KillRequestPath = Join-Path $LogDir 'kill-request'
 
           if (-not (Test-Path $PidPath)) { throw 'agent.pid missing before kill test' }
           $oldPid = 0
           if (-not [int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$oldPid) -or $oldPid -le 0) {
-            throw "Invalid agent.pid content"
+            throw 'Invalid agent.pid content'
           }
           $before = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
           if (-not $before -or $before.ProcessName -notmatch 'node') {
@@ -227,11 +221,13 @@ jobs:
           }
 
           Write-Host "KILL_TARGET_PID=$oldPid"
-          Stop-Process -Id $oldPid -Force -ErrorAction Stop
-          Write-Host 'AGENT_KILLED=True'
+          # NetworkService cannot Stop-Process interactive-user processes.
+          # Signal the watchdog (same user as the agent) via public file.
+          Set-Content -Path $KillRequestPath -Value "pid=$oldPid from=preflight ts=$(Get-Date -Format o)" -Encoding ASCII -Force
+          Write-Host 'KILL_REQUEST_WRITTEN=True'
 
           $newPid = $null
-          for ($i = 0; $i -lt 30; $i++) {
+          for ($i = 0; $i -lt 40; $i++) {
             Start-Sleep -Seconds 2
             if (-not (Test-Path $PidPath)) { continue }
             $cand = 0
@@ -246,15 +242,16 @@ jobs:
 
           if (-not $newPid) {
             if (Test-Path $LogPath) {
-              Write-Host 'watchdog.log after kill:'
+              Write-Host 'watchdog.log after kill-request:'
               Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
             }
             if (Test-Path $StatusPath) { Write-Host "status.json=$(Get-Content -Raw $StatusPath)" }
-            throw 'Watchdog did not restart aria-agent.js after kill'
+            throw 'Watchdog did not restart aria-agent.js after kill-request'
           }
 
           Write-Host 'WATCHDOG_RESTART=PASS'
           Write-Host "AGENT_NEW_PID=$newPid"
+          if (Test-Path $StatusPath) { Write-Host "STATUS_JSON=$(Get-Content -Raw $StatusPath)" }
 
       - name: Verify ARIA Gateway heartbeat
         env:
