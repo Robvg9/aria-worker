@@ -32,13 +32,18 @@ assert.throws(() => validateRequest({ action: 'scroll' }), /desktop_scroll_inval
 assert.ok(VERSION.startsWith('aria-windows-desktop-v1'));
 assert.equal(ACTIONS.has('screenshot'), true);
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
-assert.match(src, /-STA/);
-assert.match(src, /BitBlt/);
-assert.match(src, /SetProcessDPIAware/);
-assert.match(src, /FromHbitmap/);
-assert.match(src, /CopyFromScreen/);
-assert.doesNotMatch(src, /New-Object System\.Drawing\.Bitmap -ArgumentList @/);
+const adapterSrc = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
+const runnerSrc = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-runner.ps1'), 'utf8');
+
+assert.match(adapterSrc, /-STA/);
+assert.match(adapterSrc, /windows-desktop-runner\.ps1/);
+assert.match(adapterSrc, /windows-ui-automation\.ps1/);
+assert.match(runnerSrc, /BitBlt/);
+assert.match(runnerSrc, /SetProcessDPIAware/);
+assert.match(runnerSrc, /FromHbitmap/);
+assert.match(runnerSrc, /CopyTo/); // image bytes are serialized through MemoryStream below
+assert.match(runnerSrc, /System\.Drawing\.Image/);
+assert.doesNotMatch(adapterSrc, /New-Object System\.Drawing\.Bitmap -ArgumentList @/);
 // Adapter must load under Node: no unescaped JS template ${vars} at module eval time.
 assert.equal(typeof require('../computer-use/windows-desktop-adapter').executeWindowsDesktop, 'function');
 
