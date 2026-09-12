@@ -2,11 +2,6 @@ name: ARIA Windows Local Agent Preflight
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - agents/windows/**
-      - .github/workflows/aria-windows-agent-preflight.yml
 
 permissions:
   contents: read
@@ -42,6 +37,7 @@ jobs:
             throw 'Synced run-agent.ps1 missing kill-request support'
           }
           Write-Host 'RUNTIME_SYNC=PASS'
+          Write-Host 'NOTE: If watchdog still logs NoNewWindow, ROBVG\robvg must End+Run the task once to reload the script into memory.'
 
       - name: Verify runner Node environment
         run: |
@@ -64,20 +60,11 @@ jobs:
             if (Test-Path $path) {
               $id = 0
               if ([int]::TryParse((Get-Content -Raw $path).Trim(), [ref]$id) -and $id -gt 0) {
-                # Prefer taskkill (sometimes succeeds where Stop-Process fails)
                 & taskkill.exe /F /PID $id 2>$null | Out-Null
                 Write-Host "TASKKILL_PID=$id EXIT=$LASTEXITCODE"
-                Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
               }
             }
           }
-
-          Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine -like '*aria-agent.js*' } |
-            ForEach-Object {
-              & taskkill.exe /F /PID $_.ProcessId 2>$null | Out-Null
-              Write-Host "TASKKILL_NODE=$($_.ProcessId) EXIT=$LASTEXITCODE"
-            }
 
           & schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
           Write-Host "SCHTASKS_END_EXIT=$LASTEXITCODE"
@@ -85,26 +72,23 @@ jobs:
           & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
           Write-Host "SCHTASKS_RUN_EXIT=$LASTEXITCODE"
 
-          # Task RestartOnFailure interval is 1 minute - wait for new host to load fixed script.
-          Write-Host 'Waiting up to 90s for fixed watchdog (AGENT_STARTED without NoNewWindow error)...'
+          Write-Host 'Waiting up to 90s for fixed watchdog (AGENT_STARTED without NoNewWindow)...'
           $loaded = $false
           for ($i = 0; $i -lt 45; $i++) {
             Start-Sleep -Seconds 2
             if (Test-Path $LogPath) {
-              $tail = Get-Content $LogPath -Tail 8 -ErrorAction SilentlyContinue | Out-String
+              $tail = Get-Content $LogPath -Tail 6 -ErrorAction SilentlyContinue | Out-String
               if ($tail -match 'AGENT_STARTED' -and $tail -notmatch 'NoNewWindow') {
                 $loaded = $true
                 Write-Host 'FIXED_WATCHDOG_LOADED=True'
                 break
               }
-              if ($tail -match 'kill-request' -or $tail -match 'WATCHDOG_START') {
-                # Still may be new if WATCHDOG_START is recent
-              }
             }
           }
           if (-not $loaded) {
-            Write-Host 'FIXED_WATCHDOG_LOADED=False (continuing; may still recover)'
-            if (Test-Path $LogPath) { Get-Content $LogPath -Tail 15 -ErrorAction SilentlyContinue }
+            Write-Host 'FIXED_WATCHDOG_LOADED=False'
+            if (Test-Path $LogPath) { Get-Content $LogPath -Tail 12 -ErrorAction SilentlyContinue }
+            Write-Host 'ACTION_REQUIRED: As ROBVG\robvg run: schtasks /End /TN ARIA-Windows-Local-Agent && schtasks /Run /TN ARIA-Windows-Local-Agent'
           }
           Write-Host 'BOUNCE_DONE=True'
           exit 0
@@ -176,13 +160,21 @@ jobs:
           $LogPath = Join-Path $LogDir 'watchdog.log'
           $PidPath = Join-Path $LogDir 'agent.pid'
           $StatusPath = Join-Path $LogDir 'status.json'
-          $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
           $RuntimeAgent = Join-Path $RuntimeRoot 'Runtime\windows\aria-agent.js'
           $RuntimeWatchdog = Join-Path $RuntimeRoot 'Runtime\windows\run-agent.ps1'
           $DataConfig = Join-Path $RuntimeRoot 'Data\config.json'
 
           foreach ($p in @($RuntimeRoot, $RuntimeAgent, $RuntimeWatchdog, $DataConfig)) {
             if (-not (Test-Path $p)) { throw "Missing required path: $p" }
+          }
+
+          # Reject host that is still stuck on the illegal -NoNewWindow combo.
+          if (Test-Path $LogPath) {
+            $tail = Get-Content $LogPath -Tail 20 -ErrorAction SilentlyContinue | Out-String
+            if ($tail -match 'NoNewWindow') {
+              Write-Host $tail
+              throw 'Watchdog host is still running OLD run-agent.ps1 (NoNewWindow error). As ROBVG\robvg: schtasks /End /TN ARIA-Windows-Local-Agent ; schtasks /Run /TN ARIA-Windows-Local-Agent'
+            }
           }
 
           function Test-LiveAgent {
@@ -212,22 +204,17 @@ jobs:
           }
 
           if (-not $agent) {
-            Write-Host '--- public diagnostics ---'
             if (Test-Path $LogPath) {
               Write-Host 'watchdog.log (last 40):'
               Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
-            } else { Write-Host "No log at $LogPath" }
-            if (Test-Path $StatusPath) { Write-Host "status.json=$(Get-Content -Raw $StatusPath)" }
-            if (Test-Path $PidPath) { Write-Host "agent.pid=$(Get-Content -Raw $PidPath)" }
-            if (Test-Path $WatchdogPidPath) { Write-Host "watchdog.pid=$(Get-Content -Raw $WatchdogPidPath)" }
-            throw 'ARIA agent process not running. Restart task as interactive user or wait for RestartOnFailure.'
+            }
+            throw 'ARIA agent process not running. Restart task as ROBVG\robvg after runtime sync.'
           }
 
           Write-Host 'ARIA_TASK=RUNNING'
           Write-Host 'AGENT_PROCESS=RUNNING'
           Write-Host "AGENT_PID=$($agent.Id)"
           Write-Host 'RUNTIME_ROOT=D:\ARIA-Windows-Agent'
-          if (Test-Path $StatusPath) { Write-Host "STATUS_JSON=$(Get-Content -Raw $StatusPath)" }
 
       - name: Watchdog recovery proof via kill-request signal
         run: |
@@ -235,7 +222,6 @@ jobs:
           $LogDir = 'D:\ARIA-Windows-Agent\Logs'
           $LogPath = Join-Path $LogDir 'watchdog.log'
           $PidPath = Join-Path $LogDir 'agent.pid'
-          $StatusPath = Join-Path $LogDir 'status.json'
           $KillRequestPath = Join-Path $LogDir 'kill-request'
 
           if (-not (Test-Path $PidPath)) { throw 'agent.pid missing before kill test' }
@@ -271,7 +257,6 @@ jobs:
               Write-Host 'watchdog.log after kill-request:'
               Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
             }
-            if (Test-Path $StatusPath) { Write-Host "status.json=$(Get-Content -Raw $StatusPath)" }
             throw 'Watchdog did not restart aria-agent.js after kill-request'
           }
 
