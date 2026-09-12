@@ -47,15 +47,21 @@ function createMaintenancePlanner({ autonomyFrontier = null } = {}) {
     return Object.freeze(work);
   }
 
+  function selectPlanned(findings, predicate) {
+    if (!Array.isArray(findings)) throw new TypeError('findings must be an array');
+    const planned = findings.length > 0 && findings[0] && findings[0].execution && findings[0].classification ? findings : plan(findings);
+    return Object.freeze(planned.filter(predicate));
+  }
+
   function autonomous(findings = []) {
-    return Object.freeze(plan(findings).filter(item => item.execution.category === 'autonomous' && item.execution.executable));
+    return selectPlanned(findings, item => item.execution.category === 'autonomous' && item.execution.executable);
   }
 
   function pending(findings = []) {
-    return Object.freeze(plan(findings).filter(item => item.pending));
+    return selectPlanned(findings, item => Boolean(item.pending));
   }
 
-  return Object.freeze({ version: 'maintenance-planner-v1.0', plan, autonomous, pending });
+  return Object.freeze({ version: 'maintenance-planner-v1.1', plan, autonomous, pending });
 }
 
 module.exports = Object.freeze({ PRIORITIES, CATEGORIES, scoreFinding, classifyFinding, createMaintenancePlanner });
