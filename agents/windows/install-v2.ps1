@@ -14,16 +14,14 @@ $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 
-foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) {
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-}
+foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
-# Materialize the complete Windows agent runtime on D:. C: remains only the Git repository.
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
     'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
-    'windows-desktop-adapter.js' = Join-Path $AgentRoot '..\..\computer-use\windows-desktop-adapter.js'
+    'windows-desktop-adapter.js' = Join-Path $RepoRoot 'computer-use\windows-desktop-adapter.js'
+    'windows-ui-automation.ps1' = Join-Path $RepoRoot 'computer-use\windows-ui-automation.ps1'
 }
 foreach ($file in $requiredSources.Keys) {
     $source = $requiredSources[$file]
@@ -39,21 +37,17 @@ if (-not [string]::IsNullOrWhiteSpace($token)) {
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
 }
 elseif (Test-Path $TokenPath) {
-    # Existing D: DPAPI store is authoritative.
 }
 elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi')) {
     Copy-Item -Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi') -Destination $TokenPath -Force
 }
 else {
     $token = Read-Host 'Pega el token del Windows Device'
-    if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) {
-        throw 'Token ausente o invalido. No se instalo nada.'
-    }
+    if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) { throw 'Token ausente o invalido. No se instalo nada.' }
     $secure = ConvertTo-SecureString -String $token -AsPlainText -Force
     $encrypted = $secure | ConvertFrom-SecureString
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
 }
-
 if (-not (Test-Path $TokenPath)) { throw "ARIA token store was not created: $TokenPath" }
 
 $config = [ordered]@{
@@ -69,7 +63,7 @@ $config = [ordered]@{
     poll_ms = 3000
     gateway_timeout_ms = 15000
     gateway_retries = 2
-    capabilities = @('ollama.qwen3','shell.execute','computer.use')
+    capabilities = @('ollama.qwen3','shell.execute','computer.use','desktop.screenshot','desktop.uia')
 }
 $config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
 
@@ -78,23 +72,9 @@ $taskRunScript = Join-Path $RuntimeDir 'run-agent.ps1'
 $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Author>$taskUser</Author>
-    <Description>ARIA Windows Local Agent</Description>
-  </RegistrationInfo>
-  <Triggers>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-      <UserId>$taskUser</UserId>
-    </LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>$taskUser</UserId>
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>LeastPrivilege</RunLevel>
-    </Principal>
-  </Principals>
+  <RegistrationInfo><Author>$taskUser</Author><Description>ARIA Windows Local Agent</Description></RegistrationInfo>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$taskUser</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -102,33 +82,17 @@ $xml = @"
     <AllowHardTerminate>true</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
-    </RestartOnFailure>
+    <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
   </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$taskRunScript&quot;</Arguments>
-      <WorkingDirectory>$RuntimeDir</WorkingDirectory>
-    </Exec>
-  </Actions>
+  <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$taskRunScript&quot;</Arguments><WorkingDirectory>$RuntimeDir</WorkingDirectory></Exec></Actions>
 </Task>
 "@
-
 Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
-
 schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
 $result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result"
-}
-
+if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
 & schtasks.exe /Run /TN $TaskName | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE"
-}
+if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
 
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
@@ -145,3 +109,4 @@ Write-Host 'ExecutionTimeLimit: 0'
 Write-Host 'RestartOnFailure: 999 / 1 minuto'
 Write-Host 'Shell executor: installed'
 Write-Host 'Desktop computer-use: installed'
+Write-Host 'Desktop UI Automation observer: installed'
