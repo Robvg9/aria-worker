@@ -6,14 +6,30 @@ $ConfigDir = Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $TokenPath = Join-Path $ConfigDir 'device-token.dpapi'
 $AgentPath = Join-Path $AgentRoot 'aria-agent.js'
+$StagingDir = Join-Path $env:ProgramData 'ARIA-Windows-Agent'
+$StagingTokenPath = Join-Path $StagingDir 'token.staging'
 
 function Write-Log([string]$Message) {
     Write-Output "[ARIA-WATCHDOG] $(Get-Date -Format o) $Message"
 }
 
 if (-not (Test-Path $ConfigPath)) { throw "ARIA config not found: $ConfigPath" }
-if (-not (Test-Path $TokenPath)) { throw "ARIA token store not found: $TokenPath" }
 if (-not (Test-Path $AgentPath)) { throw "ARIA agent not found: $AgentPath" }
+
+if (Test-Path $StagingTokenPath) {
+    New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+    $stagedToken = (Get-Content -Raw -Path $StagingTokenPath).Trim()
+    if ([string]::IsNullOrWhiteSpace($stagedToken) -or $stagedToken.Length -lt 32) {
+        throw 'ARIA staged token is missing or invalid'
+    }
+    $secureStaged = ConvertTo-SecureString -String $stagedToken -AsPlainText -Force
+    $encryptedStaged = $secureStaged | ConvertFrom-SecureString
+    Set-Content -Path $TokenPath -Value $encryptedStaged -Encoding ASCII
+    Remove-Item -Path $StagingTokenPath -Force
+    Write-Log 'TOKEN_STORE_REPAIRED_FROM_STAGING=True'
+}
+
+if (-not (Test-Path $TokenPath)) { throw "ARIA token store not found: $TokenPath" }
 
 $config = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
 $encrypted = Get-Content -Raw -Path $TokenPath
