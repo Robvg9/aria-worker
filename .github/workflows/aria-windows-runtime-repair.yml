@@ -7,12 +7,14 @@ on:
       - 'agents/windows/**'
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/**'
+      - 'tests/windows-desktop-physical-e2e.js'
       - '.github/workflows/aria-windows-runtime-repair.yml'
   pull_request:
     paths:
       - 'agents/windows/**'
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/**'
+      - 'tests/windows-desktop-physical-e2e.js'
       - '.github/workflows/aria-windows-runtime-repair.yml'
   workflow_dispatch:
 
@@ -26,7 +28,7 @@ defaults:
 jobs:
   repair:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
@@ -54,7 +56,6 @@ jobs:
             if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing after sync: $file" }
           }
           Write-Host 'ARIA_RUNTIME_SYNC=PASS'
-          Write-Host "ARIA_RUNTIME_PATH=$target"
 
       - name: Verify runtime syntax
         run: |
@@ -66,6 +67,8 @@ jobs:
           $agent = Get-Content -Raw (Join-Path $target 'aria-agent.js')
           if ($agent -notmatch "SHELL_OPERATION = 'shell.execute'") { throw 'shell.execute missing from runtime agent' }
           if ($agent -notmatch "COMPUTER_OPERATION = 'computer.use'") { throw 'computer.use missing from runtime agent' }
+          $desktop = Get-Content -Raw (Join-Path $target 'windows-desktop-adapter.js')
+          if ($desktop -notmatch 'aria-windows-desktop-v1\.9') { throw 'desktop adapter v1.9 missing from runtime' }
           Write-Host 'ARIA_RUNTIME_SYNTAX=PASS'
 
       - name: Request watchdog reload through public signal
@@ -92,6 +95,13 @@ jobs:
           }
           if (-not $newPid) { if (Test-Path $logPath) { Get-Content $logPath -Tail 50 }; throw 'Watchdog did not restart agent after public signal' }
           Write-Host "ARIA_AGENT_RESTART=PASS NEW_PID=$newPid"
+
+      - name: Physical desktop autonomy E2E
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node (Join-Path $env:GITHUB_WORKSPACE 'tests\windows-desktop-physical-e2e.js')
+          if ($LASTEXITCODE -ne 0) { throw "Physical desktop E2E failed with exit code $LASTEXITCODE" }
+          Write-Host 'ARIA_DESKTOP_PHYSICAL_E2E=PASS'
 
       - name: Verify runtime publication
         run: |
