@@ -1,6 +1,12 @@
 name: ARIA Windows Runtime Repair
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/windows-shell-executor.js'
+      - '.github/workflows/aria-windows-runtime-repair.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,18 +24,57 @@ jobs:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
 
-      - name: Sync scripts to official D: runtime
+      - name: Sync complete runtime to official D drive
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
+          $canonical = Join-Path $env:GITHUB_WORKSPACE 'autonomy\windows-shell-executor.js'
           $runtimeRoot = 'D:\ARIA-Windows-Agent'
           $target = Join-Path $runtimeRoot 'Runtime\windows'
           $logDir = Join-Path $runtimeRoot 'Logs'
-          if (-not (Test-Path (Join-Path $source 'run-agent.ps1'))) { throw 'ARIA runtime source missing' }
+          foreach ($path in @($source,$canonical)) { if (-not (Test-Path $path)) { throw "Required source missing: $path" } }
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-          Copy-Item -Path (Join-Path $source '*') -Destination $target -Recurse -Force
+          Copy-Item -Path (Join-Path $source 'aria-agent.js') -Destination $target -Force
+          Copy-Item -Path (Join-Path $source 'run-agent.ps1') -Destination $target -Force
+          Copy-Item -Path $canonical -Destination (Join-Path $target 'windows-shell-executor.js') -Force
+          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js')) {
+            if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing after sync: $file" }
+          }
           Write-Host 'ARIA_RUNTIME_SYNC=PASS'
           Write-Host "ARIA_RUNTIME_PATH=$target"
-          Write-Host 'NOTE: Task principal remains ROBVG\robvg (required for DPAPI). Config/token stay in D:\ARIA-Windows-Agent\Data.'
-          Write-Host 'NOTE: Runner does not retarget Task Scheduler (access denied under NetworkService). Re-run install-v2.ps1 as interactive user if TR must change.'
+
+      - name: Verify runtime syntax
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          node --check (Join-Path $target 'aria-agent.js')
+          node --check (Join-Path $target 'windows-shell-executor.js')
+          $agent = Get-Content -Raw (Join-Path $target 'aria-agent.js')
+          if ($agent -notmatch "SHELL_OPERATION = 'shell.execute'") { throw 'shell.execute missing from runtime agent' }
+          Write-Host 'ARIA_RUNTIME_SYNTAX=PASS'
+
+      - name: Restart scheduled local agent
+        run: |
+          $ErrorActionPreference = 'SilentlyContinue'
+          $task = 'ARIA-Windows-Local-Agent'
+          & schtasks.exe /End /TN $task 2>$null | Out-Null
+          Start-Sleep -Seconds 2
+          & schtasks.exe /Run /TN $task 2>$null | Out-Null
+          Start-Sleep -Seconds 8
+          $q = & schtasks.exe /Query /TN $task /FO LIST 2>&1
+          Write-Host $q
+          if ($q -notmatch 'Status:\s+Running') { throw 'ARIA scheduled task is not running after restart' }
+          Write-Host 'ARIA_AGENT_RESTART=PASS'
+
+      - name: Verify runtime publication
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $status = 'D:\ARIA-Windows-Agent\Logs\status.json'
+          $log = 'D:\ARIA-Windows-Agent\Logs\watchdog.log'
+          if (Test-Path $status) { Get-Content -Raw $status }
+          if (Test-Path $log) {
+            $tail = Get-Content $log -Tail 30 | Out-String
+            if ($tail -match 'NoNewWindow') { throw 'Old watchdog failure still present' }
+          }
+          Write-Host 'ARIA_RUNTIME_REPAIR=PASS'
