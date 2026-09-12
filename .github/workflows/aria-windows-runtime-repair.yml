@@ -6,6 +6,13 @@ on:
     paths:
       - 'agents/windows/**'
       - 'autonomy/windows-shell-executor.js'
+      - 'computer-use/**'
+      - '.github/workflows/aria-windows-runtime-repair.yml'
+  pull_request:
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/windows-shell-executor.js'
+      - 'computer-use/**'
       - '.github/workflows/aria-windows-runtime-repair.yml'
   workflow_dispatch:
 
@@ -19,7 +26,7 @@ defaults:
 jobs:
   repair:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
@@ -28,17 +35,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
-          $canonical = Join-Path $env:GITHUB_WORKSPACE 'autonomy\windows-shell-executor.js'
+          $repoRoot = $env:GITHUB_WORKSPACE
           $runtimeRoot = 'D:\ARIA-Windows-Agent'
           $target = Join-Path $runtimeRoot 'Runtime\windows'
           $logDir = Join-Path $runtimeRoot 'Logs'
-          foreach ($path in @($source,$canonical)) { if (-not (Test-Path $path)) { throw "Required source missing: $path" } }
+          $computerUse = Join-Path $repoRoot 'computer-use'
+          $canonical = Join-Path $repoRoot 'autonomy\windows-shell-executor.js'
+          foreach ($path in @($source,$canonical,$computerUse)) { if (-not (Test-Path $path)) { throw "Required source missing: $path" } }
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
           Copy-Item -Path (Join-Path $source 'aria-agent.js') -Destination $target -Force
           Copy-Item -Path (Join-Path $source 'run-agent.ps1') -Destination $target -Force
           Copy-Item -Path $canonical -Destination (Join-Path $target 'windows-shell-executor.js') -Force
-          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js')) {
+          Copy-Item -Path (Join-Path $computerUse 'windows-desktop-adapter.js') -Destination $target -Force
+          Copy-Item -Path (Join-Path $computerUse 'windows-ui-automation.ps1') -Destination $target -Force
+          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js','windows-desktop-adapter.js','windows-ui-automation.ps1')) {
             if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing after sync: $file" }
           }
           Write-Host 'ARIA_RUNTIME_SYNC=PASS'
@@ -50,22 +61,36 @@ jobs:
           $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
           node --check (Join-Path $target 'aria-agent.js')
           node --check (Join-Path $target 'windows-shell-executor.js')
+          node --check (Join-Path $target 'windows-desktop-adapter.js')
           $agent = Get-Content -Raw (Join-Path $target 'aria-agent.js')
           if ($agent -notmatch "SHELL_OPERATION = 'shell.execute'") { throw 'shell.execute missing from runtime agent' }
+          if ($agent -notmatch "COMPUTER_OPERATION = 'computer.use'") { throw 'computer.use missing from runtime agent' }
           Write-Host 'ARIA_RUNTIME_SYNTAX=PASS'
 
-      - name: Restart scheduled local agent
+      - name: Request watchdog reload through public signal
         run: |
-          $ErrorActionPreference = 'SilentlyContinue'
-          $task = 'ARIA-Windows-Local-Agent'
-          & schtasks.exe /End /TN $task 2>$null | Out-Null
-          Start-Sleep -Seconds 2
-          & schtasks.exe /Run /TN $task 2>$null | Out-Null
-          Start-Sleep -Seconds 8
-          $q = & schtasks.exe /Query /TN $task /FO LIST 2>&1
-          Write-Host $q
-          if ($q -notmatch 'Status:\s+Running') { throw 'ARIA scheduled task is not running after restart' }
-          Write-Host 'ARIA_AGENT_RESTART=PASS'
+          $ErrorActionPreference = 'Stop'
+          $logDir = 'D:\ARIA-Windows-Agent\Logs'
+          $pidPath = Join-Path $logDir 'agent.pid'
+          $killRequest = Join-Path $logDir 'kill-request'
+          $logPath = Join-Path $logDir 'watchdog.log'
+          if (-not (Test-Path $pidPath)) { throw 'agent.pid missing; local agent must be installed first' }
+          $oldPid = 0
+          if (-not [int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$oldPid) -or $oldPid -le 0) { throw 'Invalid agent.pid' }
+          Set-Content -Path $killRequest -Value "pid=$oldPid from=runtime-repair ts=$(Get-Date -Format o)" -Encoding ASCII -Force
+          Write-Host "KILL_REQUEST_WRITTEN=True PID=$oldPid"
+          $newPid = $null
+          for ($i=0; $i -lt 45; $i++) {
+            Start-Sleep -Seconds 2
+            if (-not (Test-Path $pidPath)) { continue }
+            $cand = 0
+            if (-not [int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$cand)) { continue }
+            if ($cand -le 0 -or $cand -eq $oldPid) { continue }
+            $p = Get-Process -Id $cand -ErrorAction SilentlyContinue
+            if ($p -and $p.ProcessName -match 'node') { $newPid = $cand; break }
+          }
+          if (-not $newPid) { if (Test-Path $logPath) { Get-Content $logPath -Tail 50 }; throw 'Watchdog did not restart agent after public signal' }
+          Write-Host "ARIA_AGENT_RESTART=PASS NEW_PID=$newPid"
 
       - name: Verify runtime publication
         run: |
