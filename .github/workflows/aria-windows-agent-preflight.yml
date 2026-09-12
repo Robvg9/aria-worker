@@ -42,7 +42,6 @@ jobs:
             throw 'Synced run-agent.ps1 missing WindowStyle Hidden launch'
           }
           Write-Host 'RUNTIME_SYNC=PASS'
-          Write-Host "TARGET=$target"
 
       - name: Verify runner Node environment
         run: |
@@ -59,38 +58,63 @@ jobs:
           $LogDir = 'D:\ARIA-Windows-Agent\Logs'
           $PidPath = Join-Path $LogDir 'agent.pid'
           $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
-
           foreach ($path in @($PidPath, $WatchdogPidPath)) {
             if (Test-Path $path) {
               $id = 0
               if ([int]::TryParse((Get-Content -Raw $path).Trim(), [ref]$id) -and $id -gt 0) {
                 Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
-                Write-Host "STOPPED_PID=$id from $path"
+                Write-Host "STOPPED_PID=$id"
               }
             }
           }
-
           Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -and $_.CommandLine -like '*aria-agent.js*' } |
             ForEach-Object {
               Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
               Write-Host "STOPPED_NODE=$($_.ProcessId)"
             }
-
           & schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
-          Write-Host "SCHTASKS_END_EXIT=$LASTEXITCODE"
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 2
           & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
           Write-Host "SCHTASKS_RUN_EXIT=$LASTEXITCODE"
-
           Start-Sleep -Seconds 5
           Write-Host 'BOUNCE_DONE=True'
+          exit 0
+
+      - name: Restart Ollama to clear model OOM state
+        run: |
+          $ErrorActionPreference = 'SilentlyContinue'
+          # Unload model if CLI available
+          try { & ollama stop qwen3:4b 2>$null | Out-Null } catch {}
+          Get-Process -Name 'ollama','ollama app' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          # Prefer Windows service restart if registered
+          $svc = Get-Service -Name 'Ollama' -ErrorAction SilentlyContinue
+          if ($svc) {
+            try { Restart-Service -Name 'Ollama' -Force -ErrorAction SilentlyContinue } catch {}
+          } else {
+            # Launch ollama serve in background if not a service
+            $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
+            if ($ollamaCmd) {
+              Start-Process -FilePath $ollamaCmd.Source -ArgumentList 'serve' -WindowStyle Hidden -ErrorAction SilentlyContinue
+            }
+          }
+          $ok = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $null = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 3
+              $ok = $true
+              break
+            } catch { Start-Sleep -Seconds 2 }
+          }
+          if (-not $ok) { Write-Host 'OLLAMA_RESTART_WARN=tags not reachable yet' }
+          else { Write-Host 'OLLAMA_RESTART=PASS' }
           exit 0
 
       - name: Verify Ollama service
         run: |
           $ErrorActionPreference = 'Stop'
-          $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 10
+          $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 15
           Write-Host 'OLLAMA=ONLINE'
           $model = $response.models | Where-Object { $_.name -eq 'qwen3:4b' }
           if (-not $model) { throw 'Required model qwen3:4b is not installed' }
@@ -108,14 +132,14 @@ jobs:
           } | ConvertTo-Json -Depth 10
           $result = $null
           $lastErr = $null
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
+          for ($attempt = 1; $attempt -le 4; $attempt++) {
             try {
               $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 180
               break
             } catch {
               $lastErr = $_
               Write-Host "QWEN_ATTEMPT=$attempt failed: $($_.Exception.Message)"
-              Start-Sleep -Seconds 10
+              Start-Sleep -Seconds 12
             }
           }
           if ($null -eq $result) { throw "Ollama generate failed after retries: $lastErr" }
@@ -233,7 +257,6 @@ jobs:
 
           Write-Host 'WATCHDOG_RESTART=PASS'
           Write-Host "AGENT_NEW_PID=$newPid"
-          if (Test-Path $StatusPath) { Write-Host "STATUS_JSON=$(Get-Content -Raw $StatusPath)" }
 
       - name: Verify ARIA Gateway heartbeat
         env:
