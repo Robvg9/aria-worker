@@ -40,7 +40,7 @@ function Write-Status([hashtable]$Fields) {
 function Resolve-Token {
     if (Test-Path $StagingTokenPath) {
         $stagedToken = (Get-Content -Raw -Path $StagingTokenPath).Trim()
-        if ([string]::IsNullOrWhiteSpace($stagedToken) or $stagedToken.Length -lt 32) {
+        if ([string]::IsNullOrWhiteSpace($stagedToken) -or $stagedToken.Length -lt 32) {
             throw 'ARIA staged token is missing or invalid'
         }
         $secureStaged = ConvertTo-SecureString -String $stagedToken -AsPlainText -Force
