@@ -2,22 +2,41 @@
 
 const { compileMission, validatePlan } = require('./desktop-mission-orchestrator');
 
-const VERSION = 'aria-desktop-mission-planner-v1';
+const VERSION = 'aria-desktop-mission-planner-v1.1';
 const DEFAULT_DEVICE_ID = 'windows-local';
+
+const READ_ACTIONS = new Set(['screenshot', 'observe', 'focus']);
+const LOW_WRITE_ACTIONS = new Set(['open', 'click', 'type', 'keypress', 'scroll']);
+
+function riskForComputerAction(action) {
+  if (READ_ACTIONS.has(action)) return 'READ';
+  if (LOW_WRITE_ACTIONS.has(action)) return 'LOW_RISK_WRITE';
+  return 'HIGH_RISK_WRITE';
+}
+
+function inferVerify(step) {
+  if (step.type !== 'computer.use') return undefined;
+  const input = step.payload || {};
+  if (input.action === 'focus' && input.process) return { focused_process: input.process };
+  if (input.action === 'open' && input.target) return { focused_title: input.target };
+  return undefined;
+}
 
 function toRuntimeStep(step, index, device_id) {
   if (!step || typeof step !== 'object') throw new TypeError('desktop step required');
   const id = `desktop_step_${index + 1}`;
   const target = Object.freeze({ type: 'device', device_id });
   if (step.type === 'computer.use') {
+    const input = Object.freeze({ ...(step.payload || {}) });
     return Object.freeze({
       id,
       operation: 'computer.use',
       executor_type: 'device',
       target,
-      input: Object.freeze({ ...(step.payload || {}) }),
+      input,
       timeout_ms: 120000,
-      policy: Object.freeze({ desktop_governed: true, risk_class: 'LOW_RISK_WRITE' })
+      policy: Object.freeze({ desktop_governed: true, risk_class: riskForComputerAction(input.action) }),
+      ...(inferVerify(step) ? { verify: Object.freeze(inferVerify(step)) } : {})
     });
   }
   if (step.type === 'shell.execute') {
@@ -28,7 +47,7 @@ function toRuntimeStep(step, index, device_id) {
       target,
       command: step.payload?.script,
       timeout_ms: 120000,
-      policy: Object.freeze({ desktop_governed: true, risk_class: 'LOW_RISK_WRITE', shell_policy: 'desktop-mission-safe' })
+      policy: Object.freeze({ desktop_governed: true, risk_class: 'READ', shell_policy: 'desktop-mission-safe' })
     });
   }
   throw new Error(`unsupported desktop step type: ${step.type}`);
@@ -58,4 +77,4 @@ function createDesktopMissionPlanner({ device_id = DEFAULT_DEVICE_ID, max_steps 
   return Object.freeze({ version: VERSION, plan });
 }
 
-module.exports = Object.freeze({ VERSION, DEFAULT_DEVICE_ID, createDesktopMissionPlanner });
+module.exports = Object.freeze({ VERSION, DEFAULT_DEVICE_ID, READ_ACTIONS, LOW_WRITE_ACTIONS, riskForComputerAction, inferVerify, createDesktopMissionPlanner });
