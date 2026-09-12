@@ -49,10 +49,10 @@ jobs:
           Copy-Item -Path (Join-Path $source 'aria-agent.js') -Destination $target -Force
           Copy-Item -Path (Join-Path $source 'run-agent.ps1') -Destination $target -Force
           Copy-Item -Path $canonical -Destination (Join-Path $target 'windows-shell-executor.js') -Force
-          Copy-Item -Path (Join-Path $computerUse 'windows-desktop-adapter.js') -Destination $target -Force
-          Copy-Item -Path (Join-Path $computerUse 'windows-desktop-runner.ps1') -Destination $target -Force
-          Copy-Item -Path (Join-Path $computerUse 'windows-ui-automation.ps1') -Destination $target -Force
-          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js','windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1')) {
+          foreach ($file in @('windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) {
+            Copy-Item -Path (Join-Path $computerUse $file) -Destination $target -Force
+          }
+          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js','windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) {
             if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing after sync: $file" }
           }
           Write-Host 'ARIA_RUNTIME_SYNC=PASS'
@@ -69,6 +69,7 @@ jobs:
           if ($agent -notmatch "COMPUTER_OPERATION = 'computer.use'") { throw 'computer.use missing from runtime agent' }
           $desktop = Get-Content -Raw (Join-Path $target 'windows-desktop-adapter.js')
           if ($desktop -notmatch 'aria-windows-desktop-v1\.9') { throw 'desktop adapter v1.9 missing from runtime' }
+          if (-not (Test-Path (Join-Path $target 'windows-hotkey-runner.ps1'))) { throw 'hotkey runner missing from runtime' }
           Write-Host 'ARIA_RUNTIME_SYNTAX=PASS'
 
       - name: Request watchdog reload through public signal
@@ -84,7 +85,7 @@ jobs:
           Set-Content -Path $killRequest -Value "pid=$oldPid from=runtime-repair ts=$(Get-Date -Format o)" -Encoding ASCII -Force
           Write-Host "KILL_REQUEST_WRITTEN=True PID=$oldPid"
           $newPid = $null
-          for ($i=0; $i -lt 45; $i++) {
+          for ($i = 0; $i -lt 45; $i++) {
             Start-Sleep -Seconds 2
             if (-not (Test-Path $pidPath)) { continue }
             $cand = 0
