@@ -24,7 +24,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Sync official runtime scripts to D:
+      - name: Sync official runtime scripts to D drive
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
@@ -36,7 +36,7 @@ jobs:
           Copy-Item -Path (Join-Path $source '*') -Destination $target -Force
           $synced = Get-Content -Raw (Join-Path $target 'run-agent.ps1')
           if ($synced -match 'NoNewWindow') {
-            throw 'Synced run-agent.ps1 still contains NoNewWindow — refuse to deploy broken launcher'
+            throw 'Synced run-agent.ps1 still contains NoNewWindow - refuse to deploy broken launcher'
           }
           Write-Host 'RUNTIME_SYNC=PASS'
           Write-Host "TARGET=$target"
@@ -77,7 +77,7 @@ jobs:
           Write-Host 'QWEN_EXECUTION=PASS'
           Write-Host "QWEN_RESPONSE=$text"
 
-      - name: Ensure ARIA agent runtime (public signals only)
+      - name: Ensure ARIA agent runtime via public signals
         run: |
           $ErrorActionPreference = 'Stop'
           $RuntimeRoot = 'D:\ARIA-Windows-Agent'
@@ -156,7 +156,7 @@ jobs:
             if (Test-Path $StatusPath) { Write-Host "status.json=$(Get-Content -Raw $StatusPath)" }
             if (Test-Path $PidPath) { Write-Host "agent.pid=$(Get-Content -Raw $PidPath)" }
             if (Test-Path $WatchdogPidPath) { Write-Host "watchdog.pid=$(Get-Content -Raw $WatchdogPidPath)" }
-            throw 'ARIA agent process not running. Watchdog must be restarted as ROBVG\robvg after runtime sync (or wait for RestartOnFailure).'
+            throw 'ARIA agent process not running. Restart task as interactive user or wait for RestartOnFailure.'
           }
 
           Write-Host 'ARIA_TASK=RUNNING'
@@ -165,7 +165,7 @@ jobs:
           Write-Host 'RUNTIME_ROOT=D:\ARIA-Windows-Agent'
           if (Test-Path $StatusPath) { Write-Host "STATUS_JSON=$(Get-Content -Raw $StatusPath)" }
 
-      - name: Watchdog recovery proof (kill → restart)
+      - name: Watchdog recovery proof kill then restart
         run: |
           $ErrorActionPreference = 'Stop'
           $LogDir = 'D:\ARIA-Windows-Agent\Logs'
