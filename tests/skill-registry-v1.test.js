@@ -41,7 +41,7 @@ const { STATUS, createSkillRegistry } = require('../learning/skill-registry-v1')
   registry.retire('demo', 'superseded');
   assert.equal(registry.resolve('demo', { allowDegraded: true }), null);
   assert.equal(registry.snapshot().length, 1);
-  assert.equal(registry.rank({ includeCandidates: true })[0].status, 'retired');
+  assert.deepEqual(registry.rank({ includeCandidates: true }), []);
 
   console.log('SKILL_REGISTRY_V1=PASS — candidate/verified lifecycle, versioning, outcome telemetry, regression degradation and retirement');
 })();
