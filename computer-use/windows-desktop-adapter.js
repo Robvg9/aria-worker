@@ -1,7 +1,6 @@
 'use strict';
 
 const { spawn } = require('node:child_process');
-const crypto = require('node:crypto');
 
 const VERSION = 'aria-windows-desktop-v1';
 const MAX_TEXT = 32 * 1024;
@@ -12,6 +11,10 @@ const POWERSHELL = String.raw`
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+$payloadJson = [Console]::In.ReadToEnd()
+if ([string]::IsNullOrWhiteSpace($payloadJson)) { throw 'desktop_payload_missing' }
+$payload = $payloadJson | ConvertFrom-Json
 
 function Json($x) { $x | ConvertTo-Json -Compress -Depth 12 }
 
@@ -31,10 +34,8 @@ function Invoke-Desktop($payload) {
       try {
         $g.CopyFromScreen($left,$top,0,0,$bmp.Size)
         $ms = New-Object System.IO.MemoryStream
-        try {
-          $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png)
-          $b64 = [Convert]::ToBase64String($ms.ToArray())
-        } finally { $ms.Dispose() }
+        try { $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png); $b64 = [Convert]::ToBase64String($ms.ToArray()) }
+        finally { $ms.Dispose() }
       } finally { $g.Dispose(); $bmp.Dispose() }
       return @{status='succeeded'; action='screenshot'; screenshot_base64=$b64; width=$width; height=$height; bounds=@{left=$left;top=$top;right=$right;bottom=$bottom}}
     }
@@ -67,7 +68,7 @@ public static class AriaWindow {
 using System;
 using System.Runtime.InteropServices;
 public static class AriaMouse {
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X,int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra);
   public const uint LEFTDOWN=0x0002, LEFTUP=0x0004, RIGHTDOWN=0x0008, RIGHTUP=0x0010;
 }
@@ -127,8 +128,6 @@ using System; using System.Runtime.InteropServices; public static class AriaScro
       return @{status='succeeded'; action='scroll'; delta=$delta}
     }
     'observe' {
-      $shell = New-Object -ComObject WScript.Shell
-      $activeTitle = $shell.AppActivate($shell.CurrentDirectory) | Out-Null
       $processes = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 80 ProcessName,Id,MainWindowTitle
       return @{status='succeeded'; action='observe'; metadata=@{windows=@($processes | ForEach-Object { @{process=$_.ProcessName;pid=$_.Id;title=$_.MainWindowTitle} })}}
     }
@@ -155,9 +154,7 @@ function validateRequest(request = {}) {
 function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
   const payload = validateRequest(request);
   return new Promise((resolve) => {
-    const child = spawn('powershell.exe', ['-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command', POWERSHELL], {
-      windowsHide: true, stdio: ['pipe','pipe','pipe']
-    });
+    const child = spawn('powershell.exe', ['-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command', POWERSHELL], { windowsHide: true, stdio: ['pipe','pipe','pipe'] });
     let stdout=''; let stderr=''; let settled=false;
     const finish=(value)=>{ if(settled)return; settled=true; clearTimeout(timer); resolve(value); };
     const timer=setTimeout(()=>{ try{child.kill()}catch(_){} finish({status:'timeout',action:payload.action,error:'desktop_timeout'}); }, Math.max(1000,timeout_ms));
