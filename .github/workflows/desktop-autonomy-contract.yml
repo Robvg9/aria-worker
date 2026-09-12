@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
+  push:
+    branches: [aria/desktop-autonomy-v1]
 
 permissions:
   contents: read
@@ -30,3 +32,54 @@ jobs:
         run: node tests/windows-computer-use.test.js
       - name: Desktop autonomy loop
         run: node tests/desktop-autonomy-loop.test.js
+
+  # Optional live screenshot on the ROBVG self-hosted Windows runner when available.
+  # Does not fail the PR contract if the runner is offline; workflow_dispatch preferred for live proof.
+  windows-live-screenshot:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node version
+        shell: powershell
+        run: |
+          node --version
+          powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"
+      - name: Contract tests
+        shell: powershell
+        run: |
+          node --check computer-use/windows-desktop-adapter.js
+          node tests/windows-computer-use.test.js
+          node tests/desktop-autonomy-loop.test.js
+      - name: Live screenshot smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = @'
+          const { executeWindowsDesktop } = require('./computer-use/windows-desktop-adapter.js');
+          (async () => {
+            const r = await executeWindowsDesktop({ action: 'screenshot' }, { timeout_ms: 25000 });
+            const out = {
+              status: r.status,
+              action: r.action,
+              width: r.width || null,
+              height: r.height || null,
+              capture_method: r.capture_method || null,
+              apartment: r.apartment || null,
+              version: r.version || null,
+              error: r.error || null,
+              b64_len: r.screenshot_base64 ? r.screenshot_base64.length : 0
+            };
+            console.log(JSON.stringify(out));
+            if (r.status !== 'succeeded' || !r.screenshot_base64) process.exit(1);
+          })().catch((e) => { console.error(String(e && e.stack || e)); process.exit(2); });
+          '@
+          $result = & node -e $script 2>&1
+          Write-Host $result
+          if ($LASTEXITCODE -ne 0) { throw "Live screenshot failed: $result" }
+          $line = ($result | Select-Object -Last 1).ToString()
+          $json = $line | ConvertFrom-Json
+          if ($json.status -ne 'succeeded') { throw "status=$($json.status) error=$($json.error)" }
+          Write-Host "DESKTOP_SCREENSHOT=PASS width=$($json.width) height=$($json.height) method=$($json.capture_method)"
