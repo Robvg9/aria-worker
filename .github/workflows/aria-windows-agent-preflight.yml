@@ -58,22 +58,32 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $TaskName = 'ARIA-Windows-Local-Agent'
           $RuntimeRoot = 'D:\ARIA-Windows-Agent'
-          $LogPath = Join-Path $RuntimeRoot 'Logs\watchdog.log'
           $RuntimeAgent = Join-Path $RuntimeRoot 'Runtime\windows\aria-agent.js'
+          $RuntimeWatchdog = Join-Path $RuntimeRoot 'Runtime\windows\run-agent.ps1'
+          $LogPath = Join-Path $RuntimeRoot 'Logs\watchdog.log'
 
           if (-not (Test-Path $RuntimeRoot)) { throw "ARIA runtime root missing: $RuntimeRoot" }
           if (-not (Test-Path $RuntimeAgent)) { throw "ARIA runtime agent missing: $RuntimeAgent" }
+          if (-not (Test-Path $RuntimeWatchdog)) { throw "ARIA watchdog missing: $RuntimeWatchdog" }
 
-          $query = schtasks.exe /Query /TN $TaskName /V /FO LIST 2>&1
-          if ($LASTEXITCODE -ne 0) { throw 'ARIA-Windows-Local-Agent task is not installed. Run install-v2.ps1 as robvg.' }
-          $text = ($query | Out-String)
-          if ($text -notmatch 'D:\\ARIA-Windows-Agent\\Runtime\\windows\\run-agent.ps1') {
+          try {
+            $service = New-Object -ComObject 'Schedule.Service'
+            $service.Connect()
+            $folder = $service.GetFolder('\')
+            $task = $folder.GetTask($TaskName)
+          } catch {
+            throw "Unable to access ARIA scheduled task through Task Scheduler API: $($_.Exception.Message)"
+          }
+
+          $action = $task.Definition.Actions.Item(1)
+          $actionText = "$($action.Path) $($action.Arguments) $($action.WorkingDirectory)"
+          if ($actionText -notlike '*D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1*') {
             throw 'ARIA task is not pointing to the D: runtime. Re-run install-v2.ps1.'
           }
 
-          if ($text -notmatch 'Estado:\s+En ejecución|Status:\s+Running') {
-            & schtasks.exe /Run /TN $TaskName | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "Unable to start ARIA task. ExitCode=$LASTEXITCODE" }
+          if ([int]$task.State -ne 4) {
+            try { $task.Run($null) | Out-Null }
+            catch { throw "Unable to start ARIA task through Task Scheduler API: $($_.Exception.Message)" }
           }
 
           $agent = $null
