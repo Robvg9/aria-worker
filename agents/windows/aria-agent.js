@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const os = require('node:os');
-const { parseShellJob, executePowerShell } = require('../../autonomy/windows-shell-executor');
+const { parseShellJob, executePowerShell } = require('./windows-shell-executor');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -88,10 +88,8 @@ async function callOllama({ prompt, model, timeout_ms }) {
   const started = Date.now();
   try {
     const response = await fetch(`${OLLAMA_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model, prompt, stream: false }),
-      signal: controller.signal
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model, prompt, stream: false }), signal: controller.signal
     });
     const text = await response.text();
     if (!response.ok) throw new Error(`ollama ${response.status}: ${text.slice(0, 1024)}`);
@@ -102,9 +100,7 @@ async function callOllama({ prompt, model, timeout_ms }) {
   } catch (error) {
     const aborted = error?.name === 'AbortError';
     return { status: aborted ? 'timeout' : 'failed', exit_code: null, stdout: '', stderr: redact(String(error?.message || error).slice(0, 4096)), duration_ms: Date.now() - started };
-  } finally {
-    clearTimeout(timer);
-  }
+  } finally { clearTimeout(timer); }
 }
 
 async function enroll() {
@@ -115,14 +111,7 @@ async function enroll() {
 
 async function heartbeat() {
   try {
-    await api('/v1/devices/heartbeat', {
-      method: 'POST',
-      body: JSON.stringify({
-        device_id: DEVICE_ID,
-        agent_type: 'windows-local',
-        capabilities: [OLLAMA_OPERATION, SHELL_OPERATION]
-      })
-    });
+    await api('/v1/devices/heartbeat', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, agent_type: 'windows-local', capabilities: [OLLAMA_OPERATION, SHELL_OPERATION] }) });
     log(`ONLINE device=${DEVICE_ID}`);
   } catch (error) { console.error(`[heartbeat] ${error.message}`); }
 }
@@ -137,30 +126,21 @@ async function rejectClaimedJob(job, reason, operation = job?.operation) {
 
 async function executeShellJob(job) {
   let payload;
-  try {
-    payload = parseShellJob(job, DEVICE_ID);
-  } catch (error) {
-    await rejectClaimedJob(job, String(error.message || 'unsupported_shell_job'), SHELL_OPERATION);
-    return;
-  }
+  try { payload = parseShellJob(job, DEVICE_ID); }
+  catch (error) { await rejectClaimedJob(job, String(error.message || 'unsupported_shell_job'), SHELL_OPERATION); return; }
 
   log(`JOB RECEIVED id=${job.job_id} operation=${SHELL_OPERATION} cwd=${JSON.stringify(payload.cwd)}`);
   await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
   log(`JOB START id=${job.job_id}`);
 
   const result = await executePowerShell(payload);
-  result.metadata = {
-    ...result.metadata,
-    agent_version: 'aria-windows-agent-v2',
-    platform: `windows/${os.release()}`,
-    request_nonce: crypto.randomUUID(),
-    operation: SHELL_OPERATION
-  };
+  result.stdout = redact(result.stdout);
+  result.stderr = redact(result.stderr);
+  result.metadata = { ...result.metadata, agent_version: 'aria-windows-agent-v2', platform: `windows/${os.release()}`, request_nonce: crypto.randomUUID(), operation: SHELL_OPERATION };
 
   log(`JOB RESULT id=${job.job_id} status=${result.status} exit_code=${result.exit_code} duration_ms=${result.duration_ms}`);
-  if (result.stdout) log(`STDOUT ${JSON.stringify(redact(result.stdout))}`);
-  if (result.stderr) log(`STDERR ${JSON.stringify(redact(result.stderr))}`);
-
+  if (result.stdout) log(`STDOUT ${JSON.stringify(result.stdout)}`);
+  if (result.stderr) log(`STDERR ${JSON.stringify(result.stderr)}`);
   await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, result }) });
   log(`JOB ACK id=${job.job_id} status=${result.status}`);
 }
@@ -186,10 +166,7 @@ async function claimAndExecute() {
     const body = await api('/v1/jobs/claim', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
     if (!body?.job) return;
     const job = body.job;
-    if (job.device_id !== DEVICE_ID) {
-      await rejectClaimedJob(job, 'device_id_mismatch', job.operation);
-      return;
-    }
+    if (job.device_id !== DEVICE_ID) { await rejectClaimedJob(job, 'device_id_mismatch', job.operation); return; }
     if (job.operation === SHELL_OPERATION) return executeShellJob(job);
     if (job.operation === OLLAMA_OPERATION) return executeOllamaJob(job);
     await rejectClaimedJob(job, `unsupported_operation:${String(job.operation || '')}`, job.operation);
@@ -205,8 +182,5 @@ process.on('SIGINT', () => { stopping = true; log('STOP requested'); });
   try { await enroll(); } catch (error) { console.error(`[enroll] ${error.message}`); }
   await heartbeat();
   setInterval(heartbeat, HEARTBEAT_MS);
-  while (!stopping) {
-    await claimAndExecute();
-    await sleep(POLL_MS);
-  }
+  while (!stopping) { await claimAndExecute(); await sleep(POLL_MS); }
 })().catch(error => { console.error(error); process.exit(1); });
