@@ -15,6 +15,7 @@ const ACTIONS = new Set([
 ]);
 const RUNNER = path.join(__dirname, 'windows-desktop-runner.ps1');
 const UIA_SCRIPT = path.join(__dirname, 'windows-ui-automation.ps1');
+const HOTKEY_SCRIPT = path.join(__dirname, 'windows-hotkey-runner.ps1');
 
 function validateRequest(request = {}) {
   if (!request || typeof request !== 'object') throw new Error('desktop_request_invalid');
@@ -109,8 +110,10 @@ async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
   if (payload.action === 'open') return openDirectly(payload);
   const args = payload.action === 'observe'
     ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', UIA_SCRIPT]
-    : ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', RUNNER];
+    : payload.action === 'hotkey'
+      ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', HOTKEY_SCRIPT]
+      : ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', RUNNER];
   return spawnPowerShell(args, payload, timeout_ms);
 }
 
-module.exports = Object.freeze({ VERSION, ACTIONS, RUNNER, UIA_SCRIPT, validateRequest, executeWindowsDesktop });
+module.exports = Object.freeze({ VERSION, ACTIONS, RUNNER, UIA_SCRIPT, HOTKEY_SCRIPT, validateRequest, executeWindowsDesktop });
