@@ -40,7 +40,7 @@ function Write-Status([hashtable]$Fields) {
 function Resolve-Token {
     if (Test-Path $StagingTokenPath) {
         $stagedToken = (Get-Content -Raw -Path $StagingTokenPath).Trim()
-        if ([string]::IsNullOrWhiteSpace($stagedToken) -or $stagedToken.Length -lt 32) {
+        if ([string]::IsNullOrWhiteSpace($stagedToken) or $stagedToken.Length -lt 32) {
             throw 'ARIA staged token is missing or invalid'
         }
         $secureStaged = ConvertTo-SecureString -String $stagedToken -AsPlainText -Force
@@ -61,6 +61,9 @@ function Resolve-Token {
 try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
 Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir pid=$PID"
 Write-Status @{ state = 'watchdog_alive'; agent_pid = $null }
+
+$consecutiveErrors = 0
+$maxConsecutiveErrors = 6
 
 while ($true) {
     try {
@@ -89,6 +92,7 @@ while ($true) {
         # ONLY WindowStyle Hidden - never combine with -NoNewWindow (PowerShell throws).
         $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
+        $consecutiveErrors = 0
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
         Write-Status @{
             state = 'agent_running'
@@ -126,8 +130,14 @@ while ($true) {
         Start-Sleep -Seconds 5
     }
     catch {
-        Write-Log "WATCHDOG_ERROR $($_.Exception.Message)"
-        Write-Status @{ state = 'watchdog_error'; error = $_.Exception.Message; agent_pid = $null }
+        $consecutiveErrors++
+        Write-Log "WATCHDOG_ERROR count=$consecutiveErrors $($_.Exception.Message)"
+        Write-Status @{ state = 'watchdog_error'; error = $_.Exception.Message; agent_pid = $null; consecutive_errors = $consecutiveErrors }
+        if ($consecutiveErrors -ge $maxConsecutiveErrors) {
+            Write-Log "WATCHDOG_EXIT after $consecutiveErrors consecutive errors (RestartOnFailure will reload script from disk)"
+            Write-Status @{ state = 'watchdog_exiting'; consecutive_errors = $consecutiveErrors }
+            exit 1
+        }
         Start-Sleep -Seconds 10
     }
 }
