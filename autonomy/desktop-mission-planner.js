@@ -2,15 +2,15 @@
 
 const { compileMission, validatePlan } = require('./desktop-mission-orchestrator');
 
-const VERSION = 'aria-desktop-mission-planner-v1.2';
+const VERSION = 'aria-desktop-mission-planner-v1.3';
 const DEFAULT_DEVICE_ID = 'windows-local';
 const READ_ACTIONS = new Set(['screenshot', 'observe', 'focus']);
 const LOW_WRITE_ACTIONS = new Set(['open', 'click', 'type', 'keypress', 'scroll']);
 
 function riskForComputerAction(action) {
-  if (READ_ACTIONS.has(action)) return 'READ';
-  if (LOW_WRITE_ACTIONS.has(action)) return 'LOW_RISK_WRITE';
-  return 'HIGH_RISK_WRITE';
+  if (READ_ACTIONS.has(action)) return { policy: 'low', class: 'READ' };
+  if (LOW_WRITE_ACTIONS.has(action)) return { policy: 'low', class: 'LOW_RISK_WRITE' };
+  return { policy: 'high', class: 'HIGH_RISK_WRITE' };
 }
 
 function inferVerify(step) {
@@ -26,6 +26,7 @@ function toRuntimeStep(step, index, device_id) {
   const target = Object.freeze({ type: 'device', device_id });
   if (step.type === 'computer.use') {
     const input = Object.freeze({ ...(step.payload || {}) });
+    const risk = riskForComputerAction(input.action);
     const verify = inferVerify(step);
     return Object.freeze({
       id,
@@ -34,7 +35,8 @@ function toRuntimeStep(step, index, device_id) {
       target,
       input,
       timeout_ms: 120000,
-      policy: Object.freeze({ desktop_governed: true, risk_class: riskForComputerAction(input.action) }),
+      risk: risk.policy,
+      policy: Object.freeze({ desktop_governed: true, risk: risk.policy, risk_class: risk.class }),
       ...(verify ? { verify: Object.freeze(verify) } : {})
     });
   }
@@ -46,7 +48,8 @@ function toRuntimeStep(step, index, device_id) {
       target,
       command: step.payload?.script,
       timeout_ms: 120000,
-      policy: Object.freeze({ desktop_governed: true, risk_class: 'READ', shell_policy: 'desktop-mission-safe' })
+      risk: 'low',
+      policy: Object.freeze({ desktop_governed: true, risk: 'low', risk_class: 'READ', shell_policy: 'desktop-mission-safe' })
     });
   }
   throw new Error(`unsupported desktop step type: ${step.type}`);
