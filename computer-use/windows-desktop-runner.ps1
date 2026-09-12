@@ -27,9 +27,51 @@ public static class AriaDesktopNative {
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [StructLayout(LayoutKind.Sequential)] public struct INPUT {
+        public uint type;
+        public InputUnion U;
+    }
+
+    [StructLayout(LayoutKind.Explicit)] public struct InputUnion {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    public const int INPUT_KEYBOARD = 1;
+    public const uint KEYEVENTF_UNICODE = 0x0004;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
     public const int SRCCOPY = 0x00CC0020;
     public const uint LEFTDOWN = 0x0002, LEFTUP = 0x0004, RIGHTDOWN = 0x0008, RIGHTUP = 0x0010;
     public const uint WHEEL = 0x0800;
+
+    public static bool TypeUnicode(string text) {
+        if (text == null) return false;
+        foreach (char ch in text) {
+            ushort code = (ushort)ch;
+            INPUT[] inputs = new INPUT[2];
+            inputs[0] = new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = 0, wScan = code, dwFlags = KEYEVENTF_UNICODE } } };
+            inputs[1] = new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = 0, wScan = code, dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP } } };
+            uint sent = SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+            if (sent != 2) return false;
+        }
+        return true;
+    }
+
+    public static bool KeyPressVirtual(ushort vk) {
+        INPUT[] inputs = new INPUT[2];
+        inputs[0] = new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = vk, wScan = 0, dwFlags = 0 } } };
+        inputs[1] = new INPUT { type = INPUT_KEYBOARD, U = new InputUnion { ki = new KEYBDINPUT { wVk = vk, wScan = 0, dwFlags = KEYEVENTF_KEYUP } } };
+        return SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT))) == 2;
+    }
 }
 "@
 
@@ -105,7 +147,9 @@ public static class AriaDesktopNative {
             Emit-Result @{status='succeeded';action=$action;process=$name;pid=$proc.Id}
         }
         'click' {
-            $x=[int]$payload.x; $y=[int]$payload.y; $button='left'
+            $x=[int]$payload.x
+            $y=[int]$payload.y
+            $button='left'
             if ($null -ne $payload.button -and -not [string]::IsNullOrWhiteSpace([string]$payload.button)) { $button=[string]$payload.button }
             [AriaDesktopNative]::SetCursorPos($x,$y) | Out-Null
             if ($button -eq 'right') {
@@ -116,6 +160,25 @@ public static class AriaDesktopNative {
                 [AriaDesktopNative]::mouse_event([AriaDesktopNative]::LEFTUP,0,0,0,[UIntPtr]::Zero)
             }
             Emit-Result @{status='succeeded';action=$action;x=$x;y=$y;button=$button}
+        }
+        'type' {
+            $text = [string]$payload.text
+            if ([string]::IsNullOrEmpty($text)) { Emit-Result @{status='failed';action=$action;error='desktop_type_text_required'} 1 }
+            if (-not [AriaDesktopNative]::TypeUnicode($text)) { Emit-Result @{status='failed';action=$action;error='desktop_type_sendinput_failed'} 1 }
+            Emit-Result @{status='succeeded';action=$action;text_length=$text.Length}
+        }
+        'keypress' {
+            $key = ([string]$payload.key).ToUpperInvariant()
+            $vkMap = @{
+                'ENTER'=0x0D; 'ESC'=0x1B; 'ESCAPE'=0x1B; 'TAB'=0x09; 'BACKSPACE'=0x08; 'SPACE'=0x20;
+                'LEFT'=0x25; 'UP'=0x26; 'RIGHT'=0x27; 'DOWN'=0x28; 'HOME'=0x24; 'END'=0x23;
+                'PGUP'=0x21; 'PAGEUP'=0x21; 'PGDN'=0x22; 'PAGEDOWN'=0x22; 'DELETE'=0x2E;
+                'F1'=0x70; 'F2'=0x71; 'F3'=0x72; 'F4'=0x73; 'F5'=0x74; 'F6'=0x75;
+                'F7'=0x76; 'F8'=0x77; 'F9'=0x78; 'F10'=0x79; 'F11'=0x7A; 'F12'=0x7B
+            }
+            if (-not $vkMap.ContainsKey($key)) { Emit-Result @{status='failed';action=$action;error='desktop_keypress_key_unsupported';key=$key} 1 }
+            if (-not [AriaDesktopNative]::KeyPressVirtual([ushort]$vkMap[$key])) { Emit-Result @{status='failed';action=$action;error='desktop_keypress_sendinput_failed';key=$key} 1 }
+            Emit-Result @{status='succeeded';action=$action;key=$key}
         }
         'scroll' {
             $delta=[int]$payload.delta
