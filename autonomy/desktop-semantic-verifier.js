@@ -4,18 +4,21 @@ const VERSION = 'aria-desktop-semantic-verifier-v1';
 
 function normalizeObservation(observation) {
   if (!observation || typeof observation !== 'object') return null;
-  const nodes = Array.isArray(observation.nodes) ? observation.nodes : [];
+  const source = observation.ui && typeof observation.ui === 'object' ? observation.ui : observation;
+  const nodes = Array.isArray(source.nodes) ? source.nodes : [];
   return Object.freeze({
-    status: observation.status || null,
-    focused_process: observation.focused_process || null,
-    focused_title: observation.focused_title || null,
+    status: observation.status || source.status || null,
+    focused_process: observation.focused_process || source.focused_process || null,
+    focused_title: observation.focused_title || source.focused_title || source.title || null,
+    focused_id: source.focused_id || null,
     nodes: Object.freeze(nodes.map(node => Object.freeze({
       role: node?.role || null,
       name: node?.name || null,
-      value: node?.value || null,
+      value: node?.value || node?.text || null,
       enabled: node?.enabled ?? null,
       visible: node?.visible ?? null,
-      bounds: node?.bounds || null
+      bounds: node?.bounds || node?.attributes?.bounding_rectangle || null,
+      attributes: node?.attributes || null
     })))
   });
 }
@@ -40,13 +43,24 @@ function nodeMatches(node, expected = {}) {
 function verifyObservation(observation, expectation = {}) {
   const normalized = normalizeObservation(observation);
   if (!normalized) return Object.freeze({ ok: false, reason: 'observation_missing', confidence: 0 });
+
   const expectedProcess = expectation.focused_process || null;
-  if (expectedProcess && !textMatches(normalized.focused_process, expectedProcess)) {
-    return Object.freeze({ ok: false, reason: 'focused_process_mismatch', confidence: 0.2, evidence: normalized });
+  if (expectedProcess) {
+    const directMatch = textMatches(normalized.focused_process, expectedProcess);
+    const windowMatch = normalized.nodes.some(node => node.role === 'window' && textMatches(node.name, expectedProcess));
+    if (!directMatch && !windowMatch) {
+      return Object.freeze({ ok: false, reason: 'focused_process_mismatch', confidence: 0.2, evidence: normalized });
+    }
   }
-  if (expectation.focused_title && !textMatches(normalized.focused_title, expectation.focused_title)) {
-    return Object.freeze({ ok: false, reason: 'focused_title_mismatch', confidence: 0.25, evidence: normalized });
+
+  if (expectation.focused_title) {
+    const directMatch = textMatches(normalized.focused_title, expectation.focused_title);
+    const windowMatch = normalized.nodes.some(node => node.role === 'window' && textMatches(node.name, expectation.focused_title));
+    if (!directMatch && !windowMatch) {
+      return Object.freeze({ ok: false, reason: 'focused_title_mismatch', confidence: 0.25, evidence: normalized });
+    }
   }
+
   if (Array.isArray(expectation.required_nodes)) {
     for (const expected of expectation.required_nodes) {
       if (!normalized.nodes.some(node => nodeMatches(node, expected))) {
