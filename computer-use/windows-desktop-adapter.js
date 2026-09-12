@@ -3,41 +3,186 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 
-const VERSION = 'aria-windows-desktop-v1.5';
+const VERSION = 'aria-windows-desktop-v1.6';
 const MAX_TEXT = 32 * 1024;
 const MAX_SCREENSHOT_B64 = 8 * 1024 * 1024;
 const ACTIONS = new Set(['screenshot', 'observe', 'open', 'click', 'type', 'keypress', 'scroll', 'focus']);
 const UIA_SCRIPT = path.join(__dirname, 'windows-ui-automation.ps1');
 
+/**
+ * Embedded PowerShell body for desktop actions.
+ * Screenshot path is deliberately dual-mode (BitBlt primary, CopyFromScreen fallback)
+ * and always runs under -STA from Node (see spawnProcess).
+ */
 const POWERSHELL = String.raw`
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+$ProgressPreference = 'SilentlyContinue'
+
+function Emit-Error($code, $detail) {
+  $msg = if ($null -eq $detail) { [string]$code } else { "$code|$detail" }
+  $err = @{ status = 'failed'; action = 'screenshot'; error = $msg }
+  $err | ConvertTo-Json -Compress -Depth 6
+  exit 1
+}
+
+try {
+  Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+  Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+} catch {
+  Emit-Error 'desktop_assembly_load_failed' $_.Exception.Message
+}
+
+# P/Invoke capture + DPI awareness (works on .NET Framework / Windows PowerShell 5.1)
+$ariaCaptureSource = @'
+using System;
+using System.Runtime.InteropServices;
+public static class AriaCapture {
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+  [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+  [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
+  [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
+  [DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr hdcDest, int nXDest, int nYDest, int nWidth, int nHeight, IntPtr hdcSrc, int nXSrc, int nYSrc, int dwRop);
+  [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr hObject);
+  [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
+  public const int SRCCOPY = 0x00CC0020;
+}
+'@
+try {
+  if (-not ([System.Management.Automation.PSTypeName]'AriaCapture').Type) {
+    Add-Type -TypeDefinition $ariaCaptureSource -ErrorAction Stop
+  }
+} catch {
+  # Type may already exist from a previous invoke in the same process; ignore duplicate.
+  if ($_.Exception.Message -notmatch 'already exists|duplicate') {
+    Emit-Error 'desktop_pinvoke_load_failed' $_.Exception.Message
+  }
+}
+
+try { [AriaCapture]::SetProcessDPIAware() | Out-Null } catch {}
+
 $payloadJson = [Console]::In.ReadToEnd()
-if ([string]::IsNullOrWhiteSpace($payloadJson)) { throw 'desktop_payload_missing' }
-$payload = $payloadJson | ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace($payloadJson)) { Emit-Error 'desktop_payload_missing' $null }
+try { $payload = $payloadJson | ConvertFrom-Json } catch { Emit-Error 'desktop_payload_invalid_json' $_.Exception.Message }
+
 function Json($x) { $x | ConvertTo-Json -Compress -Depth 12 }
+
+function Capture-ScreenshotPngBase64 {
+  $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+  if ($null -eq $screen) { throw 'desktop_primary_screen_missing' }
+
+  # Use Bounds after DPI awareness; fall back to VirtualScreen if Primary reports empty.
+  $b = $screen.Bounds
+  $left = [int]$b.Left
+  $top = [int]$b.Top
+  $width = [int]$b.Width
+  $height = [int]$b.Height
+
+  if ($width -le 0 -or $height -le 0) {
+    $vb = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $left = [int]$vb.Left
+    $top = [int]$vb.Top
+    $width = [int]$vb.Width
+    $height = [int]$vb.Height
+  }
+
+  if ($width -le 0 -or $height -le 0) {
+    throw "desktop_invalid_screen_bounds:${left},${top},${width},${height}"
+  }
+  if ($width -gt 16384 -or $height -gt 16384) {
+    throw "desktop_screen_too_large:${width}x${height}"
+  }
+
+  $method = 'bitblt'
+  $b64 = $null
+  $bitbltError = $null
+  $copyError = $null
+
+  # --- Primary: Win32 BitBlt (does not depend on Graphics.CopyFromScreen) ---
+  try {
+    $hdcSrc = [AriaCapture]::GetDC([IntPtr]::Zero)
+    if ($hdcSrc -eq [IntPtr]::Zero) { throw 'desktop_getdc_failed' }
+    $hdcDest = [IntPtr]::Zero
+    $hBmp = [IntPtr]::Zero
+    $hOld = [IntPtr]::Zero
+    try {
+      $hdcDest = [AriaCapture]::CreateCompatibleDC($hdcSrc)
+      if ($hdcDest -eq [IntPtr]::Zero) { throw 'desktop_create_compatible_dc_failed' }
+      $hBmp = [AriaCapture]::CreateCompatibleBitmap($hdcSrc, $width, $height)
+      if ($hBmp -eq [IntPtr]::Zero) { throw 'desktop_create_compatible_bitmap_failed' }
+      $hOld = [AriaCapture]::SelectObject($hdcDest, $hBmp)
+      $ok = [AriaCapture]::BitBlt($hdcDest, 0, 0, $width, $height, $hdcSrc, $left, $top, [AriaCapture]::SRCCOPY)
+      if (-not $ok) { throw 'desktop_bitblt_failed' }
+      # Convert HBITMAP -> managed Bitmap (PS 5.1 safe)
+      $bmp = [System.Drawing.Image]::FromHbitmap($hBmp)
+      try {
+        $ms = New-Object System.IO.MemoryStream
+        try {
+          $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+          $b64 = [Convert]::ToBase64String($ms.ToArray())
+        } finally { $ms.Dispose() }
+      } finally { $bmp.Dispose() }
+    } finally {
+      if ($hOld -ne [IntPtr]::Zero) { [AriaCapture]::SelectObject($hdcDest, $hOld) | Out-Null }
+      if ($hBmp -ne [IntPtr]::Zero) { [AriaCapture]::DeleteObject($hBmp) | Out-Null }
+      if ($hdcDest -ne [IntPtr]::Zero) { [AriaCapture]::DeleteDC($hdcDest) | Out-Null }
+      if ($hdcSrc -ne [IntPtr]::Zero) { [AriaCapture]::ReleaseDC([IntPtr]::Zero, $hdcSrc) | Out-Null }
+    }
+  } catch {
+    $bitbltError = "$($_.Exception.GetType().FullName): $($_.Exception.Message)"
+    $b64 = $null
+  }
+
+  # --- Fallback: System.Drawing Graphics.CopyFromScreen ---
+  if ([string]::IsNullOrEmpty($b64)) {
+    $method = 'copyfromscreen'
+    try {
+      # CRITICAL: do NOT use -ArgumentList @($w,$h) — PS 5.1 packs the array as a single argument.
+      $bmp2 = New-Object System.Drawing.Bitmap ([int]$width), ([int]$height)
+      $g = [System.Drawing.Graphics]::FromImage($bmp2)
+      try {
+        $size = New-Object System.Drawing.Size ([int]$width), ([int]$height)
+        $g.CopyFromScreen([int]$left, [int]$top, 0, 0, $size)
+        $ms2 = New-Object System.IO.MemoryStream
+        try {
+          $bmp2.Save($ms2, [System.Drawing.Imaging.ImageFormat]::Png)
+          $b64 = [Convert]::ToBase64String($ms2.ToArray())
+        } finally { $ms2.Dispose() }
+      } finally {
+        $g.Dispose()
+        $bmp2.Dispose()
+      }
+    } catch {
+      $copyError = "$($_.Exception.GetType().FullName): $($_.Exception.Message)"
+      $hr = $null
+      try { $hr = $_.Exception.HResult } catch {}
+      $detail = "bitblt=$bitbltError; copyfromscreen=$copyError; hresult=$hr; bounds=${left},${top},${width}x${height}; apt=$([System.Threading.Thread]::CurrentThread.GetApartmentState())"
+      throw "desktop_screenshot_failed:$detail"
+    }
+  }
+
+  if ([string]::IsNullOrEmpty($b64)) {
+    throw "desktop_screenshot_empty:bitblt=$bitbltError;bounds=${left},${top},${width}x${height}"
+  }
+
+  return @{
+    status = 'succeeded'
+    action = 'screenshot'
+    screenshot_base64 = $b64
+    width = $width
+    height = $height
+    capture_method = $method
+    bounds = @{ left = $left; top = $top; right = ($left + $width); bottom = ($top + $height) }
+    apartment = [string][System.Threading.Thread]::CurrentThread.GetApartmentState()
+  }
+}
+
 function Invoke-Desktop($p) {
   $action = [string]$p.action
   switch ($action) {
     'screenshot' {
-      $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-      if ($null -eq $screen) { throw 'desktop_primary_screen_missing' }
-      $b = $screen.Bounds
-      $left = [int]$b.Left; $top = [int]$b.Top; $width = [int]$b.Width; $height = [int]$b.Height
-      if ($width -le 0 -or $height -le 0) { throw "desktop_invalid_primary_screen:${left},${top},${width},${height}" }
-      if ($width -gt 16384 -or $height -gt 16384) { throw "desktop_primary_screen_too_large:${width}x${height}" }
-      $bmp = New-Object System.Drawing.Bitmap -ArgumentList @([int]$width,[int]$height)
-      $g = [System.Drawing.Graphics]::FromImage($bmp)
-      try {
-        $g.CopyFromScreen([int]$left,[int]$top,0,0,$bmp.Size)
-        $ms = New-Object System.IO.MemoryStream
-        try {
-          $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png)
-          $b64 = [Convert]::ToBase64String($ms.ToArray())
-        } finally { $ms.Dispose() }
-      } finally { $g.Dispose(); $bmp.Dispose() }
-      return @{status='succeeded';action='screenshot';screenshot_base64=$b64;width=$width;height=$height;bounds=@{left=$left;top=$top;right=$left+$width;bottom=$top+$height}}
+      return Capture-ScreenshotPngBase64
     }
     'open' {
       $path = [string]$p.path
@@ -82,16 +227,16 @@ public static class AriaKeyboard { [StructLayout(LayoutKind.Sequential)] public 
 '@
       $inputs=New-Object 'AriaKeyboard+INPUT[]' ($text.Length*2); $i=0
       foreach($ch in $text.ToCharArray()){
-        $inputs[$i].type=[AriaKeyboard]::IK; $inputs[$i].U.ki=[AriaKeyboard]::KEYBDINPUT::new(); $inputs[$i].U.ki.wScan=[int][char]$ch; $inputs[$i].U.ki.dwFlags=[AriaKeyboard]::UNICODE; $i++
-        $inputs[$i].type=[AriaKeyboard]::IK; $inputs[$i].U.ki=[AriaKeyboard]::KEYBDINPUT::new(); $inputs[$i].U.ki.wScan=[int][char]$ch; $inputs[$i].U.ki.dwFlags=[AriaKeyboard]::UNICODE -bor [AriaKeyboard]::KEYUP; $i++
+        $inputs[$i].type=[AriaKeyboard]::IK; $inputs[$i].U.ki=New-Object AriaKeyboard+KEYBDINPUT; $inputs[$i].U.ki.wScan=[int][char]$ch; $inputs[$i].U.ki.dwFlags=[AriaKeyboard]::UNICODE; $i++
+        $inputs[$i].type=[AriaKeyboard]::IK; $inputs[$i].U.ki=New-Object AriaKeyboard+KEYBDINPUT; $inputs[$i].U.ki.wScan=[int][char]$ch; $inputs[$i].U.ki.dwFlags=[AriaKeyboard]::UNICODE -bor [AriaKeyboard]::KEYUP; $i++
       }
-      $sent=[AriaKeyboard]::SendInput($inputs.Length,$inputs,[Runtime.InteropServices.Marshal]::SizeOf([AriaKeyboard]::INPUT)); if($sent -ne $inputs.Length){throw "desktop_type_sendinput_failed:$sent/$($inputs.Length)"}
+      $sent=[AriaKeyboard]::SendInput($inputs.Length,$inputs,[Runtime.InteropServices.Marshal]::SizeOf([type][AriaKeyboard+INPUT])); if($sent -ne $inputs.Length){throw "desktop_type_sendinput_failed:$sent/$($inputs.Length)"}
       return @{status='succeeded';action='type';characters=$text.Length}
     }
     'keypress' {
       $key=[string]$p.key; $map=@{ENTER=0x0D;ESC=0x1B;TAB=0x09;SPACE=0x20;BACKSPACE=0x08;DELETE=0x2E;HOME=0x24;END=0x23;LEFT=0x25;UP=0x26;RIGHT=0x27;DOWN=0x28;F1=0x70;F2=0x71;F3=0x72;F4=0x73;F5=0x74;F6=0x75;F7=0x76;F8=0x77;F9=0x78;F10=0x79;F11=0x7A;F12=0x7B}
       if($key.Length -eq 1){$vk=[int][char]$key.ToUpperInvariant()} elseif($map.ContainsKey($key.ToUpperInvariant())){$vk=$map[$key.ToUpperInvariant()]} else{throw 'desktop_key_unsupported'}
-      Add-Type @' 
+      Add-Type @'
 using System; using System.Runtime.InteropServices; public static class AriaKey { [DllImport("user32.dll")] public static extern void keybd_event(byte bVk,byte bScan,uint dwFlags,UIntPtr dwExtraInfo); public const uint KEYUP=0x0002; }
 '@
       [AriaKey]::keybd_event([byte]$vk,0,0,[UIntPtr]::Zero); [AriaKey]::keybd_event([byte]$vk,0,[AriaKey]::KEYUP,[UIntPtr]::Zero); return @{status='succeeded';action='keypress';key=$key}
@@ -106,7 +251,14 @@ using System; using System.Runtime.InteropServices; public static class AriaScro
     default { throw "desktop_action_requires_native_observer:$action" }
   }
 }
-Invoke-Desktop $payload | Json
+
+try {
+  Invoke-Desktop $payload | Json
+} catch {
+  $detail = "$($_.Exception.GetType().FullName): $($_.Exception.Message)"
+  @{ status = 'failed'; action = [string]$payload.action; error = $detail } | ConvertTo-Json -Compress -Depth 6
+  exit 1
+}
 `;
 
 function validateRequest(request = {}) {
@@ -123,25 +275,73 @@ function validateRequest(request = {}) {
 
 function spawnProcess(args, payload, timeout_ms) {
   return new Promise((resolve) => {
-    const child = spawn('powershell.exe', args, { windowsHide: true, stdio: ['pipe','pipe','pipe'] });
-    let stdout=''; let stderr=''; let settled=false;
-    const finish=(value)=>{ if(settled)return; settled=true; clearTimeout(timer); resolve(value); };
-    const timer=setTimeout(()=>{ try{child.kill()}catch(_){} finish({status:'timeout',action:payload.action,error:'desktop_timeout'}); }, Math.max(1000,timeout_ms));
-    child.stdout.on('data', c => { stdout += c.toString('utf8'); if(stdout.length>MAX_SCREENSHOT_B64+100000) child.kill(); });
-    child.stderr.on('data', c => { stderr += c.toString('utf8').slice(0,8192); });
-    child.on('error', e => finish({status:'failed',action:payload.action,error:String(e.message||e)}));
-    child.on('close', code => {
-      if(code!==0)return finish({status:'failed',action:payload.action,exit_code:code,error:stderr||`powershell_exit_${code}`});
-      try{const result=JSON.parse(stdout.trim());if(result.screenshot_base64&&result.screenshot_base64.length>MAX_SCREENSHOT_B64)return finish({status:'failed',action:payload.action,error:'desktop_screenshot_too_large'});finish({...result,version:VERSION});}catch(e){finish({status:'failed',action:payload.action,error:`desktop_invalid_result:${e.message}`,stdout:stdout.slice(-4096)})}
+    const child = spawn('powershell.exe', args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (value) => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch (_) {}
+      finish({ status: 'timeout', action: payload.action, error: 'desktop_timeout' });
+    }, Math.max(1000, timeout_ms));
+    child.stdout.on('data', (c) => {
+      stdout += c.toString('utf8');
+      if (stdout.length > MAX_SCREENSHOT_B64 + 100000) child.kill();
+    });
+    child.stderr.on('data', (c) => { stderr += c.toString('utf8').slice(0, 8192); });
+    child.on('error', (e) => finish({ status: 'failed', action: payload.action, error: String(e.message || e) }));
+    child.on('close', (code) => {
+      // Prefer structured JSON from stdout even on non-zero exit (Emit-Error path).
+      const trimmed = stdout.trim();
+      if (trimmed) {
+        try {
+          const result = JSON.parse(trimmed);
+          if (result.screenshot_base64 && result.screenshot_base64.length > MAX_SCREENSHOT_B64) {
+            return finish({ status: 'failed', action: payload.action, error: 'desktop_screenshot_too_large' });
+          }
+          if (result.status === 'failed' || code !== 0) {
+            return finish({
+              status: 'failed',
+              action: payload.action || result.action,
+              exit_code: code,
+              error: result.error || stderr || `powershell_exit_${code}`,
+              version: VERSION,
+            });
+          }
+          return finish({ ...result, version: VERSION });
+        } catch (_) {
+          /* fall through to stderr path */
+        }
+      }
+      if (code !== 0) {
+        return finish({
+          status: 'failed',
+          action: payload.action,
+          exit_code: code,
+          error: stderr || `powershell_exit_${code}`,
+          stdout: trimmed.slice(-4096),
+        });
+      }
+      finish({
+        status: 'failed',
+        action: payload.action,
+        error: `desktop_invalid_result:empty_or_unparseable`,
+        stdout: trimmed.slice(-4096),
+        stderr,
+      });
     });
     child.stdin.end(JSON.stringify(payload));
   });
 }
 
 function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
-  const payload=validateRequest(request);
-  if(payload.action==='observe') return spawnProcess(['-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',UIA_SCRIPT],payload,timeout_ms);
-  return spawnProcess(['-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',POWERSHELL],payload,timeout_ms);
+  const payload = validateRequest(request);
+  // -STA is required for reliable GDI+/WinForms screen capture on Windows PowerShell 5.1.
+  const baseArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass'];
+  if (payload.action === 'observe') {
+    return spawnProcess([...baseArgs, '-File', UIA_SCRIPT], payload, timeout_ms);
+  }
+  return spawnProcess([...baseArgs, '-Command', POWERSHELL], payload, timeout_ms);
 }
 
 module.exports = Object.freeze({ VERSION, ACTIONS, validateRequest, executeWindowsDesktop });
