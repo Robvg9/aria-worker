@@ -48,8 +48,9 @@ jobs:
           Copy-Item -Path (Join-Path $source 'run-agent.ps1') -Destination $target -Force
           Copy-Item -Path $canonical -Destination (Join-Path $target 'windows-shell-executor.js') -Force
           Copy-Item -Path (Join-Path $computerUse 'windows-desktop-adapter.js') -Destination $target -Force
+          Copy-Item -Path (Join-Path $computerUse 'windows-desktop-runner.ps1') -Destination $target -Force
           Copy-Item -Path (Join-Path $computerUse 'windows-ui-automation.ps1') -Destination $target -Force
-          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js','windows-desktop-adapter.js','windows-ui-automation.ps1')) {
+          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js','windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1')) {
             if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing after sync: $file" }
           }
           Write-Host 'ARIA_RUNTIME_SYNC=PASS'
