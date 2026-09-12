@@ -7,13 +7,14 @@ const { createDesktopMissionReplanner } = require('../autonomy/desktop-mission-r
   const replanner = createDesktopMissionReplanner({ max_alternatives: 2 });
 
   const focus = await replanner.replan({
+    mission: { target: { device_id: 'windows-local' } },
     failed_step: {
       id: 's1', operation: 'computer.use',
       target: { type: 'device', device_id: 'windows-local' },
       input: { action: 'focus', process: 'powershell' },
       retryable: true
     },
-    outcome: { error: 'verification_failed' },
+    outcome: { verification: { reason: 'focused_process_mismatch' } },
     replan_count: 1
   });
 
@@ -24,21 +25,25 @@ const { createDesktopMissionReplanner } = require('../autonomy/desktop-mission-r
   assert.equal(focus.every(step => step.depends_on.length === 0), true);
 
   const type = await replanner.replan({
+    mission: { target: { device_id: 'windows-local' } },
     failed_step: {
       id: 's2', operation: 'computer.use',
       target: { type: 'device', device_id: 'windows-local' },
       input: { action: 'type', text: 'ollama --version' }
     },
+    outcome: { verification: { reason: 'focused_process_mismatch' } },
     replan_count: 0
   });
   assert.equal(type[1].input.action, 'focus');
+  assert.equal(type[1].verify.focused_process, 'powershell');
 
-  const safe = await replanner.replan({
-    failed_step: { id: 's3', operation: 'shell.execute', target: { type: 'device', device_id: 'windows-local' }, command: 'Get-Date' },
+  const blocked = await replanner.replan({
+    mission: { target: { device_id: 'windows-local' } },
+    failed_step: { id: 's3', operation: 'shell.execute', target: { type: 'device', device_id: 'windows-local' }, command: 'Remove-Item x' },
+    outcome: { error: 'shell_policy_blocked' },
     replan_count: 0
   });
-  assert.equal(safe[0].input.action, 'observe');
-  assert.equal(safe[1].operation, 'computer.use');
+  assert.equal(blocked.length, 0);
 
   console.log('DESKTOP MISSION REPLANNER: PASS');
 })().catch(error => {
