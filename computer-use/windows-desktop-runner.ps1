@@ -41,10 +41,6 @@ public static class AriaDesktopNative {
             ushort code = (ushort)ch;
             keybd_event(0, (byte)(code & 0xFF), KEYEVENTF_UNICODE, UIntPtr.Zero);
             keybd_event(0, (byte)(code & 0xFF), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, UIntPtr.Zero);
-            if (code > 0xFF) {
-                keybd_event(0, 0, KEYEVENTF_UNICODE, UIntPtr.Zero);
-                keybd_event(0, 0, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, UIntPtr.Zero);
-            }
         }
         return true;
     }
@@ -109,7 +105,7 @@ public static class AriaDesktopNative {
         }
         'type' {
             $text=[string]$payload.text; if ([string]::IsNullOrEmpty($text)) { Emit-Result @{status='failed';action=$action;error='desktop_type_text_required'} 1 }
-            foreach ($ch in $text.ToCharArray()) { [AriaDesktopNative]::SendUnicodeChar([ushort][char]$ch) }
+            foreach ($ch in $text.ToCharArray()) { [AriaDesktopNative]::SendUnicodeChar([System.UInt16][char]$ch) }
             Emit-Result @{status='succeeded';action=$action;text_length=$text.Length;method='keybd_event_unicode'}
         }
         'keypress' {
