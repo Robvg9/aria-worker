@@ -23,6 +23,7 @@ $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
     'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
+    'windows-desktop-adapter.js' = Join-Path $AgentRoot '..\..\computer-use\windows-desktop-adapter.js'
 }
 foreach ($file in $requiredSources.Keys) {
     $source = $requiredSources[$file]
@@ -68,6 +69,7 @@ $config = [ordered]@{
     poll_ms = 3000
     gateway_timeout_ms = 15000
     gateway_retries = 2
+    capabilities = @('ollama.qwen3','shell.execute','computer.use')
 }
 $config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
 
@@ -142,3 +144,4 @@ Write-Host 'Inicio automatico: AtLogOn (usuario interactivo)'
 Write-Host 'ExecutionTimeLimit: 0'
 Write-Host 'RestartOnFailure: 999 / 1 minuto'
 Write-Host 'Shell executor: installed'
+Write-Host 'Desktop computer-use: installed'
