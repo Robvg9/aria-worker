@@ -49,6 +49,37 @@ jobs:
           }
           Write-Host 'QWEN_EXECUTION=PASS'
 
+      - name: Repair Windows Agent DPAPI token and start task
+        shell: powershell
+        env:
+          ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
+          ARIA_DEVICE_ID: ${{ secrets.ARIA_DEVICE_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('ARIA_DEVICE_TOKEN','ARIA_DEVICE_ID')) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
+              throw "$name repository secret is missing"
+            }
+          }
+          $configDir = Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent'
+          $tokenPath = Join-Path $configDir 'device-token.dpapi'
+          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+          $secure = ConvertTo-SecureString -String $env:ARIA_DEVICE_TOKEN -AsPlainText -Force
+          $encrypted = $secure | ConvertFrom-SecureString
+          Set-Content -Path $tokenPath -Value $encrypted -Encoding ASCII
+          Write-Host 'TOKEN_STORE_REPAIRED=True'
+          & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to start ARIA-Windows-Local-Agent. ExitCode=$LASTEXITCODE"
+          }
+          Start-Sleep -Seconds 8
+          $agent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like '*agents\\windows\\aria-agent.js*' }
+          if (-not $agent) {
+            throw 'ARIA Windows Agent process did not start'
+          }
+          Write-Host 'AGENT_PROCESS=RUNNING'
+
       - name: Verify ARIA Gateway environment and heartbeat
         shell: powershell
         env:
