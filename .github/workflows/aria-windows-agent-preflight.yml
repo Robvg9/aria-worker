@@ -35,8 +35,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
           Copy-Item -Path (Join-Path $source '*') -Destination $target -Force
           $synced = Get-Content -Raw (Join-Path $target 'run-agent.ps1')
-          if ($synced -match 'NoNewWindow') {
-            throw 'Synced run-agent.ps1 still contains NoNewWindow - refuse to deploy broken launcher'
+          # Only flag actual Start-Process usage of -NoNewWindow (comments are OK).
+          if ($synced -match 'Start-Process[\s\S]{0,200}-NoNewWindow') {
+            throw 'Synced run-agent.ps1 still uses -NoNewWindow on Start-Process'
+          }
+          if ($synced -notmatch 'WindowStyle Hidden') {
+            throw 'Synced run-agent.ps1 missing WindowStyle Hidden launch'
           }
           Write-Host 'RUNTIME_SYNC=PASS'
           Write-Host "TARGET=$target"
