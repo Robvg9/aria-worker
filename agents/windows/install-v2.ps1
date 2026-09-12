@@ -22,6 +22,7 @@ $requiredSources = @{
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
     'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
     'windows-desktop-adapter.js' = Join-Path $RepoRoot 'computer-use\windows-desktop-adapter.js'
+    'windows-desktop-runner.ps1' = Join-Path $RepoRoot 'computer-use\windows-desktop-runner.ps1'
     'windows-ui-automation.ps1' = Join-Path $RepoRoot 'computer-use\windows-ui-automation.ps1'
 }
 foreach ($file in $requiredSources.Keys) {
@@ -69,7 +70,7 @@ $config = [ordered]@{
 $config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
 
 Write-Host '=== DESKTOP ACCESS SMOKE TEST ==='
-$smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
+$smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,capture_method:r.capture_method||null,apartment:r.apartment||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
 $smokeOutput = & $NodePath -e $smokeScript 2>&1
 if ($LASTEXITCODE -ne 0) { throw "Desktop screenshot smoke test failed: $smokeOutput" }
 $smokeLine = ($smokeOutput | Select-Object -Last 1).ToString()
@@ -81,9 +82,11 @@ if ($smoke.status -ne 'succeeded') { throw "Desktop screenshot smoke test failed
     action = 'screenshot'
     width = $smoke.width
     height = $smoke.height
+    capture_method = $smoke.capture_method
+    apartment = $smoke.apartment
     version = $smoke.version
 } | ConvertTo-Json | Set-Content -Path $DesktopSmokePath -Encoding UTF8
-Write-Host "DESKTOP_SCREENSHOT=PASS width=$($smoke.width) height=$($smoke.height)"
+Write-Host "DESKTOP_SCREENSHOT=PASS width=$($smoke.width) height=$($smoke.height) method=$($smoke.capture_method)"
 
 $taskUser = "$env:COMPUTERNAME\$env:USERNAME"
 $taskRunScript = Join-Path $RuntimeDir 'run-agent.ps1'
@@ -128,4 +131,3 @@ Write-Host 'RestartOnFailure: 999 / 1 minuto'
 Write-Host 'Shell executor: installed'
 Write-Host 'Desktop computer-use: installed'
 Write-Host 'Desktop UI Automation observer: installed'
-Write-Host 'Desktop screenshot smoke: PASS'
