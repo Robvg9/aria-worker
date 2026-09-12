@@ -2,7 +2,6 @@
 const crypto = require('node:crypto');
 const os = require('node:os');
 const { parseShellJob, executePowerShell } = require('./windows-shell-executor');
-const { executeWindowsDesktop } = require('./windows-desktop-adapter');
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
 const DEVICE_ID = process.env.ARIA_DEVICE_ID;
@@ -80,14 +79,27 @@ async function executeOllamaJob(job) {
   let payload; try { payload = parseQwenPayload(job); } catch (error) { await rejectClaimedJob(job, String(error.message || 'unsupported_job'), OLLAMA_OPERATION); return; }
   log(`JOB RECEIVED id=${job.job_id} operation=${OLLAMA_OPERATION}`); await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
   const result = await callOllama(payload); result.metadata = { ...result.metadata, agent_version: 'aria-windows-agent-v2', platform: `windows/${os.release()}`, request_nonce: crypto.randomUUID(), operation: OLLAMA_OPERATION, ollama_url: OLLAMA_URL, model: OLLAMA_MODEL };
-  log(`JOB RESULT id=${job.job_id} status=${result.status} duration_ms=${result.duration_ms}`); if (result.stdout) log(`STDOUT ${JSON.stringify(redact(result.stdout))}`); if (result.stderr) log(`STDERR ${JSON.stringify(redact(result.stderr))}`); await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, result }) }); log(`JOB ACK id=${job.job_id} status=${result.status}`);
+  log(`JOB RESULT id=${job.job_id} status=${result.status} duration_ms=${result.duration_ms}`); if (result.stdout) log(`STDOUT ${JSON.stringify(redact(result.stdout))}`); if (result.stderr) log(`STDERR ${JSON.stringify(result.stderr)}`); await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, result }) }); log(`JOB ACK id=${job.job_id} status=${result.status}`);
+}
+function loadDesktopExecutor() {
+  const modulePath = require.resolve('./windows-desktop-adapter');
+  delete require.cache[modulePath];
+  const adapter = require(modulePath);
+  if (!adapter || typeof adapter.executeWindowsDesktop !== 'function') throw new Error('desktop_adapter_invalid');
+  return adapter;
 }
 async function executeComputerUseJob(job) {
   let payload;
   try { if (!job || job.device_id !== DEVICE_ID || job.operation !== COMPUTER_OPERATION) throw new Error('unsupported_job'); payload = typeof job.command === 'string' ? JSON.parse(job.command) : job.command; if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('computer_use_payload_invalid'); }
   catch (error) { await rejectClaimedJob(job, String(error.message || 'invalid_computer_use_job'), COMPUTER_OPERATION); return; }
   log(`JOB RECEIVED id=${job.job_id} operation=${COMPUTER_OPERATION} action=${payload.action}`); await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
-  const result = await executeWindowsDesktop(payload, { timeout_ms: Number.isInteger(job.timeout_ms) ? job.timeout_ms : 30_000 });
+  let result;
+  try {
+    const adapter = loadDesktopExecutor();
+    result = await adapter.executeWindowsDesktop(payload, { timeout_ms: Number.isInteger(job.timeout_ms) ? job.timeout_ms : 30_000 });
+  } catch (error) {
+    result = { status: 'failed', action: payload.action, error: String(error?.message || error) };
+  }
   const safeResult = { ...result, stdout: typeof result.stdout === 'string' ? redact(result.stdout) : '', stderr: typeof result.stderr === 'string' ? redact(result.stderr) : '', metadata: { ...(result.metadata || {}), agent_version: 'aria-windows-agent-v2', platform: `windows/${os.release()}`, request_nonce: crypto.randomUUID(), operation: COMPUTER_OPERATION, action: payload.action } };
   log(`JOB RESULT id=${job.job_id} status=${safeResult.status} action=${payload.action}`); await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, result: safeResult }) }); log(`JOB ACK id=${job.job_id} status=${safeResult.status}`);
 }
