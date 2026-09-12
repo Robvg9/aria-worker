@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 defaults:
   run:
@@ -97,11 +97,41 @@ jobs:
           Write-Host "ARIA_AGENT_RESTART=PASS NEW_PID=$newPid"
 
       - name: Physical desktop autonomy E2E
+        id: physical_e2e
+        continue-on-error: true
         run: |
           $ErrorActionPreference = 'Stop'
           node (Join-Path $env:GITHUB_WORKSPACE 'tests\windows-desktop-physical-e2e.js')
           if ($LASTEXITCODE -ne 0) { throw "Physical desktop E2E failed with exit code $LASTEXITCODE" }
           Write-Host 'ARIA_DESKTOP_PHYSICAL_E2E=PASS'
+
+      - name: Publish physical E2E proof
+        if: always()
+        env:
+          E2E_OUTCOME: ${{ steps.physical_e2e.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proofDir = Join-Path $env:GITHUB_WORKSPACE 'reports'
+          $proofPath = Join-Path $proofDir 'windows-desktop-physical-e2e-status.json'
+          New-Item -ItemType Directory -Force -Path $proofDir | Out-Null
+          $payload = [ordered]@{
+            commit = $env:GITHUB_SHA
+            workflow = 'ARIA Windows Runtime Repair'
+            outcome = $env:E2E_OUTCOME
+            timestamp = (Get-Date -Format o)
+            adapter = 'aria-windows-desktop-v1.9'
+            physical_agent = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          }
+          $payload | ConvertTo-Json -Depth 6 | Set-Content -Path $proofPath -Encoding UTF8
+          git config user.name 'aria-runtime-proof'
+          git config user.email 'aria-runtime-proof@users.noreply.github.com'
+          git add reports/windows-desktop-physical-e2e-status.json
+          git commit -m "ci: publish physical desktop E2E proof" || Write-Host 'No proof-file commit needed'
+          git push origin HEAD:main
+
+      - name: Fail when physical desktop E2E is not green
+        if: steps.physical_e2e.outcome != 'success'
+        run: throw 'ARIA_DESKTOP_PHYSICAL_E2E was not GREEN'
 
       - name: Verify runtime publication
         run: |
