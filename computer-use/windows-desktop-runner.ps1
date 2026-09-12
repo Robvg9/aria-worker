@@ -43,16 +43,6 @@ public static class AriaDesktopNative {
     public const uint LEFTDOWN = 0x0002, LEFTUP = 0x0004, RIGHTDOWN = 0x0008, RIGHTUP = 0x0010;
     public const uint WHEEL = 0x0800;
 
-    public static bool TypeUnicode(string text) {
-        if (text == null) return false;
-        foreach (char ch in text) {
-            ushort code = (ushort)ch;
-            keybd_event(0, (byte)(code & 0xFF), KEYEVENTF_UNICODE, UIntPtr.Zero);
-            keybd_event(0, (byte)(code & 0xFF), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, UIntPtr.Zero);
-        }
-        return true;
-    }
-
     public static void SendUnicodeChar(ushort code) {
         keybd_event(0, (byte)(code & 0xFF), KEYEVENTF_UNICODE, UIntPtr.Zero);
         keybd_event(0, (byte)(code & 0xFF), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, UIntPtr.Zero);
@@ -74,7 +64,7 @@ public static class AriaDesktopNative {
         'PGUP'=0x21; 'PAGEUP'=0x21; 'PGDN'=0x22; 'PAGEDOWN'=0x22; 'INSERT'=0x2D; 'DELETE'=0x2E
         'CTRL'=0x11; 'CONTROL'=0x11; 'SHIFT'=0x10; 'ALT'=0x12; 'MENU'=0x12
         'WIN'=0x5B; 'LWIN'=0x5B; 'RWIN'=0x5C; 'CAPSLOCK'=0x14; 'NUMLOCK'=0x90; 'SCROLLLOCK'=0x91
-        'PRINTSCREEN'=0x2C; 'PAUSE'=0x13; 'ESCAPE'=0x1B
+        'PRINTSCREEN'=0x2C; 'PAUSE'=0x13
         'F1'=0x70; 'F2'=0x71; 'F3'=0x72; 'F4'=0x73; 'F5'=0x74; 'F6'=0x75; 'F7'=0x76; 'F8'=0x77
         'F9'=0x78; 'F10'=0x79; 'F11'=0x7A; 'F12'=0x7B
     }
@@ -160,7 +150,7 @@ public static class AriaDesktopNative {
         'drag' {
             $x1=[int]$payload.x1; $y1=[int]$payload.y1; $x2=[int]$payload.x2; $y2=[int]$payload.y2; $button='left'
             if ($null -ne $payload.button) { $button=[string]$payload.button }
-            $duration=[int]($payload.duration_ms); if ($duration -lt 0 -or $duration -gt 10_000) { $duration=250 }
+            $duration=[int]($payload.duration_ms); if ($duration -lt 0 -or $duration -gt 10000) { $duration=250 }
             $flags=Get-ButtonFlags $button
             [AriaDesktopNative]::SetCursorPos($x1,$y1) | Out-Null
             [AriaDesktopNative]::mouse_event($flags.down,0,0,0,[UIntPtr]::Zero)
