@@ -53,17 +53,26 @@ jobs:
       - name: Verify ARIA local agent runtime
         run: |
           $ErrorActionPreference = 'Stop'
-          $configDir = Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent'
+          # The GitHub Actions runner runs as NetworkService, while the ARIA
+          # agent is intentionally installed under the interactive user profile.
+          # Do not attempt DPAPI decryption here: Windows DPAPI is user-context
+          # scoped and the runner cannot decrypt a token protected by robvg.
+          $configDir = 'C:\Users\robvg\AppData\Local\ARIA-Windows-Agent'
           $configPath = Join-Path $configDir 'config.json'
           $tokenPath = Join-Path $configDir 'device-token.dpapi'
           $runScript = 'C:\Users\robvg\aria-worker\agents\windows\run-agent.ps1'
           if (-not (Test-Path $configPath)) { throw "ARIA config missing: $configPath" }
           if (-not (Test-Path $tokenPath)) { throw "ARIA token store missing: $tokenPath" }
           if (-not (Test-Path $runScript)) { throw "ARIA run script missing: $runScript" }
-          $encrypted = (Get-Content -Raw -Path $tokenPath).Trim()
-          $null = $encrypted | ConvertTo-SecureString -ErrorAction Stop
-          Write-Host 'ARIA_DPAPI=VALID'
+          $config = Get-Content -Raw -Path $configPath | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace([string]$config.device_id)) { throw 'ARIA config device_id missing' }
+          if ([string]::IsNullOrWhiteSpace([string]$config.gateway_url)) { throw 'ARIA config gateway_url missing' }
+          $tokenBytes = (Get-Item $tokenPath).Length
+          if ($tokenBytes -lt 16) { throw 'ARIA protected token store is empty or invalid' }
+          Write-Host 'ARIA_CONFIG=VALID'
+          Write-Host 'ARIA_TOKEN_STORE=PRESENT'
           Write-Host 'ARIA_RUNTIME=AVAILABLE'
+          Write-Host "ARIA_DEVICE_ID=$($config.device_id)"
 
       - name: Verify ARIA Windows Agent task
         run: |
