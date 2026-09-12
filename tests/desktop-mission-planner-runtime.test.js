@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { createDesktopMissionPlanner } = require('../autonomy/desktop-mission-planner');
+const { createDesktopMissionPlanner, riskForComputerAction } = require('../autonomy/desktop-mission-planner');
 const { selectExecutor } = require('../autonomy/universal-execution/selector');
 const { listExecutors } = require('../autonomy/universal-execution/lookup');
 
@@ -23,9 +23,14 @@ const hasComputer = plan.steps.some(step => step.operation === 'computer.use');
 assert.equal(hasComputer, true);
 assert.ok(plan.steps.every(step => typeof step.input === 'object' || typeof step.command === 'string'));
 
-const ollama = createDesktopMissionPlanner({ device_id: 'windows-test' }).plan({ goal: 'Comprueba si Ollama funciona y muestra su versión' });
+const ollama = planner.plan({ goal: 'Comprueba si Ollama funciona y muestra su versión' });
 assert.equal(ollama.status, 'planned');
 assert.ok(ollama.steps.some(step => step.operation === 'computer.use' && step.input?.action === 'type'));
-assert.ok(ollama.steps.some(step => step.operation === 'shell.execute' && step.command === 'ollama --version') === false);
+assert.equal(ollama.steps.find(step => step.input?.action === 'focus')?.verify?.focused_process, 'PowerShell');
+
+assert.equal(riskForComputerAction('observe'), 'READ');
+assert.equal(riskForComputerAction('focus'), 'READ');
+assert.equal(riskForComputerAction('type'), 'LOW_RISK_WRITE');
+assert.equal(riskForComputerAction('keypress'), 'LOW_RISK_WRITE');
 
 console.log('DESKTOP_MISSION_PLANNER_RUNTIME_TEST=PASS');
