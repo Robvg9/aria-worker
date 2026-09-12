@@ -1,0 +1,113 @@
+name: ARIA Windows Shell Live
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  windows-shell-live:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Verify source contracts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --check .\agents\windows\aria-agent.js
+          node --check .\autonomy\windows-shell-executor.js
+          node --check .\execution\device-job-contract.js
+          $agent = Get-Content -Raw .\agents\windows\aria-agent.js
+          if ($agent -notmatch "SHELL_OPERATION = 'shell.execute'") { throw 'shell.execute constant missing from agent' }
+          Write-Host 'SOURCE_CONTRACT=PASS'
+
+      - name: Sync complete runtime to D
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
+          $executor = Join-Path $env:GITHUB_WORKSPACE 'autonomy\windows-shell-executor.js'
+          $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          foreach ($file in @('aria-agent.js','run-agent.ps1')) {
+            Copy-Item -Path (Join-Path $source $file) -Destination (Join-Path $target $file) -Force
+          }
+          Copy-Item -Path $executor -Destination (Join-Path $target 'windows-shell-executor.js') -Force
+          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js')) {
+            if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing: $file" }
+          }
+          Write-Host 'RUNTIME_SYNC=PASS'
+
+      - name: Local PowerShell execution proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = @'
+          const assert = require('node:assert/strict');
+          const { executePowerShell } = require('./autonomy/windows-shell-executor');
+          (async () => {
+            const result = await executePowerShell({
+              script: "Write-Output 'ARIA_WINDOWS_SHELL_OK'",
+              cwd: process.env.TEMP,
+              timeout_ms: 30000,
+              dry_run: false
+            });
+            assert.equal(result.status, 'succeeded');
+            assert.equal(result.exit_code, 0);
+            assert.match(result.stdout, /ARIA_WINDOWS_SHELL_OK/);
+            console.log('POWERSHELL_EXECUTION=PASS');
+            console.log('POWERSHELL_STDOUT=' + result.stdout.trim());
+          })().catch(error => { console.error(error); process.exit(1); });
+          '@
+          $path = Join-Path $env:RUNNER_TEMP 'aria-shell-live-test.js'
+          Set-Content -Path $path -Value $test -Encoding UTF8
+          node $path
+
+      - name: Runtime D syntax and module proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          node --check (Join-Path $runtime 'aria-agent.js')
+          node --check (Join-Path $runtime 'windows-shell-executor.js')
+          $module = Get-Content -Raw (Join-Path $runtime 'windows-shell-executor.js')
+          if ($module -notmatch 'powershell.exe') { throw 'D runtime shell executor is missing powershell.exe' }
+          Write-Host 'RUNTIME_D_PROOF=PASS'
+
+      - name: Agent task proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $task = 'ARIA-Windows-Local-Agent'
+          $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "ARIA scheduled task is missing: $query" }
+          if ($query -notmatch 'Status:\s+Running') {
+            & schtasks.exe /Run /TN $task | Out-Null
+            Start-Sleep -Seconds 5
+            $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>&1
+          }
+          if ($query -notmatch 'Status:\s+Running') { throw "ARIA task is not running: $query" }
+          Write-Host 'ARIA_TASK_RUNNING=PASS'
+
+      - name: Public watchdog and capability proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = 'D:\ARIA-Windows-Agent\Logs\watchdog.log'
+          if (-not (Test-Path $log)) { throw 'watchdog.log missing' }
+          $tail = Get-Content $log -Tail 80 -ErrorAction Stop | Out-String
+          if ($tail -match 'NoNewWindow') { throw 'Old watchdog failure remains active' }
+          $agentId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          $cfg = Get-Content -Raw 'D:\ARIA-Windows-Agent\Data\config.json' | ConvertFrom-Json
+          if ($cfg.device_id -ne $agentId) { throw "Unexpected device id: $($cfg.device_id)" }
+          Write-Host 'WATCHDOG_LOG_PROOF=PASS'
+          Write-Host 'DEVICE_ID_PROOF=PASS'
+
+      - name: Completion marker
+        run: |
+          Write-Host 'ARIA_WINDOWS_SHELL_LIVE=PASS'
+          Write-Host 'STATUS=100_PERCENT_CODE_AND_HOST_SMOKE_PROOF'
