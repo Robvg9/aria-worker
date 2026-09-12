@@ -7,6 +7,7 @@ const { createDeviceDispatcher } = require('../execution/device-dispatcher');
 const { createSupabaseMissionRepository } = require('../execution/supabase-mission-repository');
 const { createMissionStateStore } = require('../execution/mission-state');
 const { createServiceDeviceClient } = require('../execution/live-device-client');
+const { createDesktopSemanticRuntimeVerifier } = require('./desktop-semantic-runtime');
 
 function createAutonomousRuntime({
   supabaseUrl,
@@ -14,6 +15,7 @@ function createAutonomousRuntime({
   activation,
   planner,
   desktopPlanner = null,
+  desktopSemanticVerification = false,
   replanner = null,
   verify,
   device = {},
@@ -24,6 +26,7 @@ function createAutonomousRuntime({
   if (!activation || typeof activation.execute !== 'function') throw new TypeError('activation runtime required');
   if (typeof planner !== 'function' && (!desktopPlanner || typeof desktopPlanner.plan !== 'function')) throw new TypeError('planner function required');
   if (desktopPlanner !== null && (typeof desktopPlanner !== 'object' || typeof desktopPlanner.plan !== 'function')) throw new TypeError('desktopPlanner.plan function required');
+  if (typeof desktopSemanticVerification !== 'boolean') throw new TypeError('desktopSemanticVerification must be boolean');
   if (typeof verify !== 'function') throw new TypeError('verify function required');
   if (replanner !== null && typeof replanner !== 'function') throw new TypeError('replanner function required');
 
@@ -32,12 +35,15 @@ function createAutonomousRuntime({
   const deviceClient = createServiceDeviceClient({ supabaseUrl, serviceRoleKey, fetchImpl: device.fetchImpl });
   const deviceDispatcher = createDeviceDispatcher({ enqueue: deviceClient.enqueue, get: deviceClient.get, sleep: deviceClient.sleep, poll_ms: device.poll_ms, wait_ms: device.wait_ms });
   const effectivePlanner = desktopPlanner ? (input => desktopPlanner.plan({ goal: input.mission?.goal, constraints: input.policy || {} })) : planner;
+  const effectiveVerify = desktopSemanticVerification
+    ? createDesktopSemanticRuntimeVerifier({ deviceDispatcher, baseVerify: verify }).verify
+    : verify;
 
   const mission = createUniversalMissionRunner({
     missionStore,
     planner: effectivePlanner,
     replanner,
-    verify,
+    verify: effectiveVerify,
     activation,
     deviceDispatcher,
     agentExecutors,
@@ -57,7 +63,8 @@ function createAutonomousRuntime({
     orchestrator: mission.orchestrator,
     runMission: mission.run,
     startMission: entrypoint.startMission,
-    missionHttp: http
+    missionHttp: http,
+    desktop: Object.freeze({ planner: desktopPlanner, semantic_verification: desktopSemanticVerification })
   });
 }
 
