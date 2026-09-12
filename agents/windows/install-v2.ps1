@@ -14,12 +14,16 @@ $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 
-foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) {
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+}
 
-# Materialize the complete Windows execution runtime on D:.
-Copy-Item -Path (Join-Path $AgentRoot 'aria-agent.js') -Destination (Join-Path $RuntimeDir 'aria-agent.js') -Force
-Copy-Item -Path (Join-Path $AgentRoot 'windows-shell-executor.js') -Destination (Join-Path $RuntimeDir 'windows-shell-executor.js') -Force
-Copy-Item -Path (Join-Path $AgentRoot 'run-agent.ps1') -Destination (Join-Path $RuntimeDir 'run-agent.ps1') -Force
+# Materialize the complete Windows agent runtime on D:. C: remains only the Git repository.
+foreach ($file in @('aria-agent.js', 'run-agent.ps1', 'windows-shell-executor.js')) {
+    $source = Join-Path $AgentRoot $file
+    if (-not (Test-Path $source)) { throw "Required Windows agent file missing: $source" }
+    Copy-Item -Path $source -Destination (Join-Path $RuntimeDir $file) -Force
+}
 
 $token = $env:ARIA_DEVICE_TOKEN
 if (-not [string]::IsNullOrWhiteSpace($token)) {
@@ -27,13 +31,18 @@ if (-not [string]::IsNullOrWhiteSpace($token)) {
     $secure = ConvertTo-SecureString -String $token -AsPlainText -Force
     $encrypted = $secure | ConvertFrom-SecureString
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
-} elseif (Test-Path $TokenPath) {
+}
+elseif (Test-Path $TokenPath) {
     # Existing D: DPAPI store is authoritative.
-} elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi')) {
+}
+elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi')) {
     Copy-Item -Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi') -Destination $TokenPath -Force
-} else {
+}
+else {
     $token = Read-Host 'Pega el token del Windows Device'
-    if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) { throw 'Token ausente o invalido. No se instalo nada.' }
+    if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) {
+        throw 'Token ausente o invalido. No se instalo nada.'
+    }
     $secure = ConvertTo-SecureString -String $token -AsPlainText -Force
     $encrypted = $secure | ConvertFrom-SecureString
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
@@ -67,7 +76,10 @@ $xml = @"
     <Description>ARIA Windows Local Agent</Description>
   </RegistrationInfo>
   <Triggers>
-    <LogonTrigger><Enabled>true</Enabled><UserId>$taskUser</UserId></LogonTrigger>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>$taskUser</UserId>
+    </LogonTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
@@ -83,7 +95,10 @@ $xml = @"
     <AllowHardTerminate>true</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
     <Exec>
@@ -94,13 +109,19 @@ $xml = @"
   </Actions>
 </Task>
 "@
+
 Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
 
 schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
 $result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
-if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
+if ($LASTEXITCODE -ne 0) {
+    throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result"
+}
+
 & schtasks.exe /Run /TN $TaskName | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
+if ($LASTEXITCODE -ne 0) {
+    throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE"
+}
 
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
@@ -112,7 +133,7 @@ Write-Host "Token store: $TokenPath"
 Write-Host "Public logs: $LogDir\watchdog.log"
 Write-Host "Task user: $taskUser"
 Write-Host 'Token: protegido con DPAPI del usuario Windows.'
-Write-Host 'Capabilities: ollama.qwen3 + shell.execute'
 Write-Host 'Inicio automatico: AtLogOn (usuario interactivo)'
 Write-Host 'ExecutionTimeLimit: 0'
 Write-Host 'RestartOnFailure: 999 / 1 minuto'
+Write-Host 'Shell executor: installed'
