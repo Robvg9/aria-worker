@@ -3,7 +3,7 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 
-const VERSION = 'aria-windows-desktop-v1.1';
+const VERSION = 'aria-windows-desktop-v1.2';
 const MAX_TEXT = 32 * 1024;
 const MAX_SCREENSHOT_B64 = 8 * 1024 * 1024;
 const ACTIONS = new Set(['screenshot', 'observe', 'open', 'click', 'type', 'keypress', 'scroll', 'focus']);
@@ -53,7 +53,9 @@ public static class AriaWindow { [DllImport("user32.dll")] public static extern 
 using System; using System.Runtime.InteropServices;
 public static class AriaMouse { [DllImport("user32.dll")] public static extern bool SetCursorPos(int X,int Y); [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra); public const uint LEFTDOWN=0x0002,LEFTUP=0x0004,RIGHTDOWN=0x0008,RIGHTUP=0x0010; }
 '@
-      $x=[int]$payload.x; $y=[int]$payload.y; $button=[string]($payload.button ?? 'left'); [AriaMouse]::SetCursorPos($x,$y) | Out-Null
+      $x=[int]$payload.x; $y=[int]$payload.y
+      $button='left'; if ($null -ne $payload.button -and -not [string]::IsNullOrWhiteSpace([string]$payload.button)) { $button=[string]$payload.button }
+      [AriaMouse]::SetCursorPos($x,$y) | Out-Null
       if ($button -eq 'right') { [AriaMouse]::mouse_event([AriaMouse]::RIGHTDOWN,0,0,0,[UIntPtr]::Zero); [AriaMouse]::mouse_event([AriaMouse]::RIGHTUP,0,0,0,[UIntPtr]::Zero) } else { [AriaMouse]::mouse_event([AriaMouse]::LEFTDOWN,0,0,0,[UIntPtr]::Zero); [AriaMouse]::mouse_event([AriaMouse]::LEFTUP,0,0,0,[UIntPtr]::Zero) }
       return @{status='succeeded'; action='click'; x=$x; y=$y; button=$button}
     }
@@ -76,7 +78,13 @@ using System; using System.Runtime.InteropServices; public static class AriaKey 
 '@
       [AriaKey]::keybd_event([byte]$vk,0,0,[UIntPtr]::Zero); [AriaKey]::keybd_event([byte]$vk,0,[AriaKey]::KEYUP,[UIntPtr]::Zero); return @{status='succeeded'; action='keypress'; key=$key}
     }
-    'scroll' { $delta=[int]($payload.delta ?? 0); if($delta -eq 0){throw 'desktop_scroll_delta_required'}; Add-Type @' using System; using System.Runtime.InteropServices; public static class AriaScroll { [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra); public const uint WHEEL=0x0800; } '@; [AriaScroll]::mouse_event([AriaScroll]::WHEEL,0,0,[uint32]$delta,[UIntPtr]::Zero); return @{status='succeeded'; action='scroll'; delta=$delta} }
+    'scroll' {
+      $delta=0; if ($null -ne $payload.delta) { $delta=[int]$payload.delta }; if($delta -eq 0){throw 'desktop_scroll_delta_required'}
+      Add-Type @'
+using System; using System.Runtime.InteropServices; public static class AriaScroll { [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra); public const uint WHEEL=0x0800; }
+'@
+      [AriaScroll]::mouse_event([AriaScroll]::WHEEL,0,0,[uint32]$delta,[UIntPtr]::Zero); return @{status='succeeded'; action='scroll'; delta=$delta}
+    }
     default { throw "desktop_action_requires_native_observer:$action" }
   }
 }
