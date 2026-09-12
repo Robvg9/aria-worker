@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
 jobs:
   preflight:
     name: Windows Agent / Ollama Preflight
@@ -13,7 +17,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Verify runner Node environment
-        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $node = Get-Command node -ErrorAction Stop
@@ -25,7 +28,6 @@ jobs:
           }
 
       - name: Verify Ollama service
-        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 10
@@ -37,7 +39,6 @@ jobs:
           Write-Host 'OLLAMA_MODEL=qwen3:4b'
 
       - name: Verify qwen3 execution locally
-        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $payload = @{ model = 'qwen3:4b'; prompt = 'Responde exactamente: QWEN_ARIA_OK'; stream = $false } | ConvertTo-Json
@@ -50,7 +51,6 @@ jobs:
           Write-Host 'QWEN_EXECUTION=PASS'
 
       - name: Repair Windows Agent DPAPI token and start task
-        shell: powershell
         env:
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
           ARIA_DEVICE_ID: ${{ secrets.ARIA_DEVICE_ID }}
@@ -81,7 +81,6 @@ jobs:
           Write-Host 'AGENT_PROCESS=RUNNING'
 
       - name: Verify ARIA Gateway environment and heartbeat
-        shell: powershell
         env:
           ARIA_DEVICE_GATEWAY_URL: ${{ secrets.ARIA_DEVICE_GATEWAY_URL }}
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
