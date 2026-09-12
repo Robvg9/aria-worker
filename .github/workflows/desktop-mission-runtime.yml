@@ -25,17 +25,21 @@ jobs:
         run: |
           node --check autonomy/desktop-mission-orchestrator.js
           node --check autonomy/desktop-mission-planner.js
+          node --check autonomy/desktop-mission-replanner.js
           node --check autonomy/desktop-semantic-verifier.js
           node --check autonomy/desktop-semantic-runtime.js
           node --check autonomy/autonomous-runtime.js
           node --check tests/desktop-mission-planner-runtime.test.js
           node --check tests/desktop-mission-runtime-integration.test.js
+          node --check tests/desktop-mission-replanner.test.js
           node --check tests/desktop-semantic-verifier.test.js
           node --check tests/desktop-semantic-runtime.test.js
       - name: Desktop planner runtime contract
         run: node tests/desktop-mission-planner-runtime.test.js
       - name: Autonomous runtime integration contract
         run: node tests/desktop-mission-runtime-integration.test.js
+      - name: Desktop mission replanner contract
+        run: node tests/desktop-mission-replanner.test.js
       - name: Semantic verifier contract
         run: node tests/desktop-semantic-verifier.test.js
       - name: Semantic runtime verification contract
