@@ -28,7 +28,7 @@ function validateRequest(request = {}) {
   if (action === 'keypress' && (typeof request.key !== 'string' || !request.key.trim())) throw new Error('desktop_keypress_invalid');
   if (action === 'hotkey' && (!Array.isArray(request.keys) || request.keys.length < 2 || request.keys.length > MAX_HOTKEY_KEYS || request.keys.some(key => typeof key !== 'string' || !key.trim()))) throw new Error('desktop_hotkey_invalid');
   if (action === 'scroll' && !Number.isInteger(request.delta)) throw new Error('desktop_scroll_invalid');
-  if (action === 'wait' && (!Number.isInteger(request.ms) || request.ms < 0 || request.ms > 60_000)) throw new Error('desktop_wait_invalid');
+  if (action === 'wait' && (!Number.isInteger(request.ms) || request.ms < 0 || request.ms > 60000)) throw new Error('desktop_wait_invalid');
   return Object.freeze({ ...request, action });
 }
 
@@ -82,8 +82,31 @@ function spawnPowerShell(args, payload, timeoutMs) {
   });
 }
 
+function openDirectly(payload) {
+  return new Promise((resolve) => {
+    const child = spawn(payload.path, [], { windowsHide: false, stdio: 'ignore' });
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish({ status: 'failed', action: 'open', path: payload.path, error: 'desktop_open_timeout', version: VERSION }), 5000);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      finish({ status: 'failed', action: 'open', path: payload.path, error: String(error?.message || error), version: VERSION });
+    });
+    child.once('spawn', () => {
+      clearTimeout(timer);
+      child.unref();
+      finish({ status: 'succeeded', action: 'open', pid: child.pid, path: payload.path, version: VERSION, method: 'node_spawn' });
+    });
+  });
+}
+
 async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
   const payload = validateRequest(request);
+  if (payload.action === 'open') return openDirectly(payload);
   const args = payload.action === 'observe'
     ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', UIA_SCRIPT]
     : ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', RUNNER];
