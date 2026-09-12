@@ -1,16 +1,18 @@
 'use strict';
 
+const SUPPORTED_OPERATIONS = Object.freeze(['shell.execute', 'ollama.qwen3']);
+
 function createDeviceAdapter({ deviceDispatcher } = {}) {
   const available = !!deviceDispatcher && typeof deviceDispatcher.execute === 'function';
 
   return Object.freeze({
-    adapter_id: 'device-runtime-v1',
+    adapter_id: 'device-runtime-v1.1',
     executor_type: 'device',
     status: available ? 'ready' : 'unavailable',
-    operations: ['shell.execute'],
-    async execute({ missionId, step, attempt = 1, policy, request = {} } = {}) {
+    operations: [...SUPPORTED_OPERATIONS],
+    async execute({ missionId, step, attempt = 1, policy, request = {}, selection } = {}) {
       if (!step || typeof step !== 'object') throw new TypeError('step required');
-      if (step.operation !== 'shell.execute') throw new Error(`unsupported device operation: ${step.operation}`);
+      if (!SUPPORTED_OPERATIONS.includes(step.operation)) throw new Error(`unsupported device operation: ${step.operation}`);
       if (!available) {
         return {
           status: 'blocked',
@@ -26,7 +28,8 @@ function createDeviceAdapter({ deviceDispatcher } = {}) {
           step,
           attempt,
           policy,
-          request
+          request,
+          selection
         });
         return { ...result, executor_type: 'device', attempt };
       } catch (_error) {
@@ -44,4 +47,4 @@ function createDeviceAdapter({ deviceDispatcher } = {}) {
   });
 }
 
-module.exports = Object.freeze({ createDeviceAdapter });
+module.exports = Object.freeze({ createDeviceAdapter, SUPPORTED_OPERATIONS });
