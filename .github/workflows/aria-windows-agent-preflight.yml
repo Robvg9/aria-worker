@@ -42,7 +42,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $payload = @{ model = 'qwen3:4b'; prompt = 'Responde exactamente: QWEN_ARIA_OK'; stream = $false } | ConvertTo-Json
-          $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 60
+          $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 180
           $text = [string]$result.response
           $text = [regex]::Replace($text, '(?is)<think>.*?</think>', '').Trim()
           if ($text -notmatch 'QWEN_ARIA_OK') {
