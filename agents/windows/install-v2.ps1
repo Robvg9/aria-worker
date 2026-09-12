@@ -19,8 +19,13 @@ foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) {
 }
 
 # Materialize the complete Windows agent runtime on D:. C: remains only the Git repository.
-foreach ($file in @('aria-agent.js', 'run-agent.ps1', 'windows-shell-executor.js')) {
-    $source = Join-Path $AgentRoot $file
+$requiredSources = @{
+    'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
+    'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
+}
+foreach ($file in $requiredSources.Keys) {
+    $source = $requiredSources[$file]
     if (-not (Test-Path $source)) { throw "Required Windows agent file missing: $source" }
     Copy-Item -Path $source -Destination (Join-Path $RuntimeDir $file) -Force
 }
