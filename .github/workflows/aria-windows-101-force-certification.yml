@@ -1,0 +1,89 @@
+name: ARIA Windows 101 Force Certification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'computer-use/**'
+      - 'agents/windows/**'
+      - '.github/workflows/aria-windows-101-force-certification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  certify:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stop stale ARIA local agent
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $procs = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' }
+          foreach ($p in $procs) {
+            Write-Host "STOP_OLD_ARIA_PID=$($p.ProcessId)"
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+          }
+          Start-Sleep -Seconds 2
+          Write-Host 'ARIA_OLD_AGENT_STOP=PASS'
+
+      - name: Sync canonical runtime to D
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item 'agents\windows\aria-agent.js' (Join-Path $root 'aria-agent.js') -Force
+          Copy-Item 'agents\windows\run-agent.ps1' (Join-Path $root 'run-agent.ps1') -Force
+          Copy-Item 'autonomy\windows-shell-executor.js' (Join-Path $root 'windows-shell-executor.js') -Force
+          foreach ($f in @('windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) {
+            Copy-Item (Join-Path 'computer-use' $f) (Join-Path $root $f) -Force
+          }
+          node --check (Join-Path $root 'aria-agent.js')
+          node --check (Join-Path $root 'windows-shell-executor.js')
+          node --check (Join-Path $root 'windows-desktop-adapter.js')
+          if (-not (Test-Path (Join-Path $root 'windows-hotkey-runner.ps1'))) { throw 'hotkey runner missing after sync' }
+          Write-Host 'ARIA_D_RUNTIME_SYNC=PASS'
+
+      - name: Start ARIA agent watchdog
+        run: |
+          $ErrorActionPreference = 'Stop'
+          schtasks.exe /Run /TN "ARIA-Windows-Local-Agent" | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'failed to start ARIA-Windows-Local-Agent' }
+          Start-Sleep -Seconds 5
+          Write-Host 'ARIA_AGENT_START_REQUEST=PASS'
+
+      - name: Physical 101 certification
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node (Join-Path $env:GITHUB_WORKSPACE 'tests\windows-desktop-physical-e2e.js')
+          if ($LASTEXITCODE -ne 0) { throw "Physical 101 E2E failed with exit code $LASTEXITCODE" }
+          Write-Host 'ARIA_DESKTOP_101=PASS'
+
+      - name: Publish 101 proof
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'reports'
+          $file = Join-Path $dir 'windows-desktop-101-proof.json'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $payload = [ordered]@{
+            commit = $env:GITHUB_SHA
+            workflow = 'ARIA Windows 101 Force Certification'
+            outcome = if ($LASTEXITCODE -eq 0) { 'success' } else { 'failed' }
+            timestamp = (Get-Date -Format o)
+            adapter = 'aria-windows-desktop-v1.9'
+            physical_agent = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          }
+          $payload | ConvertTo-Json -Depth 6 | Set-Content -Path $file -Encoding UTF8
+          git config user.name 'aria-runtime-proof'
+          git config user.email 'aria-runtime-proof@users.noreply.github.com'
+          git add reports/windows-desktop-101-proof.json
+          git commit -m "ci: publish Windows 101 certification proof" || Write-Host 'No proof commit needed'
+          git push origin HEAD:main
