@@ -8,7 +8,9 @@ function scoreFinding(finding = {}) {
   const confidence = Number.isFinite(finding.confidence) ? Math.max(0, Math.min(1, finding.confidence)) : 0.5;
   const recurrence = Number.isFinite(finding.recurrence) ? Math.max(0, finding.recurrence) : 0;
   const impact = Number.isFinite(finding.impact) ? Math.max(0, Math.min(10, finding.impact)) : 5;
-  return Math.round(((severity + 1) * 25 + confidence * 25 + Math.min(recurrence, 10) * 2.5 + impact * 2.5));
+  const gateWeight = finding.mutating_production || finding.irreversible || finding.requires_human_approval ? 8 : 0;
+  const hardwareWeight = finding.requires_physical_device || finding.requires_local_hardware ? 4 : 0;
+  return Math.round(((severity + 1) * 25 + confidence * 25 + Math.min(recurrence, 10) * 2.5 + impact * 2.5 + gateWeight + hardwareWeight));
 }
 
 function classifyFinding(finding = {}) {
@@ -43,7 +45,7 @@ function createMaintenancePlanner({ autonomyFrontier = null } = {}) {
         evidence: finding.evidence || null
       }));
     }
-    work.sort((a, b) => b.classification.score - a.classification.score || a.id.localeCompare(b.id));
+    work.sort((a, b) => b.classification.score - a.classification.score || Number(b.classification.requiresHuman) - Number(a.classification.requiresHuman) || Number(b.classification.requiresHardware) - Number(a.classification.requiresHardware) || a.id.localeCompare(b.id));
     return Object.freeze(work);
   }
 
