@@ -14,7 +14,7 @@ jobs:
   preflight:
     name: Windows Agent / Ollama Preflight
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Verify runner Node environment
         run: |
@@ -78,39 +78,104 @@ jobs:
           Write-Host "QWEN_RESPONSE=$text"
           Write-Host "QWEN_TOTAL_DURATION_NS=$($result.total_duration)"
 
+      - name: Ensure ARIA task is running (no private profile access)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $TaskName = 'ARIA-Windows-Local-Agent'
+          $PublicDir = Join-Path $env:ProgramData 'ARIA-Windows-Agent'
+          $LogPath = Join-Path $PublicDir 'watchdog.log'
+
+          $query = schtasks.exe /Query /TN $TaskName /V /FO LIST 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            throw 'ARIA-Windows-Local-Agent task is not installed. Run install-v2.ps1 as the interactive user.'
+          }
+
+          $text = ($query | Out-String)
+          $running = $text -match 'Estado:\s+En ejecución|Status:\s+Running'
+
+          if (-not $running) {
+            Write-Host 'Task not running — starting via schtasks /Run'
+            & schtasks.exe /Run /TN $TaskName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Unable to start ARIA task. ExitCode=$LASTEXITCODE" }
+            Start-Sleep -Seconds 15
+          }
+
+          # Poll for node process (system-wide; no user profile needed)
+          $agent = $null
+          for ($i = 0; $i -lt 12; $i++) {
+            $agent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -like '*aria-agent.js*' }
+            if ($agent) { break }
+            Start-Sleep -Seconds 5
+          }
+
+          if (-not $agent) {
+            if (Test-Path $LogPath) {
+              Write-Host '--- watchdog.log (last 30 lines) ---'
+              Get-Content -Path $LogPath -Tail 30 -ErrorAction SilentlyContinue
+            } else {
+              Write-Host "No public watchdog log at $LogPath"
+            }
+            throw 'ARIA Windows Agent process is not running after task start'
+          }
+
+          Write-Host 'ARIA_TASK=RUNNING'
+          Write-Host 'AGENT_PROCESS=RUNNING'
+          Write-Host "AGENT_PID=$($agent.ProcessId)"
+          if (Test-Path $LogPath) {
+            Write-Host 'WATCHDOG_LOG=AVAILABLE'
+          }
+
       - name: Verify ARIA local agent runtime
         run: |
           $ErrorActionPreference = 'Stop'
-
           $agent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-            Where-Object {
-              $_.CommandLine -like '*agents\\windows\\aria-agent.js*'
-            }
-
+            Where-Object { $_.CommandLine -like '*aria-agent.js*' }
           if (-not $agent) {
             throw 'ARIA Windows Agent process is not running'
           }
-
           Write-Host 'ARIA_RUNTIME=AVAILABLE'
           Write-Host 'AGENT_PROCESS=RUNNING'
           Write-Host "AGENT_PID=$($agent.ProcessId)"
 
-      - name: Verify ARIA Windows Agent task
+      - name: Watchdog recovery proof (kill → restart)
         run: |
           $ErrorActionPreference = 'Stop'
-          $task = schtasks.exe /Query /TN 'ARIA-Windows-Local-Agent' /V /FO LIST 2>&1
-          if ($LASTEXITCODE -ne 0) { throw 'ARIA-Windows-Local-Agent task is not installed' }
-          $text = ($task | Out-String)
-          if ($text -notmatch 'Estado:\s+En ejecución|Status:\s+Running') {
-            & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "Unable to start ARIA task. ExitCode=$LASTEXITCODE" }
-            Start-Sleep -Seconds 12
+          $PublicDir = Join-Path $env:ProgramData 'ARIA-Windows-Agent'
+          $LogPath = Join-Path $PublicDir 'watchdog.log'
+
+          $before = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like '*aria-agent.js*' }
+          if (-not $before) { throw 'Agent not running before kill test' }
+          $oldPid = $before.ProcessId
+          Write-Host "KILL_TARGET_PID=$oldPid"
+
+          Stop-Process -Id $oldPid -Force -ErrorAction Stop
+          Write-Host 'AGENT_KILLED=True'
+
+          # Watchdog should restart within ~5–20s
+          $newAgent = $null
+          for ($i = 0; $i -lt 18; $i++) {
+            Start-Sleep -Seconds 2
+            $newAgent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -like '*aria-agent.js*' }
+            if ($newAgent -and $newAgent.ProcessId -ne $oldPid) { break }
           }
-          $agent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -like '*agents\\windows\\aria-agent.js*' }
-          if (-not $agent) { throw 'ARIA Windows Agent process is not running' }
-          Write-Host 'ARIA_TASK=RUNNING'
-          Write-Host 'AGENT_PROCESS=RUNNING'
+
+          if (-not $newAgent) {
+            if (Test-Path $LogPath) {
+              Write-Host '--- watchdog.log after kill ---'
+              Get-Content -Path $LogPath -Tail 20 -ErrorAction SilentlyContinue
+            }
+            throw 'Watchdog did not restart aria-agent.js after kill'
+          }
+
+          Write-Host 'WATCHDOG_RESTART=PASS'
+          Write-Host "AGENT_NEW_PID=$($newAgent.ProcessId)"
+          if (Test-Path $LogPath) {
+            Write-Host '--- recent watchdog log ---'
+            Get-Content -Path $LogPath -Tail 10 -ErrorAction SilentlyContinue
+          }
 
       - name: Verify ARIA Gateway heartbeat
         env:

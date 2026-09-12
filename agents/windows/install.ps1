@@ -5,12 +5,14 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $AgentRoot)
 $ConfigDir = Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $TokenPath = Join-Path $ConfigDir 'device-token.dpapi'
+$PublicDir = Join-Path $env:ProgramData 'ARIA-Windows-Agent'
 $TaskName = 'ARIA-Windows-Local-Agent'
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+New-Item -ItemType Directory -Force -Path $PublicDir | Out-Null
 
 if (-not $env:ARIA_DEVICE_TOKEN) {
     $token = Read-Host 'Pega el token del Windows Device'
@@ -39,10 +41,20 @@ $config = [ordered]@{
 $config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
 
 $runScript = Join-Path $AgentRoot 'run-agent.ps1'
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runScript`""
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$runScript`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType InteractiveToken -RunLevel LeastPrivilege
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -RestartCount 999 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -MultipleInstances IgnoreNew
+$principal = New-ScheduledTaskPrincipal `
+    -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    -LogonType Interactive `
+    -RunLevel Limited
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 Start-ScheduledTask -TaskName $TaskName
@@ -52,5 +64,6 @@ Write-Host 'ARIA Windows Agent instalado correctamente.'
 Write-Host "Task: $TaskName"
 Write-Host "Device: $DeviceId"
 Write-Host "Config: $ConfigPath"
+Write-Host "Public logs: $(Join-Path $PublicDir 'watchdog.log')"
 Write-Host 'Token: protegido con DPAPI del usuario Windows.'
 Write-Host 'El agente arrancara automaticamente al iniciar sesion y se reiniciara si termina.'

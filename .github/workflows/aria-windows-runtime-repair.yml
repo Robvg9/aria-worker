@@ -18,16 +18,7 @@ jobs:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
 
-      - name: Grant runner access to ARIA runtime directory
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $target = 'C:\Users\robvg\aria-worker\agents\windows'
-          if (-not (Test-Path $target)) { throw "ARIA runtime directory not found: $target" }
-          & icacls.exe $target /grant '*S-1-5-20:(OI)(CI)M' /T /C | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Unable to grant Network Service access. ExitCode=$LASTEXITCODE" }
-          Write-Host 'ARIA_RUNTIME_ACL=PASS'
-
-      - name: Install persistent runtime on D
+      - name: Install persistent runtime on D (scripts only)
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
@@ -35,10 +26,13 @@ jobs:
           $target = Join-Path $runtimeRoot 'agents\windows'
           if (-not (Test-Path (Join-Path $source 'run-agent.ps1'))) { throw 'ARIA runtime source missing' }
           New-Item -ItemType Directory -Force -Path $target | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:ProgramData 'ARIA-Windows-Agent') | Out-Null
           Copy-Item -Path (Join-Path $source '*') -Destination $target -Recurse -Force
           $runtimeScript = Join-Path $target 'run-agent.ps1'
-          $taskCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $runtimeScript + '"'
+          # Only retarget TR; do not change principal/user (must stay interactive user for DPAPI)
+          $taskCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $runtimeScript + '"'
           & schtasks.exe /Change /TN 'ARIA-Windows-Local-Agent' /TR $taskCommand | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Unable to retarget ARIA task. ExitCode=$LASTEXITCODE" }
           Write-Host 'ARIA_RUNTIME_REPAIR=PASS'
           Write-Host "ARIA_RUNTIME_PATH=$runtimeRoot"
+          Write-Host 'NOTE: Task principal remains the interactive user (required for DPAPI). Config/token stay in user LOCALAPPDATA.'
