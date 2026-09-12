@@ -1,0 +1,61 @@
+name: ARIA Windows Shell Live V2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-shell-live-v2:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Source syntax
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --check .\agents\windows\aria-agent.js
+          node --check .\autonomy\windows-shell-executor.js
+          node --check .\execution\device-job-contract.js
+          Write-Host 'SOURCE_SYNTAX=PASS'
+      - name: Runtime sync
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
+          $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item (Join-Path $source 'aria-agent.js') $target -Force
+          Copy-Item (Join-Path $source 'run-agent.ps1') $target -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE 'autonomy\windows-shell-executor.js') $target -Force
+          Write-Host 'RUNTIME_SYNC=PASS'
+      - name: PowerShell executor live
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:GITHUB_WORKSPACE
+          node -e "const assert=require('node:assert/strict'); const m=require('./autonomy/windows-shell-executor'); (async()=>{const r=await m.executePowerShell({script:\"Write-Output 'ARIA_WINDOWS_SHELL_OK'\",cwd:process.env.TEMP,timeout_ms:30000,dry_run:false}); assert.equal(r.status,'succeeded'); assert.equal(r.exit_code,0); assert.match(r.stdout,/ARIA_WINDOWS_SHELL_OK/); console.log('POWERSHELL_EXECUTION=PASS'); console.log('POWERSHELL_STDOUT='+r.stdout.trim());})().catch(e=>{console.error(e);process.exit(1)})"
+      - name: Runtime D proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          if (-not (Test-Path (Join-Path $runtime 'aria-agent.js'))) { throw 'runtime agent missing' }
+          if (-not (Test-Path (Join-Path $runtime 'windows-shell-executor.js'))) { throw 'runtime shell executor missing' }
+          node --check (Join-Path $runtime 'aria-agent.js')
+          node --check (Join-Path $runtime 'windows-shell-executor.js')
+          Write-Host 'RUNTIME_D_PROOF=PASS'
+      - name: Scheduled agent proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $q = & schtasks.exe /Query /TN 'ARIA-Windows-Local-Agent' /FO LIST /V 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "ARIA task missing: $q" }
+          Write-Host 'ARIA_TASK_EXISTS=PASS'
+      - name: Final proof
+        run: |
+          Write-Host 'ARIA_WINDOWS_SHELL_LIVE_V2=PASS'
+          Write-Host 'STATUS=HOST_EXECUTION_VERIFIED'
