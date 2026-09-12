@@ -20,17 +20,32 @@ function normalizeObservation(observation) {
   });
 }
 
+function textMatches(actual, expected) {
+  if (expected == null) return true;
+  if (typeof actual !== 'string' || typeof expected !== 'string') return actual === expected;
+  const a = actual.trim().toLowerCase();
+  const e = expected.trim().toLowerCase();
+  return a === e || a.includes(e);
+}
+
 function nodeMatches(node, expected = {}) {
   if (!node) return false;
-  return Object.entries(expected).every(([key, value]) => value == null || node[key] === value);
+  return Object.entries(expected).every(([key, value]) => {
+    if (value == null) return true;
+    if (key === 'name' || key === 'value' || key === 'role') return textMatches(node[key], value);
+    return node[key] === value;
+  });
 }
 
 function verifyObservation(observation, expectation = {}) {
   const normalized = normalizeObservation(observation);
   if (!normalized) return Object.freeze({ ok: false, reason: 'observation_missing', confidence: 0 });
   const expectedProcess = expectation.focused_process || null;
-  if (expectedProcess && normalized.focused_process !== expectedProcess) {
+  if (expectedProcess && !textMatches(normalized.focused_process, expectedProcess)) {
     return Object.freeze({ ok: false, reason: 'focused_process_mismatch', confidence: 0.2, evidence: normalized });
+  }
+  if (expectation.focused_title && !textMatches(normalized.focused_title, expectation.focused_title)) {
+    return Object.freeze({ ok: false, reason: 'focused_title_mismatch', confidence: 0.25, evidence: normalized });
   }
   if (Array.isArray(expectation.required_nodes)) {
     for (const expected of expectation.required_nodes) {
@@ -70,4 +85,4 @@ function verifyDesktopResult({ step, result, observation = null } = {}) {
   return verifyObservation(observation, expectation);
 }
 
-module.exports = Object.freeze({ VERSION, normalizeObservation, verifyObservation, inferExpectation, verifyDesktopResult });
+module.exports = Object.freeze({ VERSION, normalizeObservation, textMatches, nodeMatches, verifyObservation, inferExpectation, verifyDesktopResult });
