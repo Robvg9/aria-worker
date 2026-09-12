@@ -19,7 +19,7 @@ jobs:
   preflight:
     name: Windows Agent / Ollama Preflight
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -35,7 +35,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
           Copy-Item -Path (Join-Path $source '*') -Destination $target -Force
           $synced = Get-Content -Raw (Join-Path $target 'run-agent.ps1')
-          # Only flag actual Start-Process usage of -NoNewWindow (comments are OK).
           if ($synced -match 'Start-Process[\s\S]{0,200}-NoNewWindow') {
             throw 'Synced run-agent.ps1 still uses -NoNewWindow on Start-Process'
           }
@@ -53,6 +52,44 @@ jobs:
           Write-Host "NODE_PATH=$($node.Source)"
           Write-Host "NODE_VERSION=$version"
           if ([version]($version.TrimStart('v')) -lt [version]'20.0.0') { throw 'Node 20+ required' }
+
+      - name: Bounce watchdog host to load synced script and free memory
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $LogDir = 'D:\ARIA-Windows-Agent\Logs'
+          $PidPath = Join-Path $LogDir 'agent.pid'
+          $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
+
+          # Stop recorded agent/watchdog PIDs so Ollama has headroom and new script is loaded.
+          foreach ($path in @($PidPath, $WatchdogPidPath)) {
+            if (Test-Path $path) {
+              $id = 0
+              if ([int]::TryParse((Get-Content -Raw $path).Trim(), [ref]$id) -and $id -gt 0) {
+                try { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue; Write-Host "STOPPED_PID=$id from $path" } catch {}
+              }
+            }
+          }
+
+          # Best-effort stop all node processes that look like aria-agent (may be inaccessible).
+          try {
+            Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -like '*aria-agent.js*' } |
+              ForEach-Object {
+                try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host "STOPPED_NODE=$($_.ProcessId)" } catch {}
+              }
+          } catch {}
+
+          try {
+            & schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
+            Start-Sleep -Seconds 3
+            & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
+            Write-Host "SCHTASKS_BOUNCE_EXIT=$LASTEXITCODE"
+          } catch {
+            Write-Host "SCHTASKS_BOUNCE_SKIPPED=$($_.Exception.Message)"
+          }
+
+          Start-Sleep -Seconds 5
+          Write-Host 'BOUNCE_DONE=True'
 
       - name: Verify Ollama service
         run: |
@@ -73,8 +110,19 @@ jobs:
             think = $false
             options = @{ temperature = 0; seed = 42; num_predict = 8 }
           } | ConvertTo-Json -Depth 10
-          $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 180
-          if ($null -eq $result) { throw 'Ollama returned no result' }
+          $result = $null
+          $lastErr = $null
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+              $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 180
+              break
+            } catch {
+              $lastErr = $_
+              Write-Host "QWEN_ATTEMPT=$attempt failed: $($_.Exception.Message)"
+              Start-Sleep -Seconds 8
+            }
+          }
+          if ($null -eq $result) { throw "Ollama generate failed after retries: $lastErr" }
           $text = ([string]$result.response).Trim()
           if (-not $result.done) { throw 'Qwen generation did not finish' }
           if ([string]::IsNullOrWhiteSpace($text)) { throw 'Qwen returned an empty response' }
@@ -98,33 +146,6 @@ jobs:
             if (-not (Test-Path $p)) { throw "Missing required path: $p" }
           }
 
-          if (Test-Path $WatchdogPidPath) {
-            $wpid = 0
-            [void][int]::TryParse((Get-Content -Raw $WatchdogPidPath).Trim(), [ref]$wpid)
-            if ($wpid -gt 0) {
-              try {
-                Stop-Process -Id $wpid -Force -ErrorAction SilentlyContinue
-                Write-Host "STOPPED_OLD_WATCHDOG_PID=$wpid"
-              } catch {}
-            }
-          }
-          if (Test-Path $PidPath) {
-            $apid = 0
-            [void][int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$apid)
-            if ($apid -gt 0) {
-              try { Stop-Process -Id $apid -Force -ErrorAction SilentlyContinue; Write-Host "STOPPED_STALE_AGENT_PID=$apid" } catch {}
-            }
-          }
-
-          try {
-            & schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
-            Start-Sleep -Seconds 2
-            & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
-            Write-Host "SCHTASKS_BOUNCE_EXIT=$LASTEXITCODE"
-          } catch {
-            Write-Host "SCHTASKS_BOUNCE_SKIPPED=$($_.Exception.Message)"
-          }
-
           function Test-LiveAgent {
             if (-not (Test-Path $PidPath)) { return $null }
             $id = 0
@@ -136,7 +157,7 @@ jobs:
           }
 
           $agent = $null
-          for ($i = 0; $i -lt 45; $i++) {
+          for ($i = 0; $i -lt 50; $i++) {
             $agent = Test-LiveAgent
             if ($agent) { break }
             $cim = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
@@ -154,8 +175,8 @@ jobs:
           if (-not $agent) {
             Write-Host '--- public diagnostics ---'
             if (Test-Path $LogPath) {
-              Write-Host 'watchdog.log (last 30):'
-              Get-Content $LogPath -Tail 30 -ErrorAction SilentlyContinue
+              Write-Host 'watchdog.log (last 40):'
+              Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
             } else { Write-Host "No log at $LogPath" }
             if (Test-Path $StatusPath) { Write-Host "status.json=$(Get-Content -Raw $StatusPath)" }
             if (Test-Path $PidPath) { Write-Host "agent.pid=$(Get-Content -Raw $PidPath)" }
