@@ -1,19 +1,19 @@
 name: ARIA Windows Local Agent Preflight
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - "agents/windows/**"
-      - ".github/workflows/aria-windows-agent-preflight.yml"
+      - agents/windows/**
+      - .github/workflows/aria-windows-agent-preflight.yml
 
 permissions:
   contents: read
 
 defaults:
   run:
-    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    shell: powershell
 
 jobs:
   preflight:
