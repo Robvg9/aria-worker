@@ -6,6 +6,7 @@ on:
       - 'agents/windows/**'
       - 'autonomy/windows-shell-executor.js'
       - 'autonomy/universal-execution/registry.json'
+      - 'computer-use/**'
       - 'tests/windows-shell-executor.test.js'
       - '.github/workflows/windows-shell-executor-local.yml'
 
@@ -35,49 +36,66 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
+          $computerUse = Join-Path $env:GITHUB_WORKSPACE 'computer-use'
           $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           Copy-Item (Join-Path $source 'aria-agent.js') (Join-Path $target 'aria-agent.js') -Force
           Copy-Item (Join-Path $source 'run-agent.ps1') (Join-Path $target 'run-agent.ps1') -Force
           Copy-Item (Join-Path $source 'windows-shell-executor.js') (Join-Path $target 'windows-shell-executor.js') -Force
+          Copy-Item (Join-Path $computerUse 'windows-desktop-adapter.js') (Join-Path $target 'windows-desktop-adapter.js') -Force
+          Copy-Item (Join-Path $computerUse 'windows-desktop-runner.ps1') (Join-Path $target 'windows-desktop-runner.ps1') -Force
+          Copy-Item (Join-Path $computerUse 'windows-ui-automation.ps1') (Join-Path $target 'windows-ui-automation.ps1') -Force
+          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js','windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1')) {
+            if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing: $file" }
+          }
+          node --check (Join-Path $target 'aria-agent.js')
+          node --check (Join-Path $target 'windows-shell-executor.js')
+          node --check (Join-Path $target 'windows-desktop-adapter.js')
           Write-Host 'RUNTIME_SYNC=PASS'
 
-      - name: Restart ARIA watchdog
+      - name: Request watchdog reload through public signal
         run: |
           $ErrorActionPreference = 'Stop'
-          & schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
-          Start-Sleep -Seconds 2
-          & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' | Out-Null
-          Start-Sleep -Seconds 5
-          $status = 'D:\ARIA-Windows-Agent\Logs\status.json'
-          if (Test-Path $status) { Get-Content -Raw $status }
-          Write-Host 'WATCHDOG_RESTART=REQUESTED'
+          $logDir = 'D:\ARIA-Windows-Agent\Logs'
+          $pidPath = Join-Path $logDir 'agent.pid'
+          $killRequest = Join-Path $logDir 'kill-request'
+          $logPath = Join-Path $logDir 'watchdog.log'
+          if (-not (Test-Path $pidPath)) { throw 'agent.pid missing' }
+          $oldPid = 0
+          if (-not [int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$oldPid) -or $oldPid -le 0) { throw 'Invalid agent.pid' }
+          Set-Content -Path $killRequest -Value "pid=$oldPid from=windows-shell-executor-local ts=$(Get-Date -Format o)" -Encoding ASCII -Force
+          Write-Host "KILL_REQUEST_WRITTEN=True PID=$oldPid"
+          $newPid = $null
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 2
+            if (-not (Test-Path $pidPath)) { continue }
+            $cand = 0
+            if (-not [int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$cand)) { continue }
+            if ($cand -le 0 -or $cand -eq $oldPid) { continue }
+            $p = Get-Process -Id $cand -ErrorAction SilentlyContinue
+            if ($p -and $p.ProcessName -match 'node') { $newPid = $cand; break }
+          }
+          if (-not $newPid) {
+            if (Test-Path $logPath) { Get-Content $logPath -Tail 80 }
+            throw 'Watchdog did not restart agent after public signal'
+          }
+          Write-Host "ARIA_AGENT_RESTART=PASS NEW_PID=$newPid"
 
       - name: Live PowerShell execution proof
         run: |
           $ErrorActionPreference = 'Stop'
-          node - <<'NODE'
-          const { parseShellJob, executePowerShell } = require('./autonomy/windows-shell-executor');
-          (async () => {
-            const payload = parseShellJob({
-              device_id: 'ci-local',
-              operation: 'shell.execute',
-              command: JSON.stringify({ script: 'Write-Output ARIA_LOCAL_POWERSHELL_OK', cwd: process.env.GITHUB_WORKSPACE, timeout_ms: 30000 })
-            }, 'ci-local');
-            const result = await executePowerShell(payload);
-            console.log(JSON.stringify(result, null, 2));
-            if (result.status !== 'succeeded') process.exit(1);
-            if (!result.stdout.includes('ARIA_LOCAL_POWERSHELL_OK')) process.exit(2);
-          })().catch((e) => { console.error(e); process.exit(3); });
-          NODE
+          node -e "const { parseShellJob, executePowerShell } = require('./autonomy/windows-shell-executor'); (async () => { const payload = parseShellJob({ device_id: 'ci-local', operation: 'shell.execute', command: JSON.stringify({ script: 'Write-Output ARIA_LOCAL_POWERSHELL_OK', cwd: process.env.GITHUB_WORKSPACE, timeout_ms: 30000 }) }, 'ci-local'); const result = await executePowerShell(payload); console.log(JSON.stringify(result, null, 2)); if (result.status !== 'succeeded') process.exit(1); if (!result.stdout.includes('ARIA_LOCAL_POWERSHELL_OK')) process.exit(2); })().catch((e) => { console.error(e); process.exit(3); });"
 
       - name: Verify packaged runtime module
         run: |
           $ErrorActionPreference = 'Stop'
-          $module = 'D:\ARIA-Windows-Agent\Runtime\windows\windows-shell-executor.js'
-          $agent = 'D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
-          if (-not (Test-Path $module)) { throw 'Packaged windows-shell-executor.js missing' }
-          if (-not (Test-Path $agent)) { throw 'Packaged aria-agent.js missing' }
-          $agentText = Get-Content -Raw $agent
+          $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
+          foreach ($file in @('windows-shell-executor.js','aria-agent.js','windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1')) {
+            if (-not (Test-Path (Join-Path $target $file))) { throw "Packaged runtime file missing: $file" }
+          }
+          $agentText = Get-Content -Raw (Join-Path $target 'aria-agent.js')
           if ($agentText -notmatch "shell\.execute") { throw 'aria-agent.js does not advertise shell.execute' }
+          if ($agentText -notmatch "computer\.use") { throw 'aria-agent.js does not advertise computer.use' }
+          $desktopText = Get-Content -Raw (Join-Path $target 'windows-desktop-adapter.js')
+          if ($desktopText -notmatch 'aria-windows-desktop-v1\.8') { throw 'desktop adapter v1.8 missing' }
           Write-Host 'PACKAGED_RUNTIME=PASS'
