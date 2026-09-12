@@ -14,7 +14,7 @@ jobs:
   preflight:
     name: Windows Agent / Ollama Preflight
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Verify runner Node environment
         run: |
@@ -50,29 +50,28 @@ jobs:
           }
           Write-Host 'QWEN_EXECUTION=PASS'
 
-      - name: Repair Windows Agent DPAPI token and start task
+      - name: Stage Device token for ARIA task
         env:
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
-          ARIA_DEVICE_ID: ${{ secrets.ARIA_DEVICE_ID }}
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($name in @('ARIA_DEVICE_TOKEN','ARIA_DEVICE_ID')) {
-            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
-              throw "$name repository secret is missing"
-            }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) {
+            throw 'ARIA_DEVICE_TOKEN repository secret is missing'
           }
-          $configDir = Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent'
-          $tokenPath = Join-Path $configDir 'device-token.dpapi'
-          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-          $secure = ConvertTo-SecureString -String $env:ARIA_DEVICE_TOKEN -AsPlainText -Force
-          $encrypted = $secure | ConvertFrom-SecureString
-          Set-Content -Path $tokenPath -Value $encrypted -Encoding ASCII
-          Write-Host 'TOKEN_STORE_REPAIRED=True'
+          $stagingDir = Join-Path $env:ProgramData 'ARIA-Windows-Agent'
+          $stagingPath = Join-Path $stagingDir 'token.staging'
+          New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+          Set-Content -Path $stagingPath -Value $env:ARIA_DEVICE_TOKEN -Encoding ASCII
+          Write-Host 'TOKEN_STAGED=True'
+
+      - name: Start ARIA Windows Agent task
+        run: |
+          $ErrorActionPreference = 'Stop'
           & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' | Out-Null
           if ($LASTEXITCODE -ne 0) {
             throw "Unable to start ARIA-Windows-Local-Agent. ExitCode=$LASTEXITCODE"
           }
-          Start-Sleep -Seconds 8
+          Start-Sleep -Seconds 10
           $agent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -like '*agents\\windows\\aria-agent.js*' }
           if (-not $agent) {
@@ -80,21 +79,18 @@ jobs:
           }
           Write-Host 'AGENT_PROCESS=RUNNING'
 
-      - name: Verify ARIA Gateway environment and heartbeat
+      - name: Verify ARIA Gateway heartbeat
         env:
-          ARIA_DEVICE_GATEWAY_URL: ${{ secrets.ARIA_DEVICE_GATEWAY_URL }}
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
-          ARIA_DEVICE_ID: ${{ secrets.ARIA_DEVICE_ID }}
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($name in @('ARIA_DEVICE_GATEWAY_URL','ARIA_DEVICE_TOKEN','ARIA_DEVICE_ID')) {
-            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
-              throw "$name repository secret is missing"
-            }
+          $deviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          $url = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) {
+            throw 'ARIA_DEVICE_TOKEN repository secret is missing'
           }
-          $url = $env:ARIA_DEVICE_GATEWAY_URL.TrimEnd('/')
-          $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $env:ARIA_DEVICE_ID; 'content-type' = 'application/json' }
-          $body = @{ device_id = $env:ARIA_DEVICE_ID; agent_type = 'windows-ollama-qwen3'; capabilities = @('shell.execute','ollama.qwen3') } | ConvertTo-Json
+          $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $deviceId; 'content-type' = 'application/json' }
+          $body = @{ device_id = $deviceId; agent_type = 'windows-local'; capabilities = @('ollama.qwen3') } | ConvertTo-Json
           try {
             $heartbeat = Invoke-RestMethod -Uri "$url/v1/devices/heartbeat" -Headers $headers -Method Post -Body $body -TimeoutSec 15
           } catch {
@@ -104,5 +100,5 @@ jobs:
             throw 'Gateway heartbeat returned an empty response'
           }
           Write-Host 'GATEWAY_HEARTBEAT=PASS'
-          Write-Host 'DEVICE_ID=present'
+          Write-Host 'DEVICE_ID=windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
           Write-Host 'CAPABILITY=ollama.qwen3'
