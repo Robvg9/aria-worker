@@ -1,5 +1,4 @@
 'use strict';
-
 const crypto = require('crypto');
 const { createAutonomyPolicy, riskAllowed } = require('./policy');
 const { normalizePlan, nextReadyStep, dependenciesSatisfied } = require('./universal-execution/plan');
@@ -15,6 +14,35 @@ function requireFn(value, name) {
 function stableId(parts) {
   const raw = JSON.stringify(parts, Object.keys(parts).sort());
   return `step_${crypto.createHash('sha256').update(raw).digest('hex').slice(0, 20)}`;
+}
+
+function evidenceSummary({ step, result, verification, attempt }) {
+  const evidence = verification && typeof verification === 'object' ? verification.evidence : null;
+  const summary = {
+    step_id: step?.id || null,
+    operation: step?.operation || null,
+    attempt,
+    status: result?.status || null,
+    verified: verification === true || verification?.ok === true,
+    reason: verification?.reason || null,
+    confidence: typeof verification?.confidence === 'number' ? verification.confidence : null
+  };
+  if (evidence && typeof evidence === 'object') {
+    summary.evidence = {
+      focused_process: evidence.focused_process || null,
+      focused_title: evidence.focused_title || null,
+      focused_id: evidence.focused_id || null,
+      node_count: Array.isArray(evidence.nodes) ? evidence.nodes.length : 0,
+      nodes: Array.isArray(evidence.nodes) ? evidence.nodes.slice(0, 50).map(node => ({
+        role: node?.role || null,
+        name: node?.name || null,
+        value: node?.value || null,
+        enabled: node?.enabled ?? null,
+        visible: node?.visible ?? null
+      })) : []
+    };
+  }
+  return Object.freeze(summary);
 }
 
 function createAutonomousMissionOrchestrator({ missionStore, planner, replanner = null, executor, verify, policy = {}, now = () => new Date().toISOString() } = {}) {
@@ -43,12 +71,13 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
       attempt += 1;
       try {
         const result = await executor({ missionId, mission, step, attempt, policy: p });
-        const passed = await verify({ missionId, mission, step, result, attempt });
-        outcome = { result, passed, attempt };
+        const verification = await verify({ missionId, mission, step, result, attempt });
+        const passed = verification === true || verification?.ok === true;
+        outcome = { result, verification, passed, attempt, evidence: evidenceSummary({ step, result, verification, attempt }) };
         if (passed) break;
         outcome.error = 'verification_failed';
       } catch (error) {
-        outcome = { error: String(error && error.message || error), passed: false, attempt };
+        outcome = { error: String(error && error.message || error), passed: false, attempt, evidence: evidenceSummary({ step, result: null, verification: { ok: false, reason: 'executor_exception' }, attempt }) };
       }
       if (!step.retryable || !RETRYABLE.has(outcome.result?.status || 'failed') || attempt >= limits.max_attempts_per_step) break;
     }
@@ -89,7 +118,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
         await missionStore.transition(missionId, 'blocked', { next_action: 'human_gate: planner returned no executable steps' });
         return { status: 'blocked', reason: 'plan_missing' };
       }
-      mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, planned_at: now(), replan_count: 0 }, { total_steps: plan.length, current_step: mission.current_step || 0 });
+      mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, planned_at: now(), replan_count: 0, evidence_log: [] }, { total_steps: plan.length, current_step: mission.current_step || 0 });
     } else {
       try { plan = normalizePlan(plan); } catch (error) {
         await missionStore.transition(missionId, 'blocked', { next_action: `human_gate: stored plan invalid (${String(error.message || error)})` });
@@ -102,6 +131,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
     if (mission.completed_step) completedIds.add(String(mission.completed_step));
     let completedCount = Number.isInteger(mission.completed_steps) ? mission.completed_steps : completedIds.size;
     let replanCount = Number(mission.checkpoint?.replan_count || 0);
+    const evidenceLog = Array.isArray(mission.checkpoint?.evidence_log) ? [...mission.checkpoint.evidence_log] : [];
 
     while (completedCount < plan.length) {
       if (Date.now() - started >= p.max_runtime_ms) {
@@ -142,7 +172,8 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
         plan,
         active_steps: ready.map(step => step.id),
         active_batch_started_at: now(),
-        replan_count: replanCount
+        replan_count: replanCount,
+        evidence_log: evidenceLog.slice(-100)
       }, {
         current_step: completedCount,
         next_action: 'executing_parallel_batch'
@@ -152,6 +183,7 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
       const failures = [];
       for (let i = 0; i < ready.length; i++) {
         const outcome = outcomes[i];
+        evidenceLog.push(outcome?.evidence || evidenceSummary({ step: ready[i], result: outcome?.result, verification: outcome?.verification, attempt: outcome?.attempt || 1 }));
         if (outcome?.passed) {
           completedIds.add(String(ready[i].id));
           completedCount += 1;
@@ -164,36 +196,37 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
         const primary = failures[0];
         if (replanner && replanCount < limits.max_replans) {
           try {
-            const replacement = await replanner({ mission, plan, completed_steps: [...completedIds], failed_step: primary.step, outcome: primary.outcome, failed_steps: failures, replan_count: replanCount + 1, policy: p });
+            const replacement = await replanner({ mission, plan, completed_steps: [...completedIds], failed_step: primary.step, outcome: primary.outcome, failed_steps: failures, evidence: primary.outcome?.evidence || null, replan_count: replanCount + 1, policy: p });
             const normalized = normalizePlan(replacement);
             if (!Array.isArray(normalized) || normalized.length === 0) throw new Error('replanner returned no executable steps');
             const remaining = normalized.filter(item => !completedIds.has(String(item.id)));
             if (remaining.length === 0) throw new Error('replanner returned no remaining work');
             plan = remaining.map((item, index) => ({ ...item, id: item.id || stableId({ missionId, index, action: item.action || item.operation || null }), depends_on: Array.isArray(item.depends_on) ? item.depends_on.map(String).filter(dep => !completedIds.has(dep)) : [] }));
             replanCount += 1;
-            await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], active_steps: [], replanned_from_step: primary.step.id, replan_count: replanCount, last_replan_reason: primary.outcome?.error || primary.outcome?.result?.status || 'execution_or_verification_failure' }, { total_steps: completedCount + plan.length, current_step: completedCount, next_action: 'replanned_next_ready_batch' });
+            await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], active_steps: [], replanned_from_step: primary.step.id, replan_count: replanCount, last_replan_reason: primary.outcome?.verification?.reason || primary.outcome?.error || primary.outcome?.result?.status || 'execution_or_verification_failure', last_replan_evidence: primary.outcome?.evidence || null, evidence_log: evidenceLog.slice(-100) }, { total_steps: completedCount + plan.length, current_step: completedCount, next_action: 'replanned_next_ready_batch' });
+            mission = await missionStore.get(missionId);
             continue;
           } catch (replanError) {
             primary.outcome.replan_error = String(replanError && replanError.message || replanError);
           }
         }
-        await missionStore.transition(missionId, 'failed', { current_step: completedCount, attempt_count: primary.outcome?.attempt || limits.max_attempts_per_step, next_action: replanner && replanCount >= limits.max_replans ? 'human_gate: max_replans_exhausted' : 'recover_or_human_gate', last_stderr: primary.outcome?.error || primary.outcome?.result?.stderr || null, last_exit_code: primary.outcome?.result?.exit_code ?? null, last_stdout: primary.outcome?.result?.stdout ?? null });
+        await missionStore.transition(missionId, 'failed', { current_step: completedCount, attempt_count: primary.outcome?.attempt || limits.max_attempts_per_step, next_action: replanner && replanCount >= limits.max_replans ? 'human_gate: max_replans_exhausted' : 'recover_or_human_gate', last_stderr: primary.outcome?.error || primary.outcome?.result?.stderr || null, last_exit_code: primary.outcome?.result?.exit_code ?? null, last_stdout: primary.outcome?.result?.stdout ?? null, last_evidence: primary.outcome?.evidence || null });
         return { status: 'failed', step: primary.step, outcome: primary.outcome, failed_steps: failures.map(item => item.step) };
       }
 
-      mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], active_steps: [], completed_at: now(), replan_count: replanCount }, { current_step: completedCount, completed_steps: completedCount, next_action: completedCount < plan.length ? 'next_ready_batch' : 'verify_goal' });
+      mission = await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], active_steps: [], completed_at: now(), replan_count: replanCount, last_evidence: evidenceLog.at(-1) || null, evidence_log: evidenceLog.slice(-100) }, { current_step: completedCount, completed_steps: completedCount, next_action: completedCount < plan.length ? 'next_ready_batch' : 'verify_goal' });
     }
 
     const finalVerification = await verify({ missionId, mission, final: true, plan });
-    if (!finalVerification) {
-      await missionStore.transition(missionId, 'failed', { next_action: 'human_gate: final verification failed' });
+    if (!(finalVerification === true || finalVerification?.ok === true)) {
+      await missionStore.transition(missionId, 'failed', { next_action: 'human_gate: final verification failed', last_evidence: finalVerification?.evidence || null });
       return { status: 'verification_failed' };
     }
-    mission = await missionStore.transition(missionId, 'succeeded', { current_step: plan.length, completed_steps: plan.length, next_action: null });
+    mission = await missionStore.transition(missionId, 'succeeded', { current_step: plan.length, completed_steps: plan.length, next_action: null, final_evidence: finalVerification === true ? null : finalVerification.evidence || finalVerification });
     return { status: 'succeeded', mission };
   }
 
   return Object.freeze({ policy: p, limits, run });
 }
 
-module.exports = Object.freeze({ createAutonomousMissionOrchestrator, stableId });
+module.exports = Object.freeze({ createAutonomousMissionOrchestrator, stableId, evidenceSummary });
