@@ -18,7 +18,11 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
     async createBranch(value) { assert.equal(value, branch); },
     async read() { return { content: 'before' }; },
     async apply(change) { assert.equal(change.branch, branch); return { status: 'succeeded', data: { path: change.path } }; },
-    async openPullRequest() { return { number: 777, html_url: 'https://github.com/Robvg9/battlecruiser/pull/777' }; }
+    async openPullRequest(args) {
+      assert.equal(args.branch, branch);
+      assert.match(args.title, /BattleCruiser/);
+      return { number: 777, html_url: 'https://github.com/Robvg9/battlecruiser/pull/777' };
+    }
   };
   const bridge = createBattleCruiserBridge({
     workspace,
@@ -31,10 +35,11 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
   ];
 
   const executed = [];
+  let finalBridgeRun = null;
   const executor = async ({ step }) => {
     executed.push(step.id);
     if (step.id === 'inspect') return { status: 'succeeded', data: { ok: true } };
-    const run = await bridge.run({
+    finalBridgeRun = await bridge.run({
       repository: 'Robvg9/battlecruiser',
       branch,
       files: [step.input.path],
@@ -42,7 +47,7 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
       evaluationCases: [{ id: 'written', run: async () => true, expect: value => value === true }],
       baseline: { status: 'passed', total: 1, passed: 1, failed: 0, results: [{ id: 'written', status: 'passed' }] }
     });
-    return { status: run.status === 'passed' ? 'succeeded' : 'failed', data: run };
+    return { status: finalBridgeRun.status === 'passed' ? 'succeeded' : 'failed', data: finalBridgeRun };
   };
 
   const verify = async ({ result, final = false }) => final ? true : result?.status === 'succeeded';
@@ -58,6 +63,17 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
   assert.equal(result.status, 'succeeded');
   assert.deepEqual(executed, ['inspect', 'write']);
   assert.equal(store.mission.status, 'succeeded');
+  assert.equal(finalBridgeRun?.promotion?.decision, 'open_pull_request');
+  assert.equal(finalBridgeRun?.promotion?.status, 'approved');
 
-  console.log('BATTLECRUISER AUTONOMOUS MISSION: PASS — real orchestrator plans, executes sandbox-bound work, verifies, and completes without main writes');
+  const promoted = await bridge.promote({
+    evaluation: finalBridgeRun.evaluation,
+    branch,
+    title: 'feat: ARIA governed BattleCruiser candidate'
+  });
+  assert.equal(promoted.status, 'approved');
+  assert.equal(promoted.decision, 'open_pull_request');
+  assert.equal(promoted.pr.number, 777);
+
+  console.log('BATTLECRUISER AUTONOMOUS MISSION: PASS — orchestrator → sandbox → regression → evaluation → promotion decision → PR contract');
 })().catch(error => { console.error(error); process.exit(1); });
