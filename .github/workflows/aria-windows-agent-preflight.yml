@@ -50,6 +50,16 @@ jobs:
           }
           Write-Host 'QWEN_EXECUTION=PASS'
 
+      - name: Sync ARIA task runtime
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\run-agent.ps1'
+          $target = 'C:\Users\robvg\aria-worker\agents\windows\run-agent.ps1'
+          if (-not (Test-Path $source)) { throw "Workflow runtime not found: $source" }
+          if (-not (Test-Path (Split-Path -Parent $target))) { throw "ARIA local agent path not found: $target" }
+          Copy-Item -Path $source -Destination $target -Force
+          Write-Host 'ARIA_RUNTIME_SYNC=PASS'
+
       - name: Stage Device token for ARIA task
         env:
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
