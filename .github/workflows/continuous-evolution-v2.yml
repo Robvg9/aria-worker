@@ -1,0 +1,44 @@
+name: Continuous Evolution v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [aria/continuous-evolution-v2]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  evolution-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check autonomy/continuous-evolution-v2.js
+          node --check autonomy/autonomy-frontier-v1.js
+          node --check autonomy/maintenance-planner-v1.js
+          node --check learning/skill-registry-v1.js
+          node --check learning/engine.js
+          node --check tests/continuous-evolution-v2.test.js
+          node --check tests/skill-registry-v1.test.js
+          node --check tests/autonomy-frontier-v1.test.js
+          node --check tests/maintenance-planner-v1.test.js
+      - name: Continuous evolution contract
+        run: node tests/continuous-evolution-v2.test.js
+      - name: Skill registry contract
+        run: node tests/skill-registry-v1.test.js
+      - name: Autonomy frontier contract
+        run: node tests/autonomy-frontier-v1.test.js
+      - name: Maintenance planner contract
+        run: node tests/maintenance-planner-v1.test.js
+      - name: Learning integration contract
+        run: node tests/skills-learning-v2.test.js
