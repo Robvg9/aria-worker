@@ -1,0 +1,30 @@
+name: Desktop Mission Orchestrator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [aria/desktop-autonomy-mission-orchestrator-v1]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-mission-orchestrator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax checks
+        run: |
+          node --check autonomy/desktop-mission-orchestrator.js
+          node --check autonomy/desktop-mission-simulator.js
+          node --check tests/desktop-mission-orchestrator.test.js
+      - name: Mission orchestrator contract
+        run: node tests/desktop-mission-orchestrator.test.js

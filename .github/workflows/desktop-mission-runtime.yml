@@ -1,0 +1,59 @@
+name: Desktop Mission Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [aria/desktop-autonomy-mission-orchestrator-v1]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check autonomy/desktop-mission-orchestrator.js
+          node --check autonomy/desktop-mission-planner.js
+          node --check autonomy/desktop-mission-replanner.js
+          node --check autonomy/desktop-semantic-verifier.js
+          node --check autonomy/desktop-semantic-runtime.js
+          node --check autonomy/autonomous-runtime.js
+          node --check autonomy/orchestrator.js
+          node --check agents/windows/aria-agent.js
+          node --check computer-use/windows-desktop-adapter.js
+          node --check multimodal/gemini-content-v1.js
+          node --check tests/desktop-mission-planner-runtime.test.js
+          node --check tests/desktop-mission-runtime-integration.test.js
+          node --check tests/desktop-mission-replanner.test.js
+          node --check tests/desktop-semantic-verifier.test.js
+          node --check tests/desktop-semantic-runtime.test.js
+          node --check tests/desktop-evidence-checkpoint.test.js
+          node --check tests/desktop-runtime-replanning.integration.test.js
+          node --check tests/multimodal-gemini-content-v1.test.js
+      - name: Desktop planner runtime contract
+        run: node tests/desktop-mission-planner-runtime.test.js
+      - name: Autonomous runtime integration contract
+        run: node tests/desktop-mission-runtime-integration.test.js
+      - name: Desktop mission replanner contract
+        run: node tests/desktop-mission-replanner.test.js
+      - name: Semantic verifier contract
+        run: node tests/desktop-semantic-verifier.test.js
+      - name: Semantic runtime verification contract
+        run: node tests/desktop-semantic-runtime.test.js
+      - name: Evidence checkpoint contract
+        run: node tests/desktop-evidence-checkpoint.test.js
+      - name: Runtime replanning integration contract
+        run: node tests/desktop-runtime-replanning.integration.test.js
+      - name: Multimodal Gemini content contract
+        run: node tests/multimodal-gemini-content-v1.test.js
