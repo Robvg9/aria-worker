@@ -1,0 +1,30 @@
+name: Desktop Mission Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [aria/desktop-autonomy-mission-orchestrator-v1]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check autonomy/desktop-mission-orchestrator.js
+          node --check autonomy/desktop-mission-planner.js
+          node --check tests/desktop-mission-planner-runtime.test.js
+      - name: Runtime planning and universal selection contract
+        run: node tests/desktop-mission-planner-runtime.test.js
