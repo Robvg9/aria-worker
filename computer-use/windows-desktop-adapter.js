@@ -3,10 +3,14 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 
-const VERSION = 'aria-windows-desktop-v1.7';
+const VERSION = 'aria-windows-desktop-v1.8';
 const MAX_TEXT = 32 * 1024;
 const MAX_SCREENSHOT_B64 = 8 * 1024 * 1024;
-const ACTIONS = new Set(['screenshot', 'observe', 'open', 'click', 'type', 'keypress', 'scroll', 'focus']);
+const MAX_HOTKEY_KEYS = 6;
+const ACTIONS = new Set([
+  'screenshot', 'observe', 'open', 'click', 'double_click', 'move', 'drag',
+  'type', 'keypress', 'hotkey', 'scroll', 'focus', 'wait'
+]);
 const RUNNER = path.join(__dirname, 'windows-desktop-runner.ps1');
 const UIA_SCRIPT = path.join(__dirname, 'windows-ui-automation.ps1');
 
@@ -14,14 +18,40 @@ function validateRequest(request = {}) {
   if (!request || typeof request !== 'object') throw new Error('desktop_request_invalid');
   const action = String(request.action || '');
   if (!ACTIONS.has(action)) throw new Error('desktop_action_unsupported');
+
   if (action === 'type' && (typeof request.text !== 'string' || request.text.length === 0 || request.text.length > MAX_TEXT)) {
     throw new Error('desktop_type_invalid');
   }
-  if (action === 'open' && (typeof request.path !== 'string' || !request.path.trim())) throw new Error('desktop_open_invalid');
-  if (action === 'focus' && (typeof request.process !== 'string' || !request.process.trim())) throw new Error('desktop_focus_invalid');
-  if (action === 'click' && (!Number.isInteger(request.x) || !Number.isInteger(request.y))) throw new Error('desktop_click_invalid');
-  if (action === 'keypress' && (typeof request.key !== 'string' || !request.key.trim())) throw new Error('desktop_keypress_invalid');
-  if (action === 'scroll' && !Number.isInteger(request.delta)) throw new Error('desktop_scroll_invalid');
+  if (action === 'open' && (typeof request.path !== 'string' || !request.path.trim())) {
+    throw new Error('desktop_open_invalid');
+  }
+  if (action === 'focus' && (typeof request.process !== 'string' || !request.process.trim())) {
+    throw new Error('desktop_focus_invalid');
+  }
+  if ((action === 'click' || action === 'double_click' || action === 'move') &&
+      (!Number.isInteger(request.x) || !Number.isInteger(request.y))) {
+    throw new Error('desktop_pointer_invalid');
+  }
+  if (action === 'drag' &&
+      (![request.x1, request.y1, request.x2, request.y2].every(Number.isInteger))) {
+    throw new Error('desktop_drag_invalid');
+  }
+  if (action === 'keypress' && (typeof request.key !== 'string' || !request.key.trim())) {
+    throw new Error('desktop_keypress_invalid');
+  }
+  if (action === 'hotkey') {
+    if (!Array.isArray(request.keys) || request.keys.length < 2 || request.keys.length > MAX_HOTKEY_KEYS ||
+        request.keys.some(key => typeof key !== 'string' || !key.trim())) {
+      throw new Error('desktop_hotkey_invalid');
+    }
+  }
+  if (action === 'scroll' && !Number.isInteger(request.delta)) {
+    throw new Error('desktop_scroll_invalid');
+  }
+  if (action === 'wait' && (!Number.isInteger(request.ms) || request.ms < 0 || request.ms > 60_000)) {
+    throw new Error('desktop_wait_invalid');
+  }
+
   return Object.freeze({ ...request, action });
 }
 
@@ -42,7 +72,7 @@ function spawnPowerShell(args, payload, timeoutMs) {
     };
     const timer = setTimeout(() => {
       try { child.kill(); } catch (_) {}
-      finish({ status: 'timeout', action: payload.action, error: 'desktop_timeout' });
+      finish({ status: 'timeout', action: payload.action, error: 'desktop_timeout', version: VERSION });
     }, Math.max(1000, timeoutMs));
 
     child.stdout.on('data', (chunk) => {
