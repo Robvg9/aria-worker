@@ -17,8 +17,6 @@ alter table aria_internal.self_audit_runs enable row level security;
 revoke all on table aria_internal.self_audit_runs from public, anon, authenticated;
 grant all on table aria_internal.self_audit_runs to service_role;
 
-author: postgres
-
 create or replace function aria_internal.self_audit_record(p_run jsonb)
 returns uuid
 language plpgsql
