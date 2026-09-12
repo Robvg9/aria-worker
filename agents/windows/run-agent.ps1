@@ -8,11 +8,14 @@ $ConfigPath = Join-Path $ConfigDir 'config.json'
 $TokenPath = Join-Path $ConfigDir 'device-token.dpapi'
 $AgentPath = Join-Path $AgentRoot 'aria-agent.js'
 $PublicDir = Join-Path $RuntimeRoot 'Logs'
-$StagingTokenPath = Join-Path $RuntimeRoot 'Data\token.staging'
+$StagingTokenPath = Join-Path $ConfigDir 'token.staging'
 $LogPath = Join-Path $PublicDir 'watchdog.log'
 $PidPath = Join-Path $PublicDir 'agent.pid'
+$StatusPath = Join-Path $PublicDir 'status.json'
+$WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
 
 New-Item -ItemType Directory -Force -Path $PublicDir | Out-Null
+New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 
 function Write-Log([string]$Message) {
     $line = "[ARIA-WATCHDOG] $(Get-Date -Format o) $Message"
@@ -20,10 +23,25 @@ function Write-Log([string]$Message) {
     Write-Output $line
 }
 
+function Write-Status([hashtable]$Fields) {
+    try {
+        $payload = [ordered]@{
+            updated_at = (Get-Date -Format o)
+            watchdog_pid = $PID
+            agent_path = $AgentPath
+            runtime_root = $RuntimeRoot
+        }
+        foreach ($key in $Fields.Keys) { $payload[$key] = $Fields[$key] }
+        ($payload | ConvertTo-Json -Compress) | Set-Content -Path $StatusPath -Encoding UTF8 -Force
+    } catch {}
+}
+
 function Resolve-Token {
     if (Test-Path $StagingTokenPath) {
         $stagedToken = (Get-Content -Raw -Path $StagingTokenPath).Trim()
-        if ([string]::IsNullOrWhiteSpace($stagedToken) -or $stagedToken.Length -lt 32) { throw 'ARIA staged token is missing or invalid' }
+        if ([string]::IsNullOrWhiteSpace($stagedToken) -or $stagedToken.Length -lt 32) {
+            throw 'ARIA staged token is missing or invalid'
+        }
         $secureStaged = ConvertTo-SecureString -String $stagedToken -AsPlainText -Force
         $encryptedStaged = $secureStaged | ConvertFrom-SecureString
         Set-Content -Path $TokenPath -Value $encryptedStaged -Encoding ASCII
@@ -39,14 +57,18 @@ function Resolve-Token {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
 
-Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir"
+try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
+Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir pid=$PID"
+Write-Status @{ state = 'watchdog_alive'; agent_pid = $null }
 
 while ($true) {
     try {
         if (-not (Test-Path $ConfigPath)) { throw "ARIA config not found: $ConfigPath" }
         if (-not (Test-Path $AgentPath)) { throw "ARIA agent not found: $AgentPath" }
+
         $config = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
         $token = Resolve-Token
+
         $env:ARIA_DEVICE_ID = [string]$config.device_id
         $env:ARIA_DEVICE_TOKEN = $token
         $env:ARIA_DEVICE_GATEWAY_URL = [string]$config.gateway_url
@@ -54,25 +76,36 @@ while ($true) {
         if ($config.poll_ms) { $env:ARIA_POLL_MS = [string]$config.poll_ms }
         if ($config.gateway_timeout_ms) { $env:ARIA_GATEWAY_TIMEOUT_MS = [string]$config.gateway_timeout_ms }
         if ($config.gateway_retries) { $env:ARIA_GATEWAY_RETRIES = [string]$config.gateway_retries }
+
         $node = [string]$config.node_path
         if (-not (Test-Path $node)) {
             $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
             if (-not $nodeCommand) { throw 'Node.js not found' }
             $node = $nodeCommand.Source
         }
+
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
-        # WindowStyle Hidden keeps the watchdog/agent invisible. Do not combine it with NoNewWindow.
+        # WindowStyle Hidden only — do not combine with -NoNewWindow.
         $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
+        Write-Status @{
+            state = 'agent_running'
+            agent_pid = $process.Id
+            node_path = $node
+            started_at = (Get-Date -Format o)
+        }
+
         $process.WaitForExit()
         $code = $process.ExitCode
         Write-Log "AGENT_EXIT code=$code restarting_in_ms=5000"
         try { Remove-Item -Path $PidPath -Force -ErrorAction SilentlyContinue } catch {}
+        Write-Status @{ state = 'agent_restarting'; agent_pid = $null; last_exit_code = $code }
         Start-Sleep -Seconds 5
     }
     catch {
         Write-Log "WATCHDOG_ERROR $($_.Exception.Message)"
+        Write-Status @{ state = 'watchdog_error'; error = $_.Exception.Message; agent_pid = $null }
         Start-Sleep -Seconds 10
     }
 }

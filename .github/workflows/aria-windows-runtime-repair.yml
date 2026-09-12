@@ -18,21 +18,18 @@ jobs:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
 
-      - name: Install persistent runtime on D (scripts only)
+      - name: Sync scripts to official D: runtime
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
-          $runtimeRoot = 'D:\ARIA-Windows-Agent\Runtime'
-          $target = Join-Path $runtimeRoot 'agents\windows'
+          $runtimeRoot = 'D:\ARIA-Windows-Agent'
+          $target = Join-Path $runtimeRoot 'Runtime\windows'
+          $logDir = Join-Path $runtimeRoot 'Logs'
           if (-not (Test-Path (Join-Path $source 'run-agent.ps1'))) { throw 'ARIA runtime source missing' }
           New-Item -ItemType Directory -Force -Path $target | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $env:ProgramData 'ARIA-Windows-Agent') | Out-Null
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
           Copy-Item -Path (Join-Path $source '*') -Destination $target -Recurse -Force
-          $runtimeScript = Join-Path $target 'run-agent.ps1'
-          # Only retarget TR; do not change principal/user (must stay interactive user for DPAPI)
-          $taskCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $runtimeScript + '"'
-          & schtasks.exe /Change /TN 'ARIA-Windows-Local-Agent' /TR $taskCommand | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Unable to retarget ARIA task. ExitCode=$LASTEXITCODE" }
-          Write-Host 'ARIA_RUNTIME_REPAIR=PASS'
-          Write-Host "ARIA_RUNTIME_PATH=$runtimeRoot"
-          Write-Host 'NOTE: Task principal remains the interactive user (required for DPAPI). Config/token stay in user LOCALAPPDATA.'
+          Write-Host 'ARIA_RUNTIME_SYNC=PASS'
+          Write-Host "ARIA_RUNTIME_PATH=$target"
+          Write-Host 'NOTE: Task principal remains ROBVG\robvg (required for DPAPI). Config/token stay in D:\ARIA-Windows-Agent\Data.'
+          Write-Host 'NOTE: Runner does not retarget Task Scheduler (access denied under NetworkService). Re-run install-v2.ps1 as interactive user if TR must change.'
