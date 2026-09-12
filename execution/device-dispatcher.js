@@ -22,7 +22,7 @@ function createDeviceDispatcher({ enqueue, get, sleep = ms => new Promise(resolv
   async function execute({ missionId, step, attempt = 1 }) {
     if (!missionId || !step || !step.id) throw new Error('missionId and step.id required');
     const operation = step.operation;
-    const command = operation === DEVICE_JOB_OPERATIONS.OLLAMA_QWEN3
+    const command = [DEVICE_JOB_OPERATIONS.OLLAMA_QWEN3, DEVICE_JOB_OPERATIONS.COMPUTER_USE].includes(operation)
       ? JSON.stringify(step.input || step.command)
       : (step.command || step.input?.command);
     const validation = validateDeviceJobOperation(operation, command);
