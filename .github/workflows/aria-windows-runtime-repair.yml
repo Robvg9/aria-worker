@@ -1,0 +1,35 @@
+name: ARIA Windows Runtime Repair
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout ARIA runtime
+        uses: actions/checkout@v4
+
+      - name: Install persistent runtime on D
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'agents\windows'
+          $runtimeRoot = 'D:\ARIA-Windows-Agent\Runtime'
+          $target = Join-Path $runtimeRoot 'agents\windows'
+          if (-not (Test-Path (Join-Path $source 'run-agent.ps1'))) { throw 'ARIA runtime source missing' }
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path (Join-Path $source '*') -Destination $target -Recurse -Force
+          $runtimeScript = Join-Path $target 'run-agent.ps1'
+          $taskCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $runtimeScript + '"'
+          & schtasks.exe /Change /TN 'ARIA-Windows-Local-Agent' /TR $taskCommand | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Unable to retarget ARIA task. ExitCode=$LASTEXITCODE" }
+          Write-Host 'ARIA_RUNTIME_REPAIR=PASS'
+          Write-Host "ARIA_RUNTIME_PATH=$runtimeRoot"
