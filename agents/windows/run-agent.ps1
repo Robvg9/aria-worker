@@ -85,7 +85,7 @@ while ($true) {
         }
 
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
-        # WindowStyle Hidden only — do not combine with -NoNewWindow.
+        # ONLY WindowStyle Hidden — never combine with -NoNewWindow (PowerShell throws).
         $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
