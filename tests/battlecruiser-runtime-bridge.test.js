@@ -31,12 +31,14 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
     files: ['docs/proof.md'],
     changes: [{ path: 'docs/proof.md', content: 'proof', branch: 'aria/sandbox/bc6-runtime-proof' }],
     evaluationCases: [{ id: 'behavior', run: async () => true, expect: value => value === true }],
-    baseline
+    baseline,
+    autoPromote: true
   });
 
   assert.equal(result.status, 'passed');
   assert.equal(result.promotion.decision, 'open_pull_request');
   assert.equal(result.promotion.status, 'approved');
+  assert.equal(result.pr.number, 321);
   assert.equal(calls.some(call => call[0] === 'branch'), true);
   assert.equal(calls.some(call => call[0] === 'execute'), true);
   assert.equal(applied.length, 1);
@@ -48,5 +50,5 @@ const { createBattleCruiserBridge } = require('../autonomy/battlecruiser/runtime
   assert.equal(pr.pr.number, 321);
   assert.equal(calls.some(call => call[0] === 'pr'), true);
 
-  console.log('BATTLECRUISER RUNTIME BRIDGE: PASS — universal executor → real sandbox write → evaluation → governed promotion');
+  console.log('BATTLECRUISER RUNTIME BRIDGE: PASS — universal executor → sandbox write → evaluation → automatic PR promotion contract');
 })().catch(error => { console.error(error); process.exit(1); });
