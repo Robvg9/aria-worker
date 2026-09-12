@@ -23,9 +23,7 @@ jobs:
           $version = node --version
           Write-Host "NODE_PATH=$($node.Source)"
           Write-Host "NODE_VERSION=$version"
-          if ([version]($version.TrimStart('v')) -lt [version]'20.0.0') {
-            throw 'Node 20+ required'
-          }
+          if ([version]($version.TrimStart('v')) -lt [version]'20.0.0') { throw 'Node 20+ required' }
 
       - name: Verify Ollama service
         run: |
@@ -33,9 +31,7 @@ jobs:
           $response = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -Method Get -TimeoutSec 10
           Write-Host 'OLLAMA=ONLINE'
           $model = $response.models | Where-Object { $_.name -eq 'qwen3:4b' }
-          if (-not $model) {
-            throw 'Required model qwen3:4b is not installed'
-          }
+          if (-not $model) { throw 'Required model qwen3:4b is not installed' }
           Write-Host 'OLLAMA_MODEL=qwen3:4b'
 
       - name: Verify qwen3 execution locally
@@ -46,75 +42,52 @@ jobs:
             prompt = 'Say OK.'
             stream = $false
             think = $false
-            options = @{
-              temperature = 0
-              seed = 42
-              num_predict = 8
-            }
+            options = @{ temperature = 0; seed = 42; num_predict = 8 }
           } | ConvertTo-Json -Depth 10
-
-          $result = Invoke-RestMethod `
-            -Uri 'http://127.0.0.1:11434/api/generate' `
-            -Method Post `
-            -ContentType 'application/json' `
-            -Body $payload `
-            -TimeoutSec 180
-
-          if ($null -eq $result) {
-            throw 'Ollama returned no result'
-          }
-
+          $result = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 180
+          if ($null -eq $result) { throw 'Ollama returned no result' }
           $text = ([string]$result.response).Trim()
-
-          if (-not $result.done) {
-            throw 'Qwen generation did not finish'
-          }
-
-          if ([string]::IsNullOrWhiteSpace($text)) {
-            throw 'Qwen returned an empty response'
-          }
-
+          if (-not $result.done) { throw 'Qwen generation did not finish' }
+          if ([string]::IsNullOrWhiteSpace($text)) { throw 'Qwen returned an empty response' }
           Write-Host 'QWEN_EXECUTION=PASS'
           Write-Host "QWEN_RESPONSE=$text"
           Write-Host "QWEN_TOTAL_DURATION_NS=$($result.total_duration)"
 
-      - name: Ensure ARIA task is running (no private profile access)
+      - name: Ensure ARIA task is running
         run: |
           $ErrorActionPreference = 'Stop'
           $TaskName = 'ARIA-Windows-Local-Agent'
-          $PublicDir = Join-Path $env:ProgramData 'ARIA-Windows-Agent'
-          $LogPath = Join-Path $PublicDir 'watchdog.log'
+          $RuntimeRoot = 'D:\ARIA-Windows-Agent'
+          $LogPath = Join-Path $RuntimeRoot 'Logs\watchdog.log'
+          $RuntimeAgent = Join-Path $RuntimeRoot 'Runtime\windows\aria-agent.js'
+
+          if (-not (Test-Path $RuntimeRoot)) { throw "ARIA runtime root missing: $RuntimeRoot" }
+          if (-not (Test-Path $RuntimeAgent)) { throw "ARIA runtime agent missing: $RuntimeAgent" }
 
           $query = schtasks.exe /Query /TN $TaskName /V /FO LIST 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            throw 'ARIA-Windows-Local-Agent task is not installed. Run install-v2.ps1 as the interactive user.'
+          if ($LASTEXITCODE -ne 0) { throw 'ARIA-Windows-Local-Agent task is not installed. Run install-v2.ps1 as robvg.' }
+          $text = ($query | Out-String)
+          if ($text -notmatch 'D:\\ARIA-Windows-Agent\\Runtime\\windows\\run-agent.ps1') {
+            throw 'ARIA task is not pointing to the D: runtime. Re-run install-v2.ps1.'
           }
 
-          $text = ($query | Out-String)
-          $running = $text -match 'Estado:\s+En ejecución|Status:\s+Running'
-
-          if (-not $running) {
-            Write-Host 'Task not running — starting via schtasks /Run'
+          if ($text -notmatch 'Estado:\s+En ejecución|Status:\s+Running') {
             & schtasks.exe /Run /TN $TaskName | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "Unable to start ARIA task. ExitCode=$LASTEXITCODE" }
-            Start-Sleep -Seconds 15
           }
 
-          # Poll for node process (system-wide; no user profile needed)
           $agent = $null
-          for ($i = 0; $i -lt 12; $i++) {
+          for ($i = 0; $i -lt 15; $i++) {
+            Start-Sleep -Seconds 2
             $agent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-              Where-Object { $_.CommandLine -like '*aria-agent.js*' }
+              Where-Object { $_.CommandLine -like '*D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent.js*' }
             if ($agent) { break }
-            Start-Sleep -Seconds 5
           }
 
           if (-not $agent) {
             if (Test-Path $LogPath) {
-              Write-Host '--- watchdog.log (last 30 lines) ---'
-              Get-Content -Path $LogPath -Tail 30 -ErrorAction SilentlyContinue
-            } else {
-              Write-Host "No public watchdog log at $LogPath"
+              Write-Host '--- watchdog.log ---'
+              Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
             }
             throw 'ARIA Windows Agent process is not running after task start'
           }
@@ -122,60 +95,47 @@ jobs:
           Write-Host 'ARIA_TASK=RUNNING'
           Write-Host 'AGENT_PROCESS=RUNNING'
           Write-Host "AGENT_PID=$($agent.ProcessId)"
-          if (Test-Path $LogPath) {
-            Write-Host 'WATCHDOG_LOG=AVAILABLE'
-          }
-
-      - name: Verify ARIA local agent runtime
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $agent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -like '*aria-agent.js*' }
-          if (-not $agent) {
-            throw 'ARIA Windows Agent process is not running'
-          }
-          Write-Host 'ARIA_RUNTIME=AVAILABLE'
-          Write-Host 'AGENT_PROCESS=RUNNING'
-          Write-Host "AGENT_PID=$($agent.ProcessId)"
+          Write-Host 'RUNTIME_ROOT=D:\ARIA-Windows-Agent'
 
       - name: Watchdog recovery proof (kill → restart)
         run: |
           $ErrorActionPreference = 'Stop'
-          $PublicDir = Join-Path $env:ProgramData 'ARIA-Windows-Agent'
-          $LogPath = Join-Path $PublicDir 'watchdog.log'
+          $RuntimeRoot = 'D:\ARIA-Windows-Agent'
+          $LogPath = Join-Path $RuntimeRoot 'Logs\watchdog.log'
+          $PidPath = Join-Path $RuntimeRoot 'Logs\agent.pid'
 
           $before = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -like '*aria-agent.js*' }
+            Where-Object { $_.CommandLine -like '*D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent.js*' }
           if (-not $before) { throw 'Agent not running before kill test' }
-          $oldPid = $before.ProcessId
-          Write-Host "KILL_TARGET_PID=$oldPid"
 
+          if (Test-Path $PidPath) {
+            $oldPid = [int](Get-Content -Raw $PidPath).Trim()
+            $target = $before | Where-Object { $_.ProcessId -eq $oldPid }
+            if (-not $target) { $oldPid = $before[0].ProcessId }
+          } else { $oldPid = $before[0].ProcessId }
+
+          Write-Host "KILL_TARGET_PID=$oldPid"
           Stop-Process -Id $oldPid -Force -ErrorAction Stop
           Write-Host 'AGENT_KILLED=True'
 
-          # Watchdog should restart within ~5–20s
           $newAgent = $null
-          for ($i = 0; $i -lt 18; $i++) {
+          for ($i = 0; $i -lt 20; $i++) {
             Start-Sleep -Seconds 2
-            $newAgent = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-              Where-Object { $_.CommandLine -like '*aria-agent.js*' }
-            if ($newAgent -and $newAgent.ProcessId -ne $oldPid) { break }
+            $candidate = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -like '*D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent.js*' -and $_.ProcessId -ne $oldPid }
+            if ($candidate) { $newAgent = $candidate; break }
           }
 
           if (-not $newAgent) {
             if (Test-Path $LogPath) {
               Write-Host '--- watchdog.log after kill ---'
-              Get-Content -Path $LogPath -Tail 20 -ErrorAction SilentlyContinue
+              Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
             }
             throw 'Watchdog did not restart aria-agent.js after kill'
           }
 
           Write-Host 'WATCHDOG_RESTART=PASS'
           Write-Host "AGENT_NEW_PID=$($newAgent.ProcessId)"
-          if (Test-Path $LogPath) {
-            Write-Host '--- recent watchdog log ---'
-            Get-Content -Path $LogPath -Tail 10 -ErrorAction SilentlyContinue
-          }
 
       - name: Verify ARIA Gateway heartbeat
         env:
@@ -184,17 +144,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $deviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
           $url = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
-          if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) {
-            throw 'ARIA_DEVICE_TOKEN repository secret is missing'
-          }
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) { throw 'ARIA_DEVICE_TOKEN repository secret is missing' }
           $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $deviceId; 'content-type' = 'application/json' }
           $body = @{ device_id = $deviceId; agent_type = 'windows-local'; capabilities = @('ollama.qwen3') } | ConvertTo-Json
-          try {
-            $heartbeat = Invoke-RestMethod -Uri "$url/v1/devices/heartbeat" -Headers $headers -Method Post -Body $body -TimeoutSec 15
-          } catch {
-            throw "Gateway heartbeat probe failed: $($_.Exception.Message)"
-          }
+          try { $heartbeat = Invoke-RestMethod -Uri "$url/v1/devices/heartbeat" -Headers $headers -Method Post -Body $body -TimeoutSec 15 }
+          catch { throw "Gateway heartbeat probe failed: $($_.Exception.Message)" }
           if ($null -eq $heartbeat) { throw 'Gateway heartbeat returned an empty response' }
           Write-Host 'GATEWAY_HEARTBEAT=PASS'
-          Write-Host 'DEVICE_ID=windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          Write-Host "DEVICE_ID=$deviceId"
           Write-Host 'CAPABILITY=ollama.qwen3'
