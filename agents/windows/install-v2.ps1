@@ -9,6 +9,7 @@ $LogDir = Join-Path $RuntimeRoot 'Logs'
 $ConfigPath = Join-Path $DataDir 'config.json'
 $TokenPath = Join-Path $DataDir 'device-token.dpapi'
 $TaskXmlPath = Join-Path $RuntimeRoot 'ARIA-Windows-Local-Agent.xml'
+$DesktopSmokePath = Join-Path $LogDir 'desktop-smoke.json'
 $TaskName = 'ARIA-Windows-Local-Agent'
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
@@ -67,6 +68,23 @@ $config = [ordered]@{
 }
 $config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
 
+Write-Host '=== DESKTOP ACCESS SMOKE TEST ==='
+$smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
+$smokeOutput = & $NodePath -e $smokeScript 2>&1
+if ($LASTEXITCODE -ne 0) { throw "Desktop screenshot smoke test failed: $smokeOutput" }
+$smokeLine = ($smokeOutput | Select-Object -Last 1).ToString()
+try { $smoke = $smokeLine | ConvertFrom-Json } catch { throw "Desktop screenshot smoke test returned invalid JSON: $smokeOutput" }
+if ($smoke.status -ne 'succeeded') { throw "Desktop screenshot smoke test failed: $smokeLine" }
+@{
+    status = 'PASS'
+    timestamp = (Get-Date).ToString('o')
+    action = 'screenshot'
+    width = $smoke.width
+    height = $smoke.height
+    version = $smoke.version
+} | ConvertTo-Json | Set-Content -Path $DesktopSmokePath -Encoding UTF8
+Write-Host "DESKTOP_SCREENSHOT=PASS width=$($smoke.width) height=$($smoke.height)"
+
 $taskUser = "$env:COMPUTERNAME\$env:USERNAME"
 $taskRunScript = Join-Path $RuntimeDir 'run-agent.ps1'
 $xml = @"
@@ -110,3 +128,4 @@ Write-Host 'RestartOnFailure: 999 / 1 minuto'
 Write-Host 'Shell executor: installed'
 Write-Host 'Desktop computer-use: installed'
 Write-Host 'Desktop UI Automation observer: installed'
+Write-Host 'Desktop screenshot smoke: PASS'
