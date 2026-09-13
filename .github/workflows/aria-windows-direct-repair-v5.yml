@@ -25,7 +25,7 @@ jobs:
       - name: Stop existing ARIA task and processes safely
         run: |
           $ErrorActionPreference='Continue'
-          schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' /F 2>$null | Out-Null
+          schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
           Start-Sleep -Seconds 2
           $watchdogs=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
             $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and [string]$_.CommandLine -match '(?i)run-agent\.ps1'
