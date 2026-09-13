@@ -42,14 +42,18 @@ function createSelfImprovementCoordinatorV1({ snapshot, rules = [], workspace, t
     },
     test: async ({ build }) => {
       const tests = build?.result?.tests;
-      if (tests?.status === 'succeeded' || tests?.status === 'completed') return { status: 'succeeded', source: 'self-development-coordinator', tests };
-      return { status: 'succeeded', source: 'self-development-coordinator', note: 'build stage already verified its test contract' };
+      if (tests?.status === 'succeeded' || tests?.status === 'completed' || tests?.status === 'passed') {
+        return { status: 'succeeded', source: 'self-development-coordinator', tests };
+      }
+      return { status: 'failed', reason: 'coordinator_test_evidence_missing' };
     },
-    verify: async ({ build }) => {
+    verify: async ({ build, test }) => {
       const verification = build?.result?.verification;
-      return verification?.verified === true || build?.status === 'succeeded'
-        ? { status: 'succeeded', source: 'self-development-coordinator', verification: verification || null }
-        : { status: 'failed', reason: 'coordinator_verification_missing' };
+      const testsVerified = test?.status === 'succeeded' || test?.status === 'completed';
+      if (verification?.verified === true && testsVerified) {
+        return { status: 'succeeded', source: 'self-development-coordinator', verification };
+      }
+      return { status: 'failed', reason: 'coordinator_verification_missing', verification: verification || null };
     },
     learn: async ({ build }) => ({
       status: 'succeeded',
