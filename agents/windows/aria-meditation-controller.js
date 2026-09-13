@@ -7,7 +7,7 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { createFileStateStore, createMeditationController } = require('../../autonomy/meditation-ia-controller');
 
-const ROOT = process.env.ARIA_WINDOWS_AGENT_ROOT || path.resolve(__dirname, '..', '..', '..');
+const ROOT = process.env.ARIA_WINDOWS_AGENT_ROOT || path.resolve(__dirname, '..', '..');
 const MED_ROOT = process.env.ARIA_MEDITATION_ROOT || path.join(ROOT, 'Runtime', 'meditation');
 const LOG_PATH = process.env.ARIA_MEDITATION_LOG || path.join(MED_ROOT, 'ARIA-Meditation-IA.txt');
 const CONTROL_PORT = Number(process.env.ARIA_MEDITATION_PORT || 45873);
