@@ -15,34 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Cancel stale Windows workflows
+      - name: Cancel known zombie Windows run
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
-          now=$(date +%s)
-          curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$repo/actions/runs?per_page=100" |
-          jq -r --arg head "$PR_HEAD_SHA" --arg pr "$PR_NUMBER" --argjson now "$now" '
-            .workflow_runs[] |
-            select(.status == "queued" or .status == "in_progress") |
-            select(.name == "ARIA Windows Final E2E" or .name == "ARIA Self-Improvement Agent Upgrade" or .name == "ARIA Windows Runtime Repair") |
-            select((.created_at | fromdateiso8601) < ($now - 600)) |
-            select(.head_sha != $head or ($pr != "" and any(.pull_requests[]?; (.number|tostring) == $pr))) |
-            [.id, .name, .status, .head_sha, .created_at] | @tsv' |
-          while IFS=$'\t' read -r run_id name status head_sha created_at; do
-            [ -z "$run_id" ] && continue
-            echo "CANCEL stale Windows run=$run_id name=$name status=$status sha=$head_sha created=$created_at"
+          zombie_runs=(34783524746)
+          for run_id in "${zombie_runs[@]}"; do
+            echo "CANCEL_EXACT_RUN=$run_id"
             curl -fsS -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel" >/dev/null
+              "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel" >/dev/null || true
           done
-          echo "QUEUE_GUARD_CURRENT_HEAD=$PR_HEAD_SHA"
-          echo 'ARIA_PR_WINDOWS_QUEUE_GUARD=PASS'
+          echo 'ARIA_EXACT_ZOMBIE_CANCEL=REQUESTED'
