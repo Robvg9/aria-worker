@@ -56,17 +56,19 @@ async function main() {
   assert.ok(listed);
   assert.deepEqual(listed.operations, ['self.improve']);
 
-  const blocked = await runtime.execute({
-    missionId: 'mission-self-improvement-002',
-    step: {
-      id: 'step-missing-target',
-      operation: 'self.improve',
-      executor_type: 'self_improvement',
-      target: { type: 'self_improvement' },
-      input: { goal: 'Should not run' }
-    }
-  });
-  assert.equal(blocked.status, 'blocked');
+  await assert.rejects(
+    () => runtime.execute({
+      missionId: 'mission-self-improvement-002',
+      step: {
+        id: 'step-missing-target',
+        operation: 'self.improve',
+        executor_type: 'self_improvement',
+        target: { type: 'self_improvement' },
+        input: { goal: 'Should not run' }
+      }
+    }),
+    /target engine_id missing/
+  );
   assert.equal(received.length, 1);
 
   console.log('SELF_IMPROVEMENT_RUNTIME_V1_OK');
