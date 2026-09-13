@@ -1,0 +1,64 @@
+name: ARIA Meditation IA Live E2E
+
+on:
+  push:
+    branches: ['aria/meditation-ia-v1-main']
+    paths:
+      - '.github/workflows/aria-meditation-live-e2e.yml'
+      - 'autonomy/meditation-ia-controller.js'
+      - 'agents/windows/aria-meditation-controller.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  live-e2e:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Activate existing Meditation IA controller
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $start='http://127.0.0.1:45873/start'
+          $s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          Write-Host "BEFORE mode=$($s.mode) session=$($s.session_id) tick=$($s.tick_count)"
+          if($s.mode -ne 'active'){
+            $r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10
+            Write-Host "START status=$($r.status)"
+            Start-Sleep -Seconds 3
+            $s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          }
+          Write-Host "AFTER mode=$($s.mode) session=$($s.session_id) tick=$($s.tick_count)"
+          if($s.mode -ne 'active'){throw "Meditation IA is not active: $($s.mode)"}
+          Write-Host 'MEDITATION_ACTIVATION=PASS'
+
+      - name: Verify heartbeat and allow autonomous cycle
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $a=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          $t0=[int]$a.tick_count
+          Start-Sleep -Seconds 65
+          $b=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          Write-Host "HEARTBEAT_INITIAL=$t0 HEARTBEAT_FINAL=$($b.tick_count) MODE=$($b.mode)"
+          Write-Host "ACTIVE_MISSION=$($b.active_mission_id)"
+          Write-Host "ACTIVE_GOAL=$($b.active_goal)"
+          Write-Host ("LAST_RESULT=" + (($b.last_result | ConvertTo-Json -Compress -Depth 8)))
+          if($b.mode -ne 'active'){throw "Meditation stopped unexpectedly: $($b.mode)"}
+          if([int]$b.tick_count -le $t0){throw "Heartbeat did not advance: $t0 -> $($b.tick_count)"}
+          Write-Host 'MEDITATION_HEARTBEAT=PASS'
+
+      - name: Final status
+        run: |
+          $ErrorActionPreference='Stop'
+          Invoke-RestMethod http://127.0.0.1:45873/status -TimeoutSec 5 | ConvertTo-Json -Depth 10
+          Write-Host 'ARIA_MEDITATION_LIVE_E2E=PASS'
