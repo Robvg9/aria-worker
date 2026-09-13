@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 
 const STAGES = Object.freeze(['observe','diagnose','research','plan','build','test','security','evaluate','promote','deploy','verify','learn']);
 const GATED_STAGES = new Set(['promote','deploy']);
+const ACCEPTED_STATUSES = new Set(['ready','planned','succeeded','completed','blocked','failed','skipped']);
 
 function requireFn(value, name) {
   if (typeof value !== 'function') throw new TypeError(`${name} function required`);
@@ -21,7 +22,7 @@ function fingerprint(value) {
 
 function statusOf(value) {
   const status = value && typeof value.status === 'string' ? value.status : 'failed';
-  return ['ready','succeeded','completed','blocked','failed','skipped'].includes(status) ? status : 'failed';
+  return ACCEPTED_STATUSES.has(status) ? status : 'failed';
 }
 
 function createContinuousEvolutionV2({
@@ -83,4 +84,4 @@ function createContinuousEvolutionV2({
   return Object.freeze({ version: 'continuous-evolution-v2', stages: STAGES, run });
 }
 
-module.exports = Object.freeze({ STAGES, GATED_STAGES, fingerprint, createContinuousEvolutionV2 });
+module.exports = Object.freeze({ STAGES, GATED_STAGES, ACCEPTED_STATUSES, fingerprint, createContinuousEvolutionV2 });
