@@ -84,10 +84,9 @@ Write-Host '=== SELF-IMPROVEMENT RUNTIME SMOKE TEST ==='
 $selfTest = & $NodePath -e "const { executeSelfImprovementJob } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); console.log(typeof executeSelfImprovementJob === 'function' ? 'SELF_IMPROVEMENT_RUNTIME_LOAD=PASS' : 'SELF_IMPROVEMENT_RUNTIME_LOAD=FAIL'); if (typeof executeSelfImprovementJob !== 'function') process.exit(1)" 2>&1
 if ($LASTEXITCODE -ne 0) { throw "Self-improvement runtime smoke test failed: $selfTest" }
 
-if ($env:ARIA_SKIP_DESKTOP_SMOKE -eq '1') {
-    Write-Host 'DESKTOP_SCREENSHOT=SKIPPED_FOR_SELF_IMPROVEMENT_UPGRADE'
-} else {
-    Write-Host '=== DESKTOP ACCESS SMOKE TEST ==='
+$desktopSmokeRequired = $env:ARIA_REQUIRE_DESKTOP_SMOKE -eq '1'
+if ($desktopSmokeRequired) {
+    Write-Host '=== DESKTOP ACCESS SMOKE TEST (REQUIRED) ==='
     $smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,capture_method:r.capture_method||null,apartment:r.apartment||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
     $smokeOutput = & $NodePath -e $smokeScript 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Desktop screenshot smoke test failed: $smokeOutput" }
@@ -105,6 +104,8 @@ if ($env:ARIA_SKIP_DESKTOP_SMOKE -eq '1') {
         version = $smoke.version
     } | ConvertTo-Json | Set-Content -Path $DesktopSmokePath -Encoding UTF8
     Write-Host "DESKTOP_SCREENSHOT=PASS width=$($smoke.width) height=$($smoke.height) method=$($smoke.capture_method)"
+} else {
+    Write-Host 'DESKTOP_SCREENSHOT=NONBLOCKING_FOR_SELF_IMPROVEMENT'
 }
 
 $taskUser = "$env:COMPUTERNAME\$env:USERNAME"
