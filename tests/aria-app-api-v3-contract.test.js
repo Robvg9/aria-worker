@@ -39,7 +39,7 @@ assertContains(planner,'executor_type:"model"','conversation planner must emit a
 assertContains(planner,'provider_id:"openrouter"','conversation planner provider missing');
 assertContains(planner,'account_id:"acct_openrouter_primary"','conversation planner account missing');
 assertContains(planner,'model_id:"google/gemini-2.5-flash-lite"','conversation planner model missing');
-assertContains(planner,'aria-planner-v11-conversation-aware','planner version marker missing');
+assertContains(planner,'aria-planner-v14-conversation-aware','current conversation-aware planner version marker missing');
 assertContains(plannerWorkflow,'node tests/aria-app-api-v3-contract.test.js','planner contract gate missing');
 assertContains(plannerWorkflow,'supabase functions deploy aria-planner-v11 --project-ref','planner deployment command missing');
 if(plannerWorkflow.includes('--verify-jwt'))throw new Error('planner workflow uses removed Supabase CLI verify-jwt flag');
