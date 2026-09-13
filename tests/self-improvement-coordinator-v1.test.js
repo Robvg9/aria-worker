@@ -13,7 +13,7 @@ async function main() {
   const coordinator = createSelfImprovementCoordinatorV1({
     snapshot,
     workspace,
-    testRunner: async () => ({ status: 'succeeded', passed: 1 }),
+    testRunner: async () => ({ status: 'passed', passed: 1 }),
     writer: async () => ({ status: 'succeeded', documented: true }),
     policy: { max_risk: 'low' }
   });
