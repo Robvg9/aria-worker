@@ -1,0 +1,113 @@
+name: ARIA Windows Direct Repair v5
+
+on:
+  push:
+    branches: [aria/meditation-ia-v1-main]
+    paths-ignore:
+      - 'reports/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Safe cache cleanup
+        run: |
+          $ErrorActionPreference='Continue'
+          $before=(Get-PSDrive C).Free
+          $paths=@(
+            "$env:TEMP\*",
+            "$env:LOCALAPPDATA\Temp\*",
+            "$env:WINDIR\Temp\*",
+            "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*",
+            "$env:LOCALAPPDATA\CrashDumps\*",
+            "$env:LOCALAPPDATA\D3DSCache\*",
+            "$env:LOCALAPPDATA\NVIDIA\DXCache\*",
+            "$env:LOCALAPPDATA\NVIDIA\GLCache\*"
+          )
+          foreach($item in $paths){try{Remove-Item -Path $item -Recurse -Force -ErrorAction SilentlyContinue}catch{}}
+          $after=(Get-PSDrive C).Free
+          Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before/1GB,2))"
+          Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))"
+          Write-Host "C_FREED_GB=$([math]::Round(($after-$before)/1GB,2))"
+          Write-Host 'ARIA_CLEANUP_SAFE=PASS'
+
+      - name: Ensure single Meditation controller and activate
+        run: |
+          $ErrorActionPreference='Stop'
+          $statusUrl='http://127.0.0.1:45873/status'
+          $startUrl='http://127.0.0.1:45873/start'
+          $controllers=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match '(?i)aria-meditation-controller\.js'
+          }
+          Write-Host "MEDITATION_CONTROLLERS_BEFORE=$($controllers.Count)"
+          if($controllers.Count -gt 1){
+            $keep=$controllers | Sort-Object CreationDate -Descending | Select-Object -First 1
+            foreach($p in $controllers){
+              if([int]$p.ProcessId -ne [int]$keep.ProcessId){
+                Write-Host "STOP_DUPLICATE_MEDITATION_PID=$($p.ProcessId)"
+                Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue
+              }
+            }
+            Start-Sleep -Seconds 2
+          }
+          $s=$null
+          try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 3}catch{}
+          if(-not $s){
+            $launcher='D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1'
+            if(-not(Test-Path $launcher)){throw "Meditation launcher missing: $launcher"}
+            Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$launcher -WindowStyle Hidden
+            for($i=0;$i -lt 20;$i++){
+              Start-Sleep -Seconds 1
+              try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 2;if($s){break}}catch{}
+            }
+          }
+          if(-not $s){throw 'Meditation control server unavailable'}
+          Write-Host "BEFORE_MODE=$($s.mode) SESSION=$($s.session_id) TICK=$($s.tick_count)"
+          if($s.mode -ne 'active'){
+            try{$r=Invoke-RestMethod -Method Post -Uri $startUrl -TimeoutSec 10}catch{throw "Meditation /start failed: $($_.Exception.Message)"}
+            Write-Host "START_RESPONSE=$($r.status)"
+            Start-Sleep -Seconds 3
+          }
+          $f=Invoke-RestMethod $statusUrl -TimeoutSec 5
+          Write-Host "AFTER_MODE=$($f.mode) SESSION=$($f.session_id) TICK=$($f.tick_count)"
+          if($f.mode -ne 'active'){throw "Meditation did not activate: $($f.mode)"}
+          Write-Host 'MEDITATION_ACTIVATION=PASS'
+
+      - name: Verify heartbeat
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $a=Invoke-RestMethod $u -TimeoutSec 5
+          if($a.mode -ne 'active'){throw "Heartbeat precondition failed: $($a.mode)"}
+          $initial=[int]$a.tick_count
+          Start-Sleep -Seconds 35
+          $b=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host "HEARTBEAT_INITIAL=$initial HEARTBEAT_FINAL=$($b.tick_count) MODE=$($b.mode)"
+          if($b.mode -ne 'active'){throw "Meditation stopped during heartbeat: $($b.mode)"}
+          if([int]$b.tick_count -le $initial){throw 'Heartbeat did not advance'}
+          Write-Host 'MEDITATION_HEARTBEAT=PASS'
+
+      - name: Final host evidence
+        run: |
+          $ErrorActionPreference='Stop'
+          $c=Get-PSDrive C
+          $s=Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 5
+          Write-Host '=== ARIA WINDOWS FINAL EVIDENCE ==='
+          Write-Host "COMPUTER=$env:COMPUTERNAME"
+          Write-Host "C_FREE_GB=$([math]::Round($c.Free/1GB,2))"
+          Write-Host "MEDITATION_MODE=$($s.mode)"
+          Write-Host "MEDITATION_SESSION=$($s.session_id)"
+          Write-Host "MEDITATION_TICKS=$($s.tick_count)"
+          Write-Host 'ARIA_WINDOWS_DIRECT_REPAIR_V5=PASS'
