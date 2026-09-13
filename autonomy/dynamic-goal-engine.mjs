@@ -1,7 +1,7 @@
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : min));
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const keyOf = (value) => text(value).toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9:_ -]/g, '');
-const MAX_DERIVED_FAILURE_DEPTH = 1;
+export const MAX_DERIVED_FAILURE_DEPTH = 1;
 
 function freshnessScore(createdAt, now) {
   const ts = Date.parse(createdAt || '');
