@@ -25,14 +25,21 @@ jobs:
       - name: Repair and activate official Meditation controller
         run: |
           $ErrorActionPreference='Stop'
-          $launcher='D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1'
           $statusUrl='http://127.0.0.1:45873/status'
           $startUrl='http://127.0.0.1:45873/start'
+          $task='ARIA-Windows-Local-Agent'
+          $launcher='D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1'
           if(-not(Test-Path $launcher)){throw "Meditation launcher missing: $launcher"}
 
           $s=$null
           try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 3}catch{}
-
+          if(-not $s){
+            schtasks.exe /Run /TN $task | Out-Null
+            for($i=0;$i -lt 30;$i++){
+              Start-Sleep -Seconds 1
+              try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 2;if($s){break}}catch{}
+            }
+          }
           if(-not $s){
             Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$launcher -WindowStyle Hidden | Out-Null
             for($i=0;$i -lt 30;$i++){
@@ -40,16 +47,14 @@ jobs:
               try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 2;if($s){break}}catch{}
             }
           }
+          if(-not $s){throw 'Meditation endpoint unavailable after official task/launcher recovery'}
 
-          if(-not $s){throw 'Meditation endpoint unavailable after official launcher start'}
           Write-Host "BEFORE_MODE=$($s.mode) SESSION=$($s.session_id) TICK=$($s.tick_count)"
-
           if($s.mode -ne 'active'){
             $r=Invoke-RestMethod -Method Post -Uri $startUrl -TimeoutSec 10
             Write-Host "START_RESPONSE=$($r.status)"
             Start-Sleep -Seconds 3
           }
-
           $f=Invoke-RestMethod $statusUrl -TimeoutSec 5
           Write-Host "AFTER_MODE=$($f.mode) SESSION=$($f.session_id) TICK=$($f.tick_count)"
           if($f.mode -ne 'active'){throw "Meditation activation failed: $($f.mode)"}
