@@ -122,6 +122,15 @@ function startControlServer(controller) {
 
 function createWindowsMeditationController() {
   const store = createFileStateStore({ root_dir: MED_ROOT });
+  let notepadOpened = false;
+  const ensureNotepadOnce = async () => {
+    await ensureLogFile();
+    if (notepadOpened) return { status: 'already_open' };
+    const result = await openNotepad();
+    notepadOpened = true;
+    await appendLog(`NOTEPAD_OPENED pid=${result.pid ?? 'unknown'}`);
+    return result;
+  };
   const core = createMeditationController({
     stateStore: store,
     commandSource: { read: readCommands },
@@ -129,14 +138,14 @@ function createWindowsMeditationController() {
     requestTick,
     checkpoint,
     isUserIdle,
-    ensureNotepad: async () => { await ensureLogFile(); return openNotepad(); },
+    ensureNotepad: ensureNotepadOnce,
     heartbeat_ms: Number(process.env.ARIA_MEDITATION_HEARTBEAT_MS || 30_000),
     min_idle_seconds: Number(process.env.ARIA_MEDITATION_MIN_IDLE_SECONDS || 45),
     onMissionEvent: async event => { await appendLog(`EVENT ${JSON.stringify(event)}`); },
     onModeChange: async value => { await appendLog(`MODE ${value.mode}`); }
   });
   const server = startControlServer(core);
-  return Object.freeze({ core, server, event: appendLog, start: core.start, pause: core.pause, resume: core.resume, stop: core.stop, shutdown: async () => { await core.shutdown(); server.close(); } });
+  return Object.freeze({ core, server, event: appendLog, start: core.start, pause: core.pause, resume: core.resume, stop: async () => { notepadOpened = false; return core.stop(); }, shutdown: async () => { await core.shutdown(); server.close(); } });
 }
 
 module.exports = Object.freeze({ createWindowsMeditationController, constants: Object.freeze({ ROOT, MED_ROOT, LOG_PATH, CONTROL_PORT }) });
