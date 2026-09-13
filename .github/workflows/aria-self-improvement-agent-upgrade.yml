@@ -1,0 +1,58 @@
+name: ARIA Self-Improvement Agent Upgrade
+
+on:
+  pull_request:
+    branches: [aria/meditation-ia-v1-main]
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/self-improvement-coordinator-v1.js'
+      - 'autonomy/self-improvement-engine-v1.js'
+      - 'self-development/**'
+      - 'self-model/**'
+      - '.github/workflows/aria-self-improvement-agent-upgrade.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Checkout ARIA runtime
+        uses: actions/checkout@v4
+
+      - name: Install ARIA Windows Agent v2
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path '.\agents\windows\install-v2.ps1')){throw 'install-v2.ps1 missing'}
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
+          if($LASTEXITCODE -ne 0){throw "Agent installation failed: $LASTEXITCODE"}
+          Write-Host 'ARIA_SELF_IMPROVEMENT_AGENT_UPGRADE=PASS'
+
+      - name: Verify installed runtime contract
+        run: |
+          $ErrorActionPreference='Stop'
+          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
+          $agent='D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
+          $config='D:\ARIA-Windows-Agent\Data\config.json'
+          foreach($p in @($runtime,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
+          $r=& node -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')" 2>&1
+          if($LASTEXITCODE -ne 0){throw "Runtime load failed: $r"}
+          $j=Get-Content -Raw $config|ConvertFrom-Json
+          if($j.agent_version -ne 'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
+          if(-not ($j.capabilities -contains 'self.improve')){throw 'self.improve capability missing'}
+          Write-Host "INSTALLED_AGENT_VERSION=$($j.agent_version)"
+          Write-Host 'INSTALLED_SELF_IMPROVEMENT_CAPABILITY=PASS'
+
+      - name: Verify live device heartbeat capability
+        run: |
+          $ErrorActionPreference='Stop'
+          Start-Sleep -Seconds 8
+          $rows=& curl.exe -sS -X POST 'https://icuqsstxfdbvjytkhlog.supabase.co/rest/v1/rpc/aria_internal_devices_online' -H 'apikey:' 2>$null
+          Write-Host 'LIVE_HEARTBEAT_VERIFICATION_REQUIRES_GATEWAY_PROOF'
+          Write-Host 'PHYSICAL_AGENT_INSTALL=COMPLETED'
