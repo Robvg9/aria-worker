@@ -35,7 +35,7 @@ assert.throws(() => validateRequest({ action: 'hotkey', keys: ['CTRL'] }), /desk
 assert.throws(() => validateRequest({ action: 'scroll' }), /desktop_scroll_invalid/);
 assert.throws(() => validateRequest({ action: 'wait', ms: 60001 }), /desktop_wait_invalid/);
 
-assert.ok(VERSION.startsWith('aria-windows-desktop-v1.8'));
+assert.ok(VERSION.startsWith('aria-windows-desktop-v1.9'));
 assert.equal(ACTIONS.has('screenshot'), true);
 assert.equal(ACTIONS.has('double_click'), true);
 assert.equal(ACTIONS.has('move'), true);
