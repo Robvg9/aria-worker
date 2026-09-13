@@ -19,6 +19,7 @@ foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -It
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'self-improvement-runtime.js' = Join-Path $AgentRoot 'self-improvement-runtime.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
     'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
     'windows-desktop-adapter.js' = Join-Path $RepoRoot 'computer-use\windows-desktop-adapter.js'
@@ -29,6 +30,15 @@ foreach ($file in $requiredSources.Keys) {
     $source = $requiredSources[$file]
     if (-not (Test-Path $source)) { throw "Required Windows agent file missing: $source" }
     Copy-Item -Path $source -Destination (Join-Path $RuntimeDir $file) -Force
+}
+
+$coordinatorDirs = @('autonomy', 'self-development', 'self-model')
+foreach ($dirName in $coordinatorDirs) {
+    $sourceDir = Join-Path $RepoRoot $dirName
+    $destDir = Join-Path $RuntimeRoot "Runtime\$dirName"
+    if (-not (Test-Path $sourceDir)) { throw "Required self-improvement runtime directory missing: $sourceDir" }
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+    Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destDir -Recurse -Force
 }
 
 $token = $env:ARIA_DEVICE_TOKEN
@@ -59,15 +69,20 @@ $config = [ordered]@{
     agent_version = 'aria-windows-agent-v2'
     runtime_root = $RuntimeRoot
     runtime_dir = $RuntimeDir
+    coordinator_runtime_dir = (Join-Path $RuntimeRoot 'Runtime')
     data_dir = $DataDir
     log_dir = $LogDir
     heartbeat_ms = 30000
     poll_ms = 3000
     gateway_timeout_ms = 15000
     gateway_retries = 2
-    capabilities = @('ollama.qwen3','shell.execute','computer.use','desktop.screenshot','desktop.uia')
+    capabilities = @('ollama.qwen3','shell.execute','computer.use','desktop.screenshot','desktop.uia','self.improve')
 }
 $config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
+
+Write-Host '=== SELF-IMPROVEMENT RUNTIME SMOKE TEST ==='
+$selfTest = & $NodePath -e "const { executeSelfImprovementJob } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); console.log(typeof executeSelfImprovementJob === 'function' ? 'SELF_IMPROVEMENT_RUNTIME_LOAD=PASS' : 'SELF_IMPROVEMENT_RUNTIME_LOAD=FAIL'); if (typeof executeSelfImprovementJob !== 'function') process.exit(1)" 2>&1
+if ($LASTEXITCODE -ne 0) { throw "Self-improvement runtime smoke test failed: $selfTest" }
 
 Write-Host '=== DESKTOP ACCESS SMOKE TEST ==='
 $smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,capture_method:r.capture_method||null,apartment:r.apartment||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
@@ -131,3 +146,4 @@ Write-Host 'RestartOnFailure: 999 / 1 minuto'
 Write-Host 'Shell executor: installed'
 Write-Host 'Desktop computer-use: installed'
 Write-Host 'Desktop UI Automation observer: installed'
+Write-Host 'Self-improvement coordinator: bundled in isolated Runtime/autonomy + Runtime/self-development + Runtime/self-model'
