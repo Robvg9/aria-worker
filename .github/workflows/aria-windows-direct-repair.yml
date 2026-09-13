@@ -1,13 +1,15 @@
 name: ARIA Windows Direct Repair
 
-# v2 — force execution on the real self-hosted Windows agent
+# v3 — persistent proof on completion, no recursive trigger from reports
 on:
   push:
     branches: [aria/meditation-ia-v1-main]
+    paths-ignore:
+      - 'reports/**'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 defaults:
   run:
@@ -68,6 +70,19 @@ jobs:
           if($a.mode -ne 'active'){throw "Mode not active: $($a.mode)"}; $t=[int]$a.tick_count; Start-Sleep -Seconds 12; $b=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
           Write-Host "MEDITATION_TICKS_INITIAL=$t MEDITATION_TICKS_FINAL=$($b.tick_count) MODE=$($b.mode)"; if($b.mode -ne 'active'){throw "Meditation stopped: $($b.mode)"}; if([int]$b.tick_count -lt $t){throw 'Tick counter regressed'}; Write-Host 'MEDITATION_HEARTBEAT=PASS'
 
-      - name: Final evidence
+      - name: Final evidence and persistent proof
+        if: always()
         run: |
-          $ErrorActionPreference='Stop'; $c=Get-PSDrive C; Write-Host "C_FREE_FINAL_GB=$([math]::Round($c.Free/1GB,2))"; Invoke-RestMethod http://127.0.0.1:45873/status -TimeoutSec 5 | ConvertTo-Json -Depth 8; Write-Host 'ARIA_WINDOWS_DIRECT_REPAIR=PASS'
+          $ErrorActionPreference='Continue'
+          $c=Get-PSDrive C
+          $u='http://127.0.0.1:45873/status'
+          $s=$null; try{$s=Invoke-RestMethod $u -TimeoutSec 5}catch{}
+          $proofDir=Join-Path $env:GITHUB_WORKSPACE 'reports'; New-Item -ItemType Directory -Force -Path $proofDir|Out-Null
+          [ordered]@{timestamp=(Get-Date -Format o); computer=$env:COMPUTERNAME; c_free_gb=[math]::Round($c.Free/1GB,2); meditation_mode=$s.mode; meditation_session=$s.session_id; meditation_ticks=$s.tick_count; ollama_models=(Test-Path (Join-Path $env:USERPROFILE '.ollama\models')); outcome=if($s -and $s.mode -eq 'active'){'PASS'}else{'FAIL'}} | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $proofDir 'aria-windows-direct-repair-status.json') -Encoding UTF8
+          Get-Content -Raw (Join-Path $proofDir 'aria-windows-direct-repair-status.json')
+          if(-not($s -and $s.mode -eq 'active')){throw 'Persistent proof: Meditation IA is not active'}
+          git config user.name 'aria-direct-repair'
+          git config user.email 'aria-direct-repair@users.noreply.github.com'
+          git add reports/aria-windows-direct-repair-status.json
+          git commit -m 'ci: record Windows direct repair proof'
+          if($LASTEXITCODE -eq 0){git push origin HEAD:aria/meditation-ia-v1-main}
