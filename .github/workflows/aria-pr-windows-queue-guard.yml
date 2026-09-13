@@ -1,0 +1,45 @@
+name: ARIA PR Windows Queue Guard
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel stale Windows workflows for this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$repo/actions/runs?per_page=100" |
+          jq -r --arg pr "$PR_NUMBER" --arg head "$PR_HEAD_SHA" '
+            .workflow_runs[] |
+            select(.status == "queued" or .status == "in_progress") |
+            select(any(.pull_requests[]?; (.number|tostring) == $pr)) |
+            select(.name == "ARIA Windows Final E2E" or .name == "ARIA Self-Improvement Agent Upgrade" or .name == "ARIA Windows Runtime Repair") |
+            select(.head_sha != $head) |
+            [.id, .name, .status, .head_sha] | @tsv' |
+          while IFS=$'\t' read -r run_id name status head_sha; do
+            [ -z "$run_id" ] && continue
+            echo "CANCEL stale run=$run_id name=$name status=$status sha=$head_sha"
+            curl -fsS -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel" >/dev/null
+          done
+          echo "KEEP current PR head=$PR_HEAD_SHA"
+          echo 'ARIA_PR_WINDOWS_QUEUE_GUARD=PASS'
