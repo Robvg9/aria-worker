@@ -142,6 +142,7 @@ function validateStep(step: any) {
   if (!step?.operation) throw new Error("operation_missing");
   if (type === "connector" && !step.target?.connector_id) throw new Error("connector_target_missing");
   if (type === "device" && !step.target?.device_id) throw new Error("device_target_missing");
+  if (type === "self_improvement" && !step.target?.device_id) throw new Error("self_improvement_device_target_missing");
   if (type === "model" && (!step.target?.provider_id || !step.target?.account_id || !step.target?.model_id)) {
     throw new Error("model_route_incomplete");
   }
@@ -198,31 +199,6 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
   return body.job || body;
 }
 
-async function deviceExecute(missionId: string, step: any) {
-  const jobId = jobIdFor(missionId, String(step.id));
-  let current = await getExecutionJob(jobId);
-  if (!(current.response.ok && current.body?.ok && current.body.job)) {
-    await enqueueDeviceJob(missionId, step, jobId);
-    current = await getExecutionJob(jobId);
-  }
-  const job = current.body?.job;
-  if (!job) return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId };
-  const status = String(job.status || "");
-  if (["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
-    return {
-      status,
-      executor_type: "device",
-      operation: "shell.execute",
-      job_id: jobId,
-      exit_code: job.exit_code,
-      stdout: job.stdout,
-      stderr: job.stderr,
-      result: job.result,
-    };
-  }
-  return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId, job_status: status };
-}
-
 async function selfImprovementExecute(missionId: string, step: any) {
   const input = step.input && typeof step.input === "object" ? step.input : {};
   const category = String(input.category ?? step.category ?? "capability_gap");
@@ -242,55 +218,54 @@ async function selfImprovementExecute(missionId: string, step: any) {
       classification: { category, risk, destructive, production, external_authority: externalAuthority, physical },
     };
   }
-
-  const signal = {
-    goal: String(input.goal ?? step.goal ?? "").trim().slice(0, 1000),
-    category,
-    risk,
-    destructive,
-    production,
-    external_authority: externalAuthority,
-    physical,
-    scope: Array.isArray(input.scope) ? input.scope.slice(0, 20) : undefined,
-    proposed_changes: Array.isArray(input.proposed_changes) ? input.proposed_changes.slice(0, 50) : [],
-    mission_id: missionId,
-    step_id: String(step.id),
-    runner: V,
-  };
-  if (!signal.goal) throw new Error("self_improvement_goal_missing");
-
-  const response = await fetch(RUNTIME, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify({ action: "self_improve", signal }),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || body?.ok !== true) throw new Error(`self_improvement_gateway_${response.status}`);
-  if (body.status === "blocked") {
-    return {
-      status: "waiting",
-      executor_type: "self_improvement",
-      operation: "self.improve",
-      human_gate_required: true,
-      stop_reason: body.stop_reason || "autonomy_frontier",
-      gateway: body,
+  const deviceId = String(step.target?.device_id || input.device_id || "").trim();
+  const goal = String(input.goal ?? step.goal ?? "").trim().slice(0, 1000);
+  if (!deviceId) throw new Error("self_improvement_device_target_missing");
+  if (!goal) throw new Error("self_improvement_goal_missing");
+  const jobId = jobIdFor(missionId, String(step.id));
+  let current = await getExecutionJob(jobId);
+  if (!(current.response.ok && current.body?.ok && current.body.job)) {
+    const signal = {
+      goal,
+      category,
+      risk,
+      destructive,
+      production,
+      external_authority: externalAuthority,
+      physical,
+      device_id: deviceId,
+      scope: Array.isArray(input.scope) ? input.scope.slice(0, 20) : [],
+      proposed_changes: Array.isArray(input.proposed_changes) ? input.proposed_changes.slice(0, 50) : [],
+      mission_id: missionId,
+      step_id: String(step.id),
+      runner: V,
     };
+    const response = await fetch(RUNTIME, {
+      method: "POST",
+      headers: internalHeaders(),
+      body: JSON.stringify({ action: "self_improve", signal }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || body?.ok !== true) throw new Error(`self_improvement_gateway_${response.status}`);
+    if (body.status === "blocked") {
+      return { status: "waiting", executor_type: "self_improvement", operation: "self.improve", human_gate_required: true, stop_reason: body.stop_reason || "autonomy_frontier", gateway: body };
+    }
+    if (body.status !== "accepted") throw new Error("self_improvement_gateway_unexpected_status");
+    current = { response, body };
   }
-  if (body.status !== "accepted") throw new Error("self_improvement_gateway_unexpected_status");
-  return {
-    status: "succeeded",
-    executor_type: "self_improvement",
-    operation: "self.improve",
-    gateway_status: body.status,
-    version: body.version,
-    goal: body.goal,
-    classification: body.classification,
-    approvals: body.approvals,
-    pipeline: body.pipeline,
-    promotion: body.promotion,
-    deployment: body.deployment,
-    execution: body.execution,
-  };
+  const job = current.body?.job;
+  if (!job) return { status: "waiting", executor_type: "self_improvement", operation: "self.improve", job_id: jobId, job_status: "queued" };
+  const status = String(job.status || "queued");
+  const jobResult = job.result && typeof job.result === "object" ? job.result : {};
+  if (status === "succeeded") {
+    const verified = jobResult.coordinator_status === "completed" && jobResult.stop_reason === "verified";
+    if (!verified) return { status: "failed", executor_type: "self_improvement", operation: "self.improve", job_id: jobId, error: { code: "coordinator_verification_missing" }, result: jobResult };
+    return { status: "succeeded", executor_type: "self_improvement", operation: "self.improve", job_id: jobId, coordinator_status: jobResult.coordinator_status, stop_reason: jobResult.stop_reason, evidence_hash: jobResult.evidence_hash || null, version: jobResult.version || null, result: jobResult, coordinator_verified: true };
+  }
+  if (["failed", "timeout", "cancelled", "blocked"].includes(status)) {
+    return { status, executor_type: "self_improvement", operation: "self.improve", job_id: jobId, exit_code: job.exit_code, stdout: job.stdout, stderr: job.stderr, result: jobResult, human_gate_required: status === "blocked" };
+  }
+  return { status: "waiting", executor_type: "self_improvement", operation: "self.improve", job_id: jobId, job_status: status };
 }
 
 async function githubExecute(step: any, token: string | null) {
@@ -298,31 +273,13 @@ async function githubExecute(step: any, token: string | null) {
   const input = step.input && typeof step.input === "object" ? step.input : {};
   const readOps = new Set(["repo_read", "file_read"]);
   const writeOps = new Set(["create_branch", "file_write", "open_pr"]);
-  if (!readOps.has(operation) && !writeOps.has(operation)) {
-    throw new Error(`github_operation_not_allowed:${operation}`);
-  }
+  if (!readOps.has(operation) && !writeOps.has(operation)) throw new Error(`github_operation_not_allowed:${operation}`);
   if (writeOps.has(operation)) {
     if (String(step.risk || "READ").toUpperCase() !== "LOW_RISK_WRITE") throw new Error("github_write_risk_not_allowed");
     if (step.authorization?.status !== "approved") throw new Error("github_write_authorization_required");
   }
   if (!token && !SECRET) throw new Error("github_runtime_auth_unavailable");
-  const response = await fetch(GITHUB_APP, {
-    method: "POST",
-    headers: token ? { "content-type": "application/json", "x-aria-autonomy-token": token } : { "content-type": "application/json", "x-aria-autonomy-token": SECRET },
-    body: JSON.stringify({
-      operation,
-      owner: input.owner || step.target?.owner || "Robvg9",
-      repo: input.repo || step.target?.repo || "battlecruiser",
-      branch: input.branch || step.target?.branch || "main",
-      base: input.base || "main",
-      path: input.path,
-      content: input.content,
-      message: input.message,
-      title: input.title,
-      body: input.body,
-      risk_level: String(step.risk || "READ").toLowerCase().includes("low") ? "low" : "high",
-    }),
-  });
+  const response = await fetch(GITHUB_APP, { method: "POST", headers: token ? { "content-type": "application/json", "x-aria-autonomy-token": token } : { "content-type": "application/json", "x-aria-autonomy-token": SECRET }, body: JSON.stringify({ operation, owner: input.owner || step.target?.owner || "Robvg9", repo: input.repo || step.target?.repo || "battlecruiser", branch: input.branch || step.target?.branch || "main", base: input.base || "main", path: input.path, content: input.content, message: input.message, title: input.title, body: input.body, risk_level: String(step.risk || "READ").toLowerCase().includes("low") ? "low" : "high" }) });
   const result = await response.json().catch(() => null);
   if (!response.ok || result?.ok !== true) throw new Error(String(result?.error || `github_http_${response.status}`));
   return { status: "succeeded", executor_type: "connector", connector_id: "github", operation, data: result.data };
@@ -331,48 +288,18 @@ async function githubExecute(step: any, token: string | null) {
 async function connectorExecute(missionId: string, step: any, token: string | null) {
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
-  if (connector === "supabase" && operation === "health") {
-    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: { ok: true } };
-  }
-  if (connector === "supabase" && operation === "mission_read") {
-    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: await rpc("aria_mission_get", { p_mission_id: missionId }) };
-  }
-  if (connector === "cloudflare" && ["health", "worker_read", "deployment_read"].includes(operation)) {
-    const response = await fetch("https://aria.robvg9.workers.dev/", { headers: { "user-agent": `${V}-connector-probe` } });
-    if (!response.ok) throw new Error(`cloudflare_unavailable_${response.status}`);
-    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, http_status: response.status };
-  }
+  if (connector === "supabase" && operation === "health") return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: { ok: true } };
+  if (connector === "supabase" && operation === "mission_read") return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: await rpc("aria_mission_get", { p_mission_id: missionId }) };
+  if (connector === "cloudflare" && ["health", "worker_read", "deployment_read"].includes(operation)) { const response = await fetch("https://aria.robvg9.workers.dev/", { headers: { "user-agent": `${V}-connector-probe` } }); if (!response.ok) throw new Error(`cloudflare_unavailable_${response.status}`); return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, http_status: response.status }; }
   if (connector === "bitrise") return bitriseExecute(rpc, step);
   if (connector === "github") return githubExecute(step, token);
   throw new Error(`connector_operation_not_allowed:${connector}:${operation}`);
 }
 
 async function modelExecute(missionId: string, step: any, token: string | null) {
-  const route = {
-    status: "selected",
-    provider_id: String(step.target.provider_id),
-    account_id: String(step.target.account_id),
-    model_id: String(step.target.model_id),
-    capability: String(step.operation),
-  };
-  const authorization = step.authorization && typeof step.authorization === "object"
-    ? step.authorization
-    : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
-  const response = await fetch(EXEC, {
-    method: "POST",
-    headers: downstreamHeaders(token),
-    body: JSON.stringify({
-      execution_version: "1",
-      request_id: `${missionId}:${step.id}`,
-      task_id: step.id,
-      capability: String(step.operation),
-      selected_route: route,
-      authorization,
-      input: step.input || {},
-      policy: step.policy || {},
-      metadata: { mission_id: missionId, step_id: step.id, executor_type: "model", runner: V },
-    }),
-  });
+  const route = { status: "selected", provider_id: String(step.target.provider_id), account_id: String(step.target.account_id), model_id: String(step.target.model_id), capability: String(step.operation) };
+  const authorization = step.authorization && typeof step.authorization === "object" ? step.authorization : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
+  const response = await fetch(EXEC, { method: "POST", headers: downstreamHeaders(token), body: JSON.stringify({ execution_version: "1", request_id: `${missionId}:${step.id}`, task_id: step.id, capability: String(step.operation), selected_route: route, authorization, input: step.input || {}, policy: step.policy || {}, metadata: { mission_id: missionId, step_id: step.id, executor_type: "model", runner: V } }) });
   const body = await response.json().catch(() => null);
   if (!response.ok || body?.status !== "succeeded") throw new Error(String(body?.error?.message || body?.error || `execution_${response.status}`));
   return { ...body, executor_type: "model", operation: step.operation, provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id };
@@ -380,47 +307,16 @@ async function modelExecute(missionId: string, step: any, token: string | null) 
 
 async function agentExecute(missionId: string, step: any, token: string | null) {
   const agentId = String(step.target.agent_id);
-  const response = await fetch(AGENT, {
-    method: "POST",
-    headers: downstreamHeaders(token),
-    body: JSON.stringify({ mission_id: missionId, step_id: String(step.id), agent_id: agentId, operation: String(step.operation || "delegate"), risk: step.risk || "READ", policy: step.policy || {}, input: step.input || {} }),
-  });
+  const response = await fetch(AGENT, { method: "POST", headers: downstreamHeaders(token), body: JSON.stringify({ mission_id: missionId, step_id: String(step.id), agent_id: agentId, operation: String(step.operation || "delegate"), risk: step.risk || "READ", policy: step.policy || {}, input: step.input || {} }) });
   const body = await response.json().catch(() => null);
   if (!response.ok || body?.status !== "succeeded") throw new Error(String(body?.error?.message || body?.error || `agent_execution_${response.status}`));
   return { ...body, executor_type: "agent", operation: "delegate", agent_id: body.agent_id || agentId };
 }
 
-async function easGraphQL(query: string, variables: Record<string, unknown> = {}) {
-  if (!EAS_TOKEN) throw new Error("eas_credential_unavailable");
-  const response = await fetch(EAS_API + "/graphql", {
-    method: "POST",
-    headers: { authorization: "Bearer " + EAS_TOKEN, "content-type": "application/json" },
-    body: JSON.stringify({ query, variables }),
-  });
-  const text = await response.text();
-  let body: any;
-  try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 12000) }; }
-  if (!response.ok || body?.errors?.length) throw new Error("eas_graphql_" + response.status);
-  return body;
-}
-
-async function easRest(path: string, init: RequestInit = {}) {
-  if (!EAS_TOKEN) throw new Error("eas_credential_unavailable");
-  const response = await fetch(EAS_API + path, {
-    ...init,
-    headers: { authorization: "Bearer " + EAS_TOKEN, "content-type": "application/json", ...(init.headers || {}) },
-  });
-  const text = await response.text();
-  let body: any;
-  try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 12000) }; }
-  if (!response.ok) throw new Error("eas_http_" + response.status);
-  return body;
-}
-
+async function easGraphQL(query: string, variables: Record<string, unknown> = {}) { if (!EAS_TOKEN) throw new Error("eas_credential_unavailable"); const response = await fetch(EAS_API + "/graphql", { method: "POST", headers: { authorization: "Bearer " + EAS_TOKEN, "content-type": "application/json" }, body: JSON.stringify({ query, variables }) }); const text = await response.text(); let body: any; try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 12000) }; } if (!response.ok || body?.errors?.length) throw new Error("eas_graphql_" + response.status); return body; }
+async function easRest(path: string, init: RequestInit = {}) { if (!EAS_TOKEN) throw new Error("eas_credential_unavailable"); const response = await fetch(EAS_API + path, { ...init, headers: { authorization: "Bearer " + EAS_TOKEN, "content-type": "application/json", ...(init.headers || {}) } }); const text = await response.text(); let body: any; try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 12000) }; } if (!response.ok) throw new Error("eas_http_" + response.status); return body; }
 async function easExecute(step: any) {
-  const operation = String(step.operation || "");
-  const projectId = String(step.target?.project_id || "");
-  if (projectId !== EAS_PROJECT_ID) throw new Error("eas_project_target_mismatch");
+  const operation = String(step.operation || ""); const projectId = String(step.target?.project_id || ""); if (projectId !== EAS_PROJECT_ID) throw new Error("eas_project_target_mismatch");
   if (operation === "eas.connection_status") return { data: await easGraphQL("query App($appId: String!) { app { byId(appId: $appId) { id name slug ownerAccount { id name } } } }", { appId: projectId }), status: "succeeded", executor_type: "eas", operation, project_id: projectId };
   if (operation === "eas.workflow_definitions") return { data: await easGraphQL("query Workflows($appId: String!) { app { byId(appId: $appId) { id workflows { id name fileName createdAt updatedAt } } } }", { appId: projectId }), status: "succeeded", executor_type: "eas", operation, project_id: projectId };
   if (operation === "eas.workflow_list") { const limit = Math.max(1, Math.min(Number(step.input?.limit) || 20, 100)); const status = typeof step.input?.status === "string" ? step.input.status : null; return { data: await easGraphQL("query Runs($appId: String!, $status: WorkflowRunStatus, $limit: Int!) { app { byId(appId: $appId) { id workflowRunsPaginated(first: $limit, filter: { status: $status }) { edges { node { id status gitCommitHash requestedGitRef createdAt updatedAt errors { title message } workflow { id name fileName } } } } } } }", { appId: projectId, status, limit }), status: "succeeded", executor_type: "eas", operation, project_id: projectId }; }
@@ -432,247 +328,72 @@ async function easExecute(step: any) {
   throw new Error("eas_operation_not_supported:" + operation);
 }
 
-async function executeStep(missionId: string, step: any, token: string | null) {
-  validateStep(step);
-  const type = executorType(step);
-  if (type === "connector") return connectorExecute(missionId, step, token);
-  if (type === "device") return deviceExecute(missionId, step);
-  if (type === "model") return modelExecute(missionId, step, token);
-  if (type === "agent") return agentExecute(missionId, step, token);
-  if (type === "eas") return easExecute(step);
-  if (type === "self_improvement") return selfImprovementExecute(missionId, step);
-  throw new Error(`unknown_executor_type:${type}`);
-}
-
-function dependenciesSatisfied(step: any, completed: Set<string>) {
-  return (Array.isArray(step?.depends_on) ? step.depends_on : []).every((dependency: any) => completed.has(String(dependency)));
-}
-
-function readyBatch(steps: any[], completed: Set<string>) {
-  const ready = steps.filter((step) => !completed.has(String(step.id)) && dependenciesSatisfied(step, completed));
-  if (ready.length > 1 && ready.slice(0, 2).every((step) => String(step.risk || "READ").toUpperCase() === "READ" && executorType(step) !== "device" && executorType(step) !== "self_improvement")) {
-    return ready.slice(0, 2);
-  }
-  return ready.slice(0, 1);
-}
+async function executeStep(missionId: string, step: any, token: string | null) { validateStep(step); const type = executorType(step); if (type === "connector") return connectorExecute(missionId, step, token); if (type === "device") return deviceExecute(missionId, step); if (type === "model") return modelExecute(missionId, step, token); if (type === "agent") return agentExecute(missionId, step, token); if (type === "eas") return easExecute(step); if (type === "self_improvement") return selfImprovementExecute(missionId, step); throw new Error(`unknown_executor_type:${type}`); }
+function dependenciesSatisfied(step: any, completed: Set<string>) { return (Array.isArray(step?.depends_on) ? step.depends_on : []).every((dependency: any) => completed.has(String(dependency))); }
+function readyBatch(steps: any[], completed: Set<string>) { const ready = steps.filter((step) => !completed.has(String(step.id)) && dependenciesSatisfied(step, completed)); if (ready.length > 1 && ready.slice(0, 2).every((step) => String(step.risk || "READ").toUpperCase() === "READ" && executorType(step) !== "device" && executorType(step) !== "self_improvement")) return ready.slice(0, 2); return ready.slice(0, 1); }
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
   if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
-
   const body = await request.json().catch(() => ({}));
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
   const token = tokenOf(request);
-
   try {
     await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
-    const mission = requestedMissionId
-      ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
-      : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
+    const mission = requestedMissionId ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR }) : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
     if (!mission) return out({ ok: true, status: "idle", runtime: V });
-
-    const missionId = String(mission.mission_id);
-    await renewLease(missionId);
-
+    const missionId = String(mission.mission_id); await renewLease(missionId);
     const recalled = await recall(String(mission.goal || ""), token);
-    const cognitiveContext = {
-      version: "cognitive-loop-v2",
-      available: recalled.available,
-      recall_count: recalled.results.length,
-      memory_ids: recalled.results.map((item: any) => item.memory_id || item.id).filter(Boolean),
-    };
+    const cognitiveContext = { version: "cognitive-loop-v2", available: recalled.available, recall_count: recalled.results.length, memory_ids: recalled.results.map((item: any) => item.memory_id || item.id).filter(Boolean) };
     await emitEvent(missionId, "cognitive_recall_completed", cognitiveContext);
-
-    const steps = Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length
-      ? mission.checkpoint.plan
-      : await createPlan(String(mission.goal || ""), cognitiveContext, token);
+    const steps = Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length ? mission.checkpoint.plan : await createPlan(String(mission.goal || ""), cognitiveContext, token);
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
     for (const step of steps) validateStep(step);
-
     const completed = new Set<string>(Array.isArray(mission.checkpoint?.completed_steps) ? mission.checkpoint.completed_steps.map(String) : []);
     const attempts: Record<string, number> = mission.checkpoint?.attempts && typeof mission.checkpoint.attempts === "object" ? { ...mission.checkpoint.attempts } : {};
-    const results: Record<string, unknown> = mission.checkpoint?.results && typeof mission.checkpoint.results === "object" ? { ...mission.checkpoint.results } : {};
-    const pendingJobs: Record<string, unknown> = mission.checkpoint?.pending_jobs && typeof mission.checkpoint.pending_jobs === "object" ? { ...mission.checkpoint.pending_jobs } : {};
-
-    await updateMission(missionId, {
-      status: "running",
-      total_steps: steps.length,
-      current_step: completed.size,
-      completed_steps: completed.size,
-      next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal",
-      checkpoint: {
-        ...(mission.checkpoint || {}),
-        cognitive_context: cognitiveContext,
-        cognitive_loop: { version: "cognitive-loop-v2", recalled_before_planning: true },
-        plan: steps,
-        completed_steps: [...completed],
-        attempts,
-        results,
-        pending_jobs: pendingJobs,
-      },
-    });
-
+    const results: Record<string, any> = mission.checkpoint?.results && typeof mission.checkpoint.results === "object" ? { ...mission.checkpoint.results } : {};
+    const pendingJobs: Record<string, any> = mission.checkpoint?.pending_jobs && typeof mission.checkpoint.pending_jobs === "object" ? { ...mission.checkpoint.pending_jobs } : {};
+    await updateMission(missionId, { status: "running", total_steps: steps.length, current_step: completed.size, completed_steps: completed.size, next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal", checkpoint: { ...(mission.checkpoint || {}), cognitive_context: cognitiveContext, cognitive_loop: { version: "cognitive-loop-v2", recalled_before_planning: true }, plan: steps, completed_steps: [...completed], attempts, results, pending_jobs: pendingJobs } });
     while (completed.size < steps.length) {
-      await renewLease(missionId);
-      const batch = readyBatch(steps, completed);
-      if (!batch.length) throw new Error("dependencies_unsatisfied");
-
-      await emitEvent(missionId, "step_batch_started", {
-        step_ids: batch.map((step) => String(step.id)),
-        executor_types: batch.map(executorType),
-        parallel: batch.length > 1,
-      });
-
+      await renewLease(missionId); const batch = readyBatch(steps, completed); if (!batch.length) throw new Error("dependencies_unsatisfied");
+      await emitEvent(missionId, "step_batch_started", { step_ids: batch.map((step) => String(step.id)), executor_types: batch.map(executorType), parallel: batch.length > 1 });
       const outcomes = await Promise.all(batch.map(async (step) => {
-        const id = String(step.id);
-        const nextAttempt = Number(attempts[id] || 0) + 1;
-        attempts[id] = nextAttempt;
-        await renewLease(missionId);
-        await emitEvent(missionId, "step_started", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt });
-
-        let result: any;
-        try {
-          result = await executeStep(missionId, step, token);
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
-        }
-
+        const id = String(step.id), nextAttempt = Number(attempts[id] || 0) + 1; attempts[id] = nextAttempt; await renewLease(missionId); await emitEvent(missionId, "step_started", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt });
+        let result: any; try { result = await executeStep(missionId, step, token); } catch (error) { const reason = error instanceof Error ? error.message : String(error); result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } }; }
         const passed = verifyStep(step, result);
-        if (passed) {
-          results[id] = result;
-          pendingJobs[id] = undefined;
-          await emitEvent(missionId, "step_succeeded", { step_id: id, executor_type: result.executor_type, operation: result.operation || step.operation, agent_id: result.agent_id || null, attempt: nextAttempt, verified: true });
-          return { step, result, passed: true };
-        }
-
+        if (passed) { results[id] = result; pendingJobs[id] = undefined; await emitEvent(missionId, "step_succeeded", { step_id: id, executor_type: result.executor_type, operation: result.operation || step.operation, agent_id: result.agent_id || null, attempt: nextAttempt, verified: true }); return { step, result, passed: true }; }
         if (String(result?.status) === "waiting" && (executorType(step) === "device" || executorType(step) === "self_improvement")) {
-          pendingJobs[id] = executorType(step) === "device"
-            ? { job_id: result.job_id, status: result.job_status || "queued", attempt: nextAttempt }
-            : { status: "human_gate_required", stop_reason: result.stop_reason || "autonomy_frontier", attempt: nextAttempt };
-          await emitEvent(missionId, executorType(step) === "self_improvement" ? "self_improvement_human_gate" : "mission_waiting", { step_id: id, executor_type: executorType(step), job_id: result.job_id || null, stop_reason: result.stop_reason || null, attempt: nextAttempt });
+          const humanGate = result?.human_gate_required === true || result?.stop_reason === "autonomy_frontier";
+          pendingJobs[id] = { job_id: result.job_id || null, status: result.job_status || (humanGate ? "human_gate_required" : "queued"), stop_reason: result.stop_reason || null, attempt: nextAttempt, human_gate_required: humanGate };
+          await emitEvent(missionId, humanGate ? "self_improvement_human_gate" : "mission_waiting", { step_id: id, executor_type: executorType(step), job_id: result.job_id || null, stop_reason: result.stop_reason || null, attempt: nextAttempt });
           return { step, result, waiting: true, passed: false };
         }
-
         await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || result?.status || "verification_failed" });
         return { step, result, passed: false, waiting: false };
       }));
-
-      const waiting = outcomes.find((item) => item.waiting);
-      for (const outcome of outcomes) if (outcome.passed) completed.add(String(outcome.step.id));
-
-      const checkpoint = {
-        ...(mission.checkpoint || {}),
-        cognitive_context: cognitiveContext,
-        plan: steps,
-        completed_steps: [...completed],
-        attempts,
-        results,
-        pending_jobs: Object.fromEntries(Object.entries(pendingJobs).filter(([, value]) => value !== undefined)),
-        last_batch: batch.map((step) => String(step.id)),
-        last_executor_types: batch.map(executorType),
-      };
-
+      const waiting = outcomes.find((item) => item.waiting); for (const outcome of outcomes) if (outcome.passed) completed.add(String(outcome.step.id));
+      const checkpoint = { ...(mission.checkpoint || {}), cognitive_context: cognitiveContext, plan: steps, completed_steps: [...completed], attempts, results, pending_jobs: Object.fromEntries(Object.entries(pendingJobs).filter(([, value]) => value !== undefined)), last_batch: batch.map((step) => String(step.id)), last_executor_types: batch.map(executorType) };
       if (waiting) {
-        await updateMission(missionId, {
-          status: "paused",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: executorType(waiting.step) === "self_improvement"
-            ? `resume: human gate required for ${String(waiting.step.id)}`
-            : `resume: pending device job ${String(waiting.step.id)}`,
-          checkpoint: {
-            ...checkpoint,
-            recovery: { status: executorType(waiting.step) === "self_improvement" ? "waiting_for_human_gate" : "waiting_for_async_executor" },
-          },
-          lease_owner: null,
-          lease_until: null,
-        });
-        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id), human_gate_required: executorType(waiting.step) === "self_improvement" });
+        const humanGate = waiting.result?.human_gate_required === true || waiting.result?.stop_reason === "autonomy_frontier";
+        await updateMission(missionId, { status: "paused", current_step: completed.size, completed_steps: completed.size, next_action: humanGate ? `resume: human gate required for ${String(waiting.step.id)}` : `resume: pending async self-improvement/device job ${String(waiting.step.id)}`, checkpoint: { ...checkpoint, recovery: { status: humanGate ? "waiting_for_human_gate" : "waiting_for_async_executor" } }, lease_owner: null, lease_until: null });
+        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id), human_gate_required: humanGate });
       }
-
       const failures = outcomes.filter((item) => !item.passed);
       if (failures.length) {
         const retryableFailure = failures.find((item) => item.step.retryable !== false && RETRYABLE_STATUSES.has(String(item.result?.status || "failed")) && Number(attempts[String(item.step.id)]) < Math.min(3, Number(item.step.max_attempts || MAX_STEP_ATTEMPTS)));
-        if (retryableFailure) {
-          await updateMission(missionId, {
-            status: "running",
-            current_step: completed.size,
-            completed_steps: completed.size,
-            next_action: `retry: ${String(retryableFailure.step.id)}`,
-            checkpoint: { ...checkpoint, recovery: { status: "retry_scheduled", failed_step_id: String(retryableFailure.step.id) } },
-          });
-          await emitEvent(missionId, "step_retrying", { step_id: String(retryableFailure.step.id), executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[String(retryableFailure.step.id)]) + 1 });
-          continue;
-        }
-
-        await updateMission(missionId, {
-          status: "failed",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: "recovery: scheduler may resume from checkpoint",
-          checkpoint: { ...checkpoint, recovery: { status: "retry_exhausted", failed_step_ids: failures.map((item) => String(item.step.id)) } },
-        });
+        if (retryableFailure) { await updateMission(missionId, { status: "running", current_step: completed.size, completed_steps: completed.size, next_action: `retry: ${String(retryableFailure.step.id)}`, checkpoint: { ...checkpoint, recovery: { status: "retry_scheduled", failed_step_id: String(retryableFailure.step.id) } } }); await emitEvent(missionId, "step_retrying", { step_id: String(retryableFailure.step.id), executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[String(retryableFailure.step.id)]) + 1 }); continue; }
+        await updateMission(missionId, { status: "failed", current_step: completed.size, completed_steps: completed.size, next_action: "recovery: scheduler may resume from checkpoint", checkpoint: { ...checkpoint, recovery: { status: "retry_exhausted", failed_step_ids: failures.map((item) => String(item.step.id)) } } });
         return out({ ok: false, status: "failed", mission_id: missionId, runtime: V, completed_steps: completed.size, failed_steps: failures.map((item) => String(item.step.id)) });
       }
-
-      await updateMission(missionId, {
-        status: "running",
-        current_step: completed.size,
-        completed_steps: completed.size,
-        next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal",
-        checkpoint: { ...checkpoint, recovery: { status: "clear" } },
-      });
+      await updateMission(missionId, { status: "running", current_step: completed.size, completed_steps: completed.size, next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal", checkpoint: { ...checkpoint, recovery: { status: "clear" } } });
     }
-
-    const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
-    if (!finalVerified) throw new Error("final_verification_failed");
-
-    const executorTypes = [...new Set(steps.map(executorType))];
-    const agentIds = steps.filter((step) => executorType(step) === "agent").map((step) => String(step.target?.agent_id || "")).filter(Boolean);
+    const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)])); if (!finalVerified) throw new Error("final_verification_failed");
+    const executorTypes = [...new Set(steps.map(executorType))]; const agentIds = steps.filter((step) => executorType(step) === "agent").map((step) => String(step.target?.agent_id || "")).filter(Boolean);
     await emitEvent(missionId, "mission_verified", { steps: steps.length, completed_steps: completed.size, executor_types: executorTypes, agent_ids: agentIds, verified: true });
-
-    await updateMission(missionId, {
-      status: "succeeded",
-      current_step: steps.length,
-      total_steps: steps.length,
-      completed_steps: steps.length,
-      next_action: null,
-      finished_at: new Date().toISOString(),
-      lease_owner: null,
-      lease_until: null,
-      checkpoint: {
-        ...(mission.checkpoint || {}),
-        cognitive_context: cognitiveContext,
-        plan: steps,
-        completed_steps: [...completed],
-        attempts,
-        results,
-        pending_jobs: {},
-        model_execution_verified: steps.some((step) => executorType(step) === "model"),
-        agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
-        self_improvement_execution_verified: steps.some((step) => executorType(step) === "self_improvement"),
-        universal_execution_verified: true,
-        executor_types: executorTypes,
-      },
-    });
-
+    const selfImprovementVerified = steps.filter((step) => executorType(step) === "self_improvement").every((step) => results[String(step.id)]?.coordinator_verified === true && results[String(step.id)]?.coordinator_status === "completed" && results[String(step.id)]?.stop_reason === "verified");
+    await updateMission(missionId, { status: "succeeded", current_step: steps.length, total_steps: steps.length, completed_steps: steps.length, next_action: null, finished_at: new Date().toISOString(), lease_owner: null, lease_until: null, checkpoint: { ...(mission.checkpoint || {}), cognitive_context: cognitiveContext, plan: steps, completed_steps: [...completed], attempts, results, pending_jobs: {}, model_execution_verified: steps.some((step) => executorType(step) === "model"), agent_execution_verified: steps.some((step) => executorType(step) === "agent"), self_improvement_contract_verified: steps.some((step) => executorType(step) === "self_improvement"), self_improvement_execution_verified: selfImprovementVerified, universal_execution_verified: true, executor_types: executorTypes } });
     return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    if (requestedMissionId) {
-      try {
-        await updateMission(requestedMissionId, {
-          status: "paused",
-          next_action: "recovery: universal runner exception",
-          last_stderr: reason,
-          lease_owner: null,
-          lease_until: null,
-        });
-      } catch {
-        // Lease fencing intentionally rejects stale mutation.
-      }
-    }
-    return out({ ok: false, status: "paused", mission_id: requestedMissionId, runtime: V });
+    const reason = error instanceof Error ? error.message : String(error); if (requestedMissionId) { try { await updateMission(requestedMissionId, { status: "paused", next_action: "recovery: universal runner exception", last_stderr: reason, lease_owner: null, lease_until: null }); } catch {} } return out({ ok: false, status: "paused", mission_id: requestedMissionId, runtime: V });
   }
 });
