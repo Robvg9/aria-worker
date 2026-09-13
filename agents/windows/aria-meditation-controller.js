@@ -101,6 +101,18 @@ async function checkpoint(record) {
   return normalized;
 }
 
+function reclaimStaleCurrentPidLock() {
+  const lockPath = path.join(MED_ROOT, 'controller.lock');
+  try {
+    const raw = fs.readFileSync(lockPath, 'utf8');
+    const lock = JSON.parse(raw);
+    if (Number(lock?.pid) === process.pid) {
+      fs.rmSync(lockPath, { force: true });
+      void appendLog(`LOCK_RECLAIMED reason=pid_reuse pid=${process.pid}`);
+    }
+  } catch {}
+}
+
 function startControlServer(controller) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://127.0.0.1:${CONTROL_PORT}`);
@@ -121,6 +133,7 @@ function startControlServer(controller) {
 }
 
 function createWindowsMeditationController() {
+  reclaimStaleCurrentPidLock();
   const store = createFileStateStore({ root_dir: MED_ROOT });
   let notepadOpened = false;
   const ensureNotepadOnce = async () => {
