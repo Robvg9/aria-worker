@@ -1,0 +1,65 @@
+name: ARIA Windows Emergency Repair
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: startsWith(github.event.issue.title, 'ARIA-REPAIR-')
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Repair C drive caches and move Ollama models
+        run: |
+          $ErrorActionPreference='Continue'
+          $d='D:\ARIA-Windows-Agent\Maintenance'; New-Item -ItemType Directory -Force -Path $d | Out-Null
+          $before=(Get-PSDrive C).Free; Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before/1GB,2))"
+          foreach($p in @("$env:TEMP\*","$env:LOCALAPPDATA\Temp\*","$env:WINDIR\Temp\*","$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*","$env:LOCALAPPDATA\CrashDumps\*","$env:LOCALAPPDATA\D3DSCache\*","$env:LOCALAPPDATA\NVIDIA\DXCache\*","$env:LOCALAPPDATA\NVIDIA\GLCache\*","C:\Windows\SoftwareDistribution\Download\*","C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*","C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*")){try{Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}catch{}}
+          if(Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue){try{Delete-DeliveryOptimizationCache -Force -ErrorAction SilentlyContinue}catch{}}
+          if(Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue){try{Clear-RecycleBin -Force -ErrorAction SilentlyContinue}catch{}}
+          if(Get-Command npm.cmd -ErrorAction SilentlyContinue){try{npm.cmd cache clean --force | Out-Host}catch{}}
+          if(Get-Command pip.exe -ErrorAction SilentlyContinue){try{pip.exe cache purge | Out-Host}catch{}}
+          $ollama=Join-Path $env:USERPROFILE '.ollama\models';$ollamaD=Join-Path $d 'ollama-models'
+          if(Test-Path $ollama -PathType Container){try{$it=Get-Item $ollama -Force;if(-not($it.Attributes -band [IO.FileAttributes]::ReparsePoint)){if(Test-Path $ollamaD){Remove-Item $ollamaD -Recurse -Force -ErrorAction SilentlyContinue};New-Item -ItemType Directory -Force -Path (Split-Path $ollamaD)|Out-Null;Move-Item -LiteralPath $ollama -Destination $ollamaD -Force;New-Item -ItemType Junction -Path $ollama -Target $ollamaD|Out-Null;Write-Host "OLLAMA_MODELS_RELOCATED=True TARGET=$ollamaD"}else{Write-Host 'OLLAMA_MODELS_ALREADY_RELOCATED=True'}}catch{Write-Warning "OLLAMA_RELOCATE_FAILED $($_.Exception.Message)"}}
+          if(Get-Command dism.exe -ErrorAction SilentlyContinue){try{dism.exe /Online /Cleanup-Image /StartComponentCleanup /Quiet|Out-Host}catch{}}
+          $after=(Get-PSDrive C).Free;Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))";Write-Host "C_FREED_GB=$([math]::Round(($after-$before)/1GB,2))"
+
+      - name: Keep one watchdog and one ARIA agent; clear stale Meditation lock
+        run: |
+          $ErrorActionPreference='Stop'
+          $watchdogPidPath='D:\ARIA-Windows-Agent\Logs\watchdog.pid';$agentPidPath='D:\ARIA-Windows-Agent\Logs\agent.pid';$keepW=0;$keepA=0
+          if(Test-Path $watchdogPidPath){[void][int]::TryParse((Get-Content -Raw $watchdogPidPath).Trim(),[ref]$keepW)}
+          if(Test-Path $agentPidPath){[void][int]::TryParse((Get-Content -Raw $agentPidPath).Trim(),[ref]$keepA)}
+          $ws=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object{$_.Name -match '^powershell(\.exe)?$'-and[string]$_.CommandLine-match'(?i)run-agent\.ps1'}
+          $as=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object{$_.Name -match '^node(\.exe)?$'-and[string]$_.CommandLine-match'(?i)(aria-agent\.js|Runtime\\windows\\aria-agent\.js)'}
+          Write-Host "WATCHDOGS=$($ws.Count) KEEP_WATCHDOG=$keepW AGENTS=$($as.Count) KEEP_AGENT=$keepA"
+          foreach($p in $ws){if([int]$p.ProcessId-ne$keepW){Write-Host "STOP_WATCHDOG=$($p.ProcessId)";Stop-Process -Id([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
+          foreach($p in $as){if([int]$p.ProcessId-ne$keepA){Write-Host "STOP_AGENT=$($p.ProcessId)";Stop-Process -Id([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
+          Start-Sleep -Seconds 2
+          $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
+          if(Test-Path $lock){$lp=0;try{$j=Get-Content -Raw $lock|ConvertFrom-Json;$lp=[int]$j.pid}catch{};$q=$null;if($lp-gt 0){$q=Get-CimInstance Win32_Process -Filter "ProcessId = $lp" -ErrorAction SilentlyContinue};if($null-eq$q-or$lp-eq$keepA){Remove-Item $lock-Force-ErrorAction SilentlyContinue;Write-Host "LOCK_CLEARED_PID=$lp"}else{Stop-Process -Id$lp-Force-ErrorAction SilentlyContinue;Start-Sleep 1;Remove-Item $lock-Force-ErrorAction SilentlyContinue;Write-Host "LOCK_OWNER_STOPPED_PID=$lp"}}
+
+      - name: Activate Meditation IA and prove heartbeat
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status';$start='http://127.0.0.1:45873/start';$s=$null;$online=$false
+          try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;if($s){$online=$true}}catch{}
+          if(-not$online){$agent='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1';if(-not(Test-Path $agent)){throw 'Agent launcher missing'};Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$agent -WindowStyle Hidden;for($i=0;$i-lt30;$i++){Start-Sleep 1;try{$s=Invoke-RestMethod $u -TimeoutSec 2;if($s){$online=$true;break}}catch{}};if(-not$online){throw 'Control endpoint offline'}}
+          if($s.mode-ne'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod $u -TimeoutSec 5;Write-Host ("ACTIVATE status={0} mode={1} session={2} tick={3}"-f$r.status,$s.mode,$s.session_id,$s.tick_count)}else{Write-Host "ALREADY_ACTIVE session=$($s.session_id)"}
+          if($s.mode-ne'active'){throw "Meditation IA activation failed: mode=$($s.mode)"};$t=[int]$s.tick_count;Start-Sleep 12;$f=Invoke-RestMethod $u -TimeoutSec 5;Write-Host "HEARTBEAT initial=$t final=$($f.tick_count) mode=$($f.mode)";if($f.mode-ne'active'){throw "Meditation stopped: $($f.mode)"};if([int]$f.tick_count-lt$t){throw 'Tick counter regressed'}
+
+      - name: Persist proof and close trigger issue
+        if: always()
+        run: |
+          $ErrorActionPreference='Continue';$c=Get-PSDrive C;$u='http://127.0.0.1:45873/status';$s=$null;try{$s=Invoke-RestMethod $u -TimeoutSec 5}catch{}
+          $dir=Join-Path $env:GITHUB_WORKSPACE 'reports';New-Item -ItemType Directory -Force -Path $dir|Out-Null
+          [ordered]@{timestamp=(Get-Date -Format o);computer=$env:COMPUTERNAME;c_free_gb=[math]::Round($c.Free/1GB,2);mode=$s.mode;session=$s.session_id;ticks=$s.tick_count;outcome=if($s-and$s.mode-eq'active'){'PASS'}else{'FAIL'}}|ConvertTo-Json -Depth 8|Set-Content -Path(Join-Path $dir 'aria-windows-emergency-repair-status.json')-Encoding UTF8
+          Get-Content -Raw(Join-Path $dir 'aria-windows-emergency-repair-status.json')
+          git config user.name 'aria-emergency-repair';git config user.email 'aria-emergency-repair@users.noreply.github.com';git add reports/aria-windows-emergency-repair-status.json;git commit -m 'ci: persist emergency Windows repair proof';if($LASTEXITCODE-eq0){git push origin main}
