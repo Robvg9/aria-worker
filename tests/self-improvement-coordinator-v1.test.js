@@ -24,6 +24,15 @@ async function main() {
     proposed_changes: [{ type: 'modify_file', path: 'autonomy/demo.js', content: 'module.exports = 2;', risk_level: 'low' }]
   });
 
+  console.log(JSON.stringify({
+    status: result.status,
+    stop_reason: result.stop_reason,
+    stage_statuses: result.cycles?.[0] ? Object.fromEntries(Object.entries(result.cycles[0].results).map(([k, v]) => [k, v.status])) : null,
+    build: result.cycles?.[0]?.results?.build || null,
+    test: result.cycles?.[0]?.results?.test || null,
+    verify: result.cycles?.[0]?.results?.verify || null
+  }, null, 2));
+
   assert.equal(result.status, 'completed');
   assert.equal(result.classification.category, 'autonomous');
   assert.equal(files.get('autonomy/demo.js'), 'module.exports = 2;');
