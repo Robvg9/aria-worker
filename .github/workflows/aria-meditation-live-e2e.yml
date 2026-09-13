@@ -19,10 +19,38 @@ defaults:
 jobs:
   live-e2e:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Diagnose and repair only a stale Meditation lock
+        run: |
+          $ErrorActionPreference='Stop'
+          $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
+          $listenerPid=0
+          try { $listener=(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop | Select-Object -First 1); if($listener){$listenerPid=[int]$listener.OwningProcess} } catch {}
+          $lockPid=0
+          if(Test-Path $lock){ try { $j=Get-Content -Raw $lock | ConvertFrom-Json; $lockPid=[int]$j.pid } catch {} }
+          Write-Host "LOCK_PRESENT=$(Test-Path $lock) LOCK_PID=$lockPid LISTENER_PID=$listenerPid"
+          if($lockPid -gt 0){
+            $lp=Get-CimInstance Win32_Process -Filter "ProcessId = $lockPid" -ErrorAction SilentlyContinue
+            $cmd=[string]$lp.CommandLine
+            Write-Host "LOCK_OWNER_COMMAND=$cmd"
+            if($null -eq $lp){
+              Remove-Item $lock -Force -ErrorAction SilentlyContinue
+              Write-Host 'LOCK_REPAIR=STALE_DEAD_OWNER'
+            } elseif($lockPid -ne $listenerPid -and $cmd -match '(?i)(aria-agent\.js|aria-meditation-controller\.js|start-meditation-ia\.ps1|meditation)') {
+              Stop-Process -Id $lockPid -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 2
+              if(Test-Path $lock){Remove-Item $lock -Force -ErrorAction SilentlyContinue}
+              Write-Host "LOCK_REPAIR=STALE_LIVE_DUPLICATE_STOPPED PID=$lockPid"
+            } elseif($lockPid -eq $listenerPid) {
+              Write-Host 'LOCK_REPAIR=OWNER_IS_CONTROL_SERVER'
+            } else {
+              throw "Unexpected lock owner PID=$lockPid command=$cmd"
+            }
+          } else { Write-Host 'LOCK_REPAIR=NOT_NEEDED' }
 
       - name: Activate existing Meditation IA controller
         run: |
