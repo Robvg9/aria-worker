@@ -5,6 +5,7 @@ $runtime=Join-Path $RuntimeRoot 'Runtime\windows';$autonomy=Join-Path $RuntimeRo
 New-Item -ItemType Directory -Force -Path $runtime,$autonomy,$med,$scripts|Out-Null
 Copy-Item (Join-Path $repo 'autonomy\meditation-ia-controller.js') (Join-Path $autonomy 'meditation-ia-controller.js') -Force
 Copy-Item (Join-Path $repo 'autonomy\meditation-ia-policy.js') (Join-Path $autonomy 'meditation-ia-policy.js') -Force
+Copy-Item (Join-Path $repo 'autonomy\windows-shell-executor.js') (Join-Path $autonomy 'windows-shell-executor.js') -Force
 Copy-Item (Join-Path $repo 'agents\windows\aria-meditation-controller.js') (Join-Path $runtime 'aria-meditation-controller.js') -Force
 Copy-Item (Join-Path $repo 'agents\windows\aria-meditation-ui.ps1') (Join-Path $runtime 'aria-meditation-ui.ps1') -Force
 Copy-Item (Join-Path $repo 'scripts\windows\start-meditation-ia.ps1') (Join-Path $scripts 'start-meditation-ia.ps1') -Force
