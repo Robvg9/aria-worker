@@ -1,0 +1,31 @@
+name: ARIA Self-Improvement v1
+
+on:
+  push:
+    branches: [aria/self-improvement-v1-main]
+  pull_request:
+    branches: [main, aria/meditation-ia-v1-main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  governed-self-improvement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check autonomy/autonomy-frontier-v1.js
+          node --check autonomy/continuous-evolution-v2.js
+          node --check autonomy/self-improvement-engine-v1.js
+          node --check tests/self-improvement-engine-v1.test.js
+      - name: Governed self-improvement contract
+        run: node tests/self-improvement-engine-v1.test.js
