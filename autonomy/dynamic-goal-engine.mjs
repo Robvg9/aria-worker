@@ -1,6 +1,7 @@
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : min));
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const keyOf = (value) => text(value).toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9:_ -]/g, '');
+const MAX_DERIVED_FAILURE_DEPTH = 1;
 
 function freshnessScore(createdAt, now) {
   const ts = Date.parse(createdAt || '');
@@ -48,8 +49,29 @@ function deriveFromFailure(failure) {
   const goal = text(failure.goal);
   const stderr = text(failure.last_stderr || failure.error || failure.summary);
   if (!goal && !stderr) return null;
+  const metadata = failure.metadata && typeof failure.metadata === 'object' ? failure.metadata : {};
+  const parentSource = text(metadata.goal_source || metadata.source_type);
+  const parentGoalId = text(metadata.goal_id);
+  const parentDepth = Number.isFinite(Number(metadata.derivation_depth)) ? Number(metadata.derivation_depth) : 0;
+  if (parentSource === 'failure' || parentGoalId.startsWith('dyn-failure-') || parentDepth >= MAX_DERIVED_FAILURE_DEPTH) return null;
   const ref = text(failure.mission_id) || keyOf(goal).slice(0, 48);
-  return { goal_id: generatedId('failure', ref, goal), goal: `Diagnose and resolve the verified failure from mission ${ref}: ${stderr || goal}`.slice(0, 500), priority: 72, urgency: 82, impact: 86, confidence: 0.85, source_type: 'failure', source_ref: ref, source_created_at: failure.updated_at || failure.created_at, metadata: { derived_from_failure: ref, original_goal: goal || null } };
+  return {
+    goal_id: generatedId('failure', ref, goal),
+    goal: `Diagnose and resolve the verified failure from mission ${ref}: ${stderr || goal}`.slice(0, 500),
+    priority: 72,
+    urgency: 82,
+    impact: 86,
+    confidence: 0.85,
+    source_type: 'failure',
+    source_ref: ref,
+    source_created_at: failure.updated_at || failure.created_at,
+    metadata: {
+      derived_from_failure: ref,
+      original_goal: goal || null,
+      derivation_depth: parentDepth + 1,
+      recursive_guard: 'max_failure_derivation_depth_1'
+    }
+  };
 }
 
 function deriveFromCapabilityGap(row) {
@@ -104,4 +126,4 @@ export function selectDynamicGoal(candidates, { blockedIds = new Set(), activeId
   return (candidates || []).find((candidate) => { const state = text(candidate.status) || 'queued'; if (blocked.has(candidate.goal_id) || active.has(candidate.goal_id)) return false; return state === 'queued' || state === 'paused'; }) || null;
 }
 
-export const dynamicGoalEngine = Object.freeze({ generateCandidates, selectDynamicGoal, scoreCandidate });
+export const dynamicGoalEngine = Object.freeze({ generateCandidates, selectDynamicGoal, scoreCandidate, MAX_DERIVED_FAILURE_DEPTH });
