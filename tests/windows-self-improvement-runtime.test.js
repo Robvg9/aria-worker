@@ -16,7 +16,7 @@ assert.match(runtime, /operation !== 'self\.improve'/);
 assert.match(runtime, /SAFE_CATEGORIES/);
 assert.match(runtime, /self-improvement-workspace/);
 assert.match(runtime, /change\.risk_level/);
-assert.match(runtime, /\['--check', target\.absolute\]/);
+assert.match(runtime, /process\.execPath,\['--check'/);
 assert.match(runtime, /promotion: 'human_gate'/);
 assert.match(runtime, /deployment: 'human_gate'/);
 assert.match(runtime, /coordinator_status: result\.status/);
