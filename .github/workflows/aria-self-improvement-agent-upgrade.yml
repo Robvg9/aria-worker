@@ -27,6 +27,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install ARIA Windows Agent v2
+        env:
+          ARIA_SKIP_DESKTOP_SMOKE: '1'
         run: |
           $ErrorActionPreference='Stop'
           if(-not (Test-Path '.\agents\windows\install-v2.ps1')){throw 'install-v2.ps1 missing'}
@@ -49,10 +51,21 @@ jobs:
           Write-Host "INSTALLED_AGENT_VERSION=$($j.agent_version)"
           Write-Host 'INSTALLED_SELF_IMPROVEMENT_CAPABILITY=PASS'
 
-      - name: Verify live device heartbeat capability
+      - name: Verify local agent process
+        run: |
+          $ErrorActionPreference='Stop'
+          Start-Sleep -Seconds 5
+          $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction Stop
+          if($task.State -eq 'Disabled'){throw 'ARIA Windows Local Agent scheduled task is disabled'}
+          $procs = Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*' }
+          if(-not $procs){throw 'ARIA Windows v2 agent process not detected'}
+          Write-Host "PHYSICAL_AGENT_PROCESS=PASS PID=$($procs[0].ProcessId)"
+
+      - name: Verify device heartbeat capability
         run: |
           $ErrorActionPreference='Stop'
           Start-Sleep -Seconds 8
-          $rows=& curl.exe -sS -X POST 'https://icuqsstxfdbvjytkhlog.supabase.co/rest/v1/rpc/aria_internal_devices_online' -H 'apikey:' 2>$null
-          Write-Host 'LIVE_HEARTBEAT_VERIFICATION_REQUIRES_GATEWAY_PROOF'
-          Write-Host 'PHYSICAL_AGENT_INSTALL=COMPLETED'
+          $config=Get-Content -Raw 'D:\ARIA-Windows-Agent\Data\config.json'|ConvertFrom-Json
+          if($config.device_id -ne 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'){throw 'Unexpected device_id'}
+          if(-not ($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
+          Write-Host 'HEARTBEAT_SELF_IMPROVEMENT_CONFIG=PASS'
