@@ -11,7 +11,7 @@ const gateway = fs.readFileSync(gatewayPath, 'utf8');
 
 assert.match(runner, /"self_improvement"/);
 assert.match(runner, /self\.improve/);
-assert.match(runner, /function selfImprovementExecute\(m: string, s: any\)/);
+assert.match(runner, /function selfImprovementExecute\(missionId: string, step: any\)/);
 assert.match(runner, /self_improvement_device_target_missing/);
 assert.match(runner, /action: "self_improve"/);
 assert.match(runner, /getExecutionJob\(jobId\)/);
