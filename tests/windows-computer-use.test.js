@@ -35,7 +35,7 @@ assert.throws(() => validateRequest({ action: 'hotkey', keys: ['CTRL'] }), /desk
 assert.throws(() => validateRequest({ action: 'scroll' }), /desktop_scroll_invalid/);
 assert.throws(() => validateRequest({ action: 'wait', ms: 60001 }), /desktop_wait_invalid/);
 
-assert.ok(VERSION.startsWith('aria-windows-desktop-v1.8'));
+assert.ok(VERSION.startsWith('aria-windows-desktop-v1.9'));
 assert.equal(ACTIONS.has('screenshot'), true);
 assert.equal(ACTIONS.has('double_click'), true);
 assert.equal(ACTIONS.has('move'), true);
@@ -45,13 +45,17 @@ assert.equal(ACTIONS.has('wait'), true);
 
 const adapterSrc = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
 assert.match(adapterSrc, /-STA/);
-assert.match(adapterSrc, /BitBlt/);
-assert.match(adapterSrc, /SetProcessDPIAware/);
-assert.match(adapterSrc, /FromHbitmap/);
+assert.match(adapterSrc, /windows-desktop-runner\.ps1/);
+assert.match(adapterSrc, /windows-ui-automation\.ps1/);
+assert.match(adapterSrc, /windows-hotkey-runner\.ps1/);
+assert.match(adapterSrc, /spawnPowerShell\(/);
 assert.doesNotMatch(adapterSrc, /New-Object System\.Drawing\.Bitmap -ArgumentList @/);
 assert.equal(typeof require('../computer-use/windows-desktop-adapter').executeWindowsDesktop, 'function');
 
 const runnerSrc = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-runner.ps1'), 'utf8');
+assert.match(runnerSrc, /SetProcessDPIAware/);
+assert.match(runnerSrc, /BitBlt/);
+assert.match(runnerSrc, /FromHbitmap/);
 assert.match(runnerSrc, /double_click/);
 assert.match(runnerSrc, /Send-Vk/);
 assert.match(runnerSrc, /'hotkey'/);

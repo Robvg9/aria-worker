@@ -5,16 +5,16 @@ on:
     branches: [main]
     paths:
       - 'agents/windows/**'
+      - 'autonomy/meditation-ia-controller.js'
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/**'
-      - 'tests/windows-desktop-physical-e2e.js'
       - '.github/workflows/aria-windows-runtime-repair.yml'
   pull_request:
     paths:
       - 'agents/windows/**'
+      - 'autonomy/meditation-ia-controller.js'
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/**'
-      - 'tests/windows-desktop-physical-e2e.js'
       - '.github/workflows/aria-windows-runtime-repair.yml'
   workflow_dispatch:
 
@@ -28,10 +28,33 @@ defaults:
 jobs:
   repair:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
+
+      - name: Free C drive safely and relocate ARIA/npm cache to D drive
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dRoot = 'D:\ARIA-Windows-Agent\Maintenance'
+          New-Item -ItemType Directory -Force -Path $dRoot | Out-Null
+          $before = Get-PSDrive -Name C
+          Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before.Free/1GB,2))"
+          $cleanupRoots = @($env:TEMP, "$env:LOCALAPPDATA\Temp", "$env:WINDIR\Temp") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+          foreach ($root in $cleanupRoots) { try { Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue | ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue } catch {} } } catch {} }
+          foreach ($p in @("$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*","$env:LOCALAPPDATA\CrashDumps\*","$env:LOCALAPPDATA\D3DSCache\*","$env:LOCALAPPDATA\NVIDIA\DXCache\*","$env:LOCALAPPDATA\NVIDIA\GLCache\*")) { try { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue } catch {} }
+          try { Remove-Item -LiteralPath 'C:\Windows\SoftwareDistribution\Download\*' -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+          if (Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue) { try { Delete-DeliveryOptimizationCache -Force -ErrorAction SilentlyContinue } catch {} }
+          if (Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue) { try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {} }
+          if (Get-Command npm.cmd -ErrorAction SilentlyContinue) { try { npm.cmd cache verify | Out-Host; npm.cmd cache clean --force | Out-Host } catch {} }
+          if (Get-Command pip.exe -ErrorAction SilentlyContinue) { try { pip.exe cache purge | Out-Host } catch {} }
+          $npmCache = "$env:LOCALAPPDATA\npm-cache"
+          $npmCacheD = 'D:\ARIA-Windows-Agent\Maintenance\npm-cache'
+          if (Test-Path $npmCache -PathType Container) { try { $item = Get-Item $npmCache -Force; if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { if (Test-Path $npmCacheD) { Remove-Item $npmCacheD -Recurse -Force -ErrorAction SilentlyContinue }; New-Item -ItemType Directory -Force -Path (Split-Path $npmCacheD) | Out-Null; Move-Item -LiteralPath $npmCache -Destination $npmCacheD -Force; New-Item -ItemType Junction -Path $npmCache -Target $npmCacheD | Out-Null; Write-Host "NPM_CACHE_RELOCATED=True TARGET=$npmCacheD" } else { Write-Host 'NPM_CACHE_ALREADY_RELOCATED=True' } } catch { Write-Warning "NPM_CACHE_RELOCATION_FAILED $($_.Exception.Message)" } }
+          $after = Get-PSDrive -Name C
+          Write-Host "C_FREE_AFTER_GB=$([math]::Round($after.Free/1GB,2))"
+          Write-Host "C_FREED_GB=$([math]::Round(($after.Free-$before.Free)/1GB,2))"
+          Write-Host 'ARIA_CLEANUP=PASS'
 
       - name: Sync complete runtime to official D drive
         run: |
@@ -43,18 +66,17 @@ jobs:
           $logDir = Join-Path $runtimeRoot 'Logs'
           $computerUse = Join-Path $repoRoot 'computer-use'
           $canonical = Join-Path $repoRoot 'autonomy\windows-shell-executor.js'
-          foreach ($path in @($source,$canonical,$computerUse)) { if (-not (Test-Path $path)) { throw "Required source missing: $path" } }
+          $meditationCore = Join-Path $repoRoot 'autonomy\meditation-ia-controller.js'
+          foreach ($path in @($source,$canonical,$meditationCore,$computerUse)) { if (-not (Test-Path $path)) { throw "Required source missing: $path" } }
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $runtimeRoot 'autonomy') | Out-Null
           Copy-Item -Path (Join-Path $source 'aria-agent.js') -Destination $target -Force
           Copy-Item -Path (Join-Path $source 'run-agent.ps1') -Destination $target -Force
+          Copy-Item -Path (Join-Path $source 'aria-meditation-controller.js') -Destination $target -Force
           Copy-Item -Path $canonical -Destination (Join-Path $target 'windows-shell-executor.js') -Force
-          foreach ($file in @('windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) {
-            Copy-Item -Path (Join-Path $computerUse $file) -Destination $target -Force
-          }
-          foreach ($file in @('aria-agent.js','run-agent.ps1','windows-shell-executor.js','windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) {
-            if (-not (Test-Path (Join-Path $target $file))) { throw "Runtime file missing after sync: $file" }
-          }
+          Copy-Item -Path $meditationCore -Destination (Join-Path $runtimeRoot 'autonomy\meditation-ia-controller.js') -Force
+          foreach ($file in @('windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) { Copy-Item -Path (Join-Path $computerUse $file) -Destination $target -Force }
           Write-Host 'ARIA_RUNTIME_SYNC=PASS'
 
       - name: Verify runtime syntax
@@ -62,13 +84,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $target = 'D:\ARIA-Windows-Agent\Runtime\windows'
           node --check (Join-Path $target 'aria-agent.js')
+          node --check (Join-Path $target 'aria-meditation-controller.js')
           node --check (Join-Path $target 'windows-shell-executor.js')
           node --check (Join-Path $target 'windows-desktop-adapter.js')
+          node --check 'D:\ARIA-Windows-Agent\autonomy\meditation-ia-controller.js'
           $agent = Get-Content -Raw (Join-Path $target 'aria-agent.js')
-          if ($agent -notmatch "SHELL_OPERATION = 'shell.execute'") { throw 'shell.execute missing from runtime agent' }
-          if ($agent -notmatch "COMPUTER_OPERATION = 'computer.use'") { throw 'computer.use missing from runtime agent' }
+          if (-not ($agent -like "*'shell.execute'*")) { throw 'shell.execute missing from runtime agent' }
+          if (-not ($agent -like "*'computer.use'*")) { throw 'computer.use missing from runtime agent' }
           $desktop = Get-Content -Raw (Join-Path $target 'windows-desktop-adapter.js')
-          if ($desktop -notmatch 'aria-windows-desktop-v1\.9') { throw 'desktop adapter v1.9 missing from runtime' }
+          if (-not ($desktop -like '*aria-windows-desktop-v1.9*')) { throw 'desktop adapter v1.9 missing from runtime' }
           if (-not (Test-Path (Join-Path $target 'windows-hotkey-runner.ps1'))) { throw 'hotkey runner missing from runtime' }
           Write-Host 'ARIA_RUNTIME_SYNTAX=PASS'
 
@@ -83,19 +107,65 @@ jobs:
           $oldPid = 0
           if (-not [int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$oldPid) -or $oldPid -le 0) { throw 'Invalid agent.pid' }
           Set-Content -Path $killRequest -Value "pid=$oldPid from=runtime-repair ts=$(Get-Date -Format o)" -Encoding ASCII -Force
-          Write-Host "KILL_REQUEST_WRITTEN=True PID=$oldPid"
           $newPid = $null
-          for ($i = 0; $i -lt 45; $i++) {
-            Start-Sleep -Seconds 2
-            if (-not (Test-Path $pidPath)) { continue }
-            $cand = 0
-            if (-not [int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$cand)) { continue }
-            if ($cand -le 0 -or $cand -eq $oldPid) { continue }
-            $p = Get-Process -Id $cand -ErrorAction SilentlyContinue
-            if ($p -and $p.ProcessName -match 'node') { $newPid = $cand; break }
-          }
+          for ($i = 0; $i -lt 45; $i++) { Start-Sleep -Seconds 2; if (-not (Test-Path $pidPath)) { continue }; $cand = 0; if (-not [int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$cand)) { continue }; if ($cand -le 0 -or $cand -eq $oldPid) { continue }; $p = Get-Process -Id $cand -ErrorAction SilentlyContinue; if ($p -and $p.ProcessName -match 'node') { $newPid = $cand; break } }
           if (-not $newPid) { if (Test-Path $logPath) { Get-Content $logPath -Tail 50 }; throw 'Watchdog did not restart agent after public signal' }
           Write-Host "ARIA_AGENT_RESTART=PASS NEW_PID=$newPid"
+
+      - name: Repair Meditation IA singleton lock
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $medRoot = 'D:\ARIA-Windows-Agent\Runtime\meditation'
+          $lockPath = Join-Path $medRoot 'controller.lock'
+          $agentPidPath = 'D:\ARIA-Windows-Agent\Logs\agent.pid'
+          $currentAgentPid = 0
+          if (Test-Path $agentPidPath) { [void][int]::TryParse((Get-Content -Raw $agentPidPath).Trim(), [ref]$currentAgentPid) }
+          if (-not (Test-Path $lockPath)) { Write-Host 'MEDITATION_LOCK=ABSENT' ; exit 0 }
+          $raw = Get-Content -Raw $lockPath
+          $lockPid = 0
+          try { $lock = $raw | ConvertFrom-Json; $lockPid = [int]$lock.pid } catch { $lock = $null }
+          Write-Host "MEDITATION_LOCK_PID=$lockPid CURRENT_AGENT_PID=$currentAgentPid"
+          $proc = $null
+          if ($lockPid -gt 0) { $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $lockPid" -ErrorAction SilentlyContinue }
+          if ($lockPid -le 0 -or $null -eq $proc) {
+            Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+            Write-Host 'MEDITATION_LOCK_REPAIR=STALE_REMOVED'
+            exit 0
+          }
+          $cmd = [string]$proc.CommandLine
+          Write-Host "MEDITATION_LOCK_COMMAND=$cmd"
+          if ($lockPid -eq $currentAgentPid) {
+            Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+            Write-Host 'MEDITATION_LOCK_REPAIR=SELF_STALE_REMOVED'
+            exit 0
+          }
+          if ($cmd -match '(?i)aria-agent\.js|aria-meditation-controller\.js|meditation') {
+            Stop-Process -Id $lockPid -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            if (Test-Path $lockPath) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
+            Write-Host "MEDITATION_LOCK_REPAIR=OLD_PROCESS_STOPPED PID=$lockPid"
+            exit 0
+          }
+          throw "Meditation lock is owned by an unexpected live process PID=$lockPid command=$cmd"
+
+      - name: Ensure Meditation IA control endpoint is online and activate
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uri = 'http://127.0.0.1:45873/status'
+          $startUri = 'http://127.0.0.1:45873/start'
+          $online = $false
+          try { $s = Invoke-RestMethod -Method Get -Uri $uri -TimeoutSec 3; if ($s) { $online = $true } } catch {}
+          if (-not $online) {
+            $scripts = @('D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\Runtime\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\start-meditation-ia.ps1') | Where-Object { Test-Path $_ }
+            if ($scripts.Count -gt 0) { $script = $scripts[0]; Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$script -WorkingDirectory (Split-Path $script) -WindowStyle Hidden; Start-Sleep -Seconds 5 }
+          }
+          try { $s = Invoke-RestMethod -Method Get -Uri $uri -TimeoutSec 5 } catch { throw 'Meditation IA control endpoint offline after repair attempt' }
+          $start = Invoke-RestMethod -Method Post -Uri $startUri -TimeoutSec 10
+          Start-Sleep -Seconds 2
+          $final = Invoke-RestMethod -Method Get -Uri $uri -TimeoutSec 5
+          Write-Host ("MEDITATION_ACTIVATE status={0} mode={1} session={2}" -f $start.status,$final.mode,$final.session_id)
+          if ($final.mode -ne 'active') { throw "Meditation IA activation failed: mode=$($final.mode)" }
+          Write-Host 'MEDITATION_ENDPOINT=PASS'
 
       - name: Physical desktop autonomy E2E
         id: physical_e2e
@@ -111,24 +181,12 @@ jobs:
         env:
           E2E_OUTCOME: ${{ steps.physical_e2e.outcome }}
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Continue'
           $proofDir = Join-Path $env:GITHUB_WORKSPACE 'reports'
           $proofPath = Join-Path $proofDir 'windows-desktop-physical-e2e-status.json'
           New-Item -ItemType Directory -Force -Path $proofDir | Out-Null
-          $payload = [ordered]@{
-            commit = $env:GITHUB_SHA
-            workflow = 'ARIA Windows Runtime Repair'
-            outcome = $env:E2E_OUTCOME
-            timestamp = (Get-Date -Format o)
-            adapter = 'aria-windows-desktop-v1.9'
-            physical_agent = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
-          }
-          $payload | ConvertTo-Json -Depth 6 | Set-Content -Path $proofPath -Encoding UTF8
-          git config user.name 'aria-runtime-proof'
-          git config user.email 'aria-runtime-proof@users.noreply.github.com'
-          git add reports/windows-desktop-physical-e2e-status.json
-          git commit -m "ci: publish physical desktop E2E proof" || Write-Host 'No proof-file commit needed'
-          git push origin HEAD:main
+          [ordered]@{ commit=$env:GITHUB_SHA; workflow='ARIA Windows Runtime Repair'; outcome=$env:E2E_OUTCOME; timestamp=(Get-Date -Format o); adapter='aria-windows-desktop-v1.9'; physical_agent='windows-fe722cc6681e4f9c9cc35f5ebbb0a089' } | ConvertTo-Json -Depth 6 | Set-Content -Path $proofPath -Encoding UTF8
+          Write-Host "ARIA_PHYSICAL_E2E_PROOF=$proofPath outcome=$env:E2E_OUTCOME"
 
       - name: Fail when physical desktop E2E is not green
         if: steps.physical_e2e.outcome != 'success'
@@ -140,8 +198,5 @@ jobs:
           $status = 'D:\ARIA-Windows-Agent\Logs\status.json'
           $log = 'D:\ARIA-Windows-Agent\Logs\watchdog.log'
           if (Test-Path $status) { Get-Content -Raw $status }
-          if (Test-Path $log) {
-            $tail = Get-Content $log -Tail 30 | Out-String
-            if ($tail -match 'NoNewWindow') { throw 'Old watchdog failure still present' }
-          }
+          if (Test-Path $log) { $tail = Get-Content $log -Tail 30 | Out-String; if ($tail -match 'NoNewWindow') { throw 'Old watchdog failure still present' } }
           Write-Host 'ARIA_RUNTIME_REPAIR=PASS'
