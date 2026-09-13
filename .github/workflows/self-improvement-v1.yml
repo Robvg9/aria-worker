@@ -26,6 +26,10 @@ jobs:
           node --check autonomy/autonomy-frontier-v1.js
           node --check autonomy/continuous-evolution-v2.js
           node --check autonomy/self-improvement-engine-v1.js
+          node --check autonomy/self-improvement-coordinator-v1.js
           node --check tests/self-improvement-engine-v1.test.js
+          node --check tests/self-improvement-coordinator-v1.test.js
       - name: Governed self-improvement contract
         run: node tests/self-improvement-engine-v1.test.js
+      - name: Coordinator integration contract
+        run: node tests/self-improvement-coordinator-v1.test.js
