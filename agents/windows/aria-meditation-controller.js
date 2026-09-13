@@ -53,13 +53,23 @@ async function readCommands(offset = 0) {
 }
 
 async function isUserIdle() {
-  const ps = '[Add-Type -Name LastInput -Namespace ARIA -MemberDefinition \'[DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii); [StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }\' -PassThru; $i=New-Object ARIA.LastInput+LASTINPUTINFO; $i.cbSize=[Runtime.InteropServices.Marshal]::SizeOf($i); [ARIA.LastInput]::GetLastInputInfo([ref]$i)|Out-Null; [int](([Environment]::TickCount - $i.dwTime)/1000)';
+  const threshold = Number(process.env.ARIA_MEDITATION_MIN_IDLE_SECONDS || 45);
+  const ps = `Add-Type -TypeDefinition @'\nusing System;\nusing System.Runtime.InteropServices;\npublic static class AriaIdleProbe {\n  [StructLayout(LayoutKind.Sequential)]\n  public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }\n  [DllImport("user32.dll")]\n  public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);\n  [DllImport("kernel32.dll", EntryPoint="GetTickCount64")]\n  public static extern ulong GetTickCount64();\n}\n'@ -ErrorAction Stop; $i=New-Object AriaIdleProbe+LASTINPUTINFO; $i.cbSize=[Runtime.InteropServices.Marshal]::SizeOf($i); if(-not [AriaIdleProbe]::GetLastInputInfo([ref]$i)){ throw 'GetLastInputInfo failed' }; $now=[AriaIdleProbe]::GetTickCount64(); $mod=[UInt64]4294967296; $base=$now-($now % $mod); [UInt64]$last=$base+[UInt64]$i.dwTime; if($last -gt $now){$last=$last-$mod}; [Math]::Floor(([double]($now-$last))/1000) | Write-Output`;
   return await new Promise(resolve => {
     const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], { windowsHide: true });
     let out = '';
+    let settled = false;
+    const finish = value => { if (settled) return; settled = true; resolve(value); };
+    const timeout = setTimeout(() => { try { p.kill(); } catch {} void appendLog('USER_IDLE_CHECK error=probe_timeout'); finish(false); }, 5000);
     p.stdout.on('data', c => { out += c.toString(); });
-    p.on('close', code => resolve(code === 0 && Number(out.trim()) >= Number(process.env.ARIA_MEDITATION_MIN_IDLE_SECONDS || 45)));
-    setTimeout(() => { try { p.kill(); } catch {} resolve(false); }, 5000);
+    p.on('error', error => { clearTimeout(timeout); void appendLog(`USER_IDLE_CHECK error=${String(error?.message || error)}`); finish(false); });
+    p.on('close', code => {
+      clearTimeout(timeout);
+      const seconds = Number(out.trim());
+      const allowed = code === 0 && Number.isFinite(seconds) && seconds >= threshold;
+      void appendLog(`USER_IDLE_CHECK seconds=${Number.isFinite(seconds) ? seconds : 'unknown'} threshold=${threshold} allowed=${allowed}`);
+      finish(allowed);
+    });
   });
 }
 
