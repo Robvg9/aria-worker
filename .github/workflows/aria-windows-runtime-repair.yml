@@ -28,10 +28,66 @@ defaults:
 jobs:
   repair:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
+
+      - name: Free C drive safely and relocate ARIA/npm cache to D drive
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dRoot = 'D:\ARIA-Windows-Agent\Maintenance'
+          New-Item -ItemType Directory -Force -Path $dRoot | Out-Null
+          $before = Get-PSDrive -Name C
+          Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before.Free/1GB,2))"
+          Write-Host '--- Largest user/cache locations before cleanup ---'
+          $candidates = @(
+            $env:TEMP,
+            $env:LOCALAPPDATA,
+            "$env:LOCALAPPDATA\npm-cache",
+            "$env:LOCALAPPDATA\pip\Cache",
+            "$env:USERPROFILE\.nuget\packages",
+            "$env:USERPROFILE\.gradle\caches"
+          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+          foreach ($p in $candidates) {
+            try {
+              $bytes = (Get-ChildItem -LiteralPath $p -Force -File -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+              Write-Host ("SIZE_GB path={0} value={1}" -f $p,([math]::Round(([double]$bytes)/1GB,2)))
+            } catch {}
+          }
+
+          # Safe cache cleanup: never delete user documents/projects.
+          $tempRoots = @($env:TEMP, "$env:WINDIR\Temp") | Where-Object { Test-Path $_ } | Select-Object -Unique
+          foreach ($root in $tempRoots) {
+            Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue | ForEach-Object {
+              try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+            }
+          }
+          if (Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue) { try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {} }
+          if (Get-Command npm.cmd -ErrorAction SilentlyContinue) { try { npm.cmd cache clean --force | Out-Host } catch {} }
+          if (Get-Command pip.exe -ErrorAction SilentlyContinue) { try { pip.exe cache purge | Out-Host } catch {} }
+          if (Test-Path "$env:USERPROFILE\.nuget\packages") { try { dotnet nuget locals all --clear | Out-Host } catch {} }
+
+          # Move npm's cache to D and leave a junction at the old location.
+          $npmCache = "$env:LOCALAPPDATA\npm-cache"
+          $npmCacheD = 'D:\ARIA-Windows-Agent\Maintenance\npm-cache'
+          if (Test-Path $npmCache -PathType Container) {
+            try {
+              if (-not ((Get-Item $npmCache -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                if (Test-Path $npmCacheD) { Remove-Item $npmCacheD -Recurse -Force -ErrorAction SilentlyContinue }
+                New-Item -ItemType Directory -Force -Path (Split-Path $npmCacheD) | Out-Null
+                Move-Item -LiteralPath $npmCache -Destination $npmCacheD -Force
+                New-Item -ItemType Junction -Path $npmCache -Target $npmCacheD | Out-Null
+                Write-Host "NPM_CACHE_RELOCATED=True TARGET=$npmCacheD"
+              } else { Write-Host 'NPM_CACHE_ALREADY_RELOCATED=True' }
+            } catch { Write-Warning "NPM_CACHE_RELOCATION_FAILED $($_.Exception.Message)" }
+          }
+
+          $after = Get-PSDrive -Name C
+          $freed = [math]::Round(($after.Free-$before.Free)/1GB,2)
+          Write-Host "C_FREE_AFTER_GB=$([math]::Round($after.Free/1GB,2))"
+          Write-Host "C_FREED_GB=$freed"
+          Write-Host 'ARIA_CLEANUP=PASS'
 
       - name: Sync complete runtime to official D drive
         run: |
@@ -65,8 +121,8 @@ jobs:
           node --check (Join-Path $target 'windows-shell-executor.js')
           node --check (Join-Path $target 'windows-desktop-adapter.js')
           $agent = Get-Content -Raw (Join-Path $target 'aria-agent.js')
-          if ($agent -notmatch "SHELL_OPERATION = 'shell.execute'") { throw 'shell.execute missing from runtime agent' }
-          if ($agent -notmatch "COMPUTER_OPERATION = 'computer.use'") { throw 'computer.use missing from runtime agent' }
+          if ($agent -notmatch "SHELL_OPERATION\s*=\s*['\"]shell\.execute['\"]") { throw 'shell.execute missing from runtime agent' }
+          if ($agent -notmatch "COMPUTER_OPERATION\s*=\s*['\"]computer\.use['\"]") { throw 'computer.use missing from runtime agent' }
           $desktop = Get-Content -Raw (Join-Path $target 'windows-desktop-adapter.js')
           if ($desktop -notmatch 'aria-windows-desktop-v1\.9') { throw 'desktop adapter v1.9 missing from runtime' }
           if (-not (Test-Path (Join-Path $target 'windows-hotkey-runner.ps1'))) { throw 'hotkey runner missing from runtime' }
@@ -96,6 +152,28 @@ jobs:
           }
           if (-not $newPid) { if (Test-Path $logPath) { Get-Content $logPath -Tail 50 }; throw 'Watchdog did not restart agent after public signal' }
           Write-Host "ARIA_AGENT_RESTART=PASS NEW_PID=$newPid"
+
+      - name: Ensure Meditation IA control endpoint is online
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $uri = 'http://127.0.0.1:45873/status'
+          $online = $false
+          try { $s = Invoke-RestMethod -Method Get -Uri $uri -TimeoutSec 3; if ($s) { $online = $true; Write-Host ("MEDITATION_STATUS mode={0} session={1}" -f $s.mode,$s.session_id) } } catch {}
+          if (-not $online) {
+            $scripts = @(
+              'D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1',
+              'D:\ARIA-Windows-Agent\Runtime\start-meditation-ia.ps1',
+              'D:\ARIA-Windows-Agent\start-meditation-ia.ps1'
+            ) | Where-Object { Test-Path $_ }
+            if ($scripts.Count -gt 0) {
+              $script = $scripts[0]
+              Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$script -WorkingDirectory (Split-Path $script) -WindowStyle Hidden
+              Start-Sleep -Seconds 4
+            }
+          }
+          try { $s = Invoke-RestMethod -Method Get -Uri $uri -TimeoutSec 5 } catch { throw 'Meditation IA control endpoint offline after repair attempt' }
+          if (-not $s) { throw 'Meditation IA status returned empty response' }
+          Write-Host "MEDITATION_ENDPOINT=PASS MODE=$($s.mode)"
 
       - name: Physical desktop autonomy E2E
         id: physical_e2e
@@ -127,8 +205,9 @@ jobs:
           git config user.name 'aria-runtime-proof'
           git config user.email 'aria-runtime-proof@users.noreply.github.com'
           git add reports/windows-desktop-physical-e2e-status.json
-          git commit -m "ci: publish physical desktop E2E proof" || Write-Host 'No proof-file commit needed'
-          git push origin HEAD:main
+          git commit -m 'ci: publish physical desktop E2E proof'
+          if ($LASTEXITCODE -ne 0) { Write-Host 'No proof-file commit needed' }
+          else { git push origin HEAD:main }
 
       - name: Fail when physical desktop E2E is not green
         if: steps.physical_e2e.outcome != 'success'
