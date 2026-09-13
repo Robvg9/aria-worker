@@ -18,6 +18,8 @@ const EAS_PROJECT_ID = '1b23b091-f7b6-4dc2-b328-c8e5ec07de57';
 const LEASE_FOR = "00:15:00";
 const MAX_STEP_ATTEMPTS = 2;
 const RETRYABLE_STATUSES = new Set(["failed", "timeout"]);
+const SELF_IMPROVEMENT_CATEGORIES = new Set(["reliability", "performance", "documentation", "observability", "capability_gap", "regression"]);
+const SELF_IMPROVEMENT_FORBIDDEN_RISKS = new Set(["HIGH", "CRITICAL"]);
 
 const sb = createClient(URL, KEY, {
   auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false },
@@ -134,7 +136,7 @@ function executorType(step: any) {
 
 function validateStep(step: any) {
   const type = executorType(step);
-  if (!["connector", "device", "model", "agent", "eas"].includes(type)) {
+  if (!["connector", "device", "model", "agent", "eas", "self_improvement"].includes(type)) {
     throw new Error(`unknown_executor_type:${type}`);
   }
   if (!step?.operation) throw new Error("operation_missing");
@@ -145,6 +147,7 @@ function validateStep(step: any) {
   }
   if (type === "agent" && !step.target?.agent_id) throw new Error("agent_target_missing");
   if (type === "eas" && String(step.target?.project_id || "") !== EAS_PROJECT_ID) throw new Error("eas_project_target_mismatch");
+  if (type === "self_improvement" && String(step.operation) !== "self.improve") throw new Error("self_improvement_operation_not_allowed");
 }
 
 function verifyStep(step: any, result: any) {
@@ -218,6 +221,76 @@ async function deviceExecute(missionId: string, step: any) {
     };
   }
   return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId, job_status: status };
+}
+
+async function selfImprovementExecute(missionId: string, step: any) {
+  const input = step.input && typeof step.input === "object" ? step.input : {};
+  const category = String(input.category ?? step.category ?? "capability_gap");
+  const risk = String(input.risk ?? step.risk ?? "LOW").toUpperCase();
+  const destructive = input.destructive === true || step.destructive === true;
+  const production = input.production === true || step.production === true;
+  const externalAuthority = input.external_authority === true || step.external_authority === true;
+  const physical = input.physical === true || step.physical === true;
+  if (!SELF_IMPROVEMENT_CATEGORIES.has(category)) throw new Error(`self_improvement_category_not_allowed:${category}`);
+  if (SELF_IMPROVEMENT_FORBIDDEN_RISKS.has(risk) || destructive || production || externalAuthority || physical) {
+    return {
+      status: "waiting",
+      executor_type: "self_improvement",
+      operation: "self.improve",
+      human_gate_required: true,
+      stop_reason: "autonomy_frontier",
+      classification: { category, risk, destructive, production, external_authority: externalAuthority, physical },
+    };
+  }
+
+  const signal = {
+    goal: String(input.goal ?? step.goal ?? "").trim().slice(0, 1000),
+    category,
+    risk,
+    destructive,
+    production,
+    external_authority: externalAuthority,
+    physical,
+    scope: Array.isArray(input.scope) ? input.scope.slice(0, 20) : undefined,
+    proposed_changes: Array.isArray(input.proposed_changes) ? input.proposed_changes.slice(0, 50) : [],
+    mission_id: missionId,
+    step_id: String(step.id),
+    runner: V,
+  };
+  if (!signal.goal) throw new Error("self_improvement_goal_missing");
+
+  const response = await fetch(RUNTIME, {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({ action: "self_improve", signal }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || body?.ok !== true) throw new Error(`self_improvement_gateway_${response.status}`);
+  if (body.status === "blocked") {
+    return {
+      status: "waiting",
+      executor_type: "self_improvement",
+      operation: "self.improve",
+      human_gate_required: true,
+      stop_reason: body.stop_reason || "autonomy_frontier",
+      gateway: body,
+    };
+  }
+  if (body.status !== "accepted") throw new Error("self_improvement_gateway_unexpected_status");
+  return {
+    status: "succeeded",
+    executor_type: "self_improvement",
+    operation: "self.improve",
+    gateway_status: body.status,
+    version: body.version,
+    goal: body.goal,
+    classification: body.classification,
+    approvals: body.approvals,
+    pipeline: body.pipeline,
+    promotion: body.promotion,
+    deployment: body.deployment,
+    execution: body.execution,
+  };
 }
 
 async function githubExecute(step: any, token: string | null) {
@@ -367,6 +440,7 @@ async function executeStep(missionId: string, step: any, token: string | null) {
   if (type === "model") return modelExecute(missionId, step, token);
   if (type === "agent") return agentExecute(missionId, step, token);
   if (type === "eas") return easExecute(step);
+  if (type === "self_improvement") return selfImprovementExecute(missionId, step);
   throw new Error(`unknown_executor_type:${type}`);
 }
 
@@ -376,7 +450,7 @@ function dependenciesSatisfied(step: any, completed: Set<string>) {
 
 function readyBatch(steps: any[], completed: Set<string>) {
   const ready = steps.filter((step) => !completed.has(String(step.id)) && dependenciesSatisfied(step, completed));
-  if (ready.length > 1 && ready.slice(0, 2).every((step) => String(step.risk || "READ").toUpperCase() === "READ" && executorType(step) !== "device")) {
+  if (ready.length > 1 && ready.slice(0, 2).every((step) => String(step.risk || "READ").toUpperCase() === "READ" && executorType(step) !== "device" && executorType(step) !== "self_improvement")) {
     return ready.slice(0, 2);
   }
   return ready.slice(0, 1);
@@ -472,9 +546,11 @@ Deno.serve(async (request) => {
           return { step, result, passed: true };
         }
 
-        if (String(result?.status) === "waiting" && executorType(step) === "device") {
-          pendingJobs[id] = { job_id: result.job_id, status: result.job_status || "queued", attempt: nextAttempt };
-          await emitEvent(missionId, "mission_waiting", { step_id: id, executor_type: "device", job_id: result.job_id, attempt: nextAttempt });
+        if (String(result?.status) === "waiting" && (executorType(step) === "device" || executorType(step) === "self_improvement")) {
+          pendingJobs[id] = executorType(step) === "device"
+            ? { job_id: result.job_id, status: result.job_status || "queued", attempt: nextAttempt }
+            : { status: "human_gate_required", stop_reason: result.stop_reason || "autonomy_frontier", attempt: nextAttempt };
+          await emitEvent(missionId, executorType(step) === "self_improvement" ? "self_improvement_human_gate" : "mission_waiting", { step_id: id, executor_type: executorType(step), job_id: result.job_id || null, stop_reason: result.stop_reason || null, attempt: nextAttempt });
           return { step, result, waiting: true, passed: false };
         }
 
@@ -502,12 +578,17 @@ Deno.serve(async (request) => {
           status: "paused",
           current_step: completed.size,
           completed_steps: completed.size,
-          next_action: `resume: pending device job ${String(waiting.step.id)}`,
-          checkpoint: { ...checkpoint, recovery: { status: "waiting_for_async_executor" } },
+          next_action: executorType(waiting.step) === "self_improvement"
+            ? `resume: human gate required for ${String(waiting.step.id)}`
+            : `resume: pending device job ${String(waiting.step.id)}`,
+          checkpoint: {
+            ...checkpoint,
+            recovery: { status: executorType(waiting.step) === "self_improvement" ? "waiting_for_human_gate" : "waiting_for_async_executor" },
+          },
           lease_owner: null,
           lease_until: null,
         });
-        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id) });
+        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id), human_gate_required: executorType(waiting.step) === "self_improvement" });
       }
 
       const failures = outcomes.filter((item) => !item.passed);
@@ -570,6 +651,7 @@ Deno.serve(async (request) => {
         pending_jobs: {},
         model_execution_verified: steps.some((step) => executorType(step) === "model"),
         agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
+        self_improvement_execution_verified: steps.some((step) => executorType(step) === "self_improvement"),
         universal_execution_verified: true,
         executor_types: executorTypes,
       },
