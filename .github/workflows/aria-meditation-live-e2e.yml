@@ -19,38 +19,38 @@ defaults:
 jobs:
   live-e2e:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 6
+    timeout-minutes: 7
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Diagnose and repair only a stale Meditation lock
+      - name: Diagnose and repair stale in-memory Meditation controller
         run: |
           $ErrorActionPreference='Stop'
           $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
           $listenerPid=0
           try { $listener=(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop | Select-Object -First 1); if($listener){$listenerPid=[int]$listener.OwningProcess} } catch {}
-          $lockPid=0
-          if(Test-Path $lock){ try { $j=Get-Content -Raw $lock | ConvertFrom-Json; $lockPid=[int]$j.pid } catch {} }
-          Write-Host "LOCK_PRESENT=$(Test-Path $lock) LOCK_PID=$lockPid LISTENER_PID=$listenerPid"
-          if($lockPid -gt 0){
-            $lp=Get-CimInstance Win32_Process -Filter "ProcessId = $lockPid" -ErrorAction SilentlyContinue
-            $cmd=[string]$lp.CommandLine
-            Write-Host "LOCK_OWNER_COMMAND=$cmd"
-            if($null -eq $lp){
-              Remove-Item $lock -Force -ErrorAction SilentlyContinue
-              Write-Host 'LOCK_REPAIR=STALE_DEAD_OWNER'
-            } elseif($lockPid -ne $listenerPid -and $cmd -match '(?i)(aria-agent\.js|aria-meditation-controller\.js|start-meditation-ia\.ps1|meditation)') {
-              Stop-Process -Id $lockPid -Force -ErrorAction SilentlyContinue
-              Start-Sleep -Seconds 2
-              if(Test-Path $lock){Remove-Item $lock -Force -ErrorAction SilentlyContinue}
-              Write-Host "LOCK_REPAIR=STALE_LIVE_DUPLICATE_STOPPED PID=$lockPid"
-            } elseif($lockPid -eq $listenerPid) {
-              Write-Host 'LOCK_REPAIR=OWNER_IS_CONTROL_SERVER'
-            } else {
-              throw "Unexpected lock owner PID=$lockPid command=$cmd"
-            }
-          } else { Write-Host 'LOCK_REPAIR=NOT_NEEDED' }
+          Write-Host "LISTENER_PID=$listenerPid LOCK_PRESENT=$(Test-Path $lock)"
+          if($listenerPid -le 0){throw 'Meditation control server listener is absent'}
+          $lp=Get-CimInstance Win32_Process -Filter "ProcessId = $listenerPid" -ErrorAction SilentlyContinue
+          $cmd=[string]$lp.CommandLine
+          Write-Host "LISTENER_COMMAND=$cmd"
+          if($null -eq $lp){throw "Listener PID disappeared: $listenerPid"}
+          if($cmd -match '(?i)aria-meditation-controller\.js'){
+            Stop-Process -Id $listenerPid -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            try { Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop | Out-Null; throw 'Meditation control port still occupied after controller stop' } catch {}
+            $scripts=@('D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\Runtime\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\start-meditation-ia.ps1') | Where-Object { Test-Path $_ }
+            if($scripts.Count -eq 0){throw 'Meditation launcher missing'}
+            $script=$scripts[0]
+            Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$script -WorkingDirectory (Split-Path $script) -WindowStyle Hidden
+            $ready=$false
+            for($i=0;$i-lt30;$i++){Start-Sleep 1;try{$c=Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop;if($c){$ready=$true;break}}catch{}}
+            if(-not$ready){throw 'Meditation controller did not return on port 45873'}
+            Write-Host 'MEDITATION_CONTROLLER_RESTART=PASS'
+          } else {
+            throw "Port 45873 is owned by unexpected process: $cmd"
+          }
 
       - name: Activate existing Meditation IA controller
         run: |
