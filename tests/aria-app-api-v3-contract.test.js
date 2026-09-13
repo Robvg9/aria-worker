@@ -36,9 +36,10 @@ assertContains(memory,'aria_memory_remember_user_scoped','scoped memory remember
 assertContains(memory,"scope:'user'",'memory user-scope result marker missing');
 assertContains(planner,'goal.startsWith("IA conversacional:")','conversation-aware planner branch missing');
 assertContains(planner,'executor_type:"model"','conversation planner must emit a model executor');
-assertContains(planner,'provider_id:"openrouter"','conversation planner provider missing');
-assertContains(planner,'account_id:"acct_openrouter_primary"','conversation planner account missing');
-assertContains(planner,'model_id:"google/gemini-2.5-flash-lite"','conversation planner model missing');
+assertContains(planner,'provider_id:route.provider_id','conversation planner provider propagation missing');
+assertContains(planner,'account_id:route.account_id','conversation planner account propagation missing');
+assertContains(planner,'model_id:route.model_id','conversation planner model propagation missing');
+assertContains(planner,'fallbackStep("model_1","google/gemini-2.5-flash-lite",prompt)','conversation planner canonical mediated model route missing');
 assertContains(planner,'aria-planner-v14-conversation-aware','current conversation-aware planner version marker missing');
 assertContains(plannerWorkflow,'node tests/aria-app-api-v3-contract.test.js','planner contract gate missing');
 assertContains(plannerWorkflow,'supabase functions deploy aria-planner-v11 --project-ref','planner deployment command missing');
