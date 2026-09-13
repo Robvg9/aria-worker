@@ -1,0 +1,20 @@
+name: ARIA Self-Improvement Runtime Gateway v1
+
+on:
+  pull_request:
+    branches: [aria/meditation-ia-v1-main]
+    paths:
+      - 'supabase/functions/aria-runtime-gateway-v1/**'
+      - 'tests/self-improvement-runtime-gateway-v1.test.js'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Runtime gateway contract
+        run: node tests/self-improvement-runtime-gateway-v1.test.js
