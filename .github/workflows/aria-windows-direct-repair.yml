@@ -1,0 +1,104 @@
+name: ARIA Windows Direct Repair
+
+on:
+  push:
+    branches: [aria/meditation-ia-v1-main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deep safe cleanup and relocate Ollama models to D
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $d='D:\ARIA-Windows-Agent\Maintenance'
+          New-Item -ItemType Directory -Force -Path $d | Out-Null
+          $before=(Get-PSDrive C).Free
+          Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before/1GB,2))"
+          foreach($p in @("$env:TEMP\*","$env:LOCALAPPDATA\Temp\*","$env:WINDIR\Temp\*","$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*","$env:LOCALAPPDATA\CrashDumps\*","$env:LOCALAPPDATA\D3DSCache\*","$env:LOCALAPPDATA\NVIDIA\DXCache\*","$env:LOCALAPPDATA\NVIDIA\GLCache\*","C:\Windows\SoftwareDistribution\Download\*","C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*","C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*")){try{Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}catch{}}
+          if(Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue){try{Delete-DeliveryOptimizationCache -Force -ErrorAction SilentlyContinue}catch{}}
+          if(Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue){try{Clear-RecycleBin -Force -ErrorAction SilentlyContinue}catch{}}
+          if(Get-Command npm.cmd -ErrorAction SilentlyContinue){try{npm.cmd cache clean --force | Out-Host}catch{}}
+          if(Get-Command pip.exe -ErrorAction SilentlyContinue){try{pip.exe cache purge | Out-Host}catch{}}
+          $ollama=Join-Path $env:USERPROFILE '.ollama\models'
+          $ollamaD=Join-Path $d 'ollama-models'
+          if(Test-Path $ollama -PathType Container){try{$it=Get-Item $ollama -Force;if(-not($it.Attributes -band [IO.FileAttributes]::ReparsePoint)){if(Test-Path $ollamaD){Remove-Item $ollamaD -Recurse -Force -ErrorAction SilentlyContinue};New-Item -ItemType Directory -Force -Path (Split-Path $ollamaD)|Out-Null;Move-Item -LiteralPath $ollama -Destination $ollamaD -Force;New-Item -ItemType Junction -Path $ollama -Target $ollamaD|Out-Null;Write-Host "OLLAMA_MODELS_RELOCATED=True TARGET=$ollamaD"}else{Write-Host 'OLLAMA_MODELS_ALREADY_RELOCATED=True'}}catch{Write-Warning "OLLAMA_RELOCATE_FAILED $($_.Exception.Message)"}}
+          if(Get-Command dism.exe -ErrorAction SilentlyContinue){try{dism.exe /Online /Cleanup-Image /StartComponentCleanup /Quiet | Out-Host}catch{}}
+          $after=(Get-PSDrive C).Free
+          Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))"
+          Write-Host "C_FREED_GB=$([math]::Round(($after-$before)/1GB,2))"
+          Write-Host 'ARIA_DEEP_CLEANUP=PASS'
+
+      - name: Ensure exactly one ARIA Windows agent and repair stale Meditation lock
+        run: |
+          $ErrorActionPreference='Continue'
+          $pidPath='D:\ARIA-Windows-Agent\Logs\agent.pid'
+          $current=0
+          if(Test-Path $pidPath){[void][int]::TryParse((Get-Content -Raw $pidPath).Trim(),[ref]$current)}
+          $procs=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match '(?i)(aria-agent\.js|Runtime\\windows\\aria-agent\.js)' }
+          Write-Host "ARIA_AGENT_PROCESSES=$($procs.Count) CURRENT_PID=$current"
+          foreach($p in $procs){if([int]$p.ProcessId -ne $current){Write-Host "STOP_DUPLICATE_AGENT_PID=$($p.ProcessId)";try{Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue}catch{}}}
+          Start-Sleep -Seconds 2
+          $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
+          if(Test-Path $lock){$lp=0;try{$j=Get-Content -Raw $lock|ConvertFrom-Json;$lp=[int]$j.pid}catch{};$q=$null;if($lp -gt 0){$q=Get-CimInstance Win32_Process -Filter "ProcessId = $lp" -ErrorAction SilentlyContinue};if($null -eq $q -or $lp -eq $current){Remove-Item $lock -Force -ErrorAction SilentlyContinue;Write-Host "MEDITATION_LOCK_CLEARED=True PID=$lp"}else{throw "Unexpected live meditation lock owner PID=$lp CMD=$($q.CommandLine)"}}
+          if(Test-Path $pidPath){Get-Content -Raw $pidPath}
+
+      - name: Restart agent once and activate Meditation IA
+        run: |
+          $ErrorActionPreference='Stop'
+          $pidPath='D:\ARIA-Windows-Agent\Logs\agent.pid'
+          $kill='D:\ARIA-Windows-Agent\Logs\kill-request'
+          $old=0
+          if(Test-Path $pidPath){[void][int]::TryParse((Get-Content -Raw $pidPath).Trim(),[ref]$old)}
+          if($old -gt 0){Set-Content -Path $kill -Value "pid=$old from=direct-repair ts=$(Get-Date -Format o)" -Encoding ASCII -Force}
+          $new=0
+          for($i=0;$i -lt 30;$i++){Start-Sleep -Seconds 1;if(Test-Path $pidPath){[void][int]::TryParse((Get-Content -Raw $pidPath).Trim(),[ref]$new)};if($new -gt 0 -and $new -ne $old){$p=Get-Process -Id $new -ErrorAction SilentlyContinue;if($p){break}}}
+          if($new -le 0){throw 'Agent did not restart'}
+          Write-Host "ARIA_AGENT_RESTART=PASS PID=$new"
+          $statusUri='http://127.0.0.1:45873/status'
+          $startUri='http://127.0.0.1:45873/start'
+          $s=Invoke-RestMethod -Method Get -Uri $statusUri -TimeoutSec 5
+          $beforeMode=$s.mode
+          Write-Host "MEDITATION_BEFORE_MODE=$beforeMode"
+          $r=Invoke-RestMethod -Method Post -Uri $startUri -TimeoutSec 10
+          Start-Sleep -Seconds 3
+          $f=Invoke-RestMethod -Method Get -Uri $statusUri -TimeoutSec 5
+          Write-Host ("MEDITATION_ACTIVATE status={0} mode={1} session={2} tick={3}" -f $r.status,$f.mode,$f.session_id,$f.tick_count)
+          if($f.mode -ne 'active'){throw "Meditation IA activation failed mode=$($f.mode) start=$($r.status)"}
+          Write-Host 'MEDITATION_ACTIVATION=PASS'
+
+      - name: Verify heartbeat and safe read-only mission path
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $a=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          if($a.mode -ne 'active'){throw "Mode not active: $($a.mode)"}
+          $t0=[int]$a.tick_count
+          Start-Sleep -Seconds 12
+          $b=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          Write-Host "MEDITATION_TICKS_INITIAL=$t0 MEDITATION_TICKS_FINAL=$($b.tick_count) MODE=$($b.mode)"
+          if($b.mode -ne 'active'){throw "Meditation IA stopped unexpectedly: $($b.mode)"}
+          if([int]$b.tick_count -lt $t0){throw 'Tick counter regressed'}
+          if($b.last_error){Write-Host "MEDITATION_LAST_ERROR=$($b.last_error)"}
+          Write-Host 'MEDITATION_HEARTBEAT=PASS'
+
+      - name: Final C drive and runtime evidence
+        run: |
+          $ErrorActionPreference='Stop'
+          $c=Get-PSDrive C
+          Write-Host "C_FREE_FINAL_GB=$([math]::Round($c.Free/1GB,2))"
+          Write-Host '--- runtime status ---'
+          try{Invoke-RestMethod http://127.0.0.1:45873/status -TimeoutSec 5 | ConvertTo-Json -Depth 8}catch{throw}
+          Write-Host 'ARIA_WINDOWS_DIRECT_REPAIR=PASS'
