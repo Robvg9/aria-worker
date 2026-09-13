@@ -1,0 +1,57 @@
+name: ARIA Meditation Controller Repair v2
+
+on:
+  push:
+    branches: ['aria/meditation-ia-v1-main']
+    paths:
+      - '.github/workflows/aria-meditation-lock-repair-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect and repair standalone Meditation controller
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $listener=Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop | Select-Object -First 1
+          $pid=[int]$listener.OwningProcess
+          $proc=Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+          $cmd=[string]$proc.CommandLine
+          Write-Host "LISTENER_PID=$pid"
+          Write-Host "LISTENER_COMMAND=$cmd"
+          $s=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host ("BEFORE mode={0} session={1} tick={2}" -f $s.mode,$s.session_id,$s.tick_count)
+          if($cmd -notmatch '(?i)aria-meditation-controller\.js'){throw "Unexpected listener process: $cmd"}
+          if($s.mode -eq 'active'){Write-Host 'MEDITATION_ALREADY_ACTIVE=True';exit 0}
+          Stop-Process -Id $pid -Force -ErrorAction Stop
+          Start-Sleep -Seconds 2
+          $scripts=@('D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\Runtime\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\start-meditation-ia.ps1')|Where-Object{Test-Path $_}
+          if($scripts.Count -eq 0){throw 'Meditation launcher missing'}
+          $script=$scripts[0]
+          Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$script -WorkingDirectory (Split-Path $script) -WindowStyle Hidden
+          $ready=$false
+          for($i=0;$i-lt20;$i++){Start-Sleep 1;try{$c=Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop;if($c){$ready=$true;break}}catch{}}
+          if(-not $ready){throw 'Meditation controller did not return'}
+          $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:45873/start' -TimeoutSec 10
+          Start-Sleep 3
+          $f=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host ("START status={0} mode={1} session={2} tick={3}" -f $r.status,$f.mode,$f.session_id,$f.tick_count)
+          if($f.mode -ne 'active'){throw "Meditation failed to activate: $($f.mode)"}
+          Write-Host 'MEDITATION_ACTIVATION=PASS'
+      - name: Verify heartbeat
+        run: |
+          $ErrorActionPreference='Stop';$u='http://127.0.0.1:45873/status';$a=Invoke-RestMethod $u -TimeoutSec 5;$t=[int]$a.tick_count;Start-Sleep 35;$b=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host "TICKS_INITIAL=$t TICKS_FINAL=$($b.tick_count) MODE=$($b.mode)"
+          if($b.mode -ne 'active'){throw "Meditation stopped: $($b.mode)"};if([int]$b.tick_count -le $t){throw 'Heartbeat did not advance'}
+          Write-Host 'MEDITATION_HEARTBEAT=PASS'
