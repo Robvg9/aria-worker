@@ -1,5 +1,6 @@
 name: ARIA Windows Direct Repair
 
+# v2 — force execution on the real self-hosted Windows agent
 on:
   push:
     branches: [aria/meditation-ia-v1-main]
