@@ -5,7 +5,6 @@ Add-Type -AssemblyName System.Drawing
 
 $base = "http://127.0.0.1:$Port"
 $heartbeatSeconds = 30
-$lastTickAt = $null
 
 function Invoke-Aria([string]$path) {
     try {
@@ -13,7 +12,7 @@ function Invoke-Aria([string]$path) {
         Refresh-Ui
         return $result
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("ARIA Agent no responde.`r`n`r`nRuta: $path`r`nError: $($_.Exception.Message)", 'ARIA — Meditación IA', 'OK', 'Warning') | Out-Null
+        [System.Windows.Forms.MessageBox]::Show("ARIA Agent no responde.`r`n`r`nRuta: $path`r`nError: $($_.Exception.Message)", 'ARIA - Meditacion IA', 'OK', 'Warning') | Out-Null
         Refresh-Ui
         return $null
     }
@@ -30,7 +29,7 @@ function Get-ActivityLog {
 }
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'ARIA — Meditación IA'
+$form.Text = 'ARIA - Meditacion IA'
 $form.StartPosition = 'CenterScreen'
 $form.Size = New-Object System.Drawing.Size(720, 560)
 $form.MinimumSize = New-Object System.Drawing.Size(720, 560)
@@ -38,7 +37,7 @@ $form.MaximizeBox = $false
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 10)
 
 $title = New-Object System.Windows.Forms.Label
-$title.Text = 'ARIA — MEDITACIÓN IA'
+$title.Text = 'ARIA - MEDITACION IA'
 $title.Font = New-Object System.Drawing.Font('Segoe UI', 20, [System.Drawing.FontStyle]::Bold)
 $title.AutoSize = $true
 $title.Location = New-Object System.Drawing.Point(28, 18)
@@ -87,7 +86,7 @@ $log.Size = New-Object System.Drawing.Size(650, 190)
 $form.Controls.Add($log)
 
 $hint = New-Object System.Windows.Forms.Label
-$hint.Text = 'PAUSAR conserva la sesión. DETENER guarda checkpoint y libera la capa de continuidad.'
+$hint.Text = 'PAUSAR conserva la sesion. DETENER guarda checkpoint y libera la capa de continuidad.'
 $hint.AutoSize = $true
 $hint.ForeColor = [System.Drawing.Color]::DimGray
 $hint.Location = New-Object System.Drawing.Point(30, 415)
@@ -95,7 +94,7 @@ $form.Controls.Add($hint)
 
 $buttons = @(
     @{t='ACTIVAR'; x=30;  p='/start'},
-    @{t='PAUSAR';  x=190; p='/pause'},
+    @{t='PAUSAR'; x=190;  p='/pause'},
     @{t='CONTINUAR'; x=350; p='/resume'},
     @{t='DETENER'; x=530; p='/stop'}
 )
@@ -105,33 +104,41 @@ foreach ($item in $buttons) {
     $button.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
     $button.Size = New-Object System.Drawing.Size(145, 44)
     $button.Location = New-Object System.Drawing.Point($item.x, 450)
-    $route = $item.p
-    $button.Add_Click({ [void](Invoke-Aria $route) })
+    $button.Tag = $item.p
+    $button.Add_Click({ [void](Invoke-Aria ([string]$this.Tag)) })
     $form.Controls.Add($button)
 }
 
 function Refresh-Ui {
     $s = Get-Status
     if ($null -eq $s) {
-        $status.Text = '● OFFLINE — ARIA Local Agent no responde'
+        $status.Text = '[OFFLINE] ARIA Local Agent no responde'
         $status.ForeColor = [System.Drawing.Color]::Firebrick
-        $mode.Text = 'Modo: —`r`nSesión: —'
-        $mission.Text = 'Objetivo: —`r`nMisión: —'
+        $mode.Text = 'Modo: -`r`nSesion: -'
+        $mission.Text = 'Objetivo: -`r`nMision: -'
         $heartbeat.Text = 'Control loopback: 127.0.0.1:' + $Port
         return
     }
 
-    $status.Text = "● ONLINE — Modo: $($s.mode.ToUpperInvariant())"
-    $status.ForeColor = if ($s.mode -eq 'active') { [System.Drawing.Color]::ForestGreen } elseif ($s.mode -eq 'paused') { [System.Drawing.Color]::DarkOrange } else { [System.Drawing.Color]::DimGray }
-    $mode.Text = "Modo: $($s.mode)`r`nSesión: $([string]$s.session_id)"
-    $mission.Text = "Objetivo: $([string]$s.active_goal)`r`nMisión: $([string]$s.active_mission_id)"
+    $status.Text = "[ONLINE] Modo: $($s.mode.ToUpperInvariant())"
+    if ($s.mode -eq 'active') {
+        $status.ForeColor = [System.Drawing.Color]::ForestGreen
+    } elseif ($s.mode -eq 'paused') {
+        $status.ForeColor = [System.Drawing.Color]::DarkOrange
+    } else {
+        $status.ForeColor = [System.Drawing.Color]::DimGray
+    }
+    $mode.Text = "Modo: $($s.mode)`r`nSesion: $([string]$s.session_id)"
+    $mission.Text = "Objetivo: $([string]$s.active_goal)`r`nMision: $([string]$s.active_mission_id)"
     $lastTickAt = $s.last_tick_at
     if ($lastTickAt) {
         try {
             $elapsed = [int](([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($lastTickAt)).TotalSeconds)
             $remaining = [Math]::Max(0, $heartbeatSeconds - $elapsed)
-            $heartbeat.Text = "Tick #$($s.tick_count)  |  Último tick: $elapsed s  |  Próxima revisión estimada: $remaining s"
-        } catch { $heartbeat.Text = "Tick #$($s.tick_count)  |  Último tick: $lastTickAt" }
+            $heartbeat.Text = "Tick #$($s.tick_count)  |  Ultimo tick: $elapsed s  |  Proxima revision estimada: $remaining s"
+        } catch {
+            $heartbeat.Text = "Tick #$($s.tick_count)  |  Ultimo tick: $lastTickAt"
+        }
     } else {
         $heartbeat.Text = "Tick #$($s.tick_count)  |  Heartbeat configurado: $heartbeatSeconds s"
     }
