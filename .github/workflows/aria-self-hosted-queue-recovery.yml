@@ -1,0 +1,47 @@
+name: ARIA Self-Hosted Queue Recovery
+
+on:
+  push:
+    branches: [aria/self-improvement-v1-main]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel stale Windows self-hosted runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          current_sha="$GITHUB_SHA"
+          runs=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$repo/actions/runs?per_page=100")
+
+          echo "$runs" | jq -r '.workflow_runs[] |
+            select(.status == "queued" or .status == "in_progress") |
+            select(.name == "ARIA Windows Runtime Repair" or .name == "ARIA Self-Improvement Agent Upgrade" or .name == "ARIA Windows Final E2E") |
+            [.id, .name, .status, .head_sha] | @tsv' |
+          while IFS=$'\t' read -r run_id name status head_sha; do
+            [ -z "$run_id" ] && continue
+            if [ "$head_sha" = "$current_sha" ]; then
+              echo "KEEP current SHA run=$run_id name=$name status=$status"
+              continue
+            fi
+            echo "CANCEL stale run=$run_id name=$name status=$status sha=$head_sha"
+            curl -fsS -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repo/actions/runs/$run_id/cancel" >/dev/null || true
+          done
+
+          echo 'ARIA_SELF_HOSTED_QUEUE_RECOVERY=PASS'
