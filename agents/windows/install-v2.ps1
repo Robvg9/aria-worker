@@ -82,7 +82,7 @@ $xml = @"
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>ARIA Windows Local Agent v2 + Meditation IA</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>Limited</RunLevel></Principal></Principals>
+  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>Limited</RunLevel></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -90,6 +90,7 @@ $xml = @"
     <AllowHardTerminate>true</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <!-- RestartOnFailure.Count is an unsignedByte in Task Scheduler, so the maximum valid value is 255. -->
     <RestartOnFailure><Interval>PT1M</Interval><Count>255</Count></RestartOnFailure>
   </Settings>
   <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$RuntimeDir\run-agent.ps1&quot;</Arguments><WorkingDirectory>$RuntimeDir</WorkingDirectory></Exec></Actions>
@@ -123,27 +124,3 @@ Write-Host 'ARIA Windows Agent instalado correctamente.'
 Write-Host "Task: $TaskName"
 Write-Host "Device: $DeviceId"
 Write-Host "Runtime: $RuntimeDir"
-Write-Host "Config: $ConfigPath"
-Write-Host "Token store: $TokenPath"
-Write-Host "Public logs: $LogDir\watchdog.log"
-Write-Host "Task user: $taskUser"
-Write-Host 'Token: protegido con DPAPI del usuario Windows.'
-Write-Host 'Inicio automatico: AtLogOn (usuario interactivo)'
-Write-Host 'ExecutionTimeLimit: 0'
-Write-Host 'RestartOnFailure: 255 / 1 minuto'
-Write-Host 'Shell executor: installed'
-Write-Host 'Desktop computer-use: installed'
-Write-Host 'Desktop UI Automation observer: installed'
-Write-Host 'Meditation IA controller: installed'
-Write-Host 'Self-improvement coordinator: bundled in isolated Runtime/autonomy + Runtime/self-development + Runtime/self-model'
-
-if ($env:ARIA_REQUIRE_DESKTOP_SMOKE -eq '1') {
-    $desktopResult = & node (Join-Path $RepoRoot 'computer-use\windows-desktop-adapter.js') '--smoke' 2>&1
-    $desktopSmoke = @{ recorded_at = (Get-Date).ToUniversalTime().ToString('o'); output = [string]($desktopResult -join "`n") }
-    $desktopSmoke | ConvertTo-Json -Depth 10 | Set-Content -Path $DesktopSmokePath -Encoding UTF8
-    if ($LASTEXITCODE -ne 0) { throw "Desktop smoke test failed.`n$($desktopResult -join "`n")" }
-    Write-Host 'DESKTOP_SMOKE=PASS'
-}
-else {
-    Write-Host 'DESKTOP_SMOKE=SKIPPED_BY_CONFIGURATION'
-}
