@@ -9,6 +9,7 @@ $LogDir = Join-Path $RuntimeRoot 'Logs'
 $ConfigPath = Join-Path $DataDir 'config.json'
 $TokenPath = Join-Path $DataDir 'device-token.dpapi'
 $TaskName = 'ARIA-Windows-Local-Agent'
+$PowershellPath = (Get-Command powershell.exe -ErrorAction Stop).Source
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
@@ -74,7 +75,6 @@ $config = [ordered]@{
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-# Reclaim any stale Meditation listener before the fresh controller starts.
 try {
     $listeners = Get-NetTCPConnection -LocalPort 45873 -State Listen -ErrorAction SilentlyContinue
     foreach ($listener in $listeners) {
@@ -85,13 +85,12 @@ try {
     }
 } catch { Write-Warning "Meditation listener cleanup skipped: $($_.Exception.Message)" }
 
-# Register an on-logon task when the account has task-registration rights.
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$action = New-ScheduledTaskAction -Execute $NodePath -Argument ('"' + $RunAgentPath + '"') -WorkingDirectory $RuntimeDir
+$taskRegistered = $false
+$action = New-ScheduledTaskAction -Execute $PowershellPath -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $RunAgentPath + '"') -WorkingDirectory $RuntimeDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 255 -RestartInterval (New-TimeSpan -Minutes 1)
-$taskRegistered = $false
 try {
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
     $taskRegistered = $true
@@ -100,7 +99,6 @@ try {
     Write-Warning "Scheduled Task registration unavailable: $($_.Exception.Message)"
 }
 
-# Always provide a non-admin per-user logon fallback.
 try {
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     New-Item -Path $runKey -Force | Out-Null
@@ -111,7 +109,6 @@ try {
     throw "Unable to configure user autostart fallback: $($_.Exception.Message)"
 }
 
-# Force the running watchdog to reload freshly copied runtime files.
 $watchdogAlive = $false
 if (Test-Path $WatchdogPidPath) {
     try {
@@ -124,7 +121,7 @@ if ($watchdogAlive) {
     Set-Content -Path $KillRequestPath -Value 'installer_reload' -Encoding UTF8 -Force
     Write-Host 'ARIA_AGENT_RELOAD_REQUESTED=PASS'
 } else {
-    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$RunAgentPath) -WorkingDirectory $RuntimeDir -WindowStyle Hidden | Out-Null
+    Start-Process -FilePath $PowershellPath -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$RunAgentPath) -WorkingDirectory $RuntimeDir -WindowStyle Hidden | Out-Null
     Write-Host 'ARIA_AGENT_STARTED_FROM_INSTALLER=PASS'
 }
 
