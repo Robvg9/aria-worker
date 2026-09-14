@@ -24,3 +24,4 @@ jobs:
           node tests/mission-runner-v22-self-improvement-route.test.js
           node tests/windows-self-improvement-runtime.test.js
           node tests/meditation-ia-controller-v1.test.js
+          node tests/dynamic-goal-failure-depth.test.js
