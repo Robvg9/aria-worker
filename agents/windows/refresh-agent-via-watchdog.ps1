@@ -13,6 +13,7 @@ $watchdogScript = Join-Path $runtimeDir 'run-agent.ps1'
 $configPath = Join-Path $dataDir 'config.json'
 $tokenPath = Join-Path $dataDir 'device-token.dpapi'
 $sourceSha = [string]$env:ARIA_EXPECTED_SHA
+$bootstrapTaskName = 'ARIA-Watchdog-User-Bootstrap'
 
 function Read-Status {
     try {
@@ -45,6 +46,53 @@ function Read-WatchdogPid {
     return 0
 }
 
+function Test-CanDecryptToken {
+    if (-not (Test-Path $tokenPath)) { return $false }
+    try {
+        $encrypted = (Get-Content -Raw $tokenPath).Trim()
+        $secure = $encrypted | ConvertTo-SecureString -ErrorAction Stop
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-InteractiveUserId {
+    try {
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        if ($cs.UserName -and $cs.UserName.Trim()) {
+            Write-Host "INTERACTIVE_USER_COMPUTER=$($cs.UserName)"
+            return [string]$cs.UserName
+        }
+    } catch {
+        Write-Host "INTERACTIVE_USER_COMPUTER_FAILED=$($_.Exception.Message)"
+    }
+    try {
+        foreach ($ex in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
+            try {
+                $owner = Invoke-CimMethod -InputObject $ex -MethodName GetOwner
+                if ($owner -and $owner.User) {
+                    $id = if ($owner.Domain) { "$($owner.Domain)\$($owner.User)" } else { [string]$owner.User }
+                    Write-Host "INTERACTIVE_USER_EXPLORER=$id"
+                    return $id
+                }
+            } catch {}
+        }
+    } catch {
+        Write-Host "INTERACTIVE_USER_EXPLORER_FAILED=$($_.Exception.Message)"
+    }
+    try {
+        Write-Host 'INTERACTIVE_QUSER_BEGIN'
+        & quser.exe 2>&1 | ForEach-Object { Write-Host $_ }
+        Write-Host 'INTERACTIVE_QUSER_END'
+    } catch {
+        Write-Host "INTERACTIVE_QUSER_FAILED=$($_.Exception.Message)"
+    }
+    return $null
+}
+
 function Write-KillRequest {
     param([string]$Reason, [string]$Sha)
     $payload = (@{
@@ -61,6 +109,7 @@ function Show-Diagnostics {
     param([string]$Label)
     Write-Host "--- DIAG $Label ---"
     Write-Host "DIAG_USER=$([Environment]::UserName)"
+    Write-Host "DIAG_TOKEN_DECRYPTABLE=$(Test-CanDecryptToken)"
     Write-Host "DIAG_SOURCE_SHA=$sourceSha"
     Write-Host "DIAG_CONFIG_EXISTS=$(Test-Path $configPath)"
     Write-Host "DIAG_TOKEN_EXISTS=$(Test-Path $tokenPath)"
@@ -79,6 +128,10 @@ function Show-Diagnostics {
             Write-Host "DIAG_CONFIG_PARSE_FAILED=$($_.Exception.Message)"
         }
     }
+    try {
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+        Write-Host "DIAG_LOGGED_ON=$($cs.UserName)"
+    } catch {}
     if (Test-Path $tokenPath) {
         try {
             $encrypted = (Get-Content -Raw $tokenPath).Trim()
@@ -104,11 +157,8 @@ function Show-Diagnostics {
         $nodes = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {
             $_.CommandLine -and $_.CommandLine -like '*aria-agent.js*'
         }
-        $count = @($nodes).Count
-        Write-Host "DIAG_ARIA_NODE_COUNT=$count"
-        foreach ($n in @($nodes)) {
-            Write-Host "DIAG_ARIA_NODE pid=$($n.ProcessId)"
-        }
+        Write-Host "DIAG_ARIA_NODE_COUNT=$(@($nodes).Count)"
+        foreach ($n in @($nodes)) { Write-Host "DIAG_ARIA_NODE pid=$($n.ProcessId)" }
     } catch {
         Write-Host "DIAG_ARIA_NODE_SCAN_FAILED=$($_.Exception.Message)"
     }
@@ -116,9 +166,7 @@ function Show-Diagnostics {
         $wps = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
             $_.CommandLine -and $_.CommandLine -like '*run-agent.ps1*'
         }
-        foreach ($w in @($wps)) {
-            Write-Host "DIAG_WATCHDOG_PROCESS pid=$($w.ProcessId)"
-        }
+        foreach ($w in @($wps)) { Write-Host "DIAG_WATCHDOG_PROCESS pid=$($w.ProcessId)" }
     } catch {
         Write-Host "DIAG_WATCHDOG_PROCESS_SCAN_FAILED=$($_.Exception.Message)"
     }
@@ -131,9 +179,71 @@ function Show-Diagnostics {
     Write-Host "--- END DIAG $Label ---"
 }
 
+function Start-WatchdogInInteractiveSession {
+    $userId = Get-InteractiveUserId
+    if ([string]::IsNullOrWhiteSpace($userId)) {
+        throw 'No interactive user session found to start ARIA watchdog'
+    }
+    Write-Host "WATCHDOG_BOOTSTRAP_AS_USER=$userId"
+    $ps = (Get-Command powershell.exe).Source
+    $launcher = Join-Path $logDir 'start-watchdog-once.ps1'
+    $launcherBody = @(
+        "`$ErrorActionPreference = 'Continue'"
+        "Start-Process -FilePath '$ps' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','$watchdogScript') -WorkingDirectory '$runtimeDir' -WindowStyle Hidden | Out-Null"
+    ) -join "`r`n"
+    Set-Content -Path $launcher -Value $launcherBody -Encoding ASCII -Force
+
+    try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+
+    $registered = $false
+    try {
+        $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`"" -WorkingDirectory $runtimeDir
+        $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+        Register-ScheduledTask -TaskName $bootstrapTaskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+        $registered = $true
+        Write-Host 'WATCHDOG_TASK_REGISTERED=PASS'
+        Start-ScheduledTask -TaskName $bootstrapTaskName
+        Write-Host 'WATCHDOG_TASK_STARTED=PASS'
+    } catch {
+        Write-Host "WATCHDOG_TASK_CMDLET_FAILED=$($_.Exception.Message)"
+        $tr = "$ps -NoProfile -ExecutionPolicy Bypass -File `"$launcher`""
+        $create = & schtasks.exe /Create /TN $bootstrapTaskName /TR $tr /SC ONCE /ST 23:59 /RU $userId /IT /F 2>&1
+        Write-Host "WATCHDOG_SCHTASKS_CREATE=$create"
+        $run = & schtasks.exe /Run /TN $bootstrapTaskName 2>&1
+        Write-Host "WATCHDOG_SCHTASKS_RUN=$run"
+        $registered = $true
+    }
+
+    $wp = 0
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Seconds 2
+        $wp = Read-WatchdogPid
+        if ($wp -gt 0 -and (Test-ProcessExists -ProcessId $wp)) {
+            Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp via=interactive_user"
+            break
+        }
+        try {
+            $info = Get-ScheduledTaskInfo -TaskName $bootstrapTaskName -ErrorAction SilentlyContinue
+            if ($info) { Write-Host "WATCHDOG_TASK_RESULT t=$($i * 2)s last=$($info.LastTaskResult)" }
+        } catch {}
+    }
+    if ($registered) {
+        try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+        try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
+    }
+    if ($wp -le 0) { Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp via=interactive_user_timeout" }
+    return $wp
+}
+
 function Start-WatchdogOwner {
     Write-Host 'WATCHDOG_BOOTSTRAP=START'
     if (-not (Test-Path $watchdogScript)) { throw "Watchdog script missing: $watchdogScript" }
+    $canDecrypt = Test-CanDecryptToken
+    Write-Host "WATCHDOG_TOKEN_DECRYPTABLE=$canDecrypt USER=$([Environment]::UserName)"
+    if (-not $canDecrypt) {
+        return Start-WatchdogInInteractiveSession
+    }
     Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
@@ -142,7 +252,7 @@ function Start-WatchdogOwner {
     ) -WorkingDirectory $runtimeDir -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 5
     $wp = Read-WatchdogPid
-    Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp"
+    Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp via=current_user"
     return $wp
 }
 
@@ -198,8 +308,18 @@ Show-Diagnostics -Label 'BEFORE'
 $s = Read-Status
 $before = if ($s) { [string]$s.agent_pid } else { '' }
 $watchdogPid = Read-WatchdogPid
-if ($watchdogPid -le 0 -or -not (Test-ProcessExists -ProcessId $watchdogPid)) {
+$ownerAlive = ($watchdogPid -gt 0 -and (Test-ProcessExists -ProcessId $watchdogPid))
+$canDecrypt = Test-CanDecryptToken
+$ownerError = ''
+if ($s) { $ownerError = [string]$s.last_error + [string]$s.error + [string]$s.state }
+$ownerTokenBroken = ($ownerError -match 'Clave no válida|Key not valid|estado especificado|watchdog_error|watchdog_exiting')
+
+if (-not $ownerAlive) {
     Write-Host 'WATCHDOG_OWNER=absent'
+    $watchdogPid = Start-WatchdogOwner
+} elseif (-not $canDecrypt -and $ownerTokenBroken) {
+    Write-Host "WATCHDOG_OWNER=broken_system_session pid=$watchdogPid replacing_with_interactive_user"
+    Stop-WatchdogOwner -WatchdogProcessId $watchdogPid
     $watchdogPid = Start-WatchdogOwner
 } else {
     Write-Host "WATCHDOG_ALREADY_RUNNING_PID=$watchdogPid"
