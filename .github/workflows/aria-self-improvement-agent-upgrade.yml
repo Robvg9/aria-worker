@@ -24,6 +24,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
+
 concurrency:
   group: aria-windows-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -36,8 +39,26 @@ jobs:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
-      - name: Checkout ARIA runtime
-        uses: actions/checkout@v4
+      - name: Checkout ARIA runtime without actions/checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number || '' }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference='Stop'
+          git config --global --add safe.directory "$PWD" 2>$null
+          git reset --hard HEAD
+          git clean -ffdx
+          if($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            $fetchRef = "refs/pull/$($env:GITHUB_EVENT_NUMBER)/merge"
+          } else {
+            $fetchRef = "refs/heads/$($env:GITHUB_REF_NAME)"
+          }
+          Write-Host "FETCH_REF=$fetchRef"
+          git -c "http.extraheader=AUTHORIZATION: bearer $env:GITHUB_TOKEN" fetch --no-tags --prune --depth=1 origin "+$fetchRef:refs/remotes/aria-target"
+          git checkout --force refs/remotes/aria-target
+          Write-Host "CHECKED_OUT_COMMIT=$(git rev-parse HEAD)"
 
       - name: Install ARIA Windows Agent v2
         env:
@@ -103,7 +124,7 @@ jobs:
           $ErrorActionPreference='Stop'
           Start-Sleep -Seconds 8
           $config=Get-Content -Raw 'D:\ARIA-Windows-Agent\Data\config.json'|ConvertFrom-Json
-          if($config.device_id -ne 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'){throw 'Unexpected device_id'}
+          if($config.device_id -ne $env:ARIA_TARGET_DEVICE_ID){throw 'Unexpected device_id'}
           if(-not ($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
           Write-Host 'HEARTBEAT_SELF_IMPROVEMENT_CONFIG=PASS'
 
