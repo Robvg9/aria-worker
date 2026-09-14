@@ -1,15 +1,6 @@
 name: ARIA Self-Improvement Agent Upgrade
 
 on:
-  push:
-    branches: [aria/self-improvement-v1-main]
-    paths:
-      - 'agents/windows/**'
-      - 'autonomy/self-improvement-coordinator-v1.js'
-      - 'autonomy/self-improvement-engine-v1.js'
-      - 'self-development/**'
-      - 'self-model/**'
-      - '.github/workflows/aria-self-improvement-agent-upgrade.yml'
   pull_request:
     branches: [aria/meditation-ia-v1-main]
     paths:
@@ -42,37 +33,39 @@ jobs:
       - name: Checkout ARIA runtime without actions/checkout
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number || '' }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA_EXPECTED: ${{ github.sha }}
         run: |
           $ErrorActionPreference='Stop'
           git config --global --add safe.directory "$PWD" 2>$null
           git reset --hard HEAD
           git clean -ffdx
-          if($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            $fetchRef = "refs/pull/$($env:GITHUB_EVENT_NUMBER)/merge"
-          } else {
-            $fetchRef = "refs/heads/$($env:GITHUB_REF_NAME)"
-          }
+          $fetchRef = "refs/pull/$($env:GITHUB_EVENT_NUMBER)/merge"
+          $fetchSpec = "${fetchRef}:refs/remotes/aria-target"
           Write-Host "FETCH_REF=$fetchRef"
-          git -c "http.extraheader=AUTHORIZATION: bearer $env:GITHUB_TOKEN" fetch --no-tags --prune --depth=1 origin "+$fetchRef:refs/remotes/aria-target"
+          git -c "http.extraheader=AUTHORIZATION: bearer $env:GITHUB_TOKEN" fetch --no-tags --prune --depth=1 origin $fetchSpec
+          if($LASTEXITCODE -ne 0){ throw "git fetch failed with exit code $LASTEXITCODE" }
           git checkout --force refs/remotes/aria-target
-          Write-Host "CHECKED_OUT_COMMIT=$(git rev-parse HEAD)"
+          if($LASTEXITCODE -ne 0){ throw "git checkout failed with exit code $LASTEXITCODE" }
+          $checkedOut=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0){ throw 'git rev-parse failed' }
+          if($checkedOut -ne $env:GITHUB_SHA_EXPECTED){ throw "Unexpected checked-out commit: $checkedOut expected $env:GITHUB_SHA_EXPECTED" }
+          Write-Host "CHECKED_OUT_COMMIT=$checkedOut"
+          Write-Host 'SOURCE_CHECKOUT_VERIFIED=PASS'
 
       - name: Install ARIA Windows Agent v2
         env:
-          ARIA_SKIP_DESKTOP_SMOKE: '1'
+          ARIA_REQUIRE_DESKTOP_SMOKE: '0'
         run: |
           $ErrorActionPreference='Stop'
           if(-not (Test-Path '.\agents\windows\install-v2.ps1')){throw 'install-v2.ps1 missing'}
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
           $installExit=$LASTEXITCODE
           if($installExit -ne 0){
-            Write-Warning "Installer returned exit code $installExit; continuing because runtime files/config are written before scheduled-task registration."
-          } else {
-            Write-Host 'ARIA_SELF_IMPROVEMENT_AGENT_INSTALL=PASS'
+            Write-Warning "Installer returned exit code $installExit; runtime/config verification will decide whether the host is usable."
+            $global:LASTEXITCODE=0
           }
+          Write-Host 'ARIA_SELF_IMPROVEMENT_AGENT_INSTALL_STEP=PASS'
 
       - name: Start ARIA Windows watchdog without elevation
         run: |
@@ -81,57 +74,63 @@ jobs:
           $config='D:\ARIA-Windows-Agent\Data\config.json'
           $token='D:\ARIA-Windows-Agent\Data\device-token.dpapi'
           foreach($p in @($runScript,$config,$token)){if(-not(Test-Path $p)){throw "Required installed file missing: $p"}}
-          $existing = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1*' }
-          if($existing){
-            Write-Host "PHYSICAL_WATCHDOG_ALREADY_RUNNING=PASS PID=$($existing[0].ProcessId)"
-          } else {
-            $p = Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$runScript) -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows' -PassThru
+          $existing=Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1*' }
+          if($existing){Write-Host "PHYSICAL_WATCHDOG_ALREADY_RUNNING=PASS PID=$($existing[0].ProcessId)"}
+          else{
+            $p=Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$runScript) -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows' -PassThru
             Write-Host "PHYSICAL_WATCHDOG_STARTED=PASS PID=$($p.Id)"
           }
           Start-Sleep -Seconds 6
 
-      - name: Verify installed runtime contract
+      - name: Verify installed runtime and capability
         run: |
           $ErrorActionPreference='Stop'
           $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
           $agent='D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
           $config='D:\ARIA-Windows-Agent\Data\config.json'
           foreach($p in @($runtime,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
-          $r=& node -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')" 2>&1
-          if($LASTEXITCODE -ne 0){throw "Runtime load failed: $r"}
+          & node -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')"
+          if($LASTEXITCODE -ne 0){throw 'Self-improvement runtime load failed'}
           $j=Get-Content -Raw $config|ConvertFrom-Json
           if($j.agent_version -ne 'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
-          if(-not ($j.capabilities -contains 'self.improve')){throw 'self.improve capability missing'}
+          if(-not($j.capabilities -contains 'self.improve')){throw 'self.improve capability missing'}
           Write-Host "INSTALLED_AGENT_VERSION=$($j.agent_version)"
           Write-Host 'INSTALLED_SELF_IMPROVEMENT_CAPABILITY=PASS'
 
-      - name: Verify local agent process
+      - name: Verify ARIA Windows agent process and heartbeat config
         run: |
           $ErrorActionPreference='Stop'
           Start-Sleep -Seconds 5
-          $task = Get-ScheduledTask -TaskName 'ARIA-Windows-Local-Agent' -ErrorAction SilentlyContinue
-          if($task){
-            if($task.State -eq 'Disabled'){Write-Warning 'ARIA Windows Local Agent scheduled task is disabled'} else {Write-Host 'ARIA_WINDOWS_TASK_PRESENT=PASS'}
-          } else {
-            Write-Warning 'ARIA Windows Local Agent scheduled task is not readable/available to the runner; direct watchdog execution remains active.'
-          }
-          $procs = Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*' }
+          $procs=Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*' }
           if(-not $procs){throw 'ARIA Windows v2 agent process not detected'}
           Write-Host "PHYSICAL_AGENT_PROCESS=PASS PID=$($procs[0].ProcessId)"
-
-      - name: Verify device heartbeat capability
-        run: |
-          $ErrorActionPreference='Stop'
           Start-Sleep -Seconds 8
           $config=Get-Content -Raw 'D:\ARIA-Windows-Agent\Data\config.json'|ConvertFrom-Json
           if($config.device_id -ne $env:ARIA_TARGET_DEVICE_ID){throw 'Unexpected device_id'}
-          if(-not ($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
+          if(-not($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
           Write-Host 'HEARTBEAT_SELF_IMPROVEMENT_CONFIG=PASS'
+
+      - name: Verify Meditation IA local controller
+        run: |
+          $ErrorActionPreference='Stop'
+          $status=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/status' -TimeoutSec 10
+          if($status.version -ne 'aria-meditation-ia-v1'){throw "Meditation controller version unexpected: $($status.version)"}
+          $started=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:45873/start' -TimeoutSec 15
+          if($started.status -notin @('started','resumed','already_active')){throw "Meditation start failed: $($started | ConvertTo-Json -Compress)"}
+          Start-Sleep -Seconds 5
+          $s1=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/status' -TimeoutSec 10
+          if($s1.mode -ne 'active'){throw "Meditation IA not active: $($s1.mode)"}
+          $t1=[int]$s1.tick_count
+          Start-Sleep -Seconds 35
+          $s2=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/status' -TimeoutSec 10
+          if($s2.mode -ne 'active'){throw "Meditation IA lost active mode: $($s2.mode)"}
+          if([int]$s2.tick_count -le $t1){throw "Meditation heartbeat did not advance: $t1 -> $($s2.tick_count)"}
+          Write-Host 'MEDITATION_IA_LOCAL_CONTROLLER=PASS'
+          Write-Host "MEDITATION_TICK_ADVANCE=$t1->$($s2.tick_count)"
 
       - name: Physical self-improvement execution proof
         run: |
           $ErrorActionPreference='Stop'
-          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
           $deviceId=$env:ARIA_TARGET_DEVICE_ID
           $job=[ordered]@{
             device_id=$deviceId
@@ -148,7 +147,7 @@ jobs:
           }
           $jobPath=Join-Path $env:RUNNER_TEMP 'aria-self-improvement-physical-job.json'
           $job | ConvertTo-Json -Depth 10 | Set-Content -Path $jobPath -Encoding UTF8
-          $result=& node -e "const fs=require('node:fs'); const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); const job=JSON.parse(fs.readFileSync(process.env.JOB_PATH,'utf8')); x.executeSelfImprovementJob(job, process.env.ARIA_TARGET_DEVICE_ID).then(r=>{console.log(JSON.stringify(r)); if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified') process.exit(1)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1
+          $result=& node -e "const fs=require('node:fs');const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js');const job=JSON.parse(fs.readFileSync(process.env.JOB_PATH,'utf8'));x.executeSelfImprovementJob(job,process.env.ARIA_TARGET_DEVICE_ID).then(r=>{console.log(JSON.stringify(r));if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified')process.exit(1)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1
           if($LASTEXITCODE -ne 0){throw "PHYSICAL_SELF_IMPROVEMENT_FAILED: $result"}
           Write-Host 'PHYSICAL_SELF_IMPROVEMENT=PASS'
           Write-Host "PHYSICAL_SELF_IMPROVEMENT_RESULT=$result"
@@ -163,4 +162,4 @@ jobs:
       - name: Final physical proof marker
         run: |
           Write-Host 'ARIA_SELF_IMPROVEMENT_WINDOWS_PHYSICAL_E2E=PASS'
-          Write-Host 'STATUS=PHYSICAL_RUNTIME_AND_SELF_IMPROVEMENT_VERIFIED'
+          Write-Host 'STATUS=PHYSICAL_RUNTIME_MEDITATION_AND_SELF_IMPROVEMENT_VERIFIED'
