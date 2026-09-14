@@ -80,10 +80,17 @@ try {
     foreach ($listener in $listeners) {
         $listenerPid = [int]$listener.OwningProcess
         if ($listenerPid -gt 0 -and $listenerPid -ne $PID) {
-            try { Stop-Process -Id $listenerPid -Force -ErrorAction Stop; Write-Host "MEDITATION_STALE_PROCESS_STOPPED=PASS pid=$listenerPid" } catch { Write-Warning "Could not stop stale Meditation process pid=$listenerPid: $($_.Exception.Message)" }
+            try {
+                Stop-Process -Id $listenerPid -Force -ErrorAction Stop
+                Write-Host ("MEDITATION_STALE_PROCESS_STOPPED=PASS pid={0}" -f $listenerPid)
+            } catch {
+                Write-Warning ("Could not stop stale Meditation process pid={0}: {1}" -f $listenerPid, $_.Exception.Message)
+            }
         }
     }
-} catch { Write-Warning "Meditation listener cleanup skipped: $($_.Exception.Message)" }
+} catch {
+    Write-Warning ("Meditation listener cleanup skipped: {0}" -f $_.Exception.Message)
+}
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $taskRegistered = $false
@@ -96,7 +103,7 @@ try {
     $taskRegistered = $true
     Write-Host "ARIA_TASK_REGISTRATION=PASS identity=$identity"
 } catch {
-    Write-Warning "Scheduled Task registration unavailable: $($_.Exception.Message)"
+    Write-Warning ("Scheduled Task registration unavailable: {0}" -f $_.Exception.Message)
 }
 
 try {
@@ -106,7 +113,7 @@ try {
     Set-ItemProperty -Path $runKey -Name 'ARIA-Windows-Local-Agent' -Value $runCommand
     Write-Host 'ARIA_USER_AUTOSTART_FALLBACK=PASS'
 } catch {
-    throw "Unable to configure user autostart fallback: $($_.Exception.Message)"
+    throw ("Unable to configure user autostart fallback: {0}" -f $_.Exception.Message)
 }
 
 $watchdogAlive = $false
