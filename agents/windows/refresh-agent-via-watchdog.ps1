@@ -13,7 +13,290 @@ $watchdogScript = Join-Path $runtimeDir 'run-agent.ps1'
 $configPath = Join-Path $dataDir 'config.json'
 $tokenPath = Join-Path $dataDir 'device-token.dpapi'
 $sourceSha = [string]$env:ARIA_EXPECTED_SHA
-$bootstrapTaskName = 'ARIA-Watchdog-User-Bootstrap'
+$probeResultPath = Join-Path $logDir 'cpau-probe-result.json'
+
+# --- P/Invoke: WTS + CreateProcessAsUser ---
+$cpauType = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class CPAU {
+    public const int WTS_CURRENT_SERVER_HANDLE = 0;
+    public const int WTSActive = 0;
+    public const uint TOKEN_ALL_ACCESS = 0x000F01FF;
+    public const uint TOKEN_DUPLICATE = 0x0002;
+    public const uint TOKEN_QUERY = 0x0008;
+    public const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+    public const uint SecurityImpersonation = 2;
+    public const uint TokenPrimary = 1;
+    public const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+    public const uint CREATE_NO_WINDOW = 0x08000000;
+    public const uint NORMAL_PRIORITY_CLASS = 0x00000020;
+    public const int MAX_PATH = 260;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WTS_SESSION_INFO {
+        public int SessionId;
+        public IntPtr pWinStationName;
+        public int State;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct STARTUPINFO {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_INFORMATION {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SECURITY_ATTRIBUTES {
+        public int nLength;
+        public IntPtr lpSecurityDescriptor;
+        public int bInheritHandle;
+    }
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    public static extern bool WTSEnumerateSessions(IntPtr hServer, int Reserved, int Version, out IntPtr ppSessionInfo, out int pCount);
+
+    [DllImport("wtsapi32.dll")]
+    public static extern void WTSFreeMemory(IntPtr pMemory);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    public static extern bool WTSQueryUserToken(int SessionId, out IntPtr phToken);
+
+    [DllImport("wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool WTSQuerySessionInformation(IntPtr hServer, int SessionId, int WTSInfoClass, out IntPtr ppBuffer, out int pBytesReturned);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool DuplicateTokenEx(IntPtr hExistingToken, uint dwDesiredAccess, IntPtr lpTokenAttributes, uint ImpersonationLevel, uint TokenType, out IntPtr phNewToken);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CreateProcessAsUser(IntPtr hToken, string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("userenv.dll", SetLastError = true)]
+    public static extern bool CreateEnvironmentBlock(out IntPtr lpEnvironment, IntPtr hToken, bool bInherit);
+
+    [DllImport("userenv.dll", SetLastError = true)]
+    public static extern bool DestroyEnvironmentBlock(IntPtr lpEnvironment);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetLastError();
+
+    public const int WTSUserName = 5;
+}
+'@
+
+if (-not ([System.Management.Automation.PSTypeName]'CPAU').Type) {
+    Add-Type -TypeDefinition $cpauType -ErrorAction Stop
+}
+
+function Get-ActiveInteractiveSessionId {
+    $ppSessionInfo = [IntPtr]::Zero
+    $count = 0
+    $ok = [CPAU]::WTSEnumerateSessions([IntPtr]::Zero, 0, 1, [ref]$ppSessionInfo, [ref]$count)
+    if (-not $ok) {
+        $err = [CPAU]::GetLastError()
+        Write-Host ("WTSEnumerateSessions_FAIL err=" + $err)
+        return -1
+    }
+    try {
+        $structSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type][CPAU+WTS_SESSION_INFO])
+        for ($i = 0; $i -lt $count; $i++) {
+            $ptr = [IntPtr]::Add($ppSessionInfo, $i * $structSize)
+            $info = [System.Runtime.InteropServices.Marshal]::PtrToStructure($ptr, [type][CPAU+WTS_SESSION_INFO])
+            if ($info.State -eq [CPAU]::WTSActive -and $info.SessionId -gt 0) {
+                # verify username matches interactive user if possible
+                $buf = [IntPtr]::Zero
+                $bytes = 0
+                $nameOk = [CPAU]::WTSQuerySessionInformation([IntPtr]::Zero, $info.SessionId, [CPAU]::WTSUserName, [ref]$buf, [ref]$bytes)
+                $userName = ''
+                if ($nameOk -and $buf -ne [IntPtr]::Zero) {
+                    $userName = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($buf)
+                    [CPAU]::WTSFreeMemory($buf)
+                }
+                Write-Host ("WTS_SESSION id=" + $info.SessionId + " state=Active user=" + $userName)
+                if ($userName -and ($userName -ieq 'robvg' -or $userName -match 'robvg')) {
+                    return $info.SessionId
+                }
+                # fallback: first active non-zero session
+                if ($userName) { return $info.SessionId }
+            }
+        }
+        # last resort: any active >0
+        for ($i = 0; $i -lt $count; $i++) {
+            $ptr = [IntPtr]::Add($ppSessionInfo, $i * $structSize)
+            $info = [System.Runtime.InteropServices.Marshal]::PtrToStructure($ptr, [type][CPAU+WTS_SESSION_INFO])
+            if ($info.State -eq [CPAU]::WTSActive -and $info.SessionId -gt 0) {
+                Write-Host ("WTS_SESSION_FALLBACK id=" + $info.SessionId)
+                return $info.SessionId
+            }
+        }
+    } finally {
+        if ($ppSessionInfo -ne [IntPtr]::Zero) { [CPAU]::WTSFreeMemory($ppSessionInfo) }
+    }
+    Write-Host 'WTS_NO_ACTIVE_SESSION'
+    return -1
+}
+
+function Invoke-CreateProcessAsUser {
+    param(
+        [string]$CommandLine,
+        [string]$WorkingDirectory,
+        [string]$Label
+    )
+    $sessionId = Get-ActiveInteractiveSessionId
+    if ($sessionId -le 0) {
+        Write-Host ("CPAU_" + $Label + "_NO_SESSION")
+        return @{ Ok = $false; Pid = 0; Error = 'no_active_session' }
+    }
+    Write-Host ("CPAU_" + $Label + "_SESSION=" + $sessionId)
+
+    $userToken = [IntPtr]::Zero
+    $primaryToken = [IntPtr]::Zero
+    $envBlock = [IntPtr]::Zero
+    $hProcess = [IntPtr]::Zero
+    $hThread = [IntPtr]::Zero
+
+    try {
+        $ok = [CPAU]::WTSQueryUserToken($sessionId, [ref]$userToken)
+        if (-not $ok) {
+            $err = [CPAU]::GetLastError()
+            Write-Host ("WTSQueryUserToken_FAIL session=" + $sessionId + " err=" + $err)
+            return @{ Ok = $false; Pid = 0; Error = ("WTSQueryUserToken_" + $err) }
+        }
+        Write-Host ("WTSQueryUserToken_PASS session=" + $sessionId)
+
+        $ok = [CPAU]::DuplicateTokenEx($userToken, [CPAU]::TOKEN_ALL_ACCESS, [IntPtr]::Zero, [CPAU]::SecurityImpersonation, [CPAU]::TokenPrimary, [ref]$primaryToken)
+        if (-not $ok) {
+            $err = [CPAU]::GetLastError()
+            Write-Host ("DuplicateTokenEx_FAIL err=" + $err)
+            return @{ Ok = $false; Pid = 0; Error = ("DuplicateTokenEx_" + $err) }
+        }
+        Write-Host 'DuplicateTokenEx_PASS'
+
+        $ok = [CPAU]::CreateEnvironmentBlock([ref]$envBlock, $primaryToken, $false)
+        if (-not $ok) {
+            $err = [CPAU]::GetLastError()
+            Write-Host ("CreateEnvironmentBlock_FAIL err=" + $err + " continuing without env block")
+            $envBlock = [IntPtr]::Zero
+        } else {
+            Write-Host 'CreateEnvironmentBlock_PASS'
+        }
+
+        $si = New-Object CPAU+STARTUPINFO
+        $si.cb = [System.Runtime.InteropServices.Marshal]::SizeOf($si)
+        $si.lpDesktop = 'winsta0\default'
+        $pi = New-Object CPAU+PROCESS_INFORMATION
+
+        $flags = [CPAU]::CREATE_UNICODE_ENVIRONMENT -bor [CPAU]::CREATE_NO_WINDOW -bor [CPAU]::NORMAL_PRIORITY_CLASS
+        $ok = [CPAU]::CreateProcessAsUser(
+            $primaryToken,
+            $null,
+            $CommandLine,
+            [IntPtr]::Zero,
+            [IntPtr]::Zero,
+            $false,
+            $flags,
+            $envBlock,
+            $WorkingDirectory,
+            [ref]$si,
+            [ref]$pi
+        )
+        if (-not $ok) {
+            $err = [CPAU]::GetLastError()
+            Write-Host ("CreateProcessAsUser_FAIL err=" + $err + " cmd=" + $CommandLine)
+            return @{ Ok = $false; Pid = 0; Error = ("CreateProcessAsUser_" + $err) }
+        }
+
+        $childPid = $pi.dwProcessId
+        Write-Host ("CreateProcessAsUser_PASS pid=" + $childPid + " label=" + $Label)
+        $hProcess = $pi.hProcess
+        $hThread = $pi.hThread
+        return @{ Ok = $true; Pid = $childPid; Error = '' }
+    } finally {
+        if ($userToken -ne [IntPtr]::Zero) { [CPAU]::CloseHandle($userToken) | Out-Null }
+        if ($primaryToken -ne [IntPtr]::Zero) { [CPAU]::CloseHandle($primaryToken) | Out-Null }
+        if ($envBlock -ne [IntPtr]::Zero) { [CPAU]::DestroyEnvironmentBlock($envBlock) | Out-Null }
+        if ($hThread -ne [IntPtr]::Zero) { [CPAU]::CloseHandle($hThread) | Out-Null }
+        if ($hProcess -ne [IntPtr]::Zero) { [CPAU]::CloseHandle($hProcess) | Out-Null }
+    }
+}
+
+function Test-InteractiveUserProbe {
+    # Launch a short-lived process under the interactive user that proves identity + DPAPI
+    if (Test-Path $probeResultPath) { Remove-Item $probeResultPath -Force -ErrorAction SilentlyContinue }
+
+    $ps = (Get-Command powershell.exe).Source
+    $probeScript = Join-Path $logDir 'cpau-probe.ps1'
+    $probeBody = @(
+        '$ErrorActionPreference = ''Continue'''
+        '$out = @{ username = $env:USERNAME; userdomain = $env:USERDOMAIN; session = [System.Diagnostics.Process]::GetCurrentProcess().SessionId; pid = $PID }'
+        'try {'
+        '  $tp = ''D:\ARIA-Windows-Agent\Data\device-token.dpapi'''
+        '  if (Test-Path $tp) {'
+        '    $enc = (Get-Content -Raw $tp).Trim()'
+        '    $sec = $enc | ConvertTo-SecureString -ErrorAction Stop'
+        '    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)'
+        '    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)'
+        '    $out.dpapi = ''PASS'''
+        '  } else { $out.dpapi = ''MISSING'' }'
+        '} catch { $out.dpapi = (''FAIL:'' + $_.Exception.Message) }'
+        'try {'
+        '  $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()'
+        '  $out.sid = $id.User.Value'
+        '  $out.name = $id.Name'
+        '} catch { $out.sid = ''ERR'' }'
+        '$json = ($out | ConvertTo-Json -Compress)'
+        '[System.IO.File]::WriteAllText(''D:\ARIA-Windows-Agent\Logs\cpau-probe-result.json'', $json)'
+    ) -join "`r`n"
+    Set-Content -Path $probeScript -Value $probeBody -Encoding ASCII -Force
+
+    $cmd = ('"{0}" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{1}"' -f $ps, $probeScript)
+    $r = Invoke-CreateProcessAsUser -CommandLine $cmd -WorkingDirectory $logDir -Label 'PROBE'
+    if (-not $r.Ok) {
+        Write-Host ("PROBE_LAUNCH_FAIL error=" + $r.Error)
+        return $false
+    }
+    Write-Host ("PROBE_LAUNCHED pid=" + $r.Pid)
+
+    # wait for result file
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Seconds 1
+        if (Test-Path $probeResultPath) {
+            try {
+                $raw = Get-Content -Raw $probeResultPath
+                Write-Host ("PROBE_RESULT=" + $raw)
+                $j = $raw | ConvertFrom-Json
+                if ($j.dpapi -eq 'PASS' -and $j.username -and ($j.username -ieq 'robvg' -or $j.name -match 'robvg')) {
+                    Write-Host 'PROBE_DPAPI_AND_IDENTITY=PASS'
+                    return $true
+                }
+                Write-Host ("PROBE_IDENTITY_OR_DPAPI_FAIL user=" + $j.username + " dpapi=" + $j.dpapi)
+                return $false
+            } catch {
+                Write-Host ("PROBE_RESULT_PARSE_FAIL=" + $_.Exception.Message)
+            }
+        }
+    }
+    Write-Host 'PROBE_TIMEOUT no result file'
+    return $false
+}
 
 function Read-Status {
     try {
@@ -57,40 +340,6 @@ function Test-CanDecryptToken {
     } catch {
         return $false
     }
-}
-
-function Get-InteractiveUserId {
-    try {
-        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
-        if ($cs.UserName -and $cs.UserName.Trim()) {
-            Write-Host ("INTERACTIVE_USER_COMPUTER=" + $cs.UserName)
-            return [string]$cs.UserName
-        }
-    } catch {
-        Write-Host ("INTERACTIVE_USER_COMPUTER_FAILED=" + $_.Exception.Message)
-    }
-    try {
-        foreach ($ex in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
-            try {
-                $owner = Invoke-CimMethod -InputObject $ex -MethodName GetOwner
-                if ($owner -and $owner.User) {
-                    $id = if ($owner.Domain) { ($owner.Domain + '\' + $owner.User) } else { [string]$owner.User }
-                    Write-Host ("INTERACTIVE_USER_EXPLORER=" + $id)
-                    return $id
-                }
-            } catch {}
-        }
-    } catch {
-        Write-Host ("INTERACTIVE_USER_EXPLORER_FAILED=" + $_.Exception.Message)
-    }
-    try {
-        Write-Host 'INTERACTIVE_QUSER_BEGIN'
-        & quser.exe 2>&1 | ForEach-Object { Write-Host $_ }
-        Write-Host 'INTERACTIVE_QUSER_END'
-    } catch {
-        Write-Host ("INTERACTIVE_QUSER_FAILED=" + $_.Exception.Message)
-    }
-    return $null
 }
 
 function Write-KillRequest {
@@ -180,78 +429,44 @@ function Show-Diagnostics {
 }
 
 function Start-WatchdogInInteractiveSession {
-    $userId = Get-InteractiveUserId
-    if ([string]::IsNullOrWhiteSpace($userId)) {
-        throw 'No interactive user session found to start ARIA watchdog'
-    }
-    Write-Host ("WATCHDOG_BOOTSTRAP_AS_USER=" + $userId)
-    $ps = (Get-Command powershell.exe).Source
-    $launcher = Join-Path $logDir 'start-watchdog-once.ps1'
-    $launcherBody = @(
-        '$ErrorActionPreference = ''Continue'''
-        ("Start-Process -FilePath '{0}' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','{1}') -WorkingDirectory '{2}' -WindowStyle Hidden | Out-Null" -f $ps, $watchdogScript, $runtimeDir)
-    ) -join "`r`n"
-    Set-Content -Path $launcher -Value $launcherBody -Encoding ASCII -Force
+    Write-Host 'WATCHDOG_BOOTSTRAP_CPAU=START'
 
-    try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
-    try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
-
-    $registered = $false
-    $tr = ('"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $ps, $launcher)
-
-    # Use near-future start time to avoid ST-in-past rejection
-    $st = (Get-Date).AddMinutes(2).ToString('HH:mm')
-    Write-Host ("WATCHDOG_SCHTASKS_PRIMARY=START ST=" + $st)
-    $createOut = & schtasks.exe /Create /TN $bootstrapTaskName /TR $tr /SC ONCE /ST $st /RU $userId /IT /RL HIGHEST /F 2>&1
-    $createExit = $LASTEXITCODE
-    Write-Host ("WATCHDOG_SCHTASKS_CREATE exit=" + $createExit + " out=" + $createOut)
-
-    if ($createExit -eq 0) {
-        $registered = $true
-        Write-Host 'WATCHDOG_TASK_REGISTERED=PASS via=schtasks'
-        $runOut = & schtasks.exe /Run /TN $bootstrapTaskName 2>&1
-        $runExit = $LASTEXITCODE
-        Write-Host ("WATCHDOG_SCHTASKS_RUN exit=" + $runExit + " out=" + $runOut)
-        if ($runExit -eq 0) {
-            Write-Host 'WATCHDOG_TASK_STARTED=PASS via=schtasks'
-        } else {
-            Write-Host ("WATCHDOG_TASK_STARTED=FAIL via=schtasks exit=" + $runExit)
-        }
-    } else {
-        Write-Host ("WATCHDOG_SCHTASKS_CREATE=FAIL exit=" + $createExit + " falling back to Register-ScheduledTask cmdlet")
-        try {
-            $arg = ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $launcher)
-            $action = New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $runtimeDir
-            $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Highest
-            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-            Register-ScheduledTask -TaskName $bootstrapTaskName -Action $action -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
-            $registered = $true
-            Write-Host 'WATCHDOG_TASK_REGISTERED=PASS via=cmdlet'
-            Start-ScheduledTask -TaskName $bootstrapTaskName -ErrorAction Stop
-            Write-Host 'WATCHDOG_TASK_STARTED=PASS via=cmdlet'
-        } catch {
-            Write-Host ("WATCHDOG_TASK_CMDLET_FAILED=" + $_.Exception.Message)
-            $registered = $false
-        }
-    }
-
-    if (-not $registered) {
-        Write-Host 'WATCHDOG_BOOTSTRAP=FAIL no task registered'
+    # Step 1: prove we can run under interactive user with working DPAPI
+    $probeOk = Test-InteractiveUserProbe
+    if (-not $probeOk) {
+        Write-Host 'WATCHDOG_BOOTSTRAP_CPAU=PROBE_FAILED'
         return 0
     }
+    Write-Host 'WATCHDOG_BOOTSTRAP_CPAU=PROBE_PASS'
+
+    # Step 2: launch real watchdog under the same token
+    $ps = (Get-Command powershell.exe).Source
+    $cmd = ('"{0}" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{1}"' -f $ps, $watchdogScript)
+    $r = Invoke-CreateProcessAsUser -CommandLine $cmd -WorkingDirectory $runtimeDir -Label 'WATCHDOG'
+    if (-not $r.Ok) {
+        Write-Host ("WATCHDOG_CPAU_LAUNCH_FAIL error=" + $r.Error)
+        return 0
+    }
+    Write-Host ("WATCHDOG_CPAU_LAUNCHED pid=" + $r.Pid)
 
     $wp = 0
     for ($i = 0; $i -lt 30; $i++) {
         Start-Sleep -Seconds 2
         $wp = Read-WatchdogPid
         if ($wp -gt 0 -and (Test-ProcessExists -ProcessId $wp)) {
-            Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $wp + " via=interactive_user")
-            break
+            Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $wp + " via=cpau")
+            return $wp
         }
-        try {
-            $info = Get-ScheduledTaskInfo -TaskName $bootstrapTaskName -ErrorAction SilentlyContinue
-            if ($info) { Write-Host ("WATCHDOG_TASK_RESULT t=" + ($i * 2) + "s last=" + $info.LastTaskResult) }
-        } catch {}
+        # also accept the direct CPAU pid if it is still alive and looks like powershell running run-agent
+        if ($r.Pid -gt 0 -and (Test-ProcessExists -ProcessId $r.Pid)) {
+            try {
+                $proc = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $r.Pid) -ErrorAction SilentlyContinue
+                if ($proc -and $proc.CommandLine -and $proc.CommandLine -like '*run-agent.ps1*') {
+                    Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $r.Pid + " via=cpau_direct")
+                    return $r.Pid
+                }
+            } catch {}
+        }
         try {
             $live = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
                 $_.CommandLine -and $_.CommandLine -like '*run-agent.ps1*'
@@ -260,18 +475,13 @@ function Start-WatchdogInInteractiveSession {
                 $cand = [int]$live[0].ProcessId
                 if (Test-ProcessExists -ProcessId $cand) {
                     Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $cand + " via=process_scan")
-                    $wp = $cand
-                    break
+                    return $cand
                 }
             }
         } catch {}
     }
-
-    try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
-    try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
-
-    if ($wp -le 0) { Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $wp + " via=interactive_user_timeout") }
-    return $wp
+    Write-Host 'WATCHDOG_BOOTSTRAP_PID=0 via=cpau_timeout'
+    return 0
 }
 
 function Start-WatchdogOwner {
