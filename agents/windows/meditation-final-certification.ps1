@@ -103,7 +103,7 @@ $job = @{
     category = 'reliability'
     risk = 'LOW'
     scope = @('physical-certification.js')
-    proposed_changes = @(@{ path = 'physical-certification.js'; content = "module.exports = { status: 'ok' };"; risk_level = 'LOW' })
+    proposed_changes = @(@{ type = 'add_file'; path = 'physical-certification.js'; content = "module.exports = { status: 'ok' };"; risk_level = 'LOW' })
     mission_id = 'aria-meditation-final-certification'
     step_id = 'physical-self-improvement'
   } | ConvertTo-Json -Compress -Depth 10)
