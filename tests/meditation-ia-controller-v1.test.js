@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 const { createFileStateStore, createMeditationController, VERSION } = require('../autonomy/meditation-ia-controller');
 const { createWindowsMeditationController } = require('../agents/windows/aria-meditation-controller');
 
@@ -48,23 +49,31 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.ok(controller.status().tick_count > t0);
   assert.equal(controller.status().last_result.status, 'idle');
 
-  const competingStore = createFileStateStore({ root_dir: root });
-  const competing = createMeditationController({
-    stateStore: competingStore,
-    commandSource: { read: async () => ({ entries: [] }) },
-    log,
-    requestTick: async () => ({ status: 'idle' }),
-    checkpoint: async record => ({ status: 'checkpointed', record }),
-    isUserIdle: async () => true,
-    ensureNotepad: async () => {},
-    onModeChange: async () => {},
-    onMissionEvent: async () => {},
-    heartbeat_ms: 10000,
-    min_idle_seconds: 0
-  });
-  const locked = await competing.start();
-  assert.equal(locked.status, 'locked');
-  await controller.stop();
+  const foreign = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    await sleep(50);
+    fs.writeFileSync(path.join(root, 'controller.lock'), JSON.stringify({ pid: foreign.pid, acquired_at: new Date().toISOString() }), 'utf8');
+    const competingStore = createFileStateStore({ root_dir: root });
+    const competing = createMeditationController({
+      stateStore: competingStore,
+      commandSource: { read: async () => ({ entries: [] }) },
+      log,
+      requestTick: async () => ({ status: 'idle' }),
+      checkpoint: async record => ({ status: 'checkpointed', record }),
+      isUserIdle: async () => true,
+      ensureNotepad: async () => {},
+      onModeChange: async () => {},
+      onMissionEvent: async () => {},
+      heartbeat_ms: 10000,
+      min_idle_seconds: 0
+    });
+    const locked = await competing.start();
+    assert.equal(locked.status, 'locked');
+  } finally {
+    foreign.kill();
+    await sleep(20);
+    await controller.stop();
+  }
 
   fs.writeFileSync(path.join(root, 'controller.lock'), JSON.stringify({ pid: 2147483647, acquired_at: new Date().toISOString() }), 'utf8');
   const recovered = createFileStateStore({ root_dir: root });
