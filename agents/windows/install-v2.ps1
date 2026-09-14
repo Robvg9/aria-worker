@@ -78,9 +78,9 @@ $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF
 try {
     $listeners = Get-NetTCPConnection -LocalPort 45873 -State Listen -ErrorAction SilentlyContinue
     foreach ($listener in $listeners) {
-        $pid = [int]$listener.OwningProcess
-        if ($pid -gt 0 -and $pid -ne $PID) {
-            try { Stop-Process -Id $pid -Force -ErrorAction Stop; Write-Host "MEDITATION_STALE_PROCESS_STOPPED=PASS pid=$pid" } catch { Write-Warning "Could not stop stale Meditation process pid=$pid: $($_.Exception.Message)" }
+        $listenerPid = [int]$listener.OwningProcess
+        if ($listenerPid -gt 0 -and $listenerPid -ne $PID) {
+            try { Stop-Process -Id $listenerPid -Force -ErrorAction Stop; Write-Host "MEDITATION_STALE_PROCESS_STOPPED=PASS pid=$listenerPid" } catch { Write-Warning "Could not stop stale Meditation process pid=$listenerPid: $($_.Exception.Message)" }
         }
     }
 } catch { Write-Warning "Meditation listener cleanup skipped: $($_.Exception.Message)" }
