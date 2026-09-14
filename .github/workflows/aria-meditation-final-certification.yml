@@ -65,6 +65,7 @@ jobs:
           if(-not(Test-Path $controller)){throw "Controller missing: $controller"}
           $root=$env:ARIA_CERT_ROOT
           New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -eq $node } | Out-Null
           Remove-Item -LiteralPath (Join-Path $root 'controller.lock') -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath (Join-Path $root 'state.json') -Force -ErrorAction SilentlyContinue
           $env:ARIA_WINDOWS_AGENT_ROOT='D:\ARIA-Windows-Agent\Runtime\windows'
@@ -116,12 +117,14 @@ jobs:
           Write-Host ('MEDITATION_LAST_RESULT=' + ($s2.last_result | ConvertTo-Json -Compress -Depth 10))
 
       - name: Physical self-improvement execution proof
+        env:
+          ARIA_CERT_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
         run: |
           $ErrorActionPreference='Stop'
           $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
           if(-not(Test-Path $runtime)){throw 'Self-improvement runtime missing'}
           $job=@{
-            device_id=$env:ARIA_TARGET_DEVICE_ID
+            device_id=$env:ARIA_CERT_DEVICE_ID
             operation='self.improve'
             command=(@{
               goal='Final physical Windows self-improvement certification smoke proof'
@@ -133,6 +136,7 @@ jobs:
               step_id='physical-self-improvement'
             } | ConvertTo-Json -Compress -Depth 10)
           } | ConvertTo-Json -Compress -Depth 10
+          $env:ARIA_SELF_IMPROVEMENT_JOB=$job
           $out=& node -e "const {executeSelfImprovementJob}=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); const job=JSON.parse(process.env.ARIA_SELF_IMPROVEMENT_JOB); executeSelfImprovementJob(job, process.env.ARIA_CERT_DEVICE_ID).then(r=>{console.log(JSON.stringify(r)); if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified') process.exit(1)}).catch(e=>{console.error(e.stack||e);process.exit(1)})" 2>&1
           if($LASTEXITCODE -ne 0){$out | Write-Host; throw 'Physical self-improvement execution failed'}
           $out | Write-Host
@@ -141,9 +145,6 @@ jobs:
           if([string]::IsNullOrWhiteSpace($ev.objective)){throw 'Self-improvement evidence objective missing'}
           Write-Host 'PHYSICAL_SELF_IMPROVEMENT=PASS'
           Write-Host 'PHYSICAL_SELF_IMPROVEMENT_EVIDENCE=PASS'
-        env:
-          ARIA_CERT_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
-          ARIA_SELF_IMPROVEMENT_JOB: ${{ toJSON(fromJSON('{}')) }}
 
       - name: Final physical proof marker
         run: |
