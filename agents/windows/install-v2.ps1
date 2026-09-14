@@ -34,8 +34,7 @@ foreach ($file in $requiredSources.Keys) {
     Copy-Item -Path $source -Destination (Join-Path $RuntimeDir $file) -Force
 }
 
-$coordinatorDirs = @('autonomy', 'self-development', 'self-model')
-foreach ($dirName in $coordinatorDirs) {
+foreach ($dirName in @('autonomy','self-development','self-model')) {
     $sourceDir = Join-Path $RepoRoot $dirName
     $destDir = Join-Path $RuntimeRoot "Runtime\$dirName"
     if (-not (Test-Path $sourceDir)) { throw "Required self-improvement runtime directory missing: $sourceDir" }
@@ -75,17 +74,16 @@ $config = [ordered]@{
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-# Use schtasks CLI instead of hand-authored Task Scheduler XML so registration is not
-# rejected by version/schema-specific XML validation on Windows 10.
-$taskCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RunAgentPath`""
-$createOut = & schtasks.exe /Create /TN $TaskName /SC ONLOGON /TR $taskCommand /RL LIMITED /F 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw "No se pudo registrar la tarea ARIA con schtasks. ExitCode=$LASTEXITCODE`n$createOut"
-}
-Write-Host 'ARIA_TASK_REGISTRATION=PASS'
+# Register for the current interactive user without storing a password.
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$action = New-ScheduledTaskAction -Execute $NodePath -Argument ('"' + $RunAgentPath + '"') -WorkingDirectory $RuntimeDir
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 255 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "ARIA_TASK_REGISTRATION=PASS identity=$identity"
 
-# Ask the existing watchdog to terminate its child agent. The watchdog then reloads the
-# freshly copied files, so the active process really uses this Meditation IA version.
+# Force the running watchdog to reload freshly copied runtime files.
 $watchdogAlive = $false
 if (Test-Path $WatchdogPidPath) {
     try {
