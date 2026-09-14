@@ -199,8 +199,10 @@ function Start-WatchdogInInteractiveSession {
     $registered = $false
     $tr = ('"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $ps, $launcher)
 
-    Write-Host 'WATCHDOG_SCHTASKS_PRIMARY=START'
-    $createOut = & schtasks.exe /Create /TN $bootstrapTaskName /TR $tr /SC ONCE /ST 00:00 /RU $userId /IT /F 2>&1
+    # Use near-future start time to avoid ST-in-past rejection
+    $st = (Get-Date).AddMinutes(2).ToString('HH:mm')
+    Write-Host ("WATCHDOG_SCHTASKS_PRIMARY=START ST=" + $st)
+    $createOut = & schtasks.exe /Create /TN $bootstrapTaskName /TR $tr /SC ONCE /ST $st /RU $userId /IT /RL HIGHEST /F 2>&1
     $createExit = $LASTEXITCODE
     Write-Host ("WATCHDOG_SCHTASKS_CREATE exit=" + $createExit + " out=" + $createOut)
 
@@ -220,7 +222,7 @@ function Start-WatchdogInInteractiveSession {
         try {
             $arg = ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $launcher)
             $action = New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $runtimeDir
-            $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
+            $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Highest
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
             Register-ScheduledTask -TaskName $bootstrapTaskName -Action $action -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
             $registered = $true
