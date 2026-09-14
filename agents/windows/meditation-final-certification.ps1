@@ -6,7 +6,7 @@ $DataDir=Join-Path $RuntimeRoot 'Data'
 $LogDir=Join-Path $RuntimeRoot 'Logs'
 $StatusPath=Join-Path $LogDir 'status.json'
 $PidPath=Join-Path $LogDir 'agent.pid'
-$KillRequestPath=Join-Path $LogDir 'kill-request'
+$KillRequestPath=Join-Path $LogDir 'kill-request.json'
 $MeditationLogPath=Join-Path $RuntimeRoot 'Runtime\meditation\ARIA-Meditation-IA.txt'
 $RepoRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
@@ -60,7 +60,9 @@ Write-Host 'RUNTIME_SYNC_STAGE=PASS'
 Write-Host '--- STAGE 2: CONTROLLED WATCHDOG RECOVERY / SINGLE-INSTANCE ---'
 $beforePid=[string]$watchdog.agent_pid
 Assert-True (-not [string]::IsNullOrWhiteSpace($beforePid)) 'Missing current agent pid'
-Set-Content -Path $KillRequestPath -Value 'final-cert-recovery' -Encoding UTF8 -Force
+$killPayload = (@{ reason = 'final-cert-recovery'; source_sha = [string]$env:ARIA_EXPECTED_SHA } | ConvertTo-Json -Compress)
+Set-Content -Path $KillRequestPath -Value $killPayload -Encoding UTF8 -Force
+Write-Host ("KILL_REQUEST_WRITTEN path=$KillRequestPath source_sha=" + $env:ARIA_EXPECTED_SHA)
 $new=$null
 for($i=0;$i-lt 150;$i++){
   $new=Read-JsonRetry $StatusPath 2
