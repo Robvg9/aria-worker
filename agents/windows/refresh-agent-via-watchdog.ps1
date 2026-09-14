@@ -63,32 +63,32 @@ function Get-InteractiveUserId {
     try {
         $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
         if ($cs.UserName -and $cs.UserName.Trim()) {
-            Write-Host "INTERACTIVE_USER_COMPUTER=$($cs.UserName)"
+            Write-Host ("INTERACTIVE_USER_COMPUTER=" + $cs.UserName)
             return [string]$cs.UserName
         }
     } catch {
-        Write-Host "INTERACTIVE_USER_COMPUTER_FAILED=$($_.Exception.Message)"
+        Write-Host ("INTERACTIVE_USER_COMPUTER_FAILED=" + $_.Exception.Message)
     }
     try {
         foreach ($ex in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)) {
             try {
                 $owner = Invoke-CimMethod -InputObject $ex -MethodName GetOwner
                 if ($owner -and $owner.User) {
-                    $id = if ($owner.Domain) { "$($owner.Domain)\$($owner.User)" } else { [string]$owner.User }
-                    Write-Host "INTERACTIVE_USER_EXPLORER=$id"
+                    $id = if ($owner.Domain) { ($owner.Domain + '\' + $owner.User) } else { [string]$owner.User }
+                    Write-Host ("INTERACTIVE_USER_EXPLORER=" + $id)
                     return $id
                 }
             } catch {}
         }
     } catch {
-        Write-Host "INTERACTIVE_USER_EXPLORER_FAILED=$($_.Exception.Message)"
+        Write-Host ("INTERACTIVE_USER_EXPLORER_FAILED=" + $_.Exception.Message)
     }
     try {
         Write-Host 'INTERACTIVE_QUSER_BEGIN'
         & quser.exe 2>&1 | ForEach-Object { Write-Host $_ }
         Write-Host 'INTERACTIVE_QUSER_END'
     } catch {
-        Write-Host "INTERACTIVE_QUSER_FAILED=$($_.Exception.Message)"
+        Write-Host ("INTERACTIVE_QUSER_FAILED=" + $_.Exception.Message)
     }
     return $null
 }
@@ -102,35 +102,35 @@ function Write-KillRequest {
     } | ConvertTo-Json -Compress)
     $utf8 = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText($requestPath, $payload, $utf8)
-    Write-Host "WATCHDOG_REFRESH_REQUEST=json source_sha=$Sha"
+    Write-Host ("WATCHDOG_REFRESH_REQUEST=json source_sha=" + $Sha)
 }
 
 function Show-Diagnostics {
     param([string]$Label)
-    Write-Host "--- DIAG $Label ---"
-    Write-Host "DIAG_USER=$([Environment]::UserName)"
-    Write-Host "DIAG_TOKEN_DECRYPTABLE=$(Test-CanDecryptToken)"
-    Write-Host "DIAG_SOURCE_SHA=$sourceSha"
-    Write-Host "DIAG_CONFIG_EXISTS=$(Test-Path $configPath)"
-    Write-Host "DIAG_TOKEN_EXISTS=$(Test-Path $tokenPath)"
-    Write-Host "DIAG_AGENT_EXISTS=$(Test-Path (Join-Path $runtimeDir 'aria-agent.js'))"
-    Write-Host "DIAG_WATCHDOG_SCRIPT_EXISTS=$(Test-Path $watchdogScript)"
+    Write-Host ("--- DIAG " + $Label + " ---")
+    Write-Host ("DIAG_USER=" + [Environment]::UserName)
+    Write-Host ("DIAG_TOKEN_DECRYPTABLE=" + (Test-CanDecryptToken))
+    Write-Host ("DIAG_SOURCE_SHA=" + $sourceSha)
+    Write-Host ("DIAG_CONFIG_EXISTS=" + (Test-Path $configPath))
+    Write-Host ("DIAG_TOKEN_EXISTS=" + (Test-Path $tokenPath))
+    Write-Host ("DIAG_AGENT_EXISTS=" + (Test-Path (Join-Path $runtimeDir 'aria-agent.js')))
+    Write-Host ("DIAG_WATCHDOG_SCRIPT_EXISTS=" + (Test-Path $watchdogScript))
     if (Test-Path $runtimeShaPath) {
-        Write-Host "DIAG_RUNTIME_SHA=$((Get-Content -Raw $runtimeShaPath).Trim())"
+        Write-Host ("DIAG_RUNTIME_SHA=" + ((Get-Content -Raw $runtimeShaPath).Trim()))
     }
     if (Test-Path $configPath) {
         try {
             $cfg = Get-Content -Raw $configPath | ConvertFrom-Json
-            Write-Host "DIAG_DEVICE=$($cfg.device_id)"
-            Write-Host "DIAG_NODE_PATH=$($cfg.node_path)"
-            Write-Host "DIAG_NODE_EXISTS=$(Test-Path ([string]$cfg.node_path))"
+            Write-Host ("DIAG_DEVICE=" + $cfg.device_id)
+            Write-Host ("DIAG_NODE_PATH=" + $cfg.node_path)
+            Write-Host ("DIAG_NODE_EXISTS=" + (Test-Path ([string]$cfg.node_path)))
         } catch {
-            Write-Host "DIAG_CONFIG_PARSE_FAILED=$($_.Exception.Message)"
+            Write-Host ("DIAG_CONFIG_PARSE_FAILED=" + $_.Exception.Message)
         }
     }
     try {
         $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
-        Write-Host "DIAG_LOGGED_ON=$($cs.UserName)"
+        Write-Host ("DIAG_LOGGED_ON=" + $cs.UserName)
     } catch {}
     if (Test-Path $tokenPath) {
         try {
@@ -140,35 +140,35 @@ function Show-Diagnostics {
             [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
             Write-Host 'DIAG_TOKEN_DECRYPT=PASS'
         } catch {
-            Write-Host "DIAG_TOKEN_DECRYPT=FAIL $($_.Exception.Message)"
+            Write-Host ("DIAG_TOKEN_DECRYPT=FAIL " + $_.Exception.Message)
         }
     }
     try {
         $statusRaw = if (Test-Path $statusPath) { Get-Content -Raw $statusPath } else { '' }
-        Write-Host "DIAG_STATUS=$statusRaw"
+        Write-Host ("DIAG_STATUS=" + $statusRaw)
     } catch {
-        Write-Host "DIAG_STATUS_READ_FAILED=$($_.Exception.Message)"
+        Write-Host ("DIAG_STATUS_READ_FAILED=" + $_.Exception.Message)
     }
-    Write-Host "DIAG_WATCHDOG_PID_FILE=$(Read-WatchdogPid)"
+    Write-Host ("DIAG_WATCHDOG_PID_FILE=" + (Read-WatchdogPid))
     if (Test-Path $agentPidPath) {
-        Write-Host "DIAG_AGENT_PID_FILE=$((Get-Content -Raw $agentPidPath).Trim())"
+        Write-Host ("DIAG_AGENT_PID_FILE=" + ((Get-Content -Raw $agentPidPath).Trim()))
     }
     try {
         $nodes = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {
             $_.CommandLine -and $_.CommandLine -like '*aria-agent.js*'
         }
-        Write-Host "DIAG_ARIA_NODE_COUNT=$(@($nodes).Count)"
-        foreach ($n in @($nodes)) { Write-Host "DIAG_ARIA_NODE pid=$($n.ProcessId)" }
+        Write-Host ("DIAG_ARIA_NODE_COUNT=" + @($nodes).Count)
+        foreach ($n in @($nodes)) { Write-Host ("DIAG_ARIA_NODE pid=" + $n.ProcessId) }
     } catch {
-        Write-Host "DIAG_ARIA_NODE_SCAN_FAILED=$($_.Exception.Message)"
+        Write-Host ("DIAG_ARIA_NODE_SCAN_FAILED=" + $_.Exception.Message)
     }
     try {
         $wps = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
             $_.CommandLine -and $_.CommandLine -like '*run-agent.ps1*'
         }
-        foreach ($w in @($wps)) { Write-Host "DIAG_WATCHDOG_PROCESS pid=$($w.ProcessId)" }
+        foreach ($w in @($wps)) { Write-Host ("DIAG_WATCHDOG_PROCESS pid=" + $w.ProcessId) }
     } catch {
-        Write-Host "DIAG_WATCHDOG_PROCESS_SCAN_FAILED=$($_.Exception.Message)"
+        Write-Host ("DIAG_WATCHDOG_PROCESS_SCAN_FAILED=" + $_.Exception.Message)
     }
     if (Test-Path $watchdogLogPath) {
         Write-Host '--- watchdog.log tail ---'
@@ -176,7 +176,7 @@ function Show-Diagnostics {
     } else {
         Write-Host 'DIAG_WATCHDOG_LOG=missing'
     }
-    Write-Host "--- END DIAG $Label ---"
+    Write-Host ("--- END DIAG " + $Label + " ---")
 }
 
 function Start-WatchdogInInteractiveSession {
@@ -184,43 +184,42 @@ function Start-WatchdogInInteractiveSession {
     if ([string]::IsNullOrWhiteSpace($userId)) {
         throw 'No interactive user session found to start ARIA watchdog'
     }
-    Write-Host "WATCHDOG_BOOTSTRAP_AS_USER=$userId"
+    Write-Host ("WATCHDOG_BOOTSTRAP_AS_USER=" + $userId)
     $ps = (Get-Command powershell.exe).Source
     $launcher = Join-Path $logDir 'start-watchdog-once.ps1'
     $launcherBody = @(
-        "`$ErrorActionPreference = 'Continue'"
-        "Start-Process -FilePath '$ps' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','$watchdogScript') -WorkingDirectory '$runtimeDir' -WindowStyle Hidden | Out-Null"
+        '$ErrorActionPreference = ''Continue'''
+        ("Start-Process -FilePath '{0}' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','{1}') -WorkingDirectory '{2}' -WindowStyle Hidden | Out-Null" -f $ps, $watchdogScript, $runtimeDir)
     ) -join "`r`n"
     Set-Content -Path $launcher -Value $launcherBody -Encoding ASCII -Force
 
-    # Always clean previous task first
     try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
     try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
 
     $registered = $false
-    $tr = "`"$ps`" -NoProfile -ExecutionPolicy Bypass -File `"$launcher`""
+    $tr = ('"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $ps, $launcher)
 
-    # PRIMARY PATH: schtasks.exe (SYSTEM can create /IT tasks for interactive user)
-    Write-Host "WATCHDOG_SCHTASKS_PRIMARY=START"
+    Write-Host 'WATCHDOG_SCHTASKS_PRIMARY=START'
     $createOut = & schtasks.exe /Create /TN $bootstrapTaskName /TR $tr /SC ONCE /ST 00:00 /RU $userId /IT /F 2>&1
     $createExit = $LASTEXITCODE
-    Write-Host "WATCHDOG_SCHTASKS_CREATE exit=$createExit out=$createOut"
+    Write-Host ("WATCHDOG_SCHTASKS_CREATE exit=" + $createExit + " out=" + $createOut)
 
     if ($createExit -eq 0) {
         $registered = $true
         Write-Host 'WATCHDOG_TASK_REGISTERED=PASS via=schtasks'
         $runOut = & schtasks.exe /Run /TN $bootstrapTaskName 2>&1
         $runExit = $LASTEXITCODE
-        Write-Host "WATCHDOG_SCHTASKS_RUN exit=$runExit out=$runOut"
+        Write-Host ("WATCHDOG_SCHTASKS_RUN exit=" + $runExit + " out=" + $runOut)
         if ($runExit -eq 0) {
             Write-Host 'WATCHDOG_TASK_STARTED=PASS via=schtasks'
         } else {
-            Write-Host "WATCHDOG_TASK_STARTED=FAIL via=schtasks exit=$runExit"
+            Write-Host ("WATCHDOG_TASK_STARTED=FAIL via=schtasks exit=" + $runExit)
         }
     } else {
-        Write-Host "WATCHDOG_SCHTASKS_CREATE=FAIL exit=$createExit — falling back to Register-ScheduledTask cmdlet"
+        Write-Host ("WATCHDOG_SCHTASKS_CREATE=FAIL exit=" + $createExit + " falling back to Register-ScheduledTask cmdlet")
         try {
-            $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`"" -WorkingDirectory $runtimeDir
+            $arg = ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $launcher)
+            $action = New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $runtimeDir
             $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
             Register-ScheduledTask -TaskName $bootstrapTaskName -Action $action -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
@@ -229,7 +228,7 @@ function Start-WatchdogInInteractiveSession {
             Start-ScheduledTask -TaskName $bootstrapTaskName -ErrorAction Stop
             Write-Host 'WATCHDOG_TASK_STARTED=PASS via=cmdlet'
         } catch {
-            Write-Host "WATCHDOG_TASK_CMDLET_FAILED=$($_.Exception.Message)"
+            Write-Host ("WATCHDOG_TASK_CMDLET_FAILED=" + $_.Exception.Message)
             $registered = $false
         }
     }
@@ -244,14 +243,13 @@ function Start-WatchdogInInteractiveSession {
         Start-Sleep -Seconds 2
         $wp = Read-WatchdogPid
         if ($wp -gt 0 -and (Test-ProcessExists -ProcessId $wp)) {
-            Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp via=interactive_user"
+            Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $wp + " via=interactive_user")
             break
         }
         try {
             $info = Get-ScheduledTaskInfo -TaskName $bootstrapTaskName -ErrorAction SilentlyContinue
-            if ($info) { Write-Host "WATCHDOG_TASK_RESULT t=$($i * 2)s last=$($info.LastTaskResult)" }
+            if ($info) { Write-Host ("WATCHDOG_TASK_RESULT t=" + ($i * 2) + "s last=" + $info.LastTaskResult) }
         } catch {}
-        # also scan for live run-agent.ps1 process
         try {
             $live = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
                 $_.CommandLine -and $_.CommandLine -like '*run-agent.ps1*'
@@ -259,7 +257,7 @@ function Start-WatchdogInInteractiveSession {
             if (@($live).Count -gt 0) {
                 $cand = [int]$live[0].ProcessId
                 if (Test-ProcessExists -ProcessId $cand) {
-                    Write-Host "WATCHDOG_BOOTSTRAP_PID=$cand via=process_scan"
+                    Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $cand + " via=process_scan")
                     $wp = $cand
                     break
                 }
@@ -267,19 +265,18 @@ function Start-WatchdogInInteractiveSession {
         } catch {}
     }
 
-    # cleanup task after launch attempt
     try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
     try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
 
-    if ($wp -le 0) { Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp via=interactive_user_timeout" }
+    if ($wp -le 0) { Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $wp + " via=interactive_user_timeout") }
     return $wp
 }
 
 function Start-WatchdogOwner {
     Write-Host 'WATCHDOG_BOOTSTRAP=START'
-    if (-not (Test-Path $watchdogScript)) { throw "Watchdog script missing: $watchdogScript" }
+    if (-not (Test-Path $watchdogScript)) { throw ("Watchdog script missing: " + $watchdogScript) }
     $canDecrypt = Test-CanDecryptToken
-    Write-Host "WATCHDOG_TOKEN_DECRYPTABLE=$canDecrypt USER=$([Environment]::UserName)"
+    Write-Host ("WATCHDOG_TOKEN_DECRYPTABLE=" + $canDecrypt + " USER=" + [Environment]::UserName)
     if (-not $canDecrypt) {
         return Start-WatchdogInInteractiveSession
     }
@@ -291,7 +288,7 @@ function Start-WatchdogOwner {
     ) -WorkingDirectory $runtimeDir -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 5
     $wp = Read-WatchdogPid
-    Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp via=current_user"
+    Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $wp + " via=current_user")
     return $wp
 }
 
@@ -300,9 +297,9 @@ function Stop-WatchdogOwner {
     if ($WatchdogProcessId -gt 0 -and (Test-ProcessExists -ProcessId $WatchdogProcessId)) {
         try {
             Stop-Process -Id $WatchdogProcessId -Force -ErrorAction Stop
-            Write-Host "OLD_WATCHDOG_STOPPED pid=$WatchdogProcessId"
+            Write-Host ("OLD_WATCHDOG_STOPPED pid=" + $WatchdogProcessId)
         } catch {
-            Write-Host "OLD_WATCHDOG_STOP_FAILED pid=$WatchdogProcessId err=$($_.Exception.Message)"
+            Write-Host ("OLD_WATCHDOG_STOP_FAILED pid=" + $WatchdogProcessId + " err=" + $_.Exception.Message)
         }
     }
     try {
@@ -312,13 +309,13 @@ function Stop-WatchdogOwner {
         foreach ($p in @($others)) {
             try {
                 Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
-                Write-Host "STALE_WATCHDOG_STOPPED pid=$($p.ProcessId)"
+                Write-Host ("STALE_WATCHDOG_STOPPED pid=" + $p.ProcessId)
             } catch {
-                Write-Host "STALE_WATCHDOG_STOP_FAILED pid=$($p.ProcessId) err=$($_.Exception.Message)"
+                Write-Host ("STALE_WATCHDOG_STOP_FAILED pid=" + $p.ProcessId + " err=" + $_.Exception.Message)
             }
         }
     } catch {
-        Write-Host "STALE_WATCHDOG_SCAN_FAILED=$($_.Exception.Message)"
+        Write-Host ("STALE_WATCHDOG_SCAN_FAILED=" + $_.Exception.Message)
     }
     Start-Sleep -Seconds 3
     try { Remove-Item -Path $watchdogPidPath -Force -ErrorAction SilentlyContinue } catch {}
@@ -330,11 +327,11 @@ function Wait-AgentRefresh {
         Start-Sleep -Seconds 1
         $s = Read-Status
         if ($s -and [string]$s.state -eq 'agent_running' -and -not [string]::IsNullOrWhiteSpace([string]$s.agent_pid) -and [string]$s.agent_pid -ne $BeforePid) {
-            Write-Host "$PassLabel old=$BeforePid new=$($s.agent_pid)"
+            Write-Host ($PassLabel + " old=" + $BeforePid + " new=" + $s.agent_pid)
             return $true
         }
         if (($i % 15) -eq 14 -and $s) {
-            Write-Host "REFRESH_WAIT t=$($i + 1)s state=$($s.state) agent_pid=$($s.agent_pid) consecutive=$($s.consecutive_errors) last_error=$($s.last_error)$($s.error)"
+            Write-Host ("REFRESH_WAIT t=" + ($i + 1) + "s state=" + $s.state + " agent_pid=" + $s.agent_pid + " consecutive=" + $s.consecutive_errors + " last_error=" + $s.last_error + $s.error)
         }
     }
     return $false
@@ -357,11 +354,11 @@ if (-not $ownerAlive) {
     Write-Host 'WATCHDOG_OWNER=absent'
     $watchdogPid = Start-WatchdogOwner
 } elseif (-not $canDecrypt -and $ownerTokenBroken) {
-    Write-Host "WATCHDOG_OWNER=broken_system_session pid=$watchdogPid replacing_with_interactive_user"
+    Write-Host ("WATCHDOG_OWNER=broken_system_session pid=" + $watchdogPid + " replacing_with_interactive_user")
     Stop-WatchdogOwner -WatchdogProcessId $watchdogPid
     $watchdogPid = Start-WatchdogOwner
 } else {
-    Write-Host "WATCHDOG_ALREADY_RUNNING_PID=$watchdogPid"
+    Write-Host ("WATCHDOG_ALREADY_RUNNING_PID=" + $watchdogPid)
 }
 
 Write-KillRequest -Reason 'certification-source-refresh' -Sha $sourceSha
