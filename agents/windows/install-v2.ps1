@@ -13,9 +13,10 @@ $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 $RunAgentPath = Join-Path $RuntimeDir 'run-agent.ps1'
-$KillRequestPath = Join-Path $LogDir 'kill-request'
+$KillRequestPath = Join-Path $LogDir 'kill-request.json'
 $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
 $StartupAuthorityPath = Join-Path $LogDir 'startup-authority.json'
+$RuntimeSourceShaPath = Join-Path $LogDir 'runtime-source-sha'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $RunValueName = 'ARIA-Windows-Local-Agent'
 
@@ -78,9 +79,6 @@ $config = [ordered]@{
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-# Startup design: one user-level authority plus one global watchdog mutex.
-# Task Scheduler is intentionally not used here. This avoids elevated service/task
-# ownership, Access-Denied cleanup races, and multiple startup authorities.
 try {
     New-Item -Path $RunKey -Force | Out-Null
     $runCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $RunAgentPath + '"'
@@ -100,8 +98,6 @@ $authority = [ordered]@{
 }
 $authority | ConvertTo-Json -Depth 10 | Set-Content -Path $StartupAuthorityPath -Encoding UTF8
 
-# The installer never spawns a second watchdog when one is alive. If none is alive,
-# it starts exactly one watchdog; that watchdog owns the Agent lifecycle from then on.
 $watchdogAlive = $false
 if (Test-Path $WatchdogPidPath) {
     try {
@@ -111,7 +107,10 @@ if (Test-Path $WatchdogPidPath) {
     } catch {}
 }
 if ($watchdogAlive) {
-    Set-Content -Path $KillRequestPath -Value 'installer_reload' -Encoding UTF8 -Force
+    $runtimeSha = ''
+    try { if (Test-Path $RuntimeSourceShaPath) { $runtimeSha = (Get-Content -Raw $RuntimeSourceShaPath).Trim() } } catch {}
+    if ([string]::IsNullOrWhiteSpace($runtimeSha)) { $runtimeSha = 'installer-local-refresh' }
+    [ordered]@{ source_sha = $runtimeSha; reason = 'installer_reload'; requested_at = (Get-Date).ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress | Set-Content -Path $KillRequestPath -Encoding UTF8 -Force
     Write-Host 'ARIA_AGENT_RELOAD_REQUESTED=PASS'
 } else {
     Start-Process -FilePath $PowershellPath -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$RunAgentPath) -WorkingDirectory $RuntimeDir -WindowStyle Hidden | Out-Null
