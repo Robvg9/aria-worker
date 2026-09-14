@@ -96,6 +96,19 @@ while ($true) {
         }
 
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
+
+        $staleAgents = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -like "*$AgentPath*"
+        }
+        foreach ($staleAgent in $staleAgents) {
+            try {
+                Stop-Process -Id ([int]$staleAgent.ProcessId) -Force -ErrorAction Stop
+                Write-Log "STALE_AGENT_KILLED pid=$($staleAgent.ProcessId)"
+            } catch {
+                Write-Log "STALE_AGENT_KILL_FAILED pid=$($staleAgent.ProcessId) $($_.Exception.Message)"
+            }
+        }
+
         $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         $consecutiveErrors = 0
