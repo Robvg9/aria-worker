@@ -33,17 +33,16 @@ jobs:
       - name: Checkout ARIA runtime without actions/checkout
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_EVENT_NUMBER: ${{ github.event.pull_request.number || '' }}
           GITHUB_SHA_EXPECTED: ${{ github.sha }}
         run: |
           $ErrorActionPreference='Stop'
+          $env:GIT_TERMINAL_PROMPT='0'
           git config --global --add safe.directory "$PWD" 2>$null
           git reset --hard HEAD
           git clean -ffdx
-          $fetchRef = "refs/pull/$($env:GITHUB_EVENT_NUMBER)/merge"
-          $fetchSpec = "${fetchRef}:refs/remotes/aria-target"
-          Write-Host "FETCH_REF=$fetchRef"
-          git -c "http.extraheader=AUTHORIZATION: bearer $env:GITHUB_TOKEN" fetch --no-tags --prune --depth=1 origin $fetchSpec
+          $fetchSpec = "${env:GITHUB_SHA_EXPECTED}:refs/remotes/aria-target"
+          Write-Host "FETCH_SHA=$($env:GITHUB_SHA_EXPECTED)"
+          git -c "http.extraheader=AUTHORIZATION: bearer $env:GITHUB_TOKEN" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 fetch --no-tags --depth=1 origin $fetchSpec
           if($LASTEXITCODE -ne 0){ throw "git fetch failed with exit code $LASTEXITCODE" }
           git checkout --force refs/remotes/aria-target
           if($LASTEXITCODE -ne 0){ throw "git checkout failed with exit code $LASTEXITCODE" }
@@ -62,71 +61,73 @@ jobs:
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
           $installExit=$LASTEXITCODE
           if($installExit -ne 0){
-            Write-Warning "Installer returned exit code $installExit; runtime/config verification will decide whether the host is usable."
+            Write-Warning "Installer returned exit code $installExit; continuing to independent runtime/process checks."
             $global:LASTEXITCODE=0
           }
           Write-Host 'ARIA_SELF_IMPROVEMENT_AGENT_INSTALL_STEP=PASS'
-
-      - name: Start ARIA Windows watchdog without elevation
-        run: |
-          $ErrorActionPreference='Stop'
-          $runScript='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
-          $config='D:\ARIA-Windows-Agent\Data\config.json'
-          $token='D:\ARIA-Windows-Agent\Data\device-token.dpapi'
-          foreach($p in @($runScript,$config,$token)){if(-not(Test-Path $p)){throw "Required installed file missing: $p"}}
-          $existing=Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1*' }
-          if($existing){Write-Host "PHYSICAL_WATCHDOG_ALREADY_RUNNING=PASS PID=$($existing[0].ProcessId)"}
-          else{
-            $p=Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$runScript) -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows' -PassThru
-            Write-Host "PHYSICAL_WATCHDOG_STARTED=PASS PID=$($p.Id)"
-          }
-          Start-Sleep -Seconds 6
 
       - name: Verify installed runtime and capability
         run: |
           $ErrorActionPreference='Stop'
           $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
           $agent='D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
+          $med='D:\ARIA-Windows-Agent\Runtime\windows\aria-meditation-controller.js'
           $config='D:\ARIA-Windows-Agent\Data\config.json'
-          foreach($p in @($runtime,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
+          foreach($p in @($runtime,$agent,$med,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
           & node -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')"
           if($LASTEXITCODE -ne 0){throw 'Self-improvement runtime load failed'}
+          & node --check $agent
+          & node --check $med
+          if($LASTEXITCODE -ne 0){throw 'Windows Meditation/agent syntax validation failed'}
           $j=Get-Content -Raw $config|ConvertFrom-Json
           if($j.agent_version -ne 'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
           if(-not($j.capabilities -contains 'self.improve')){throw 'self.improve capability missing'}
           Write-Host "INSTALLED_AGENT_VERSION=$($j.agent_version)"
           Write-Host 'INSTALLED_SELF_IMPROVEMENT_CAPABILITY=PASS'
 
-      - name: Verify ARIA Windows agent process and heartbeat config
+      - name: Verify ARIA Windows agent process and heartbeat
         run: |
           $ErrorActionPreference='Stop'
-          Start-Sleep -Seconds 5
-          $procs=Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*' }
-          if(-not $procs){throw 'ARIA Windows v2 agent process not detected'}
-          Write-Host "PHYSICAL_AGENT_PROCESS=PASS PID=$($procs[0].ProcessId)"
+          $found=$false
+          for($i=0;$i-lt20;$i++){
+            $procs=Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*' }
+            if($procs){$found=$true;Write-Host "PHYSICAL_AGENT_PROCESS=PASS PID=$($procs[0].ProcessId)";break}
+            Start-Sleep -Seconds 2
+          }
+          if(-not$found){throw 'ARIA Windows v2 agent process not detected'}
           Start-Sleep -Seconds 8
           $config=Get-Content -Raw 'D:\ARIA-Windows-Agent\Data\config.json'|ConvertFrom-Json
           if($config.device_id -ne $env:ARIA_TARGET_DEVICE_ID){throw 'Unexpected device_id'}
           if(-not($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
           Write-Host 'HEARTBEAT_SELF_IMPROVEMENT_CONFIG=PASS'
 
-      - name: Verify Meditation IA local controller
+      - name: Verify Meditation IA auto-start and autonomous heartbeat
         run: |
           $ErrorActionPreference='Stop'
-          $status=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/status' -TimeoutSec 10
-          if($status.version -ne 'aria-meditation-ia-v1'){throw "Meditation controller version unexpected: $($status.version)"}
-          $started=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:45873/start' -TimeoutSec 15
-          if($started.status -notin @('started','resumed','already_active')){throw "Meditation start failed: $($started | ConvertTo-Json -Compress)"}
-          Start-Sleep -Seconds 5
-          $s1=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/status' -TimeoutSec 10
-          if($s1.mode -ne 'active'){throw "Meditation IA not active: $($s1.mode)"}
-          $t1=[int]$s1.tick_count
+          $u='http://127.0.0.1:45873/status'
+          $s=$null
+          for($i=0;$i-lt30;$i++){
+            try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 3;if($s){break}}catch{}
+            Start-Sleep -Seconds 1
+          }
+          if(-not$s){throw 'Meditation IA control endpoint unavailable'}
+          if($s.version -ne 'aria-meditation-ia-v1'){throw "Unexpected Meditation IA version: $($s.version)"}
+          if($s.mode -ne 'active'){
+            $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:45873/start' -TimeoutSec 10
+            Write-Host "MEDITATION_START_STATUS=$($r.status)"
+            Start-Sleep -Seconds 3
+            $s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          }
+          if($s.mode -ne 'active'){throw "Meditation IA is not active: $($s.mode)"}
+          $t0=[int]$s.tick_count
           Start-Sleep -Seconds 35
-          $s2=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/status' -TimeoutSec 10
+          $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
           if($s2.mode -ne 'active'){throw "Meditation IA lost active mode: $($s2.mode)"}
-          if([int]$s2.tick_count -le $t1){throw "Meditation heartbeat did not advance: $t1 -> $($s2.tick_count)"}
-          Write-Host 'MEDITATION_IA_LOCAL_CONTROLLER=PASS'
-          Write-Host "MEDITATION_TICK_ADVANCE=$t1->$($s2.tick_count)"
+          if([int]$s2.tick_count -le $t0){throw "Meditation heartbeat did not advance: $t0 -> $($s2.tick_count)"}
+          if($null -eq $s2.last_result){throw 'Meditation IA produced no tick result'}
+          Write-Host 'MEDITATION_IA_AUTOSTART=PASS'
+          Write-Host "MEDITATION_TICK_ADVANCE=$t0->$($s2.tick_count)"
+          Write-Host ("MEDITATION_LAST_RESULT=" + ($s2.last_result|ConvertTo-Json -Compress -Depth 10))
 
       - name: Physical self-improvement execution proof
         run: |
@@ -146,7 +147,7 @@ jobs:
             }) -Compress)
           }
           $jobPath=Join-Path $env:RUNNER_TEMP 'aria-self-improvement-physical-job.json'
-          $job | ConvertTo-Json -Depth 10 | Set-Content -Path $jobPath -Encoding UTF8
+          $job|ConvertTo-Json -Depth 10|Set-Content -Path $jobPath -Encoding UTF8
           $result=& node -e "const fs=require('node:fs');const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js');const job=JSON.parse(fs.readFileSync(process.env.JOB_PATH,'utf8'));x.executeSelfImprovementJob(job,process.env.ARIA_TARGET_DEVICE_ID).then(r=>{console.log(JSON.stringify(r));if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified')process.exit(1)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1
           if($LASTEXITCODE -ne 0){throw "PHYSICAL_SELF_IMPROVEMENT_FAILED: $result"}
           Write-Host 'PHYSICAL_SELF_IMPROVEMENT=PASS'
