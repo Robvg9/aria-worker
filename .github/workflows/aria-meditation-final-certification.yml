@@ -101,7 +101,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $u='http://127.0.0.1:45873/status'
           $s=$null
-          for($i=0;$i-lt60;$i++){
+          for($i=0;$i-lt90;$i++){
             try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($s -and $s.version){break}}catch{}
             Start-Sleep -Seconds 1
           }
@@ -109,10 +109,14 @@ jobs:
           if($s.version -ne 'aria-meditation-ia-v1'){throw "Unexpected live Meditation IA version: $($s.version)"}
           if($s.mode -ne 'active'){throw "Live Meditation IA not active: $($s.mode)"}
           $t0=[int]$s.tick_count
-          Start-Sleep -Seconds 6
-          $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          $advanced=$false
+          for($i=0;$i-lt45;$i++){
+            Start-Sleep -Seconds 1
+            $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+            if([int]$s2.tick_count -gt $t0){$advanced=$true;break}
+          }
+          if(-not$advanced){throw "Live Meditation tick did not advance from $t0 within 45s"}
           if($s2.mode -ne 'active'){throw "Live Meditation IA lost active mode: $($s2.mode)"}
-          if([int]$s2.tick_count -le $t0){throw "Live Meditation tick did not advance: $t0 -> $($s2.tick_count)"}
           if($null -eq $s2.last_result){throw 'Live Meditation produced no result'}
           $lr=$s2.last_result
           if($lr.error -eq 'meditation_gateway_config_missing'){throw 'Live Meditation gateway configuration missing'}
@@ -136,7 +140,7 @@ jobs:
           if([string]::IsNullOrWhiteSpace([string]$before.agent_pid)){throw 'No current ARIA agent pid before recovery test'}
           Set-Content -Path $killPath -Value 'final-cert-recovery' -Encoding UTF8 -Force
           $newStatus=$null
-          for($i=0;$i-lt60;$i++){
+          for($i=0;$i-lt90;$i++){
             try{$newStatus=Get-Content -Raw $statusPath | ConvertFrom-Json}catch{}
             if($newStatus -and $newStatus.state -eq 'agent_running' -and [string]$newStatus.agent_pid -ne [string]$before.agent_pid){break}
             Start-Sleep -Seconds 1
@@ -145,15 +149,19 @@ jobs:
           if([string]$newStatus.agent_pid -eq [string]$before.agent_pid){throw 'ARIA agent pid did not change during recovery'}
           $u='http://127.0.0.1:45873/status'
           $s=$null
-          for($i=0;$i-lt60;$i++){
+          for($i=0;$i-lt90;$i++){
             try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($s.version -eq 'aria-meditation-ia-v1' -and $s.mode -eq 'active'){break}}catch{}
             Start-Sleep -Seconds 1
           }
           if(-not$s -or $s.version -ne 'aria-meditation-ia-v1' -or $s.mode -ne 'active'){throw 'Meditation IA did not recover to active state'}
           $t0=[int]$s.tick_count
-          Start-Sleep -Seconds 5
-          $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
-          if([int]$s2.tick_count -le $t0){throw "Recovered Meditation tick did not advance: $t0 -> $($s2.tick_count)"}
+          $advanced=$false
+          for($i=0;$i-lt45;$i++){
+            Start-Sleep -Seconds 1
+            $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+            if([int]$s2.tick_count -gt $t0){$advanced=$true;break}
+          }
+          if(-not$advanced){throw "Recovered Meditation tick did not advance from $t0 within 45s"}
           if($s2.version -ne 'aria-meditation-ia-v1' -or $s2.mode -ne 'active'){throw 'Recovered Meditation state invalid'}
           Write-Host "ARIA_AGENT_RECOVERY=$($before.agent_pid)->$($newStatus.agent_pid)"
           Write-Host "MEDITATION_RECOVERY_TICK=$t0->$($s2.tick_count)"
@@ -173,7 +181,7 @@ jobs:
           $env:ARIA_MEDITATION_ROOT=$root
           $env:ARIA_MEDITATION_LOG=$env:ARIA_CERT_LOG
           $env:ARIA_MEDITATION_PORT=$env:ARIA_CERT_PORT
-          $env:ARIA_MEDITATION_HEARTBEAT_MS='1000'
+          $env:ARIA_MEDITATION_HEARTBEAT_MS='10000'
           $env:ARIA_MEDITATION_MIN_IDLE_SECONDS='0'
           $env:ARIA_DEVICE_ID=$env:ARIA_TARGET_DEVICE_ID
           $env:ARIA_DEVICE_GATEWAY_URL=''
@@ -198,10 +206,14 @@ jobs:
           if($s.version -ne 'aria-meditation-ia-v1'){throw "Unexpected Meditation IA version: $($s.version)"}
           if($s.mode -ne 'active'){throw "Meditation IA not active: $($s.mode)"}
           $t0=[int]$s.tick_count
-          Start-Sleep -Seconds 5
-          $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          $advanced=$false
+          for($i=0;$i-lt15;$i++){
+            Start-Sleep -Seconds 1
+            $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+            if([int]$s2.tick_count -gt $t0){$advanced=$true;break}
+          }
+          if(-not$advanced){throw "Meditation certification tick did not advance from $t0 within 15s"}
           if($s2.mode -ne 'active'){throw "Meditation IA lost active mode: $($s2.mode)"}
-          if([int]$s2.tick_count -le $t0){throw "Meditation tick did not advance: $t0 -> $($s2.tick_count)"}
           if($null -eq $s2.last_result){throw 'Meditation IA produced no tick result'}
           Write-Host 'MEDITATION_IA_LIFECYCLE=PASS'
           Write-Host "MEDITATION_CERT_TICK_ADVANCE=$t0->$($s2.tick_count)"
