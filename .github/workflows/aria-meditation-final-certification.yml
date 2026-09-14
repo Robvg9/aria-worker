@@ -36,6 +36,7 @@ jobs:
     env:
       ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
       ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
+      ARIA_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     defaults:
       run:
         shell: 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ". ''{0}''"'
@@ -46,10 +47,12 @@ jobs:
           git config --global --add safe.directory "$PWD" 2>$null
           git reset --hard HEAD
           git clean -ffdx
-          $sha=$env:GITHUB_SHA
+          $sha=$env:ARIA_EXPECTED_SHA
+          if([string]::IsNullOrWhiteSpace($sha)){throw 'Expected source SHA is missing'}
           $basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GITHUB_TOKEN"))
           git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $basic"
           git fetch --no-tags --depth=1 origin "+$sha`:$sha"
+          if($LASTEXITCODE -ne 0){throw "git fetch failed: $LASTEXITCODE"}
           git checkout --force $sha
           $head=(git rev-parse HEAD).Trim()
           if($head -ne $sha){throw "Checkout mismatch: $head expected $sha"}
