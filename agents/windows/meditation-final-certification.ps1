@@ -22,7 +22,7 @@ Assert-True (Test-Path (Join-Path $RuntimeDir 'run-agent.ps1')) 'ARIA persistent
 Write-Host 'RUNNER_PROCESS_ADMINISTRATION=DISABLED'
 Write-Host 'WATCHDOG_IS_SINGLE_LIFECYCLE_OWNER=PASS'
 
-Write-Host '--- STAGE 1: RUNTIME SYNC / AUTO-START ---'
+Write-Host '--- STAGE 1: RUNTIME SYNC / ACTIVE RUNTIME HEALTH ---'
 foreach ($file in @('aria-agent.js','aria-meditation-controller.js','self-improvement-runtime.js','run-agent.ps1')) {
   $source = Join-Path $PSScriptRoot $file
   Assert-True (Test-Path $source) "Certification source missing: $source"
@@ -35,32 +35,27 @@ foreach ($dirName in @('autonomy','self-development','self-model')) {
   New-Item -ItemType Directory -Force -Path $destDir | Out-Null
   Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destDir -Recurse -Force
 }
+
+# Runtime synchronization is intentionally non-disruptive. We do not kill/restart the
+# current owner here. Stage 2 is the explicit controlled-recovery test. This keeps the
+# health test independent from lifecycle recovery and prevents a healthy runtime from
+# being made unhealthy merely to prove that recovery exists.
 Assert-True (Test-Path $StatusPath) 'ARIA watchdog disappeared during runtime sync'
-Set-Content -Path $KillRequestPath -Value 'certification-runtime-sync' -Encoding UTF8 -Force
-$ready = $false
-for ($i = 0; $i -lt 120; $i++) {
-  try {
-    $s = Get-Content -Raw $StatusPath | ConvertFrom-Json
-    if ($s.state -eq 'agent_running') { $ready = $true; break }
-  } catch {}
-  Start-Sleep -Seconds 1
-}
-Assert-True $ready 'ARIA watchdog/agent did not return to running state'
 $m = $null
-for ($i = 0; $i -lt 120; $i++) {
+for ($i = 0; $i -lt 30; $i++) {
   try {
     $m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 3
     if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
-    if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'standby') {
-      try { Invoke-RestMethod -Method Post 'http://127.0.0.1:45873/start' -TimeoutSec 3 | Out-Null } catch {}
-    }
   } catch {}
   Start-Sleep -Seconds 1
 }
 Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') "Meditation not active: $($m.mode)"
+$watchdog = Get-Content -Raw $StatusPath | ConvertFrom-Json
+Assert-True ($watchdog.state -eq 'agent_running') "ARIA watchdog state not running: $($watchdog.state)"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$watchdog.agent_pid)) 'ARIA active agent pid missing'
 Write-Host 'RUNTIME_SYNC_STAGE=PASS'
 
-Write-Host '--- STAGE 2: RECOVERY / SINGLE-INSTANCE ---'
+Write-Host '--- STAGE 2: CONTROLLED WATCHDOG RECOVERY / SINGLE-INSTANCE ---'
 $before = Get-Content -Raw $StatusPath | ConvertFrom-Json
 $beforePid = [string]$before.agent_pid
 Assert-True (-not [string]::IsNullOrWhiteSpace($beforePid)) 'Missing current agent pid'
