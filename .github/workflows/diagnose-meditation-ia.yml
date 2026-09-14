@@ -39,7 +39,7 @@ jobs:
             'D:\ARIA-Windows-Agent\Runtime\meditation\ARIA-Meditation-IA.txt',
             'D:\ARIA-Windows-Agent\Logs\watchdog.log',
             'D:\ARIA-Windows-Agent\Logs\status.json'
-          ){
+          )) {
             Write-Host "PATH=$p EXISTS=$(Test-Path $p)"
           }
           Write-Host '--- meditation state ---'
