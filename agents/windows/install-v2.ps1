@@ -16,6 +16,9 @@ $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 $RunAgentPath = Join-Path $RuntimeDir 'run-agent.ps1'
 $KillRequestPath = Join-Path $LogDir 'kill-request'
 $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
+$StartupAuthorityPath = Join-Path $LogDir 'startup-authority.json'
+$RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$RunValueName = 'ARIA-Windows-Local-Agent'
 
 foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
@@ -75,47 +78,76 @@ $config = [ordered]@{
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-try {
-    $listeners = Get-NetTCPConnection -LocalPort 45873 -State Listen -ErrorAction SilentlyContinue
-    foreach ($listener in $listeners) {
-        $listenerPid = [int]$listener.OwningProcess
-        if ($listenerPid -gt 0 -and $listenerPid -ne $PID) {
-            try {
-                Stop-Process -Id $listenerPid -Force -ErrorAction Stop
-                Write-Host ("MEDITATION_STALE_PROCESS_STOPPED=PASS pid={0}" -f $listenerPid)
-            } catch {
-                Write-Warning ("Could not stop stale Meditation process pid={0}: {1}" -f $listenerPid, $_.Exception.Message)
-            }
-        }
-    }
-} catch {
-    Write-Warning ("Meditation listener cleanup skipped: {0}" -f $_.Exception.Message)
-}
+# IMPORTANT: the installer is deliberately NOT allowed to kill the running agent.
+# The watchdog is the sole lifecycle owner. Reconfiguration is requested through a
+# file signal, which avoids cross-owner Stop-Process / Access-Denied races.
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $taskRegistered = $false
+$taskError = $null
 $action = New-ScheduledTaskAction -Execute $PowershellPath -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $RunAgentPath + '"') -WorkingDirectory $RuntimeDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 255 -RestartInterval (New-TimeSpan -Minutes 1)
+
 try {
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
     $taskRegistered = $true
     Write-Host "ARIA_TASK_REGISTRATION=PASS identity=$identity"
 } catch {
-    Write-Warning ("Scheduled Task registration unavailable: {0}" -f $_.Exception.Message)
+    $taskError = $_.Exception.Message
+    Write-Warning ("Scheduled Task registration unavailable: {0}" -f $taskError)
 }
 
-try {
-    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-    New-Item -Path $runKey -Force | Out-Null
-    $runCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $RunAgentPath + '"'
-    Set-ItemProperty -Path $runKey -Name 'ARIA-Windows-Local-Agent' -Value $runCommand
-    Write-Host 'ARIA_USER_AUTOSTART_FALLBACK=PASS'
-} catch {
-    throw ("Unable to configure user autostart fallback: {0}" -f $_.Exception.Message)
+if ($taskRegistered) {
+    # Scheduled Task is the SOLE startup authority. Remove the user-run fallback so
+    # a logon cannot start a second watchdog/agent pair.
+    try {
+        Remove-ItemProperty -Path $RunKey -Name $RunValueName -ErrorAction SilentlyContinue
+        Write-Host 'ARIA_USER_AUTOSTART_FALLBACK=DISABLED_TASK_AUTHORITY'
+    } catch {
+        throw ("Unable to remove conflicting user autostart fallback: {0}" -f $_.Exception.Message)
+    }
+
+    $authority = [ordered]@{
+        authority = 'scheduled_task'
+        task_name = $TaskName
+        run_key_enabled = $false
+        updated_at = (Get-Date).ToUniversalTime().ToString('o')
+        reason = 'single-owner-startup'
+    }
+} else {
+    # Fallback authority is used only when task registration is genuinely unavailable.
+    # A stale/partial task is disabled so the fallback remains the only startup source.
+    try {
+        $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+        if ($null -ne $existingTask) {
+            try { Disable-ScheduledTask -TaskName $TaskName -ErrorAction Stop | Out-Null } catch {}
+        }
+    } catch {}
+
+    try {
+        New-Item -Path $RunKey -Force | Out-Null
+        $runCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $RunAgentPath + '"'
+        Set-ItemProperty -Path $RunKey -Name $RunValueName -Value $runCommand
+        Write-Host 'ARIA_USER_AUTOSTART_FALLBACK=PASS_SOLE_AUTHORITY'
+    } catch {
+        throw ("Unable to configure user autostart fallback: {0}" -f $_.Exception.Message)
+    }
+
+    $authority = [ordered]@{
+        authority = 'user_run_fallback'
+        task_name = $TaskName
+        run_key_enabled = $true
+        updated_at = (Get-Date).ToUniversalTime().ToString('o')
+        reason = 'scheduled-task-unavailable'
+        task_error = $taskError
+    }
 }
 
+$authority | ConvertTo-Json -Depth 10 | Set-Content -Path $StartupAuthorityPath -Encoding UTF8
+
+# Never spawn a second watchdog from the installer when one is already alive.
 $watchdogAlive = $false
 if (Test-Path $WatchdogPidPath) {
     try {
@@ -127,9 +159,11 @@ if (Test-Path $WatchdogPidPath) {
 if ($watchdogAlive) {
     Set-Content -Path $KillRequestPath -Value 'installer_reload' -Encoding UTF8 -Force
     Write-Host 'ARIA_AGENT_RELOAD_REQUESTED=PASS'
-} else {
+} elseif (-not $taskRegistered) {
     Start-Process -FilePath $PowershellPath -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$RunAgentPath) -WorkingDirectory $RuntimeDir -WindowStyle Hidden | Out-Null
-    Write-Host 'ARIA_AGENT_STARTED_FROM_INSTALLER=PASS'
+    Write-Host 'ARIA_AGENT_STARTED_FROM_INSTALLER=PASS_FALLBACK_AUTHORITY'
+} else {
+    Write-Host 'ARIA_AGENT_START_DEFERRED_TO_SCHEDULED_TASK=PASS'
 }
 
 $runtimeSmoke = & $NodePath -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')" 2>&1
@@ -139,5 +173,6 @@ $runtimeSmoke | ForEach-Object { Write-Host $_ }
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
 Write-Host "Task: $TaskName registered=$taskRegistered"
+Write-Host "StartupAuthority: $StartupAuthorityPath"
 Write-Host "Device: $DeviceId"
 Write-Host "Runtime: $RuntimeDir"
