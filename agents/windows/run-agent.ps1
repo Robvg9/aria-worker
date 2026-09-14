@@ -23,6 +23,8 @@ $WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
 $KillRequestPath = Join-Path $PublicDir 'kill-request.json'
 $RuntimeSourceShaPath = Join-Path $PublicDir 'runtime-source-sha'
 $MeditationStatePath = Join-Path $RuntimeRoot 'Runtime\meditation\state.json'
+$AgentStdoutLatest = Join-Path $PublicDir 'agent-stdout.log'
+$AgentStderrLatest = Join-Path $PublicDir 'agent-stderr.log'
 
 New-Item -ItemType Directory -Force -Path $PublicDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -107,6 +109,25 @@ function Get-StaleAgentPids {
     return $ids
 }
 
+function Write-AgentStreamTail([string]$Label, [string]$Path) {
+    try {
+        if (-not (Test-Path $Path)) {
+            Write-Log ("AGENT_STREAM " + $Label + "=missing path=" + $Path)
+            return
+        }
+        $len = (Get-Item $Path -ErrorAction SilentlyContinue).Length
+        Write-Log ("AGENT_STREAM " + $Label + " path=" + $Path + " bytes=" + $len)
+        if ($len -gt 0) {
+            $tail = Get-Content -Path $Path -Tail 80 -ErrorAction SilentlyContinue
+            foreach ($line in @($tail)) {
+                Write-Log ("AGENT_" + $Label + "| " + $line)
+            }
+        }
+    } catch {
+        Write-Log ("AGENT_STREAM_TAIL_FAILED " + $Label + " " + $_.Exception.Message)
+    }
+}
+
 try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
 Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir pid=$PID mutex=ARIA-Windows-Agent-Watchdog-v1"
 Write-Status @{ state = 'watchdog_alive'; agent_pid = $null; runtime_source_sha = (Read-RuntimeSourceSha) }
@@ -149,17 +170,38 @@ while ($true) {
             [void](Wait-StateFileRelease -TimeoutSeconds 20)
         }
 
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $stdoutPath = Join-Path $PublicDir ("agent-stdout-" + $stamp + ".log")
+        $stderrPath = Join-Path $PublicDir ("agent-stderr-" + $stamp + ".log")
+        try {
+            if (Test-Path $AgentStdoutLatest) { Remove-Item $AgentStdoutLatest -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $AgentStderrLatest) { Remove-Item $AgentStderrLatest -Force -ErrorAction SilentlyContinue }
+        } catch {}
+
         $process = $null
         try {
-            $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
+            $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
         } catch {
             throw "AGENT_START_FAILED node=$node agent=$AgentPath $($_.Exception.Message)"
         }
         if (-not $process -or -not $process.Id) { throw "AGENT_START_FAILED no_pid node=$node" }
-        Write-Log "AGENT_STARTED pid=$($process.Id)"
+
+        # Rename to PID-tagged files once PID is known; keep stable latest aliases
+        $stdoutPidPath = Join-Path $PublicDir ("agent-stdout-pid" + $process.Id + ".log")
+        $stderrPidPath = Join-Path $PublicDir ("agent-stderr-pid" + $process.Id + ".log")
+        try {
+            if (Test-Path $stdoutPath) { Move-Item -Path $stdoutPath -Destination $stdoutPidPath -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $stderrPath) { Move-Item -Path $stderrPath -Destination $stderrPidPath -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $stdoutPidPath) { Copy-Item $stdoutPidPath $AgentStdoutLatest -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $stderrPidPath) { Copy-Item $stderrPidPath $AgentStderrLatest -Force -ErrorAction SilentlyContinue }
+        } catch {}
+        if (-not (Test-Path $stdoutPidPath)) { $stdoutPidPath = $stdoutPath }
+        if (-not (Test-Path $stderrPidPath)) { $stderrPidPath = $stderrPath }
+
+        Write-Log ("AGENT_STARTED pid=" + $process.Id + " stdout=" + $stdoutPidPath + " stderr=" + $stderrPidPath)
         $consecutiveErrors = 0
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
-        Write-Status @{ state = 'agent_running'; agent_pid = $process.Id; node_path = $node; started_at = (Get-Date -Format o); runtime_source_sha = (Read-RuntimeSourceSha) }
+        Write-Status @{ state = 'agent_running'; agent_pid = $process.Id; node_path = $node; started_at = (Get-Date -Format o); runtime_source_sha = (Read-RuntimeSourceSha); stdout_log = $stdoutPidPath; stderr_log = $stderrPidPath }
 
         while (-not $process.HasExited) {
             if (Test-Path $KillRequestPath) {
@@ -183,8 +225,14 @@ while ($true) {
         if (-not $process.HasExited) { try { $process.WaitForExit(5000) | Out-Null } catch {} }
         $code = $process.ExitCode
         Write-Log "AGENT_EXIT code=$code restarting_in_ms=5000"
+        try {
+            if (Test-Path $stdoutPidPath) { Copy-Item $stdoutPidPath $AgentStdoutLatest -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $stderrPidPath) { Copy-Item $stderrPidPath $AgentStderrLatest -Force -ErrorAction SilentlyContinue }
+        } catch {}
+        Write-AgentStreamTail -Label 'STDOUT' -Path $stdoutPidPath
+        Write-AgentStreamTail -Label 'STDERR' -Path $stderrPidPath
         try { Remove-Item -Path $PidPath -Force -ErrorAction SilentlyContinue } catch {}
-        Write-Status @{ state = 'agent_restarting'; agent_pid = $null; last_exit_code = $code; runtime_source_sha = (Read-RuntimeSourceSha) }
+        Write-Status @{ state = 'agent_restarting'; agent_pid = $null; last_exit_code = $code; runtime_source_sha = (Read-RuntimeSourceSha); stdout_log = $stdoutPidPath; stderr_log = $stderrPidPath }
         Start-Sleep -Seconds 5
     }
     catch {
