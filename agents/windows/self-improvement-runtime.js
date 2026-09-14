@@ -26,11 +26,12 @@ function parseSelfImprovementPayload(job, deviceId) {
   if (!SAFE_RISKS.has(String(payload.risk || 'LOW').toUpperCase())) throw new Error('self_improvement_risk_rejected');
   if (!Array.isArray(payload.scope)) throw new Error('self_improvement_scope_required');
   if (!Array.isArray(payload.proposed_changes)) throw new Error('self_improvement_proposed_changes_required');
-  for (const change of payload.proposed_changes) {
+  const proposedChanges = payload.proposed_changes.slice(0, 50).map((change) => {
     if (!change || typeof change !== 'object') throw new Error('self_improvement_change_invalid');
     if (String(change.risk_level || 'LOW').toUpperCase() !== 'LOW') throw new Error('self_improvement_change_risk_rejected');
-  }
-  return { goal: payload.goal.trim().slice(0,1000), category: String(payload.category || 'capability_gap'), risk: String(payload.risk || 'LOW').toUpperCase(), scope: payload.scope.slice(0,20).map(String), proposed_changes: payload.proposed_changes.slice(0,50), mission_id: payload.mission_id || null, step_id: payload.step_id || null };
+    return { ...change, risk_level: 'low' };
+  });
+  return { goal: payload.goal.trim().slice(0,1000), category: String(payload.category || 'capability_gap'), risk: String(payload.risk || 'LOW').toUpperCase(), scope: payload.scope.slice(0,20).map(String), proposed_changes: proposedChanges, mission_id: payload.mission_id || null, step_id: payload.step_id || null };
 }
 function safeWorkspacePath(relativePath) { if (typeof relativePath !== 'string' || !relativePath.trim()) throw new Error('workspace_path_required'); const normalized = relativePath.replace(/\\/g,'/').replace(/^\/+/, ''); if (normalized.includes('..') || path.isAbsolute(normalized)) throw new Error('workspace_path_unsafe'); const absolute = path.resolve(WORKSPACE_ROOT, normalized); if (!(absolute === WORKSPACE_ROOT || absolute.startsWith(WORKSPACE_ROOT + path.sep))) throw new Error('workspace_path_escape'); return { normalized, absolute }; }
 async function createWorkspace() {
