@@ -55,6 +55,21 @@ jobs:
           if not "%HEADSHA%"=="%SHA%" exit /b 1
           echo SOURCE_CHECKOUT_VERIFIED=PASS commit=%HEADSHA%
 
+      - name: Repair orphaned ARIA agent process
+        shell: powershell
+        continue-on-error: true
+        run: |
+          $procs = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine -match 'D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js' })
+          foreach ($p in $procs) {
+            Write-Host "ARIA_AGENT_FOUND pid=$($p.ProcessId)"
+            try { Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop; Write-Host "ARIA_AGENT_STOP_PROCESS=PASS pid=$($p.ProcessId)" } catch { Write-Host "ARIA_AGENT_STOP_PROCESS=FAIL pid=$($p.ProcessId) error=$($_.Exception.Message)" }
+            try { & taskkill.exe /PID ([int]$p.ProcessId) /F /T | Out-Host; Write-Host "ARIA_AGENT_TASKKILL_REQUESTED pid=$($p.ProcessId)" } catch { Write-Host "ARIA_AGENT_TASKKILL=FAIL pid=$($p.ProcessId) error=$($_.Exception.Message)" }
+          }
+          Set-Content -Path 'D:\ARIA-Windows-Agent\Logs\kill-request' -Value 'final-cert-force-agent-reload' -Encoding UTF8 -Force
+          Start-Sleep -Seconds 8
+          $alive = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine -match 'D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js' })
+          Write-Host "ARIA_AGENT_COUNT_AFTER_REPAIR=$($alive.Count)"
+
       - name: Run complete four-stage physical certification
         shell: cmd
         run: |
