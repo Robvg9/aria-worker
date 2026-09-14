@@ -15,18 +15,13 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Write-Host '=== ARIA MEDITATION IA FINAL PHYSICAL CERTIFICATION ==='
 Write-Host "SOURCE_COMMIT=$env:ARIA_EXPECTED_SHA"
 
-# Stage 0 - structural ownership rule:
-# The self-hosted Actions runner is NOT allowed to start/stop the interactive-user agent.
-# The interactive-user watchdog is the single owner of the Windows Agent lifecycle.
 Write-Host '--- STAGE 0: SINGLE-OWNER RUNTIME OWNERSHIP ---'
 Assert-True (Test-Path $StatusPath) 'ARIA watchdog status file missing'
-Assert-True (Test-Path $KillRequestPath -or (Test-Path (Join-Path $LogDir 'watchdog.pid'))) 'ARIA watchdog ownership markers missing'
+Assert-True ((Test-Path $KillRequestPath) -or (Test-Path (Join-Path $LogDir 'watchdog.pid'))) 'ARIA watchdog ownership markers missing'
 Assert-True (Test-Path (Join-Path $RuntimeDir 'run-agent.ps1')) 'ARIA persistent runtime missing'
 Write-Host 'RUNNER_PROCESS_ADMINISTRATION=DISABLED'
 Write-Host 'WATCHDOG_IS_SINGLE_LIFECYCLE_OWNER=PASS'
 
-# Stage 1 - synchronize code only, then ask the existing watchdog to reload it.
-# No Scheduled Task registration, no Stop-Process across security boundaries.
 Write-Host '--- STAGE 1: RUNTIME SYNC / AUTO-START ---'
 foreach ($file in @('aria-agent.js','aria-meditation-controller.js','self-improvement-runtime.js','run-agent.ps1')) {
   $source = Join-Path $PSScriptRoot $file
@@ -43,11 +38,9 @@ foreach ($dirName in @('autonomy','self-development','self-model')) {
 Assert-True (Test-Path $StatusPath) 'ARIA watchdog disappeared during runtime sync'
 Set-Content -Path $KillRequestPath -Value 'certification-runtime-sync' -Encoding UTF8 -Force
 $ready = $false
-$previousPid = ''
 for ($i = 0; $i -lt 120; $i++) {
   try {
     $s = Get-Content -Raw $StatusPath | ConvertFrom-Json
-    if (-not [string]::IsNullOrWhiteSpace([string]$s.agent_pid)) { $previousPid = [string]$s.agent_pid }
     if ($s.state -eq 'agent_running') { $ready = $true; break }
   } catch {}
   Start-Sleep -Seconds 1
@@ -67,7 +60,6 @@ for ($i = 0; $i -lt 120; $i++) {
 Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') "Meditation not active: $($m.mode)"
 Write-Host 'RUNTIME_SYNC_STAGE=PASS'
 
-# Stage 2 - recovery and singleton using the public watchdog control plane.
 Write-Host '--- STAGE 2: RECOVERY / SINGLE-INSTANCE ---'
 $before = Get-Content -Raw $StatusPath | ConvertFrom-Json
 $beforePid = [string]$before.agent_pid
@@ -97,7 +89,6 @@ Write-Host 'SINGLE_AGENT_INSTANCE=PASS'
 Write-Host 'WATCHDOG_MEDITATION_RECOVERY=PASS'
 Write-Host 'RECOVERY_STAGE=PASS'
 
-# Stage 3 - live Meditation / gateway
 Write-Host '--- STAGE 3: LIVE MEDITATION / ARIA GATEWAY ---'
 $startTick = [int]$m.tick_count
 $advanced = $false
@@ -118,7 +109,6 @@ Write-Host "MEDITATION_TICK_ADVANCE=$startTick->$($m2.tick_count)"
 Write-Host ('MEDITATION_GATEWAY_RESULT=' + ($m2.last_result | ConvertTo-Json -Compress -Depth 12))
 Write-Host 'INTEGRATION_STAGE=PASS'
 
-# Stage 4 - physical self-improvement proof, through the dedicated local runtime.
 Write-Host '--- STAGE 4: PHYSICAL SELF-IMPROVEMENT ---'
 $runtime = Join-Path $RuntimeDir 'self-improvement-runtime.js'
 Assert-True (Test-Path $runtime) 'Self-improvement runtime missing'
