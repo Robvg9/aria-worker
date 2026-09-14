@@ -22,6 +22,7 @@ $StatusPath = Join-Path $PublicDir 'status.json'
 $WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
 $KillRequestPath = Join-Path $PublicDir 'kill-request.json'
 $RuntimeSourceShaPath = Join-Path $PublicDir 'runtime-source-sha'
+$MeditationStatePath = Join-Path $RuntimeRoot 'Runtime\meditation\state.json'
 
 New-Item -ItemType Directory -Force -Path $PublicDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -34,12 +35,7 @@ function Write-Log([string]$Message) {
 
 function Write-Status([hashtable]$Fields) {
     try {
-        $payload = [ordered]@{
-            updated_at = (Get-Date -Format o)
-            watchdog_pid = $PID
-            agent_path = $AgentPath
-            runtime_root = $RuntimeRoot
-        }
+        $payload = [ordered]@{ updated_at = (Get-Date -Format o); watchdog_pid = $PID; agent_path = $AgentPath; runtime_root = $RuntimeRoot }
         foreach ($key in $Fields.Keys) { $payload[$key] = $Fields[$key] }
         ($payload | ConvertTo-Json -Compress) | Set-Content -Path $StatusPath -Encoding UTF8 -Force
     } catch {}
@@ -65,10 +61,33 @@ function Resolve-Token {
 }
 
 function Read-RuntimeSourceSha {
-    try {
-        if (Test-Path $RuntimeSourceShaPath) { return (Get-Content -Raw -Path $RuntimeSourceShaPath).Trim() }
-    } catch {}
+    try { if (Test-Path $RuntimeSourceShaPath) { return (Get-Content -Raw -Path $RuntimeSourceShaPath).Trim() } } catch {}
     return ''
+}
+
+function Wait-AgentExit([int]$AgentPid, [int]$TimeoutSeconds = 20) {
+    if ($AgentPid -le 0) { return $true }
+    for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
+        try { Get-Process -Id $AgentPid -ErrorAction Stop | Out-Null } catch { return $true }
+        Start-Sleep -Seconds 1
+    }
+    return $false
+}
+
+function Wait-StateFileRelease([int]$TimeoutSeconds = 20) {
+    if (-not (Test-Path $MeditationStatePath)) { return $true }
+    for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
+        $stream = $null
+        try {
+            $stream = [System.IO.File]::Open($MeditationStatePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+            $stream.Close()
+            return $true
+        } catch {
+            try { if ($null -ne $stream) { $stream.Close() } } catch {}
+            Start-Sleep -Seconds 1
+        }
+    }
+    return $false
 }
 
 try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
@@ -85,7 +104,6 @@ while ($true) {
 
         $config = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
         $token = Resolve-Token
-
         $env:ARIA_DEVICE_ID = [string]$config.device_id
         $env:ARIA_DEVICE_TOKEN = $token
         $env:ARIA_DEVICE_GATEWAY_URL = [string]$config.gateway_url
@@ -113,53 +131,36 @@ while ($true) {
             } catch {
                 Write-Log "STALE_AGENT_KILL_FAILED pid=$($staleAgent.ProcessId) $($_.Exception.Message)"
             }
+            [void](Wait-AgentExit -AgentPid ([int]$staleAgent.ProcessId) -TimeoutSeconds 20)
+            [void](Wait-StateFileRelease -TimeoutSeconds 20)
         }
 
         $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         $consecutiveErrors = 0
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
-        Write-Status @{
-            state = 'agent_running'
-            agent_pid = $process.Id
-            node_path = $node
-            started_at = (Get-Date -Format o)
-            runtime_source_sha = (Read-RuntimeSourceSha)
-        }
+        Write-Status @{ state = 'agent_running'; agent_pid = $process.Id; node_path = $node; started_at = (Get-Date -Format o); runtime_source_sha = (Read-RuntimeSourceSha) }
 
         while (-not $process.HasExited) {
             if (Test-Path $KillRequestPath) {
                 $req = $null
                 try { $req = Get-Content -Raw -Path $KillRequestPath | ConvertFrom-Json } catch {}
                 try { Remove-Item -Path $KillRequestPath -Force -ErrorAction SilentlyContinue } catch {}
-
                 $requestedSha = [string]$req.source_sha
                 $runtimeSha = Read-RuntimeSourceSha
-                if ([string]::IsNullOrWhiteSpace($requestedSha)) {
-                    Write-Log "KILL_REQUEST_IGNORED reason=missing_source_sha agent_pid=$($process.Id)"
-                    continue
-                }
-                if ([string]::IsNullOrWhiteSpace($runtimeSha) -or $requestedSha -ne $runtimeSha) {
-                    Write-Log "KILL_REQUEST_IGNORED reason=stale_source requested_sha=$requestedSha runtime_sha=$runtimeSha agent_pid=$($process.Id)"
-                    continue
-                }
-
+                if ([string]::IsNullOrWhiteSpace($requestedSha)) { Write-Log "KILL_REQUEST_IGNORED reason=missing_source_sha agent_pid=$($process.Id)"; continue }
+                if ([string]::IsNullOrWhiteSpace($runtimeSha) -or $requestedSha -ne $runtimeSha) { Write-Log "KILL_REQUEST_IGNORED reason=stale_source requested_sha=$requestedSha runtime_sha=$runtimeSha agent_pid=$($process.Id)"; continue }
                 Write-Log "KILL_REQUEST_ACCEPTED payload=$([string]$req.reason) source_sha=$requestedSha agent_pid=$($process.Id)"
-                try {
-                    Stop-Process -Id $process.Id -Force -ErrorAction Stop
-                    Write-Log "AGENT_KILLED_BY_WATCHDOG pid=$($process.Id)"
-                } catch {
-                    Write-Log "AGENT_KILL_FAILED $($_.Exception.Message)"
-                }
+                try { Stop-Process -Id $process.Id -Force -ErrorAction Stop; Write-Log "AGENT_KILLED_BY_WATCHDOG pid=$($process.Id)" } catch { Write-Log "AGENT_KILL_FAILED $($_.Exception.Message)" }
+                [void](Wait-AgentExit -AgentPid ([int]$process.Id) -TimeoutSeconds 20)
+                [void](Wait-StateFileRelease -TimeoutSeconds 20)
                 break
             }
             Start-Sleep -Milliseconds 500
             try { $process.Refresh() } catch { break }
         }
 
-        if (-not $process.HasExited) {
-            try { $process.WaitForExit(5000) | Out-Null } catch {}
-        }
+        if (-not $process.HasExited) { try { $process.WaitForExit(5000) | Out-Null } catch {} }
         $code = $process.ExitCode
         Write-Log "AGENT_EXIT code=$code restarting_in_ms=5000"
         try { Remove-Item -Path $PidPath -Force -ErrorAction SilentlyContinue } catch {}
@@ -170,11 +171,7 @@ while ($true) {
         $consecutiveErrors++
         Write-Log "WATCHDOG_ERROR count=$consecutiveErrors $($_.Exception.Message)"
         Write-Status @{ state = 'watchdog_error'; error = $_.Exception.Message; agent_pid = $null; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha) }
-        if ($consecutiveErrors -ge $maxConsecutiveErrors) {
-            Write-Log "WATCHDOG_EXIT after $consecutiveErrors consecutive errors"
-            Write-Status @{ state = 'watchdog_exiting'; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha) }
-            exit 1
-        }
+        if ($consecutiveErrors -ge $maxConsecutiveErrors) { Write-Log "WATCHDOG_EXIT after $consecutiveErrors consecutive errors"; Write-Status @{ state = 'watchdog_exiting'; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha) }; exit 1 }
         Start-Sleep -Seconds 10
     }
 }
