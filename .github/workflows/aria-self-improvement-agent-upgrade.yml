@@ -18,10 +18,6 @@ permissions:
 env:
   ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
 
-concurrency:
-  group: aria-windows-pr-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   upgrade:
     runs-on: [self-hosted, Windows, X64]
