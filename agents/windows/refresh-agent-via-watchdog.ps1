@@ -13,6 +13,7 @@ $startupAuthorityPath = Join-Path $logDir 'startup-authority.json'
 $watchdogScript = Join-Path $runtimeDir 'run-agent.ps1'
 $configPath = Join-Path $dataDir 'config.json'
 $tokenPath = Join-Path $dataDir 'device-token.dpapi'
+$watchdogMutexName = 'Global\ARIA-Windows-Agent-Watchdog-v1'
 $sourceSha = [string]$env:ARIA_EXPECTED_SHA
 
 function Read-Status {
@@ -56,6 +57,47 @@ function Test-CanDecryptToken {
         return $true
     } catch {
         return $false
+    }
+}
+
+function Test-WatchdogMutexHeld {
+    $result = [pscustomobject]@{
+        Held = $false
+        Accessible = $false
+        State = 'unknown'
+    }
+    $mutex = $null
+    try {
+        $mutex = [System.Threading.Mutex]::OpenExisting($watchdogMutexName)
+        $result.Accessible = $true
+        try {
+            if ($mutex.WaitOne(0)) {
+                $mutex.ReleaseMutex()
+                $result.State = 'free'
+                return $result
+            }
+            $result.Held = $true
+            $result.State = 'held'
+            return $result
+        } catch [System.Threading.AbandonedMutexException] {
+            $result.Held = $true
+            $result.State = 'abandoned-owner-recovered'
+            return $result
+        }
+    } catch [System.Threading.WaitHandleCannotBeOpenedException] {
+        $result.Accessible = $true
+        $result.State = 'missing'
+        return $result
+    } catch [System.UnauthorizedAccessException] {
+        $result.State = 'access_denied'
+        return $result
+    } catch {
+        $result.State = 'error:' + $_.Exception.GetType().Name
+        return $result
+    } finally {
+        if ($mutex) {
+            try { $mutex.Dispose() } catch {}
+        }
     }
 }
 
@@ -104,6 +146,10 @@ function Show-Diagnostics {
     Write-Host ("DIAG_TOKEN_EXISTS=" + (Test-Path $tokenPath))
     Write-Host ("DIAG_AGENT_EXISTS=" + (Test-Path (Join-Path $runtimeDir 'aria-agent.js')))
     Write-Host ("DIAG_WATCHDOG_SCRIPT_EXISTS=" + (Test-Path $watchdogScript))
+    $mutexDiag = Test-WatchdogMutexHeld
+    Write-Host ("DIAG_WATCHDOG_MUTEX=" + $mutexDiag.State)
+    Write-Host ("DIAG_WATCHDOG_MUTEX_ACCESSIBLE=" + $mutexDiag.Accessible)
+    Write-Host ("DIAG_WATCHDOG_MUTEX_HELD=" + $mutexDiag.Held)
     if (Test-Path $runtimeShaPath) {
         Write-Host ("DIAG_RUNTIME_SHA=" + ((Get-Content -Raw $runtimeShaPath).Trim()))
     }
@@ -217,6 +263,12 @@ foreach ($w in @($liveWd)) {
     }
 }
 
+$mutexDiag = Test-WatchdogMutexHeld
+if ($mutexDiag.Held) {
+    $interactiveOwnerAlive = $true
+    Write-Host ("INTERACTIVE_WATCHDOG_MUTEX_FOUND state=" + $mutexDiag.State)
+}
+
 if (-not $ownerAlive -and -not $interactiveOwnerAlive) {
     Write-Host 'WATCHDOG_OWNER=absent'
     Write-Host 'WATCHDOG_BOOTSTRAP=SKIPPED reason=SYSTEM_cannot_create_interactive_owner'
@@ -228,6 +280,8 @@ if (-not $ownerAlive -and -not $interactiveOwnerAlive) {
 
 if ($ownerAlive) {
     Write-Host ("WATCHDOG_ALREADY_RUNNING_PID=" + $watchdogPid)
+} elseif ($mutexDiag.Held) {
+    Write-Host 'WATCHDOG_ALREADY_RUNNING_MUTEX=held'
 }
 Write-KillRequest -Reason 'certification-source-refresh' -Sha $sourceSha
 $refreshed = Wait-AgentRefresh -BeforePid $before -TimeoutSeconds 90 -PassLabel 'AGENT_REFRESHED=PASS'
