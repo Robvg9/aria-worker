@@ -56,21 +56,10 @@ jobs:
           echo SOURCE_CHECKOUT_VERIFIED=PASS commit=%HEADSHA%
 
       - name: Assert single-owner runtime boundary
-        shell: powershell
+        shell: cmd
         run: |
-          $runtime = 'D:\ARIA-Windows-Agent\Runtime\windows'
-          $watchdog = 'D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
-          $agent = 'D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
-          $meditation = 'D:\ARIA-Windows-Agent\Runtime\windows\aria-meditation-controller.js'
-          $selfImprovement = 'D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
-          if (-not (Test-Path $watchdog)) { throw 'Watchdog runtime missing' }
-          if (-not (Test-Path $agent)) { throw 'Agent runtime missing' }
-          if (-not (Test-Path $meditation)) { throw 'Meditation runtime missing' }
-          if (-not (Test-Path $selfImprovement)) { throw 'Self-improvement runtime missing' }
-          $text = Get-Content -Raw $watchdog
-          if ($text -notmatch 'Global\\ARIA-Windows-Agent-Watchdog-v1') { throw 'Global watchdog mutex missing' }
-          Write-Host 'SINGLE_OWNER_BOUNDARY=PASS'
-          Write-Host 'RUNNER_DOES_NOT_OWN_AGENT_LIFECYCLE=PASS'
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $watchdog=Join-Path $runtime 'run-agent.ps1'; $agent=Join-Path $runtime 'aria-agent.js'; $meditation=Join-Path $runtime 'aria-meditation-controller.js'; $selfImprovement=Join-Path $runtime 'self-improvement-runtime.js'; if(-not(Test-Path $watchdog)){throw 'Watchdog runtime missing'}; if(-not(Test-Path $agent)){throw 'Agent runtime missing'}; if(-not(Test-Path $meditation)){throw 'Meditation runtime missing'}; if(-not(Test-Path $selfImprovement)){throw 'Self-improvement runtime missing'}; $text=Get-Content -Raw $watchdog; if($text -notmatch 'Global\\ARIA-Windows-Agent-Watchdog-v1'){throw 'Global watchdog mutex missing'}; Write-Host 'SINGLE_OWNER_BOUNDARY=PASS'; Write-Host 'RUNNER_DOES_NOT_OWN_AGENT_LIFECYCLE=PASS'"
+          if errorlevel 1 exit /b 1
 
       - name: Run complete four-stage physical certification
         shell: cmd
