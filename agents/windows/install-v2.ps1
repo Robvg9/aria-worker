@@ -129,11 +129,23 @@ $xml = @"
 </Task>
 "@
 Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
-schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
-$result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
-if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
-& schtasks.exe /Run /TN $TaskName | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
+
+$existingTask = $null
+try { $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop } catch {}
+if ($existingTask) {
+    Write-Host 'ARIA_TASK_ALREADY_EXISTS=REUSING_EXISTING_TASK'
+    try {
+        & schtasks.exe /Run /TN $TaskName | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "schtasks /Run exit code: $LASTEXITCODE" }
+    } catch {
+        Write-Host "ARIA_TASK_RUN_NONBLOCKING=$($_.Exception.Message)"
+    }
+} else {
+    $result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
+    & schtasks.exe /Run /TN $TaskName | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
+}
 
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
