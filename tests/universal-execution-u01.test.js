@@ -13,6 +13,7 @@ assert.strictEqual(executors[4].operations.includes('eas.workflow_list'),true);
 assert.strictEqual(executors[4].availability,'unknown');
 assert.strictEqual(executors[5].operations.includes('self.improve'),true);
 assert.strictEqual(executors[5].availability,'unknown');
+assert.strictEqual(executors[5].executor_id,'self-improvement');
 assert.deepStrictEqual(resolveExecutor({operation:'repo_read',target:{type:'connector',connector_id:'github'}}),{executor_id:'connector',type:'connector',operation:'repo_read',target:{type:'connector',connector_id:'github'}});
 assert.deepStrictEqual(resolveExecutor({operation:'shell.execute',executor_type:'device',target:{type:'device',device_id:'android-termux'}}),{executor_id:'device',type:'device',operation:'shell.execute',target:{type:'device',device_id:'android-termux'}});
 assert.deepStrictEqual(resolveExecutor({operation:'text_generation',executor_type:'model',target:{type:'model',provider_id:'openrouter',account_id:'acct_openrouter_primary',model_id:'google/gemini-2.5-flash-lite'}}),{executor_id:'model',type:'model',operation:'text_generation',target:{type:'model',provider_id:'openrouter',account_id:'acct_openrouter_primary',model_id:'google/gemini-2.5-flash-lite'}});
