@@ -51,7 +51,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $test = @'
           const assert = require('node:assert/strict');
-          const { executePowerShell } = require('./autonomy/windows-shell-executor');
+          const path = require('node:path');
+          const { executePowerShell } = require(path.join(process.env.GITHUB_WORKSPACE, 'autonomy', 'windows-shell-executor'));
           (async () => {
             const result = await executePowerShell({
               script: "Write-Output 'ARIA_WINDOWS_SHELL_OK'",
