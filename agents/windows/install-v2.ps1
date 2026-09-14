@@ -8,12 +8,13 @@ $DataDir = Join-Path $RuntimeRoot 'Data'
 $LogDir = Join-Path $RuntimeRoot 'Logs'
 $ConfigPath = Join-Path $DataDir 'config.json'
 $TokenPath = Join-Path $DataDir 'device-token.dpapi'
-$TaskXmlPath = Join-Path $RuntimeRoot 'ARIA-Windows-Local-Agent.xml'
-$DesktopSmokePath = Join-Path $LogDir 'desktop-smoke.json'
 $TaskName = 'ARIA-Windows-Local-Agent'
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+$RunAgentPath = Join-Path $RuntimeDir 'run-agent.ps1'
+$KillRequestPath = Join-Path $LogDir 'kill-request'
+$WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
 
 foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
@@ -49,12 +50,10 @@ if (-not [string]::IsNullOrWhiteSpace($token)) {
     $encrypted = $secure | ConvertFrom-SecureString
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
 }
-elseif (Test-Path $TokenPath) {
-}
-elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi')) {
+elseif (-not (Test-Path $TokenPath) -and (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi'))) {
     Copy-Item -Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi') -Destination $TokenPath -Force
 }
-else {
+elseif (-not (Test-Path $TokenPath)) {
     $token = Read-Host 'Pega el token del Windows Device'
     if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) { throw 'Token ausente o invalido. No se instalo nada.' }
     $secure = ConvertTo-SecureString -String $token -AsPlainText -Force
@@ -76,45 +75,31 @@ $config = [ordered]@{
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-$taskUser = "$env:USERDOMAIN\$env:USERNAME"
-$xml = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>ARIA Windows Local Agent v2 + Meditation IA</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>Limited</RunLevel></Principal></Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <!-- RestartOnFailure.Count is an unsignedByte in Task Scheduler, so the maximum valid value is 255. -->
-    <RestartOnFailure><Interval>PT1M</Interval><Count>255</Count></RestartOnFailure>
-  </Settings>
-  <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$RuntimeDir\run-agent.ps1&quot;</Arguments><WorkingDirectory>$RuntimeDir</WorkingDirectory></Exec></Actions>
-</Task>
-"@
-Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
+# Use schtasks CLI instead of hand-authored Task Scheduler XML so registration is not
+# rejected by version/schema-specific XML validation on Windows 10.
+$taskCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RunAgentPath`""
+$createOut = & schtasks.exe /Create /TN $TaskName /SC ONLOGON /TR $taskCommand /RL LIMITED /F 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "No se pudo registrar la tarea ARIA con schtasks. ExitCode=$LASTEXITCODE`n$createOut"
+}
+Write-Host 'ARIA_TASK_REGISTRATION=PASS'
 
-$existingTask = $null
-try { $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop } catch {}
-if ($existingTask) {
-    Write-Host 'ARIA_TASK_ALREADY_EXISTS=RESTARTING_EXISTING_TASK'
+# Ask the existing watchdog to terminate its child agent. The watchdog then reloads the
+# freshly copied files, so the active process really uses this Meditation IA version.
+$watchdogAlive = $false
+if (Test-Path $WatchdogPidPath) {
     try {
-        & schtasks.exe /End /TN $TaskName | Out-Null
-        Start-Sleep -Seconds 2
-    } catch {
-        Write-Host "ARIA_TASK_END_NONBLOCKING=$($_.Exception.Message)"
-    }
-    & schtasks.exe /Run /TN $TaskName | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "No se pudo reiniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
+        $watchdogPid = [int](Get-Content -Raw $WatchdogPidPath).Trim()
+        Get-Process -Id $watchdogPid -ErrorAction Stop | Out-Null
+        $watchdogAlive = $true
+    } catch {}
+}
+if ($watchdogAlive) {
+    Set-Content -Path $KillRequestPath -Value 'installer_reload' -Encoding UTF8 -Force
+    Write-Host 'ARIA_AGENT_RELOAD_REQUESTED=PASS'
 } else {
-    $result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
-    & schtasks.exe /Run /TN $TaskName | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
+    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$RunAgentPath) -WorkingDirectory $RuntimeDir -WindowStyle Hidden | Out-Null
+    Write-Host 'ARIA_AGENT_STARTED_FROM_INSTALLER=PASS'
 }
 
 $runtimeSmoke = & $NodePath -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')" 2>&1
