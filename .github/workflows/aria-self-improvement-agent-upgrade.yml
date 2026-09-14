@@ -106,3 +106,5 @@ jobs:
           if($config.device_id -ne 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'){throw 'Unexpected device_id'}
           if(-not ($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
           Write-Host 'HEARTBEAT_SELF_IMPROVEMENT_CONFIG=PASS'
+
+          # Physical agent E2E verification must continue on this host; CI success alone is insufficient.
