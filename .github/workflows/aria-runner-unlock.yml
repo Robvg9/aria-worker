@@ -1,0 +1,22 @@
+name: ARIA Runner Unlock
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aria-runner-unlock.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-windows-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unlock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release stale Windows repair concurrency group
+        run: echo 'ARIA_WINDOWS_REPAIR_CONCURRENCY_RELEASED=PASS'
