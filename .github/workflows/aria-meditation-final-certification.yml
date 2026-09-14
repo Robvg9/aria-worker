@@ -1,6 +1,15 @@
 name: ARIA Meditation IA Final Physical Certification
 
 on:
+  push:
+    branches: ["aria/self-improvement-v1-main"]
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/**'
+      - 'self-development/**'
+      - 'self-model/**'
+      - 'tests/**'
+      - '.github/workflows/aria-meditation-final-certification.yml'
   pull_request:
     branches: ["aria/meditation-ia-v1-main"]
     paths:
@@ -29,7 +38,7 @@ jobs:
       ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
     defaults:
       run:
-        shell: 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& { . ''{0}'' }"'
+        shell: 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ". ''{0}''"'
     steps:
       - name: Checkout exact source
         run: |
