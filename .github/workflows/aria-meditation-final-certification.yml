@@ -41,7 +41,7 @@ jobs:
       ARIA_CERT_LOG: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert\ARIA-Meditation-IA.txt'
     defaults:
       run:
-        shell: powershell
+        shell: 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File {0}'
     steps:
       - name: Checkout exact pushed source
         run: |
