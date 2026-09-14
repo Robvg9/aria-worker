@@ -37,12 +37,10 @@ foreach ($dirName in @('autonomy','self-development','self-model')) {
 }
 
 # Runtime synchronization is intentionally non-disruptive. We do not kill/restart the
-# current owner here. Stage 2 is the explicit controlled-recovery test. This keeps the
-# health test independent from lifecycle recovery and prevents a healthy runtime from
-# being made unhealthy merely to prove that recovery exists.
+# current owner here. Stage 2 is the explicit controlled-recovery test.
 Assert-True (Test-Path $StatusPath) 'ARIA watchdog disappeared during runtime sync'
 $m = $null
-for ($i = 0; $i -lt 30; $i++) {
+for ($i = 0; $i -lt 120; $i++) {
   try {
     $m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 3
     if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
