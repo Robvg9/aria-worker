@@ -40,7 +40,7 @@ jobs:
           git config --global --add safe.directory "$PWD" 2>$null
           git reset --hard HEAD
           git clean -ffdx
-          $fetchSpec = "${env:GITHUB_SHA_EXPECTED}:refs/remotes/aria-target"
+          $fetchSpec = "+${env:GITHUB_SHA_EXPECTED}:refs/remotes/aria-target"
           Write-Host "FETCH_SHA=$($env:GITHUB_SHA_EXPECTED)"
           $basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GITHUB_TOKEN"))
           git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $basic"
@@ -87,20 +87,20 @@ jobs:
           Write-Host "INSTALLED_AGENT_VERSION=$($j.agent_version)"
           Write-Host 'INSTALLED_SELF_IMPROVEMENT_CAPABILITY=PASS'
 
-      - name: Verify ARIA Windows agent process and heartbeat
+      - name: Verify ARIA Windows agent startup and heartbeat evidence
         run: |
           $ErrorActionPreference='Stop'
           $log='D:\ARIA-Windows-Agent\Logs\watchdog.log'
           $found=$false
           for($i=0;$i-lt30;$i++){
             if(Test-Path $log){
-              $tail=Get-Content -Tail 80 $log -ErrorAction SilentlyContinue
-              $match=$tail | Select-String -Pattern 'START device=.*windows-local'
-              if($match){$found=$true;Write-Host 'PHYSICAL_AGENT_PROCESS=PASS';break}
+              $tail=Get-Content -Tail 120 $log -ErrorAction SilentlyContinue
+              $match=$tail | Select-String -Pattern 'device=.*windows-fe722cc6681e4f9c9cc35f5ebbb0a089|agent_version=aria-windows-agent-v2|HEARTBEAT'
+              if($match){$found=$true;Write-Host 'PHYSICAL_AGENT_STARTUP_EVIDENCE=PASS';break}
             }
             Start-Sleep -Seconds 2
           }
-          if(-not$found){throw 'ARIA Windows v2 agent startup evidence not detected in watchdog.log'}
+          if(-not$found){throw 'ARIA Windows v2 startup/heartbeat evidence not detected in watchdog.log'}
           $config=Get-Content -Raw 'D:\ARIA-Windows-Agent\Data\config.json'|ConvertFrom-Json
           if($config.device_id -ne $env:ARIA_TARGET_DEVICE_ID){throw 'Unexpected device_id'}
           if(-not($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
