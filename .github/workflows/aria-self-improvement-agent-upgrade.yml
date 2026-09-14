@@ -1,6 +1,15 @@
 name: ARIA Self-Improvement Agent Upgrade
 
 on:
+  push:
+    branches: [aria/self-improvement-v1-main]
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/self-improvement-coordinator-v1.js'
+      - 'autonomy/self-improvement-engine-v1.js'
+      - 'self-development/**'
+      - 'self-model/**'
+      - '.github/workflows/aria-self-improvement-agent-upgrade.yml'
   pull_request:
     branches: [aria/meditation-ia-v1-main]
     paths:
