@@ -1,23 +1,14 @@
 $ErrorActionPreference = 'Stop'
 
-function Assert-True([bool]$Condition, [string]$Message) {
-  if (-not $Condition) { throw $Message }
-}
+function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 
 function Get-MeditationState {
   $statePath = 'D:\ARIA-Windows-Agent\Runtime\meditation\state.json'
-  try {
-    if (-not (Test-Path $statePath)) { return $null }
-    return (Get-Content -Raw -Path $statePath | ConvertFrom-Json)
-  } catch { return $null }
+  try { if (-not (Test-Path $statePath)) { return $null }; return (Get-Content -Raw -Path $statePath | ConvertFrom-Json) } catch { return $null }
 }
 
 function Get-MeditationStatusLoopback {
-  try {
-    $raw = & curl.exe --noproxy '*' -sS --max-time 5 'http://127.0.0.1:45873/status' 2>$null | Out-String
-    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
-    return ($raw | ConvertFrom-Json)
-  } catch { return $null }
+  try { $raw = & curl.exe --noproxy '*' -sS --max-time 5 'http://127.0.0.1:45873/status' 2>$null | Out-String; if ([string]::IsNullOrWhiteSpace($raw)) { return $null }; return ($raw | ConvertFrom-Json) } catch { return $null }
 }
 
 $RuntimeRoot = 'D:\ARIA-Windows-Agent'
@@ -26,7 +17,8 @@ $DataDir = Join-Path $RuntimeRoot 'Data'
 $LogDir = Join-Path $RuntimeRoot 'Logs'
 $StatusPath = Join-Path $LogDir 'status.json'
 $PidPath = Join-Path $LogDir 'agent.pid'
-$KillRequestPath = Join-Path $LogDir 'kill-request'
+$KillRequestPath = Join-Path $LogDir 'kill-request.json'
+$RuntimeSourceShaPath = Join-Path $LogDir 'runtime-source-sha'
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $MeditationStatePath = Join-Path $RuntimeRoot 'Runtime\meditation\state.json'
 $MeditationLogPath = Join-Path $RuntimeRoot 'Runtime\meditation\ARIA-Meditation-IA.txt'
@@ -36,7 +28,7 @@ Write-Host "SOURCE_COMMIT=$env:ARIA_EXPECTED_SHA"
 
 Write-Host '--- STAGE 0: SINGLE-OWNER RUNTIME OWNERSHIP ---'
 Assert-True (Test-Path $StatusPath) 'ARIA watchdog status file missing'
-Assert-True ((Test-Path $KillRequestPath) -or (Test-Path (Join-Path $LogDir 'watchdog.pid'))) 'ARIA watchdog ownership markers missing'
+Assert-True (Test-Path (Join-Path $LogDir 'watchdog.pid')) 'ARIA watchdog ownership marker missing'
 Assert-True (Test-Path (Join-Path $RuntimeDir 'run-agent.ps1')) 'ARIA persistent runtime missing'
 Write-Host 'RUNNER_PROCESS_ADMINISTRATION=DISABLED'
 Write-Host 'WATCHDOG_IS_SINGLE_LIFECYCLE_OWNER=PASS'
@@ -54,29 +46,22 @@ foreach ($dirName in @('autonomy','self-development','self-model')) {
   New-Item -ItemType Directory -Force -Path $destDir | Out-Null
   Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destDir -Recurse -Force
 }
-
 Assert-True (Test-Path $MeditationStatePath) 'Meditation persisted state missing'
-$m = $null
-$beforeTick = -1
-for ($i = 0; $i -lt 120; $i++) {
-  $m = Get-MeditationState
-  if ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
-  Start-Sleep -Seconds 1
-}
-Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') "Meditation persisted state not active: $($m.mode)"
+$m = Get-MeditationState
+Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1') 'Meditation state version invalid before refresh'
 $watchdog = Get-Content -Raw $StatusPath | ConvertFrom-Json
 Assert-True ($watchdog.state -eq 'agent_running') "ARIA watchdog state not running: $($watchdog.state)"
-Assert-True (-not [string]::IsNullOrWhiteSpace([string]$watchdog.agent_pid)) 'ARIA active agent pid missing'
 $loopback = Get-MeditationStatusLoopback
-Write-Host ('LOOPBACK_HEALTH=' + ($(if($loopback){'PASS'}else{'NOT_VISIBLE_FROM_RUNNER_SESSION'})))
-Write-Host ('PERSISTED_MEDITATION_TICK=' + [int]$m.tick_count)
+Write-Host ('PRE_REFRESH_LOOPBACK=' + ($(if($loopback){'PASS'}else{'NOT_VISIBLE_FROM_RUNNER_SESSION'})))
+$refreshAt = (Get-Date).ToUniversalTime()
+Write-Host "PRE_REFRESH_TICK=$([int]$m.tick_count)"
 Write-Host 'RUNTIME_SYNC_STAGE=PASS'
 
 Write-Host '--- STAGE 2: CONTROLLED WATCHDOG RECOVERY / SINGLE-INSTANCE ---'
-$before = Get-Content -Raw $StatusPath | ConvertFrom-Json
-$beforePid = [string]$before.agent_pid
+$beforePid = [string]$watchdog.agent_pid
 Assert-True (-not [string]::IsNullOrWhiteSpace($beforePid)) 'Missing current agent pid'
-Set-Content -Path $KillRequestPath -Value 'final-cert-recovery' -Encoding UTF8 -Force
+$request = [ordered]@{ source_sha = [string]$env:ARIA_EXPECTED_SHA; reason = 'final-cert-recovery'; requested_at = $refreshAt.ToString('o') }
+$request | ConvertTo-Json -Compress | Set-Content -Path $KillRequestPath -Encoding UTF8 -Force
 $new = $null
 for ($i = 0; $i -lt 120; $i++) {
   try { $new = Get-Content -Raw $StatusPath | ConvertFrom-Json } catch {}
@@ -85,16 +70,20 @@ for ($i = 0; $i -lt 120; $i++) {
 }
 Assert-True ($new -and $new.state -eq 'agent_running') 'Watchdog did not recover agent'
 Assert-True ([string]$new.agent_pid -ne $beforePid) 'Agent PID did not change during watchdog recovery'
+$recoveredAt = (Get-Date).ToUniversalTime()
 $m = $null
 for ($i = 0; $i -lt 120; $i++) {
   $m = Get-MeditationState
-  if ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
+  $freshTick = $false
+  if ($m -and $m.last_tick_at) { try { $freshTick = ([DateTime]$m.last_tick_at).ToUniversalTime() -ge $recoveredAt.AddSeconds(-5) } catch {} }
+  if ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active' -and $freshTick) { break }
   Start-Sleep -Seconds 1
 }
 Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') 'Meditation did not recover to active persisted state'
 $agents = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' })
 Assert-True ($agents.Count -eq 1) "Expected one ARIA agent process, found $($agents.Count)"
 Write-Host "ARIA_AGENT_RECOVERY=$beforePid->$($new.agent_pid)"
+Write-Host "RECOVERY_TICK=$([int]$m.tick_count)"
 Write-Host 'SINGLE_AGENT_INSTANCE=PASS'
 Write-Host 'WATCHDOG_MEDITATION_RECOVERY=PASS'
 Write-Host 'RECOVERY_STAGE=PASS'
@@ -111,8 +100,7 @@ for ($i = 0; $i -lt 60; $i++) {
 Assert-True $advanced "Meditation persisted tick did not advance from $startTick"
 Assert-True ($m2.mode -eq 'active') 'Meditation lost active mode'
 Assert-True ($null -ne $m2.last_result) 'Meditation produced no persisted result'
-$gatewayError = [string]$m2.last_result.error
-Assert-True ($gatewayError -ne 'meditation_gateway_config_missing') 'Meditation gateway configuration missing'
+Assert-True ([string]$m2.last_result.error -ne 'meditation_gateway_config_missing') 'Meditation gateway configuration missing'
 Assert-True (Test-Path $MeditationLogPath) 'Meditation log missing'
 $tail = Get-Content $MeditationLogPath -Tail 100 -ErrorAction Stop
 Assert-True ((($tail -join "`n") -match 'JOB RESULT|IDLE tick=|MISSION CREATED')) 'No recent autonomous Meditation activity in log'
