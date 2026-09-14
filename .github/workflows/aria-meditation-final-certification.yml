@@ -32,7 +32,7 @@ jobs:
   certify:
     name: certify-physical-meditation-and-self-improvement
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
       ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
@@ -56,6 +56,12 @@ jobs:
           for /f %%H in ('git rev-parse HEAD') do set HEADSHA=%%H
           if not "%HEADSHA%"=="%SHA%" exit /b 1
           echo SOURCE_CHECKOUT_VERIFIED=PASS commit=%HEADSHA%
+
+      - name: ROBVG health diagnostics
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\agents\windows\robvg-health-diag.ps1"
+          if errorlevel 1 exit /b 1
 
       - name: Assert single-owner runtime boundary
         shell: cmd
