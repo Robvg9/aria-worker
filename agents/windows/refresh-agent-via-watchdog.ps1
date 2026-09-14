@@ -15,25 +15,24 @@ $tokenPath = Join-Path $dataDir 'device-token.dpapi'
 $sourceSha = [string]$env:ARIA_EXPECTED_SHA
 $probeResultPath = Join-Path $logDir 'cpau-probe-result.json'
 
-# --- P/Invoke: WTS + CreateProcessAsUser ---
+# --- P/Invoke: WTS + CreateProcessAsUser + privilege enable ---
 $cpauType = @'
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
 public class CPAU {
-    public const int WTS_CURRENT_SERVER_HANDLE = 0;
     public const int WTSActive = 0;
     public const uint TOKEN_ALL_ACCESS = 0x000F01FF;
-    public const uint TOKEN_DUPLICATE = 0x0002;
+    public const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
     public const uint TOKEN_QUERY = 0x0008;
-    public const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+    public const uint SE_PRIVILEGE_ENABLED = 0x00000002;
     public const uint SecurityImpersonation = 2;
     public const uint TokenPrimary = 1;
     public const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     public const uint CREATE_NO_WINDOW = 0x08000000;
     public const uint NORMAL_PRIORITY_CLASS = 0x00000020;
-    public const int MAX_PATH = 260;
+    public const int WTSUserName = 5;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct WTS_SESSION_INFO {
@@ -61,11 +60,22 @@ public class CPAU {
         public int dwThreadId;
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct LUID {
+        public uint LowPart;
+        public int HighPart;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
-    public struct SECURITY_ATTRIBUTES {
-        public int nLength;
-        public IntPtr lpSecurityDescriptor;
-        public int bInheritHandle;
+    public struct LUID_AND_ATTRIBUTES {
+        public LUID Luid;
+        public uint Attributes;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TOKEN_PRIVILEGES {
+        public uint PrivilegeCount;
+        public LUID_AND_ATTRIBUTES Privileges;
     }
 
     [DllImport("wtsapi32.dll", SetLastError = true)]
@@ -86,6 +96,18 @@ public class CPAU {
     [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern bool CreateProcessAsUser(IntPtr hToken, string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
 
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool LookupPrivilegeValue(string lpSystemName, string lpName, out LUID lpLuid);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool AdjustTokenPrivileges(IntPtr TokenHandle, bool DisableAllPrivileges, ref TOKEN_PRIVILEGES NewState, uint BufferLength, IntPtr PreviousState, IntPtr ReturnLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GetCurrentProcess();
+
     [DllImport("userenv.dll", SetLastError = true)]
     public static extern bool CreateEnvironmentBlock(out IntPtr lpEnvironment, IntPtr hToken, bool bInherit);
 
@@ -98,12 +120,40 @@ public class CPAU {
     [DllImport("kernel32.dll")]
     public static extern uint GetLastError();
 
-    public const int WTSUserName = 5;
+    public static bool EnableSeTcbPrivilege() {
+        IntPtr hToken = IntPtr.Zero;
+        try {
+            if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out hToken))
+                return false;
+            LUID luid;
+            if (!LookupPrivilegeValue(null, "SeTcbPrivilege", out luid))
+                return false;
+            TOKEN_PRIVILEGES tp = new TOKEN_PRIVILEGES();
+            tp.PrivilegeCount = 1;
+            tp.Privileges.Luid = luid;
+            tp.Privileges.Attributes = SE_PRIVILEGE_ENABLED;
+            if (!AdjustTokenPrivileges(hToken, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero))
+                return false;
+            // AdjustTokenPrivileges can return true even when privilege was not held;
+            // GetLastError == 1300 (ERROR_NOT_ALL_ASSIGNED) means it failed partially.
+            uint err = GetLastError();
+            return err == 0;
+        } finally {
+            if (hToken != IntPtr.Zero) CloseHandle(hToken);
+        }
+    }
 }
 '@
 
 if (-not ([System.Management.Automation.PSTypeName]'CPAU').Type) {
     Add-Type -TypeDefinition $cpauType -ErrorAction Stop
+}
+
+function Enable-TcbPrivilege {
+    $ok = [CPAU]::EnableSeTcbPrivilege()
+    $err = [CPAU]::GetLastError()
+    Write-Host ("SeTcbPrivilege_ENABLE ok=" + $ok + " lastError=" + $err)
+    return $ok
 }
 
 function Get-ActiveInteractiveSessionId {
@@ -121,7 +171,6 @@ function Get-ActiveInteractiveSessionId {
             $ptr = [IntPtr]::Add($ppSessionInfo, $i * $structSize)
             $info = [System.Runtime.InteropServices.Marshal]::PtrToStructure($ptr, [type][CPAU+WTS_SESSION_INFO])
             if ($info.State -eq [CPAU]::WTSActive -and $info.SessionId -gt 0) {
-                # verify username matches interactive user if possible
                 $buf = [IntPtr]::Zero
                 $bytes = 0
                 $nameOk = [CPAU]::WTSQuerySessionInformation([IntPtr]::Zero, $info.SessionId, [CPAU]::WTSUserName, [ref]$buf, [ref]$bytes)
@@ -134,11 +183,9 @@ function Get-ActiveInteractiveSessionId {
                 if ($userName -and ($userName -ieq 'robvg' -or $userName -match 'robvg')) {
                     return $info.SessionId
                 }
-                # fallback: first active non-zero session
                 if ($userName) { return $info.SessionId }
             }
         }
-        # last resort: any active >0
         for ($i = 0; $i -lt $count; $i++) {
             $ptr = [IntPtr]::Add($ppSessionInfo, $i * $structSize)
             $info = [System.Runtime.InteropServices.Marshal]::PtrToStructure($ptr, [type][CPAU+WTS_SESSION_INFO])
@@ -160,6 +207,12 @@ function Invoke-CreateProcessAsUser {
         [string]$WorkingDirectory,
         [string]$Label
     )
+    # Required: enable SeTcbPrivilege before WTSQueryUserToken
+    $privOk = Enable-TcbPrivilege
+    if (-not $privOk) {
+        Write-Host 'SeTcbPrivilege_NOT_ENABLED continuing_anyway'
+    }
+
     $sessionId = Get-ActiveInteractiveSessionId
     if ($sessionId -le 0) {
         Write-Host ("CPAU_" + $Label + "_NO_SESSION")
@@ -239,7 +292,6 @@ function Invoke-CreateProcessAsUser {
 }
 
 function Test-InteractiveUserProbe {
-    # Launch a short-lived process under the interactive user that proves identity + DPAPI
     if (Test-Path $probeResultPath) { Remove-Item $probeResultPath -Force -ErrorAction SilentlyContinue }
 
     $ps = (Get-Command powershell.exe).Source
@@ -275,7 +327,6 @@ function Test-InteractiveUserProbe {
     }
     Write-Host ("PROBE_LAUNCHED pid=" + $r.Pid)
 
-    # wait for result file
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Seconds 1
         if (Test-Path $probeResultPath) {
@@ -431,7 +482,6 @@ function Show-Diagnostics {
 function Start-WatchdogInInteractiveSession {
     Write-Host 'WATCHDOG_BOOTSTRAP_CPAU=START'
 
-    # Step 1: prove we can run under interactive user with working DPAPI
     $probeOk = Test-InteractiveUserProbe
     if (-not $probeOk) {
         Write-Host 'WATCHDOG_BOOTSTRAP_CPAU=PROBE_FAILED'
@@ -439,7 +489,6 @@ function Start-WatchdogInInteractiveSession {
     }
     Write-Host 'WATCHDOG_BOOTSTRAP_CPAU=PROBE_PASS'
 
-    # Step 2: launch real watchdog under the same token
     $ps = (Get-Command powershell.exe).Source
     $cmd = ('"{0}" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{1}"' -f $ps, $watchdogScript)
     $r = Invoke-CreateProcessAsUser -CommandLine $cmd -WorkingDirectory $runtimeDir -Label 'WATCHDOG'
@@ -457,7 +506,6 @@ function Start-WatchdogInInteractiveSession {
             Write-Host ("WATCHDOG_BOOTSTRAP_PID=" + $wp + " via=cpau")
             return $wp
         }
-        # also accept the direct CPAU pid if it is still alive and looks like powershell running run-agent
         if ($r.Pid -gt 0 -and (Test-ProcessExists -ProcessId $r.Pid)) {
             try {
                 $proc = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $r.Pid) -ErrorAction SilentlyContinue
