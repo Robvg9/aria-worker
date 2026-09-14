@@ -82,7 +82,7 @@ $xml = @"
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>ARIA Windows Local Agent v2 + Meditation IA</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>Limited</RunLevel></Principals>
+  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>Limited</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -101,13 +101,15 @@ Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
 $existingTask = $null
 try { $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop } catch {}
 if ($existingTask) {
-    Write-Host 'ARIA_TASK_ALREADY_EXISTS=REUSING_EXISTING_TASK'
+    Write-Host 'ARIA_TASK_ALREADY_EXISTS=RESTARTING_EXISTING_TASK'
     try {
-        & schtasks.exe /Run /TN $TaskName | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "schtasks /Run exit code: $LASTEXITCODE" }
+        & schtasks.exe /End /TN $TaskName | Out-Null
+        Start-Sleep -Seconds 2
     } catch {
-        Write-Host "ARIA_TASK_RUN_NONBLOCKING=$($_.Exception.Message)"
+        Write-Host "ARIA_TASK_END_NONBLOCKING=$($_.Exception.Message)"
     }
+    & schtasks.exe /Run /TN $TaskName | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "No se pudo reiniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
 } else {
     $result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
     if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
