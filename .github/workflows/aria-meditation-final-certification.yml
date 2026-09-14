@@ -61,6 +61,12 @@ jobs:
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $watchdog=Join-Path $runtime 'run-agent.ps1'; $agent=Join-Path $runtime 'aria-agent.js'; $meditation=Join-Path $runtime 'aria-meditation-controller.js'; $selfImprovement=Join-Path $runtime 'self-improvement-runtime.js'; if(-not(Test-Path $watchdog)){throw 'Watchdog runtime missing'}; if(-not(Test-Path $agent)){throw 'Agent runtime missing'}; if(-not(Test-Path $meditation)){throw 'Meditation runtime missing'}; if(-not(Test-Path $selfImprovement)){throw 'Self-improvement runtime missing'}; $text=Get-Content -Raw $watchdog; if($text -notmatch 'Global\\ARIA-Windows-Agent-Watchdog-v1'){throw 'Global watchdog mutex missing'}; Write-Host 'SINGLE_OWNER_BOUNDARY=PASS'; Write-Host 'RUNNER_DOES_NOT_OWN_AGENT_LIFECYCLE=PASS'"
           if errorlevel 1 exit /b 1
 
+      - name: Synchronize physical runtime source
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $repo=Join-Path $env:GITHUB_WORKSPACE 'agents\windows'; foreach($file in @('aria-agent.js','aria-meditation-controller.js','self-improvement-runtime.js','run-agent.ps1')){Copy-Item -Path (Join-Path $repo $file) -Destination (Join-Path $runtime $file) -Force}; foreach($dirName in @('autonomy','self-development','self-model')){$source=Join-Path $env:GITHUB_WORKSPACE $dirName;$dest=Join-Path 'D:\ARIA-Windows-Agent\Runtime' $dirName;New-Item -ItemType Directory -Force -Path $dest|Out-Null;Copy-Item -Path (Join-Path $source '*') -Destination $dest -Recurse -Force}; Write-Host 'PHYSICAL_RUNTIME_SYNC=PASS'; Write-Host ('MEDITATION_SOURCE_SHA=' + (Get-FileHash (Join-Path $runtime 'aria-meditation-controller.js') -Algorithm SHA256).Hash)"
+          if errorlevel 1 exit /b 1
+
       - name: Refresh agent through watchdog owner
         shell: cmd
         run: |
