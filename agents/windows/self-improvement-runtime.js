@@ -18,8 +18,9 @@ function parseSelfImprovementPayload(job, deviceId) {
   let payload;
   try { payload = JSON.parse(job.command); } catch { throw new Error('self_improvement_payload_invalid_json'); }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('self_improvement_payload_invalid');
-  const allowed = ['goal', 'category', 'risk', 'scope', 'proposed_changes', 'mission_id', 'step_id'];
+  const allowed = ['goal', 'category', 'risk', 'scope', 'proposed_changes', 'mission_id', 'step_id', 'device_id'];
   if (Object.keys(payload).some((key) => !allowed.includes(key))) throw new Error('self_improvement_payload_field_rejected');
+  if (payload.device_id !== undefined && String(payload.device_id) !== String(deviceId)) throw new Error('self_improvement_payload_device_mismatch');
   if (typeof payload.goal !== 'string' || !payload.goal.trim()) throw new Error('self_improvement_goal_required');
   if (!SAFE_CATEGORIES.has(String(payload.category || 'capability_gap'))) throw new Error('self_improvement_category_rejected');
   if (!SAFE_RISKS.has(String(payload.risk || 'LOW').toUpperCase())) throw new Error('self_improvement_risk_rejected');
