@@ -12,6 +12,8 @@ assert.equal(typeof createFileStateStore, 'function');
 assert.equal(typeof createMeditationController, 'function');
 assert.equal(typeof createWindowsMeditationController, 'function');
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 (async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aria-meditation-'));
   const store = createFileStateStore({ root_dir: root });
@@ -36,7 +38,13 @@ assert.equal(typeof createWindowsMeditationController, 'function');
   assert.equal(controller.status().version, 'aria-meditation-ia-v1');
   assert.equal(controller.status().mode, 'active');
   const t0 = controller.status().tick_count;
-  await controller.tick('test');
+  let tickResult = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    tickResult = await controller.tick('test');
+    if (tickResult.status !== 'busy') break;
+    await sleep(10);
+  }
+  assert.notEqual(tickResult?.status, 'busy');
   assert.ok(controller.status().tick_count > t0);
   assert.equal(controller.status().last_result.status, 'idle');
 
