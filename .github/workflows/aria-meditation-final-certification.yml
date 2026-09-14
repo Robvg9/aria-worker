@@ -1,0 +1,157 @@
+name: ARIA Meditation IA Final Physical Certification
+
+on:
+  push:
+    branches:
+      - aria/self-improvement-v1-main
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/**'
+      - 'self-development/**'
+      - 'self-model/**'
+      - '.github/workflows/aria-meditation-final-certification.yml'
+
+concurrency:
+  group: aria-meditation-final-certification-windows
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    name: certify-physical-meditation-and-self-improvement
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    env:
+      ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
+      ARIA_CERT_PORT: '45874'
+      ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
+      ARIA_CERT_LOG: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert\ARIA-Meditation-IA.txt'
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout exact pushed source
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:GIT_TERMINAL_PROMPT='0'
+          git config --global --add safe.directory "$PWD" 2>$null
+          git reset --hard HEAD
+          git clean -ffdx
+          git update-ref -d refs/remotes/aria-target 2>$null
+          $fetchSpec = "+${env:GITHUB_SHA}:refs/remotes/aria-target"
+          $basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GITHUB_TOKEN"))
+          git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $basic"
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 fetch --no-tags --depth=1 origin $fetchSpec
+          if($LASTEXITCODE -ne 0){throw "git fetch failed: $LASTEXITCODE"}
+          git checkout --force refs/remotes/aria-target
+          $head=(git rev-parse HEAD).Trim()
+          if($head -ne $env:GITHUB_SHA){throw "Unexpected checkout: $head expected $env:GITHUB_SHA"}
+          Write-Host 'SOURCE_CHECKOUT_VERIFIED=PASS'
+
+      - name: Install ARIA Windows runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
+          if($LASTEXITCODE -ne 0){throw "ARIA installer failed with exit code $LASTEXITCODE"}
+          Write-Host 'ARIA_INSTALL=PASS'
+
+      - name: Start isolated Meditation IA certification controller
+        run: |
+          $ErrorActionPreference='Stop'
+          $node=(Get-Command node.exe -ErrorAction Stop).Source
+          $controller='D:\ARIA-Windows-Agent\Runtime\windows\aria-meditation-controller.js'
+          if(-not(Test-Path $controller)){throw "Controller missing: $controller"}
+          $root=$env:ARIA_CERT_ROOT
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Remove-Item -LiteralPath (Join-Path $root 'controller.lock') -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $root 'state.json') -Force -ErrorAction SilentlyContinue
+          $env:ARIA_WINDOWS_AGENT_ROOT='D:\ARIA-Windows-Agent\Runtime\windows'
+          $env:ARIA_MEDITATION_ROOT=$root
+          $env:ARIA_MEDITATION_LOG=$env:ARIA_CERT_LOG
+          $env:ARIA_MEDITATION_PORT=$env:ARIA_CERT_PORT
+          $env:ARIA_MEDITATION_HEARTBEAT_MS='1000'
+          $env:ARIA_MEDITATION_MIN_IDLE_SECONDS='0'
+          $env:ARIA_DEVICE_ID=$env:ARIA_TARGET_DEVICE_ID
+          $env:ARIA_DEVICE_GATEWAY_URL='https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
+          $tokenPath='D:\ARIA-Windows-Agent\Data\device-token.dpapi'
+          if(-not(Test-Path $tokenPath)){throw 'ARIA token store missing'}
+          $encrypted=(Get-Content -Raw $tokenPath).Trim()
+          $secure=$encrypted | ConvertTo-SecureString -ErrorAction Stop
+          $ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+          try {$env:ARIA_DEVICE_TOKEN=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
+          if([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)){throw 'ARIA device token could not be resolved'}
+          $proc=Start-Process -FilePath $node -ArgumentList @($controller) -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows' -PassThru -WindowStyle Hidden
+          Set-Content -Path (Join-Path $root 'controller.pid') -Value $proc.Id -Encoding ASCII
+          Write-Host "MEDITATION_CERT_CONTROLLER_PID=$($proc.Id)"
+          Write-Host 'MEDITATION_CERT_CONTROLLER_STARTED=PASS'
+
+      - name: Verify isolated Meditation IA heartbeat
+        run: |
+          $ErrorActionPreference='Stop'
+          $u="http://127.0.0.1:$($env:ARIA_CERT_PORT)/status"
+          $s=$null
+          for($i=0;$i-lt30;$i++){
+            try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($s){break}}catch{}
+            Start-Sleep -Seconds 1
+          }
+          if(-not$s){throw 'Meditation certification endpoint unavailable'}
+          if($s.version -ne 'aria-meditation-ia-v1'){throw "Unexpected Meditation IA version: $($s.version)"}
+          if($s.mode -ne 'active'){
+            $r=Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($env:ARIA_CERT_PORT)/start" -TimeoutSec 10
+            Write-Host "MEDITATION_START_STATUS=$($r.status)"
+            Start-Sleep -Seconds 2
+            $s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          }
+          if($s.mode -ne 'active'){throw "Meditation IA not active: $($s.mode)"}
+          $t0=[int]$s.tick_count
+          Start-Sleep -Seconds 5
+          $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          if($s2.mode -ne 'active'){throw "Meditation IA lost active mode: $($s2.mode)"}
+          if([int]$s2.tick_count -le $t0){throw "Meditation tick did not advance: $t0 -> $($s2.tick_count)"}
+          if($null -eq $s2.last_result){throw 'Meditation IA produced no tick result'}
+          Write-Host 'MEDITATION_IA_AUTOSTART=PASS'
+          Write-Host "MEDITATION_TICK_ADVANCE=$t0->$($s2.tick_count)"
+          Write-Host ('MEDITATION_LAST_RESULT=' + ($s2.last_result | ConvertTo-Json -Compress -Depth 10))
+
+      - name: Physical self-improvement execution proof
+        run: |
+          $ErrorActionPreference='Stop'
+          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
+          if(-not(Test-Path $runtime)){throw 'Self-improvement runtime missing'}
+          $job=@{
+            device_id=$env:ARIA_TARGET_DEVICE_ID
+            operation='self.improve'
+            command=(@{
+              goal='Final physical Windows self-improvement certification smoke proof'
+              category='reliability'
+              risk='LOW'
+              scope=@('physical-certification.js')
+              proposed_changes=@(@{path='physical-certification.js';content="module.exports = { status: 'ok' };";risk_level='LOW'})
+              mission_id='aria-meditation-final-certification'
+              step_id='physical-self-improvement'
+            } | ConvertTo-Json -Compress -Depth 10)
+          } | ConvertTo-Json -Compress -Depth 10
+          $out=& node -e "const {executeSelfImprovementJob}=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); const job=JSON.parse(process.env.ARIA_SELF_IMPROVEMENT_JOB); executeSelfImprovementJob(job, process.env.ARIA_CERT_DEVICE_ID).then(r=>{console.log(JSON.stringify(r)); if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified') process.exit(1)}).catch(e=>{console.error(e.stack||e);process.exit(1)})" 2>&1
+          if($LASTEXITCODE -ne 0){$out | Write-Host; throw 'Physical self-improvement execution failed'}
+          $out | Write-Host
+          if(-not(Test-Path 'D:\ARIA-Windows-Agent\Data\self-improvement-last.json')){throw 'Self-improvement evidence file missing'}
+          $ev=Get-Content -Raw 'D:\ARIA-Windows-Agent\Data\self-improvement-last.json' | ConvertFrom-Json
+          if([string]::IsNullOrWhiteSpace($ev.objective)){throw 'Self-improvement evidence objective missing'}
+          Write-Host 'PHYSICAL_SELF_IMPROVEMENT=PASS'
+          Write-Host 'PHYSICAL_SELF_IMPROVEMENT_EVIDENCE=PASS'
+        env:
+          ARIA_CERT_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
+          ARIA_SELF_IMPROVEMENT_JOB: ${{ toJSON(fromJSON('{}')) }}
+
+      - name: Final physical proof marker
+        run: |
+          Write-Host 'ARIA_SELF_IMPROVEMENT_WINDOWS_PHYSICAL_E2E=PASS'
+          Write-Host 'STATUS=PHYSICAL_RUNTIME_MEDITATION_AND_SELF_IMPROVEMENT_VERIFIED'
+
+      - name: Cleanup certification controller
+        if: always()
+        run: |
+          $pidFile=Join-Path $env:ARIA_CERT_ROOT 'controller.pid'
+          if(Test-Path $pidFile){try{$p=[int](Get-Content -Raw $pidFile).Trim();Stop-Process -Id $p -Force -ErrorAction SilentlyContinue}catch{}}
