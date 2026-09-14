@@ -9,6 +9,7 @@ on:
       - 'autonomy/**'
       - 'self-development/**'
       - 'self-model/**'
+      - 'tests/**'
       - '.github/workflows/aria-meditation-final-certification.yml'
   pull_request:
     branches:
@@ -18,6 +19,7 @@ on:
       - 'autonomy/**'
       - 'self-development/**'
       - 'self-model/**'
+      - 'tests/**'
       - '.github/workflows/aria-meditation-final-certification.yml'
 
 concurrency:
@@ -31,7 +33,7 @@ jobs:
   certify:
     name: certify-physical-meditation-and-self-improvement
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
       ARIA_CERT_PORT: '45874'
@@ -68,13 +70,95 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "ARIA installer failed with exit code $LASTEXITCODE"}
           Write-Host 'ARIA_INSTALL=PASS'
 
-      - name: Validate Meditation controller load path
+      - name: Verify persistent startup and watchdog state
+        run: |
+          $ErrorActionPreference='Stop'
+          $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          $runValue=(Get-ItemProperty -Path $runKey -Name 'ARIA-Windows-Local-Agent' -ErrorAction SilentlyContinue).'ARIA-Windows-Local-Agent'
+          if([string]::IsNullOrWhiteSpace($runValue) -or $runValue -notmatch 'run-agent\.ps1'){throw 'ARIA user autostart entry missing'}
+          if(-not(Test-Path 'D:\ARIA-Windows-Agent\Logs\watchdog.pid')){throw 'ARIA watchdog pid marker missing'}
+          $watchdogPid=[int](Get-Content -Raw 'D:\ARIA-Windows-Agent\Logs\watchdog.pid').Trim()
+          Get-Process -Id $watchdogPid -ErrorAction Stop | Out-Null
+          $statusPath='D:\ARIA-Windows-Agent\Logs\status.json'
+          if(-not(Test-Path $statusPath)){throw 'ARIA watchdog status missing'}
+          $status=Get-Content -Raw $statusPath | ConvertFrom-Json
+          if($status.state -notin @('agent_running','agent_restarting')){throw "Unexpected watchdog state: $($status.state)"}
+          Write-Host 'ARIA_USER_AUTOSTART=PASS'
+          Write-Host "ARIA_WATCHDOG_PID=$watchdogPid"
+          Write-Host "ARIA_WATCHDOG_STATE=$($status.state)"
+          Write-Host 'PERSISTENCE_STAGE=PASS'
+
+      - name: Validate installed Meditation controller load path
         run: |
           $ErrorActionPreference='Stop'
           $runtime='D:\ARIA-Windows-Agent\Runtime\windows\aria-meditation-controller.js'
           if(-not(Test-Path $runtime)){throw 'Meditation controller missing'}
           & node -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-meditation-controller.js'); if(typeof x.createWindowsMeditationController!=='function') process.exit(1); console.log('MEDITATION_CONTROLLER_LOAD=PASS')"
           if($LASTEXITCODE -ne 0){throw 'Meditation controller require failed'}
+
+      - name: Verify live Meditation IA and gateway integration
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $s=$null
+          for($i=0;$i-lt60;$i++){
+            try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($s -and $s.version){break}}catch{}
+            Start-Sleep -Seconds 1
+          }
+          if(-not$s){throw 'Live Meditation IA endpoint unavailable'}
+          if($s.version -ne 'aria-meditation-ia-v1'){throw "Unexpected live Meditation IA version: $($s.version)"}
+          if($s.mode -ne 'active'){throw "Live Meditation IA not active: $($s.mode)"}
+          $t0=[int]$s.tick_count
+          Start-Sleep -Seconds 6
+          $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          if($s2.mode -ne 'active'){throw "Live Meditation IA lost active mode: $($s2.mode)"}
+          if([int]$s2.tick_count -le $t0){throw "Live Meditation tick did not advance: $t0 -> $($s2.tick_count)"}
+          if($null -eq $s2.last_result){throw 'Live Meditation produced no result'}
+          $lr=$s2.last_result
+          if($lr.error -eq 'meditation_gateway_config_missing'){throw 'Live Meditation gateway configuration missing'}
+          $gatewayEvidence=($lr.PSObject.Properties.Name | Where-Object {$_ -in @('recovered','learning','goalSync','mission_created','active_mission_id','runtime')})
+          if(-not$gatewayEvidence){throw 'Live Meditation result lacks gateway evidence fields'}
+          $medProcesses=@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -and $_.CommandLine -match 'aria-agent\.js'})
+          if($medProcesses.Count -ne 1){throw "Expected exactly one ARIA agent process, found $($medProcesses.Count)"}
+          Write-Host 'MEDITATION_LIVE_VERSION=PASS'
+          Write-Host "MEDITATION_TICK_ADVANCE=$t0->$($s2.tick_count)"
+          Write-Host ('MEDITATION_GATEWAY_RESULT=' + ($lr | ConvertTo-Json -Compress -Depth 12))
+          Write-Host 'MEDITATION_GATEWAY_INTEGRATION=PASS'
+          Write-Host 'SINGLE_AGENT_INSTANCE=PASS'
+          Write-Host 'INTEGRATION_STAGE=PASS'
+
+      - name: Verify watchdog recovery of Meditation IA
+        run: |
+          $ErrorActionPreference='Stop'
+          $statusPath='D:\ARIA-Windows-Agent\Logs\status.json'
+          $killPath='D:\ARIA-Windows-Agent\Logs\kill-request'
+          $before=Get-Content -Raw $statusPath | ConvertFrom-Json
+          if([string]::IsNullOrWhiteSpace([string]$before.agent_pid)){throw 'No current ARIA agent pid before recovery test'}
+          Set-Content -Path $killPath -Value 'final-cert-recovery' -Encoding UTF8 -Force
+          $newStatus=$null
+          for($i=0;$i-lt60;$i++){
+            try{$newStatus=Get-Content -Raw $statusPath | ConvertFrom-Json}catch{}
+            if($newStatus -and $newStatus.state -eq 'agent_running' -and [string]$newStatus.agent_pid -ne [string]$before.agent_pid){break}
+            Start-Sleep -Seconds 1
+          }
+          if(-not$newStatus -or $newStatus.state -ne 'agent_running'){throw 'ARIA watchdog did not recover the agent'}
+          if([string]$newStatus.agent_pid -eq [string]$before.agent_pid){throw 'ARIA agent pid did not change during recovery'}
+          $u='http://127.0.0.1:45873/status'
+          $s=$null
+          for($i=0;$i-lt60;$i++){
+            try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($s.version -eq 'aria-meditation-ia-v1' -and $s.mode -eq 'active'){break}}catch{}
+            Start-Sleep -Seconds 1
+          }
+          if(-not$s -or $s.version -ne 'aria-meditation-ia-v1' -or $s.mode -ne 'active'){throw 'Meditation IA did not recover to active state'}
+          $t0=[int]$s.tick_count
+          Start-Sleep -Seconds 5
+          $s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          if([int]$s2.tick_count -le $t0){throw "Recovered Meditation tick did not advance: $t0 -> $($s2.tick_count)"}
+          if($s2.version -ne 'aria-meditation-ia-v1' -or $s2.mode -ne 'active'){throw 'Recovered Meditation state invalid'}
+          Write-Host "ARIA_AGENT_RECOVERY=$($before.agent_pid)->$($newStatus.agent_pid)"
+          Write-Host "MEDITATION_RECOVERY_TICK=$t0->$($s2.tick_count)"
+          Write-Host 'WATCHDOG_MEDITATION_RECOVERY=PASS'
+          Write-Host 'RECOVERY_STAGE=PASS'
 
       - name: Start isolated Meditation IA certification controller
         run: |
@@ -101,7 +185,7 @@ jobs:
           Start-Sleep -Seconds 2
           if($proc.HasExited){throw "Meditation controller exited immediately code=$($proc.ExitCode)"}
 
-      - name: Verify isolated Meditation IA heartbeat
+      - name: Verify isolated Meditation IA lifecycle
         run: |
           $ErrorActionPreference='Stop'
           $u="http://127.0.0.1:$($env:ARIA_CERT_PORT)/status"
@@ -112,12 +196,6 @@ jobs:
           }
           if(-not$s){throw 'Meditation certification endpoint unavailable'}
           if($s.version -ne 'aria-meditation-ia-v1'){throw "Unexpected Meditation IA version: $($s.version)"}
-          if($s.mode -ne 'active'){
-            $r=Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($env:ARIA_CERT_PORT)/start" -TimeoutSec 10
-            Write-Host "MEDITATION_START_STATUS=$($r.status)"
-            Start-Sleep -Seconds 2
-            $s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
-          }
           if($s.mode -ne 'active'){throw "Meditation IA not active: $($s.mode)"}
           $t0=[int]$s.tick_count
           Start-Sleep -Seconds 5
@@ -125,10 +203,8 @@ jobs:
           if($s2.mode -ne 'active'){throw "Meditation IA lost active mode: $($s2.mode)"}
           if([int]$s2.tick_count -le $t0){throw "Meditation tick did not advance: $t0 -> $($s2.tick_count)"}
           if($null -eq $s2.last_result){throw 'Meditation IA produced no tick result'}
-          Write-Host 'MEDITATION_IA_AUTOSTART=PASS'
-          Write-Host "MEDITATION_TICK_ADVANCE=$t0->$($s2.tick_count)"
-          Write-Host ('MEDITATION_LAST_RESULT=' + ($s2.last_result | ConvertTo-Json -Compress -Depth 10))
-          Write-Host 'MEDITATION_LOCAL_HEARTBEAT=PASS'
+          Write-Host 'MEDITATION_IA_LIFECYCLE=PASS'
+          Write-Host "MEDITATION_CERT_TICK_ADVANCE=$t0->$($s2.tick_count)"
 
       - name: Physical self-improvement execution proof
         env:
@@ -160,11 +236,13 @@ jobs:
           if([string]::IsNullOrWhiteSpace($ev.objective)){throw 'Self-improvement evidence objective missing'}
           Write-Host 'PHYSICAL_SELF_IMPROVEMENT=PASS'
           Write-Host 'PHYSICAL_SELF_IMPROVEMENT_EVIDENCE=PASS'
+          Write-Host 'CERTIFICATION_STAGE=PASS'
 
       - name: Final physical proof marker
         run: |
           Write-Host 'ARIA_SELF_IMPROVEMENT_WINDOWS_PHYSICAL_E2E=PASS'
           Write-Host 'STATUS=PHYSICAL_RUNTIME_MEDITATION_AND_SELF_IMPROVEMENT_VERIFIED'
+          Write-Host 'MEDITATION_IA_PHASE=100_PERCENT_CERTIFIED'
 
       - name: Cleanup certification controller
         if: always()
