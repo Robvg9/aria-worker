@@ -1,7 +1,22 @@
 $ErrorActionPreference = 'Stop'
 
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
-function Get-MeditationState { $p='D:\ARIA-Windows-Agent\Runtime\meditation\state.json'; try { if(Test-Path $p){ return Get-Content -Raw $p | ConvertFrom-Json } } catch {}; return $null }
+function Get-MeditationState {
+  $p='D:\ARIA-Windows-Agent\Runtime\meditation\state.json'
+  for($i=0;$i -lt 80;$i++) {
+    try {
+      if(Test-Path $p) {
+        $raw=Get-Content -Raw $p -ErrorAction Stop
+        if($raw.Trim()) {
+          $state=$raw|ConvertFrom-Json -ErrorAction Stop
+          if($null -ne $state){ return $state }
+        }
+      }
+    } catch {}
+    Start-Sleep -Milliseconds 250
+  }
+  return $null
+}
 function Get-MeditationStatusLoopback { try { $raw=& curl.exe --noproxy '*' -sS --max-time 5 'http://127.0.0.1:45873/status' 2>$null|Out-String; if($raw.Trim()){return $raw|ConvertFrom-Json} } catch {}; return $null }
 
 $RuntimeRoot='D:\ARIA-Windows-Agent'; $RuntimeDir=Join-Path $RuntimeRoot 'Runtime\windows'; $DataDir=Join-Path $RuntimeRoot 'Data'; $LogDir=Join-Path $RuntimeRoot 'Logs'; $StatusPath=Join-Path $LogDir 'status.json'; $PidPath=Join-Path $LogDir 'agent.pid'; $KillRequestPath=Join-Path $LogDir 'kill-request'; $RepoRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot); $MeditationStatePath=Join-Path $RuntimeRoot 'Runtime\meditation\state.json'; $MeditationLogPath=Join-Path $RuntimeRoot 'Runtime\meditation\ARIA-Meditation-IA.txt'
