@@ -34,7 +34,36 @@ async function ensureLogFile() {
   }
 }
 
-function openNotepad() {
+function isPathInCommandLine(commandLine) {
+  if (typeof commandLine !== 'string' || !commandLine.trim()) return false;
+  const normalizedCommand = commandLine.replace(/\\+/g, '/').toLowerCase();
+  const normalizedLog = path.resolve(LOG_PATH).replace(/\\+/g, '/').toLowerCase();
+  return normalizedCommand.includes(normalizedLog);
+}
+
+function findExistingNotepad() {
+  return new Promise(resolve => {
+    const ps = `$ErrorActionPreference='SilentlyContinue'; Get-CimInstance Win32_Process -Filter "Name='notepad.exe'" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`;
+    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    const timeout = setTimeout(() => { try { p.kill(); } catch {} resolve(null); }, 5000);
+    p.stdout.on('data', chunk => { out += chunk.toString(); });
+    p.on('error', () => { clearTimeout(timeout); resolve(null); });
+    p.on('close', () => {
+      clearTimeout(timeout);
+      try {
+        const raw = JSON.parse(out.trim());
+        const processes = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+        const match = processes.find(item => isPathInCommandLine(item?.CommandLine));
+        resolve(match ? Number(match.ProcessId) : null);
+      } catch { resolve(null); }
+    });
+  });
+}
+
+async function openNotepad() {
+  const existingPid = await findExistingNotepad();
+  if (existingPid) return { status: 'already_open', pid: existingPid };
   return new Promise(resolve => {
     const p = spawn('notepad.exe', [LOG_PATH], { detached: true, windowsHide: false, stdio: 'ignore' });
     p.unref();
@@ -147,7 +176,7 @@ function createWindowsMeditationController() {
     if (notepadOpened) return { status: 'already_open' };
     const result = await openNotepad();
     notepadOpened = true;
-    await appendLog(`NOTEPAD_OPENED pid=${result.pid ?? 'unknown'}`);
+    await appendLog(`NOTEPAD_${result.status === 'already_open' ? 'REUSED' : 'OPENED'} pid=${result.pid ?? 'unknown'}`);
     return result;
   };
   const core = createMeditationController({
