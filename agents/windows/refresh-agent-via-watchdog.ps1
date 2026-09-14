@@ -193,30 +193,54 @@ function Start-WatchdogInInteractiveSession {
     ) -join "`r`n"
     Set-Content -Path $launcher -Value $launcherBody -Encoding ASCII -Force
 
+    # Always clean previous task first
     try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+    try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
 
     $registered = $false
-    try {
-        $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`"" -WorkingDirectory $runtimeDir
-        $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-        Register-ScheduledTask -TaskName $bootstrapTaskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+    $tr = "`"$ps`" -NoProfile -ExecutionPolicy Bypass -File `"$launcher`""
+
+    # PRIMARY PATH: schtasks.exe (SYSTEM can create /IT tasks for interactive user)
+    Write-Host "WATCHDOG_SCHTASKS_PRIMARY=START"
+    $createOut = & schtasks.exe /Create /TN $bootstrapTaskName /TR $tr /SC ONCE /ST 00:00 /RU $userId /IT /F 2>&1
+    $createExit = $LASTEXITCODE
+    Write-Host "WATCHDOG_SCHTASKS_CREATE exit=$createExit out=$createOut"
+
+    if ($createExit -eq 0) {
         $registered = $true
-        Write-Host 'WATCHDOG_TASK_REGISTERED=PASS'
-        Start-ScheduledTask -TaskName $bootstrapTaskName
-        Write-Host 'WATCHDOG_TASK_STARTED=PASS'
-    } catch {
-        Write-Host "WATCHDOG_TASK_CMDLET_FAILED=$($_.Exception.Message)"
-        $tr = "$ps -NoProfile -ExecutionPolicy Bypass -File `"$launcher`""
-        $create = & schtasks.exe /Create /TN $bootstrapTaskName /TR $tr /SC ONCE /ST 23:59 /RU $userId /IT /F 2>&1
-        Write-Host "WATCHDOG_SCHTASKS_CREATE=$create"
-        $run = & schtasks.exe /Run /TN $bootstrapTaskName 2>&1
-        Write-Host "WATCHDOG_SCHTASKS_RUN=$run"
-        $registered = $true
+        Write-Host 'WATCHDOG_TASK_REGISTERED=PASS via=schtasks'
+        $runOut = & schtasks.exe /Run /TN $bootstrapTaskName 2>&1
+        $runExit = $LASTEXITCODE
+        Write-Host "WATCHDOG_SCHTASKS_RUN exit=$runExit out=$runOut"
+        if ($runExit -eq 0) {
+            Write-Host 'WATCHDOG_TASK_STARTED=PASS via=schtasks'
+        } else {
+            Write-Host "WATCHDOG_TASK_STARTED=FAIL via=schtasks exit=$runExit"
+        }
+    } else {
+        Write-Host "WATCHDOG_SCHTASKS_CREATE=FAIL exit=$createExit — falling back to Register-ScheduledTask cmdlet"
+        try {
+            $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`"" -WorkingDirectory $runtimeDir
+            $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+            Register-ScheduledTask -TaskName $bootstrapTaskName -Action $action -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+            $registered = $true
+            Write-Host 'WATCHDOG_TASK_REGISTERED=PASS via=cmdlet'
+            Start-ScheduledTask -TaskName $bootstrapTaskName -ErrorAction Stop
+            Write-Host 'WATCHDOG_TASK_STARTED=PASS via=cmdlet'
+        } catch {
+            Write-Host "WATCHDOG_TASK_CMDLET_FAILED=$($_.Exception.Message)"
+            $registered = $false
+        }
+    }
+
+    if (-not $registered) {
+        Write-Host 'WATCHDOG_BOOTSTRAP=FAIL no task registered'
+        return 0
     }
 
     $wp = 0
-    for ($i = 0; $i -lt 20; $i++) {
+    for ($i = 0; $i -lt 30; $i++) {
         Start-Sleep -Seconds 2
         $wp = Read-WatchdogPid
         if ($wp -gt 0 -and (Test-ProcessExists -ProcessId $wp)) {
@@ -227,11 +251,26 @@ function Start-WatchdogInInteractiveSession {
             $info = Get-ScheduledTaskInfo -TaskName $bootstrapTaskName -ErrorAction SilentlyContinue
             if ($info) { Write-Host "WATCHDOG_TASK_RESULT t=$($i * 2)s last=$($info.LastTaskResult)" }
         } catch {}
+        # also scan for live run-agent.ps1 process
+        try {
+            $live = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+                $_.CommandLine -and $_.CommandLine -like '*run-agent.ps1*'
+            }
+            if (@($live).Count -gt 0) {
+                $cand = [int]$live[0].ProcessId
+                if (Test-ProcessExists -ProcessId $cand) {
+                    Write-Host "WATCHDOG_BOOTSTRAP_PID=$cand via=process_scan"
+                    $wp = $cand
+                    break
+                }
+            }
+        } catch {}
     }
-    if ($registered) {
-        try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
-        try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
-    }
+
+    # cleanup task after launch attempt
+    try { Unregister-ScheduledTask -TaskName $bootstrapTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+    try { & schtasks.exe /Delete /TN $bootstrapTaskName /F 2>$null | Out-Null } catch {}
+
     if ($wp -le 0) { Write-Host "WATCHDOG_BOOTSTRAP_PID=$wp via=interactive_user_timeout" }
     return $wp
 }
