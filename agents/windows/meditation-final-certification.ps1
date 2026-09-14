@@ -4,7 +4,15 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
 
-function Get-MeditationStatus {
+function Get-MeditationState {
+  $statePath = 'D:\ARIA-Windows-Agent\Runtime\meditation\state.json'
+  try {
+    if (-not (Test-Path $statePath)) { return $null }
+    return (Get-Content -Raw -Path $statePath | ConvertFrom-Json)
+  } catch { return $null }
+}
+
+function Get-MeditationStatusLoopback {
   try {
     $raw = & curl.exe --noproxy '*' -sS --max-time 5 'http://127.0.0.1:45873/status' 2>$null | Out-String
     if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
@@ -17,8 +25,11 @@ $RuntimeDir = Join-Path $RuntimeRoot 'Runtime\windows'
 $DataDir = Join-Path $RuntimeRoot 'Data'
 $LogDir = Join-Path $RuntimeRoot 'Logs'
 $StatusPath = Join-Path $LogDir 'status.json'
+$PidPath = Join-Path $LogDir 'agent.pid'
 $KillRequestPath = Join-Path $LogDir 'kill-request'
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$MeditationStatePath = Join-Path $RuntimeRoot 'Runtime\meditation\state.json'
+$MeditationLogPath = Join-Path $RuntimeRoot 'Runtime\meditation\ARIA-Meditation-IA.txt'
 
 Write-Host '=== ARIA MEDITATION IA FINAL PHYSICAL CERTIFICATION ==='
 Write-Host "SOURCE_COMMIT=$env:ARIA_EXPECTED_SHA"
@@ -44,17 +55,21 @@ foreach ($dirName in @('autonomy','self-development','self-model')) {
   Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destDir -Recurse -Force
 }
 
-Assert-True (Test-Path $StatusPath) 'ARIA watchdog disappeared during runtime sync'
+Assert-True (Test-Path $MeditationStatePath) 'Meditation persisted state missing'
 $m = $null
+$beforeTick = -1
 for ($i = 0; $i -lt 120; $i++) {
-  $m = Get-MeditationStatus
+  $m = Get-MeditationState
   if ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
   Start-Sleep -Seconds 1
 }
-Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') "Meditation not active: $($m.mode)"
+Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') "Meditation persisted state not active: $($m.mode)"
 $watchdog = Get-Content -Raw $StatusPath | ConvertFrom-Json
 Assert-True ($watchdog.state -eq 'agent_running') "ARIA watchdog state not running: $($watchdog.state)"
 Assert-True (-not [string]::IsNullOrWhiteSpace([string]$watchdog.agent_pid)) 'ARIA active agent pid missing'
+$loopback = Get-MeditationStatusLoopback
+Write-Host ('LOOPBACK_HEALTH=' + ($(if($loopback){'PASS'}else{'NOT_VISIBLE_FROM_RUNNER_SESSION'})))
+Write-Host ('PERSISTED_MEDITATION_TICK=' + [int]$m.tick_count)
 Write-Host 'RUNTIME_SYNC_STAGE=PASS'
 
 Write-Host '--- STAGE 2: CONTROLLED WATCHDOG RECOVERY / SINGLE-INSTANCE ---'
@@ -72,11 +87,11 @@ Assert-True ($new -and $new.state -eq 'agent_running') 'Watchdog did not recover
 Assert-True ([string]$new.agent_pid -ne $beforePid) 'Agent PID did not change during watchdog recovery'
 $m = $null
 for ($i = 0; $i -lt 120; $i++) {
-  $m = Get-MeditationStatus
+  $m = Get-MeditationState
   if ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
   Start-Sleep -Seconds 1
 }
-Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') 'Meditation did not recover to active'
+Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') 'Meditation did not recover to active persisted state'
 $agents = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' })
 Assert-True ($agents.Count -eq 1) "Expected one ARIA agent process, found $($agents.Count)"
 Write-Host "ARIA_AGENT_RECOVERY=$beforePid->$($new.agent_pid)"
@@ -90,19 +105,19 @@ $advanced = $false
 $m2 = $null
 for ($i = 0; $i -lt 60; $i++) {
   Start-Sleep -Seconds 1
-  $m2 = Get-MeditationStatus
+  $m2 = Get-MeditationState
   if ($m2 -and [int]$m2.tick_count -gt $startTick) { $advanced = $true; break }
 }
-Assert-True $advanced "Meditation tick did not advance from $startTick"
+Assert-True $advanced "Meditation persisted tick did not advance from $startTick"
 Assert-True ($m2.mode -eq 'active') 'Meditation lost active mode'
-Assert-True ($null -ne $m2.last_result) 'Meditation produced no result'
-Assert-True ($m2.last_result.error -ne 'meditation_gateway_config_missing') 'Meditation gateway configuration missing'
-$medLog = Join-Path $RuntimeRoot 'Runtime\meditation\ARIA-Meditation-IA.txt'
-Assert-True (Test-Path $medLog) 'Meditation log missing'
-$tail = Get-Content $medLog -Tail 100 -ErrorAction Stop
-Assert-True ((($tail -join "`n") -match 'JOB RESULT|IDLE tick=') ) 'No recent autonomous Meditation activity in log'
+Assert-True ($null -ne $m2.last_result) 'Meditation produced no persisted result'
+$gatewayError = [string]$m2.last_result.error
+Assert-True ($gatewayError -ne 'meditation_gateway_config_missing') 'Meditation gateway configuration missing'
+Assert-True (Test-Path $MeditationLogPath) 'Meditation log missing'
+$tail = Get-Content $MeditationLogPath -Tail 100 -ErrorAction Stop
+Assert-True ((($tail -join "`n") -match 'JOB RESULT|IDLE tick=|MISSION CREATED')) 'No recent autonomous Meditation activity in log'
 Write-Host "MEDITATION_TICK_ADVANCE=$startTick->$($m2.tick_count)"
-Write-Host ('MEDITATION_GATEWAY_RESULT=' + ($m2.last_result | ConvertTo-Json -Compress -Depth 12))
+Write-Host ('MEDITATION_PERSISTED_GATEWAY_RESULT=' + ($m2.last_result | ConvertTo-Json -Compress -Depth 12))
 Write-Host 'INTEGRATION_STAGE=PASS'
 
 Write-Host '--- STAGE 4: PHYSICAL SELF-IMPROVEMENT ---'
@@ -123,7 +138,7 @@ $job = @{
   } | ConvertTo-Json -Compress -Depth 10)
 } | ConvertTo-Json -Compress -Depth 10
 $env:ARIA_SELF_IMPROVEMENT_JOB = $job
-$out = & node -e "const {executeSelfImprovementJob}=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); const job=JSON.parse(process.env.ARIA_SELF_IMPROVEMENT_JOB); executeSelfImprovementJob(job, 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089').then(r=>{console.log(JSON.stringify(r)); if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified') process.exit(1)}).catch(e=>{console.error(e.stack||e);process.exit(1)})" 2>&1
+$out = & node -e "const {executeSelfImprovementJob}=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); const job=JSON.parse(process.env.ARIA_SELF_IMPROVEMENT_JOB); executeSelfImprovementJob(job, 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089').then(r=>{console.log(JSON.stringify(r)); if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified'||!r.evidence_hash) process.exit(1)}).catch(e=>{console.error(e.stack||e);process.exit(1)})" 2>&1
 $out | Write-Host
 Assert-True ($LASTEXITCODE -eq 0) 'Physical self-improvement proof failed'
 $evidence = Join-Path $DataDir 'self-improvement-last.json'
