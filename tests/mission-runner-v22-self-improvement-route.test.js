@@ -22,8 +22,14 @@ assert.match(runner, /self_improvement_contract_verified/);
 assert.match(runner, /self_improvement_execution_verified/);
 assert.match(runner, /waiting_for_human_gate/);
 assert.match(runner, /executorType\(step\) !== "self_improvement"/);
-assert.doesNotMatch(runner, /selfImprovementExecute[\s\S]{0,6500}action:\s*["']enqueue_device_job["']/);
-assert.doesNotMatch(runner, /selfImprovementExecute[\s\S]{0,6500}shell\.execute/);
+
+const selfImprovementStart = runner.indexOf('async function selfImprovementExecute');
+const selfImprovementEnd = runner.indexOf('async function githubExecute', selfImprovementStart);
+assert.ok(selfImprovementStart >= 0, 'self-improvement executor function missing');
+assert.ok(selfImprovementEnd > selfImprovementStart, 'self-improvement executor boundary missing');
+const selfImprovementBody = runner.slice(selfImprovementStart, selfImprovementEnd);
+assert.doesNotMatch(selfImprovementBody, /action:\s*["']enqueue_device_job["']/);
+assert.doesNotMatch(selfImprovementBody, /shell\.execute/);
 
 assert.match(gateway, /action===\"self_improve\"/);
 assert.match(gateway, /p_operation:\"self\.improve\"/);
