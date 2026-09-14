@@ -221,7 +221,7 @@ if (-not $ownerAlive -and -not $interactiveOwnerAlive) {
     Write-Host 'WATCHDOG_OWNER=absent'
     Write-Host 'WATCHDOG_BOOTSTRAP=SKIPPED reason=SYSTEM_cannot_create_interactive_owner'
     Write-Host 'WATCHDOG_REQUIRES_USER_RUN_SINGLETON'
-    Write-Host 'EXPECTED: HKCU Run ARIA-Windows-Local-Agent → run-agent.ps1 under ROBVG\robvg'
+    Write-Host 'EXPECTED: HKCU Run ARIA-Windows-Local-Agent -> run-agent.ps1 under ROBVG\robvg'
     Show-Diagnostics -Label 'FINAL'
     throw 'No interactive Watchdog owner. SYSTEM cannot bootstrap. Start run-agent.ps1 once as ROBVG\robvg (user_run_singleton).'
 }
@@ -229,7 +229,6 @@ if (-not $ownerAlive -and -not $interactiveOwnerAlive) {
 if ($ownerAlive) {
     Write-Host ("WATCHDOG_ALREADY_RUNNING_PID=" + $watchdogPid)
 }
-
 Write-KillRequest -Reason 'certification-source-refresh' -Sha $sourceSha
 $refreshed = Wait-AgentRefresh -BeforePid $before -TimeoutSeconds 90 -PassLabel 'AGENT_REFRESHED=PASS'
 
