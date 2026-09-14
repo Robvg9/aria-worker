@@ -90,7 +90,7 @@ $xml = @"
     <AllowHardTerminate>true</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
+    <RestartOnFailure><Interval>PT1M</Interval><Count>255</Count></RestartOnFailure>
   </Settings>
   <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$RuntimeDir\run-agent.ps1&quot;</Arguments><WorkingDirectory>$RuntimeDir</WorkingDirectory></Exec></Actions>
 </Task>
@@ -130,7 +130,7 @@ Write-Host "Task user: $taskUser"
 Write-Host 'Token: protegido con DPAPI del usuario Windows.'
 Write-Host 'Inicio automatico: AtLogOn (usuario interactivo)'
 Write-Host 'ExecutionTimeLimit: 0'
-Write-Host 'RestartOnFailure: 999 / 1 minuto'
+Write-Host 'RestartOnFailure: 255 / 1 minuto'
 Write-Host 'Shell executor: installed'
 Write-Host 'Desktop computer-use: installed'
 Write-Host 'Desktop UI Automation observer: installed'
