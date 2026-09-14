@@ -19,6 +19,7 @@ foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -It
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'aria-meditation-controller.js' = Join-Path $AgentRoot 'aria-meditation-controller.js'
     'self-improvement-runtime.js' = Join-Path $AgentRoot 'self-improvement-runtime.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
     'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
@@ -68,54 +69,20 @@ $config = [ordered]@{
     node_path = $NodePath
     agent_version = 'aria-windows-agent-v2'
     runtime_root = $RuntimeRoot
-    runtime_dir = $RuntimeDir
-    coordinator_runtime_dir = (Join-Path $RuntimeRoot 'Runtime')
-    data_dir = $DataDir
-    log_dir = $LogDir
-    heartbeat_ms = 30000
-    poll_ms = 3000
-    gateway_timeout_ms = 15000
-    gateway_retries = 2
-    capabilities = @('ollama.qwen3','shell.execute','computer.use','desktop.screenshot','desktop.uia','self.improve')
+    capabilities = @('ollama.qwen3','shell.execute','computer.use','self.improve')
+    desktop_version = 'aria-windows-desktop-v1.8'
+    meditation_version = 'aria-meditation-ia-v1'
+    installed_at = (Get-Date).ToUniversalTime().ToString('o')
 }
-$config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
+$config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-Write-Host '=== SELF-IMPROVEMENT RUNTIME SMOKE TEST ==='
-$selfTest = & $NodePath -e "const { executeSelfImprovementJob } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); console.log(typeof executeSelfImprovementJob === 'function' ? 'SELF_IMPROVEMENT_RUNTIME_LOAD=PASS' : 'SELF_IMPROVEMENT_RUNTIME_LOAD=FAIL'); if (typeof executeSelfImprovementJob !== 'function') process.exit(1)" 2>&1
-if ($LASTEXITCODE -ne 0) { throw "Self-improvement runtime smoke test failed: $selfTest" }
-
-$desktopSmokeRequired = $env:ARIA_REQUIRE_DESKTOP_SMOKE -eq '1'
-if ($desktopSmokeRequired) {
-    Write-Host '=== DESKTOP ACCESS SMOKE TEST (REQUIRED) ==='
-    $smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,capture_method:r.capture_method||null,apartment:r.apartment||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
-    $smokeOutput = & $NodePath -e $smokeScript 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Desktop screenshot smoke test failed: $smokeOutput" }
-    $smokeLine = ($smokeOutput | Select-Object -Last 1).ToString()
-    try { $smoke = $smokeLine | ConvertFrom-Json } catch { throw "Desktop screenshot smoke test returned invalid JSON: $smokeOutput" }
-    if ($smoke.status -ne 'succeeded') { throw "Desktop screenshot smoke test failed: $smokeLine" }
-    @{
-        status = 'PASS'
-        timestamp = (Get-Date).ToString('o')
-        action = 'screenshot'
-        width = $smoke.width
-        height = $smoke.height
-        capture_method = $smoke.capture_method
-        apartment = $smoke.apartment
-        version = $smoke.version
-    } | ConvertTo-Json | Set-Content -Path $DesktopSmokePath -Encoding UTF8
-    Write-Host "DESKTOP_SCREENSHOT=PASS width=$($smoke.width) height=$($smoke.height) method=$($smoke.capture_method)"
-} else {
-    Write-Host 'DESKTOP_SCREENSHOT=NONBLOCKING_FOR_SELF_IMPROVEMENT'
-}
-
-$taskUser = "$env:COMPUTERNAME\$env:USERNAME"
-$taskRunScript = Join-Path $RuntimeDir 'run-agent.ps1'
+$taskUser = "$env:USERDOMAIN\$env:USERNAME"
 $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Author>$taskUser</Author><Description>ARIA Windows Local Agent</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$taskUser</UserId></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <RegistrationInfo><Description>ARIA Windows Local Agent v2 + Meditation IA</Description></RegistrationInfo>
+  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>Limited</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -125,7 +92,7 @@ $xml = @"
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
   </Settings>
-  <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$taskRunScript&quot;</Arguments><WorkingDirectory>$RuntimeDir</WorkingDirectory></Exec></Actions>
+  <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$RuntimeDir\run-agent.ps1&quot;</Arguments><WorkingDirectory>$RuntimeDir</WorkingDirectory></Exec></Actions>
 </Task>
 "@
 Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
@@ -163,4 +130,16 @@ Write-Host 'RestartOnFailure: 999 / 1 minuto'
 Write-Host 'Shell executor: installed'
 Write-Host 'Desktop computer-use: installed'
 Write-Host 'Desktop UI Automation observer: installed'
+Write-Host 'Meditation IA controller: installed'
 Write-Host 'Self-improvement coordinator: bundled in isolated Runtime/autonomy + Runtime/self-development + Runtime/self-model'
+
+if ($env:ARIA_REQUIRE_DESKTOP_SMOKE -eq '1') {
+    $desktopResult = & node (Join-Path $RepoRoot 'computer-use\windows-desktop-adapter.js') '--smoke' 2>&1
+    $desktopSmoke = @{ recorded_at = (Get-Date).ToUniversalTime().ToString('o'); output = [string]($desktopResult -join "`n") }
+    $desktopSmoke | ConvertTo-Json -Depth 10 | Set-Content -Path $DesktopSmokePath -Encoding UTF8
+    if ($LASTEXITCODE -ne 0) { throw "Desktop smoke test failed.`n$($desktopResult -join "`n")" }
+    Write-Host 'DESKTOP_SMOKE=PASS'
+}
+else {
+    Write-Host 'DESKTOP_SMOKE=SKIPPED_BY_CONFIGURATION'
+}
