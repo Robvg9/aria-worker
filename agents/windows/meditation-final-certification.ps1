@@ -4,6 +4,14 @@ function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
 
+function Get-MeditationStatus {
+  try {
+    $raw = & curl.exe --noproxy '*' -sS --max-time 5 'http://127.0.0.1:45873/status' 2>$null | Out-String
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+    return ($raw | ConvertFrom-Json)
+  } catch { return $null }
+}
+
 $RuntimeRoot = 'D:\ARIA-Windows-Agent'
 $RuntimeDir = Join-Path $RuntimeRoot 'Runtime\windows'
 $DataDir = Join-Path $RuntimeRoot 'Data'
@@ -36,15 +44,11 @@ foreach ($dirName in @('autonomy','self-development','self-model')) {
   Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destDir -Recurse -Force
 }
 
-# Runtime synchronization is intentionally non-disruptive. We do not kill/restart the
-# current owner here. Stage 2 is the explicit controlled-recovery test.
 Assert-True (Test-Path $StatusPath) 'ARIA watchdog disappeared during runtime sync'
 $m = $null
 for ($i = 0; $i -lt 120; $i++) {
-  try {
-    $m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 3
-    if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
-  } catch {}
+  $m = Get-MeditationStatus
+  if ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
   Start-Sleep -Seconds 1
 }
 Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') "Meditation not active: $($m.mode)"
@@ -68,10 +72,8 @@ Assert-True ($new -and $new.state -eq 'agent_running') 'Watchdog did not recover
 Assert-True ([string]$new.agent_pid -ne $beforePid) 'Agent PID did not change during watchdog recovery'
 $m = $null
 for ($i = 0; $i -lt 120; $i++) {
-  try {
-    $m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 3
-    if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
-  } catch {}
+  $m = Get-MeditationStatus
+  if ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
   Start-Sleep -Seconds 1
 }
 Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') 'Meditation did not recover to active'
@@ -85,10 +87,11 @@ Write-Host 'RECOVERY_STAGE=PASS'
 Write-Host '--- STAGE 3: LIVE MEDITATION / ARIA GATEWAY ---'
 $startTick = [int]$m.tick_count
 $advanced = $false
+$m2 = $null
 for ($i = 0; $i -lt 60; $i++) {
   Start-Sleep -Seconds 1
-  $m2 = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 5
-  if ([int]$m2.tick_count -gt $startTick) { $advanced = $true; break }
+  $m2 = Get-MeditationStatus
+  if ($m2 -and [int]$m2.tick_count -gt $startTick) { $advanced = $true; break }
 }
 Assert-True $advanced "Meditation tick did not advance from $startTick"
 Assert-True ($m2.mode -eq 'active') 'Meditation lost active mode'
