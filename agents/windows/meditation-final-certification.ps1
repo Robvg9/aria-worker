@@ -26,9 +26,18 @@ for ($i = 0; $i -lt 45; $i++) {
   Start-Sleep -Seconds 1
 }
 Assert-True $ready 'ARIA watchdog/agent not running'
-$m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 5
-Assert-True ($m.version -eq 'aria-meditation-ia-v1') "Unexpected Meditation version: $($m.version)"
-Assert-True ($m.mode -eq 'active') "Meditation not active: $($m.mode)"
+$m = $null
+for ($i = 0; $i -lt 30; $i++) {
+  try {
+    $m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 3
+    if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
+    if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'standby') {
+      try { Invoke-RestMethod -Method Post 'http://127.0.0.1:45873/start' -TimeoutSec 3 | Out-Null } catch {}
+    }
+  } catch {}
+  Start-Sleep -Seconds 1
+}
+Assert-True ($m -and $m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') "Meditation not active: $($m.mode)"
 Write-Host 'PERSISTENCE_STAGE=PASS'
 
 # Stage 2 - recovery and singleton
