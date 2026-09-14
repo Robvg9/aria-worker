@@ -37,6 +37,7 @@ jobs:
       ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
       ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
       ARIA_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout exact source
         shell: cmd
