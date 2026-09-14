@@ -48,9 +48,11 @@ jobs:
           set SHA=%ARIA_EXPECTED_SHA%
           if "%SHA%"=="" exit /b 1
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$b=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('x-access-token:'+$env:GITHUB_TOKEN)); git config --local http.https://github.com/.extraheader ('AUTHORIZATION: basic '+$b)"
-          git fetch --no-tags --depth=1 origin +%SHA%:%SHA%
+          git checkout --detach HEAD
+          git branch -D %SHA% 2>nul
+          git fetch --no-tags --depth=1 origin %SHA%
           if errorlevel 1 exit /b 1
-          git checkout --force %SHA%
+          git checkout --detach --force %SHA%
           for /f %%H in ('git rev-parse HEAD') do set HEADSHA=%%H
           if not "%HEADSHA%"=="%SHA%" exit /b 1
           echo SOURCE_CHECKOUT_VERIFIED=PASS commit=%HEADSHA%
