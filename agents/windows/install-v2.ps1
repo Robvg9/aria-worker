@@ -74,14 +74,42 @@ $config = [ordered]@{
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-# Register for the current interactive user without storing a password.
+# Reclaim any stale Meditation listener before the fresh controller starts.
+try {
+    $listeners = Get-NetTCPConnection -LocalPort 45873 -State Listen -ErrorAction SilentlyContinue
+    foreach ($listener in $listeners) {
+        $pid = [int]$listener.OwningProcess
+        if ($pid -gt 0 -and $pid -ne $PID) {
+            try { Stop-Process -Id $pid -Force -ErrorAction Stop; Write-Host "MEDITATION_STALE_PROCESS_STOPPED=PASS pid=$pid" } catch { Write-Warning "Could not stop stale Meditation process pid=$pid: $($_.Exception.Message)" }
+        }
+    }
+} catch { Write-Warning "Meditation listener cleanup skipped: $($_.Exception.Message)" }
+
+# Register an on-logon task when the account has task-registration rights.
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction -Execute $NodePath -Argument ('"' + $RunAgentPath + '"') -WorkingDirectory $RuntimeDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 255 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "ARIA_TASK_REGISTRATION=PASS identity=$identity"
+$taskRegistered = $false
+try {
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+    $taskRegistered = $true
+    Write-Host "ARIA_TASK_REGISTRATION=PASS identity=$identity"
+} catch {
+    Write-Warning "Scheduled Task registration unavailable: $($_.Exception.Message)"
+}
+
+# Always provide a non-admin per-user logon fallback.
+try {
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    New-Item -Path $runKey -Force | Out-Null
+    $runCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $RunAgentPath + '"'
+    Set-ItemProperty -Path $runKey -Name 'ARIA-Windows-Local-Agent' -Value $runCommand
+    Write-Host 'ARIA_USER_AUTOSTART_FALLBACK=PASS'
+} catch {
+    throw "Unable to configure user autostart fallback: $($_.Exception.Message)"
+}
 
 # Force the running watchdog to reload freshly copied runtime files.
 $watchdogAlive = $false
@@ -106,6 +134,6 @@ $runtimeSmoke | ForEach-Object { Write-Host $_ }
 
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
-Write-Host "Task: $TaskName"
+Write-Host "Task: $TaskName registered=$taskRegistered"
 Write-Host "Device: $DeviceId"
 Write-Host "Runtime: $RuntimeDir"
