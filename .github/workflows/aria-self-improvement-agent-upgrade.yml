@@ -128,4 +128,39 @@ jobs:
           if(-not ($config.capabilities -contains 'self.improve')){throw 'self.improve missing from installed heartbeat config'}
           Write-Host 'HEARTBEAT_SELF_IMPROVEMENT_CONFIG=PASS'
 
-          # Physical agent E2E verification must continue on this host; CI success alone is insufficient.
+      - name: Physical self-improvement execution proof
+        run: |
+          $ErrorActionPreference='Stop'
+          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
+          $deviceId=$env:ARIA_TARGET_DEVICE_ID
+          $job=[ordered]@{
+            device_id=$deviceId
+            operation='self.improve'
+            command=(ConvertTo-Json ([ordered]@{
+              goal='Physical Windows self-improvement smoke proof'
+              category='reliability'
+              risk='LOW'
+              scope=@('physical-smoke.js')
+              proposed_changes=@(@{path='physical-smoke.js';risk_level='LOW';content="module.exports = { status: 'ok' };"})
+              mission_id='physical-self-improvement-smoke'
+              step_id='physical-self-improvement-smoke-step'
+            }) -Compress)
+          }
+          $jobPath=Join-Path $env:RUNNER_TEMP 'aria-self-improvement-physical-job.json'
+          $job | ConvertTo-Json -Depth 10 | Set-Content -Path $jobPath -Encoding UTF8
+          $result=& node -e "const fs=require('node:fs'); const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); const job=JSON.parse(fs.readFileSync(process.env.JOB_PATH,'utf8')); x.executeSelfImprovementJob(job, process.env.ARIA_TARGET_DEVICE_ID).then(r=>{console.log(JSON.stringify(r)); if(r.status!=='succeeded'||r.coordinator_status!=='completed'||r.stop_reason!=='verified') process.exit(1)}).catch(e=>{console.error(e);process.exit(1)})" 2>&1
+          if($LASTEXITCODE -ne 0){throw "PHYSICAL_SELF_IMPROVEMENT_FAILED: $result"}
+          Write-Host 'PHYSICAL_SELF_IMPROVEMENT=PASS'
+          Write-Host "PHYSICAL_SELF_IMPROVEMENT_RESULT=$result"
+          $evidence='D:\ARIA-Windows-Agent\Data\self-improvement-last.json'
+          if(-not(Test-Path $evidence)){throw 'Self-improvement evidence file missing'}
+          $evidenceText=Get-Content -Raw $evidence
+          if($evidenceText -notmatch 'Physical Windows self-improvement smoke proof'){throw 'Physical self-improvement evidence objective missing'}
+          Write-Host 'PHYSICAL_SELF_IMPROVEMENT_EVIDENCE=PASS'
+        env:
+          JOB_PATH: ${{ runner.temp }}\aria-self-improvement-physical-job.json
+
+      - name: Final physical proof marker
+        run: |
+          Write-Host 'ARIA_SELF_IMPROVEMENT_WINDOWS_PHYSICAL_E2E=PASS'
+          Write-Host 'STATUS=PHYSICAL_RUNTIME_AND_SELF_IMPROVEMENT_VERIFIED'
