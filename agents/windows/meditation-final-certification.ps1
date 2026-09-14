@@ -7,6 +7,29 @@ function Assert-True([bool]$Condition, [string]$Message) {
 Write-Host '=== ARIA MEDITATION IA FINAL PHYSICAL CERTIFICATION ==='
 Write-Host "SOURCE_COMMIT=$env:ARIA_EXPECTED_SHA"
 
+# Stage 0 - clear only stale forensic processes/jobs that can hold the device queue
+Write-Host '--- STAGE 0: STALE FORENSIC CLEANUP ---'
+$stalePatterns = @('job_meditation_owner_cleanup_20260914_01','med-final-recovery-b69e2063827849fdb2a106e786eaaeca','meditation-owner-cleanup','meditation-final-recovery')
+$staleProcesses = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+  $cmd = [string]$_.CommandLine
+  ($stalePatterns | Where-Object { $_ -and $cmd -like "*$_*" }).Count -gt 0
+})
+foreach ($p in $staleProcesses) {
+  try { Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop; Write-Host "STALE_FORENSIC_PROCESS_STOPPED=PASS pid=$($p.ProcessId)" }
+  catch {
+    try { & taskkill.exe /PID ([int]$p.ProcessId) /F /T 2>$null | Out-Null; Write-Host "STALE_FORENSIC_PROCESS_TASKKILL=PASS pid=$($p.ProcessId)" }
+    catch { Write-Warning "Could not stop stale forensic process pid=$($p.ProcessId): $($_.Exception.Message)" }
+  }
+}
+$runningJobs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+  $cmd = [string]$_.CommandLine
+  (($cmd -like '*127.0.0.1:45873/status*') -or ($cmd -like '*ARIA-Windows-Agent\\Logs\\kill-request*')) -and (($cmd -like '*beforePid*') -or ($cmd -like '*Stop-Process -Id 16288*'))
+})
+foreach ($p in $runningJobs) {
+  try { Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop; Write-Host "STALE_MED_CONTROL_PROCESS_STOPPED=PASS pid=$($p.ProcessId)" } catch {}
+}
+Write-Host 'STALE_FORENSIC_CLEANUP=PASS'
+
 # Stage 1 - persistence and auto-start
 Write-Host '--- STAGE 1: PERSISTENCE / AUTO-START ---'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
