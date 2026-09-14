@@ -65,10 +65,10 @@ function Read-RuntimeSourceSha {
     return ''
 }
 
-function Wait-AgentExit([int]$AgentPid, [int]$TimeoutSeconds = 20) {
-    if ($AgentPid -le 0) { return $true }
+function Wait-AgentExit([int]$AgentProcessId, [int]$TimeoutSeconds = 20) {
+    if ($AgentProcessId -le 0) { return $true }
     for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
-        try { Get-Process -Id $AgentPid -ErrorAction Stop | Out-Null } catch { return $true }
+        try { Get-Process -Id $AgentProcessId -ErrorAction Stop | Out-Null } catch { return $true }
         Start-Sleep -Seconds 1
     }
     return $false
@@ -88,6 +88,23 @@ function Wait-StateFileRelease([int]$TimeoutSeconds = 20) {
         }
     }
     return $false
+}
+
+function Get-StaleAgentPids {
+    $ids = @()
+    try {
+        $candidates = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue
+        foreach ($candidate in @($candidates)) {
+            try {
+                if ($candidate.ProcessId -ne $PID -and $candidate.CommandLine -and $candidate.CommandLine -like "*$AgentPath*") {
+                    $ids += [int]$candidate.ProcessId
+                }
+            } catch {}
+        }
+    } catch {
+        Write-Log "STALE_AGENT_SCAN_FAILED $($_.Exception.Message)"
+    }
+    return $ids
 }
 
 try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
@@ -115,27 +132,30 @@ while ($true) {
         $node = [string]$config.node_path
         if (-not (Test-Path $node)) {
             $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
-            if (-not $nodeCommand) { throw 'Node.js not found' }
+            if (-not $nodeCommand) { throw "Node.js not found at config.path=$node" }
             $node = $nodeCommand.Source
         }
 
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
 
-        $staleAgents = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {
-            $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -like "*$AgentPath*"
-        }
-        foreach ($staleAgent in $staleAgents) {
+        foreach ($stalePid in (Get-StaleAgentPids)) {
             try {
-                Stop-Process -Id ([int]$staleAgent.ProcessId) -Force -ErrorAction Stop
-                Write-Log "STALE_AGENT_KILLED pid=$($staleAgent.ProcessId)"
+                Stop-Process -Id $stalePid -Force -ErrorAction Stop
+                Write-Log "STALE_AGENT_KILLED pid=$stalePid"
             } catch {
-                Write-Log "STALE_AGENT_KILL_FAILED pid=$($staleAgent.ProcessId) $($_.Exception.Message)"
+                Write-Log "STALE_AGENT_KILL_FAILED pid=$stalePid $($_.Exception.Message)"
             }
-            [void](Wait-AgentExit -AgentPid ([int]$staleAgent.ProcessId) -TimeoutSeconds 20)
+            [void](Wait-AgentExit -AgentProcessId $stalePid -TimeoutSeconds 20)
             [void](Wait-StateFileRelease -TimeoutSeconds 20)
         }
 
-        $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
+        $process = $null
+        try {
+            $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
+        } catch {
+            throw "AGENT_START_FAILED node=$node agent=$AgentPath $($_.Exception.Message)"
+        }
+        if (-not $process -or -not $process.Id) { throw "AGENT_START_FAILED no_pid node=$node" }
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         $consecutiveErrors = 0
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
@@ -152,7 +172,7 @@ while ($true) {
                 if ([string]::IsNullOrWhiteSpace($runtimeSha) -or $requestedSha -ne $runtimeSha) { Write-Log "KILL_REQUEST_IGNORED reason=stale_source requested_sha=$requestedSha runtime_sha=$runtimeSha agent_pid=$($process.Id)"; continue }
                 Write-Log "KILL_REQUEST_ACCEPTED payload=$([string]$req.reason) source_sha=$requestedSha agent_pid=$($process.Id)"
                 try { Stop-Process -Id $process.Id -Force -ErrorAction Stop; Write-Log "AGENT_KILLED_BY_WATCHDOG pid=$($process.Id)" } catch { Write-Log "AGENT_KILL_FAILED $($_.Exception.Message)" }
-                [void](Wait-AgentExit -AgentPid ([int]$process.Id) -TimeoutSeconds 20)
+                [void](Wait-AgentExit -AgentProcessId ([int]$process.Id) -TimeoutSeconds 20)
                 [void](Wait-StateFileRelease -TimeoutSeconds 20)
                 break
             }
@@ -169,9 +189,14 @@ while ($true) {
     }
     catch {
         $consecutiveErrors++
-        Write-Log "WATCHDOG_ERROR count=$consecutiveErrors $($_.Exception.Message)"
-        Write-Status @{ state = 'watchdog_error'; error = $_.Exception.Message; agent_pid = $null; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha) }
-        if ($consecutiveErrors -ge $maxConsecutiveErrors) { Write-Log "WATCHDOG_EXIT after $consecutiveErrors consecutive errors"; Write-Status @{ state = 'watchdog_exiting'; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha) }; exit 1 }
+        $err = $_.Exception.Message
+        Write-Log "WATCHDOG_ERROR count=$consecutiveErrors $err"
+        Write-Status @{ state = 'watchdog_error'; error = $err; last_error = $err; agent_pid = $null; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha) }
+        if ($consecutiveErrors -ge $maxConsecutiveErrors) {
+            Write-Log "WATCHDOG_EXIT after $consecutiveErrors consecutive errors last_error=$err"
+            Write-Status @{ state = 'watchdog_exiting'; consecutive_errors = $consecutiveErrors; last_error = $err; error = $err; runtime_source_sha = (Read-RuntimeSourceSha) }
+            exit 1
+        }
         Start-Sleep -Seconds 10
     }
 }
