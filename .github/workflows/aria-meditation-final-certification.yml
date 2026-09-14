@@ -61,6 +61,12 @@ jobs:
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $watchdog=Join-Path $runtime 'run-agent.ps1'; $agent=Join-Path $runtime 'aria-agent.js'; $meditation=Join-Path $runtime 'aria-meditation-controller.js'; $selfImprovement=Join-Path $runtime 'self-improvement-runtime.js'; if(-not(Test-Path $watchdog)){throw 'Watchdog runtime missing'}; if(-not(Test-Path $agent)){throw 'Agent runtime missing'}; if(-not(Test-Path $meditation)){throw 'Meditation runtime missing'}; if(-not(Test-Path $selfImprovement)){throw 'Self-improvement runtime missing'}; $text=Get-Content -Raw $watchdog; if($text -notmatch 'Global\\ARIA-Windows-Agent-Watchdog-v1'){throw 'Global watchdog mutex missing'}; Write-Host 'SINGLE_OWNER_BOUNDARY=PASS'; Write-Host 'RUNNER_DOES_NOT_OWN_AGENT_LIFECYCLE=PASS'"
           if errorlevel 1 exit /b 1
 
+      - name: Refresh agent through watchdog owner
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$log='D:\ARIA-Windows-Agent\Logs'; $statusPath=Join-Path $log 'status.json'; $pidPath=Join-Path $log 'agent.pid'; $kill=Join-Path $log 'kill-request'; if(-not(Test-Path $pidPath)){throw 'Agent PID marker missing'}; $before=[string](Get-Content -Raw $pidPath).Trim(); Set-Content -Path $kill -Value 'certification-source-refresh' -Encoding UTF8 -Force; for($i=0;$i -lt 120;$i++){ Start-Sleep -Seconds 1; try{$s=Get-Content -Raw $statusPath|ConvertFrom-Json; if($s.state -eq 'agent_running' -and [string]$s.agent_pid -ne $before){Write-Host ('AGENT_REFRESHED=PASS old='+$before+' new='+$s.agent_pid); exit 0}}catch{} }; throw 'Watchdog did not refresh Agent after source synchronization'"
+          if errorlevel 1 exit /b 1
+
       - name: Run complete four-stage physical certification
         shell: cmd
         run: |
