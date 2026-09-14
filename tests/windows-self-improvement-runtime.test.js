@@ -27,6 +27,6 @@ assert.match(agent, /executeSelfImprovementJobOnDevice/);
 assert.match(agent, /job\.operation===SELF_IMPROVEMENT_OPERATION/);
 assert.doesNotMatch(agent, /SELF_IMPROVEMENT_OPERATION\) return executeShellJob/);
 assert.match(install, /self-improvement-runtime\.js/);
-assert.match(install, /'autonomy', 'self-development', 'self-model'/);
+assert.match(install, /@\('autonomy','self-development','self-model'\)/);
 assert.match(install, /SELF_IMPROVEMENT_RUNTIME_LOAD=PASS/);
 console.log('WINDOWS_SELF_IMPROVEMENT_RUNTIME_OK');
