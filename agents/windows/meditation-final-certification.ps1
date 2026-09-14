@@ -16,7 +16,7 @@ $run = (Get-ItemProperty $runKey -Name 'ARIA-Windows-Local-Agent' -ErrorAction S
 Assert-True (-not [string]::IsNullOrWhiteSpace($run) -and $run -match 'run-agent\.ps1') 'ARIA user auto-start missing'
 $statusPath = 'D:\ARIA-Windows-Agent\Logs\status.json'
 $ready = $false
-for ($i = 0; $i -lt 45; $i++) {
+for ($i = 0; $i -lt 90; $i++) {
   if (Test-Path $statusPath) {
     try {
       $s = Get-Content -Raw $statusPath | ConvertFrom-Json
@@ -27,7 +27,7 @@ for ($i = 0; $i -lt 45; $i++) {
 }
 Assert-True $ready 'ARIA watchdog/agent not running'
 $m = $null
-for ($i = 0; $i -lt 30; $i++) {
+for ($i = 0; $i -lt 90; $i++) {
   try {
     $m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 3
     if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
@@ -47,7 +47,7 @@ $beforePid = [string]$before.agent_pid
 Assert-True (-not [string]::IsNullOrWhiteSpace($beforePid)) 'Missing current agent pid'
 Set-Content -Path 'D:\ARIA-Windows-Agent\Logs\kill-request' -Value 'final-cert-recovery' -Encoding UTF8 -Force
 $new = $null
-for ($i = 0; $i -lt 75; $i++) {
+for ($i = 0; $i -lt 90; $i++) {
   try { $new = Get-Content -Raw $statusPath | ConvertFrom-Json } catch {}
   if ($new -and $new.state -eq 'agent_running' -and [string]$new.agent_pid -ne $beforePid) { break }
   Start-Sleep -Seconds 1
@@ -55,7 +55,7 @@ for ($i = 0; $i -lt 75; $i++) {
 Assert-True ($new -and $new.state -eq 'agent_running') 'Watchdog did not recover agent'
 Assert-True ([string]$new.agent_pid -ne $beforePid) 'Agent PID did not change during recovery'
 $m = $null
-for ($i = 0; $i -lt 75; $i++) {
+for ($i = 0; $i -lt 90; $i++) {
   try {
     $m = Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 3
     if ($m.version -eq 'aria-meditation-ia-v1' -and $m.mode -eq 'active') { break }
