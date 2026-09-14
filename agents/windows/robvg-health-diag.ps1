@@ -8,7 +8,6 @@ function L([string]$s) { $lines.Add($s); Write-Host $s }
 L "=== ROBVG HEALTH DIAG $stamp ==="
 L "HOST=$env:COMPUTERNAME USER=$env:USERNAME"
 
-# Uptime / boot
 try {
   $os = Get-CimInstance Win32_OperatingSystem
   $boot = $os.LastBootUpTime
@@ -18,7 +17,6 @@ try {
   L ("OS=" + $os.Caption + " " + $os.Version)
 } catch { L ("BOOT_ERR=" + $_.Exception.Message) }
 
-# RAM
 try {
   $os = Get-CimInstance Win32_OperatingSystem
   $totalMB = [math]::Round($os.TotalVisibleMemorySize / 1024, 1)
@@ -31,7 +29,6 @@ try {
   L ("RAM_USED_PCT=" + $pctUsed)
 } catch { L ("RAM_ERR=" + $_.Exception.Message) }
 
-# Commit / pagefile
 try {
   $os = Get-CimInstance Win32_OperatingSystem
   L ("COMMIT_LIMIT_KB=" + $os.TotalVirtualMemorySize)
@@ -45,20 +42,13 @@ try {
     L ("PAGEFILE_PEAK_MB=" + $p.PeakUsage)
   }
   $pfset = Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue
-  foreach ($s in @($pfset)) {
-    L ("PAGEFILE_SETTING=" + $s.Name + " Initial=" + $s.InitialSize + " Max=" + $s.MaximumSize)
-  }
-  try {
-    $auto = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -ErrorAction SilentlyContinue).PagingFiles
-    L ("PAGEFILE_REG=" + ($auto -join ';'))
-  } catch {}
+  foreach ($s in @($pfset)) { L ("PAGEFILE_SETTING=" + $s.Name + " Initial=" + $s.InitialSize + " Max=" + $s.MaximumSize) }
 } catch { L ("COMMIT_ERR=" + $_.Exception.Message) }
 
-# Disk C:
 try {
   $c = Get-PSDrive C
   $freeGB = [math]::Round($c.Free / 1GB, 2)
-  $usedGB = [math]::Round(($c.Used) / 1GB, 2)
+  $usedGB = [math]::Round($c.Used / 1GB, 2)
   $totalGB = [math]::Round(($c.Free + $c.Used) / 1GB, 2)
   $freePct = [math]::Round(100 * $c.Free / ($c.Free + $c.Used), 1)
   L ("C_TOTAL_GB=" + $totalGB)
@@ -67,7 +57,6 @@ try {
   L ("C_FREE_PCT=" + $freePct)
 } catch { L ("DISK_ERR=" + $_.Exception.Message) }
 
-# CPU
 try {
   $cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average
   L ("CPU_LOAD_PCT=" + $cpu.Average)
@@ -75,35 +64,25 @@ try {
   if ($perf) { L ("CPU_PERF_PCT=" + [math]::Round($perf.CounterSamples[0].CookedValue, 1)) }
 } catch { L ("CPU_ERR=" + $_.Exception.Message) }
 
-# Top processes by WorkingSet
 L '--- TOP20_RAM ---'
 try {
   Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 20 |
-    ForEach-Object {
-      L ("RAM_MB=" + [math]::Round($_.WorkingSet64/1MB,1) + " CPU=" + $_.CPU + " PID=" + $_.Id + " NAME=" + $_.ProcessName)
-    }
+    ForEach-Object { L ("RAM_MB=" + [math]::Round($_.WorkingSet64/1MB,1) + " CPU=" + $_.CPU + " PID=" + $_.Id + " NAME=" + $_.ProcessName) }
 } catch { L ("TOP_RAM_ERR=" + $_.Exception.Message) }
 
 L '--- TOP20_CPU ---'
 try {
   Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 |
-    ForEach-Object {
-      L ("CPU=" + [math]::Round($_.CPU,1) + " RAM_MB=" + [math]::Round($_.WorkingSet64/1MB,1) + " PID=" + $_.Id + " NAME=" + $_.ProcessName)
-    }
+    ForEach-Object { L ("CPU=" + [math]::Round($_.CPU,1) + " RAM_MB=" + [math]::Round($_.WorkingSet64/1MB,1) + " PID=" + $_.Id + " NAME=" + $_.ProcessName) }
 } catch { L ("TOP_CPU_ERR=" + $_.Exception.Message) }
 
-# Disk IO if available
 L '--- DISK_IO_SAMPLE ---'
 try {
   $disk = Get-Counter '\PhysicalDisk(_Total)\Disk Bytes/sec','\PhysicalDisk(_Total)\% Disk Time' -ErrorAction SilentlyContinue
-  if ($disk) {
-    foreach ($s in $disk.CounterSamples) {
-      L ("IO=" + $s.Path + "=" + [math]::Round($s.CookedValue, 1))
-    }
-  } else { L 'IO=unavailable' }
+  if ($disk) { foreach ($s in $disk.CounterSamples) { L ("IO=" + $s.Path + "=" + [math]::Round($s.CookedValue, 1)) } }
+  else { L 'IO=unavailable' }
 } catch { L ("IO_ERR=" + $_.Exception.Message) }
 
-# Services abnormal
 L '--- SERVICES_ABNORMAL ---'
 try {
   Get-Service | Where-Object { $_.Status -notin @('Running','Stopped') } |
@@ -112,22 +91,26 @@ try {
     Select-Object -First 30 | ForEach-Object { L ("AUTO_NOT_RUNNING=" + $_.Name + " STATUS=" + $_.Status) }
 } catch { L ("SVC_ERR=" + $_.Exception.Message) }
 
-# Recent critical/error events
 L '--- EVENT_LOG_ERROR_24H ---'
 try {
   $since = (Get-Date).AddHours(-24)
   Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=$since} -MaxEvents 25 -ErrorAction SilentlyContinue |
-    ForEach-Object { L ("EVT=" + $_.TimeCreated.ToString('s') + " ID=" + $_.Id + " SRC=" + $_.ProviderName + " " + ($_.Message -replace "`r?`n",' ').Substring(0, [Math]::Min(180, ($_.Message -replace "`r?`n",' ').Length))) }
+    ForEach-Object {
+      $msg = ($_.Message -replace "`r?`n", ' ')
+      L ("EVT=" + $_.TimeCreated.ToString('s') + " ID=" + $_.Id + " SRC=" + $_.ProviderName + " " + $msg.Substring(0, [Math]::Min(180, $msg.Length)))
+    }
 } catch { L ("EVT_ERR=" + $_.Exception.Message) }
 
 L '--- APPLICATION_ERROR_24H ---'
 try {
   $since = (Get-Date).AddHours(-24)
   Get-WinEvent -FilterHashtable @{LogName='Application'; Level=1,2; StartTime=$since} -MaxEvents 25 -ErrorAction SilentlyContinue |
-    ForEach-Object { L ("AEVT=" + $_.TimeCreated.ToString('s') + " ID=" + $_.Id + " SRC=" + $_.ProviderName + " " + ($_.Message -replace "`r?`n",' ').Substring(0, [Math]::Min(180, ($_.Message -replace "`r?`n",' ').Length))) }
+    ForEach-Object {
+      $msg = ($_.Message -replace "`r?`n", ' ')
+      L ("AEVT=" + $_.TimeCreated.ToString('s') + " ID=" + $_.Id + " SRC=" + $_.ProviderName + " " + $msg.Substring(0, [Math]::Min(180, $msg.Length)))
+    }
 } catch { L ("AEVT_ERR=" + $_.Exception.Message) }
 
-# WER recent
 L '--- WER_RECENT ---'
 try {
   $wer = 'C:\ProgramData\Microsoft\Windows\WER\ReportQueue'
@@ -137,7 +120,6 @@ try {
   } else { L 'WER=no_queue' }
 } catch { L ("WER_ERR=" + $_.Exception.Message) }
 
-# OneDrive / Edge / Update / Defender / Docker
 L '--- KEY_PROCESSES ---'
 foreach ($name in @('OneDrive','msedge','MsMpEng','WinStore.App','TiWorker','UsoSvc','wuauclt','Docker Desktop','com.docker.backend','node','powershell','Runner.Listener','Runner.Worker')) {
   $ps = @(Get-Process -Name $name -ErrorAction SilentlyContinue)
@@ -147,7 +129,6 @@ foreach ($name in @('OneDrive','msedge','MsMpEng','WinStore.App','TiWorker','Uso
   } else { L ("PROC=" + $name + " COUNT=0") }
 }
 
-# Windows Update
 try {
   $wu = Get-Service wuauserv -ErrorAction SilentlyContinue
   L ("WU_SERVICE=" + $wu.Status + " START=" + $wu.StartType)
@@ -157,55 +138,77 @@ try {
   L ("DEFENDER=" + $mp.Status)
 } catch { L 'DEFENDER=err' }
 
-# ARIA state
-L '--- ARIA ---'
+# --- ARIA: compact only. Never dump state.json/checkpoint JSON. ---
+L '--- ARIA_COMPACT ---'
 $logDir = 'D:\ARIA-Windows-Agent\Logs'
 $statusPath = Join-Path $logDir 'status.json'
-if (Test-Path $statusPath) { L ("STATUS=" + (Get-Content -Raw $statusPath)) } else { L 'STATUS=missing' }
-foreach ($f in @('watchdog.pid','agent.pid','watchdog.log','runtime-source-sha')) {
+if (Test-Path $statusPath) {
+  try {
+    $st = Get-Content -Raw $statusPath | ConvertFrom-Json
+    L ("ARIA_STATE=" + $st.state)
+    L ("ARIA_AGENT_PID=" + $st.agent_pid)
+    L ("ARIA_WATCHDOG_PID=" + $st.watchdog_pid)
+    L ("ARIA_SHA=" + $st.runtime_source_sha)
+    if ($st.last_exit_code) { L ("ARIA_LAST_EXIT=" + $st.last_exit_code) }
+    if ($st.last_error) { L ("ARIA_LAST_ERROR=" + ([string]$st.last_error).Substring(0,[Math]::Min(180,[string]$st.last_error).Length)) }
+  } catch { L 'ARIA_STATUS=parse_error' }
+} else { L 'ARIA_STATUS=missing' }
+
+foreach ($f in @('watchdog.pid','agent.pid','runtime-source-sha')) {
   $p = Join-Path $logDir $f
-  if (Test-Path $p) {
-    if ($f -like '*.log') { L ("FILE=" + $f + " TAIL:"); Get-Content $p -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object { L $_ } }
-    else { L ("FILE=" + $f + "=" + (Get-Content -Raw $p).Trim()) }
-  } else { L ("FILE=" + $f + "=missing") }
+  if (Test-Path $p) { L ("ARIA_FILE=" + $f + "=" + (Get-Content -Raw $p -ErrorAction SilentlyContinue).Trim()) }
+  else { L ("ARIA_FILE=" + $f + "=missing") }
 }
+
 $med = 'D:\ARIA-Windows-Agent\Runtime\meditation\state.json'
-if (Test-Path $med) { L ("MEDITATION_STATE=" + (Get-Content -Raw $med)) } else { L 'MEDITATION_STATE=missing' }
+if (Test-Path $med) {
+  try {
+    $m = Get-Content -Raw $med | ConvertFrom-Json
+    L ("MEDITATION_STATUS=" + $m.status)
+    L ("MEDITATION_MODE=" + $m.mode)
+    L ("MEDITATION_TICK_COUNT=" + $m.tick_count)
+    L ("MEDITATION_SESSION=" + $m.session_id)
+    L ("MEDITATION_MISSION_ID=" + $m.mission_id)
+  } catch { L 'MEDITATION_STATE=parse_error' }
+} else { L 'MEDITATION_STATE=missing' }
+
 $medLog = 'D:\ARIA-Windows-Agent\Runtime\meditation\ARIA-Meditation-IA.txt'
-if (Test-Path $medLog) { L 'MEDITATION_LOG_TAIL:'; Get-Content $medLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { L $_ } }
+if (Test-Path $medLog) {
+  L 'MEDITATION_LOG_TAIL:'
+  Get-Content $medLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { L $_ }
+}
 
 try {
   $node = if (Test-Path 'D:\Databank\node\node.exe') { & 'D:\Databank\node\node.exe' -v } else { node -v }
   L ("NODE=" + $node)
 } catch { L ("NODE_ERR=" + $_.Exception.Message) }
 
-# Live ARIA processes
 try {
-  $wd = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*run-agent.ps1*' }
-  L ("LIVE_WATCHDOG_COUNT=" + @($wd).Count)
-  foreach ($w in @($wd)) {
+  $wd = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*run-agent.ps1*' })
+  L ("LIVE_WATCHDOG_COUNT=" + $wd.Count)
+  foreach ($w in $wd) {
     $o = Invoke-CimMethod -InputObject $w -MethodName GetOwner -ErrorAction SilentlyContinue
     L ("WATCHDOG pid=" + $w.ProcessId + " session=" + $w.SessionId + " user=" + $o.Domain + "\" + $o.User)
   }
-  $ag = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*aria-agent.js*' }
-  L ("LIVE_AGENT_COUNT=" + @($ag).Count)
-  foreach ($a in @($ag)) {
+  $ag = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*aria-agent.js*' })
+  L ("LIVE_AGENT_COUNT=" + $ag.Count)
+  foreach ($a in $ag) {
     $o = Invoke-CimMethod -InputObject $a -MethodName GetOwner -ErrorAction SilentlyContinue
     L ("AGENT pid=" + $a.ProcessId + " session=" + $a.SessionId + " user=" + $o.Domain + "\" + $o.User)
   }
 } catch { L ("ARIA_PROC_ERR=" + $_.Exception.Message) }
 
-# Temp sizes (info only)
+# Only measure temp directories; do not recursively enumerate the entire C: drive.
 try {
   $tmp = $env:TEMP
   if (Test-Path $tmp) {
-    $sz = (Get-ChildItem $tmp -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-    L ("TEMP_SIZE_MB=" + [math]::Round($sz/1MB,1) + " PATH=" + $tmp)
+    $files = Get-ChildItem $tmp -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum
+    L ("TEMP_DIRECT_MB=" + [math]::Round(($files.Sum/1MB),1))
   }
   $wtmp = 'C:\Windows\Temp'
   if (Test-Path $wtmp) {
-    $sz = (Get-ChildItem $wtmp -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-    L ("WINTEMP_SIZE_MB=" + [math]::Round($sz/1MB,1))
+    $files = Get-ChildItem $wtmp -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum
+    L ("WINTEMP_DIRECT_MB=" + [math]::Round(($files.Sum/1MB),1))
   }
 } catch { L ("TEMP_ERR=" + $_.Exception.Message) }
 
