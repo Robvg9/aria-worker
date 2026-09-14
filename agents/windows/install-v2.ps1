@@ -114,6 +114,10 @@ if ($existingTask) {
     if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
 }
 
+$runtimeSmoke = & $NodePath -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')" 2>&1
+if ($LASTEXITCODE -ne 0) { throw "Self-improvement runtime load failed: $runtimeSmoke" }
+$runtimeSmoke | ForEach-Object { Write-Host $_ }
+
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
 Write-Host "Task: $TaskName"
