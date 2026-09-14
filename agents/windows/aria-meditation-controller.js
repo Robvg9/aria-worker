@@ -5,7 +5,13 @@ const fsp = fs.promises;
 const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
-const { createFileStateStore, createMeditationController } = require('../autonomy/meditation-ia-controller');
+const { createFileStateStore, createMeditationController } = (() => {
+  try { return require('../autonomy/meditation-ia-controller'); }
+  catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    return require('../../autonomy/meditation-ia-controller');
+  }
+})();
 
 const ROOT = process.env.ARIA_WINDOWS_AGENT_ROOT || path.resolve(__dirname, '..', '..');
 const MED_ROOT = process.env.ARIA_MEDITATION_ROOT || path.join(ROOT, 'Runtime', 'meditation');
