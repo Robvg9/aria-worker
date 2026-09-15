@@ -25,7 +25,7 @@ jobs:
   certify:
     name: certify-physical-meditation-and-self-improvement
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 30
+    timeout-minutes: 32
     env:
       ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
       ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
@@ -89,6 +89,37 @@ jobs:
           Write-Host 'EXECUTION_TIME_LIMIT=PT0S'
           Write-Host 'MULTIPLE_INSTANCES=IgnoreNew'
           Write-Host 'LEGACY_RUN_KEY=DISABLED'
+
+      - name: Prove automatic supervisor recovery after kill
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $pidPath='D:\ARIA-Windows-Agent\Logs\watchdog.pid'
+          $before=0
+          if(Test-Path $pidPath){ [void][int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$before) }
+          if($before -le 0){
+            $cand=Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1*' } | Select-Object -First 1
+            if($cand){$before=[int]$cand.ProcessId}
+          }
+          if($before -le 0){ throw 'Could not locate watchdog PID before fault injection' }
+          Write-Host ("WATCHDOG_BEFORE_PID="+$before)
+          Stop-Process -Id $before -Force -ErrorAction Stop
+          Write-Host 'WATCHDOG_KILL_INJECTED=TRUE'
+          $deadline=(Get-Date).AddSeconds(80)
+          $recovered=0
+          do {
+            Start-Sleep -Seconds 5
+            if(Test-Path $pidPath){
+              $candidate=0
+              [void][int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$candidate)
+              if($candidate -gt 0 -and $candidate -ne $before){
+                try { Get-Process -Id $candidate -ErrorAction Stop | Out-Null; $recovered=$candidate } catch {}
+              }
+            }
+          } while($recovered -eq 0 -and (Get-Date) -lt $deadline)
+          if($recovered -eq 0){ throw 'Windows did not automatically restart the killed watchdog within 80 seconds' }
+          Write-Host ("WATCHDOG_RECOVERED_PID="+$recovered)
+          Write-Host 'WATCHDOG_AUTO_RECOVERY=PASS'
 
       - name: Repair persistent state and reclaim safe disk space
         shell: powershell
