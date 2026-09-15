@@ -2,9 +2,9 @@ name: Meditation IA
 
 on:
   push:
-    branches: [main, 'aria/meditation-ia-v1-main']
+    branches: [main, 'aria/meditation-ia-v1-main', 'aria/self-improvement-v1-main']
   pull_request:
-    branches: [main]
+    branches: [main, 'aria/meditation-ia-v1-main']
 
 jobs:
   contract:
@@ -17,17 +17,22 @@ jobs:
           node-version: 24
       - name: Core tests
         run: node tests/meditation-ia.test.js
+      - name: Windows controller syntax
+        run: node --check agents/windows/aria-meditation-controller.js
       - name: Static contracts
         run: |
           node - <<'NODE'
           const fs=require('node:fs');
           const agent=fs.readFileSync('agents/windows/aria-agent.js','utf8');
           const gateway=fs.readFileSync('supabase/functions/aria-device-gateway/index.ts','utf8');
+          const controller=fs.readFileSync('agents/windows/aria-meditation-controller.js','utf8');
           for(const s of [
             ['agent','aria-meditation-controller'],
             ['agent','computer.use'],
             ['gateway','/v1/meditation/tick'],
-            ['gateway','aria_mission_create']
-          ]) if(!(s[0]==='agent'?agent:gateway).includes(s[1])) throw new Error(`missing:${s[0]}:${s[1]}`);
+            ['gateway','aria_mission_create'],
+            ['controller','HUMAN GATE'],
+            ['controller','USER_IDLE_CHECK']
+          ]) if(!(s[0]==='agent'?agent:s[0]==='gateway'?gateway:controller).includes(s[1])) throw new Error(`missing:${s[0]}:${s[1]}`);
           console.log('MEDITATION_IA_STATIC_CONTRACT=PASS');
           NODE
