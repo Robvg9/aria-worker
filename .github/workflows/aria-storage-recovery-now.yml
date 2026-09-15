@@ -1,0 +1,32 @@
+name: ARIA Storage Recovery Now
+
+on:
+  push:
+    branches:
+      - aria/self-improvement-v1-main
+
+jobs:
+  storage-recovery:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Run exact 6GB storage maintenance
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:TEMP 'aria-safe-storage-maintenance-6gb.ps1'
+          git show f1297fc3b60a3131170baefd7e26ac58ed2d0744:agents/windows/aria-safe-storage-maintenance.ps1 | Set-Content -Path $script -Encoding UTF8
+          Write-Host "STORAGE_SCRIPT_COMMIT=f1297fc3b60a3131170baefd7e26ac58ed2d0744"
+          Write-Host "STORAGE_SCRIPT_PATH=$script"
+          & $script
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Final C drive proof
+        shell: powershell
+        run: |
+          $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+          Write-Host ("FINAL_C_FREE_GB=" + [math]::Round($d.FreeSpace/1GB,2))
+          Write-Host ("FINAL_C_FREE_PCT=" + [math]::Round(($d.FreeSpace/$d.Size)*100,2))
