@@ -1,0 +1,26 @@
+name: ARIA Runner Pool Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: pool-smoke-${{ matrix.slot }}
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        slot: [1, 2]
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - name: Identify runner
+        shell: powershell
+        run: |
+          Write-Host "ARIA_RUNNER_SMOKE=PASS"
+          Write-Host "SLOT=${{ matrix.slot }}"
+          Write-Host "RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Host "RUNNER_OS=$env:RUNNER_OS"
+          Write-Host "RUNNER_ARCH=$env:RUNNER_ARCH"
+      - name: Hold briefly to prove parallel capacity
+        shell: powershell
+        run: Start-Sleep -Seconds 15
