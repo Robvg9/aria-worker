@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { buildRegression } = require('../self-development/regression-builder-v2');
+const { detectPattern, buildCountermeasure } = require('../failure-intelligence/failure-pattern-engine-v1');
 
 function normalizeText(value, max = 4000) {
   return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
@@ -65,12 +66,40 @@ function promoteToSkill(lesson, { minConfidence = 0.90, minEvidence = 1 } = {}) 
   return Object.freeze({ promoted, status: promoted ? 'verified' : 'candidate', reason: promoted ? 'verified_reusable_evidence' : 'insufficient_verified_reusable_evidence' });
 }
 
-function createLearningEngine({ persistLesson = null, persistSkill = null, persistRegression = null, regressionBuilder = buildRegression, minConfidence = 0.90, minEvidence = 1 } = {}) {
-  async function learn({ episode, verifier } = {}) {
+function createLearningEngine({
+  persistLesson = null,
+  persistSkill = null,
+  persistRegression = null,
+  persistPattern = null,
+  regressionBuilder = buildRegression,
+  patternDetector = detectPattern,
+  minConfidence = 0.90,
+  minEvidence = 1
+} = {}) {
+  async function learn({ episode, verifier, history = null } = {}) {
     const lesson = extractLesson({ episode, verifier });
     const promotion = promoteToSkill(lesson, { minConfidence, minEvidence });
     let regression = null;
+    let pattern = null;
+    let countermeasure = null;
+
     if (typeof persistLesson === 'function') await persistLesson(lesson, episode);
+
+    const failureHistory = Array.isArray(history)
+      ? [...history, episode].filter(Boolean)
+      : null;
+    if (failureHistory) {
+      const patterns = patternDetector(failureHistory);
+      pattern = patterns.find(item => item.signature === patterns[0]?.signature && item.episode_refs.includes(normalizeText(episode?.mission_id || episode?.episode_id || episode?.id, 120))) || null;
+      if (pattern) {
+        countermeasure = buildCountermeasure(pattern, {
+          preventionProcedure: episode?.prevention_procedure || [],
+          evidenceRefs: episode?.evidence_refs || []
+        });
+        if (typeof persistPattern === 'function') await persistPattern({ pattern, countermeasure }, episode);
+      }
+    }
+
     if (promotion.promoted && typeof persistSkill === 'function') {
       const skill = { ...lesson, promotion };
       regression = typeof regressionBuilder === 'function'
@@ -80,7 +109,8 @@ function createLearningEngine({ persistLesson = null, persistSkill = null, persi
       await persistSkill(skill, episode);
       if (regression && typeof persistRegression === 'function') await persistRegression(regression, episode);
     }
-    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression });
+
+    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression, pattern, countermeasure });
   }
   return Object.freeze({ version: 'skills-learning-v2', learn });
 }
