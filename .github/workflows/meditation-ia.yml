@@ -1,15 +1,22 @@
 name: Meditation IA
 
 on:
-  push:
-    branches: [main, 'aria/meditation-ia-v1-main', 'aria/self-improvement-v1-main']
   pull_request:
     branches: [main, 'aria/meditation-ia-v1-main']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meditation-ia-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   contract:
     name: Meditation IA Contract
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
