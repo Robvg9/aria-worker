@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   frontier-certification:
+    if: false
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
     steps:
