@@ -1,6 +1,8 @@
 name: ARIA Self-Improvement Frontier Certification Now
 
 on:
+  push:
+    branches: [aria/self-improvement-v1-main]
   workflow_dispatch:
 
 jobs:
