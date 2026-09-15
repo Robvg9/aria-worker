@@ -1,14 +1,16 @@
 name: ARIA Self-Improvement v1
 
 on:
-  push:
-    branches: [aria/self-improvement-v1-main]
   pull_request:
     branches: [main, aria/meditation-ia-v1-main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: aria-self-improvement-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   governed-self-improvement:
