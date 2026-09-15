@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 const { buildRegression } = require('../self-development/regression-builder-v2');
-const { detectPattern, buildCountermeasure } = require('../failure-intelligence/failure-pattern-engine-v1');
+const { detectPattern, buildCountermeasure, failureSignature } = require('../failure-intelligence/failure-pattern-engine-v1');
 
 function normalizeText(value, max = 4000) {
   return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
@@ -88,9 +88,10 @@ function createLearningEngine({
     const failureHistory = Array.isArray(history)
       ? [...history, episode].filter(Boolean)
       : null;
-    if (failureHistory) {
+    if (failureHistory && episode) {
       const patterns = patternDetector(failureHistory);
-      pattern = patterns.find(item => item.signature === patterns[0]?.signature && item.episode_refs.includes(normalizeText(episode?.mission_id || episode?.episode_id || episode?.id, 120))) || null;
+      const currentSignature = failureSignature(episode);
+      pattern = patterns.find(item => item.signature === currentSignature) || null;
       if (pattern) {
         countermeasure = buildCountermeasure(pattern, {
           preventionProcedure: episode?.prevention_procedure || [],
