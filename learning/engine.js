@@ -71,6 +71,7 @@ function createLearningEngine({
   persistSkill = null,
   persistRegression = null,
   persistPattern = null,
+  failureIntelligenceRuntime = null,
   regressionBuilder = buildRegression,
   patternDetector = detectPattern,
   minConfidence = 0.90,
@@ -82,23 +83,32 @@ function createLearningEngine({
     let regression = null;
     let pattern = null;
     let countermeasure = null;
+    let failureIntelligence = null;
 
     if (typeof persistLesson === 'function') await persistLesson(lesson, episode);
 
-    const failureHistory = Array.isArray(history)
-      ? [...history, episode].filter(Boolean)
-      : null;
-    if (failureHistory && episode) {
-      const patterns = patternDetector(failureHistory);
-      const currentSignature = failureSignature(episode);
-      pattern = patterns.find(item => item.signature === currentSignature) || null;
-      if (pattern) {
-        countermeasure = buildCountermeasure(pattern, {
-          preventionProcedure: episode?.prevention_procedure || [],
-          evidenceRefs: episode?.evidence_refs || []
-        });
-        if (typeof persistPattern === 'function') await persistPattern({ pattern, countermeasure }, episode);
+    if (failureIntelligenceRuntime && typeof failureIntelligenceRuntime.observeFailure === 'function' && episode) {
+      failureIntelligence = await failureIntelligenceRuntime.observeFailure(episode);
+      pattern = failureIntelligence.pattern || null;
+      countermeasure = failureIntelligence.countermeasure || null;
+    } else {
+      const failureHistory = Array.isArray(history) ? [...history, episode].filter(Boolean) : null;
+      if (failureHistory && episode) {
+        const patterns = patternDetector(failureHistory);
+        const currentSignature = failureSignature(episode);
+        pattern = patterns.find(item => item.signature === currentSignature) || null;
+        if (pattern) {
+          countermeasure = buildCountermeasure(pattern, {
+            preventionProcedure: episode?.prevention_procedure || [],
+            evidenceRefs: episode?.evidence_refs || []
+          });
+          if (typeof persistPattern === 'function') await persistPattern({ pattern, countermeasure }, episode);
+        }
       }
+    }
+
+    if (failureIntelligence && typeof persistPattern === 'function' && pattern) {
+      await persistPattern(failureIntelligence, episode);
     }
 
     if (promotion.promoted && typeof persistSkill === 'function') {
@@ -111,7 +121,7 @@ function createLearningEngine({
       if (regression && typeof persistRegression === 'function') await persistRegression(regression, episode);
     }
 
-    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression, pattern, countermeasure });
+    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression, pattern, countermeasure, failureIntelligence });
   }
   return Object.freeze({ version: 'skills-learning-v2', learn });
 }
