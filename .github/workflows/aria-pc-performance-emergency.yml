@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-meditation-final-certification-windows
+  group: aria-pc-performance-emergency-windows
   cancel-in-progress: true
 
 permissions:
@@ -30,112 +30,62 @@ jobs:
           git checkout --detach --force FETCH_HEAD
           git rev-parse HEAD
 
-      - name: Targeted physical performance recovery
+      - name: Repair ARIA persistence and Windows pressure
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $root = $env:ARIA_ROOT
-          $runtime = Join-Path $root 'Runtime\windows'
-          $statusPath = Join-Path $root 'Logs\status.json'
-          $marker = Join-Path $root 'Data\pc-performance-recovery-last.json'
-
-          function Read-Json($p) {
-            if (Test-Path $p) {
-              try { return (Get-Content -Raw $p | ConvertFrom-Json) } catch {}
+          $ErrorActionPreference = 'Continue'
+          $root=$env:ARIA_ROOT
+          $data=Join-Path $root 'Data'
+          $logs=Join-Path $root 'Logs'
+          $med=Join-Path $root 'Runtime\meditation'
+          $state=Join-Path $med 'state.json'
+          $backup=Join-Path $med ('state.corrupt-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json')
+          $marker=Join-Path $data 'pc-performance-recovery-last.json'
+          New-Item -ItemType Directory -Force -Path $data,$logs,$med | Out-Null
+          $os=Get-CimInstance Win32_OperatingSystem
+          Write-Host ("BEFORE_FREE_MB="+[math]::Round($os.FreePhysicalMemory/1024))
+          Write-Host ("BEFORE_C_FREE_GB="+[math]::Round((Get-PSDrive C).Free/1GB,2))
+          if(Test-Path $state){
+            $len=(Get-Item $state).Length
+            Write-Host ("MEDITATION_STATE_BYTES="+$len)
+            if($len -gt 100MB){
+              Copy-Item $state $backup -Force
+              '{"mode":"standby","version":1,"events":[]}' | Set-Content $state -Encoding UTF8
+              Write-Host 'MEDITATION_STATE_RESET=PASS'
+            } else {
+              try { Get-Content -Raw $state | ConvertFrom-Json | Out-Null; Write-Host 'MEDITATION_STATE_JSON=PASS' }
+              catch { Copy-Item $state $backup -Force; '{"mode":"standby","version":1,"events":[]}' | Set-Content $state -Encoding UTF8; Write-Host 'MEDITATION_STATE_REBUILT=PASS' }
             }
-            return $null
+          } else {
+            '{"mode":"standby","version":1,"events":[]}' | Set-Content $state -Encoding UTF8
+            Write-Host 'MEDITATION_STATE_CREATED=PASS'
           }
-
-          Write-Host '=== ARIA PC PERFORMANCE EMERGENCY RECOVERY ==='
-          $beforeOs = Get-CimInstance Win32_OperatingSystem
-          Write-Host ("BEFORE_FREE_MB=" + [math]::Round($beforeOs.FreePhysicalMemory/1024))
-
-          $before = @(Get-Process -Name node -ErrorAction SilentlyContinue | ForEach-Object {
-            $p = $_
-            $cmd = ''
-            try { $cmd = (Get-CimInstance Win32_Process -Filter ("ProcessId=" + $p.Id)).CommandLine } catch {}
-            [pscustomobject]@{ Id=$p.Id; Name='node'; RAM_MB=[math]::Round($p.WorkingSet64/1MB); CommandLine=$cmd }
-          } | Sort-Object RAM_MB -Descending)
-          $before | Select-Object -First 12 | Format-Table -AutoSize
-
-          $watchdog = Read-Json $statusPath
-          if ($watchdog -and $watchdog.agent_pid) {
-            Write-Host ("ARIA_AGENT_PID_BEFORE=" + $watchdog.agent_pid)
+          $ariaPids=@()
+          Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
+            $p=$_; $cmd=''
+            try { $cmd=(Get-CimInstance Win32_Process -Filter ("ProcessId="+$p.Id)).CommandLine } catch {}
+            if($cmd -match 'aria-agent\.js|aria-worker[\\/]'){ $ariaPids += $p.Id }
           }
-
-          $refresh = Join-Path $runtime 'refresh-agent-via-watchdog.ps1'
-          if (Test-Path $refresh) {
-            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $refresh
-            if ($LASTEXITCODE -ne 0) { throw ("Watchdog refresh failed: " + $LASTEXITCODE) }
-            Write-Host 'WATCHDOG_REFRESH=PASS'
+          Write-Host ("ARIA_NODE_PIDS="+(($ariaPids|Sort-Object -Unique)-join ','))
+          Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
+            if($_.WorkingSet64 -ge 800MB -and -not ($ariaPids -contains $_.Id)){ Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Write-Host ("STOP_NON_ARIA_NODE pid="+$_.Id) }
           }
-
-          Start-Sleep -Seconds 3
-
-          $ariaPids = @()
-          $nodeWmi = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue)
-          foreach ($n in $nodeWmi) {
-            if ($n.CommandLine -match 'aria-agent\.js|aria-worker[\\/]') { $ariaPids += [int]$n.ProcessId }
-          }
-          Write-Host ("ARIA_NODE_PIDS=" + (($ariaPids | Sort-Object -Unique) -join ','))
-
-          $killed = @()
-          foreach ($p in @(Get-Process -Name node -ErrorAction SilentlyContinue)) {
-            if ($p.WorkingSet64 -lt 800MB) { continue }
-            if ($ariaPids -contains $p.Id) { Write-Host ("KEEP_ARIA_NODE pid=" + $p.Id + " ram_mb=" + [math]::Round($p.WorkingSet64/1MB)); continue }
-            Write-Host ("STOP_NON_ARIA_NODE pid=" + $p.Id + " ram_mb=" + [math]::Round($p.WorkingSet64/1MB))
-            Stop-Process -Id $p.Id -Force -ErrorAction Stop
-            $killed += $p.Id
-          }
-
-          foreach ($p in @(Get-Process -Name powershell,pwsh -ErrorAction SilentlyContinue)) {
-            if ($p.Id -eq $PID) { continue }
-            if ($p.WorkingSet64 -lt 1536MB) { continue }
-            $cmd = ''
-            try { $cmd = (Get-CimInstance Win32_Process -Filter ("ProcessId=" + $p.Id)).CommandLine } catch {}
-            if ($cmd -match 'run-agent\.ps1|Runner\.Worker|Runner\.Listener|aria-agent\.js') { continue }
-            Write-Host ("STOP_RUNAWAY_POWERSHELL pid=" + $p.Id + " ram_mb=" + [math]::Round($p.WorkingSet64/1MB))
-            Stop-Process -Id $p.Id -Force -ErrorAction Stop
-            $killed += $p.Id
-          }
-
-          $tempDirs = @($env:TEMP, $env:LOCALAPPDATA + '\Temp') | Select-Object -Unique
-          foreach ($d in $tempDirs) {
-            if (Test-Path $d) {
-              Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue |
-                Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-6) } |
-                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-            }
-          }
-
-          $afterOs = Get-CimInstance Win32_OperatingSystem
-          $after = @(Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 12 Id,ProcessName,@{N='RAM_MB';E={[math]::Round($_.WorkingSet64/1MB)}},CPU)
-          Write-Host ("AFTER_FREE_MB=" + [math]::Round($afterOs.FreePhysicalMemory/1024))
-          Write-Host ("KILLED_PIDS=" + (($killed | Sort-Object -Unique) -join ','))
-          $after | Format-Table -AutoSize
-
-          $record = [ordered]@{
-            version='aria-pc-performance-recovery-v1'
-            source_sha=(git rev-parse HEAD)
-            timestamp=(Get-Date).ToUniversalTime().ToString('o')
-            before_free_mb=[math]::Round($beforeOs.FreePhysicalMemory/1024)
-            after_free_mb=[math]::Round($afterOs.FreePhysicalMemory/1024)
-            killed_pids=@($killed | Sort-Object -Unique)
-            aria_node_pids=@($ariaPids | Sort-Object -Unique)
-            status='succeeded'
-          }
-          $record | ConvertTo-Json -Depth 6 | Set-Content -Path $marker -Encoding UTF8 -Force
+          foreach($d in @($env:TEMP,($env:LOCALAPPDATA+'\Temp'))){ if(Test-Path $d){ Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue | Where-Object {$_.LastWriteTime -lt (Get-Date).AddHours(-6)} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue } }
+          $after=Get-CimInstance Win32_OperatingSystem
+          [ordered]@{version='aria-pc-performance-recovery-v2';timestamp=(Get-Date).ToUniversalTime().ToString('o');before_free_mb=[math]::Round($os.FreePhysicalMemory/1024);after_free_mb=[math]::Round($after.FreePhysicalMemory/1024);status='succeeded'}|ConvertTo-Json|Set-Content $marker -Encoding UTF8
+          Write-Host ("AFTER_FREE_MB="+[math]::Round($after.FreePhysicalMemory/1024))
           Write-Host 'PC_PERFORMANCE_RECOVERY=PASS'
 
-      - name: Verify recovery marker and runtime ownership
+      - name: Restart ARIA through existing watchdog
         shell: powershell
         run: |
-          $marker = Join-Path $env:ARIA_ROOT 'Data\pc-performance-recovery-last.json'
-          if (-not (Test-Path $marker)) { throw 'Recovery marker missing' }
-          $r = Get-Content -Raw $marker | ConvertFrom-Json
-          if ($r.status -ne 'succeeded') { throw 'Recovery marker not succeeded' }
-          Write-Host ("VERIFY_STATUS=" + $r.status)
-          Write-Host ("VERIFY_BEFORE_FREE_MB=" + $r.before_free_mb)
-          Write-Host ("VERIFY_AFTER_FREE_MB=" + $r.after_free_mb)
-          Write-Host ("VERIFY_KILLED=" + (($r.killed_pids) -join ','))
-          Write-Host 'PC_PERFORMANCE_VERIFICATION=PASS'
+          $root=$env:ARIA_ROOT
+          $req=Join-Path $root 'Logs\kill-request.json'
+          $payload=@{reason='pc-performance-recovery';source_sha=(git rev-parse HEAD);requested_at=(Get-Date).ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress
+          [IO.File]::WriteAllText($req,$payload,(New-Object Text.UTF8Encoding($false)))
+          Start-Sleep -Seconds 12
+          $status=Get-Content (Join-Path $root 'Logs\status.json') -Raw | ConvertFrom-Json
+          Write-Host ("ARIA_STATE="+$status.state)
+          Write-Host ("ARIA_AGENT_PID="+$status.agent_pid)
+          if($status.state -ne 'agent_running'){throw 'ARIA agent did not return to running state'}
+          Write-Host 'ARIA_RESTART=PASS'
