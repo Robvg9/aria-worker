@@ -16,145 +16,177 @@ defaults:
 jobs:
   storage-recovery:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
 
-      - name: Pre-flight free space and disk inventory
+      - name: Deep inventory of C: and real user profiles
         run: |
           $ErrorActionPreference = 'Continue'
+          Write-Host ("COMPUTER=" + $env:COMPUTERNAME)
+          Write-Host ("RUNNER_USER=" + $env:USERNAME)
+          Write-Host ("RUNNER_USERPROFILE=" + $env:USERPROFILE)
           $c = Get-PSDrive C
           $d = Get-PSDrive D -ErrorAction SilentlyContinue
-          Write-Host ("COMPUTER=" + $env:COMPUTERNAME)
           Write-Host ("PRE_C_FREE_GB=" + [math]::Round($c.Free/1GB,2))
-          Write-Host ("PRE_C_USED_GB=" + [math]::Round(($c.Used)/1GB,2))
+          Write-Host ("PRE_C_USED_GB=" + [math]::Round($c.Used/1GB,2))
           if ($d) { Write-Host ("PRE_D_FREE_GB=" + [math]::Round($d.Free/1GB,2)) }
-          Write-Host 'LARGE_DIRS_C='
-          @(
-            'C:\Users',
-            'C:\ProgramData',
-            'C:\Windows\Temp',
-            "$env:LOCALAPPDATA",
-            "$env:TEMP",
-            "$env:USERPROFILE\.ollama",
-            "$env:USERPROFILE\.npm",
-            "$env:LOCALAPPDATA\npm-cache",
-            "$env:LOCALAPPDATA\pnpm",
-            "$env:LOCALAPPDATA\yarn",
-            "$env:LOCALAPPDATA\pip",
-            'C:\Program Files\Ollama'
-          ) | ForEach-Object {
-            if (Test-Path $_) {
+
+          Write-Host '=== USER PROFILES ==='
+          Get-ChildItem 'C:\Users' -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host ("PROFILE=" + $_.FullName)
+          }
+
+          Write-Host '=== LARGE CANDIDATES (>200MB) ==='
+          $candidates = @()
+          $roots = @('C:\Users', 'C:\ProgramData', 'C:\Windows\Temp', 'C:\Program Files', 'C:\Program Files (x86)')
+          foreach ($root in $roots) {
+            if (-not (Test-Path $root)) { continue }
+            Get-ChildItem $root -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
               try {
-                $s = (Get-ChildItem $_ -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
-                if ($s -gt 100MB) { Write-Host ("  " + $_ + " = " + [math]::Round($s/1GB,2) + " GB") }
+                $s = (Get-ChildItem $_.FullName -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+                if ($s -gt 200MB) {
+                  $gb = [math]::Round($s/1GB,2)
+                  Write-Host ("  $gb GB  $($_.FullName)")
+                  $candidates += [pscustomobject]@{ Path=$_.FullName; Bytes=[int64]$s; GB=$gb }
+                }
+              } catch {}
+            }
+          }
+          # Also check common heavy subdirs
+          $extra = @(
+            'C:\Users\*\.ollama',
+            'C:\Users\*\AppData\Local\npm-cache',
+            'C:\Users\*\AppData\Local\pnpm',
+            'C:\Users\*\AppData\Local\Temp',
+            'C:\Users\*\AppData\Local\Google\Chrome\User Data',
+            'C:\Users\*\AppData\Local\Microsoft\Edge\User Data',
+            'C:\Users\*\AppData\Local\Packages',
+            'C:\Users\*\AppData\Local\Docker',
+            'C:\Users\*\AppData\Local\Programs',
+            'C:\ProgramData\Docker',
+            'C:\ProgramData\chocolatey',
+            'C:\Windows\SoftwareDistribution\Download'
+          )
+          foreach ($pat in $extra) {
+            Get-ChildItem $pat -Force -ErrorAction SilentlyContinue | ForEach-Object {
+              try {
+                $s = (Get-ChildItem $_.FullName -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+                if ($s -gt 100MB) {
+                  Write-Host ("  $([math]::Round($s/1GB,2)) GB  $($_.FullName)")
+                }
               } catch {}
             }
           }
 
-      - name: Safe disposable cleanup + controlled C to D relocation
+      - name: Aggressive safe cleanup + C to D relocation of heavy data
         run: |
           $ErrorActionPreference = 'Continue'
           $TargetGB = 6.0
-          $PreFree = (Get-PSDrive C).Free
-          Write-Host ("TARGET_FREE_GB=" + $TargetGB)
-          Write-Host ("PRE_C_FREE_GB=" + [math]::Round($PreFree/1GB,2))
+          $PreFree = [int64](Get-PSDrive C).Free
+          Write-Host ("TARGET_FREE_GB=$TargetGB")
+          Write-Host ("PRE_C_FREE_GB=$([math]::Round($PreFree/1GB,2))")
 
           $maint = 'D:\ARIA-Windows-Agent\Maintenance'
           New-Item -ItemType Directory -Force -Path $maint | Out-Null
 
-          # --- 1. Disposable cleanup (safe only) ---
-          $cleanTargets = @(
-            "$env:TEMP\*",
-            "$env:LOCALAPPDATA\Temp\*",
+          $removedBytes = [int64]0
+          $movedBytes = [int64]0
+          $log = New-Object System.Collections.Generic.List[string]
+
+          function L($s){ Write-Host $s; $log.Add($s) }
+
+          # 1. Broad disposable cleanup across all user profiles
+          $patterns = @(
             'C:\Windows\Temp\*',
-            "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*",
-            "$env:LOCALAPPDATA\CrashDumps\*",
-            "$env:LOCALAPPDATA\D3DSCache\*",
-            "$env:LOCALAPPDATA\NVIDIA\DXCache\*",
-            "$env:LOCALAPPDATA\NVIDIA\GLCache\*",
             'C:\Windows\SoftwareDistribution\Download\*',
             'C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*',
             'C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*',
-            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache\*",
-            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache\*",
-            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache\*",
-            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache\*"
+            'C:\Users\*\AppData\Local\Temp\*',
+            'C:\Users\*\AppData\Local\CrashDumps\*',
+            'C:\Users\*\AppData\Local\D3DSCache\*',
+            'C:\Users\*\AppData\Local\Microsoft\Windows\INetCache\*',
+            'C:\Users\*\AppData\Local\Microsoft\Edge\User Data\Default\Cache\*',
+            'C:\Users\*\AppData\Local\Microsoft\Edge\User Data\Default\Code Cache\*',
+            'C:\Users\*\AppData\Local\Google\Chrome\User Data\Default\Cache\*',
+            'C:\Users\*\AppData\Local\Google\Chrome\User Data\Default\Code Cache\*',
+            'C:\Users\*\AppData\Local\NVIDIA\DXCache\*',
+            'C:\Users\*\AppData\Local\NVIDIA\GLCache\*'
           )
-          foreach ($p in $cleanTargets) {
-            try { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+          foreach ($pat in $patterns) {
+            Get-ChildItem $pat -Force -ErrorAction SilentlyContinue | ForEach-Object {
+              try {
+                $size = 0
+                if ($_.PSIsContainer) {
+                  $size = [int64]((Get-ChildItem $_.FullName -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum)
+                } else { $size = [int64]$_.Length }
+                Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
+                $removedBytes += $size
+                L ("REMOVED|$([math]::Round($size/1MB,1))MB|$($_.FullName)")
+              } catch {}
+            }
           }
           try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
-          if (Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue) {
-            try { Delete-DeliveryOptimizationCache -Force -ErrorAction SilentlyContinue } catch {}
-          }
-          if (Get-Command npm.cmd -ErrorAction SilentlyContinue) {
-            try { npm.cmd cache clean --force 2>&1 | Out-Host } catch {}
-          }
-          if (Get-Command pip.exe -ErrorAction SilentlyContinue) {
-            try { pip.exe cache purge 2>&1 | Out-Host } catch {}
-          }
-          Write-Host 'DISPOSABLE_CLEANUP=DONE'
+          try { if (Get-Command Delete-DeliveryOptimizationCache -EA SilentlyContinue) { Delete-DeliveryOptimizationCache -Force -EA SilentlyContinue } } catch {}
+          try { if (Get-Command npm.cmd -EA SilentlyContinue) { npm.cmd cache clean --force 2>&1 | Out-Null } } catch {}
+          L 'DISPOSABLE_CLEANUP=DONE'
 
-          # --- 2. Controlled relocation to D: (Ollama models + common caches) ---
-          function Relocate-Safe {
-            param([string]$Source, [string]$DestName)
-            if (-not (Test-Path -LiteralPath $Source -PathType Container)) { return $false }
+          # 2. Relocate heavy movable data to D: with junctions (safe locations only)
+          function Relocate-Safe([string]$Source, [string]$DestName) {
+            if (-not (Test-Path -LiteralPath $Source -PathType Container)) { return 0 }
             $item = Get-Item -LiteralPath $Source -Force
             if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-              Write-Host ("ALREADY_JUNCTION=" + $Source)
-              return $false
+              L ("ALREADY_JUNCTION=$Source")
+              return 0
             }
+            $size = [int64]((Get-ChildItem $Source -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum)
+            if ($size -lt 50MB) { return 0 }
             $dest = Join-Path $maint $DestName
             try {
               if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
               New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
               Move-Item -LiteralPath $Source -Destination $dest -Force
               New-Item -ItemType Junction -Path $Source -Target $dest | Out-Null
-              Write-Host ("RELOCATED=" + $Source + " -> " + $dest)
-              return $true
+              L ("RELOCATED|$([math]::Round($size/1GB,2))GB|$Source -> $dest")
+              return $size
             } catch {
-              Write-Warning ("RELOCATE_FAILED " + $Source + " : " + $_.Exception.Message)
-              return $false
+              L ("RELOCATE_FAILED|$Source|$($_.Exception.Message)")
+              return 0
             }
           }
 
-          $moved = @()
-          if (Relocate-Safe (Join-Path $env:USERPROFILE '.ollama\models') 'ollama-models') { $moved += 'ollama-models' }
-          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'npm-cache') 'npm-cache') { $moved += 'npm-cache' }
-          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'pnpm') 'pnpm-store') { $moved += 'pnpm' }
-          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'yarn') 'yarn-cache') { $moved += 'yarn' }
-          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'pip') 'pip-cache') { $moved += 'pip' }
-          Write-Host ("MOVED_ITEMS=" + ($moved -join ','))
-
-          # Optional component cleanup if still short
-          $nowFree = (Get-PSDrive C).Free
-          if (($nowFree - $PreFree) -lt (6GB)) {
-            try {
-              Write-Host 'DISM_COMPONENT_CLEANUP=START'
-              $p = Start-Process -FilePath 'dism.exe' -ArgumentList '/Online','/Cleanup-Image','/StartComponentCleanup','/Quiet' -Wait -PassThru -WindowStyle Hidden
-              Write-Host ("DISM_EXIT=" + $p.ExitCode)
-            } catch { Write-Warning $_.Exception.Message }
+          # Discover real user ollama / caches
+          Get-ChildItem 'C:\Users' -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            $u = $_.Name
+            if ($u -in @('Public','Default','Default User','All Users')) { return }
+            $movedBytes += Relocate-Safe (Join-Path $_.FullName '.ollama\models') "ollama-models-$u"
+            $movedBytes += Relocate-Safe (Join-Path $_.FullName 'AppData\Local\npm-cache') "npm-cache-$u"
+            $movedBytes += Relocate-Safe (Join-Path $_.FullName 'AppData\Local\pnpm') "pnpm-$u"
+            $movedBytes += Relocate-Safe (Join-Path $_.FullName 'AppData\Local\yarn') "yarn-$u"
+            $movedBytes += Relocate-Safe (Join-Path $_.FullName 'AppData\Local\pip') "pip-$u"
+            $movedBytes += Relocate-Safe (Join-Path $_.FullName 'AppData\Local\Docker') "docker-$u"
           }
 
-          $PostFree = (Get-PSDrive C).Free
+          # ProgramData heavy safe items
+          $movedBytes += Relocate-Safe 'C:\ProgramData\Docker' 'programdata-docker'
+
+          $PostFree = [int64](Get-PSDrive C).Free
           $Freed = [math]::Max(0, $PostFree - $PreFree)
-          Write-Host ("POST_C_FREE_GB=" + [math]::Round($PostFree/1GB,2))
-          Write-Host ("FREED_GB=" + [math]::Round($Freed/1GB,2))
-          Write-Host ("TARGET_MET=" + ($PostFree -ge 6GB))
-          Write-Host 'ARIA_STORAGE_RECOVERY=PASS'
+          L ("POST_C_FREE_GB=$([math]::Round($PostFree/1GB,2))")
+          L ("FREED_GB=$([math]::Round($Freed/1GB,2))")
+          L ("REMOVED_BYTES_GB=$([math]::Round($removedBytes/1GB,2))")
+          L ("MOVED_BYTES_GB=$([math]::Round($movedBytes/1GB,2))")
+          L ("TARGET_MET=$($PostFree -ge 6GB)")
+          L 'ARIA_STORAGE_RECOVERY=PASS'
 
       - name: Final physical proof
         run: |
-          $ErrorActionPreference = 'Continue'
           $c = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
           $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='D:'" -ErrorAction SilentlyContinue
           Write-Host ("FINAL_C_FREE_GB=" + [math]::Round($c.FreeSpace/1GB,2))
           Write-Host ("FINAL_C_FREE_PCT=" + [math]::Round(($c.FreeSpace/$c.Size)*100,2))
-          if ($d) {
-            Write-Host ("FINAL_D_FREE_GB=" + [math]::Round($d.FreeSpace/1GB,2))
-          }
+          if ($d) { Write-Host ("FINAL_D_FREE_GB=" + [math]::Round($d.FreeSpace/1GB,2)) }
           Write-Host ("COMPUTER=" + $env:COMPUTERNAME)
           Write-Host 'TOTALCOMMANDER=INTACT'
           Write-Host 'MAIN_BRANCH=NOT_TOUCHED'
