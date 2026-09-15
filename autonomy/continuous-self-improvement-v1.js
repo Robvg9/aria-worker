@@ -1,5 +1,7 @@
 'use strict';
 
+const { detectPattern } = require('../failure-intelligence/failure-pattern-engine-v1');
+
 const STAGES = Object.freeze([
   'mission','observe','plan','execute','verify','reflect','learn','update_skill','identify_gap','self_develop','test','promote','better_aria'
 ]);
@@ -26,6 +28,7 @@ function createContinuousSelfImprovementLoop({
   selfDevelop, self_develop,
   test, promote,
   betterAria, better_aria,
+  failurePatternDetector = detectPattern,
   maxCycles = 1
 } = {}) {
   const fns = {
@@ -37,6 +40,7 @@ function createContinuousSelfImprovementLoop({
     better_aria: better_aria || betterAria
   };
   for (const stage of STAGES) requireFn(fns[stage], stage);
+  if (typeof failurePatternDetector !== 'function') throw new TypeError('failurePatternDetector must be a function');
   if (!Number.isInteger(maxCycles) || maxCycles < 1 || maxCycles > 10) {
     throw new TypeError('maxCycles must be an integer between 1 and 10');
   }
@@ -44,14 +48,17 @@ function createContinuousSelfImprovementLoop({
   async function run(input = {}) {
     const trace = [];
     const cycleResults = [];
-    let context = { input };
+    const failureHistory = Array.isArray(input.failure_history) ? input.failure_history.slice(-200) : [];
+    const detectedFailurePatterns = failureHistory.length ? failurePatternDetector(failureHistory) : [];
+    let context = { input, failure_patterns: detectedFailurePatterns };
 
     for (let cycle = 1; cycle <= maxCycles; cycle += 1) {
       const results = {};
       let stopped = false;
 
       for (const stage of STAGES) {
-        const value = await fns[stage]({ ...context, cycle, stage, trace: trace.slice() });
+        const stageContext = { ...context, cycle, stage, trace: trace.slice() };
+        const value = await fns[stage](stageContext);
         const normalized = normalizeStageResult(stage, value);
         results[stage] = normalized;
         context = { ...context, [stage]: normalized };
@@ -71,21 +78,21 @@ function createContinuousSelfImprovementLoop({
       if (safeStatus(results.better_aria, null) === 'completed') {
         return Object.freeze({
           status: 'completed', version: 'continuous-self-improvement-v1', stages: STAGES,
-          cycles: cycleResults, trace, stop_reason: 'better_aria'
+          cycles: cycleResults, trace, failure_patterns: detectedFailurePatterns, stop_reason: 'better_aria'
         });
       }
       if (stopped) {
         const last = Object.values(results).at(-1);
         return Object.freeze({
           status: safeStatus(last, 'failed'), version: 'continuous-self-improvement-v1', stages: STAGES,
-          cycles: cycleResults, trace, stop_reason: `stage_${last?.stage || 'unknown'}`
+          cycles: cycleResults, trace, failure_patterns: detectedFailurePatterns, stop_reason: `stage_${last?.stage || 'unknown'}`
         });
       }
     }
 
     return Object.freeze({
       status: 'blocked', version: 'continuous-self-improvement-v1', stages: STAGES,
-      cycles: cycleResults, trace, stop_reason: 'max_cycles'
+      cycles: cycleResults, trace, failure_patterns: detectedFailurePatterns, stop_reason: 'max_cycles'
     });
   }
 
