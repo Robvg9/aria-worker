@@ -1,15 +1,6 @@
 name: ARIA Meditation IA Final Physical Certification
 
 on:
-  push:
-    branches: ["aria/self-improvement-v1-main"]
-    paths:
-      - 'agents/windows/**'
-      - 'autonomy/**'
-      - 'self-development/**'
-      - 'self-model/**'
-      - 'tests/**'
-      - '.github/workflows/aria-meditation-final-certification.yml'
   pull_request:
     branches: ["aria/meditation-ia-v1-main"]
     paths:
@@ -21,8 +12,8 @@ on:
       - '.github/workflows/aria-meditation-final-certification.yml'
   workflow_dispatch:
 
-# Physical certification is exclusive per device, but new runs must queue instead
-# of cancelling the previous run. This prevents the repeated cancellation loop.
+# Physical certification is exclusive per Windows device.
+# PR updates queue instead of cancelling an active certification.
 concurrency:
   group: aria-meditation-final-certification-windows
   cancel-in-progress: false
@@ -42,22 +33,11 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout exact source
-        shell: cmd
-        run: |
-          git config --global --add safe.directory "%CD%" 2>nul
-          git reset --hard HEAD
-          git clean -ffdx
-          set SHA=%ARIA_EXPECTED_SHA%
-          if "%SHA%"=="" exit /b 1
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$b=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('x-access-token:'+$env:GITHUB_TOKEN)); git config --local http.https://github.com/.extraheader ('AUTHORIZATION: basic '+$b)"
-          git checkout --detach HEAD
-          git branch -D %SHA% 2>nul
-          git fetch --no-tags --depth=1 origin %SHA%
-          if errorlevel 1 exit /b 1
-          git checkout --detach --force %SHA%
-          for /f %%H in ('git rev-parse HEAD') do set HEADSHA=%%H
-          if not "%HEADSHA%"=="%SHA%" exit /b 1
-          echo SOURCE_CHECKOUT_VERIFIED=PASS commit=%HEADSHA%
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ARIA_EXPECTED_SHA }}
+          fetch-depth: 1
+          clean: true
 
       - name: Phone Link uninstall and compact metrics
         shell: cmd
