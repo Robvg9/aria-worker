@@ -31,7 +31,7 @@ jobs:
           $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
           $shaPath='D:\ARIA-Windows-Agent\Logs\runtime-source-sha'
           $kill='D:\ARIA-Windows-Agent\Logs\kill-request.json'
-          $expected='4DA96D341C6E03C1A0753E5AE94D2882EDFFFC529873D01E79774285EF62AB97'
+          $expected='420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'
           $source='.\autonomy\self-improvement-coordinator-v1.js'
           if(-not(Test-Path $source)){throw 'Corrected coordinator source missing from checkout'}
           Copy-Item $source $runtime -Force
@@ -72,7 +72,7 @@ jobs:
           $config='D:\ARIA-Windows-Agent\Data\config.json'
           foreach($p in @($runtime,$coordinator,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
           $hash=(Get-FileHash $coordinator -Algorithm SHA256).Hash.ToUpperInvariant()
-          if($hash -ne '4DA96D341C6E03C1A0753E5AE94D2882EDFFFC529873D01E79774285EF62AB97'){throw "Coordinator hash mismatch: $hash"}
+          if($hash -ne '420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'){throw "Coordinator hash mismatch: $hash"}
           $j=Get-Content -Raw $config|ConvertFrom-Json
           if($j.agent_version -ne 'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
           if(-not($j.capabilities -contains 'self.improve')){throw 'self.improve capability missing'}
