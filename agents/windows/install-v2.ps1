@@ -17,6 +17,7 @@ $KillRequestPath = Join-Path $LogDir 'kill-request.json'
 $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
 $StartupAuthorityPath = Join-Path $LogDir 'startup-authority.json'
 $RuntimeSourceShaPath = Join-Path $LogDir 'runtime-source-sha'
+$TaskName = 'ARIA-Windows-Local-Agent'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $RunValueName = 'ARIA-Windows-Local-Agent'
 
@@ -70,53 +71,58 @@ $config = [ordered]@{
     device_id = $DeviceId
     gateway_url = $GatewayUrl
     node_path = $NodePath
-    agent_version = 'aria-windows-agent-v2'
+    agent_version = 'aria-windows-agent-v3-supervised'
     runtime_root = $RuntimeRoot
     capabilities = @('ollama.qwen3','shell.execute','computer.use','self.improve','storage.safe_maintenance')
     desktop_version = 'aria-windows-desktop-v1.8'
     meditation_version = 'aria-meditation-ia-v1'
-    startup_authority = 'user_run_singleton'
+    startup_authority = 'task_scheduler_restart_on_failure'
     installed_at = (Get-Date).ToUniversalTime().ToString('o')
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
+# One startup authority only: Windows Task Scheduler under the interactive user.
+# HKCU Run was the previous weaker authority and is intentionally removed.
 try {
-    New-Item -Path $RunKey -Force | Out-Null
-    $runCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $RunAgentPath + '"'
-    Set-ItemProperty -Path $RunKey -Name $RunValueName -Value $runCommand
-    Write-Host 'ARIA_USER_AUTOSTART=PASS_SOLE_STARTUP_AUTHORITY'
-} catch {
-    throw ("Unable to configure user startup authority: {0}" -f $_.Exception.Message)
-}
+    if (Test-Path $RunKey) {
+        Remove-ItemProperty -Path $RunKey -Name $RunValueName -ErrorAction SilentlyContinue
+    }
+} catch {}
+
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RunAgentPath`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -RestartCount 999 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -MultipleInstances IgnoreNew
+$principal = New-ScheduledTaskPrincipal `
+    -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    -LogonType Interactive `
+    -RunLevel Limited
+
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+Start-ScheduledTask -TaskName $TaskName
 
 $authority = [ordered]@{
-    authority = 'user_run_singleton'
-    run_key = $RunValueName
-    task_scheduler = 'not_used_by_aria'
+    authority = 'task_scheduler_restart_on_failure'
+    task_name = $TaskName
+    trigger = 'AtLogOn'
+    principal = "$env:USERDOMAIN\$env:USERNAME"
+    logon_type = 'Interactive'
+    restart_count = 999
+    restart_interval_seconds = 60
+    execution_time_limit = 'unlimited'
+    multiple_instances = 'IgnoreNew'
+    user_run = 'disabled'
     watchdog_mutex = 'Global\\ARIA-Windows-Agent-Watchdog-v1'
     updated_at = (Get-Date).ToUniversalTime().ToString('o')
-    reason = 'single-owner-startup'
+    reason = 'OS-level restart authority plus non-terminating watchdog'
 }
 $authority | ConvertTo-Json -Depth 10 | Set-Content -Path $StartupAuthorityPath -Encoding UTF8
-
-$watchdogAlive = $false
-if (Test-Path $WatchdogPidPath) {
-    try {
-        $watchdogPid = [int](Get-Content -Raw $WatchdogPidPath).Trim()
-        Get-Process -Id $watchdogPid -ErrorAction Stop | Out-Null
-        $watchdogAlive = $true
-    } catch {}
-}
-if ($watchdogAlive) {
-    $runtimeSha = ''
-    try { if (Test-Path $RuntimeSourceShaPath) { $runtimeSha = (Get-Content -Raw $RuntimeSourceShaPath).Trim() } } catch {}
-    if ([string]::IsNullOrWhiteSpace($runtimeSha)) { $runtimeSha = 'installer-local-refresh' }
-    [ordered]@{ source_sha = $runtimeSha; reason = 'installer_reload'; requested_at = (Get-Date).ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress | Set-Content -Path $KillRequestPath -Encoding UTF8 -Force
-    Write-Host 'ARIA_AGENT_RELOAD_REQUESTED=PASS'
-} else {
-    Start-Process -FilePath $PowershellPath -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$RunAgentPath) -WorkingDirectory $RuntimeDir -WindowStyle Hidden | Out-Null
-    Write-Host 'ARIA_WATCHDOG_STARTED_FROM_INSTALLER=PASS_SINGLETON'
-}
 
 $runtimeSmoke = & $NodePath -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')" 2>&1
 if ($LASTEXITCODE -ne 0) { throw "Self-improvement runtime load failed: $runtimeSmoke" }
@@ -124,7 +130,9 @@ $runtimeSmoke | ForEach-Object { Write-Host $_ }
 
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
-Write-Host 'StartupAuthority: user_run_singleton'
-Write-Host "StartupAuthorityFile: $StartupAuthorityPath"
+Write-Host 'StartupAuthority: task_scheduler_restart_on_failure'
+Write-Host "Task: $TaskName"
 Write-Host "Device: $DeviceId"
 Write-Host "Runtime: $RuntimeDir"
+Write-Host 'TaskScheduler: AtLogOn + RestartCount=999 + RestartInterval=60s + Unlimited'
+Write-Host 'Watchdog: non-terminating supervisor with child restart loop'
