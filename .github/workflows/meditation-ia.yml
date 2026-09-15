@@ -31,8 +31,8 @@ jobs:
             ['agent','computer.use'],
             ['gateway','/v1/meditation/tick'],
             ['gateway','aria_mission_create'],
-            ['controller','HUMAN GATE'],
-            ['controller','USER_IDLE_CHECK']
+            ['controller','HUMAN GATE']
           ]) if(!(s[0]==='agent'?agent:s[0]==='gateway'?gateway:controller).includes(s[1])) throw new Error(`missing:${s[0]}:${s[1]}`);
+          for(const forbidden of ['USER_IDLE_CHECK','CONTROL_SERVER online=','NOTEPAD_REUSED']) if(controller.includes(forbidden)) throw new Error(`notepad_noise:${forbidden}`);
           console.log('MEDITATION_IA_STATIC_CONTRACT=PASS');
           NODE
