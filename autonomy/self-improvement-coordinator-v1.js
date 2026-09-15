@@ -45,13 +45,34 @@ function createSelfImprovementCoordinatorV1({ snapshot, rules = [], workspace, t
       if (tests?.status === 'succeeded' || tests?.status === 'completed' || tests?.status === 'passed') {
         return { status: 'succeeded', source: 'self-development-coordinator', tests };
       }
+      const isNoOpPlan = build?.mode === 'plan_only'
+        && Array.isArray(build?.result?.applied)
+        && build.result.applied.length === 0;
+      if (isNoOpPlan) {
+        return {
+          status: 'succeeded',
+          source: 'self-development-coordinator',
+          basis: 'no_actionable_changes',
+          tests: { status: 'not_required', reason: 'governed_noop_plan' }
+        };
+      }
       return { status: 'failed', reason: 'coordinator_test_evidence_missing' };
     },
     verify: async ({ build, test }) => {
       const verification = build?.result?.verification;
       const testsVerified = test?.status === 'succeeded' || test?.status === 'completed';
+      const isNoOpPlan = build?.mode === 'plan_only'
+        && Array.isArray(build?.result?.applied)
+        && build.result.applied.length === 0;
       if (verification?.verified === true && testsVerified) {
         return { status: 'succeeded', source: 'self-development-coordinator', verification };
+      }
+      if (isNoOpPlan && testsVerified) {
+        return {
+          status: 'succeeded',
+          source: 'self-development-coordinator',
+          verification: { verified: true, basis: 'no_actionable_changes' }
+        };
       }
       return { status: 'failed', reason: 'coordinator_verification_missing', verification: verification || null };
     },
