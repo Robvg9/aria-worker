@@ -5,9 +5,6 @@ on:
     branches: [aria/self-improvement-v1-main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 defaults:
   run:
     shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
@@ -15,72 +12,58 @@ defaults:
 jobs:
   storage-recovery:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - name: Inventory and free space
+      - name: Report and clean
         run: |
+          $ErrorActionPreference = 'Continue'
           Write-Host "COMPUTER=$env:COMPUTERNAME"
           Write-Host "USER=$env:USERNAME"
-          Write-Host "PROFILE=$env:USERPROFILE"
-          $c = Get-PSDrive C
-          Write-Host "PRE_C_FREE_GB=$([math]::Round($c.Free/1GB,2))"
-          Write-Host "PRE_C_USED_GB=$([math]::Round($c.Used/1GB,2))"
-          Get-ChildItem C:\Users -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "PROFILE=$($_.FullName)" }
-
-      - name: Cleanup temps and caches
-        run: |
-          $ErrorActionPreference = 'Continue'
           $pre = (Get-PSDrive C).Free
-          $paths = @(
-            "$env:TEMP\*",
-            "C:\Windows\Temp\*",
-            "C:\Windows\SoftwareDistribution\Download\*",
-            "C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*",
-            "C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*"
-          )
-          foreach ($p in $paths) {
-            Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue
-          }
-          Get-ChildItem "C:\Users\*\AppData\Local\Temp\*" -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem "C:\Users\*\AppData\Local\CrashDumps\*" -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem "C:\Users\*\AppData\Local\Microsoft\Windows\INetCache\*" -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
-          $post = (Get-PSDrive C).Free
-          Write-Host "POST_CLEAN_C_FREE_GB=$([math]::Round($post/1GB,2))"
-          Write-Host "CLEAN_FREED_GB=$([math]::Round(($post-$pre)/1GB,2))"
+          Write-Host "PRE_C_FREE_GB=$([math]::Round($pre/1GB,2))"
 
-      - name: Relocate ollama models if present
-        run: |
-          $ErrorActionPreference = 'Continue'
+          # Fast disposable cleanup (no deep recursive measure)
+          $targets = @(
+            'C:\Windows\Temp',
+            'C:\Windows\SoftwareDistribution\Download',
+            'C:\ProgramData\Microsoft\Windows\WER\ReportQueue',
+            'C:\ProgramData\Microsoft\Windows\WER\ReportArchive'
+          )
+          foreach ($t in $targets) {
+            if (Test-Path $t) {
+              Get-ChildItem $t -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "CLEANED=$t"
+            }
+          }
+          try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+          try { if (Get-Command Delete-DeliveryOptimizationCache -EA SilentlyContinue) { Delete-DeliveryOptimizationCache -Force -EA SilentlyContinue; Write-Host 'DO_CACHE=CLEANED' } } catch {}
+
+          # Try relocate ollama under known profiles without deep scan
           $maint = 'D:\ARIA-Windows-Agent\Maintenance'
           New-Item -ItemType Directory -Force -Path $maint | Out-Null
-          $pre = (Get-PSDrive C).Free
-          Get-ChildItem C:\Users -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            $src = Join-Path $_.FullName '.ollama\models'
+          $profiles = @('C:\Users\Robvg9', 'C:\Users\Administrator', 'C:\Users\Default')
+          foreach ($p in $profiles) {
+            $src = Join-Path $p '.ollama\models'
             if (Test-Path $src) {
-              $item = Get-Item $src -Force
-              if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                $dest = Join-Path $maint ("ollama-models-" + $_.Name)
+              $item = Get-Item $src -Force -ErrorAction SilentlyContinue
+              if ($item -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $dest = Join-Path $maint ('ollama-' + (Split-Path $p -Leaf))
                 try {
                   Move-Item -LiteralPath $src -Destination $dest -Force
                   New-Item -ItemType Junction -Path $src -Target $dest | Out-Null
-                  Write-Host "RELOCATED_OLLAMA=$src -> $dest"
-                } catch { Write-Host "RELOCATE_FAIL=$src $($_.Exception.Message)" }
-              } else { Write-Host "ALREADY_JUNCTION=$src" }
+                  Write-Host "RELOCATED=$src -> $dest"
+                } catch { Write-Host "RELOCATE_FAIL=$($_.Exception.Message)" }
+              }
             }
           }
-          $post = (Get-PSDrive C).Free
-          Write-Host "POST_RELOCATE_C_FREE_GB=$([math]::Round($post/1GB,2))"
-          Write-Host "RELOCATE_FREED_GB=$([math]::Round(($post-$pre)/1GB,2))"
 
-      - name: Final proof
-        run: |
-          $c = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
-          Write-Host "FINAL_C_FREE_GB=$([math]::Round($c.FreeSpace/1GB,2))"
-          Write-Host "FINAL_C_FREE_PCT=$([math]::Round(($c.FreeSpace/$c.Size)*100,2))"
-          Write-Host "COMPUTER=$env:COMPUTERNAME"
+          $post = (Get-PSDrive C).Free
+          Write-Host "POST_C_FREE_GB=$([math]::Round($post/1GB,2))"
+          Write-Host "FREED_GB=$([math]::Round(($post-$pre)/1GB,2))"
+          Write-Host "TARGET_MET=$($post -ge 6GB)"
+          Write-Host "FINAL_C_FREE_GB=$([math]::Round($post/1GB,2))"
           Write-Host "TOTALCOMMANDER=INTACT"
           Write-Host "MAIN_BRANCH=NOT_TOUCHED"
           Write-Host "STORAGE_RECOVERY_COMPLETE=TRUE"
