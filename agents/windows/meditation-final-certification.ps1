@@ -22,12 +22,22 @@ function Sync-RuntimeTree([string]$SourceDir,[string]$DestDir){
     $existing = Get-Item -LiteralPath $DestDir -Force -ErrorAction SilentlyContinue
     if ($null -ne $existing -and -not $existing.PSIsContainer) {
       Remove-Item -LiteralPath $DestDir -Force -ErrorAction Stop
-    } else {
-      Remove-Item -LiteralPath $DestDir -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
   New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
-  Copy-Item -Path (Join-Path $SourceDir '*') -Destination $DestDir -Recurse -Force -ErrorAction Stop
+  # Resolve leaf/container conflicts only; do not wipe entire tree while Agent may hold locks.
+  Get-ChildItem -LiteralPath $SourceDir -Force -ErrorAction Stop | ForEach-Object {
+    $target = Join-Path $DestDir $_.Name
+    if (Test-Path -LiteralPath $target) {
+      $t = Get-Item -LiteralPath $target -Force
+      if ($_.PSIsContainer -and -not $t.PSIsContainer) {
+        Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+      } elseif (-not $_.PSIsContainer -and $t.PSIsContainer) {
+        Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+      }
+    }
+    Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force -ErrorAction Stop
+  }
 }
 Write-Host '=== ARIA MEDITATION IA FINAL PHYSICAL CERTIFICATION ==='
 Write-Host ("SOURCE_COMMIT=" + $env:ARIA_EXPECTED_SHA)
