@@ -39,8 +39,7 @@ jobs:
           }
 
           Write-Host '=== LARGE CANDIDATES (>200MB) ==='
-          $candidates = @()
-          $roots = @('C:\Users', 'C:\ProgramData', 'C:\Windows\Temp', 'C:\Program Files', 'C:\Program Files (x86)')
+          $roots = @('C:\Users', 'C:\ProgramData', 'C:\Windows\Temp')
           foreach ($root in $roots) {
             if (-not (Test-Path $root)) { continue }
             Get-ChildItem $root -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
@@ -49,12 +48,10 @@ jobs:
                 if ($s -gt 200MB) {
                   $gb = [math]::Round($s/1GB,2)
                   Write-Host ("  $gb GB  $($_.FullName)")
-                  $candidates += [pscustomobject]@{ Path=$_.FullName; Bytes=[int64]$s; GB=$gb }
                 }
               } catch {}
             }
           }
-          # Also check common heavy subdirs
           $extra = @(
             'C:\Users\*\.ollama',
             'C:\Users\*\AppData\Local\npm-cache',
@@ -64,9 +61,7 @@ jobs:
             'C:\Users\*\AppData\Local\Microsoft\Edge\User Data',
             'C:\Users\*\AppData\Local\Packages',
             'C:\Users\*\AppData\Local\Docker',
-            'C:\Users\*\AppData\Local\Programs',
             'C:\ProgramData\Docker',
-            'C:\ProgramData\chocolatey',
             'C:\Windows\SoftwareDistribution\Download'
           )
           foreach ($pat in $extra) {
@@ -93,11 +88,9 @@ jobs:
 
           $removedBytes = [int64]0
           $movedBytes = [int64]0
-          $log = New-Object System.Collections.Generic.List[string]
 
-          function L($s){ Write-Host $s; $log.Add($s) }
+          function L($s){ Write-Host $s }
 
-          # 1. Broad disposable cleanup across all user profiles
           $patterns = @(
             'C:\Windows\Temp\*',
             'C:\Windows\SoftwareDistribution\Download\*',
@@ -132,7 +125,6 @@ jobs:
           try { if (Get-Command npm.cmd -EA SilentlyContinue) { npm.cmd cache clean --force 2>&1 | Out-Null } } catch {}
           L 'DISPOSABLE_CLEANUP=DONE'
 
-          # 2. Relocate heavy movable data to D: with junctions (safe locations only)
           function Relocate-Safe([string]$Source, [string]$DestName) {
             if (-not (Test-Path -LiteralPath $Source -PathType Container)) { return 0 }
             $item = Get-Item -LiteralPath $Source -Force
@@ -156,7 +148,6 @@ jobs:
             }
           }
 
-          # Discover real user ollama / caches
           Get-ChildItem 'C:\Users' -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
             $u = $_.Name
             if ($u -in @('Public','Default','Default User','All Users')) { return }
@@ -168,7 +159,6 @@ jobs:
             $movedBytes += Relocate-Safe (Join-Path $_.FullName 'AppData\Local\Docker') "docker-$u"
           }
 
-          # ProgramData heavy safe items
           $movedBytes += Relocate-Safe 'C:\ProgramData\Docker' 'programdata-docker'
 
           $PostFree = [int64](Get-PSDrive C).Free
