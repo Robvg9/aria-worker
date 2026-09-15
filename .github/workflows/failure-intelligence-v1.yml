@@ -10,6 +10,7 @@ on:
       - 'autonomy/continuous-self-improvement-v1.js'
       - 'tests/failure-pattern-engine-v1.test.js'
       - 'tests/failure-intelligence-learning-integration-v1.test.js'
+      - 'tests/failure-intelligence-runtime-v1.test.js'
       - '.github/workflows/failure-intelligence-v1.yml'
   workflow_dispatch:
 
@@ -31,12 +32,15 @@ jobs:
       - name: Syntax
         run: |
           node --check failure-intelligence/failure-pattern-engine-v1.js
+          node --check failure-intelligence/runtime.js
           node --check learning/engine.js
           node --check autonomy/continuous-self-improvement-v1.js
       - name: Failure pattern engine
         run: node tests/failure-pattern-engine-v1.test.js
       - name: Learning integration
         run: node tests/failure-intelligence-learning-integration-v1.test.js
+      - name: Runtime orchestration
+        run: node tests/failure-intelligence-runtime-v1.test.js
       - name: Existing failure prevention contract
         run: node tests/failure-prevention-learning-v1.test.js
       - name: Continuous self-improvement contract
