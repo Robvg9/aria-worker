@@ -1,0 +1,11 @@
+name: ARIA Self-Improvement Frontier Certification Now
+
+on:
+  workflow_dispatch:
+
+jobs:
+  frontier-certification:
+    if: false
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - run: Write-Host 'DISABLED: use controlled certification workflow'
