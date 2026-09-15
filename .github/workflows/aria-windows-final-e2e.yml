@@ -25,6 +25,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Refresh corrected self-improvement coordinator and watchdog
+        run: |
+          $ErrorActionPreference='Stop'
+          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
+          $shaPath='D:\ARIA-Windows-Agent\Logs\runtime-source-sha'
+          $kill='D:\ARIA-Windows-Agent\Logs\kill-request.json'
+          $expected='420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'
+          $source='\.\autonomy\self-improvement-coordinator-v1.js'
+          if(-not(Test-Path $source)){throw 'Corrected coordinator source missing from checkout'}
+          Copy-Item $source $runtime -Force
+          $actual=(Get-FileHash $runtime -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($actual-ne$expected){throw "Coordinator SHA mismatch actual=$actual expected=$expected"}
+          Set-Content -Path $shaPath -Value $expected -Encoding ASCII -Force
+          [ordered]@{source_sha=$expected;reason='workflow_refresh_corrected_coordinator';requested_at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress | Set-Content -Path $kill -Encoding UTF8 -Force
+          Write-Host 'CORRECTED_COORDINATOR_RUNTIME=PASS'
+          Write-Host 'WATCHDOG_RELOAD_REQUESTED=PASS'
+
       - name: Ensure ARIA Windows Agent v2
         env:
           ARIA_REQUIRE_DESKTOP_SMOKE: '0'
@@ -50,9 +67,12 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
+          $coordinator='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
           $agent='D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
           $config='D:\ARIA-Windows-Agent\Data\config.json'
-          foreach($p in @($runtime,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
+          foreach($p in @($runtime,$coordinator,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
+          $hash=(Get-FileHash $coordinator -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($hash-ne'420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'){throw "Coordinator hash mismatch: $hash"}
           $j=Get-Content -Raw $config|ConvertFrom-Json
           if($j.agent_version-ne'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
           if(-not($j.capabilities-contains'self.improve')){throw 'self.improve capability missing'}
