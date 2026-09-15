@@ -130,11 +130,12 @@ function Write-AgentStreamTail([string]$Label, [string]$Path) {
 
 try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
 Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir pid=$PID mutex=ARIA-Windows-Agent-Watchdog-v1"
-Write-Status @{ state = 'watchdog_alive'; agent_pid = $null; runtime_source_sha = (Read-RuntimeSourceSha) }
+Write-Status @{ state = 'watchdog_alive'; agent_pid = $null; runtime_source_sha = (Read-RuntimeSourceSha); supervision_policy = 'non_terminating' }
 
 $consecutiveErrors = 0
-$maxConsecutiveErrors = 6
 
+# The watchdog is deliberately non-terminating. Transient config/network/runtime
+# failures must never turn into a dead supervisor that waits for the next logon.
 while ($true) {
     try {
         if (-not (Test-Path $ConfigPath)) { throw "ARIA config not found: $ConfigPath" }
@@ -186,7 +187,6 @@ while ($true) {
         }
         if (-not $process -or -not $process.Id) { throw "AGENT_START_FAILED no_pid node=$node" }
 
-        # Rename to PID-tagged files once PID is known; keep stable latest aliases
         $stdoutPidPath = Join-Path $PublicDir ("agent-stdout-pid" + $process.Id + ".log")
         $stderrPidPath = Join-Path $PublicDir ("agent-stderr-pid" + $process.Id + ".log")
         try {
@@ -201,7 +201,7 @@ while ($true) {
         Write-Log ("AGENT_STARTED pid=" + $process.Id + " stdout=" + $stdoutPidPath + " stderr=" + $stderrPidPath)
         $consecutiveErrors = 0
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
-        Write-Status @{ state = 'agent_running'; agent_pid = $process.Id; node_path = $node; started_at = (Get-Date -Format o); runtime_source_sha = (Read-RuntimeSourceSha); stdout_log = $stdoutPidPath; stderr_log = $stderrPidPath }
+        Write-Status @{ state = 'agent_running'; agent_pid = $process.Id; node_path = $node; started_at = (Get-Date -Format o); runtime_source_sha = (Read-RuntimeSourceSha); stdout_log = $stdoutPidPath; stderr_log = $stderrPidPath; consecutive_errors = 0; supervision_policy = 'non_terminating' }
 
         while (-not $process.HasExited) {
             if (Test-Path $KillRequestPath) {
@@ -232,19 +232,14 @@ while ($true) {
         Write-AgentStreamTail -Label 'STDOUT' -Path $stdoutPidPath
         Write-AgentStreamTail -Label 'STDERR' -Path $stderrPidPath
         try { Remove-Item -Path $PidPath -Force -ErrorAction SilentlyContinue } catch {}
-        Write-Status @{ state = 'agent_restarting'; agent_pid = $null; last_exit_code = $code; runtime_source_sha = (Read-RuntimeSourceSha); stdout_log = $stdoutPidPath; stderr_log = $stderrPidPath }
+        Write-Status @{ state = 'agent_restarting'; agent_pid = $null; last_exit_code = $code; runtime_source_sha = (Read-RuntimeSourceSha); stdout_log = $stdoutPidPath; stderr_log = $stderrPidPath; supervision_policy = 'non_terminating' }
         Start-Sleep -Seconds 5
     }
     catch {
         $consecutiveErrors++
         $err = $_.Exception.Message
         Write-Log "WATCHDOG_ERROR count=$consecutiveErrors $err"
-        Write-Status @{ state = 'watchdog_error'; error = $err; last_error = $err; agent_pid = $null; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha) }
-        if ($consecutiveErrors -ge $maxConsecutiveErrors) {
-            Write-Log "WATCHDOG_EXIT after $consecutiveErrors consecutive errors last_error=$err"
-            Write-Status @{ state = 'watchdog_exiting'; consecutive_errors = $consecutiveErrors; last_error = $err; error = $err; runtime_source_sha = (Read-RuntimeSourceSha) }
-            exit 1
-        }
+        Write-Status @{ state = 'watchdog_error'; error = $err; last_error = $err; agent_pid = $null; consecutive_errors = $consecutiveErrors; runtime_source_sha = (Read-RuntimeSourceSha); supervision_policy = 'non_terminating' }
         Start-Sleep -Seconds 10
     }
 }
