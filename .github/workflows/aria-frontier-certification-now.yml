@@ -1,13 +1,11 @@
 name: ARIA Self-Improvement Frontier Certification Now
 
 on:
-  push:
-    branches: [aria/self-improvement-v1-main]
   workflow_dispatch:
 
 concurrency:
   group: aria-windows-frontier-certification
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   frontier-certification:
