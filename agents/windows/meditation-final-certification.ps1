@@ -95,14 +95,15 @@ Set-Content -Path $KillRequestPath -Value $killPayload -Encoding UTF8 -Force
 Write-Host ("KILL_REQUEST_WRITTEN path=$KillRequestPath source_sha=" + $env:ARIA_EXPECTED_SHA)
 $new=$null
 for($i=0;$i-lt 90;$i++){
-  $new=Read-JsonFile $StatusPath
-  if($new -and $new.state -eq 'agent_running' -and [string]$new.agent_pid -ne $beforePid){
+  $candidate=Read-JsonFile $StatusPath
+  if($candidate -and $candidate.state -eq 'agent_running' -and -not [string]::IsNullOrWhiteSpace([string]$candidate.agent_pid) -and [string]$candidate.agent_pid -ne $beforePid){
+    $new=$candidate
     Write-Host ("RECOVERY_PID_CHANGE t=" + $i + "s old=" + $beforePid + " new=" + $new.agent_pid)
     break
   }
   if(($i % 15) -eq 14){
-    $st = if($new){ $new.state } else { 'null' }
-    $ap = if($new){ $new.agent_pid } else { '' }
+    $st = if($candidate){ $candidate.state } else { 'null' }
+    $ap = if($candidate){ $candidate.agent_pid } else { '' }
     Write-Host ("RECOVERY_WAIT t=" + ($i+1) + "s state=" + $st + " agent_pid=" + $ap)
   }
   Start-Sleep -Seconds 1
@@ -110,17 +111,25 @@ for($i=0;$i-lt 90;$i++){
 Assert-True ($new -and $new.state -eq 'agent_running') 'Watchdog did not recover agent'
 Assert-True ([string]$new.agent_pid -ne $beforePid) 'Agent PID did not change during watchdog recovery'
 $recoveredPid=[int]$new.agent_pid
-Assert-True (Test-AgentAliveByPid $recoveredPid) "Recovered agent pid $recoveredPid is not a live process"
 $recoveredState=$null
 for($i=0;$i-lt 90;$i++){
+  $latest=Read-JsonFile $StatusPath
+  if($latest -and $latest.state -eq 'agent_running' -and -not [string]::IsNullOrWhiteSpace([string]$latest.agent_pid)){
+    $new=$latest
+    $recoveredPid=[int]$latest.agent_pid
+  }
   $recoveredState=Read-JsonFile $MeditationStatePath
   if($recoveredState -and $recoveredState.version -eq 'aria-meditation-ia-v1' -and $recoveredState.mode -eq 'active'){
-    Write-Host ("MEDITATION_STATE_ACTIVE t=" + $i + "s tick=" + $recoveredState.tick_count)
+    Write-Host ("MEDITATION_STATE_ACTIVE t=" + $i + "s tick=" + $recoveredState.tick_count + " pid=" + $recoveredPid)
     break
   }
-  if(($i % 15) -eq 14){ Write-Host ("MEDITATION_STATE_WAIT t=" + ($i+1) + "s") }
+  if(($i % 15) -eq 14){ Write-Host ("MEDITATION_STATE_WAIT t=" + ($i+1) + "s pid=" + $recoveredPid) }
   Start-Sleep -Seconds 1
 }
+Assert-True ($new -and $new.state -eq 'agent_running') 'Watchdog recovery ended without an active agent'
+Assert-True ([string]$new.agent_pid -ne $beforePid) 'No post-recovery agent pid remained active'
+$recoveredPid=[int]$new.agent_pid
+Assert-True (Test-AgentAliveByPid $recoveredPid) "Current recovered agent pid $recoveredPid is not a live process"
 $logTail=(Get-Content $MeditationLogPath -Tail 200 -ErrorAction SilentlyContinue)-join "`n"
 Assert-True (($recoveredState -and $recoveredState.version -eq 'aria-meditation-ia-v1' -and $recoveredState.mode -eq 'active') -or $logTail -match 'MODE active') 'Meditation did not recover to active state'
 $agents=@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue|Where-Object{$_.CommandLine -and $_.CommandLine -match 'aria-agent\.js'})
@@ -129,7 +138,7 @@ if($agents.Count -gt 0){
   Assert-True ([int]$agents[0].ProcessId -eq $recoveredPid) "CommandLine agent pid $($agents[0].ProcessId) != status pid $recoveredPid"
   Write-Host 'SINGLE_AGENT_INSTANCE=PASS via=commandline'
 } else {
-  Assert-True (Test-AgentAliveByPid $recoveredPid) "Expected agent pid $recoveredPid alive (CommandLine not visible to runner)"
+  Assert-True (Test-AgentAliveByPid $recoveredPid) "Expected current agent pid $recoveredPid alive (CommandLine not visible to runner)"
   Write-Host 'SINGLE_AGENT_INSTANCE=PASS via=status_pid'
 }
 Write-Host "ARIA_AGENT_RECOVERY=$beforePid->$($new.agent_pid)"
