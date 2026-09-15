@@ -1,6 +1,8 @@
 name: ARIA Runner Pool Smoke
 
 on:
+  push:
+    branches: ["aria/self-improvement-v1-main"]
   workflow_dispatch:
 
 jobs:
