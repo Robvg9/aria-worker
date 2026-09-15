@@ -75,6 +75,38 @@ jobs:
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $repo=Join-Path $env:GITHUB_WORKSPACE 'agents\windows'; foreach($file in @('aria-agent.js','aria-meditation-controller.js','self-improvement-runtime.js','run-agent.ps1')){Copy-Item -Path (Join-Path $repo $file) -Destination (Join-Path $runtime $file) -Force}; Set-Content -Path 'D:\ARIA-Windows-Agent\Logs\runtime-source-sha' -Value $env:ARIA_EXPECTED_SHA -Encoding ASCII -Force; Write-Host 'PHYSICAL_RUNTIME_SYNC=PASS'"
           if errorlevel 1 exit /b 1
 
+      - name: Repair persistent state and reclaim safe disk space
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $root='D:\ARIA-Windows-Agent'
+          $state=Join-Path $root 'Runtime\meditation\state.json'
+          $med=Join-Path $root 'Runtime\meditation'
+          New-Item -ItemType Directory -Force $med | Out-Null
+          if(Test-Path $state){
+            $len=(Get-Item $state).Length
+            Write-Host ("MEDITATION_STATE_BYTES="+$len)
+            $bad=$false
+            try { if($len -gt 25MB){$bad=$true}else{Get-Content -Raw $state | ConvertFrom-Json | Out-Null} } catch {$bad=$true}
+            if($bad){
+              $backup=Join-Path $med ('state.quarantine-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json')
+              Move-Item $state $backup -Force -ErrorAction SilentlyContinue
+              '{"mode":"standby","version":1,"events":[]}' | Set-Content $state -Encoding UTF8 -Force
+              Write-Host 'MEDITATION_STATE_REPAIRED=PASS'
+            } else { Write-Host 'MEDITATION_STATE_HEALTHY=PASS' }
+          } else {
+            '{"mode":"standby","version":1,"events":[]}' | Set-Content $state -Encoding UTF8 -Force
+            Write-Host 'MEDITATION_STATE_CREATED=PASS'
+          }
+          foreach($d in @($env:TEMP,($env:LOCALAPPDATA+'\Temp'),$env:windir+'\Temp',$env:windir+'\SoftwareDistribution\Download',$env:ProgramData+'\Microsoft\Windows\WER\ReportArchive',$env:ProgramData+'\Microsoft\Windows\WER\ReportQueue')){
+            if(Test-Path $d){ Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue | Where-Object {$_.LastWriteTime -lt (Get-Date).AddHours(-6)} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+          $os=Get-CimInstance Win32_OperatingSystem
+          Write-Host ("FREE_RAM_MB="+[math]::Round($os.FreePhysicalMemory/1024))
+          Write-Host ("FREE_C_GB="+[math]::Round((Get-PSDrive C).Free/1GB,2))
+          Write-Host 'STATE_AND_DISK_REPAIR=PASS'
+
       - name: Refresh Agent through watchdog owner
         shell: cmd
         run: |
