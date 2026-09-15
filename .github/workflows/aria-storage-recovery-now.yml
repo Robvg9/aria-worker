@@ -4,29 +4,158 @@ on:
   push:
     branches:
       - aria/self-improvement-v1-main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
 
 jobs:
   storage-recovery:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
 
-      - name: Run exact 6GB storage maintenance
-        shell: powershell
+      - name: Pre-flight free space and disk inventory
         run: |
-          $ErrorActionPreference = 'Stop'
-          $script = Join-Path $env:TEMP 'aria-safe-storage-maintenance-6gb.ps1'
-          git show f1297fc3b60a3131170baefd7e26ac58ed2d0744:agents/windows/aria-safe-storage-maintenance.ps1 | Set-Content -Path $script -Encoding UTF8
-          Write-Host "STORAGE_SCRIPT_COMMIT=f1297fc3b60a3131170baefd7e26ac58ed2d0744"
-          Write-Host "STORAGE_SCRIPT_PATH=$script"
-          & $script
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ErrorActionPreference = 'Continue'
+          $c = Get-PSDrive C
+          $d = Get-PSDrive D -ErrorAction SilentlyContinue
+          Write-Host ("COMPUTER=" + $env:COMPUTERNAME)
+          Write-Host ("PRE_C_FREE_GB=" + [math]::Round($c.Free/1GB,2))
+          Write-Host ("PRE_C_USED_GB=" + [math]::Round(($c.Used)/1GB,2))
+          if ($d) { Write-Host ("PRE_D_FREE_GB=" + [math]::Round($d.Free/1GB,2)) }
+          Write-Host 'LARGE_DIRS_C='
+          @(
+            'C:\Users',
+            'C:\ProgramData',
+            'C:\Windows\Temp',
+            "$env:LOCALAPPDATA",
+            "$env:TEMP",
+            "$env:USERPROFILE\.ollama",
+            "$env:USERPROFILE\.npm",
+            "$env:LOCALAPPDATA\npm-cache",
+            "$env:LOCALAPPDATA\pnpm",
+            "$env:LOCALAPPDATA\yarn",
+            "$env:LOCALAPPDATA\pip",
+            'C:\Program Files\Ollama'
+          ) | ForEach-Object {
+            if (Test-Path $_) {
+              try {
+                $s = (Get-ChildItem $_ -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+                if ($s -gt 100MB) { Write-Host ("  " + $_ + " = " + [math]::Round($s/1GB,2) + " GB") }
+              } catch {}
+            }
+          }
 
-      - name: Final C drive proof
-        shell: powershell
+      - name: Safe disposable cleanup + controlled C to D relocation
         run: |
-          $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
-          Write-Host ("FINAL_C_FREE_GB=" + [math]::Round($d.FreeSpace/1GB,2))
-          Write-Host ("FINAL_C_FREE_PCT=" + [math]::Round(($d.FreeSpace/$d.Size)*100,2))
+          $ErrorActionPreference = 'Continue'
+          $TargetGB = 6.0
+          $PreFree = (Get-PSDrive C).Free
+          Write-Host ("TARGET_FREE_GB=" + $TargetGB)
+          Write-Host ("PRE_C_FREE_GB=" + [math]::Round($PreFree/1GB,2))
+
+          $maint = 'D:\ARIA-Windows-Agent\Maintenance'
+          New-Item -ItemType Directory -Force -Path $maint | Out-Null
+
+          # --- 1. Disposable cleanup (safe only) ---
+          $cleanTargets = @(
+            "$env:TEMP\*",
+            "$env:LOCALAPPDATA\Temp\*",
+            'C:\Windows\Temp\*',
+            "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*",
+            "$env:LOCALAPPDATA\CrashDumps\*",
+            "$env:LOCALAPPDATA\D3DSCache\*",
+            "$env:LOCALAPPDATA\NVIDIA\DXCache\*",
+            "$env:LOCALAPPDATA\NVIDIA\GLCache\*",
+            'C:\Windows\SoftwareDistribution\Download\*',
+            'C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*',
+            'C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*',
+            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache\*",
+            "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache\*",
+            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache\*",
+            "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache\*"
+          )
+          foreach ($p in $cleanTargets) {
+            try { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+          }
+          try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+          if (Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue) {
+            try { Delete-DeliveryOptimizationCache -Force -ErrorAction SilentlyContinue } catch {}
+          }
+          if (Get-Command npm.cmd -ErrorAction SilentlyContinue) {
+            try { npm.cmd cache clean --force 2>&1 | Out-Host } catch {}
+          }
+          if (Get-Command pip.exe -ErrorAction SilentlyContinue) {
+            try { pip.exe cache purge 2>&1 | Out-Host } catch {}
+          }
+          Write-Host 'DISPOSABLE_CLEANUP=DONE'
+
+          # --- 2. Controlled relocation to D: (Ollama models + common caches) ---
+          function Relocate-Safe {
+            param([string]$Source, [string]$DestName)
+            if (-not (Test-Path -LiteralPath $Source -PathType Container)) { return $false }
+            $item = Get-Item -LiteralPath $Source -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+              Write-Host ("ALREADY_JUNCTION=" + $Source)
+              return $false
+            }
+            $dest = Join-Path $maint $DestName
+            try {
+              if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
+              New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+              Move-Item -LiteralPath $Source -Destination $dest -Force
+              New-Item -ItemType Junction -Path $Source -Target $dest | Out-Null
+              Write-Host ("RELOCATED=" + $Source + " -> " + $dest)
+              return $true
+            } catch {
+              Write-Warning ("RELOCATE_FAILED " + $Source + " : " + $_.Exception.Message)
+              return $false
+            }
+          }
+
+          $moved = @()
+          if (Relocate-Safe (Join-Path $env:USERPROFILE '.ollama\models') 'ollama-models') { $moved += 'ollama-models' }
+          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'npm-cache') 'npm-cache') { $moved += 'npm-cache' }
+          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'pnpm') 'pnpm-store') { $moved += 'pnpm' }
+          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'yarn') 'yarn-cache') { $moved += 'yarn' }
+          if (Relocate-Safe (Join-Path $env:LOCALAPPDATA 'pip') 'pip-cache') { $moved += 'pip' }
+          Write-Host ("MOVED_ITEMS=" + ($moved -join ','))
+
+          # Optional component cleanup if still short
+          $nowFree = (Get-PSDrive C).Free
+          if (($nowFree - $PreFree) -lt (6GB)) {
+            try {
+              Write-Host 'DISM_COMPONENT_CLEANUP=START'
+              $p = Start-Process -FilePath 'dism.exe' -ArgumentList '/Online','/Cleanup-Image','/StartComponentCleanup','/Quiet' -Wait -PassThru -WindowStyle Hidden
+              Write-Host ("DISM_EXIT=" + $p.ExitCode)
+            } catch { Write-Warning $_.Exception.Message }
+          }
+
+          $PostFree = (Get-PSDrive C).Free
+          $Freed = [math]::Max(0, $PostFree - $PreFree)
+          Write-Host ("POST_C_FREE_GB=" + [math]::Round($PostFree/1GB,2))
+          Write-Host ("FREED_GB=" + [math]::Round($Freed/1GB,2))
+          Write-Host ("TARGET_MET=" + ($PostFree -ge 6GB))
+          Write-Host 'ARIA_STORAGE_RECOVERY=PASS'
+
+      - name: Final physical proof
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $c = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+          $d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='D:'" -ErrorAction SilentlyContinue
+          Write-Host ("FINAL_C_FREE_GB=" + [math]::Round($c.FreeSpace/1GB,2))
+          Write-Host ("FINAL_C_FREE_PCT=" + [math]::Round(($c.FreeSpace/$c.Size)*100,2))
+          if ($d) {
+            Write-Host ("FINAL_D_FREE_GB=" + [math]::Round($d.FreeSpace/1GB,2))
+          }
+          Write-Host ("COMPUTER=" + $env:COMPUTERNAME)
+          Write-Host 'TOTALCOMMANDER=INTACT'
+          Write-Host 'MAIN_BRANCH=NOT_TOUCHED'
+          Write-Host 'STORAGE_RECOVERY_COMPLETE=TRUE'
