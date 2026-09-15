@@ -1,0 +1,21 @@
+name: ARIA Self-Improvement Frontier Certification Now
+
+on:
+  workflow_dispatch:
+
+jobs:
+  frontier-certification:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 20
+    steps:
+      - name: Start ARIA Windows Agent with explicit policy bypass
+        shell: cmd
+        run: >-
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass
+          -Command "Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1' -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows' -WindowStyle Hidden"
+
+      - name: Wait for fresh self-improvement evidence
+        shell: cmd
+        run: >-
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command
+          "$p='D:\ARIA-Windows-Agent\Data\self-improvement-last.json'; $deadline=(Get-Date).AddMinutes(12); do { Start-Sleep -Seconds 10; if(Test-Path $p){ try { $j=Get-Content -Raw $p | ConvertFrom-Json; if($j.mission_id -eq 'aria-self-improvement-frontier-20260915-01' -and $j.payload){ Write-Host 'FRONTIER_EVIDENCE_FOUND=TRUE'; Get-Content -Raw $p; exit 0 } } catch {} } } while((Get-Date) -lt $deadline); Write-Host 'FRONTIER_EVIDENCE_FOUND=FALSE'; exit 1"
