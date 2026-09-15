@@ -1,19 +1,25 @@
 name: ARIA Runner Pool Smoke
 
 on:
-  push:
-    branches: ["aria/self-improvement-v1-main"]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-runner-pool-smoke
+  cancel-in-progress: false
 
 jobs:
   smoke:
     name: pool-smoke-${{ matrix.slot }}
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 2
       matrix:
         slot: [1, 2]
     runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
     steps:
       - name: Identify runner
         shell: powershell
