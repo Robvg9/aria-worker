@@ -16,6 +16,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Quarantine runaway background PowerShell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host '---RUNAWAY-POWERSHELL-RECOVERY---'
+          $currentPid = $PID
+          $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" | ForEach-Object {
+            $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+            if (-not $p) { return }
+            $mb = [math]::Round($p.WorkingSet64 / 1MB, 0)
+            [pscustomobject]@{
+              Id = $_.ProcessId
+              Name = $_.Name
+              RAM_MB = $mb
+              ParentId = $_.ParentProcessId
+              CommandLine = [string]$_.CommandLine
+              WindowHandle = [int64]$p.MainWindowHandle
+            }
+          }
+          $procs | Sort-Object RAM_MB -Descending | Format-Table Id,Name,RAM_MB,ParentId,WindowHandle -AutoSize
+          foreach ($p in $procs) {
+            if ($p.Id -eq $currentPid) { continue }
+            if ($p.RAM_MB -lt 1536) { continue }
+            $cmd = $p.CommandLine
+            if ($cmd -match 'run-agent\.ps1|aria-agent\.js|Runner\.Listener\.exe') { Write-Host "PROTECTED=$($p.Id) RAM_MB=$($p.RAM_MB)"; continue }
+            if ($p.WindowHandle -ne 0) { Write-Host "INTERACTIVE_SKIPPED=$($p.Id) RAM_MB=$($p.RAM_MB)"; continue }
+            try {
+              Stop-Process -Id $p.Id -Force -ErrorAction Stop
+              Write-Host "TERMINATED_RUNAWAY=$($p.Id) RAM_MB=$($p.RAM_MB)"
+            } catch { Write-Host "TERMINATE_FAIL=$($p.Id) $($_.Exception.Message)" }
+          }
+          Write-Host '---RUNAWAY-POWERSHELL-RECOVERY-END---'
+
       - name: Report and clean
         run: |
           $ErrorActionPreference = 'Continue'
@@ -67,3 +99,15 @@ jobs:
           Write-Host "TOTALCOMMANDER=INTACT"
           Write-Host "MAIN_BRANCH=NOT_TOUCHED"
           Write-Host "STORAGE_RECOVERY_COMPLETE=TRUE"
+
+      - name: Verify final Windows process pressure
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host '---FINAL-PRESSURE---'
+          Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 15 Id,ProcessName,@{N='RAM_MB';E={[math]::Round($_.WorkingSet64/1MB,0)}},CPU,MainWindowTitle | Format-Table -AutoSize
+          Write-Host '---FINAL-POWERSHELL---'
+          Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" | ForEach-Object {
+            $p=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+            if($p){ [pscustomobject]@{Id=$_.ProcessId;Name=$_.Name;RAM_MB=[math]::Round($p.WorkingSet64/1MB,0);ParentId=$_.ParentProcessId;CommandLine=$_.CommandLine} }
+          } | Sort-Object RAM_MB -Descending | Format-List
