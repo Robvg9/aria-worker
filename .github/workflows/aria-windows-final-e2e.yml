@@ -2,6 +2,9 @@ name: ARIA Windows Final E2E
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - aria/self-improvement-v1-main
 
 permissions:
   contents: read
