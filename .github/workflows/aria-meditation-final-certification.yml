@@ -21,9 +21,12 @@ on:
       - '.github/workflows/aria-meditation-final-certification.yml'
   workflow_dispatch:
 
+# Physical certification is exclusive per device, but new runs must queue instead
+# of cancelling the previous run. This prevents the repeated cancellation loop.
 concurrency:
   group: aria-meditation-final-certification-windows
-  cancel-in-progress: true
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
