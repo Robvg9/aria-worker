@@ -31,12 +31,12 @@ jobs:
           $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
           $shaPath='D:\ARIA-Windows-Agent\Logs\runtime-source-sha'
           $kill='D:\ARIA-Windows-Agent\Logs\kill-request.json'
-          $expected='420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'
-          $source='\.\autonomy\self-improvement-coordinator-v1.js'
+          $expected='4DA96D341C6E03C1A0753E5AE94D2882EDFFFC529873D01E79774285EF62AB97'
+          $source='.\autonomy\self-improvement-coordinator-v1.js'
           if(-not(Test-Path $source)){throw 'Corrected coordinator source missing from checkout'}
           Copy-Item $source $runtime -Force
           $actual=(Get-FileHash $runtime -Algorithm SHA256).Hash.ToUpperInvariant()
-          if($actual-ne$expected){throw "Coordinator SHA mismatch actual=$actual expected=$expected"}
+          if($actual -ne $expected){throw "Coordinator SHA mismatch actual=$actual expected=$expected"}
           Set-Content -Path $shaPath -Value $expected -Encoding ASCII -Force
           [ordered]@{source_sha=$expected;reason='workflow_refresh_corrected_coordinator';requested_at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress | Set-Content -Path $kill -Encoding UTF8 -Force
           Write-Host 'CORRECTED_COORDINATOR_RUNTIME=PASS'
@@ -49,7 +49,7 @@ jobs:
           $ErrorActionPreference='Stop'
           if(-not(Test-Path '.\agents\windows\install-v2.ps1')){throw 'install-v2.ps1 missing'}
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
-          if($LASTEXITCODE-ne0){throw "Agent installation failed: $LASTEXITCODE"}
+          if($LASTEXITCODE -ne 0){throw "Agent installation failed: $LASTEXITCODE"}
           Write-Host 'FINAL_E2E_AGENT_V2_INSTALL=PASS'
 
       - name: Verify control endpoint and activate Meditation IA
@@ -57,10 +57,10 @@ jobs:
           $ErrorActionPreference='Stop'
           $u='http://127.0.0.1:45873/status';$start='http://127.0.0.1:45873/start';$s=$null
           try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5}catch{}
-          if($null-eq$s){$agent='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1';if(-not(Test-Path $agent)){throw 'run-agent.ps1 missing'};Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$agent -WindowStyle Hidden;for($i=0;$i-lt30;$i++){Start-Sleep 1;try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($null-ne$s){break}}catch{}}}
-          if($null-eq$s){throw 'Meditation control endpoint offline'}
-          if($s.mode-ne'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;Write-Host ("ACTIVATE status={0} mode={1} session={2} tick={3}"-f$r.status,$s.mode,$s.session_id,$s.tick_count)}else{Write-Host "ALREADY_ACTIVE session=$($s.session_id)"}
-          if($s.mode-ne'active'){throw "Meditation IA activation failed mode=$($s.mode)"}
+          if($null -eq $s){$agent='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1';if(-not(Test-Path $agent)){throw 'run-agent.ps1 missing'};Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$agent -WindowStyle Hidden;for($i=0;$i -lt 30;$i++){Start-Sleep 1;try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($null -ne $s){break}}catch{}}}
+          if($null -eq $s){throw 'Meditation control endpoint offline'}
+          if($s.mode -ne 'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;Write-Host ("ACTIVATE status={0} mode={1} session={2} tick={3}" -f $r.status,$s.mode,$s.session_id,$s.tick_count)}else{Write-Host "ALREADY_ACTIVE session=$($s.session_id)"}
+          if($s.mode -ne 'active'){throw "Meditation IA activation failed mode=$($s.mode)"}
           Write-Host 'MEDITATION_ACTIVATION=PASS'
 
       - name: Verify physical self-improvement runtime and heartbeat
@@ -72,15 +72,15 @@ jobs:
           $config='D:\ARIA-Windows-Agent\Data\config.json'
           foreach($p in @($runtime,$coordinator,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
           $hash=(Get-FileHash $coordinator -Algorithm SHA256).Hash.ToUpperInvariant()
-          if($hash-ne'420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'){throw "Coordinator hash mismatch: $hash"}
+          if($hash -ne '4DA96D341C6E03C1A0753E5AE94D2882EDFFFC529873D01E79774285EF62AB97'){throw "Coordinator hash mismatch: $hash"}
           $j=Get-Content -Raw $config|ConvertFrom-Json
-          if($j.agent_version-ne'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
-          if(-not($j.capabilities-contains'self.improve')){throw 'self.improve capability missing'}
-          $procs=Get-CimInstance Win32_Process -Filter "Name='node.exe'"|Where-Object{$_.CommandLine-like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*'}
+          if($j.agent_version -ne 'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
+          if(-not($j.capabilities -contains 'self.improve')){throw 'self.improve capability missing'}
+          $procs=Get-CimInstance Win32_Process -Filter "Name='node.exe'"|Where-Object{$_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*'}
           if(-not$procs){throw 'ARIA Windows v2 agent process not detected'}
           $u='http://127.0.0.1:45873/status';$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;$t=[int]$s.tick_count;Start-Sleep -Seconds 12;$s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
-          if($s2.mode-ne'active'){throw "Meditation stopped: $($s2.mode)"}
-          if([int]$s2.tick_count-lt$t){throw 'Tick counter regressed'}
+          if($s2.mode -ne 'active'){throw "Meditation stopped: $($s2.mode)"}
+          if([int]$s2.tick_count -lt $t){throw 'Tick counter regressed'}
           Write-Host "PHYSICAL_AGENT_PROCESS=PASS PID=$($procs[0].ProcessId)"
           Write-Host 'SELF_IMPROVEMENT_CAPABILITY_CONFIG=PASS'
           Write-Host "MEDITATION_HEARTBEAT initial=$t final=$($s2.tick_count)"
