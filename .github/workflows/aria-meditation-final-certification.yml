@@ -25,7 +25,7 @@ jobs:
   certify:
     name: certify-physical-meditation-and-self-improvement
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
       ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
@@ -48,14 +48,47 @@ jobs:
       - name: Assert single-owner runtime boundary
         shell: cmd
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $watchdog=Join-Path $runtime 'run-agent.ps1'; $agent=Join-Path $runtime 'aria-agent.js'; if(-not(Test-Path $watchdog)){throw 'Watchdog runtime missing'}; if(-not(Test-Path $agent)){throw 'Agent runtime missing'}; $text=Get-Content -Raw $watchdog; if($text -notmatch 'Global\\ARIA-Windows-Agent-Watchdog-v1'){throw 'Global watchdog mutex missing'}; Write-Host 'SINGLE_OWNER_BOUNDARY=PASS'"
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $watchdog=Join-Path $runtime 'run-agent.ps1'; $agent=Join-Path $runtime 'aria-agent.js'; if(-not(Test-Path $watchdog)){throw 'Watchdog runtime missing'}; if(-not(Test-Path $agent)){throw 'Agent runtime missing'}; $text=Get-Content -Raw $watchdog; if($text -notmatch 'Global\\ARIA-Windows-Agent-Watchdog-v1'){throw 'Global watchdog mutex missing'}; if($text -match '\$maxConsecutiveErrors|WATCHDOG_EXIT after|exit 1'){throw 'Watchdog must be non-terminating'}; Write-Host 'SINGLE_OWNER_BOUNDARY=PASS'"
           if errorlevel 1 exit /b 1
 
       - name: Synchronize physical runtime source
         shell: cmd
         run: |
-          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $repo=Join-Path $env:GITHUB_WORKSPACE 'agents\windows'; foreach($file in @('aria-agent.js','aria-meditation-controller.js','self-improvement-runtime.js','run-agent.ps1')){Copy-Item -Path (Join-Path $repo $file) -Destination (Join-Path $runtime $file) -Force}; Set-Content -Path 'D:\ARIA-Windows-Agent\Logs\runtime-source-sha' -Value $env:ARIA_EXPECTED_SHA -Encoding ASCII -Force; Write-Host 'PHYSICAL_RUNTIME_SYNC=PASS'"
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $repo=Join-Path $env:GITHUB_WORKSPACE 'agents\windows'; foreach($file in @('aria-agent.js','aria-meditation-controller.js','self-improvement-runtime.js','run-agent.ps1','install-v2.ps1')){Copy-Item -Path (Join-Path $repo $file) -Destination (Join-Path $runtime $file) -Force}; Set-Content -Path 'D:\ARIA-Windows-Agent\Logs\runtime-source-sha' -Value $env:ARIA_EXPECTED_SHA -Encoding ASCII -Force; Write-Host 'PHYSICAL_RUNTIME_SYNC=PASS'"
           if errorlevel 1 exit /b 1
+
+      - name: Enforce durable Windows supervisor installation
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\agents\windows\install-v2.ps1"
+          if($LASTEXITCODE -ne 0){ throw "install-v2 failed with exit code $LASTEXITCODE" }
+          Write-Host 'SUPERVISOR_INSTALL=PASS'
+
+      - name: Verify durable supervisor settings
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $TaskName='ARIA-Windows-Local-Agent'
+          $task=Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+          if($task.Principal.LogonType -ne 'Interactive'){ throw "Wrong principal LogonType=$($task.Principal.LogonType)" }
+          $xml=[xml](Export-ScheduledTask -TaskName $TaskName)
+          $s=$xml.Task.Settings
+          $r=$s.RestartOnFailure
+          if($null -eq $r){ throw 'RestartOnFailure is missing' }
+          if([int]$r.Count -ne 999){ throw "RestartCount=$($r.Count), expected 999" }
+          if([string]$r.Interval -ne 'PT1M'){ throw "RestartInterval=$($r.Interval), expected PT1M" }
+          if([string]$s.ExecutionTimeLimit -ne 'PT0S'){ throw "ExecutionTimeLimit=$($s.ExecutionTimeLimit), expected PT0S" }
+          if([string]$s.MultipleInstancesPolicy -ne 'IgnoreNew'){ throw "MultipleInstancesPolicy=$($s.MultipleInstancesPolicy), expected IgnoreNew" }
+          $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          $run=(Get-ItemProperty -Path $runKey -Name 'ARIA-Windows-Local-Agent' -ErrorAction SilentlyContinue).'ARIA-Windows-Local-Agent'
+          if($run){ throw 'Legacy HKCU Run authority is still enabled' }
+          Write-Host 'TASK_SCHEDULER_DURABLE=PASS'
+          Write-Host 'RESTART_COUNT=999'
+          Write-Host 'RESTART_INTERVAL=PT1M'
+          Write-Host 'EXECUTION_TIME_LIMIT=PT0S'
+          Write-Host 'MULTIPLE_INSTANCES=IgnoreNew'
+          Write-Host 'LEGACY_RUN_KEY=DISABLED'
 
       - name: Repair persistent state and reclaim safe disk space
         shell: powershell
