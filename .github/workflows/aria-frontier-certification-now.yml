@@ -5,6 +5,10 @@ on:
     branches: [aria/self-improvement-v1-main]
   workflow_dispatch:
 
+concurrency:
+  group: aria-windows-frontier-certification
+  cancel-in-progress: true
+
 jobs:
   frontier-certification:
     runs-on: [self-hosted, Windows, X64]
