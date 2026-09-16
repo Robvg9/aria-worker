@@ -1,0 +1,34 @@
+name: ARIA sync main into Meditation IA
+
+on:
+  push:
+    branches: [aria/meditation-ia-v1-main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-main:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'chore(aria): sync main into meditation branch [skip ci]' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Meditation IA branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge main preserving certified Meditation IA implementation on conflicts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'ARIA Automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git status --short
+          git merge origin/main --no-edit -X ours
+          git status --short
+          git diff --check
+          git push origin HEAD:aria/meditation-ia-v1-main
+          Write-Host 'SYNC_MAIN_INTO_MEDITATION=PASS'
