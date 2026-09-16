@@ -1,6 +1,8 @@
 name: ARIA Vision → Notion Sync
 
 on:
+  push:
+    branches: [aria/self-improvement-v1-main]
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
@@ -18,8 +20,9 @@ jobs:
           ARIA_VISION_SYNC_URL: ${{ secrets.ARIA_VISION_SYNC_URL }}
         with:
           script: |
-            const required = ['NOTION_TOKEN','NOTION_VISION_PAGE_ID','ARIA_RUNTIME_SHARED_SECRET','ARIA_VISION_SYNC_URL'];
-            for (const key of required) if (!process.env[key]) core.setFailed(`Missing required secret: ${key}`);
+            const required = ['NOTION_TOKEN','NOTION_VISION_PAGE_ID','ARIA_RUNTIME_SHARED_SECRET'];
+            for (const key of required) if (!process.env[key]) throw new Error(`Missing required secret: ${key}`);
+            const syncUrl = process.env.ARIA_VISION_SYNC_URL || 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1';
             const notion = async (path, opts={}) => {
               const r = await fetch(`https://api.notion.com/v1${path}`, {
                 ...opts,
@@ -54,7 +57,7 @@ jobs:
               if (parts.length < 5) throw new Error(`Malformed objective line: ${line}`);
               const [, objective_id, priorityRaw, statusRaw, objectiveRaw, acceptanceRaw=''] = parts;
               const priority = Number(priorityRaw);
-              if (!objective_id || !Number.isFinite(priority)) throw new Error(`Invalid objective line: ${line}`);
+              if (!objective_id?.trim() || !Number.isFinite(priority) || !objectiveRaw?.trim()) throw new Error(`Invalid objective line: ${line}`);
               return {
                 objective_id: objective_id.trim(),
                 vision_id: 'aria-master-vision-v1',
@@ -64,8 +67,8 @@ jobs:
                 source_section: 'Master Vision — machine-readable objective manifest',
                 acceptance: acceptanceRaw.trim() || 'Must be demonstrated with reproducible evidence; never infer completion from code presence alone.',
                 metadata: { autonomous:true, parser:'OBJECTIVE_PIPE_V1' },
-                verifier: { type:'evidence_required', success_conditions:['reproducible_evidence'] },
-                dependencies: []
+                verifier: undefined,
+                dependencies: undefined
               };
             });
             const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(whole));
@@ -79,10 +82,10 @@ jobs:
               content_hash,
               objectives
             };
-            const r = await fetch(process.env.ARIA_VISION_SYNC_URL, {
+            const r = await fetch(syncUrl, {
               method:'POST',
               headers:{'content-type':'application/json','authorization':`Bearer ${process.env.ARIA_RUNTIME_SHARED_SECRET}`},
-              body:JSON.stringify(payload)
+              body:JSON.stringify({action:'vision_sync',payload})
             });
             const body = await r.text();
             if (!r.ok) throw new Error(`Vision sync ${r.status}: ${body.slice(0,1200)}`);
