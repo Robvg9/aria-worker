@@ -57,10 +57,10 @@ foreach($file in $jsFiles){
 Write-Host '4. Detectando controlador local en puerto 45873...'
 $connections = @(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction SilentlyContinue)
 foreach($connection in $connections){
-    $pid = [int]$connection.OwningProcess
-    if($pid -gt 0 -and $pid -ne $PID){
-        Write-Host "  Deteniendo proceso de meditacion PID=$pid para recargar codigo..."
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+    $ownerPid = [int]$connection.OwningProcess
+    if($ownerPid -gt 0 -and $ownerPid -ne $PID){
+        Write-Host "  Deteniendo proceso de meditacion PID=$ownerPid para recargar codigo..."
+        Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -77,7 +77,7 @@ if($null -eq $health){ throw 'CONTROL_SERVER_HEALTH_FAILED' }
 Write-Host "HEALTH_OK version=$($health.version) pid=$($health.pid) mode=$($health.mode)"
 if([string]$health.version -ne 'aria-windows-meditation-controller-v2'){ throw "OLD_CONTROLLER_VERSION $($health.version)" }
 
-Write-Host '6. Prueba de /start sin dejar una segunda instancia...'
+Write-Host '6. Prueba de /start...'
 $result = Invoke-RestMethod -Method Post -Uri "$base/start" -TimeoutSec 15 -ErrorAction Stop
 if([string]$result.status -notin @('started','resumed')){ throw "START_TEST_FAILED status=$($result.status) error=$($result.error)" }
 if([string]$result.state.mode -ne 'active'){ throw "START_TEST_MODE_FAILED mode=$($result.state.mode)" }
