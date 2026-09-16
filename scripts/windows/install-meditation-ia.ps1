@@ -9,6 +9,7 @@ Copy-Item (Join-Path $repo 'autonomy\windows-shell-executor.js') (Join-Path $aut
 Copy-Item (Join-Path $repo 'agents\windows\aria-meditation-controller.js') (Join-Path $runtime 'aria-meditation-controller.js') -Force
 Copy-Item (Join-Path $repo 'agents\windows\aria-meditation-ui.ps1') (Join-Path $runtime 'aria-meditation-ui.ps1') -Force
 Copy-Item (Join-Path $repo 'scripts\windows\start-meditation-ia.ps1') (Join-Path $scripts 'start-meditation-ia.ps1') -Force
+Copy-Item (Join-Path $repo 'scripts\windows\repair-meditation-ia.ps1') (Join-Path $scripts 'repair-meditation-ia.ps1') -Force
 $cmd=Join-Path $runtime 'aria-meditation-ui.cmd';Set-Content -Path $cmd -Encoding ASCII -Value @('@echo off',"powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scripts\start-meditation-ia.ps1`"")
 $desktop=$null
 try {
@@ -22,4 +23,4 @@ try {
   $shortcut.Description='ARIA — activar y controlar Meditación IA'
   $shortcut.Save()
 } catch { Write-Host "DESKTOP_SHORTCUT=SKIPPED reason=$($_.Exception.Message)" }
-Write-Host 'ARIA_MEDITATION_INSTALL=PASS';Write-Host "UI=$cmd";Write-Host "LAUNCHER=$scripts\start-meditation-ia.ps1";Write-Host "LOG=$med\ARIA-Meditation-IA.txt";if($desktop){Write-Host "DESKTOP_SHORTCUT=$desktop"}
+Write-Host 'ARIA_MEDITATION_INSTALL=PASS';Write-Host "UI=$cmd";Write-Host "LAUNCHER=$scripts\start-meditation-ia.ps1";Write-Host "REPAIR=$scripts\repair-meditation-ia.ps1";Write-Host "LOG=$med\ARIA-Meditation-IA.txt";if($desktop){Write-Host "DESKTOP_SHORTCUT=$desktop"}
