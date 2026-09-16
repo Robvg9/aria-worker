@@ -17,6 +17,7 @@ $files = @(
 Write-Host '=== ARIA MEDITACION IA - REPARACION ==='
 Write-Host "RuntimeRoot=$RuntimeRoot"
 $node = Get-Command node -ErrorAction Stop
+$runAgent = Join-Path $RuntimeRoot 'Runtime\windows\run-agent.ps1'
 
 $medRoot = Join-Path $RuntimeRoot 'Runtime\meditation'
 New-Item -ItemType Directory -Force -Path $medRoot | Out-Null
@@ -54,7 +55,7 @@ foreach($file in $jsFiles){
     Write-Host "  PASS $file"
 }
 
-Write-Host '4. Detectando controlador local en puerto 45873...'
+Write-Host '4. Deteniendo solo el proceso que escucha en 127.0.0.1:45873...'
 $connections = @(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction SilentlyContinue)
 foreach($connection in $connections){
     $ownerPid = [int]$connection.OwningProcess
@@ -64,12 +65,25 @@ foreach($connection in $connections){
     }
 }
 
-Write-Host '5. Esperando al watchdog para relanzar el agente con los archivos corregidos...'
-Start-Sleep -Seconds 6
+Write-Host '5. Asegurando que el watchdog este arrancado...'
+$watchdogAlive = $false
+$statusPath = Join-Path $RuntimeRoot 'Logs\status.json'
+if(Test-Path $statusPath){
+    try {
+        $s = Get-Content -Raw $statusPath | ConvertFrom-Json
+        if($s.watchdog_pid){$p=Get-Process -Id ([int]$s.watchdog_pid) -ErrorAction SilentlyContinue;$watchdogAlive=$null -ne $p}
+    } catch {}
+}
+if(-not $watchdogAlive){
+    if(-not (Test-Path $runAgent)){ throw "WATCHDOG_SCRIPT_MISSING $runAgent" }
+    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$runAgent) -WindowStyle Hidden
+    Write-Host '  WATCHDOG_STARTED=True'
+}
 
+Write-Host '6. Esperando al controlador corregido...'
 $base = 'http://127.0.0.1:45873'
 $health = $null
-for($i=0;$i -lt 20;$i++){
+for($i=0;$i -lt 30;$i++){
     try { $health = Invoke-RestMethod -Method Get -Uri "$base/health" -TimeoutSec 2 -ErrorAction Stop; break } catch { Start-Sleep -Milliseconds 500 }
 }
 if($null -eq $health){ throw 'CONTROL_SERVER_HEALTH_FAILED' }
@@ -77,7 +91,7 @@ if($null -eq $health){ throw 'CONTROL_SERVER_HEALTH_FAILED' }
 Write-Host "HEALTH_OK version=$($health.version) pid=$($health.pid) mode=$($health.mode)"
 if([string]$health.version -ne 'aria-windows-meditation-controller-v2'){ throw "OLD_CONTROLLER_VERSION $($health.version)" }
 
-Write-Host '6. Prueba de /start...'
+Write-Host '7. Prueba real de activacion...'
 $result = Invoke-RestMethod -Method Post -Uri "$base/start" -TimeoutSec 15 -ErrorAction Stop
 if([string]$result.status -notin @('started','resumed')){ throw "START_TEST_FAILED status=$($result.status) error=$($result.error)" }
 if([string]$result.state.mode -ne 'active'){ throw "START_TEST_MODE_FAILED mode=$($result.state.mode)" }
