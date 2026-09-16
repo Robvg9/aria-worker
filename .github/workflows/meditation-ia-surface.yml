@@ -1,0 +1,56 @@
+name: ARIA Meditation IA Desktop Surface
+
+on:
+  push:
+    branches: ['aria/meditation-ia-v1-main']
+    paths:
+      - 'agents/windows/aria-meditation-controller.js'
+      - 'agents/windows/aria-meditation-ui.ps1'
+      - 'scripts/windows/start-meditation-ia.ps1'
+      - 'scripts/windows/install-meditation-ia.ps1'
+      - 'tests/meditation-ia-surface.test.js'
+      - '.github/workflows/meditation-ia-surface.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'agents/windows/aria-meditation-controller.js'
+      - 'agents/windows/aria-meditation-ui.ps1'
+      - 'scripts/windows/start-meditation-ia.ps1'
+      - 'scripts/windows/install-meditation-ia.ps1'
+      - 'tests/meditation-ia-surface.test.js'
+      - '.github/workflows/meditation-ia-surface.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    name: Meditation IA surface contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Node surface contract
+        run: node tests/meditation-ia-surface.test.js
+
+  powershell-syntax:
+    name: PowerShell surface syntax
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Meditation IA PowerShell files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(
+            'agents/windows/aria-meditation-ui.ps1',
+            'scripts/windows/start-meditation-ia.ps1',
+            'scripts/windows/install-meditation-ia.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw "PowerShell parse failure: $file`n$($errors | Out-String)" }
+            Write-Host "POWERSHELL_PARSE=PASS FILE=$file"
+          }

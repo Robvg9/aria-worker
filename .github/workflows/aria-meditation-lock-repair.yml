@@ -1,0 +1,61 @@
+name: ARIA Meditation Lock Repair
+
+on:
+  push:
+    branches: ['aria/meditation-ia-v1-main']
+    paths:
+      - '.github/workflows/aria-meditation-lock-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect control server and controller process
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $listener=Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop | Select-Object -First 1
+          $pid=[int]$listener.OwningProcess
+          $proc=Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+          Write-Host "LISTENER_PID=$pid"
+          Write-Host "LISTENER_COMMAND=$([string]$proc.CommandLine)"
+          $s=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host ("STATUS mode={0} session={1} tick={2}" -f $s.mode,$s.session_id,$s.tick_count)
+          $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
+          Write-Host "LOCK_EXISTS=$(Test-Path $lock)"
+          if(Test-Path $lock){Get-Content -Raw $lock}
+
+      - name: Restart only the Meditation controller when it is the listener
+        run: |
+          $ErrorActionPreference='Stop'
+          $listener=Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop | Select-Object -First 1
+          $pid=[int]$listener.OwningProcess
+          $proc=Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction Stop
+          $cmd=[string]$proc.CommandLine
+          if($cmd -notmatch '(?i)aria-meditation-controller\.js') { throw "45873 is not owned by the standalone Meditation controller: $cmd" }
+          Stop-Process -Id $pid -Force
+          for($i=0;$i-lt20;$i++){Start-Sleep 1;try{Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop|Out-Null}catch{break}}
+          $scripts=@('D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\Runtime\start-meditation-ia.ps1','D:\ARIA-Windows-Agent\start-meditation-ia.ps1')|Where-Object{Test-Path $_}
+          if($scripts.Count -eq 0){throw 'Meditation launcher missing'}
+          $script=$scripts[0]
+          Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$script -WorkingDirectory (Split-Path $script) -WindowStyle Hidden
+          $ready=$false
+          for($i=0;$i-lt30;$i++){Start-Sleep 1;try{$c=Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 45873 -State Listen -ErrorAction Stop;if($c){$ready=$true;break}}catch{}}
+          if(-not $ready){throw 'Meditation controller did not return'}
+          Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:45873/start' -TimeoutSec 10 | ConvertTo-Json -Depth 6
+          Start-Sleep 3
+          $s=Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 5
+          Write-Host ("FINAL mode={0} session={1} tick={2}" -f $s.mode,$s.session_id,$s.tick_count)
+          if($s.mode -ne 'active'){throw "Meditation activation failed: $($s.mode)"}
+          Write-Host 'MEDITATION_LOCK_REPAIR=PASS'

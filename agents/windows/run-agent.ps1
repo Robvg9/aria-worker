@@ -1,5 +1,12 @@
 $ErrorActionPreference = 'Stop'
 
+$mutexCreated = $false
+$watchdogMutex = New-Object System.Threading.Mutex($false, 'Global\ARIA-Windows-Agent-Watchdog-v1', [ref]$mutexCreated)
+if (-not $mutexCreated) {
+    Write-Output '[ARIA-WATCHDOG] EXISTING_INSTANCE=True exiting_duplicate_watchdog'
+    exit 0
+}
+
 $RuntimeRoot = 'D:\ARIA-Windows-Agent'
 $AgentRoot = Join-Path $RuntimeRoot 'Runtime\windows'
 $RepoRoot = $AgentRoot
@@ -59,7 +66,7 @@ function Resolve-Token {
 }
 
 try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
-Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir pid=$PID"
+Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir pid=$PID mutex=ARIA-Windows-Agent-Watchdog-v1"
 Write-Status @{ state = 'watchdog_alive'; agent_pid = $null }
 
 $consecutiveErrors = 0
@@ -89,7 +96,6 @@ while ($true) {
         }
 
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
-        # ONLY WindowStyle Hidden - never combine with -NoNewWindow (PowerShell throws).
         $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         $consecutiveErrors = 0
@@ -101,7 +107,6 @@ while ($true) {
             started_at = (Get-Date -Format o)
         }
 
-        # Wait for exit OR public kill-request (so NetworkService preflight can signal without process rights).
         while (-not $process.HasExited) {
             if (Test-Path $KillRequestPath) {
                 $req = ''

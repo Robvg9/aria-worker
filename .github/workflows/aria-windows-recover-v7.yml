@@ -1,0 +1,52 @@
+name: ARIA Windows Recover v7
+
+on:
+  push:
+    branches: [aria/meditation-ia-v1-main]
+    paths:
+      - '.github/workflows/aria-windows-recover-v7.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  recover:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Recover through official scheduled task
+        run: |
+          $ErrorActionPreference='Stop'
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
+          if($LASTEXITCODE -ne 0){throw "install-v2 failed: $LASTEXITCODE"}
+          Write-Host 'OFFICIAL_TASK_INSTALL=PASS'
+          Start-Sleep -Seconds 12
+          $u='http://127.0.0.1:45873/status'
+          $s=Invoke-RestMethod $u -TimeoutSec 5
+          $agents=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match '(?i)aria-agent\.js'})
+          Write-Host "AGENT_COUNT=$($agents.Count)"
+          Write-Host "BEFORE_MODE=$($s.mode) TICKS=$($s.tick_count)"
+          if($agents.Count -ne 1){throw "Expected one Agent, found $($agents.Count)"}
+          if($s.mode -ne 'active'){
+            $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:45873/start' -TimeoutSec 10
+            Write-Host "START_RESPONSE=$($r.status)"
+          }
+          Start-Sleep -Seconds 3
+          $a=Invoke-RestMethod $u -TimeoutSec 5
+          if($a.mode -ne 'active'){throw "Meditation did not activate: $($a.mode)"}
+          $t1=[int]$a.tick_count
+          Start-Sleep -Seconds 35
+          $b=Invoke-RestMethod $u -TimeoutSec 5
+          if($b.mode -ne 'active' -or [int]$b.tick_count -le $t1){throw 'Heartbeat 1 failed'}
+          Start-Sleep -Seconds 35
+          $c=Invoke-RestMethod $u -TimeoutSec 5
+          if($c.mode -ne 'active' -or [int]$c.tick_count -le [int]$b.tick_count){throw 'Heartbeat 2 failed'}
+          Write-Host "FINAL_MODE=$($c.mode) FINAL_TICKS=$($c.tick_count)"
+          Write-Host 'MEDITATION_RECOVERY_V7=PASS'

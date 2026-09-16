@@ -1,0 +1,88 @@
+name: ARIA Meditation Local Repair v6
+
+on:
+  push:
+    branches: [aria/meditation-ia-v1-main]
+    paths-ignore:
+      - 'reports/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Repair and activate official Meditation controller
+        run: |
+          $ErrorActionPreference='Stop'
+          $statusUrl='http://127.0.0.1:45873/status'
+          $startUrl='http://127.0.0.1:45873/start'
+          $task='ARIA-Windows-Local-Agent'
+          $launcher='D:\ARIA-Windows-Agent\Runtime\scripts\start-meditation-ia.ps1'
+          if(-not(Test-Path $launcher)){throw "Meditation launcher missing: $launcher"}
+
+          $s=$null
+          try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 3}catch{}
+          if(-not $s){
+            schtasks.exe /Run /TN $task | Out-Null
+            for($i=0;$i -lt 30;$i++){
+              Start-Sleep -Seconds 1
+              try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 2;if($s){break}}catch{}
+            }
+          }
+          if(-not $s){
+            Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$launcher -WindowStyle Hidden | Out-Null
+            for($i=0;$i -lt 30;$i++){
+              Start-Sleep -Seconds 1
+              try{$s=Invoke-RestMethod $statusUrl -TimeoutSec 2;if($s){break}}catch{}
+            }
+          }
+          if(-not $s){throw 'Meditation endpoint unavailable after official task/launcher recovery'}
+
+          Write-Host "BEFORE_MODE=$($s.mode) SESSION=$($s.session_id) TICK=$($s.tick_count)"
+          if($s.mode -ne 'active'){
+            $r=Invoke-RestMethod -Method Post -Uri $startUrl -TimeoutSec 10
+            Write-Host "START_RESPONSE=$($r.status)"
+            Start-Sleep -Seconds 3
+          }
+          $f=Invoke-RestMethod $statusUrl -TimeoutSec 5
+          Write-Host "AFTER_MODE=$($f.mode) SESSION=$($f.session_id) TICK=$($f.tick_count)"
+          if($f.mode -ne 'active'){throw "Meditation activation failed: $($f.mode)"}
+          Write-Host 'MEDITATION_ACTIVATION=PASS'
+
+      - name: Verify two autonomous heartbeats
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $a=Invoke-RestMethod $u -TimeoutSec 5
+          if($a.mode -ne 'active'){throw "Not active: $($a.mode)"}
+          $t1=[int]$a.tick_count
+          Start-Sleep -Seconds 35
+          $b=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host "HEARTBEAT_1=$t1 HEARTBEAT_2=$($b.tick_count) MODE=$($b.mode)"
+          if($b.mode -ne 'active' -or [int]$b.tick_count -le $t1){throw 'First heartbeat failed'}
+          Start-Sleep -Seconds 35
+          $c=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host "HEARTBEAT_2=$($b.tick_count) HEARTBEAT_3=$($c.tick_count) MODE=$($c.mode)"
+          if($c.mode -ne 'active' -or [int]$c.tick_count -le [int]$b.tick_count){throw 'Second heartbeat failed'}
+          Write-Host 'MEDITATION_HEARTBEAT_2X=PASS'
+
+      - name: Verify autonomous Windows execution and final evidence
+        run: |
+          $ErrorActionPreference='Stop'
+          $s=Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 5
+          if($s.mode -ne 'active'){throw "Final Meditation state is not active: $($s.mode)"}
+          Write-Host "FINAL_MODE=$($s.mode)"
+          Write-Host "FINAL_SESSION=$($s.session_id)"
+          Write-Host "FINAL_TICKS=$($s.tick_count)"
+          Write-Host 'ARIA_MEDITATION_LOCAL_REPAIR_V6=PASS'

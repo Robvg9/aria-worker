@@ -1,0 +1,110 @@
+name: ARIA Windows Direct Repair v5
+
+on:
+  push:
+    branches: [aria/meditation-ia-v1-main]
+    paths-ignore:
+      - 'reports/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stop existing ARIA task and processes safely
+        run: |
+          $ErrorActionPreference='Continue'
+          schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
+          Start-Sleep -Seconds 2
+          $watchdogs=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and [string]$_.CommandLine -match '(?i)run-agent\.ps1'
+          }
+          foreach($p in $watchdogs){ Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue }
+          $agents=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match '(?i)aria-agent\.js'
+          }
+          foreach($p in $agents){ Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Seconds 2
+          $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
+          if(Test-Path $lock){ Remove-Item $lock -Force -ErrorAction SilentlyContinue }
+          Write-Host 'ARIA_OLD_RUNTIME_STOPPED=PASS'
+
+      - name: Install and start official Windows Agent task
+        run: |
+          $ErrorActionPreference='Stop'
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
+          if($LASTEXITCODE -ne 0){ throw "install-v2 failed: $LASTEXITCODE" }
+          Write-Host 'ARIA_OFFICIAL_TASK_INSTALL=PASS'
+
+      - name: Verify Agent singleton and Meditation activation
+        run: |
+          $ErrorActionPreference='Stop'
+          Start-Sleep -Seconds 10
+          $statusUrl='http://127.0.0.1:45873/status'
+          $s=Invoke-RestMethod $statusUrl -TimeoutSec 5
+          $agents=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match '(?i)aria-agent\.js'
+          })
+          Write-Host "ARIA_AGENT_COUNT=$($agents.Count)"
+          if($agents.Count -ne 1){ throw "Expected one ARIA Agent, found $($agents.Count)" }
+          Write-Host "BEFORE_MODE=$($s.mode) TICK=$($s.tick_count) SESSION=$($s.session_id)"
+          if($s.mode -ne 'active'){
+            $r=Invoke-RestMethod -Method Post -Uri $statusUrl.Replace('/status','/start') -TimeoutSec 10
+            Write-Host "START_RESPONSE=$($r.status)"
+          }
+          Start-Sleep -Seconds 3
+          $f=Invoke-RestMethod $statusUrl -TimeoutSec 5
+          Write-Host "AFTER_MODE=$($f.mode) TICK=$($f.tick_count) SESSION=$($f.session_id)"
+          if($f.mode -ne 'active'){ throw "Meditation activation failed: $($f.mode)" }
+          Write-Host 'MEDITATION_ACTIVATION=PASS'
+
+      - name: Verify two autonomous heartbeats
+        run: |
+          $ErrorActionPreference='Stop'
+          $u='http://127.0.0.1:45873/status'
+          $a=Invoke-RestMethod $u -TimeoutSec 5
+          $t1=[int]$a.tick_count
+          Start-Sleep -Seconds 35
+          $b=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host "HEARTBEAT_1=$t1 HEARTBEAT_2=$($b.tick_count) MODE=$($b.mode)"
+          if($b.mode -ne 'active' -or [int]$b.tick_count -le $t1){ throw 'First heartbeat failed' }
+          Start-Sleep -Seconds 35
+          $c=Invoke-RestMethod $u -TimeoutSec 5
+          Write-Host "HEARTBEAT_2=$($b.tick_count) HEARTBEAT_3=$($c.tick_count) MODE=$($c.mode)"
+          if($c.mode -ne 'active' -or [int]$c.tick_count -le [int]$b.tick_count){ throw 'Second heartbeat failed' }
+          Write-Host 'MEDITATION_HEARTBEAT_2X=PASS'
+
+      - name: Safe cache cleanup and final evidence
+        run: |
+          $ErrorActionPreference='Continue'
+          $before=(Get-PSDrive C).Free
+          $paths=@(
+            "$env:TEMP\*",
+            "$env:LOCALAPPDATA\Temp\*",
+            "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*",
+            "$env:LOCALAPPDATA\CrashDumps\*",
+            "$env:LOCALAPPDATA\D3DSCache\*",
+            "$env:LOCALAPPDATA\NVIDIA\DXCache\*",
+            "$env:LOCALAPPDATA\NVIDIA\GLCache\*"
+          )
+          foreach($item in $paths){try{Remove-Item -Path $item -Recurse -Force -ErrorAction SilentlyContinue}catch{}}
+          $after=(Get-PSDrive C).Free
+          $s=Invoke-RestMethod 'http://127.0.0.1:45873/status' -TimeoutSec 5
+          Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before/1GB,2))"
+          Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))"
+          Write-Host "MEDITATION_MODE=$($s.mode)"
+          Write-Host "MEDITATION_SESSION=$($s.session_id)"
+          Write-Host "MEDITATION_TICKS=$($s.tick_count)"
+          if($s.mode -ne 'active'){throw 'Final Meditation state is not active'}
+          Write-Host 'ARIA_WINDOWS_DIRECT_REPAIR_V5=PASS'
