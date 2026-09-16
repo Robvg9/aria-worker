@@ -1,6 +1,7 @@
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, Number.isFinite(Number(value)) ? Number(value) : min));
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const keyOf = (value) => text(value).toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9:_ -]/g, '');
+const RECURSIVE_FAILURE = /diagnose and resolve the verified failure from mission/gi;
 
 function freshnessScore(createdAt, now) {
   const ts = Date.parse(createdAt || '');
@@ -48,6 +49,7 @@ function deriveFromFailure(failure) {
   const goal = text(failure.goal);
   const stderr = text(failure.last_stderr || failure.error || failure.summary);
   if (!goal && !stderr) return null;
+  if ((goal.match(RECURSIVE_FAILURE) || []).length >= 2) return null;
   const ref = text(failure.mission_id) || keyOf(goal).slice(0, 48);
   return { goal_id: generatedId('failure', ref, goal), goal: `Diagnose and resolve the verified failure from mission ${ref}: ${stderr || goal}`.slice(0, 500), priority: 72, urgency: 82, impact: 86, confidence: 0.85, source_type: 'failure', source_ref: ref, source_created_at: failure.updated_at || failure.created_at, metadata: { derived_from_failure: ref, original_goal: goal || null } };
 }
