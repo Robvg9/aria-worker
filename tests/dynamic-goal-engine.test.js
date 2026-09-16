@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 
 (async () => {
   const engine = await import('../autonomy/dynamic-goal-engine.mjs');
-  const { generateCandidates, selectDynamicGoal, scoreCandidate } = engine;
+  const { generateCandidates, selectDynamicGoal, scoreCandidate, MAX_DERIVED_FAILURE_DEPTH } = engine;
   const now = '2026-09-06T02:00:00.000Z';
 
   const candidates = generateCandidates({
@@ -20,7 +20,22 @@ const assert = require('node:assert/strict');
   assert.ok(candidates.length >= 4, 'sources should produce multiple candidates');
   assert.equal(candidates[0].source_type, 'failure', 'fresh high-impact failure should rank first');
   assert.equal(candidates[0].goal_id, 'dyn-failure-m-fail-1');
+  assert.equal(candidates[0].metadata.derivation_depth, 1);
+  assert.equal(candidates[0].metadata.recursive_guard, 'max_failure_derivation_depth_1');
   assert.ok(Number.isFinite(candidates[0].dynamic_score));
+
+  const recursiveFailure = generateCandidates({
+    failures: [{
+      mission_id: 'm-derived-1',
+      goal: 'Diagnose a previous failure',
+      status: 'failed',
+      last_stderr: 'same failure repeated',
+      updated_at: now,
+      metadata: { goal_source: 'failure', goal_id: 'dyn-failure-m-parent', derivation_depth: 1 }
+    }]
+  }, { now });
+  assert.equal(recursiveFailure.length, 0, 'failure-derived failures must be capped');
+  assert.equal(MAX_DERIVED_FAILURE_DEPTH, 1);
 
   const strategic = generateCandidates({
     goals: [

@@ -1,0 +1,36 @@
+name: ARIA Self-Improvement Runtime v1
+
+on:
+  push:
+    branches: [aria/self-improvement-v1-main]
+  pull_request:
+    branches: [aria/meditation-ia-v1-main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check autonomy/universal-execution/adapters/self-improvement.js
+          node --check autonomy/universal-execution/adapters/index.js
+          node --check autonomy/universal-execution/lookup.js
+          node --check autonomy/universal-execution/selector.js
+          node --check autonomy/universal-execution/dispatch-boundary.js
+          node --check autonomy/universal-executor.js
+          node --check autonomy/universal-mission.js
+          node --check autonomy/autonomous-runtime.js
+          node --check tests/self-improvement-runtime.test.js
+      - name: Self-improvement runtime contract
+        run: node tests/self-improvement-runtime.test.js

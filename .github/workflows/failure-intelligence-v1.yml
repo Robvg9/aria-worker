@@ -1,0 +1,47 @@
+name: Failure Intelligence v1
+
+on:
+  pull_request:
+    branches:
+      - aria/meditation-ia-v1-main
+    paths:
+      - 'failure-intelligence/**'
+      - 'learning/engine.js'
+      - 'autonomy/continuous-self-improvement-v1.js'
+      - 'tests/failure-pattern-engine-v1.test.js'
+      - 'tests/failure-intelligence-learning-integration-v1.test.js'
+      - 'tests/failure-intelligence-runtime-v1.test.js'
+      - '.github/workflows/failure-intelligence-v1.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: failure-intelligence-v1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Syntax
+        run: |
+          node --check failure-intelligence/failure-pattern-engine-v1.js
+          node --check failure-intelligence/runtime.js
+          node --check learning/engine.js
+          node --check autonomy/continuous-self-improvement-v1.js
+      - name: Failure pattern engine
+        run: node tests/failure-pattern-engine-v1.test.js
+      - name: Learning integration
+        run: node tests/failure-intelligence-learning-integration-v1.test.js
+      - name: Runtime orchestration
+        run: node tests/failure-intelligence-runtime-v1.test.js
+      - name: Existing failure prevention contract
+        run: node tests/failure-prevention-learning-v1.test.js
+      - name: Continuous self-improvement contract
+        run: node tests/continuous-self-improvement-v1.test.js

@@ -5,7 +5,13 @@ const fsp = fs.promises;
 const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
-const { createFileStateStore, createMeditationController } = require('../../autonomy/meditation-ia-controller');
+const { createFileStateStore, createMeditationController } = (() => {
+  try { return require('../autonomy/meditation-ia-controller'); }
+  catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    return require('../../autonomy/meditation-ia-controller');
+  }
+})();
 
 const ROOT = process.env.ARIA_WINDOWS_AGENT_ROOT || path.resolve(__dirname, '..', '..');
 const MED_ROOT = process.env.ARIA_MEDITATION_ROOT || path.join(ROOT, 'Runtime', 'meditation');
@@ -15,9 +21,37 @@ const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL || '';
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN || '';
 const DEVICE_ID = process.env.ARIA_DEVICE_ID || '';
 
+function milestoneFrom(message) {
+  if (typeof message !== 'string' || !message.trim()) return null;
+  const text = message.trim();
+  const noise = /^(USER_IDLE_CHECK|CONTROL_SERVER|CONTROL_SERVER_ERROR|NOTEPAD_|LOCK_RECLAIMED)\b/i;
+  if (noise.test(text)) return null;
+  if (text.startsWith('EVENT ')) {
+    try {
+      const event = JSON.parse(text.slice(6));
+      const type = String(event?.event_type || '').toLowerCase();
+      const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
+      const step = payload.step_id ? ` — paso ${payload.step_id}` : '';
+      if (type === 'human_gate_requested' || type === 'self_improvement_human_gate') return `HUMAN GATE — Misión requiere aprobación${step}`;
+      if (type === 'mission_resumed' || type === 'recovery_attempted') return `REANUDACIÓN — Misión reincorporada${step}`;
+      if (type === 'mission_verified' || type === 'mission_succeeded') return 'ÉXITO — Misión completada y verificada';
+      if (type === 'mission_failed' || type === 'step_failed') return `FALLO — ${payload.reason || payload.error || 'misión fallida'}`;
+      if (type === 'mission_paused') return 'ESTADO — Misión pausada';
+      if (type === 'mission_started' || type === 'mission_created') return 'INICIO — Misión iniciada';
+      return null;
+    } catch { return null; }
+  }
+  const mode = text.match(/^MODE\s+(\S+)/i);
+  if (mode) return `ESTADO — Meditación IA ${mode[1]}`;
+  if (/^(INICIO|ESTADO|ÉXITO|FALLO|HUMAN GATE|REANUDACIÓN)\b/i.test(text)) return text;
+  return null;
+}
+
 async function appendLog(message) {
+  const milestone = milestoneFrom(message);
+  if (!milestone) return;
   await fsp.mkdir(path.dirname(LOG_PATH), { recursive: true });
-  await fsp.appendFile(LOG_PATH, `${new Date().toISOString()} ${message}\r\n`, 'utf8');
+  await fsp.appendFile(LOG_PATH, `${new Date().toISOString()} ${milestone}\r\n`, 'utf8');
 }
 
 async function ensureLogFile() {
@@ -28,7 +62,36 @@ async function ensureLogFile() {
   }
 }
 
-function openNotepad() {
+function isPathInCommandLine(commandLine) {
+  if (typeof commandLine !== 'string' || !commandLine.trim()) return false;
+  const normalizedCommand = commandLine.replace(/\\+/g, '/').toLowerCase();
+  const normalizedLog = path.resolve(LOG_PATH).replace(/\\+/g, '/').toLowerCase();
+  return normalizedCommand.includes(normalizedLog);
+}
+
+function findExistingNotepad() {
+  return new Promise(resolve => {
+    const ps = `$ErrorActionPreference='SilentlyContinue'; Get-CimInstance Win32_Process -Filter "Name='notepad.exe'" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`;
+    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    const timeout = setTimeout(() => { try { p.kill(); } catch {} resolve(null); }, 5000);
+    p.stdout.on('data', chunk => { out += chunk.toString(); });
+    p.on('error', () => { clearTimeout(timeout); resolve(null); });
+    p.on('close', () => {
+      clearTimeout(timeout);
+      try {
+        const raw = JSON.parse(out.trim());
+        const processes = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+        const match = processes.find(item => isPathInCommandLine(item?.CommandLine));
+        resolve(match ? Number(match.ProcessId) : null);
+      } catch { resolve(null); }
+    });
+  });
+}
+
+async function openNotepad() {
+  const existingPid = await findExistingNotepad();
+  if (existingPid) return { status: 'already_open', pid: existingPid };
   return new Promise(resolve => {
     const p = spawn('notepad.exe', [LOG_PATH], { detached: true, windowsHide: false, stdio: 'ignore' });
     p.unref();
@@ -60,15 +123,13 @@ async function isUserIdle() {
     let out = '';
     let settled = false;
     const finish = value => { if (settled) return; settled = true; resolve(value); };
-    const timeout = setTimeout(() => { try { p.kill(); } catch {} void appendLog('USER_IDLE_CHECK error=probe_timeout'); finish(false); }, 5000);
+    const timeout = setTimeout(() => { try { p.kill(); } catch {} finish(false); }, 5000);
     p.stdout.on('data', c => { out += c.toString(); });
-    p.on('error', error => { clearTimeout(timeout); void appendLog(`USER_IDLE_CHECK error=${String(error?.message || error)}`); finish(false); });
+    p.on('error', () => { clearTimeout(timeout); finish(false); });
     p.on('close', code => {
       clearTimeout(timeout);
       const seconds = Number(out.trim());
-      const allowed = code === 0 && Number.isFinite(seconds) && seconds >= threshold;
-      void appendLog(`USER_IDLE_CHECK seconds=${Number.isFinite(seconds) ? seconds : 'unknown'} threshold=${threshold} allowed=${allowed}`);
-      finish(allowed);
+      finish(code === 0 && Number.isFinite(seconds) && seconds >= threshold);
     });
   });
 }
@@ -106,10 +167,7 @@ function reclaimStaleCurrentPidLock() {
   try {
     const raw = fs.readFileSync(lockPath, 'utf8');
     const lock = JSON.parse(raw);
-    if (Number(lock?.pid) === process.pid) {
-      fs.rmSync(lockPath, { force: true });
-      void appendLog(`LOCK_RECLAIMED reason=pid_reuse pid=${process.pid}`);
-    }
+    if (Number(lock?.pid) === process.pid) fs.rmSync(lockPath, { force: true });
   } catch {}
 }
 
@@ -141,7 +199,6 @@ function createWindowsMeditationController() {
     if (notepadOpened) return { status: 'already_open' };
     const result = await openNotepad();
     notepadOpened = true;
-    await appendLog(`NOTEPAD_OPENED pid=${result.pid ?? 'unknown'}`);
     return result;
   };
   const core = createMeditationController({
