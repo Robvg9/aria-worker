@@ -22,6 +22,12 @@ jobs:
           script: |
             const required = ['NOTION_TOKEN','NOTION_VISION_PAGE_ID','ARIA_RUNTIME_SHARED_SECRET'];
             for (const key of required) if (!process.env[key]) throw new Error(`Missing required secret: ${key}`);
+
+            const notionPageId = process.env.NOTION_VISION_PAGE_ID.trim().replace(/^["']|["']$/g, '').trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(notionPageId)) {
+              throw new Error('NOTION_VISION_PAGE_ID is not a valid UUID after normalization.');
+            }
+
             const syncUrl = process.env.ARIA_VISION_SYNC_URL || 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1';
             const notion = async (path, opts={}) => {
               const r = await fetch(`https://api.notion.com/v1${path}`, {
@@ -37,13 +43,13 @@ jobs:
               if (!r.ok) throw new Error(`Notion ${r.status}: ${JSON.stringify(body).slice(0,1000)}`);
               return body;
             };
-            const pageMeta = await notion(`/pages/${process.env.NOTION_VISION_PAGE_ID}`);
+            const pageMeta = await notion(`/pages/${notionPageId}`);
             const sourceUpdatedAt = pageMeta.last_edited_time || new Date().toISOString();
             const blocks = [];
             let cursor = null;
             do {
               const q = cursor ? `?page_size=100&start_cursor=${encodeURIComponent(cursor)}` : '?page_size=100';
-              const page = await notion(`/blocks/${process.env.NOTION_VISION_PAGE_ID}/children${q}`);
+              const page = await notion(`/blocks/${notionPageId}/children${q}`);
               blocks.push(...(page.results||[]));
               cursor = page.has_more ? page.next_cursor : null;
             } while (cursor);
@@ -75,7 +81,7 @@ jobs:
             const content_hash = Array.from(new Uint8Array(hashBuffer)).map(x=>x.toString(16).padStart(2,'0')).join('');
             const payload = {
               vision_id:'aria-master-vision-v1',
-              source_ref:process.env.NOTION_VISION_PAGE_ID,
+              source_ref:notionPageId,
               source_version:`notion-${sourceUpdatedAt}`,
               source_updated_at:sourceUpdatedAt,
               source_content:whole,
