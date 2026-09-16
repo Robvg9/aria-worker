@@ -15,17 +15,16 @@ jobs:
       - uses: actions/github-script@v7
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          NOTION_VISION_PAGE_ID: ${{ secrets.NOTION_VISION_PAGE_ID }}
           ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
           ARIA_VISION_SYNC_URL: ${{ secrets.ARIA_VISION_SYNC_URL }}
         with:
           script: |
-            const required = ['NOTION_TOKEN','NOTION_VISION_PAGE_ID','ARIA_RUNTIME_SHARED_SECRET'];
+            const required = ['NOTION_TOKEN','ARIA_RUNTIME_SHARED_SECRET'];
             for (const key of required) if (!process.env[key]) throw new Error(`Missing required secret: ${key}`);
 
-            const notionPageId = process.env.NOTION_VISION_PAGE_ID.trim().replace(/^["']|["']$/g, '').trim();
+            const notionPageId = '3cdfeb35-5ec1-818d-976c-c1287bfa048a';
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(notionPageId)) {
-              throw new Error('NOTION_VISION_PAGE_ID is not a valid UUID after normalization.');
+              throw new Error('Canonical NOTION_VISION_PAGE_ID is invalid.');
             }
 
             const syncUrl = process.env.ARIA_VISION_SYNC_URL || 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-runtime-gateway-v1';
