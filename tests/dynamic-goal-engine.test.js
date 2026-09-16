@@ -65,5 +65,13 @@ const assert = require('node:assert/strict');
   assert.equal(modelSpecific.length, 2, 'same capability on distinct models must remain distinct');
   assert.notEqual(modelSpecific[0].goal_id, modelSpecific[1].goal_id, 'capability-goal IDs include model identity');
 
+  const recursiveFailure = generateCandidates({ failures: [{
+    mission_id: 'm-deep',
+    goal: 'Diagnose and resolve the verified failure from mission m-parent: Diagnose and resolve the verified failure from mission m-grandparent: old issue',
+    last_stderr: 'stale_mission_recovered_automatically',
+    updated_at: now
+  }] }, { now });
+  assert.equal(recursiveFailure.length, 0, 'nested failure-of-failure chains must not generate more recursive goals');
+
   console.log('dynamic goal engine tests: PASS');
 })();
