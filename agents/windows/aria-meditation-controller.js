@@ -14,6 +14,7 @@ const CONTROL_PORT = Number(process.env.ARIA_MEDITATION_PORT || 45873);
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL || '';
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN || '';
 const DEVICE_ID = process.env.ARIA_DEVICE_ID || '';
+const CONTROLLER_VERSION = 'aria-windows-meditation-controller-v2';
 
 async function appendLog(message) {
   await fsp.mkdir(path.dirname(LOG_PATH), { recursive: true });
@@ -119,6 +120,7 @@ function startControlServer(controller) {
     const respond = (status, payload) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(payload)); };
     try {
       if (req.method === 'GET' && url.pathname === '/status') return respond(200, controller.status());
+      if (req.method === 'GET' && url.pathname === '/health') return respond(200, { ok: true, service: 'aria-meditation-control', version: CONTROLLER_VERSION, pid: process.pid, port: CONTROL_PORT, mode: controller.status().mode });
       if (req.method === 'GET' && url.pathname === '/log') { await ensureLogFile(); return respond(200, { path: LOG_PATH, content: await fsp.readFile(LOG_PATH, 'utf8') }); }
       if (req.method === 'POST' && url.pathname === '/start') return respond(200, await controller.start());
       if (req.method === 'POST' && url.pathname === '/pause') return respond(200, await controller.pause());
@@ -128,7 +130,7 @@ function startControlServer(controller) {
     } catch (error) { return respond(500, { error: String(error?.message || error) }); }
   });
   server.on('error', error => { void appendLog(`CONTROL_SERVER_ERROR ${error.message}`); });
-  server.listen(CONTROL_PORT, '127.0.0.1', () => { void appendLog(`CONTROL_SERVER online=http://127.0.0.1:${CONTROL_PORT}`); });
+  server.listen(CONTROL_PORT, '127.0.0.1', () => { void appendLog(`CONTROL_SERVER online=http://127.0.0.1:${CONTROL_PORT} version=${CONTROLLER_VERSION}`); });
   return server;
 }
 
@@ -161,4 +163,4 @@ function createWindowsMeditationController() {
   return Object.freeze({ core, server, event: appendLog, start: core.start, pause: core.pause, resume: core.resume, stop: async () => { notepadOpened = false; return core.stop(); }, shutdown: async () => { await core.shutdown(); server.close(); } });
 }
 
-module.exports = Object.freeze({ createWindowsMeditationController, constants: Object.freeze({ ROOT, MED_ROOT, LOG_PATH, CONTROL_PORT }) });
+module.exports = Object.freeze({ createWindowsMeditationController, constants: Object.freeze({ ROOT, MED_ROOT, LOG_PATH, CONTROL_PORT, CONTROLLER_VERSION }) });
