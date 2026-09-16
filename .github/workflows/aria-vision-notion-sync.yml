@@ -1,0 +1,57 @@
+name: ARIA Vision → Notion Sync
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync-vision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_VISION_PAGE_ID: ${{ secrets.NOTION_VISION_PAGE_ID }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          ARIA_VISION_SYNC_URL: ${{ secrets.ARIA_VISION_SYNC_URL }}
+        with:
+          script: |
+            const required = ['NOTION_TOKEN','NOTION_VISION_PAGE_ID','ARIA_RUNTIME_SHARED_SECRET','ARIA_VISION_SYNC_URL'];
+            for (const key of required) if (!process.env[key]) core.setFailed(`Missing required secret: ${key}`);
+            if (core.summary) core.summary.addRaw('ARIA Vision → Notion Sync: secrets validated.');
+            const notion = async (path, opts={}) => {
+              const r = await fetch(`https://api.notion.com/v1${path}`, { ...opts, headers:{'Authorization':`Bearer ${process.env.NOTION_TOKEN}`,'Notion-Version':'2022-06-28','Content-Type':'application/json',...(opts.headers||{})} });
+              const body = await r.json().catch(()=>null);
+              if (!r.ok) throw new Error(`Notion ${r.status}: ${JSON.stringify(body).slice(0,1000)}`);
+              return body;
+            };
+            const blocks = [];
+            let cursor = null;
+            do {
+              const q = cursor ? `?page_size=100&start_cursor=${encodeURIComponent(cursor)}` : '?page_size=100';
+              const page = await notion(`/blocks/${process.env.NOTION_VISION_PAGE_ID}/children${q}`);
+              blocks.push(...(page.results||[])); cursor = page.has_more ? page.next_cursor : null;
+            } while (cursor);
+            const textOf = b => (b?.type && b[b.type]?.rich_text || []).map(x=>x.plain_text||'').join('');
+            const lines = blocks.map(textOf).filter(Boolean);
+            const whole = lines.join('\n');
+            const objectives = [];
+            const definitions = [
+              ['vision-selfmodel-skillfactory-promotion-v1','Siguiente evolución natural de Meditación IA'],
+              ['vision-execution-manifest-v1','Resultado esperado del modo Meditación IA'],
+              ['vision-remaining-gates-v1','Regla de cierre / gates pendientes'],
+              ['vision-android-real-v1','Gates fuera del alcance cloud-only'],
+              ['vision-multimodal-live-v1','Gates fuera del alcance cloud-only'],
+              ['vision-external-multiia-final-v1','Roadmap Global — External Multi-IA al final']
+            ];
+            const sentences = whole.split(/(?<=[.!?])\s+/);
+            for (const [id, section] of definitions) {
+              const hint = sentences.find(s => s.toLowerCase().includes(id.replaceAll('-', ' '))) || null;
+              if (!hint) continue;
+              objectives.push({ objective_id:id, vision_id:'aria-master-vision-v1', objective:hint.slice(0,2000), priority:id.includes('selfmodel')?100:id.includes('manifest')?98:id.includes('remaining')?90:id.includes('android')?70:id.includes('multimodal')?65:40, status:id.includes('external-multiia')?'blocked':'queued', source_section:section, acceptance:'Must be demonstrated with reproducible evidence; never infer completion from code presence alone.', metadata:{autonomous:true}, verifier:{type:'evidence_required',success_conditions:['reproducible_evidence']}, dependencies:[] });
+            }
+            const payload = { vision_id:'aria-master-vision-v1', source_ref:process.env.NOTION_VISION_PAGE_ID, source_version:`notion-sync-${new Date().toISOString()}`, source_updated_at:new Date().toISOString(), source_content:whole, objectives };
+            const r = await fetch(process.env.ARIA_VISION_SYNC_URL, {method:'POST', headers:{'content-type':'application/json','authorization':`Bearer ${process.env.ARIA_RUNTIME_SHARED_SECRET}`}, body:JSON.stringify(payload)});
+            const body = await r.text(); if (!r.ok) throw new Error(`Vision sync ${r.status}: ${body.slice(0,1200)}`); core.info(body);
