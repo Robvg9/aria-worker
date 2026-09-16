@@ -1,10 +1,9 @@
 ﻿{
-    "timestamp":  "2026-09-13T13:35:50.1988137-04:00",
+    "timestamp":  "2026-09-16T04:10:02.4499169-04:00",
     "computer":  "ROBVG",
-    "c_free_gb":  0.48,
+    "c_free_gb":  9.29,
     "meditation_mode":  "active",
-    "meditation_session":  "med-1789320130725-7364",
-    "meditation_ticks":  74,
-    "ollama_models":  false,
+    "meditation_session":  "med-1789546119830-6436",
+    "meditation_ticks":  3,
     "outcome":  "PASS"
 }
