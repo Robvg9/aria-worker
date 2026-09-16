@@ -1,0 +1,15 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {buildEvidenceRecord,hashEvidence}=require('../autonomy/evidence-ledger-v1');
+const base={objective_id:'objective-test',goal_id:'vision-objective-test',mission_id:'mission-test',attempt:1,outcome:'VERIFIED',acceptance_criteria:['works'],verifier:{status:'passed',source:'runtime'},change_summary:'implemented',artifacts:[{path:'x.js',revision:'abc'}],tests:[{name:'e2e',status:'passed'}],regression:{status:'passed'},evidence:{runtime:'ok'},learning_summary:'lesson',reusable:true};
+const a=buildEvidenceRecord(base);
+const b=buildEvidenceRecord({...base,tests:[{name:'e2e',status:'passed',detail:'same'}]});
+assert.equal(a.outcome,'VERIFIED');
+assert.match(a.evidence_hash,/^[a-f0-9]{64}$/);
+assert.notEqual(a.evidence_hash,b.evidence_hash);
+assert.throws(()=>buildEvidenceRecord({...base,tests:[]}),/verified_requires_tests/);
+assert.throws(()=>buildEvidenceRecord({...base,verifier:{status:'failed'}}),/verified_requires_verifier/);
+assert.throws(()=>buildEvidenceRecord({...base,regression:{status:'failed'}}),/verified_requires_regression/);
+assert.throws(()=>buildEvidenceRecord({...base,artifacts:[]}),/verified_requires_artifacts/);
+assert.throws(()=>buildEvidenceRecord({...base,outcome:'CONFIRMED'}),/invalid_outcome/);
+console.log('evidence-ledger-v1: PASS',hashEvidence({a:1}));

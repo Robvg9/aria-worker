@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const text=fs.readFileSync(require.resolve('../autonomy/evidence-driven-self-improvement-v1.md'),'utf8');
+assert.match(text,/VERIFIED.*acceptance criteria/i);
+assert.match(text,/FAILED.*acceptance criteria/i);
+assert.match(text,/BLOCKED.*capability/i);
+assert.match(text,/evidence hash/i);
+assert.match(text,/per-objective history/i);
+assert.match(text,/Anti-self-certification rule/i);
+console.log('evidence-driven-self-improvement-v1: PASS');
