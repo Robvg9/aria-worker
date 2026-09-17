@@ -2,6 +2,7 @@
 
 import logging
 from typing import Dict, Any
+import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -74,8 +75,6 @@ class ARIAWorker:
             return validation_result
 
         cred_data = self.credentials[credential_id]
-        import datetime
-
         current_time = datetime.datetime.now()
         validation_result['validation_time'] = current_time.isoformat()
 
@@ -90,7 +89,7 @@ class ARIAWorker:
             except ValueError:
                 validation_result['error'] = "Invalid expiry format. Expected ISO format."
                 logging.error(f"Validation failed for '{credential_id}': Invalid expiry format.")
-                return validation_result
+                # No return here, continue to check other fields if possible
 
         # Check for revocation
         is_revoked = cred_data.get('is_revoked', False)
