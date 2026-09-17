@@ -235,7 +235,7 @@ async function githubExecute(step: any, token: string | null) {
   if (!token && !SECRET) throw new Error("github_runtime_auth_unavailable");
   const response = await fetch(GITHUB_APP, {
     method: "POST",
-    headers: token ? { "content-type": "application/json", "x-aria-autonomy-token": token } : { "content-type": "application/json", "x-aria-autonomy-token": SECRET },
+    headers: internalHeaders(),
     body: JSON.stringify({
       operation,
       owner: input.owner || step.target?.owner || "Robvg9",
