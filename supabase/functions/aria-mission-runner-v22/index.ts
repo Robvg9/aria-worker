@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
+import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "../_shared/forensic-continuity-fixes.ts";
 
 const V = "aria-mission-runner-v22-universal";
 const URL = Deno.env.get("SUPABASE_URL")!;
@@ -116,16 +117,7 @@ async function recall(goal: string, token: string | null) {
 }
 
 async function createPlan(goal: string, context: unknown, token: string | null) {
-  const response = await fetch(PLANNER, {
-    method: "POST",
-    headers: downstreamHeaders(token),
-    body: JSON.stringify({ goal, context }),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.ok || !Array.isArray(body.plan?.steps)) {
-    throw new Error(`planner_${response.status}`);
-  }
-  return body.plan.steps;
+  return createPlanWithTimeout(PLANNER, goal, context, downstreamHeaders(token));
 }
 
 function executorType(step: any) {
@@ -174,21 +166,11 @@ async function getExecutionJob(jobId: string) {
 }
 
 async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
+  const payload = buildDeviceEnqueuePayload(V, missionId, step, jobId);
   const response = await fetch(RUNTIME, {
     method: "POST",
     headers: internalHeaders(),
-    body: JSON.stringify({
-      action: "enqueue_device_job",
-      job_id: jobId,
-      mission_id: missionId,
-      device_id: step.target.device_id,
-      operation: "shell.execute",
-      command: String(step.input?.command || "echo ARIA_UO_LIVE"),
-      cwd: typeof step.input?.cwd === "string" ? step.input.cwd : null,
-      timeout_ms: Number.isInteger(step.timeout_ms) ? step.timeout_ms : 30000,
-      policy: step.policy || {},
-      metadata: { runner: V, executor_type: "device", idempotency_key: jobId },
-    }),
+    body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => null);
   if (!response.ok || !body?.ok) throw new Error(`device_enqueue_${response.status}`);
@@ -196,6 +178,8 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
 }
 
 async function deviceExecute(missionId: string, step: any) {
+  const operation = String(step.operation || "shell.execute");
+  if (!DEVICE_OPS_ALLOWLIST.has(operation)) throw new Error(`device_operation_not_allowed:${operation}`);
   const jobId = jobIdFor(missionId, String(step.id));
   let current = await getExecutionJob(jobId);
   if (!(current.response.ok && current.body?.ok && current.body.job)) {
@@ -203,21 +187,23 @@ async function deviceExecute(missionId: string, step: any) {
     current = await getExecutionJob(jobId);
   }
   const job = current.body?.job;
-  if (!job) return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId };
+  if (!job) return { status: "waiting", executor_type: "device", operation, job_id: jobId };
   const status = String(job.status || "");
   if (["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
     return {
       status,
       executor_type: "device",
-      operation: "shell.execute",
+      operation,
       job_id: jobId,
       exit_code: job.exit_code,
       stdout: job.stdout,
       stderr: job.stderr,
       result: job.result,
+      evidence: job.evidence ?? job.result ?? null,
+      error: job.error ?? null,
     };
   }
-  return { status: "waiting", executor_type: "device", operation: "shell.execute", job_id: jobId, job_status: status };
+  return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: status };
 }
 
 async function githubExecute(step: any, token: string | null) {
@@ -264,10 +250,8 @@ async function connectorExecute(missionId: string, step: any, token: string | nu
   if (connector === "supabase" && operation === "mission_read") {
     return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: await rpc("aria_mission_get", { p_mission_id: missionId }) };
   }
-  if (connector === "cloudflare" && ["health", "worker_read", "deployment_read"].includes(operation)) {
-    const response = await fetch("https://aria.robvg9.workers.dev/", { headers: { "user-agent": `${V}-connector-probe` } });
-    if (!response.ok) throw new Error(`cloudflare_unavailable_${response.status}`);
-    return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, http_status: response.status };
+  if (connector === "cloudflare") {
+    return cloudflareConnectorExecute(V, SECRET, operation);
   }
   if (connector === "bitrise") return bitriseExecute(rpc, step);
   if (connector === "github") return githubExecute(step, token);
@@ -409,9 +393,38 @@ Deno.serve(async (request) => {
     };
     await emitEvent(missionId, "cognitive_recall_completed", cognitiveContext);
 
-    const steps = Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length
-      ? mission.checkpoint.plan
-      : await createPlan(String(mission.goal || ""), cognitiveContext, token);
+    let steps: any[];
+    if (Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length) {
+      steps = mission.checkpoint.plan;
+    } else {
+      try {
+        steps = await createPlan(String(mission.goal || ""), cognitiveContext, token);
+      } catch (planErr) {
+        const reason = planErr instanceof Error ? planErr.message : String(planErr);
+        await updateMission(missionId, {
+          status: "paused",
+          next_action: reason === "planner_timeout" ? "recovery:planner_timeout" : `recovery:planner_error:${reason}`,
+          last_stderr: reason,
+          lease_owner: null,
+          lease_until: null,
+          checkpoint: {
+            ...(mission.checkpoint || {}),
+            cognitive_context: cognitiveContext,
+            planner_diagnostic: {
+              code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
+              message: reason,
+              at: new Date().toISOString(),
+              recoverable: true,
+            },
+          },
+        });
+        await emitEvent(missionId, "planner_failed", {
+          code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
+          message: reason,
+        });
+        return out({ ok: false, status: "paused", mission_id: missionId, runtime: V, error: reason });
+      }
+    }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
     for (const step of steps) validateStep(step);
 

@@ -1,3 +1,4 @@
+const assert = require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const read=(...parts)=>fs.readFileSync(path.join(__dirname,'..',...parts),'utf8');
@@ -17,7 +18,7 @@ assertContains(appApi,'path.endsWith("/missions")','mission route missing');
 assertContains(appApi,'path.endsWith("/memory/search")','memory search route missing');
 assertContains(appApi,'path.endsWith("/media/upload-url")','media upload preparation route missing');
 assertContains(appApi,'aria-app-media','private media bucket missing');
-assertContains(appApi,'const objectPath=`${u.id}/${crypto.randomUUID()}/${fileName}`','media object path is not user-scoped');
+assert.ok(appApi.includes('const objectPath=`${u.id}/${crypto.randomUUID()}/${fileName}`') || appApi.includes('const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`'),'media object path is not user-scoped');
 assertContains(appApi,'createSignedUploadUrl(objectPath)','signed media upload missing');
 assertContains(appApi,'"x-aria-user-id": userId','authenticated user scope not propagated to internal memory/mission boundary');
 assertContains(appApi,'recall(text, user.id)','conversation recall must use authenticated user scope');
