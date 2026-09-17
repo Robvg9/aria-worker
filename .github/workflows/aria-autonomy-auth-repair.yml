@@ -3,37 +3,36 @@ name: ARIA autonomy auth repair
 on:
   push:
     branches:
-      - main
+      - aria/meditation-ia-v1-main
 
 jobs:
   repair-windows:
     if: ${{ github.event.head_commit.message != 'chore(aria): persist autonomy auth repair [skip ci]' }}
     runs-on: [self-hosted, windows, x64]
     steps:
-      - name: Repair mission runner internal GitHub App auth and restart agent
+      - name: Repair local mission runner auth and restart agent
         shell: powershell
         run: |
           $repo = 'C:\Users\robvg\aria-worker'
           $path = Join-Path $repo 'supabase\functions\aria-mission-runner-v22\index.ts'
           if (-not (Test-Path $path)) { throw "Runner file not found: $path" }
           $text = Get-Content $path -Raw
-          $start = $text.IndexOf('async function githubExecute')
-          $end = $text.IndexOf('async function connectorExecute', $start)
-          if ($start -lt 0 -or $end -lt 0) { throw 'githubExecute boundaries not found' }
+          $start = $text.IndexOf('async function modelExecute')
+          $end = $text.IndexOf('async function agentExecute', $start)
+          if ($start -lt 0 -or $end -lt 0) { throw 'modelExecute boundaries not found' }
           $segment = $text.Substring($start, $end - $start)
-          $segment2 = $segment -replace 'headers: token \? \{ "content-type": "application/json", "x-aria-autonomy-token": token \} : \{ "content-type": "application/json", "x-aria-autonomy-token": SECRET \},', 'headers: internalHeaders(),'
-          if ($segment -eq $segment2) { Write-Host 'GITHUB_APP_AUTH_ALREADY_FIXED=True' } else {
+          $segment2 = $segment.Replace('headers: downstreamHeaders(token),', 'headers: internalHeaders(),', 1)
+          if ($segment -eq $segment2) { Write-Host 'MODEL_AUTH_ALREADY_FIXED=True' } else {
             $text = $text.Substring(0, $start) + $segment2 + $text.Substring($end)
             Set-Content -Path $path -Value $text -Encoding UTF8
-            Write-Host 'GITHUB_APP_AUTH_PATCH=PASS'
+            Write-Host 'MODEL_AUTH_PATCH=PASS'
           }
           $verify = Get-Content $path -Raw
-          $start2 = $verify.IndexOf('async function githubExecute')
-          $end2 = $verify.IndexOf('async function connectorExecute', $start2)
+          $start2 = $verify.IndexOf('async function modelExecute')
+          $end2 = $verify.IndexOf('async function agentExecute', $start2)
           $segmentVerify = $verify.Substring($start2, $end2 - $start2)
-          if (-not $segmentVerify.Contains('headers: internalHeaders(),')) { throw 'GITHUB_APP_AUTH_PATCH_VERIFY_FAILED' }
-          if ($segmentVerify.Contains('x-aria-autonomy-token')) { throw 'GITHUB_APP_AUTH_CALLER_TOKEN_REMAINS' }
-          Write-Host 'GITHUB_APP_AUTH_PATCH_VERIFY=PASS'
+          if (-not $segmentVerify.Contains('headers: internalHeaders(),')) { throw 'MODEL_AUTH_PATCH_VERIFY_FAILED' }
+          Write-Host 'MODEL_AUTH_PATCH_VERIFY=PASS'
           git -C $repo diff --check
           git -C $repo status --short
           git -C $repo config user.name 'ARIA Automation'
@@ -43,7 +42,7 @@ jobs:
             Write-Host 'LOCAL_COMMIT_NEEDED=False'
           } else {
             git -C $repo commit -m 'chore(aria): persist autonomy auth repair [skip ci]'
-            git -C $repo push origin main
+            git -C $repo push origin aria/meditation-ia-v1-main
             Write-Host 'LOCAL_COMMIT_PUSH=PASS'
           }
           schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
