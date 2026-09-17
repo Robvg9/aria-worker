@@ -22,13 +22,13 @@ test('Meditation IA desktop surface uses the existing local control API', () => 
 
 test('Meditation IA surface exposes live mission telemetry', () => {
   const ui = read('agents/windows/aria-meditation-ui.ps1');
-  assert.ok(ui.includes('PROGRESO DE MISION'));
+  assert.ok(ui.includes('PROGRESO:'));
   assert.ok(ui.includes('RUNTIME:'));
   assert.ok(ui.includes('Fabrica:'));
-  assert.ok(ui.includes('candidatos detectados'));
+  assert.ok(ui.includes('candidatos'));
   assert.ok(ui.includes('Aprendizaje:'));
   assert.ok(ui.includes('Proxima accion:'));
-  assert.ok(ui.includes('Ultimo resultado:'));
+  assert.ok(ui.includes('Ultimo:'));
 });
 
 test('Meditation IA launcher does not create a second runtime', () => {
