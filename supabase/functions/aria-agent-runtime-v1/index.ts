@@ -35,6 +35,7 @@ Deno.serve(async (r) => {
   if (r.method !== "POST") return out({ error: "method_not_allowed" }, 405); if (!(await auth(r))) return out({ error: "unauthorized" }, 401);
   const b: any = await r.json().catch(() => ({})); const agentId = String(b.agent_id || ""); const profile = profiles[agentId]; if (!profile) return out({ ok: false, status: "blocked", error: { code: "agent_not_profiled" } });
   const agent = await catalogFor(agentId); if (!agent) return out({ ok: false, status: "blocked", error: { code: "agent_unavailable_or_not_cataloged", agent_id: agentId } });
+  const catalogAgent = agent;
   if (String(b.operation || "delegate") !== "delegate") return out({ ok: false, status: "blocked", error: { code: "operation_not_supported" } });
   const missionId = String(b.mission_id || ""), stepId = String(b.step_id || ""); if (!missionId || !stepId) return out({ ok: false, status: "blocked", error: { code: "mission_or_step_missing" } });
   const requestedRisk = String(b.risk || "READ"); if (!riskAllowed(requestedRisk, agent.max_risk)) return out({ ok: false, status: "blocked", error: { code: "agent_risk_exceeded", agent_id: agentId, requested_risk: requestedRisk, max_risk: agent.max_risk } });
@@ -50,7 +51,7 @@ Deno.serve(async (r) => {
     }
     if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false));
     const requestId = `agent:${missionId}:${stepId}`;
-    const rr = await fetch(EXEC, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify({ execution_version: "1", request_id: requestId, task_id: stepId, capability: "text_generation", selected_route: { status: "selected", provider_id: "openrouter", account_id: "acct_openrouter_primary", model_id: agent.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` }, input: { payload: { prompt: `${profile.system}\n\nTask:\n${prompt}` } }, policy: b.policy || {}, metadata: { executor_type: "agent", agent_id: agentId, agent_role: agent.role, mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog" } }) });
+    const rr = await fetch(EXEC, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify({ execution_version: "1", request_id: requestId, task_id: stepId, capability: "text_generation", selected_route: { status: "selected", provider_id: "openrouter", account_id: "acct_openrouter_primary", model_id: catalogAgent.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: requestedRisk, evidence_ref: `agent:${agentId}` }, input: { payload: { prompt: `${profile.system}\n\nTask:\n${prompt}` } }, policy: b.policy || {}, metadata: { executor_type: "agent", agent_id: agentId, agent_role: agent.role, mission_id: missionId, step_id: stepId, catalog_source: "aria_agent_catalog" } }) });
     const x: any = await rr.json().catch(() => null);
     if (!rr.ok || x?.status !== "succeeded") {
       const message = String(x?.error?.message || x?.error || `execution_${rr.status}`);
