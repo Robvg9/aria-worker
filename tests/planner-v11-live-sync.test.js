@@ -4,8 +4,8 @@ const fs=require('node:fs');
 
 const source=fs.readFileSync('supabase/functions/aria-planner-v11/index.ts','utf8');
 for (const marker of [
-  'async function modelRoutes',
-  'async function selfAuditPlan',
+  'modelRoutes',
+  'selfAuditPlan',
   'const changeStep=',
   'const repairStep=',
   'planner-v11-forensic-multi-route-v1',
