@@ -40,8 +40,8 @@ assertContains(planner,'executor_type:"model"','conversation planner must emit a
 assertContains(planner,'provider_id:route.provider_id','conversation planner provider propagation missing');
 assertContains(planner,'account_id:route.account_id','conversation planner account propagation missing');
 assertContains(planner,'model_id:route.model_id','conversation planner model propagation missing');
-assertContains(planner,'fallbackStep("model_1","google/gemini-2.5-flash-lite",prompt)','conversation planner canonical mediated model route missing');
-assertContains(planner,'aria-planner-v14-conversation-aware','current conversation-aware planner version marker missing');
+assertContains(planner,'const routes=await modelRoutes();const r=routes[0]','conversation planner live model route selection missing');
+assertContains(planner,'aria-planner-v11-conversation-aware','current conversation-aware planner version marker missing');
 assertContains(plannerWorkflow,'node tests/aria-app-api-v3-contract.test.js','planner contract gate missing');
 assertContains(plannerWorkflow,'supabase functions deploy aria-planner-v11 --project-ref','planner deployment command missing');
 if(plannerWorkflow.includes('--verify-jwt'))throw new Error('planner workflow uses removed Supabase CLI verify-jwt flag');
