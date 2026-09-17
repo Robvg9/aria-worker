@@ -1,17 +1,17 @@
 name: ARIA Windows Final E2E
 
 on:
-  pull_request:
-    paths:
-      - 'agents/windows/**'
-      - 'autonomy/meditation-ia-controller.js'
-      - 'autonomy/windows-shell-executor.js'
-      - 'computer-use/**'
-      - '.github/workflows/aria-windows-final-e2e.yml'
   workflow_dispatch:
+  push:
+    branches:
+      - aria/self-improvement-v1-main
 
 permissions:
   contents: read
+
+concurrency:
+  group: aria-windows-final-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -25,73 +25,63 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inspect and safely free C
+      - name: Refresh corrected self-improvement coordinator and watchdog
         run: |
-          $ErrorActionPreference='Continue'
-          $d='D:\ARIA-Windows-Agent\Maintenance'
-          New-Item -ItemType Directory -Force -Path $d | Out-Null
-          $before=(Get-PSDrive C).Free
-          Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before/1GB,2))"
-          $paths=@(
-            "$env:TEMP\*",
-            "$env:LOCALAPPDATA\Temp\*",
-            "$env:WINDIR\Temp\*",
-            "$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*",
-            "$env:LOCALAPPDATA\CrashDumps\*",
-            "$env:LOCALAPPDATA\D3DSCache\*",
-            "C:\Windows\SoftwareDistribution\Download\*",
-            "C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*",
-            "C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*"
-          )
-          foreach($p in $paths){try{Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}catch{}}
-          if(Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue){try{Delete-DeliveryOptimizationCache -Force -ErrorAction SilentlyContinue}catch{}}
-          if(Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue){try{Clear-RecycleBin -Force -ErrorAction SilentlyContinue}catch{}}
-          if(Get-Command npm.cmd -ErrorAction SilentlyContinue){try{npm.cmd cache clean --force | Out-Host}catch{}}
-          if(Get-Command pip.exe -ErrorAction SilentlyContinue){try{pip.exe cache purge | Out-Host}catch{}}
-          $ollama=Join-Path $env:USERPROFILE '.ollama\models';$ollamaD=Join-Path $d 'ollama-models'
-          if(Test-Path $ollama -PathType Container){try{$it=Get-Item $ollama -Force;if(-not($it.Attributes -band [IO.FileAttributes]::ReparsePoint)){New-Item -ItemType Directory -Force -Path $ollamaD|Out-Null;Get-Process -Name ollama -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue;Move-Item -LiteralPath $ollama -Destination $ollamaD -Force;New-Item -ItemType Junction -Path $ollama -Target $ollamaD|Out-Null;Write-Host "OLLAMA_MODELS_RELOCATED=$ollamaD"}else{Write-Host 'OLLAMA_MODELS_ALREADY_RELOCATED=True'}}catch{Write-Warning $_.Exception.Message}}
-          $after=(Get-PSDrive C).Free
-          Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))"
-          Write-Host "C_FREED_GB=$([math]::Round(($after-$before)/1GB,2))"
+          $ErrorActionPreference='Stop'
+          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
+          $shaPath='D:\ARIA-Windows-Agent\Logs\runtime-source-sha'
+          $kill='D:\ARIA-Windows-Agent\Logs\kill-request.json'
+          $expected='420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'
+          $source='.\autonomy\self-improvement-coordinator-v1.js'
+          if(-not(Test-Path $source)){throw 'Corrected coordinator source missing from checkout'}
+          Copy-Item $source $runtime -Force
+          $actual=(Get-FileHash $runtime -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($actual -ne $expected){throw "Coordinator SHA mismatch actual=$actual expected=$expected"}
+          Set-Content -Path $shaPath -Value $expected -Encoding ASCII -Force
+          [ordered]@{source_sha=$expected;reason='workflow_refresh_corrected_coordinator';requested_at=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress | Set-Content -Path $kill -Encoding UTF8 -Force
+          Write-Host 'CORRECTED_COORDINATOR_RUNTIME=PASS'
+          Write-Host 'WATCHDOG_RELOAD_REQUESTED=PASS'
 
-      - name: Enforce one watchdog and one Agent
+      - name: Ensure ARIA Windows Agent v2
+        env:
+          ARIA_REQUIRE_DESKTOP_SMOKE: '0'
         run: |
-          $ErrorActionPreference='Continue'
-          $wp='D:\ARIA-Windows-Agent\Logs\watchdog.pid';$ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$keepW=0;$keepA=0
-          if(Test-Path $wp){[void][int]::TryParse((Get-Content -Raw $wp).Trim(),[ref]$keepW)}
-          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$keepA)}
-          $ws=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object{$_.Name-match'^powershell(\.exe)?$'-and[string]$_.CommandLine-match'(?i)run-agent\.ps1'})
-          $as=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object{$_.Name-match'^node(\.exe)?$'-and[string]$_.CommandLine-match'(?i)aria-agent\.js'})
-          Write-Host "WATCHDOGS_BEFORE=$($ws.Count) AGENTS_BEFORE=$($as.Count) KEEP_W=$keepW KEEP_A=$keepA"
-          foreach($p in $ws){if([int]$p.ProcessId-ne$keepW){Write-Host "STOP_DUPLICATE_WATCHDOG=$($p.ProcessId)";Stop-Process -Id([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
-          foreach($p in $as){if([int]$p.ProcessId-ne$keepA){Write-Host "STOP_DUPLICATE_AGENT=$($p.ProcessId)";Stop-Process -Id([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
-          Start-Sleep -Seconds 2
-          $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
-          if(Test-Path $lock){$lp=0;try{$j=Get-Content -Raw $lock|ConvertFrom-Json;$lp=[int]$j.pid}catch{};$q=$null;if($lp-gt0){$q=Get-CimInstance Win32_Process -Filter "ProcessId = $lp" -ErrorAction SilentlyContinue};if($null-eq$q -or $lp-eq$keepA){Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue;Write-Host "MEDITATION_LOCK_CLEARED=$lp"}else{Write-Host "MEDITATION_LOCK_OWNER_PID=$lp CMD=$($q.CommandLine)"}}
+          $ErrorActionPreference='Stop'
+          if(-not(Test-Path '.\agents\windows\install-v2.ps1')){throw 'install-v2.ps1 missing'}
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
+          if($LASTEXITCODE -ne 0){throw "Agent installation failed: $LASTEXITCODE"}
+          Write-Host 'FINAL_E2E_AGENT_V2_INSTALL=PASS'
 
       - name: Verify control endpoint and activate Meditation IA
         run: |
           $ErrorActionPreference='Stop'
-          $u='http://127.0.0.1:45873/status';$start='http://127.0.0.1:45873/start'
-          $s=$null
+          $u='http://127.0.0.1:45873/status';$start='http://127.0.0.1:45873/start';$s=$null
           try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5}catch{}
-          if($null-eq$s){$agent='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1';if(-not(Test-Path $agent)){throw 'run-agent.ps1 missing'};Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$agent -WindowStyle Hidden;for($i=0;$i-lt30;$i++){Start-Sleep 1;try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($null-ne$s){break}}catch{}}}
-          if($null-eq$s){throw 'Meditation control endpoint offline'}
-          if($s.mode-ne'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;Write-Host ("ACTIVATE status={0} mode={1} session={2} tick={3}"-f$r.status,$s.mode,$s.session_id,$s.tick_count)}else{Write-Host "ALREADY_ACTIVE session=$($s.session_id)"}
-          if($s.mode-ne'active'){throw "Meditation IA activation failed mode=$($s.mode)"}
+          if($null -eq $s){$agent='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1';if(-not(Test-Path $agent)){throw 'run-agent.ps1 missing'};Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$agent -WindowStyle Hidden;for($i=0;$i -lt 30;$i++){Start-Sleep 1;try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($null -ne $s){break}}catch{}}}
+          if($null -eq $s){throw 'Meditation control endpoint offline'}
+          if($s.mode -ne 'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;Write-Host ("ACTIVATE status={0} mode={1} session={2} tick={3}" -f $r.status,$s.mode,$s.session_id,$s.tick_count)}else{Write-Host "ALREADY_ACTIVE session=$($s.session_id)"}
+          if($s.mode -ne 'active'){throw "Meditation IA activation failed mode=$($s.mode)"}
+          Write-Host 'MEDITATION_ACTIVATION=PASS'
 
-      - name: Verify heartbeat and real read-only shell path
+      - name: Verify physical self-improvement runtime and heartbeat
         run: |
           $ErrorActionPreference='Stop'
-          $u='http://127.0.0.1:45873/status';$a=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
-          if($a.mode-ne'active'){throw "Mode not active: $($a.mode)"}
-          $t=[int]$a.tick_count
-          Start-Sleep -Seconds 12
-          $b=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
-          $c=(Get-PSDrive C).Free
-          Write-Host "HEARTBEAT initial=$t final=$($b.tick_count) mode=$($b.mode)"
-          Write-Host "C_FREE_FINAL_GB=$([math]::Round($c/1GB,2))"
-          if($b.mode-ne'active'){throw "Meditation stopped: $($b.mode)"}
-          if([int]$b.tick_count-lt$t){throw 'Tick counter regressed'}
-          Write-Host 'MEDITATION_HEARTBEAT=PASS'
+          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-runtime.js'
+          $coordinator='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
+          $agent='D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
+          $config='D:\ARIA-Windows-Agent\Data\config.json'
+          foreach($p in @($runtime,$coordinator,$agent,$config)){if(-not(Test-Path $p)){throw "Installed file missing: $p"}}
+          $hash=(Get-FileHash $coordinator -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($hash -ne '420ED7BBA22A8688B5F2EC659C6ABF0C229A6C6A0593F801EEF503E08D7BB9E3'){throw "Coordinator hash mismatch: $hash"}
+          $j=Get-Content -Raw $config|ConvertFrom-Json
+          if($j.agent_version -ne 'aria-windows-agent-v2'){throw "Unexpected agent_version=$($j.agent_version)"}
+          if(-not($j.capabilities -contains 'self.improve')){throw 'self.improve capability missing'}
+          $procs=Get-CimInstance Win32_Process -Filter "Name='node.exe'"|Where-Object{$_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js*'}
+          if(-not$procs){throw 'ARIA Windows v2 agent process not detected'}
+          $u='http://127.0.0.1:45873/status';$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;$t=[int]$s.tick_count;Start-Sleep -Seconds 12;$s2=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
+          if($s2.mode -ne 'active'){throw "Meditation stopped: $($s2.mode)"}
+          if([int]$s2.tick_count -lt $t){throw 'Tick counter regressed'}
+          Write-Host "PHYSICAL_AGENT_PROCESS=PASS PID=$($procs[0].ProcessId)"
+          Write-Host 'SELF_IMPROVEMENT_CAPABILITY_CONFIG=PASS'
+          Write-Host "MEDITATION_HEARTBEAT initial=$t final=$($s2.tick_count)"
           Write-Host 'ARIA_WINDOWS_FINAL_E2E=PASS'

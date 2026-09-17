@@ -1,0 +1,166 @@
+name: ARIA Meditation IA Final Physical Certification
+
+on:
+  pull_request:
+    branches: ["aria/meditation-ia-v1-main"]
+    paths:
+      - 'agents/windows/**'
+      - 'autonomy/**'
+      - 'self-development/**'
+      - 'self-model/**'
+      - 'tests/**'
+      - '.github/workflows/aria-meditation-final-certification.yml'
+  workflow_dispatch:
+
+# Physical certification is exclusive per Windows device.
+# PR updates queue instead of cancelling an active certification.
+concurrency:
+  group: aria-meditation-final-certification-windows
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    name: certify-physical-meditation-and-self-improvement
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 32
+    env:
+      ARIA_TARGET_DEVICE_ID: windows-fe722cc6681e4f9c9cc35f5ebbb0a089
+      ARIA_CERT_ROOT: 'D:\ARIA-Windows-Agent\Runtime\meditation-cert'
+      ARIA_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ARIA_EXPECTED_SHA }}
+          fetch-depth: 1
+          clean: true
+
+      - name: Phone Link uninstall and compact metrics
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\agents\windows\robvg-phone-link-cleanup.ps1"
+          if errorlevel 1 exit /b 1
+
+      - name: Assert single-owner runtime boundary
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $watchdog=Join-Path $runtime 'run-agent.ps1'; $agent=Join-Path $runtime 'aria-agent.js'; if(-not(Test-Path $watchdog)){throw 'Watchdog runtime missing'}; if(-not(Test-Path $agent)){throw 'Agent runtime missing'}; $text=Get-Content -Raw $watchdog; if($text -notmatch 'Global\\ARIA-Windows-Agent-Watchdog-v1'){throw 'Global watchdog mutex missing'}; if($text -match '\$maxConsecutiveErrors|WATCHDOG_EXIT after|exit 1'){throw 'Watchdog must be non-terminating'}; Write-Host 'SINGLE_OWNER_BOUNDARY=PASS'"
+          if errorlevel 1 exit /b 1
+
+      - name: Synchronize physical runtime source
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$runtime='D:\ARIA-Windows-Agent\Runtime\windows'; $repo=Join-Path $env:GITHUB_WORKSPACE 'agents\windows'; foreach($file in @('aria-agent.js','aria-meditation-controller.js','self-improvement-runtime.js','run-agent.ps1','install-v2.ps1')){Copy-Item -Path (Join-Path $repo $file) -Destination (Join-Path $runtime $file) -Force}; Set-Content -Path 'D:\ARIA-Windows-Agent\Logs\runtime-source-sha' -Value $env:ARIA_EXPECTED_SHA -Encoding ASCII -Force; Write-Host 'PHYSICAL_RUNTIME_SYNC=PASS'"
+          if errorlevel 1 exit /b 1
+
+      - name: Enforce durable Windows supervisor installation
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\agents\windows\install-v2.ps1"
+          if($LASTEXITCODE -ne 0){ throw "install-v2 failed with exit code $LASTEXITCODE" }
+          Write-Host 'SUPERVISOR_INSTALL=PASS'
+
+      - name: Verify durable supervisor settings
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $TaskName='ARIA-Windows-Local-Agent'
+          $task=Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+          if($task.Principal.LogonType -ne 'Interactive'){ throw "Wrong principal LogonType=$($task.Principal.LogonType)" }
+          $xml=[xml](Export-ScheduledTask -TaskName $TaskName)
+          $s=$xml.Task.Settings
+          $r=$s.RestartOnFailure
+          if($null -eq $r){ throw 'RestartOnFailure is missing' }
+          if([int]$r.Count -ne 999){ throw "RestartCount=$($r.Count), expected 999" }
+          if([string]$r.Interval -ne 'PT1M'){ throw "RestartInterval=$($r.Interval), expected PT1M" }
+          if([string]$s.ExecutionTimeLimit -ne 'PT0S'){ throw "ExecutionTimeLimit=$($s.ExecutionTimeLimit), expected PT0S" }
+          if([string]$s.MultipleInstancesPolicy -ne 'IgnoreNew'){ throw "MultipleInstancesPolicy=$($s.MultipleInstancesPolicy), expected IgnoreNew" }
+          $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          $run=(Get-ItemProperty -Path $runKey -Name 'ARIA-Windows-Local-Agent' -ErrorAction SilentlyContinue).'ARIA-Windows-Local-Agent'
+          if($run){ throw 'Legacy HKCU Run authority is still enabled' }
+          Write-Host 'TASK_SCHEDULER_DURABLE=PASS'
+          Write-Host 'RESTART_COUNT=999'
+          Write-Host 'RESTART_INTERVAL=PT1M'
+          Write-Host 'EXECUTION_TIME_LIMIT=PT0S'
+          Write-Host 'MULTIPLE_INSTANCES=IgnoreNew'
+          Write-Host 'LEGACY_RUN_KEY=DISABLED'
+
+      - name: Prove automatic supervisor recovery after kill
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $pidPath='D:\ARIA-Windows-Agent\Logs\watchdog.pid'
+          $before=0
+          if(Test-Path $pidPath){ [void][int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$before) }
+          if($before -le 0){
+            $cand=Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1*' } | Select-Object -First 1
+            if($cand){$before=[int]$cand.ProcessId}
+          }
+          if($before -le 0){ throw 'Could not locate watchdog PID before fault injection' }
+          Write-Host ("WATCHDOG_BEFORE_PID="+$before)
+          Stop-Process -Id $before -Force -ErrorAction Stop
+          Write-Host 'WATCHDOG_KILL_INJECTED=TRUE'
+          $deadline=(Get-Date).AddSeconds(80)
+          $recovered=0
+          do {
+            Start-Sleep -Seconds 5
+            if(Test-Path $pidPath){
+              $candidate=0
+              [void][int]::TryParse((Get-Content -Raw $pidPath).Trim(), [ref]$candidate)
+              if($candidate -gt 0 -and $candidate -ne $before){
+                try { Get-Process -Id $candidate -ErrorAction Stop | Out-Null; $recovered=$candidate } catch {}
+              }
+            }
+          } while($recovered -eq 0 -and (Get-Date) -lt $deadline)
+          if($recovered -eq 0){ throw 'Windows did not automatically restart the killed watchdog within 80 seconds' }
+          Write-Host ("WATCHDOG_RECOVERED_PID="+$recovered)
+          Write-Host 'WATCHDOG_AUTO_RECOVERY=PASS'
+
+      - name: Repair persistent state and reclaim safe disk space
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $root='D:\ARIA-Windows-Agent'
+          $state=Join-Path $root 'Runtime\meditation\state.json'
+          $med=Join-Path $root 'Runtime\meditation'
+          New-Item -ItemType Directory -Force $med | Out-Null
+          if(Test-Path $state){
+            $len=(Get-Item $state).Length
+            Write-Host ("MEDITATION_STATE_BYTES="+$len)
+            $bad=$false
+            try { if($len -gt 25MB){$bad=$true}else{Get-Content -Raw $state | ConvertFrom-Json | Out-Null} } catch {$bad=$true}
+            if($bad){
+              $backup=Join-Path $med ('state.quarantine-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json')
+              Move-Item $state $backup -Force -ErrorAction SilentlyContinue
+              '{"mode":"standby","version":1,"events":[]}' | Set-Content $state -Encoding UTF8 -Force
+              Write-Host 'MEDITATION_STATE_REPAIRED=PASS'
+            } else { Write-Host 'MEDITATION_STATE_HEALTHY=PASS' }
+          } else {
+            '{"mode":"standby","version":1,"events":[]}' | Set-Content $state -Encoding UTF8 -Force
+            Write-Host 'MEDITATION_STATE_CREATED=PASS'
+          }
+          foreach($d in @($env:TEMP,($env:LOCALAPPDATA+'\Temp'),$env:windir+'\Temp',$env:windir+'\SoftwareDistribution\Download',$env:ProgramData+'\Microsoft\Windows\WER\ReportArchive',$env:ProgramData+'\Microsoft\Windows\WER\ReportQueue')){
+            if(Test-Path $d){ Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue | Where-Object {$_.LastWriteTime -lt (Get-Date).AddHours(-6)} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+          $os=Get-CimInstance Win32_OperatingSystem
+          Write-Host ("FREE_RAM_MB="+[math]::Round($os.FreePhysicalMemory/1024))
+          Write-Host ("FREE_C_GB="+[math]::Round((Get-PSDrive C).Free/1GB,2))
+          Write-Host 'STATE_AND_DISK_REPAIR=PASS'
+
+      - name: Refresh Agent through watchdog owner
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\agents\windows\refresh-agent-via-watchdog.ps1"
+          if errorlevel 1 exit /b 1
+
+      - name: Run complete four-stage physical certification
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\agents\windows\meditation-final-certification.ps1"
+          if errorlevel 1 exit /b 1

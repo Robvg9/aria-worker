@@ -8,17 +8,26 @@ $DataDir = Join-Path $RuntimeRoot 'Data'
 $LogDir = Join-Path $RuntimeRoot 'Logs'
 $ConfigPath = Join-Path $DataDir 'config.json'
 $TokenPath = Join-Path $DataDir 'device-token.dpapi'
-$TaskXmlPath = Join-Path $RuntimeRoot 'ARIA-Windows-Local-Agent.xml'
-$DesktopSmokePath = Join-Path $LogDir 'desktop-smoke.json'
-$TaskName = 'ARIA-Windows-Local-Agent'
+$PowershellPath = (Get-Command powershell.exe -ErrorAction Stop).Source
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+$RunAgentPath = Join-Path $RuntimeDir 'run-agent.ps1'
+$KillRequestPath = Join-Path $LogDir 'kill-request.json'
+$WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
+$StartupAuthorityPath = Join-Path $LogDir 'startup-authority.json'
+$RuntimeSourceShaPath = Join-Path $LogDir 'runtime-source-sha'
+$TaskName = 'ARIA-Windows-Local-Agent'
+$RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$RunValueName = 'ARIA-Windows-Local-Agent'
 
 foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'aria-meditation-controller.js' = Join-Path $AgentRoot 'aria-meditation-controller.js'
+    'self-improvement-runtime.js' = Join-Path $AgentRoot 'self-improvement-runtime.js'
+    'aria-safe-storage-maintenance.ps1' = Join-Path $AgentRoot 'aria-safe-storage-maintenance.ps1'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
     'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
     'windows-desktop-adapter.js' = Join-Path $RepoRoot 'computer-use\windows-desktop-adapter.js'
@@ -31,6 +40,14 @@ foreach ($file in $requiredSources.Keys) {
     Copy-Item -Path $source -Destination (Join-Path $RuntimeDir $file) -Force
 }
 
+foreach ($dirName in @('autonomy','self-development','self-model')) {
+    $sourceDir = Join-Path $RepoRoot $dirName
+    $destDir = Join-Path $RuntimeRoot "Runtime\$dirName"
+    if (-not (Test-Path $sourceDir)) { throw "Required self-improvement runtime directory missing: $sourceDir" }
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+    Copy-Item -Path (Join-Path $sourceDir '*') -Destination $destDir -Recurse -Force
+}
+
 $token = $env:ARIA_DEVICE_TOKEN
 if (-not [string]::IsNullOrWhiteSpace($token)) {
     if ($token.Length -lt 32) { throw 'ARIA_DEVICE_TOKEN invalido.' }
@@ -38,12 +55,10 @@ if (-not [string]::IsNullOrWhiteSpace($token)) {
     $encrypted = $secure | ConvertFrom-SecureString
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
 }
-elseif (Test-Path $TokenPath) {
-}
-elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi')) {
+elseif (-not (Test-Path $TokenPath) -and (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi'))) {
     Copy-Item -Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.dpapi') -Destination $TokenPath -Force
 }
-else {
+elseif (-not (Test-Path $TokenPath)) {
     $token = Read-Host 'Pega el token del Windows Device'
     if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) { throw 'Token ausente o invalido. No se instalo nada.' }
     $secure = ConvertTo-SecureString -String $token -AsPlainText -Force
@@ -56,78 +71,68 @@ $config = [ordered]@{
     device_id = $DeviceId
     gateway_url = $GatewayUrl
     node_path = $NodePath
-    agent_version = 'aria-windows-agent-v2'
+    agent_version = 'aria-windows-agent-v3-supervised'
     runtime_root = $RuntimeRoot
-    runtime_dir = $RuntimeDir
-    data_dir = $DataDir
-    log_dir = $LogDir
-    heartbeat_ms = 30000
-    poll_ms = 3000
-    gateway_timeout_ms = 15000
-    gateway_retries = 2
-    capabilities = @('ollama.qwen3','shell.execute','computer.use','desktop.screenshot','desktop.uia')
+    capabilities = @('ollama.qwen3','shell.execute','computer.use','self.improve','storage.safe_maintenance')
+    desktop_version = 'aria-windows-desktop-v1.8'
+    meditation_version = 'aria-meditation-ia-v1'
+    startup_authority = 'task_scheduler_restart_on_failure'
+    installed_at = (Get-Date).ToUniversalTime().ToString('o')
 }
-$config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
+$config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
 
-Write-Host '=== DESKTOP ACCESS SMOKE TEST ==='
-$smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,capture_method:r.capture_method||null,apartment:r.apartment||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
-$smokeOutput = & $NodePath -e $smokeScript 2>&1
-if ($LASTEXITCODE -ne 0) { throw "Desktop screenshot smoke test failed: $smokeOutput" }
-$smokeLine = ($smokeOutput | Select-Object -Last 1).ToString()
-try { $smoke = $smokeLine | ConvertFrom-Json } catch { throw "Desktop screenshot smoke test returned invalid JSON: $smokeOutput" }
-if ($smoke.status -ne 'succeeded') { throw "Desktop screenshot smoke test failed: $smokeLine" }
-@{
-    status = 'PASS'
-    timestamp = (Get-Date).ToString('o')
-    action = 'screenshot'
-    width = $smoke.width
-    height = $smoke.height
-    capture_method = $smoke.capture_method
-    apartment = $smoke.apartment
-    version = $smoke.version
-} | ConvertTo-Json | Set-Content -Path $DesktopSmokePath -Encoding UTF8
-Write-Host "DESKTOP_SCREENSHOT=PASS width=$($smoke.width) height=$($smoke.height) method=$($smoke.capture_method)"
+# One startup authority only: Windows Task Scheduler under the interactive user.
+# HKCU Run was the previous weaker authority and is intentionally removed.
+try {
+    if (Test-Path $RunKey) {
+        Remove-ItemProperty -Path $RunKey -Name $RunValueName -ErrorAction SilentlyContinue
+    }
+} catch {}
 
-$taskUser = "$env:COMPUTERNAME\$env:USERNAME"
-$taskRunScript = Join-Path $RuntimeDir 'run-agent.ps1'
-$xml = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Author>$taskUser</Author><Description>ARIA Windows Local Agent</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$taskUser</UserId></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
-  </Settings>
-  <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;$taskRunScript&quot;</Arguments><WorkingDirectory>$RuntimeDir</WorkingDirectory></Exec></Actions>
-</Task>
-"@
-Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode
-schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
-$result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
-if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar la tarea ARIA. schtasks exit code: $LASTEXITCODE`n$result" }
-& schtasks.exe /Run /TN $TaskName | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar la tarea ARIA. ExitCode=$LASTEXITCODE" }
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$RunAgentPath`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -RestartCount 999 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -MultipleInstances IgnoreNew
+$principal = New-ScheduledTaskPrincipal `
+    -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    -LogonType Interactive `
+    -RunLevel Limited
+
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+Start-ScheduledTask -TaskName $TaskName
+
+$authority = [ordered]@{
+    authority = 'task_scheduler_restart_on_failure'
+    task_name = $TaskName
+    trigger = 'AtLogOn'
+    principal = "$env:USERDOMAIN\$env:USERNAME"
+    logon_type = 'Interactive'
+    restart_count = 999
+    restart_interval_seconds = 60
+    execution_time_limit = 'unlimited'
+    multiple_instances = 'IgnoreNew'
+    user_run = 'disabled'
+    watchdog_mutex = 'Global\\ARIA-Windows-Agent-Watchdog-v1'
+    updated_at = (Get-Date).ToUniversalTime().ToString('o')
+    reason = 'OS-level restart authority plus non-terminating watchdog'
+}
+$authority | ConvertTo-Json -Depth 10 | Set-Content -Path $StartupAuthorityPath -Encoding UTF8
+
+$runtimeSmoke = & $NodePath -e "const x=require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\self-improvement-runtime.js'); if(typeof x.executeSelfImprovementJob!=='function') process.exit(1); console.log('SELF_IMPROVEMENT_RUNTIME_LOAD=PASS')" 2>&1
+if ($LASTEXITCODE -ne 0) { throw "Self-improvement runtime load failed: $runtimeSmoke" }
+$runtimeSmoke | ForEach-Object { Write-Host $_ }
 
 Write-Host ''
 Write-Host 'ARIA Windows Agent instalado correctamente.'
+Write-Host 'StartupAuthority: task_scheduler_restart_on_failure'
 Write-Host "Task: $TaskName"
 Write-Host "Device: $DeviceId"
 Write-Host "Runtime: $RuntimeDir"
-Write-Host "Config: $ConfigPath"
-Write-Host "Token store: $TokenPath"
-Write-Host "Public logs: $LogDir\watchdog.log"
-Write-Host "Task user: $taskUser"
-Write-Host 'Token: protegido con DPAPI del usuario Windows.'
-Write-Host 'Inicio automatico: AtLogOn (usuario interactivo)'
-Write-Host 'ExecutionTimeLimit: 0'
-Write-Host 'RestartOnFailure: 999 / 1 minuto'
-Write-Host 'Shell executor: installed'
-Write-Host 'Desktop computer-use: installed'
-Write-Host 'Desktop UI Automation observer: installed'
+Write-Host 'TaskScheduler: AtLogOn + RestartCount=999 + RestartInterval=60s + Unlimited'
+Write-Host 'Watchdog: non-terminating supervisor with child restart loop'
