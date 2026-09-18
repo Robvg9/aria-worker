@@ -151,8 +151,38 @@ function validateStep(step: any) {
   if (type === "eas" && String(step.target?.project_id || "") !== EAS_PROJECT_ID) throw new Error("eas_project_target_mismatch");
 }
 
+function explicitlyUnverified(step: any, result: any) {
+  const verificationStatuses = [
+    result?.verification_status,
+    result?.repair?.verification_status,
+    result?.response?.verification_status,
+  ].map((value) => String(value ?? "").toLowerCase());
+
+  if ([result?.verified, result?.repair?.verified, result?.response?.verified].some((value) => value === false)) {
+    return true;
+  }
+
+  if (verificationStatuses.some((value) => ["unverified", "failed", "error", "none"].includes(value))) {
+    return true;
+  }
+
+  const mutationRequired = step?.policy?.mutating_operation_required === true
+    || String(step?.risk ?? "").toUpperCase().includes("WRITE");
+  if (mutationRequired && result?.repair?.changed === false && result?.repair?.verified !== true) {
+    return true;
+  }
+
+  if (mutationRequired && /NO_CHANGE_REQUIRED/i.test(String(result?.repair?.summary ?? result?.response?.content ?? "")) && result?.repair?.verified !== true) {
+    return true;
+  }
+
+  return false;
+}
+
 function verifyStep(step: any, result: any) {
   if (!(result?.status === "succeeded" || result?.ok === true)) return false;
+  if (result?.error) return false;
+  if (explicitlyUnverified(step, result)) return false;
   const verify = step?.verify && typeof step.verify === "object" ? step.verify : {};
   if (verify.expected_exit_code !== undefined && Number(result?.exit_code) !== Number(verify.expected_exit_code)) return false;
   if (typeof verify.stdout_contains === "string" && !String(result?.stdout ?? "").includes(verify.stdout_contains)) return false;
@@ -393,10 +423,15 @@ async function chainNextMeditationMission(depth: number) {
     if (!response.ok || !payload || payload.ok !== true) throw new Error(String(payload?.error || payload?.status || `chained_runtime_http_${response.status}`));
     return { status: "chained", mission_id: nextMissionId, child_status: payload.status || null, child_runtime: payload.runtime || null, child_chain: payload.chained || null, depth: depth + 1 };
   } catch (error) {
-    try {
-      await rpc("aria_mission_update_lease", { p_mission_id: nextMissionId, p_worker_id: V, p_mission: { status: "queued", lease_owner: null, lease_until: null, next_action: "recovery: immediate chain invocation failed" } });
-    } catch {}
-    return { status: "chain_invoke_failed", mission_id: nextMissionId, error: error instanceof Error ? error.message : String(error), depth };
+    // Do not requeue here: the child may already have been accepted/executing.
+    // Leaving the lease fenced lets stale-mission recovery decide safely without duplicating side effects.
+    return {
+      status: "chain_invoke_failed",
+      mission_id: nextMissionId,
+      error: error instanceof Error ? error.message : String(error),
+      depth,
+      recovery: "lease_preserved_for_stale_recovery",
+    };
   }
 }
 
@@ -411,6 +446,8 @@ Deno.serve(async (request) => {
   const auth = authContextOf(request);
   const token = auth.token;
 
+  let activeMissionId: string | null = null;
+
   try {
     await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
     const mission = requestedMissionId
@@ -419,6 +456,7 @@ Deno.serve(async (request) => {
     if (!mission) return out({ ok: true, status: "idle", runtime: V });
 
     const missionId = String(mission.mission_id);
+    activeMissionId = missionId;
     await renewLease(missionId);
 
     const recalled = await recall(String(mission.goal || ""), token);
@@ -600,11 +638,13 @@ Deno.serve(async (request) => {
     if (!finalVerified) throw new Error("final_verification_failed");
 
     const executorTypes = [...new Set(steps.map(executorType))];
-    const agentIds = steps.filter((step) => executorType(step) === "agent").map((step) => String(step.target?.agent_id || "")).filter(Boolean);
+    const agentSteps = steps.filter((step) => executorType(step) === "agent");
+    const modelSteps = steps.filter((step) => executorType(step) === "model");
+    const agentIds = agentSteps.map((step) => String(step.target?.agent_id || "")).filter(Boolean);
     const verifiedTerminalMarkers = {
       universal_execution_verified: true,
-      model_execution_verified: steps.some((step) => executorType(step) === "model"),
-      agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
+      model_execution_verified: modelSteps.every((step) => verifyStep(step, results[String(step.id)])),
+      agent_execution_verified: agentSteps.every((step) => verifyStep(step, results[String(step.id)])),
     };
     await emitEvent(missionId, "mission_verified", {
       steps: steps.length,
@@ -637,9 +677,10 @@ Deno.serve(async (request) => {
     return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    if (requestedMissionId) {
+    const failedMissionId = activeMissionId || requestedMissionId;
+    if (failedMissionId) {
       try {
-        await updateMission(requestedMissionId, {
+        await updateMission(failedMissionId, {
           status: "paused",
           next_action: "recovery: universal runner exception",
           last_stderr: reason,
@@ -650,6 +691,6 @@ Deno.serve(async (request) => {
         // Lease fencing intentionally rejects stale mutation.
       }
     }
-    return out({ ok: false, status: "paused", mission_id: requestedMissionId, runtime: V });
+    return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V });
   }
 });
