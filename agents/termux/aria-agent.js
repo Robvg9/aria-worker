@@ -19,6 +19,49 @@ function redact(text) {
   for (const pattern of patterns) value = value.replace(pattern, '[redacted]');
   return value;
 }
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, '\\'"\\\'\\\'"')}'`;
+}
+function parseAndroidNotificationPayload(command) {
+  let payload;
+  try { payload = JSON.parse(command); } catch (_) { throw new Error('android.notification payload must be valid JSON'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('android.notification payload must be an object');
+  const required = ['notification_id','title','message','severity','kind','mission_id','priority'];
+  for (const key of required) {
+    if (typeof payload[key] !== 'string' || payload[key].trim() === '') throw new Error(`android.notification ${key} required`);
+  }
+  if (!['info','success','warning','error'].includes(payload.severity)) throw new Error('android.notification severity unsupported');
+  if (!['default','high','max'].includes(payload.priority)) throw new Error('android.notification priority unsupported');
+  if (payload.title.length > 120) throw new Error('android.notification title too long');
+  if (payload.message.length > 2000) throw new Error('android.notification message too long');
+  return payload;
+}
+async function runAndroidNotification(payload) {
+  const binary = 'termux-notification';
+  const id = `aria-meditation-${payload.notification_id}`;
+  const command = [
+    `command -v ${binary} >/dev/null 2>&1`,
+    '&&',
+    binary,
+    '--id', shellQuote(id),
+    '--title', shellQuote(payload.title),
+    '--content', shellQuote(payload.message),
+    '--priority', shellQuote(payload.priority),
+    '--group', shellQuote('aria-meditation')
+  ].join(' ');
+  const result = await run(command, process.cwd(), 30_000);
+  result.metadata = {
+    ...(result.metadata || {}),
+    agent_version: 'aria-termux-agent-v2',
+    operation: 'android.notification',
+    notification_id: payload.notification_id,
+    mission_id: payload.mission_id,
+    severity: payload.severity,
+    kind: payload.kind,
+    action: payload.action || null
+  };
+  return result;
+}
 
 if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
   console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');
@@ -51,7 +94,7 @@ function run(command, cwd, timeoutMs) {
   });
 }
 async function heartbeat() {
-  try { await api('/v1/devices/heartbeat', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, agent_type: 'android-termux', capabilities: ['shell.execute'] }) }); log(`ONLINE device=${DEVICE_ID}`); }
+  try { await api('/v1/devices/heartbeat', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, agent_type: 'android-termux', capabilities: ['shell.execute', 'notifications.push'] }) }); log(`ONLINE device=${DEVICE_ID}`); }
   catch (error) { console.error(`[heartbeat] ${error.message}`); }
 }
 async function claimAndExecute() {
@@ -60,12 +103,18 @@ async function claimAndExecute() {
     if (!body?.job) return;
     const job = body.job;
     if (job.device_id !== DEVICE_ID) throw new Error('gateway returned job for another device');
-    if (job.operation !== 'shell.execute') throw new Error(`unsupported operation: ${job.operation}`);
+    if (!['shell.execute', 'android.notification'].includes(job.operation)) throw new Error(`unsupported operation: ${job.operation}`);
     log(`JOB RECEIVED id=${job.job_id} operation=${job.operation}`);
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
     log(`JOB START id=${job.job_id}`);
-    const result = await run(job.command, job.cwd, job.timeout_ms);
-    result.metadata = { agent_version: 'aria-termux-agent-v1', platform: `android-termux/${os.release()}`, request_nonce: crypto.randomUUID() };
+    const result = job.operation === 'android.notification'
+      ? await runAndroidNotification(parseAndroidNotificationPayload(job.command))
+      : await run(job.command, job.cwd, job.timeout_ms);
+    result.metadata = {
+      ...(result.metadata || {}),
+      platform: `android-termux/${os.release()}`,
+      request_nonce: crypto.randomUUID()
+    };
     const safeStdout = redact(result.stdout);
     const safeStderr = redact(result.stderr);
     log(`JOB RESULT id=${job.job_id} status=${result.status} exit_code=${result.exit_code} duration_ms=${result.duration_ms}`);
