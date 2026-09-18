@@ -38,14 +38,25 @@ const constantTimeEqual = (a: string, b: string) => {
   return d === 0;
 };
 
-const tokenOf = (request: Request) => {
-  const auth = request.headers.get("authorization") ?? "";
-  return auth.startsWith("Bearer ") ? auth.slice(7) : request.headers.get("x-aria-autonomy-token");
+type AuthContext = {
+  kind: "authorization" | "autonomy-token" | "none";
+  token: string | null;
 };
 
-const downstreamHeaders = (token: string | null) => {
+const authContextOf = (request: Request): AuthContext => {
+  const auth = request.headers.get("authorization") ?? "";
+  if (auth.startsWith("Bearer ")) return { kind: "authorization", token: auth.slice(7) };
+  const autonomy = request.headers.get("x-aria-autonomy-token");
+  if (autonomy) return { kind: "autonomy-token", token: autonomy };
+  return { kind: "none", token: null };
+};
+
+const tokenOf = (request: Request) => authContextOf(request).token;
+
+const downstreamHeaders = (auth: AuthContext) => {
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (token) headers["x-aria-autonomy-token"] = token;
+  if (auth.kind === "authorization" && auth.token) headers.authorization = `Bearer ${auth.token}`;
+  else if (auth.kind === "autonomy-token" && auth.token) headers["x-aria-autonomy-token"] = auth.token;
   else if (SECRET) headers.authorization = `Bearer ${SECRET}`;
   return headers;
 };
@@ -99,11 +110,11 @@ async function emitEvent(missionId: string, event_type: string, payload: unknown
   return event;
 }
 
-async function recall(goal: string, token: string | null) {
+async function recall(goal: string, auth: AuthContext) {
   try {
     const response = await fetch(MEMORY, {
       method: "POST",
-      headers: downstreamHeaders(token),
+      headers: downstreamHeaders(auth),
       body: JSON.stringify({ action: "search", query: goal, limit: 8 }),
     });
     const body = await response.json().catch(() => null);
@@ -116,8 +127,8 @@ async function recall(goal: string, token: string | null) {
   }
 }
 
-async function createPlan(goal: string, context: unknown, token: string | null) {
-  return createPlanWithTimeout(PLANNER, goal, context, downstreamHeaders(token));
+async function createPlan(goal: string, context: unknown, auth: AuthContext) {
+  return createPlanWithTimeout(PLANNER, goal, context, downstreamHeaders(auth));
 }
 
 function executorType(step: any) {
@@ -258,7 +269,7 @@ async function connectorExecute(missionId: string, step: any, token: string | nu
   throw new Error(`connector_operation_not_allowed:${connector}:${operation}`);
 }
 
-async function modelExecute(missionId: string, step: any, token: string | null) {
+async function modelExecute(missionId: string, step: any, auth: AuthContext) {
   const route = {
     status: "selected",
     provider_id: String(step.target.provider_id),
@@ -271,7 +282,7 @@ async function modelExecute(missionId: string, step: any, token: string | null) 
     : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
   const response = await fetch(EXEC, {
     method: "POST",
-    headers: downstreamHeaders(token),
+    headers: downstreamHeaders(auth),
     body: JSON.stringify({
       execution_version: "1",
       request_id: `${missionId}:${step.id}`,
@@ -289,11 +300,11 @@ async function modelExecute(missionId: string, step: any, token: string | null) 
   return { ...body, executor_type: "model", operation: step.operation, provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id };
 }
 
-async function agentExecute(missionId: string, step: any, token: string | null) {
+async function agentExecute(missionId: string, step: any, auth: AuthContext) {
   const agentId = String(step.target.agent_id);
   const response = await fetch(AGENT, {
     method: "POST",
-    headers: downstreamHeaders(token),
+    headers: downstreamHeaders(auth),
     body: JSON.stringify({ mission_id: missionId, step_id: String(step.id), agent_id: agentId, operation: String(step.operation || "delegate"), risk: step.risk || "READ", policy: step.policy || {}, input: step.input || {} }),
   });
   const body = await response.json().catch(() => null);
@@ -348,8 +359,8 @@ async function executeStep(missionId: string, step: any, token: string | null) {
   const type = executorType(step);
   if (type === "connector") return connectorExecute(missionId, step, token);
   if (type === "device") return deviceExecute(missionId, step);
-  if (type === "model") return modelExecute(missionId, step, token);
-  if (type === "agent") return agentExecute(missionId, step, token);
+  if (type === "model") return modelExecute(missionId, step, auth);
+  if (type === "agent") return agentExecute(missionId, step, auth);
   if (type === "eas") return easExecute(step);
   throw new Error(`unknown_executor_type:${type}`);
 }
@@ -392,7 +403,8 @@ Deno.serve(async (request) => {
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
   const chainDepth = Math.max(0, Math.min(8, Number(body?.chain_depth || 0)));
   const meditationChain = request.headers.get("x-aria-trigger") === "meditation-ia";
-  const token = tokenOf(request);
+  const auth = authContextOf(request);
+  const token = auth.token;
 
   try {
     await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
