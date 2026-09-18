@@ -44,3 +44,4 @@ const windowsLive=fs.readFileSync(path.join(root,'.github/workflows/aria-windows
 assert.match(windowsLive,/Ensure official ARIA agent task/);
 assert.match(windowsLive,/install-v2\.ps1/);
 assert.match(windowsLive,/ARIA_DEVICE_TOKEN/);
+assert.match(windowsLive,/schtasks\.exe \/Query \/TN \$task \/FO LIST \/V 2>\$null/);
