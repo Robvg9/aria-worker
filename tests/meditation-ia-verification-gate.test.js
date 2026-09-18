@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const migration=fs.readFileSync(path.join(root,'supabase/migrations/20260918032000_meditation_verification_human_gate_v1.sql'),'utf8');
+assert.match(migration,/meditation_human_gate_complete/);
+assert.match(migration,/human_gate_required:completion_pending/);
+assert.match(migration,/human_gate_completed/);
+assert.match(migration,/grant execute on function public\.meditation_human_gate_complete.*service_role/is);
+console.log('MEDITATION IA VERIFICATION GATE CONTRACT: PASS');
