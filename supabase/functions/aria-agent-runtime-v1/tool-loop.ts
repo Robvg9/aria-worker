@@ -72,7 +72,14 @@ export async function callModel(model: string, messages: any[], tools: any[], fo
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, temperature: 0, max_tokens: 3000, tools, tool_choice: toolChoice }),
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0,
+      max_completion_tokens: 1200,
+      service_tier: "flex",
+      ...(tools.length ? { tools, tool_choice: toolChoice } : {}),
+    }),
   });
   const body: any = await response.json().catch(() => null);
   if (!response.ok) throw new Error(`openrouter_http_${response.status}:${body?.error?.message ?? "provider_error"}`);
