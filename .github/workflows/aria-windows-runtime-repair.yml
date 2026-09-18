@@ -47,11 +47,48 @@ jobs:
           if(Get-Command pip.exe -ErrorAction SilentlyContinue){try{pip.exe cache purge | Out-Host}catch{}}
           $ollama=Join-Path $env:USERPROFILE '.ollama\models';$ollamaD=Join-Path $dRoot 'ollama-models'
           if(Test-Path $ollama -PathType Container){try{$it=Get-Item $ollama -Force;if(-not($it.Attributes -band [IO.FileAttributes]::ReparsePoint)){if(Test-Path $ollamaD){Remove-Item $ollamaD -Recurse -Force -ErrorAction SilentlyContinue};New-Item -ItemType Directory -Force -Path (Split-Path $ollamaD)|Out-Null;Get-Process -Name ollama -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue;Move-Item -LiteralPath $ollama -Destination $ollamaD -Force;New-Item -ItemType Junction -Path $ollama -Target $ollamaD|Out-Null;Write-Host "OLLAMA_MODELS_RELOCATED=True TARGET=$ollamaD"}else{Write-Host 'OLLAMA_MODELS_ALREADY_RELOCATED=True'}}catch{Write-Warning "OLLAMA_RELOCATE_FAILED=$($_.Exception.Message)"}}
-          if(Get-Command dism.exe -ErrorAction SilentlyContinue){try{dism.exe /Online /Cleanup-Image /StartComponentCleanup /Quiet|Out-Host}catch{}}
+          if(Get-Command dism.exe -ErrorAction SilentlyContinue){try{dism.exe /Online /Cleanup-Image /StartComponentCleanup /Quiet|Out-Host;if($LASTEXITCODE -ne 0){Write-Warning "DISM_OPTIONAL_CLEANUP_SKIPPED_EXIT=$LASTEXITCODE";$global:LASTEXITCODE=0}}catch{Write-Warning "DISM_OPTIONAL_CLEANUP_SKIPPED=$($_.Exception.Message)";$global:LASTEXITCODE=0}}
           $after=(Get-PSDrive C).Free
           Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))"
           Write-Host "C_FREED_GB=$([math]::Round(($after-$before)/1GB,2))"
           Write-Host 'ARIA_CLEANUP=PASS'
+
+      - name: Sync Meditation IA runtime surface and reload Agent when changed
+        run: |
+          $ErrorActionPreference='Stop'
+          $srcController=Join-Path $env:GITHUB_WORKSPACE 'agents\windows\aria-meditation-controller.js'
+          $srcUi=Join-Path $env:GITHUB_WORKSPACE 'agents\windows\aria-meditation-ui.ps1'
+          $dstController='D:\ARIA-Windows-Agent\Runtime\windows\aria-meditation-controller.js'
+          $dstUi='D:\ARIA-Windows-Agent\Runtime\windows\aria-meditation-ui.ps1'
+          if(-not(Test-Path $srcController)){throw 'Meditation controller source missing'}
+          if(-not(Test-Path $srcUi)){throw 'Meditation UI source missing'}
+          New-Item -ItemType Directory -Force -Path (Split-Path $dstController),(Split-Path $dstUi)|Out-Null
+          $controllerChanged=$true;$uiChanged=$true
+          if(Test-Path $dstController){$controllerChanged=((Get-FileHash $srcController -Algorithm SHA256).Hash -ne (Get-FileHash $dstController -Algorithm SHA256).Hash)}
+          if(Test-Path $dstUi){$uiChanged=((Get-FileHash $srcUi -Algorithm SHA256).Hash -ne (Get-FileHash $dstUi -Algorithm SHA256).Hash)}
+          Write-Host "MEDITATION_CONTROLLER_CHANGED=$controllerChanged"
+          Write-Host "MEDITATION_UI_CHANGED=$uiChanged"
+          if($controllerChanged){Copy-Item -LiteralPath $srcController -Destination $dstController -Force}
+          if($uiChanged){Copy-Item -LiteralPath $srcUi -Destination $dstUi -Force}
+          if(-not($controllerChanged -or $uiChanged)){Write-Host 'MEDITATION_RUNTIME_SYNC=UNCHANGED'; exit 0}
+          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$pid=0
+          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pid)}
+          if($pid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "MEDITATION_AGENT_RELOAD_PID=$pid";Stop-Process -Id $pid -Force}}
+          Start-Sleep -Seconds 2
+          $launcher='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
+          if(-not(Test-Path $launcher)){throw 'Agent launcher missing after runtime sync'}
+          Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$launcher -WindowStyle Hidden
+          $ok=$false
+          for($i=0;$i-lt30;$i++){
+            Start-Sleep -Seconds 1
+            try{
+              $h=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/health' -TimeoutSec 2
+              if($h.service -eq 'aria-meditation-control' -and [string]$h.version -eq 'aria-windows-meditation-controller-v2'){$ok=$true;break}
+            }catch{}
+          }
+          if(-not$ok){throw 'Meditation controller did not reload with v2 surface'}
+          Write-Host 'MEDITATION_RUNTIME_SYNC=PASS'
+          Write-Host 'MEDITATION_CONTROLLER_RELOAD=PASS'
 
       - name: Enforce singleton Agent and singleton watchdog without restart
         run: |
