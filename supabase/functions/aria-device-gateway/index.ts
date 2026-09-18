@@ -510,7 +510,7 @@ async function buildAllForOneSnapshot(){
     supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,last_stderr,updated_at').in('status',['queued','planning','running','waiting','paused']).order('updated_at',{ascending:false}).limit(100),
     supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,last_stderr,checkpoint,updated_at').in('status',['failed','blocked','timeout']).gt('updated_at',new Date(Date.now()-72*3600000).toISOString()).order('updated_at',{ascending:false}).limit(100),
     supabase.schema('aria_internal').from('autonomy_cycles').select('cycle_id,status,selected_goal_id,created_mission_id,mission_status,learning_result,created_at').order('created_at',{ascending:false}).limit(20),
-    supabase.rpc('get_all_for_one_security_snapshot'),
+    supabase.schema('aria_internal').rpc('get_all_for_one_security_snapshot'),
     githubAuditRead('tree_read',{owner:'Robvg9',repo:'aria-worker',branch:'main'}),
     Promise.all([
       githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'supabase/functions/aria-device-gateway/index.ts'}),
