@@ -147,6 +147,7 @@ function startControlServer(controller) {
       if (req.method === 'POST' && url.pathname === '/queue/remove') return respond(200, await requestGateway('/v1/meditation/queue/remove',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/queue/reorder') return respond(200, await requestGateway('/v1/meditation/queue/reorder',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/queue/run-next') return respond(200, await requestGateway('/v1/meditation/queue/run-next',{method:'POST',body:{}}));
+      if (req.method === 'POST' && url.pathname === '/human-gate/complete') return respond(200, await requestGateway('/v1/meditation/human-gate/complete',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/start') return respond(200, await controller.start());
       if (req.method === 'POST' && url.pathname === '/pause') return respond(200, await controller.pause());
       if (req.method === 'POST' && url.pathname === '/resume') return respond(200, await controller.resume());

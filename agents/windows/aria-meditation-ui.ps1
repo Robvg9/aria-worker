@@ -1,4 +1,4 @@
-# Control routes: /status /log /start /pause /resume /stop | Center routes: /catalog /queue /queue/add /queue/remove /queue/reorder /queue/run-next
+# Control routes: /status /log /start /pause /resume /stop | Center routes: /catalog /queue /queue/add /queue/remove /queue/reorder /queue/run-next /human-gate/complete
 param(
   [int]$Port = 45873
 )
@@ -123,6 +123,14 @@ $activeGate.Size = New-Object System.Drawing.Size(1100, 34)
 $activeGate.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
 $activeGate.Location = New-Object System.Drawing.Point(18, 95)
 $centerTab.Controls.Add($activeGate)
+
+$activeGateConfirm = New-Object System.Windows.Forms.Button
+$activeGateConfirm.Text = 'CONFIRMAR HUMAN GATE'
+$activeGateConfirm.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$activeGateConfirm.Size = New-Object System.Drawing.Size(270, 40)
+$activeGateConfirm.Location = New-Object System.Drawing.Point(820, 92)
+$activeGateConfirm.Visible = $false
+$centerTab.Controls.Add($activeGateConfirm)
 
 $activeDetail = New-Object System.Windows.Forms.RichTextBox
 $activeDetail.ReadOnly = $true
@@ -414,6 +422,7 @@ function Refresh-Center {
     $activeTitle.Text = 'MISION ACTIVA: ' + $missionId
     $activeProgress.Text = 'PROGRESO: sin datos'
     $activeGate.Text = 'HUMAN GATE: NO EXISTE MISION HUMANA'
+    $activeGateConfirm.Visible = $false
     $activeDetail.Text = ''
     $stepsGrid.Rows.Clear()
     return
@@ -421,7 +430,9 @@ function Refresh-Center {
 
   $activeTitle.Text = 'MISION ACTIVA: ' + [string]$item.title
   $activeProgress.Text = 'PROGRESO: ' + [string]$item.progress_percent + '% | PASOS: ' + [string]$item.progress_steps.completed + '/' + [string]$item.progress_steps.total
-  $activeGate.Text = 'HUMAN GATE: ' + [string]$item.human_gate.label
+  $activeGate.Text = 'HUMAN GATE: ' + [string]$item.human_gate.label + $(if([string]$item.human_gate.method){' | METODO: ' + [string]$item.human_gate.method}else{''})
+  $activeGateConfirm.Visible = ([bool]$item.human_gate.required -and [string]$item.human_gate.status -eq 'pending')
+  $activeGateConfirm.Tag = $missionId
 
   $nl = [Environment]::NewLine
   $activeDetail.Text =
@@ -439,6 +450,33 @@ function Refresh-Center {
       [string]$step.executor_type
     )
   }
+}
+
+function Confirm-HumanGate {
+  $missionId = [string]$activeGateConfirm.Tag
+  if ([string]::IsNullOrWhiteSpace($missionId)) {
+    Set-CenterMessage -Text 'No hay Human Gate pendiente.' -IsError $true
+    return
+  }
+  $answer = [System.Windows.Forms.MessageBox]::Show(
+    'Confirma que has realizado la verificación humana indicada por ARIA para esta misión.',
+    'Human Gate',
+    [System.Windows.Forms.MessageBoxButtons]::YesNo,
+    [System.Windows.Forms.MessageBoxIcon]::Warning
+  )
+  if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+  $result = Invoke-CenterApi -Method 'POST' -Path '/human-gate/complete' -Body @{
+    mission_id = $missionId
+    confirm = $true
+    note = 'Confirmación manual desde Centro de Meditación IA'
+  }
+  if ($null -eq $result -or $result.ok -ne $true) {
+    Set-CenterMessage -Text ('ERROR HUMAN GATE: ' + [string]$result.error) -IsError $true
+    return
+  }
+  Set-CenterMessage -Text 'HUMAN GATE: verificación registrada. La misión puede continuar.'
+  $activeGateConfirm.Visible = $false
+  Refresh-Center
 }
 
 function Add-SelectedToQueue {
@@ -564,6 +602,7 @@ $stop.Add_Click({
 $catalogSearch.Add_TextChanged({ Refresh-Catalog })
 $catalogGrid.Add_SelectionChanged({ Show-CatalogDetail })
 $addQueue.Add_Click({ Add-SelectedToQueue })
+$activeGateConfirm.Add_Click({ Confirm-HumanGate })
 $refreshCatalog.Add_Click({ Refresh-Catalog })
 $queueUp.Add_Click({ Reorder-SelectedQueueItem -Delta -1 })
 $queueDown.Add_Click({ Reorder-SelectedQueueItem -Delta 1 })
