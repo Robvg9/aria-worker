@@ -63,3 +63,16 @@ test('Meditation IA center exposes catalog, queue and Human Gate UI', () => {
     assert.ok(ui.includes(marker), 'UI marker missing: ' + marker);
   }
 });
+
+test('Meditation IA verification surface exposes a real Human Gate confirmation path', () => {
+  const ui = read('agents/windows/aria-meditation-ui.ps1');
+  const controller = read('agents/windows/aria-meditation-controller.js');
+  const gateway = read('supabase/functions/aria-device-gateway/index.ts');
+  const runner = read('supabase/functions/aria-mission-runner-v22/index.ts');
+  assert.ok(ui.includes('CONFIRMAR HUMAN GATE'));
+  assert.ok(controller.includes('/human-gate/complete'));
+  assert.ok(gateway.includes('/v1/meditation/human-gate/complete'));
+  assert.ok(gateway.includes('NO EXISTE MISION HUMANA'));
+  assert.ok(runner.includes('status: "human_gate_required"'));
+  assert.ok(runner.includes('realHumanGate'));
+});
