@@ -17,6 +17,12 @@ async function authorized(r:Request){
   return c?Boolean(await rpc("aria_autonomy_cron_authorize",{p_token:c})):false;
 }
 async function kick(){
+  const start=await fetch(`${GATEWAY}/v1/audit/all-for-one/start`,{
+    method:"POST",
+    headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json","x-aria-trigger":"all-for-one-supervisor-v1"},
+    body:"{}"
+  });
+  const startPayload=await start.json().catch(()=>({}));
   const [response,auditResponse]=await Promise.all([
     fetch(`${GATEWAY}/v1/autonomy/cycle`,{
       method:"POST",
@@ -31,7 +37,7 @@ async function kick(){
   ]);
   const payload=await response.json().catch(()=>({}));
   const audit=await auditResponse.json().catch(()=>({ok:false,status:"audit_response_invalid"}));
-  return {http_status:response.status,...payload,audit_http_status:auditResponse.status,audit};
+  return {http_status:response.status,...payload,audit_start_http_status:start.status,audit_start:startPayload,audit_http_status:auditResponse.status,audit};
 }
 Deno.serve(async r=>{
   if(r.method!=="POST")return out({error:"method_not_allowed"},405);
