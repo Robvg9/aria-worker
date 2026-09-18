@@ -5,6 +5,8 @@ const source=fs.readFileSync('supabase/functions/aria-device-gateway/index.ts','
 for(const marker of [
   "/v1/router/decide",
   "/v1/router/execute",
+  "/v1/router/parallel-execute",
+  "Promise.all",
   "router_live_snapshot",
   "record_router_decision",
   "parallel_plan",
