@@ -31,7 +31,7 @@ async function kick(r:Request){
     }),
     fetch(`${GATEWAY}/v1/audit/all-for-one/tick`,{
       method:"POST",
-      headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json","x-aria-trigger":"all-for-one-supervisor-v1"},
+      headers:{...(r.headers.get("x-aria-autonomy-token")?{"x-aria-autonomy-token":r.headers.get("x-aria-autonomy-token")}:{authorization:`Bearer ${SECRET}`}),"content-type":"application/json","x-aria-trigger":"all-for-one-supervisor-v1"},
       body:"{}"
     })
   ]);
