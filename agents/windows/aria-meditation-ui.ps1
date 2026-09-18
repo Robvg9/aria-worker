@@ -1,216 +1,567 @@
-param([int]$Port = 45873)
-$ErrorActionPreference = 'Continue'
+param(
+  [int]$Port = 45873
+)
+
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$base = "http://127.0.0.1:$Port"
-$heartbeatSeconds = 30
-function Get-Status { try { Invoke-RestMethod -Method Get -Uri "$base/status" -TimeoutSec 3 -ErrorAction Stop } catch { $null } }
-function Get-ActivityLog { try { Invoke-RestMethod -Method Get -Uri "$base/log" -TimeoutSec 3 -ErrorAction Stop } catch { $null } }
-function Set-CommandResult([string]$text, [bool]$error = $false) {
-    $commandResult.Text = $text
-    if($error){$commandResult.ForeColor=[System.Drawing.Color]::Firebrick}else{$commandResult.ForeColor=[System.Drawing.Color]::DarkGreen}
-}
-function Invoke-Aria([string]$path) {
-    try {
-        $button = $null
-        foreach($control in $form.Controls){ if($control -is [System.Windows.Forms.Button] -and [string]$control.Tag -eq $path){$button=$control;break} }
-        if($null -ne $button){$button.Enabled=$false}
-        Set-CommandResult("Enviando $path ...", $false)
-        $result = Invoke-RestMethod -Method Post -Uri "$base$path" -TimeoutSec 15 -ErrorAction Stop
-        $state = $result.state
-        if($null -ne $state){
-            $modeValue=[string]$state.mode
-            if([string]::IsNullOrWhiteSpace($modeValue)){$modeValue='UNKNOWN'}
-            Set-CommandResult("OK: $path -> $([string]$result.status) | Modo: $modeValue | Sesion: $([string]$state.session_id)", $false)
-        } else {
-            Set-CommandResult("OK: $path -> $([string]$result.status)", $false)
-        }
-        Refresh-Ui
-        return $result
-    } catch {
-        Set-CommandResult("ERROR: $path -> $($_.Exception.Message)", $true)
-        try { Refresh-Ui } catch {}
-        return $null
-    } finally {
-        if($null -ne $button){$button.Enabled=$true}
+
+$BaseUrl = "http://127.0.0.1:$Port"
+
+function Invoke-CenterApi {
+  param(
+    [Parameter(Mandatory = $true)][string]$Method,
+    [Parameter(Mandatory = $true)][string]$Path,
+    [object]$Body = $null
+  )
+
+  try {
+    $uri = "$BaseUrl$Path"
+    if ($null -eq $Body) {
+      return Invoke-RestMethod -Method $Method -Uri $uri -TimeoutSec 15 -ErrorAction Stop
     }
+
+    $json = $Body | ConvertTo-Json -Depth 12 -Compress
+    return Invoke-RestMethod -Method $Method -Uri $uri -ContentType 'application/json' -Body $json -TimeoutSec 15 -ErrorAction Stop
+  }
+  catch {
+    return $null
+  }
 }
+
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'ARIA - Meditacion IA'; $form.StartPosition = 'CenterScreen'; $form.Size = New-Object System.Drawing.Size(900,720); $form.MinimumSize = New-Object System.Drawing.Size(900,720); $form.MaximizeBox=$false; $form.Font=New-Object System.Drawing.Font('Segoe UI',10)
-$title=New-Object System.Windows.Forms.Label; $title.Text='ARIA - MEDITACION IA'; $title.Font=New-Object System.Drawing.Font('Segoe UI',20,[System.Drawing.FontStyle]::Bold); $title.AutoSize=$true; $title.Location=New-Object System.Drawing.Point(28,18); $form.Controls.Add($title)
-$status=New-Object System.Windows.Forms.Label; $status.AutoSize=$false; $status.Size=New-Object System.Drawing.Size(820,32); $status.Font=New-Object System.Drawing.Font('Segoe UI',12,[System.Drawing.FontStyle]::Bold); $status.Location=New-Object System.Drawing.Point(30,82); $form.Controls.Add($status)
-$mode=New-Object System.Windows.Forms.Label; $mode.AutoSize=$false; $mode.Size=New-Object System.Drawing.Size(400,55); $mode.Location=New-Object System.Drawing.Point(30,120); $form.Controls.Add($mode)
-$mission=New-Object System.Windows.Forms.Label; $mission.AutoSize=$false; $mission.Size=New-Object System.Drawing.Size(400,55); $mission.Location=New-Object System.Drawing.Point(445,120); $form.Controls.Add($mission)
-$progress=New-Object System.Windows.Forms.Label; $progress.AutoSize=$false; $progress.Size=New-Object System.Drawing.Size(820,48); $progress.Font=New-Object System.Drawing.Font('Segoe UI',10,[System.Drawing.FontStyle]::Bold); $progress.Location=New-Object System.Drawing.Point(30,180); $form.Controls.Add($progress)
-$telemetry=New-Object System.Windows.Forms.Label; $telemetry.AutoSize=$false; $telemetry.Size=New-Object System.Drawing.Size(820,72); $telemetry.Location=New-Object System.Drawing.Point(30,228); $form.Controls.Add($telemetry)
-$next=New-Object System.Windows.Forms.Label; $next.AutoSize=$false; $next.Size=New-Object System.Drawing.Size(820,36); $next.Location=New-Object System.Drawing.Point(30,302); $form.Controls.Add($next)
-$commandResult=New-Object System.Windows.Forms.Label; $commandResult.AutoSize=$false; $commandResult.Size=New-Object System.Drawing.Size(820,32); $commandResult.Font=New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Bold); $commandResult.Location=New-Object System.Drawing.Point(30,332); $form.Controls.Add($commandResult)
-$log=New-Object System.Windows.Forms.TextBox; $log.Multiline=$true; $log.ReadOnly=$true; $log.ScrollBars='Vertical'; $log.Font=New-Object System.Drawing.Font('Consolas',9); $log.Location=New-Object System.Drawing.Point(30,368); $log.Size=New-Object System.Drawing.Size(820,205); $form.Controls.Add($log)
-$buttons=@(@{t='ACTIVAR';x=30;p='/start'},@{t='PAUSAR';x=225;p='/pause'},@{t='CONTINUAR';x=420;p='/resume'},@{t='DETENER';x=615;p='/stop'})
-foreach($item in $buttons){$button=New-Object System.Windows.Forms.Button;$button.Text=$item.t;$button.Font=New-Object System.Drawing.Font('Segoe UI',10,[System.Drawing.FontStyle]::Bold);$button.Size=New-Object System.Drawing.Size(175,48);$button.Location=New-Object System.Drawing.Point($item.x,620);$button.Tag=$item.p;$button.Add_Click({try{[void](Invoke-Aria ([string]$this.Tag))}catch{Set-CommandResult("ERROR: $($_.Exception.Message)",$true)}});$form.Controls.Add($button)}
-function Apply-Status($s) {
-    if($null -eq $s){$status.Text='[OFFLINE] ARIA Local Agent no responde';$mode.Text='Modo: -';$mission.Text='Mision: -';$progress.Text='Progreso: -';$telemetry.Text='Telemetria: sin datos';$next.Text='Proxima accion: -';return}
-    $modeValue = [string]$s.mode
-    if([string]::IsNullOrWhiteSpace($modeValue)){$modeValue='UNKNOWN'}
-    $status.Text="[ONLINE] Modo: $($modeValue.ToUpperInvariant())"
-    $mode.Text="Modo: $modeValue`r`nSesion: $([string]$s.session_id)"
-    $mission.Text="Objetivo: $([string]$s.active_goal)`r`nMision: $([string]$s.active_mission_id)"
-    $r=$s.last_result
-    $runtimeStatus='-';$candidateCount='-';$generatedCount='-';$learningScanned='-';$learningCreated='-';$completed=$null;$total=$null
-    if($null -ne $r){$runtime=$r.runtime;if($null -ne $runtime -and -not [string]::IsNullOrWhiteSpace([string]$runtime.status)){$runtimeStatus=[string]$runtime.status}else{$runtimeStatus=[string]$r.status};if($null -ne $r.candidate_count){$candidateCount=[string]$r.candidate_count};if($null -ne $r.generated_count){$generatedCount=[string]$r.generated_count};if($null -ne $r.learning){if($null -ne $r.learning.scanned){$learningScanned=[string]$r.learning.scanned};if($null -ne $r.learning.created){$learningCreated=[string]$r.learning.created}};if($null -ne $runtime){if($null -ne $runtime.completed_steps){$completed=[int]$runtime.completed_steps};if($null -ne $runtime.total_steps){$total=[int]$runtime.total_steps}}}
-    if($null -ne $completed -and $null -ne $total){$progress.Text="PROGRESO: $completed / $total pasos | RUNTIME: $runtimeStatus"}else{$progress.Text="PROGRESO: sin pasos | RUNTIME: $runtimeStatus"}
-    $lastStatus='-';if($null -ne $r -and $null -ne $r.status){$lastStatus=[string]$r.status}
-    $telemetry.Text="Fabrica: $candidateCount candidatos | $generatedCount objetivos nuevos`r`nAprendizaje: $learningScanned escaneados | $learningCreated creados`r`nTicks: $($s.tick_count) | Ultimo: $lastStatus"
-    $nextAction='sin accion reportada';if($null -ne $runtime -and $runtime.next_action){$nextAction=[string]$runtime.next_action}elseif($null -ne $r -and $r.next_action){$nextAction=[string]$r.next_action};$next.Text="Proxima accion: $nextAction"
-}
-function Refresh-Ui {
-    try {
-        $s=Get-Status
-        Apply-Status $s
-        $a=Get-ActivityLog
-        if($null -ne $a -and $a.content){$lines=([string]$a.content)-split "`r?`n"|Where-Object{$_}|Select-Object -Last 22;$log.Text=$lines -join [Environment]::NewLine}
-    } catch { Set-CommandResult("UI ERROR: $($_.Exception.Message)",$true) }
+$form.Text = 'ARIA - MEDITACION IA'
+$form.StartPosition = 'CenterScreen'
+$form.Size = New-Object System.Drawing.Size(1220, 820)
+$form.MinimumSize = New-Object System.Drawing.Size(1100, 760)
+$form.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+
+$title = New-Object System.Windows.Forms.Label
+$title.Text = 'ARIA - MEDITACION IA'
+$title.Font = New-Object System.Drawing.Font('Segoe UI', 20, [System.Drawing.FontStyle]::Bold)
+$title.AutoSize = $true
+$title.Location = New-Object System.Drawing.Point(20, 15)
+$form.Controls.Add($title)
+
+$online = New-Object System.Windows.Forms.Label
+$online.Text = '[OFFLINE]'
+$online.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+$online.AutoSize = $true
+$online.Location = New-Object System.Drawing.Point(20, 55)
+$form.Controls.Add($online)
+
+$sessionInfo = New-Object System.Windows.Forms.Label
+$sessionInfo.AutoSize = $true
+$sessionInfo.Location = New-Object System.Drawing.Point(190, 60)
+$form.Controls.Add($sessionInfo)
+
+$activate = New-Object System.Windows.Forms.Button
+$activate.Text = 'ACTIVAR'
+$activate.Size = New-Object System.Drawing.Size(90, 34)
+$activate.Location = New-Object System.Drawing.Point(790, 18)
+$form.Controls.Add($activate)
+
+$pause = New-Object System.Windows.Forms.Button
+$pause.Text = 'PAUSAR'
+$pause.Size = New-Object System.Drawing.Size(90, 34)
+$pause.Location = New-Object System.Drawing.Point(890, 18)
+$form.Controls.Add($pause)
+
+$continue = New-Object System.Windows.Forms.Button
+$continue.Text = 'CONTINUAR'
+$continue.Size = New-Object System.Drawing.Size(90, 34)
+$continue.Location = New-Object System.Drawing.Point(990, 18)
+$form.Controls.Add($continue)
+
+$stop = New-Object System.Windows.Forms.Button
+$stop.Text = 'DETENER'
+$stop.Size = New-Object System.Drawing.Size(90, 34)
+$stop.Location = New-Object System.Drawing.Point(1090, 18)
+$form.Controls.Add($stop)
+
+$message = New-Object System.Windows.Forms.Label
+$message.AutoSize = $false
+$message.Size = New-Object System.Drawing.Size(1150, 28)
+$message.Location = New-Object System.Drawing.Point(20, 88)
+$message.Font = New-Object System.Drawing.Font('Consolas', 9, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($message)
+
+$tabs = New-Object System.Windows.Forms.TabControl
+$tabs.Location = New-Object System.Drawing.Point(20, 120)
+$tabs.Size = New-Object System.Drawing.Size(1165, 650)
+$form.Controls.Add($tabs)
+
+$centerTab = New-Object System.Windows.Forms.TabPage
+$centerTab.Text = 'CENTRO'
+[void]$tabs.TabPages.Add($centerTab)
+
+$catalogTab = New-Object System.Windows.Forms.TabPage
+$catalogTab.Text = 'CATALOGO'
+[void]$tabs.TabPages.Add($catalogTab)
+
+$queueTab = New-Object System.Windows.Forms.TabPage
+$queueTab.Text = 'COLA MANUAL'
+[void]$tabs.TabPages.Add($queueTab)
+
+$activeTitle = New-Object System.Windows.Forms.Label
+$activeTitle.AutoSize = $false
+$activeTitle.Size = New-Object System.Drawing.Size(1100, 44)
+$activeTitle.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+$activeTitle.Location = New-Object System.Drawing.Point(18, 15)
+$centerTab.Controls.Add($activeTitle)
+
+$activeProgress = New-Object System.Windows.Forms.Label
+$activeProgress.AutoSize = $true
+$activeProgress.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+$activeProgress.Location = New-Object System.Drawing.Point(18, 62)
+$centerTab.Controls.Add($activeProgress)
+
+$activeGate = New-Object System.Windows.Forms.Label
+$activeGate.AutoSize = $false
+$activeGate.Size = New-Object System.Drawing.Size(1100, 34)
+$activeGate.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+$activeGate.Location = New-Object System.Drawing.Point(18, 95)
+$centerTab.Controls.Add($activeGate)
+
+$activeDetail = New-Object System.Windows.Forms.RichTextBox
+$activeDetail.ReadOnly = $true
+$activeDetail.Location = New-Object System.Drawing.Point(18, 135)
+$activeDetail.Size = New-Object System.Drawing.Size(720, 180)
+$centerTab.Controls.Add($activeDetail)
+
+$stepsGrid = New-Object System.Windows.Forms.DataGridView
+$stepsGrid.Location = New-Object System.Drawing.Point(18, 330)
+$stepsGrid.Size = New-Object System.Drawing.Size(1100, 230)
+$stepsGrid.ReadOnly = $true
+$stepsGrid.AllowUserToAddRows = $false
+$stepsGrid.RowHeadersVisible = $false
+$stepsGrid.SelectionMode = 'FullRowSelect'
+$stepsGrid.AutoSizeColumnsMode = 'Fill'
+[void]$stepsGrid.Columns.Add('number', 'Paso')
+[void]$stepsGrid.Columns.Add('description', 'Descripcion')
+[void]$stepsGrid.Columns.Add('status', 'Estado')
+[void]$stepsGrid.Columns.Add('risk', 'Riesgo')
+[void]$stepsGrid.Columns.Add('executor', 'Executor')
+$centerTab.Controls.Add($stepsGrid)
+
+$catalogSearch = New-Object System.Windows.Forms.TextBox
+$catalogSearch.Location = New-Object System.Drawing.Point(15, 15)
+$catalogSearch.Size = New-Object System.Drawing.Size(400, 28)
+$catalogTab.Controls.Add($catalogSearch)
+
+$catalogCount = New-Object System.Windows.Forms.Label
+$catalogCount.AutoSize = $true
+$catalogCount.Location = New-Object System.Drawing.Point(430, 20)
+$catalogTab.Controls.Add($catalogCount)
+
+$catalogGrid = New-Object System.Windows.Forms.DataGridView
+$catalogGrid.Location = New-Object System.Drawing.Point(15, 55)
+$catalogGrid.Size = New-Object System.Drawing.Size(1115, 300)
+$catalogGrid.ReadOnly = $true
+$catalogGrid.AllowUserToAddRows = $false
+$catalogGrid.SelectionMode = 'FullRowSelect'
+$catalogGrid.MultiSelect = $false
+$catalogGrid.RowHeadersVisible = $false
+$catalogGrid.AutoSizeColumnsMode = 'Fill'
+[void]$catalogGrid.Columns.Add('title', 'Mision')
+[void]$catalogGrid.Columns.Add('status', 'Estado')
+[void]$catalogGrid.Columns.Add('progress', 'Progreso')
+[void]$catalogGrid.Columns.Add('gate', 'Human Gate')
+[void]$catalogGrid.Columns.Add('priority', 'Prioridad')
+[void]$catalogGrid.Columns.Add('source', 'Origen')
+$catalogTab.Controls.Add($catalogGrid)
+
+$catalogDetail = New-Object System.Windows.Forms.RichTextBox
+$catalogDetail.ReadOnly = $true
+$catalogDetail.Location = New-Object System.Drawing.Point(15, 370)
+$catalogDetail.Size = New-Object System.Drawing.Size(800, 220)
+$catalogTab.Controls.Add($catalogDetail)
+
+$addQueue = New-Object System.Windows.Forms.Button
+$addQueue.Text = 'AGREGAR A COLA'
+$addQueue.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$addQueue.Size = New-Object System.Drawing.Size(240, 52)
+$addQueue.Location = New-Object System.Drawing.Point(850, 390)
+$catalogTab.Controls.Add($addQueue)
+
+$refreshCatalog = New-Object System.Windows.Forms.Button
+$refreshCatalog.Text = 'ACTUALIZAR'
+$refreshCatalog.Size = New-Object System.Drawing.Size(240, 42)
+$refreshCatalog.Location = New-Object System.Drawing.Point(850, 455)
+$catalogTab.Controls.Add($refreshCatalog)
+
+$queueCount = New-Object System.Windows.Forms.Label
+$queueCount.AutoSize = $true
+$queueCount.Location = New-Object System.Drawing.Point(15, 15)
+$queueTab.Controls.Add($queueCount)
+
+$queueGrid = New-Object System.Windows.Forms.DataGridView
+$queueGrid.Location = New-Object System.Drawing.Point(15, 48)
+$queueGrid.Size = New-Object System.Drawing.Size(1115, 380)
+$queueGrid.ReadOnly = $true
+$queueGrid.AllowUserToAddRows = $false
+$queueGrid.SelectionMode = 'FullRowSelect'
+$queueGrid.MultiSelect = $false
+$queueGrid.RowHeadersVisible = $false
+$queueGrid.AutoSizeColumnsMode = 'Fill'
+[void]$queueGrid.Columns.Add('position', 'Posicion')
+[void]$queueGrid.Columns.Add('type', 'Tipo')
+[void]$queueGrid.Columns.Add('reference', 'Referencia')
+[void]$queueGrid.Columns.Add('status', 'Estado')
+[void]$queueGrid.Columns.Add('mission', 'Mision resuelta')
+$queueTab.Controls.Add($queueGrid)
+
+$queueUp = New-Object System.Windows.Forms.Button
+$queueUp.Text = 'SUBIR'
+$queueUp.Size = New-Object System.Drawing.Size(120, 44)
+$queueUp.Location = New-Object System.Drawing.Point(15, 450)
+$queueTab.Controls.Add($queueUp)
+
+$queueDown = New-Object System.Windows.Forms.Button
+$queueDown.Text = 'BAJAR'
+$queueDown.Size = New-Object System.Drawing.Size(120, 44)
+$queueDown.Location = New-Object System.Drawing.Point(150, 450)
+$queueTab.Controls.Add($queueDown)
+
+$queueRemove = New-Object System.Windows.Forms.Button
+$queueRemove.Text = 'QUITAR'
+$queueRemove.Size = New-Object System.Drawing.Size(120, 44)
+$queueRemove.Location = New-Object System.Drawing.Point(285, 450)
+$queueTab.Controls.Add($queueRemove)
+
+$queueRun = New-Object System.Windows.Forms.Button
+$queueRun.Text = 'EJECUTAR SIGUIENTE'
+$queueRun.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$queueRun.Size = New-Object System.Drawing.Size(220, 44)
+$queueRun.Location = New-Object System.Drawing.Point(430, 450)
+$queueTab.Controls.Add($queueRun)
+
+$queueRefresh = New-Object System.Windows.Forms.Button
+$queueRefresh.Text = 'ACTUALIZAR COLA'
+$queueRefresh.Size = New-Object System.Drawing.Size(180, 44)
+$queueRefresh.Location = New-Object System.Drawing.Point(665, 450)
+$queueTab.Controls.Add($queueRefresh)
+
+function Set-CenterMessage {
+  param([string]$Text, [bool]$IsError = $false)
+  $message.Text = $Text
+  if ($IsError) {
+    $message.ForeColor = [System.Drawing.Color]::Firebrick
+  } else {
+    $message.ForeColor = [System.Drawing.Color]::DarkGreen
+  }
 }
 
-# === MEDITATION CENTER v1 UI LAYER ===
-$form.Size=New-Object System.Drawing.Size(1220,820)
-$form.MinimumSize=New-Object System.Drawing.Size(1100,760)
-foreach($control in @($status,$mode,$mission,$progress,$telemetry,$next,$commandResult,$log)){
-    if($null -ne $control){$control.Visible=$false}
+function Get-Catalog {
+  return Invoke-CenterApi -Method 'GET' -Path '/catalog'
 }
-foreach($control in @($form.Controls)){if($control -is [System.Windows.Forms.Button]){$control.Visible=$false}}
 
-function Center-Api([string]$method,[string]$path,$body=$null){
-    try{
-        if($null -eq $body){return Invoke-RestMethod -Method $method -Uri "$base$path" -TimeoutSec 15 -ErrorAction Stop}
-        return Invoke-RestMethod -Method $method -Uri "$base$path" -ContentType 'application/json' -Body ($body|ConvertTo-Json -Depth 8 -Compress) -TimeoutSec 15 -ErrorAction Stop
-    }catch{return $null}
+function Get-Queue {
+  return Invoke-CenterApi -Method 'GET' -Path '/queue'
 }
-function Center-RefreshCatalog{
-    $cat=Center-Api 'GET' '/catalog'
-    $catalogGrid.Rows.Clear()
-    if($null -eq $cat -or $null -eq $cat.items){$catalogCount.Text='Misiones visibles: sin conexión';return}
-    $needle=$catalogSearch.Text.Trim().ToLowerInvariant()
-    foreach($item in $cat.items){
-        $hay=("$($item.title) $($item.summary) $($item.status) $($item.source_type)").ToLowerInvariant()
-        if($needle -and -not $hay.Contains($needle)){continue}
-        $i=$catalogGrid.Rows.Add([string]$item.title,[string]$item.status,[string]$item.progress_percent+"%",[string]$item.human_gate.label,[string]$item.priority,[string]$item.source_type)
-        $catalogGrid.Rows[$i].Tag=$item.id
+
+function Get-Status {
+  return Invoke-CenterApi -Method 'GET' -Path '/status'
+}
+
+function Get-SelectedCatalogItem {
+  param([object]$Catalog)
+
+  if ($catalogGrid.SelectedRows.Count -lt 1) {
+    return $null
+  }
+  if ($null -eq $Catalog) {
+    return $null
+  }
+
+  $id = [string]$catalogGrid.SelectedRows[0].Tag
+  foreach ($item in @($Catalog.items)) {
+    if ([string]$item.id -eq $id) {
+      return $item
     }
-    $catalogCount.Text="Misiones visibles: $($catalogGrid.Rows.Count)"
+  }
+  return $null
 }
-function Center-SelectedCatalog{
-    $cat=Center-Api 'GET' '/catalog'
-    if($catalogGrid.SelectedRows.Count -lt 1 -or $null -eq $cat){return $null}
-    $id=[string]$catalogGrid.SelectedRows[0].Tag
-    return $cat.items|Where-Object{[string]$_.id -eq $id}|Select-Object -First 1
-}
-function Center-ShowCatalogDetail{
-    $item=Center-SelectedCatalog
-    if($null -eq $item){return}
-    $nl=[Environment]::NewLine
-    $catalogDetail.Text='TÍTULO:'+$nl+[string]$item.title+$nl+$nl+
-        'RESULTADO:'+$nl+[string]$item.result+$nl+$nl+
-        'SOLUCIÓN:'+$nl+[string]$item.solution+$nl+$nl+
-        'MEJORA ARIA:'+$nl+[string]$item.improvement+$nl+$nl+
-        'ESTADO: '+[string]$item.status+' | PROGRESO: '+[string]$item.progress_percent+'%'+$nl+
-        'HUMAN GATE: '+[string]$item.human_gate.label+$nl+
-        'RIESGO: '+[string]$item.risk+' | ORIGEN: '+[string]$item.source_type+$nl+$nl+
-        'DESCRIPCIÓN TÉCNICA:'+$nl+[string]$item.technical_description+$nl+$nl+
-        'DEPENDENCIAS:'+$nl+[string]($item.dependencies -join ', ')
-}
-function Center-AddQueue{
-    $item=Center-SelectedCatalog
-    if($null -eq $item){return}
-    $id=if([string]$item.item_type -eq 'goal'){[string]$item.goal_id}else{[string]$item.mission_id}
-    $r=Center-Api 'POST' '/queue/add' @{item_type=[string]$item.item_type;item_id=$id}
-    if($null -eq $r -or $r.ok -eq $false){$centerMessage.Text='ERROR: '+[string]$r.error;$centerMessage.ForeColor=[System.Drawing.Color]::Firebrick}
-    else{$centerMessage.Text='COLA: misión agregada correctamente';$centerMessage.ForeColor=[System.Drawing.Color]::DarkGreen;Center-RefreshQueue}
-}
-function Center-RefreshQueue{
-    $q=Center-Api 'GET' '/queue'
-    $queueGrid.Rows.Clear()
-    if($null -eq $q -or $null -eq $q.items){$queueCount.Text='Cola manual: sin conexión';return}
-    foreach($item in @($q.items|Where-Object{[string]$_.status -in @('queued','running','paused','failed','blocked')})){
-        $i=$queueGrid.Rows.Add([string]$item.position,[string]$item.item_type,[string]$item.item_id,[string]$item.status,[string]$item.resolved_mission_id)
-        $queueGrid.Rows[$i].Tag=$item.queue_id
+
+function Refresh-Catalog {
+  $catalog = Get-Catalog
+  $catalogGrid.Rows.Clear()
+
+  if ($null -eq $catalog -or $null -eq $catalog.items) {
+    $catalogCount.Text = 'Misiones visibles: sin conexion'
+    return
+  }
+
+  $needle = $catalogSearch.Text.Trim().ToLowerInvariant()
+  foreach ($item in @($catalog.items)) {
+    $haystack = ("$($item.title) $($item.summary) $($item.status) $($item.source_type)").ToLowerInvariant()
+    if ($needle.Length -gt 0 -and -not $haystack.Contains($needle)) {
+      continue
     }
-    $queueCount.Text='Cola manual: '+[string]$queueGrid.Rows.Count
+
+    $rowIndex = $catalogGrid.Rows.Add(
+      [string]$item.title,
+      [string]$item.status,
+      ([string]$item.progress_percent + '%'),
+      [string]$item.human_gate.label,
+      [string]$item.priority,
+      [string]$item.source_type
+    )
+    $catalogGrid.Rows[$rowIndex].Tag = $item.id
+  }
+
+  $catalogCount.Text = "Misiones visibles: $($catalogGrid.Rows.Count)"
 }
-function Center-RunNext{
-    $r=Center-Api 'POST' '/queue/run-next' @{}
-    if($null -eq $r){$centerMessage.Text='ERROR: sin respuesta del gateway';$centerMessage.ForeColor=[System.Drawing.Color]::Firebrick}
-    elseif($r.ok -eq $false){$centerMessage.Text='ERROR: '+[string]$r.error;$centerMessage.ForeColor=[System.Drawing.Color]::Firebrick}
-    else{$centerMessage.Text='COLA: '+[string]$r.status+' | MISIÓN: '+[string]$r.mission_id;$centerMessage.ForeColor=[System.Drawing.Color]::DarkGreen;Center-RefreshQueue}
+
+function Show-CatalogDetail {
+  $catalog = Get-Catalog
+  $item = Get-SelectedCatalogItem -Catalog $catalog
+  if ($null -eq $item) {
+    $catalogDetail.Text = ''
+    return
+  }
+
+  $nl = [Environment]::NewLine
+  $catalogDetail.Text =
+    ('TITULO:' + $nl + [string]$item.title + $nl + $nl +
+     'RESULTADO:' + $nl + [string]$item.result + $nl + $nl +
+     'SOLUCION:' + $nl + [string]$item.solution + $nl + $nl +
+     'MEJORA ARIA:' + $nl + [string]$item.improvement + $nl + $nl +
+     'ESTADO: ' + [string]$item.status + ' | PROGRESO: ' + [string]$item.progress_percent + '%' + $nl +
+     'HUMAN GATE: ' + [string]$item.human_gate.label + $nl +
+     'RIESGO: ' + [string]$item.risk + ' | ORIGEN: ' + [string]$item.source_type + $nl + $nl +
+     'DESCRIPCION TECNICA:' + $nl + [string]$item.technical_description + $nl + $nl +
+     'DEPENDENCIAS:' + $nl + [string]($item.dependencies -join ', '))
 }
-function Center-Reorder([int]$delta){
-    if($queueGrid.SelectedRows.Count -lt 1){return}
-    $rows=@($queueGrid.Rows);$idx=$queueGrid.SelectedRows[0].Index;$target=$idx+$delta
-    if($target -lt 0 -or $target -ge $rows.Count){return}
-    $ids=@($rows|ForEach-Object{[string]$_.Tag});$tmp=$ids[$idx];$ids[$idx]=$ids[$target];$ids[$target]=$tmp
-    $r=Center-Api 'POST' '/queue/reorder' @{queue_ids=$ids}
-    if($null -eq $r -or $r.ok -eq $false){$centerMessage.Text='ERROR: no se pudo reordenar';$centerMessage.ForeColor=[System.Drawing.Color]::Firebrick}else{Center-RefreshQueue}
-}
-function Center-Remove{
-    if($queueGrid.SelectedRows.Count -lt 1){return}
-    $r=Center-Api 'POST' '/queue/remove' @{queue_id=[string]$queueGrid.SelectedRows[0].Tag}
-    if($null -eq $r -or $r.ok -eq $false){$centerMessage.Text='ERROR: no se pudo quitar';$centerMessage.ForeColor=[System.Drawing.Color]::Firebrick}else{Center-RefreshQueue}
-}
-function Center-RefreshActive{
-    $s=Status();$cat=Center-Api 'GET' '/catalog'
-    if($null -eq $s){$centerStatus.Text='[OFFLINE] ARIA Local Agent';$centerStatus.ForeColor=[System.Drawing.Color]::Firebrick;return}
-    $centerStatus.Text='[ONLINE] MODO: '+([string]$s.mode).ToUpperInvariant();$centerStatus.ForeColor=[System.Drawing.Color]::DarkGreen
-    $id=[string]$s.active_mission_id;$item=$null
-    if($null -ne $cat -and $null -ne $cat.items){$item=$cat.items|Where-Object{[string]$_.mission_id -eq $id}|Select-Object -First 1}
-    $nl=[Environment]::NewLine
-    if($null -eq $item){
-        $activeTitle.Text='MISIÓN ACTIVA: '+$id
-        $activeProgress.Text='PROGRESO: sin datos'
-        $activeGate.Text='HUMAN GATE: NO EXISTE MISION HUMANA'
-        $activeDetail.Text=''
-        $stepsGrid.Rows.Clear()
-        return
+
+function Refresh-Queue {
+  $queue = Get-Queue
+  $queueGrid.Rows.Clear()
+
+  if ($null -eq $queue -or $null -eq $queue.items) {
+    $queueCount.Text = 'Cola manual: sin conexion'
+    return
+  }
+
+  foreach ($item in @($queue.items)) {
+    if ([string]$item.status -notin @('queued','running','paused','failed','blocked')) {
+      continue
     }
-    $activeTitle.Text='MISIÓN ACTIVA: '+[string]$item.title
-    $activeProgress.Text='PROGRESO: '+[string]$item.progress_percent+'%  |  PASOS: '+[string]$item.progress_steps.completed+'/'+[string]$item.progress_steps.total
-    $activeGate.Text='HUMAN GATE: '+[string]$item.human_gate.label
-    $activeDetail.Text='RESULTADO:'+$nl+[string]$item.result+$nl+$nl+'SOLUCIÓN:'+$nl+[string]$item.solution+$nl+$nl+'MEJORA ARIA:'+$nl+[string]$item.improvement
+
+    $rowIndex = $queueGrid.Rows.Add(
+      [string]$item.position,
+      [string]$item.item_type,
+      [string]$item.item_id,
+      [string]$item.status,
+      [string]$item.resolved_mission_id
+    )
+    $queueGrid.Rows[$rowIndex].Tag = $item.queue_id
+  }
+
+  $queueCount.Text = "Cola manual: $($queueGrid.Rows.Count)"
+}
+
+function Refresh-Center {
+  $status = Get-Status
+  $catalog = Get-Catalog
+
+  if ($null -eq $status) {
+    $online.Text = '[OFFLINE] ARIA Local Agent'
+    $online.ForeColor = [System.Drawing.Color]::Firebrick
+    return
+  }
+
+  $online.Text = '[ONLINE] MODO: ' + ([string]$status.mode).ToUpperInvariant()
+  $online.ForeColor = [System.Drawing.Color]::DarkGreen
+  $sessionInfo.Text = 'Sesion: ' + [string]$status.session_id + ' | Mision: ' + [string]$status.active_mission_id
+
+  $missionId = [string]$status.active_mission_id
+  $item = $null
+  if ($null -ne $catalog) {
+    foreach ($candidate in @($catalog.items)) {
+      if ([string]$candidate.mission_id -eq $missionId) {
+        $item = $candidate
+        break
+      }
+    }
+  }
+
+  if ($null -eq $item) {
+    $activeTitle.Text = 'MISION ACTIVA: ' + $missionId
+    $activeProgress.Text = 'PROGRESO: sin datos'
+    $activeGate.Text = 'HUMAN GATE: NO EXISTE MISION HUMANA'
+    $activeDetail.Text = ''
     $stepsGrid.Rows.Clear()
-    if($null -ne $item.steps){foreach($st in $item.steps){[void]$stepsGrid.Rows.Add([string]$st.index,[string]$st.title,[string]$st.status,[string]$st.risk,[string]$st.executor_type)}}
+    return
+  }
+
+  $activeTitle.Text = 'MISION ACTIVA: ' + [string]$item.title
+  $activeProgress.Text = 'PROGRESO: ' + [string]$item.progress_percent + '% | PASOS: ' + [string]$item.progress_steps.completed + '/' + [string]$item.progress_steps.total
+  $activeGate.Text = 'HUMAN GATE: ' + [string]$item.human_gate.label
+
+  $nl = [Environment]::NewLine
+  $activeDetail.Text =
+    ('RESULTADO:' + $nl + [string]$item.result + $nl + $nl +
+     'SOLUCION:' + $nl + [string]$item.solution + $nl + $nl +
+     'MEJORA ARIA:' + $nl + [string]$item.improvement)
+
+  $stepsGrid.Rows.Clear()
+  foreach ($step in @($item.steps)) {
+    [void]$stepsGrid.Rows.Add(
+      [string]$step.index,
+      [string]$step.title,
+      [string]$step.status,
+      [string]$step.risk,
+      [string]$step.executor_type
+    )
+  }
 }
-$tabs=New-Object System.Windows.Forms.TabControl;$tabs.Location=New-Object System.Drawing.Point(20,95);$tabs.Size=New-Object System.Drawing.Size(1165,680);$form.Controls.Add($tabs)
-$tabCenter=New-Object System.Windows.Forms.TabPage;$tabCenter.Text='CENTRO';$tabs.TabPages.Add($tabCenter)
-$tabCatalog=New-Object System.Windows.Forms.TabPage;$tabCatalog.Text='CATÁLOGO';$tabs.TabPages.Add($tabCatalog)
-$tabQueue=New-Object System.Windows.Forms.TabPage;$tabQueue.Text='COLA MANUAL';$tabs.TabPages.Add($tabQueue)
 
-$centerStatus=New-Object System.Windows.Forms.Label;$centerStatus.AutoSize=$true;$centerStatus.Font=New-Object System.Drawing.Font('Segoe UI',13,[System.Drawing.FontStyle]::Bold);$centerStatus.Location=New-Object System.Drawing.Point(18,15);$tabCenter.Controls.Add($centerStatus)
-$activeTitle=New-Object System.Windows.Forms.Label;$activeTitle.AutoSize=$false;$activeTitle.Size=New-Object System.Drawing.Size(1090,45);$activeTitle.Font=New-Object System.Drawing.Font('Segoe UI',12,[System.Drawing.FontStyle]::Bold);$activeTitle.Location=New-Object System.Drawing.Point(18,50);$tabCenter.Controls.Add($activeTitle)
-$activeProgress=New-Object System.Windows.Forms.Label;$activeProgress.AutoSize=$true;$activeProgress.Font=New-Object System.Drawing.Font('Segoe UI',11,[System.Drawing.FontStyle]::Bold);$activeProgress.Location=New-Object System.Drawing.Point(18,98);$tabCenter.Controls.Add($activeProgress)
-$activeGate=New-Object System.Windows.Forms.Label;$activeGate.AutoSize=$false;$activeGate.Size=New-Object System.Drawing.Size(1090,35);$activeGate.Font=New-Object System.Drawing.Font('Segoe UI',11,[System.Drawing.FontStyle]::Bold);$activeGate.Location=New-Object System.Drawing.Point(18,130);$tabCenter.Controls.Add($activeGate)
-$activeDetail=New-Object System.Windows.Forms.RichTextBox;$activeDetail.ReadOnly=$true;$activeDetail.Location=New-Object System.Drawing.Point(18,172);$activeDetail.Size=New-Object System.Drawing.Size(720,165);$tabCenter.Controls.Add($activeDetail)
-$stepsGrid=New-Object System.Windows.Forms.DataGridView;$stepsGrid.Location=New-Object System.Drawing.Point(18,350);$stepsGrid.Size=New-Object System.Drawing.Size(1090,220);$stepsGrid.ReadOnly=$true;$stepsGrid.AllowUserToAddRows=$false;$stepsGrid.RowHeadersVisible=$false;$stepsGrid.AutoSizeColumnsMode='Fill';[void]$stepsGrid.Columns.Add('n','Paso');[void]$stepsGrid.Columns.Add('title','Descripción');[void]$stepsGrid.Columns.Add('status','Estado');[void]$stepsGrid.Columns.Add('risk','Riesgo');[void]$stepsGrid.Columns.Add('exec','Executor');$tabCenter.Controls.Add($stepsGrid)
+function Add-SelectedToQueue {
+  $catalog = Get-Catalog
+  $item = Get-SelectedCatalogItem -Catalog $catalog
+  if ($null -eq $item) {
+    Set-CenterMessage -Text 'Selecciona una mision primero.' -IsError $true
+    return
+  }
 
-$catalogSearch=New-Object System.Windows.Forms.TextBox;$catalogSearch.Location=New-Object System.Drawing.Point(15,15);$catalogSearch.Size=New-Object System.Drawing.Size(380,28);$tabCatalog.Controls.Add($catalogSearch)
-$catalogSearch.Add_TextChanged({Center-RefreshCatalog})
-$catalogCount=New-Object System.Windows.Forms.Label;$catalogCount.AutoSize=$true;$catalogCount.Location=New-Object System.Drawing.Point(410,20);$tabCatalog.Controls.Add($catalogCount)
-$catalogGrid=New-Object System.Windows.Forms.DataGridView;$catalogGrid.Location=New-Object System.Drawing.Point(15,55);$catalogGrid.Size=New-Object System.Drawing.Size(1115,300);$catalogGrid.ReadOnly=$true;$catalogGrid.AllowUserToAddRows=$false;$catalogGrid.SelectionMode='FullRowSelect';$catalogGrid.MultiSelect=$false;$catalogGrid.RowHeadersVisible=$false;$catalogGrid.AutoSizeColumnsMode='Fill';[void]$catalogGrid.Columns.Add('title','Misión');[void]$catalogGrid.Columns.Add('status','Estado');[void]$catalogGrid.Columns.Add('progress','Progreso');[void]$catalogGrid.Columns.Add('gate','Human Gate');[void]$catalogGrid.Columns.Add('priority','Prioridad');[void]$catalogGrid.Columns.Add('source','Origen');$tabCatalog.Controls.Add($catalogGrid)
-$catalogGrid.Add_SelectionChanged({Center-ShowCatalogDetail})
-$catalogDetail=New-Object System.Windows.Forms.RichTextBox;$catalogDetail.ReadOnly=$true;$catalogDetail.Location=New-Object System.Drawing.Point(15,370);$catalogDetail.Size=New-Object System.Drawing.Size(800,220);$tabCatalog.Controls.Add($catalogDetail)
-$addQueue=New-Object System.Windows.Forms.Button;$addQueue.Text='AGREGAR A COLA';$addQueue.Font=New-Object System.Drawing.Font('Segoe UI',10,[System.Drawing.FontStyle]::Bold);$addQueue.Size=New-Object System.Drawing.Size(240,50);$addQueue.Location=New-Object System.Drawing.Point(850,385);$addQueue.Add_Click({Center-AddQueue});$tabCatalog.Controls.Add($addQueue)
-$refreshCatalog=New-Object System.Windows.Forms.Button;$refreshCatalog.Text='ACTUALIZAR';$refreshCatalog.Size=New-Object System.Drawing.Size(240,42);$refreshCatalog.Location=New-Object System.Drawing.Point(850,450);$refreshCatalog.Add_Click({Center-RefreshCatalog});$tabCatalog.Controls.Add($refreshCatalog)
+  if ([string]$item.status -in @('completed','blocked')) {
+    Set-CenterMessage -Text 'La mision no puede entrar en la cola en su estado actual.' -IsError $true
+    return
+  }
 
-$queueCount=New-Object System.Windows.Forms.Label;$queueCount.AutoSize=$true;$queueCount.Location=New-Object System.Drawing.Point(15,15);$tabQueue.Controls.Add($queueCount)
-$queueGrid=New-Object System.Windows.Forms.DataGridView;$queueGrid.Location=New-Object System.Drawing.Point(15,48);$queueGrid.Size=New-Object System.Drawing.Size(1115,375);$queueGrid.ReadOnly=$true;$queueGrid.AllowUserToAddRows=$false;$queueGrid.SelectionMode='FullRowSelect';$queueGrid.MultiSelect=$false;$queueGrid.RowHeadersVisible=$false;$queueGrid.AutoSizeColumnsMode='Fill';[void]$queueGrid.Columns.Add('pos','Posición');[void]$queueGrid.Columns.Add('type','Tipo');[void]$queueGrid.Columns.Add('id','Referencia');[void]$queueGrid.Columns.Add('status','Estado');[void]$queueGrid.Columns.Add('mission','Misión resuelta');$tabQueue.Controls.Add($queueGrid)
-$queueUp=New-Object System.Windows.Forms.Button;$queueUp.Text='SUBIR';$queueUp.Size=New-Object System.Drawing.Size(120,44);$queueUp.Location=New-Object System.Drawing.Point(15,445);$queueUp.Add_Click({Center-Reorder -1});$tabQueue.Controls.Add($queueUp)
-$queueDown=New-Object System.Windows.Forms.Button;$queueDown.Text='BAJAR';$queueDown.Size=New-Object System.Drawing.Size(120,44);$queueDown.Location=New-Object System.Drawing.Point(150,445);$queueDown.Add_Click({Center-Reorder 1});$tabQueue.Controls.Add($queueDown)
-$queueRemove=New-Object System.Windows.Forms.Button;$queueRemove.Text='QUITAR';$queueRemove.Size=New-Object System.Drawing.Size(120,44);$queueRemove.Location=New-Object System.Drawing.Point(285,445);$queueRemove.Add_Click({Center-Remove});$tabQueue.Controls.Add($queueRemove)
-$queueRun=New-Object System.Windows.Forms.Button;$queueRun.Text='EJECUTAR SIGUIENTE';$queueRun.Font=New-Object System.Drawing.Font('Segoe UI',10,[System.Drawing.FontStyle]::Bold);$queueRun.Size=New-Object System.Drawing.Size(220,44);$queueRun.Location=New-Object System.Drawing.Point(430,445);$queueRun.Add_Click({Center-RunNext});$tabQueue.Controls.Add($queueRun)
-$queueRefresh=New-Object System.Windows.Forms.Button;$queueRefresh.Text='ACTUALIZAR COLA';$queueRefresh.Size=New-Object System.Drawing.Size(180,44);$queueRefresh.Location=New-Object System.Drawing.Point(665,445);$queueRefresh.Add_Click({Center-RefreshQueue});$tabQueue.Controls.Add($queueRefresh)
-$centerMessage=New-Object System.Windows.Forms.Label;$centerMessage.AutoSize=$false;$centerMessage.Size=New-Object System.Drawing.Size(760,30);$centerMessage.Location=New-Object System.Drawing.Point(18,600);$centerMessage.Font=New-Object System.Drawing.Font('Consolas',9,[System.Drawing.FontStyle]::Bold);$tabCenter.Controls.Add($centerMessage)
+  if ([string]$item.item_type -eq 'goal') {
+    $itemType = 'goal'
+    $itemId = [string]$item.goal_id
+  } else {
+    $itemType = 'mission'
+    $itemId = [string]$item.mission_id
+  }
 
-$timer=New-Object System.Windows.Forms.Timer;$timer.Interval=3000;$timer.Add_Tick({try{Center-RefreshActive;Center-RefreshCatalog;Center-RefreshQueue}catch{}});$timer.Start()
-Center-RefreshActive
-Center-RefreshCatalog
-Center-RefreshQueue
+  $result = Invoke-CenterApi -Method 'POST' -Path '/queue/add' -Body @{
+    item_type = $itemType
+    item_id = $itemId
+  }
+
+  if ($null -eq $result -or $result.ok -eq $false) {
+    Set-CenterMessage -Text ('ERROR: ' + [string]$result.error) -IsError $true
+    return
+  }
+
+  Set-CenterMessage -Text 'COLA: mision agregada correctamente.'
+  Refresh-Queue
+}
+
+function Remove-SelectedQueueItem {
+  if ($queueGrid.SelectedRows.Count -lt 1) {
+    return
+  }
+
+  $queueId = [string]$queueGrid.SelectedRows[0].Tag
+  $result = Invoke-CenterApi -Method 'POST' -Path '/queue/remove' -Body @{ queue_id = $queueId }
+
+  if ($null -eq $result -or $result.ok -eq $false) {
+    Set-CenterMessage -Text 'ERROR: no se pudo quitar de la cola.' -IsError $true
+    return
+  }
+
+  Set-CenterMessage -Text 'COLA: elemento eliminado.'
+  Refresh-Queue
+}
+
+function Reorder-SelectedQueueItem {
+  param([int]$Delta)
+
+  if ($queueGrid.SelectedRows.Count -lt 1) {
+    return
+  }
+
+  $rows = @($queueGrid.Rows | Where-Object { $null -ne $_.Tag })
+  $index = $queueGrid.SelectedRows[0].Index
+  $target = $index + $Delta
+
+  if ($target -lt 0 -or $target -ge $rows.Count) {
+    return
+  }
+
+  $ids = @($rows | ForEach-Object { [string]$_.Tag })
+  $tmp = $ids[$index]
+  $ids[$index] = $ids[$target]
+  $ids[$target] = $tmp
+
+  $result = Invoke-CenterApi -Method 'POST' -Path '/queue/reorder' -Body @{ queue_ids = $ids }
+  if ($null -eq $result -or $result.ok -eq $false) {
+    Set-CenterMessage -Text 'ERROR: no se pudo reordenar.' -IsError $true
+    return
+  }
+
+  Set-CenterMessage -Text 'COLA: orden actualizado.'
+  Refresh-Queue
+}
+
+function Run-NextQueueItem {
+  Set-CenterMessage -Text 'Ejecutando siguiente mision de la cola...'
+  $result = Invoke-CenterApi -Method 'POST' -Path '/queue/run-next' -Body @{}
+
+  if ($null -eq $result -or $result.ok -eq $false) {
+    Set-CenterMessage -Text ('ERROR: ' + [string]$result.error) -IsError $true
+    return
+  }
+
+  Set-CenterMessage -Text ('COLA: ' + [string]$result.status + ' | Mision: ' + [string]$result.mission_id)
+  Refresh-Queue
+  Refresh-Center
+}
+
+$activate.Add_Click({
+  $result = Invoke-CenterApi -Method 'POST' -Path '/start' -Body @{}
+  Set-CenterMessage -Text 'ACTIVAR ejecutado.'
+  Refresh-Center
+})
+
+$pause.Add_Click({
+  $result = Invoke-CenterApi -Method 'POST' -Path '/pause' -Body @{}
+  Set-CenterMessage -Text 'PAUSAR ejecutado.'
+  Refresh-Center
+})
+
+$continue.Add_Click({
+  $result = Invoke-CenterApi -Method 'POST' -Path '/resume' -Body @{}
+  Set-CenterMessage -Text 'CONTINUAR ejecutado.'
+  Refresh-Center
+})
+
+$stop.Add_Click({
+  $result = Invoke-CenterApi -Method 'POST' -Path '/stop' -Body @{}
+  Set-CenterMessage -Text 'DETENER ejecutado.'
+  Refresh-Center
+})
+
+$catalogSearch.Add_TextChanged({ Refresh-Catalog })
+$catalogGrid.Add_SelectionChanged({ Show-CatalogDetail })
+$addQueue.Add_Click({ Add-SelectedToQueue })
+$refreshCatalog.Add_Click({ Refresh-Catalog })
+$queueUp.Add_Click({ Reorder-SelectedQueueItem -Delta -1 })
+$queueDown.Add_Click({ Reorder-SelectedQueueItem -Delta 1 })
+$queueRemove.Add_Click({ Remove-SelectedQueueItem })
+$queueRun.Add_Click({ Run-NextQueueItem })
+$queueRefresh.Add_Click({ Refresh-Queue })
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 3000
+$timer.Add_Tick({
+  try {
+    Refresh-Center
+    Refresh-Catalog
+    Refresh-Queue
+  }
+  catch {
+    Set-CenterMessage -Text ('UI ERROR: ' + $_.Exception.Message) -IsError $true
+  }
+})
+$timer.Start()
+
+Refresh-Center
+Refresh-Catalog
+Refresh-Queue
 [void]$form.ShowDialog()
-
