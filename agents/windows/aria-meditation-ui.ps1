@@ -1,3 +1,4 @@
+# Control routes: /status /log /start /pause /resume /stop | Center routes: /catalog /queue /queue/add /queue/remove /queue/reorder /queue/run-next
 param(
   [int]$Port = 45873
 )
@@ -96,7 +97,7 @@ $centerTab.Text = 'CENTRO'
 [void]$tabs.TabPages.Add($centerTab)
 
 $catalogTab = New-Object System.Windows.Forms.TabPage
-$catalogTab.Text = 'CATALOGO'
+$catalogTab.Text = 'CATÁLOGO'
 [void]$tabs.TabPages.Add($catalogTab)
 
 $queueTab = New-Object System.Windows.Forms.TabPage
@@ -128,6 +129,13 @@ $activeDetail.ReadOnly = $true
 $activeDetail.Location = New-Object System.Drawing.Point(18, 135)
 $activeDetail.Size = New-Object System.Drawing.Size(720, 180)
 $centerTab.Controls.Add($activeDetail)
+
+$telemetrySummary = New-Object System.Windows.Forms.Label
+$telemetrySummary.AutoSize = $false
+$telemetrySummary.Size = New-Object System.Drawing.Size(1100, 55)
+$telemetrySummary.Font = New-Object System.Drawing.Font('Consolas', 9)
+$telemetrySummary.Location = New-Object System.Drawing.Point(18, 570)
+$centerTab.Controls.Add($telemetrySummary)
 
 $stepsGrid = New-Object System.Windows.Forms.DataGridView
 $stepsGrid.Location = New-Object System.Drawing.Point(18, 330)
@@ -252,7 +260,7 @@ function Set-CenterMessage {
   }
 }
 
-function Get-Catalog {
+function Get-ActivityLog {`n  return Invoke-CenterApi -Method 'GET' -Path '/log'`n}`n`nfunction Get-Catalog {
   return Invoke-CenterApi -Method 'GET' -Path '/catalog'
 }
 
@@ -325,7 +333,7 @@ function Show-CatalogDetail {
   $catalogDetail.Text =
     ('TITULO:' + $nl + [string]$item.title + $nl + $nl +
      'RESULTADO:' + $nl + [string]$item.result + $nl + $nl +
-     'SOLUCION:' + $nl + [string]$item.solution + $nl + $nl +
+     'SOLUCIÓN:' + $nl + [string]$item.solution + $nl + $nl +
      'MEJORA ARIA:' + $nl + [string]$item.improvement + $nl + $nl +
      'ESTADO: ' + [string]$item.status + ' | PROGRESO: ' + [string]$item.progress_percent + '%' + $nl +
      'HUMAN GATE: ' + [string]$item.human_gate.label + $nl +
@@ -374,6 +382,22 @@ function Refresh-Center {
   $online.Text = '[ONLINE] MODO: ' + ([string]$status.mode).ToUpperInvariant()
   $online.ForeColor = [System.Drawing.Color]::DarkGreen
   $sessionInfo.Text = 'Sesion: ' + [string]$status.session_id + ' | Mision: ' + [string]$status.active_mission_id
+  $lastResult = $status.last_result
+  $runtimeStatus = '-'
+  $candidateCount = '-'
+  $learningScanned = '-'
+  $learningCreated = '-'
+  $nextAction = '-'
+  $lastStatus = '-'
+  if ($null -ne $lastResult) {
+    if ($null -ne $lastResult.runtime -and $null -ne $lastResult.runtime.status) { $runtimeStatus = [string]$lastResult.runtime.status }
+    if ($null -ne $lastResult.candidate_count) { $candidateCount = [string]$lastResult.candidate_count }
+    if ($null -ne $lastResult.learning -and $null -ne $lastResult.learning.scanned) { $learningScanned = [string]$lastResult.learning.scanned }
+    if ($null -ne $lastResult.learning -and $null -ne $lastResult.learning.created) { $learningCreated = [string]$lastResult.learning.created }
+    if ($null -ne $lastResult.next_action) { $nextAction = [string]$lastResult.next_action }
+    if ($null -ne $lastResult.status) { $lastStatus = [string]$lastResult.status }
+  }
+  $telemetrySummary.Text = 'RUNTIME: ' + $runtimeStatus + ' | Fabrica: ' + $candidateCount + ' candidatos | Aprendizaje: ' + $learningScanned + ' escaneados / ' + $learningCreated + ' creados | Proxima accion: ' + $nextAction + ' | Ultimo: ' + $lastStatus
 
   $missionId = [string]$status.active_mission_id
   $item = $null
@@ -402,7 +426,7 @@ function Refresh-Center {
   $nl = [Environment]::NewLine
   $activeDetail.Text =
     ('RESULTADO:' + $nl + [string]$item.result + $nl + $nl +
-     'SOLUCION:' + $nl + [string]$item.solution + $nl + $nl +
+     'SOLUCIÓN:' + $nl + [string]$item.solution + $nl + $nl +
      'MEJORA ARIA:' + $nl + [string]$item.improvement)
 
   $stepsGrid.Rows.Clear()
