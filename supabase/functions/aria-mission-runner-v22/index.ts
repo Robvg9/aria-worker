@@ -8,6 +8,7 @@ const URL = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const MEMORY = `${URL}/functions/v1/aria-memory-v2`;
+const CANONICAL = `${URL}/functions/v1/aria-canonical-runtime-v1`;
 const PLANNER = `${URL}/functions/v1/aria-planner-v11`;
 const EXEC = `${URL}/functions/v1/aria-execution-runtime-v1`;
 const RUNTIME = `${URL}/functions/v1/aria-runtime-gateway-v1`;
@@ -377,13 +378,17 @@ function readyBatch(steps: any[], completed: Set<string>) {
   return ready.slice(0, 1);
 }
 
-async function chainNextMeditationMission(requestUrl: string, depth: number) {
+async function chainNextMeditationMission(depth: number) {
   if (depth >= 8) return { status: "chain_limit_reached", depth };
   const next = await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
   const nextMissionId = next?.mission_id ? String(next.mission_id) : null;
   if (!nextMissionId) return { status: "idle", depth };
   try {
-    const response = await fetch(requestUrl, { method: "POST", headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" }, body: JSON.stringify({ mission_id: nextMissionId, chain_depth: depth + 1 }) });
+    const response = await fetch(CANONICAL, {
+      method: "POST",
+      headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" },
+      body: JSON.stringify({ mission_id: nextMissionId, chain_depth: depth + 1 })
+    });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload || payload.ok !== true) throw new Error(String(payload?.error || payload?.status || `chained_runtime_http_${response.status}`));
     return { status: "chained", mission_id: nextMissionId, child_status: payload.status || null, child_runtime: payload.runtime || null, child_chain: payload.chained || null, depth: depth + 1 };
@@ -616,7 +621,7 @@ Deno.serve(async (request) => {
     });
     if (!finalized) throw new Error("verified_terminalization_lease_lost");
 
-    const chained = meditationChain ? await chainNextMeditationMission(request.url, chainDepth) : null;
+    const chained = meditationChain ? await chainNextMeditationMission(chainDepth) : null;
     return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
