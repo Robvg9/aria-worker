@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang='es'>
+<head>
+  <meta charset='UTF-8' />
+  <meta name='viewport' content='width=device-width, initial-scale=1.0, viewport-fit=cover' />
+  <meta name='theme-color' content='#09070f' />
+  <meta name='description' content='ARIA — Centro de Mando Cognitivo' />
+  <meta name='aria-build' content='%VITE_BUILD%' />
+  <link rel='manifest' href='./manifest.json' />
+  <link rel='icon' href='./icons/aria.svg' type='image/svg+xml' />
+  <title>ARIA — Centro de Mando</title>
+</head>
+<body>
+  <div id='root'></div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('controllerchange', function () { window.location.reload(); });
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./sw.js?build=%VITE_BUILD%').then(function (registration) { return registration.update(); }).catch(function () {});
+      });
+    }
+  </script>
+  <script type='module' src='./src/main.tsx'></script>
+</body>
+</html>

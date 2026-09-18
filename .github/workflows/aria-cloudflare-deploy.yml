@@ -3,14 +3,6 @@ name: Deploy ARIA Cloudflare Worker
 on:
   push:
     branches: [main]
-    paths:
-      - 'worker.js'
-      - 'integrations/**'
-      - 'credentials/**'
-      - 'activation/**'
-      - 'autonomy/**'
-      - 'package.json'
-      - '.github/workflows/aria-cloudflare-deploy.yml'
   workflow_dispatch:
 
 permissions:
@@ -43,6 +35,17 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
+      - name: Install PWA dependencies
+        working-directory: pwa
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Build PWA from main
+        working-directory: pwa
+        env:
+          VITE_BUILD: ${{ github.sha }}
+        run: |
+          sed -i "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js
+          npm run build
+
       - name: Install Wrangler
         run: npm install --global wrangler@latest
       - name: Deploy ARIA Worker
@@ -54,6 +57,20 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: printf '%s' "$CLOUDFLARE_API_TOKEN" | wrangler secret put CLOUDFLARE_API_TOKEN --name aria
+      - name: Smoke test PWA main auto-deploy
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev/pwa/"
+          html="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "$base")"
+          echo "$html"
+          grep -q 'ARIA — Centro de Mando' <<<"$html"
+          grep -q "${GITHUB_SHA}" <<<"$html"
+          sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw.js?build=${GITHUB_SHA}")"
+          echo "$sw"
+          grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
+          manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}manifest.json")"
+          grep -q 'ARIA — Centro de Mando Cognitivo' <<<"$manifest"
+
       - name: Smoke test direct ARIA interface
         run: |
           set -euo pipefail

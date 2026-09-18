@@ -1,0 +1,15 @@
+{
+  "id": "./",
+  "name": "ARIA — Centro de Mando Cognitivo",
+  "short_name": "ARIA",
+  "description": "Interfaz instalable para el núcleo cognitivo y operativo de ARIA.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#09070f",
+  "background_color": "#09070f",
+  "icons": [
+    {"src":"./icons/aria.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+  ]
+}
