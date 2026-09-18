@@ -50,7 +50,9 @@ begin
     updated_at = clock_timestamp(),
     finished_at = null,
     checkpoint = case
-      when status='failed' or recovery_count>=3 then
+      when status='failed'
+        or recovery_count>=3
+        or (status='queued' and coalesce(checkpoint->'recovery'->>'status','')='retry_exhausted') then
         jsonb_set(
           jsonb_set(
             jsonb_set(
@@ -70,8 +72,11 @@ begin
         - 'plan' - 'completed_steps' - 'attempts' - 'results' - 'pending_jobs'
       else checkpoint
     end
-  where status in ('planning','running','paused','failed')
-    and updated_at < clock_timestamp()-p_stale_after
+  where (
+      (status in ('planning','running','paused','failed')
+        and updated_at < clock_timestamp()-p_stale_after)
+      or (status='queued' and coalesce(checkpoint->'recovery'->>'status','')='retry_exhausted')
+    )
     and (lease_until is null or lease_until < clock_timestamp())
     and not (
       coalesce(checkpoint->'recovery'->>'status','')
