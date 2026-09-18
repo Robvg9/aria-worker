@@ -6,7 +6,7 @@ const path = require('node:path');
 function read(rel) { return fs.readFileSync(path.join(__dirname, '..', rel), 'utf8'); }
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
-const migration = read('supabase/migrations/20260918113000_meditation_notifications_v1.sql');
+const migration = read('supabase/migrations/20260918113426_meditation_notifications_v1.sql');
 const gateway = read('supabase/functions/aria-device-gateway/index.ts');
 const controller = read('agents/windows/aria-meditation-controller.js');
 const ui = read('agents/windows/aria-meditation-ui.ps1');
