@@ -17,6 +17,13 @@ assertContains(appApi,'path.endsWith("/conversation")','conversation route missi
 assertContains(appApi,'path.endsWith("/missions")','mission route missing');
 assertContains(appApi,'path.endsWith("/memory/search")','memory search route missing');
 assertContains(appApi,'path.endsWith("/media/upload-url")','media upload preparation route missing');
+assertContains(appApi,'path.endsWith("/capabilities")','capability catalog route missing');
+assertContains(appApi,'model_registry','live model registry must feed capability catalog');
+assertContains(appApi,'agent_catalog','live agent registry must feed capability catalog');
+assertContains(appApi,'device_registry','live device registry must feed capability catalog');
+assertContains(appApi,'aria-capability-catalog-v1','capability catalog version marker missing');
+assertContains(appApi,'path.endsWith("/events")','mission event detail route missing');
+
 assertContains(appApi,'aria-app-media','private media bucket missing');
 assert.ok(appApi.includes('const objectPath=`${u.id}/${crypto.randomUUID()}/${fileName}`') || appApi.includes('const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`'),'media object path is not user-scoped');
 assertContains(appApi,'createSignedUploadUrl(objectPath)','signed media upload missing');
