@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'..','supabase/functions/aria-agent-runtime-v1/index.ts'),'utf8');
+const migration=fs.readFileSync(path.join(__dirname,'..','supabase/migrations/20260918152000_mission5_resource_registry_evidence_v1.sql'),'utf8');
+const expected=['aria-agent-planner-v1','aria-agent-reviewer-v1','aria-agent-research-v1','aria-agent-coding-v1','aria-agent-security-v1','aria-agent-memory-v1','aria-agent-business-v1','aria-agent-device-v1','aria-agent-planner-gemini35-v1','aria-agent-verifier-gemini35-v1'];
+for(const id of expected) assert.ok(source.includes('"'+id+'"'),'missing profile '+id);
+for(const marker of ['resolve_agent_resource','resource_graph','provider_id: resource.provider.provider_id','account_id: resource.account.account_id','model_id: resource.model.model_id','capability_id: resource.capability.capability_id']) assert.ok(source.includes(marker),'missing runtime resource marker '+marker);
+assert.ok(!source.includes('provider_id: "openrouter"'),'provider must not be hardcoded');
+assert.ok(!source.includes('account_id: "acct_openrouter_primary"'),'account must not be hardcoded');
+for(const marker of ['alter table aria_internal.agent_catalog','create or replace function aria_internal.resolve_agent_resource','credential_not_present','capability_not_verified','mission5']) assert.ok(migration.includes(marker),'migration marker missing '+marker);
+console.log('MISSION 5 RESOURCE RUNTIME CONTRACT: PASS');
