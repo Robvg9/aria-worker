@@ -1,0 +1,17 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const read=(p)=>fs.readFileSync(path.join(root,p),'utf8');
+const gateway=read('supabase/functions/aria-device-gateway/index.ts');
+const migration=read('supabase/migrations/20260918150000_meditation_idea_to_mission_v1.sql');
+const engine=read('supabase/functions/aria-device-gateway/_shared/idea-to-mission.mjs');
+for(const route of ['/v1/meditation/idea-to-mission','/v1/meditation/ideas']) assert.ok(gateway.includes(route),'gateway route missing: '+route);
+assert.ok(gateway.includes('validateProposal'),'proposal validation missing');
+assert.ok(gateway.includes('auto_enqueued:false'),'gateway must persist auto_enqueued false');
+assert.ok(gateway.includes('deduplicated:true'),'gateway must expose dedupe result');
+assert.ok(gateway.includes('idea_to_mission:true'),'health marker missing');
+for(const marker of ['create table if not exists aria_internal.meditation_idea_proposals','fingerprint text not null unique','auto_enqueued boolean not null default false','check (auto_enqueued = false)','enable row level security','revoke all on aria_internal.meditation_idea_proposals from anon, authenticated']) assert.ok(migration.includes(marker),marker);
+for(const marker of ['SCHEMA_VERSION','classifyIdea','buildIdeaMissionProposal','validateProposal','auto_enqueue:false','manual_only']) assert.ok(engine.includes(marker),marker);
+console.log('MEDITATION IDEA -> MISSION CONTRACT: PASS');

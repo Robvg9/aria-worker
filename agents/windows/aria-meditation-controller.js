@@ -149,6 +149,12 @@ function startControlServer(controller) {
       if (req.method === 'POST' && url.pathname === '/queue/run-next') return respond(200, await requestGateway('/v1/meditation/queue/run-next',{method:'POST',body:{}}));
       if (req.method === 'GET' && url.pathname === '/notifications') return respond(200, await requestGateway('/v1/meditation/notifications'));
       if (req.method === 'POST' && url.pathname === '/notifications/read') return respond(200, await requestGateway('/v1/meditation/notifications/read',{method:'POST',body:await readJsonBody(req)}));
+      if (req.method === 'POST' && url.pathname === '/idea-to-mission') return respond(200, await requestGateway('/v1/meditation/idea-to-mission',{method:'POST',body:await readJsonBody(req)}));
+      if (req.method === 'GET' && url.pathname === '/ideas') return respond(200, await requestGateway('/v1/meditation/ideas'));
+      if (req.method === 'GET' && url.pathname.startsWith('/ideas/')) {
+        const proposalId = encodeURIComponent(url.pathname.slice('/ideas/'.length));
+        return respond(200, await requestGateway('/v1/meditation/ideas/' + proposalId));
+      }
       if (req.method === 'POST' && url.pathname === '/human-gate/complete') return respond(200, await requestGateway('/v1/meditation/human-gate/complete',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/start') return respond(200, await controller.start());
       if (req.method === 'POST' && url.pathname === '/pause') return respond(200, await controller.pause());

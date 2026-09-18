@@ -108,6 +108,10 @@ $notificationsTab = New-Object System.Windows.Forms.TabPage
 $notificationsTab.Text = 'NOTIFICACIONES'
 [void]$tabs.TabPages.Add($notificationsTab)
 
+$ideaTab = New-Object System.Windows.Forms.TabPage
+$ideaTab.Text = 'IDEA -> MISION'
+[void]$tabs.TabPages.Add($ideaTab)
+
 $activeTitle = New-Object System.Windows.Forms.Label
 $activeTitle.AutoSize = $false
 $activeTitle.Size = New-Object System.Drawing.Size(1100, 44)
@@ -306,6 +310,44 @@ $notificationMarkAllRead.Text = 'MARCAR TODO LEIDO'
 $notificationMarkAllRead.Size = New-Object System.Drawing.Size(335, 44)
 $notificationMarkAllRead.Location = New-Object System.Drawing.Point(800, 485)
 $notificationsTab.Controls.Add($notificationMarkAllRead)
+
+$ideaLabel = New-Object System.Windows.Forms.Label
+$ideaLabel.Text = 'Escribe la mejora que quieres que ARIA convierta en trabajo estructurado. No se ejecuta ni se autoencola.'
+$ideaLabel.AutoSize = $false
+$ideaLabel.Size = New-Object System.Drawing.Size(1080, 42)
+$ideaLabel.Location = New-Object System.Drawing.Point(18, 18)
+$ideaTab.Controls.Add($ideaLabel)
+
+$ideaInput = New-Object System.Windows.Forms.TextBox
+$ideaInput.Multiline = $true
+$ideaInput.ScrollBars = 'Vertical'
+$ideaInput.Location = New-Object System.Drawing.Point(18, 68)
+$ideaInput.Size = New-Object System.Drawing.Size(1080, 105)
+$ideaTab.Controls.Add($ideaInput)
+
+$ideaAnalyze = New-Object System.Windows.Forms.Button
+$ideaAnalyze.Text = 'ANALIZAR Y PROPONER'
+$ideaAnalyze.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$ideaAnalyze.Size = New-Object System.Drawing.Size(240, 44)
+$ideaAnalyze.Location = New-Object System.Drawing.Point(18, 185)
+$ideaTab.Controls.Add($ideaAnalyze)
+
+$ideaRefresh = New-Object System.Windows.Forms.Button
+$ideaRefresh.Text = 'ACTUALIZAR PROPUESTAS'
+$ideaRefresh.Size = New-Object System.Drawing.Size(220, 44)
+$ideaRefresh.Location = New-Object System.Drawing.Point(275, 185)
+$ideaTab.Controls.Add($ideaRefresh)
+
+$ideaStatus = New-Object System.Windows.Forms.Label
+$ideaStatus.AutoSize = $true
+$ideaStatus.Location = New-Object System.Drawing.Point(520, 198)
+$ideaTab.Controls.Add($ideaStatus)
+
+$ideaDetail = New-Object System.Windows.Forms.RichTextBox
+$ideaDetail.ReadOnly = $true
+$ideaDetail.Location = New-Object System.Drawing.Point(18, 245)
+$ideaDetail.Size = New-Object System.Drawing.Size(1080, 330)
+$ideaTab.Controls.Add($ideaDetail)
 
 function Set-CenterMessage {
   param([string]$Text, [bool]$IsError = $false)
@@ -524,6 +566,45 @@ function Mark-AllNotificationsRead {
 
   Set-CenterMessage -Text 'NOTIFICACIONES: todas marcadas como leidas.'
   Refresh-Notifications
+}
+
+function Render-IdeaProposal {
+  param([object]$Proposal)
+  if ($null -eq $Proposal) {
+    $ideaDetail.Text = ''
+    return
+  }
+  $ideaDetail.Text = ($Proposal | ConvertTo-Json -Depth 16)
+}
+
+function Submit-IdeaProposal {
+  $idea = $ideaInput.Text.Trim()
+  if ([string]::IsNullOrWhiteSpace($idea)) {
+    $ideaStatus.Text = 'Escribe una idea primero.'
+    return
+  }
+  $result = Invoke-CenterApi -Method 'POST' -Path '/idea-to-mission' -Body @{ idea = $idea }
+  if ($null -eq $result -or $result.ok -ne $true) {
+    $ideaStatus.Text = 'ERROR: ' + [string]$result.error
+    Set-CenterMessage -Text ('IDEA -> MISION ERROR: ' + [string]$result.error) -IsError $true
+    return
+  }
+  $ideaStatus.Text = if ($result.deduplicated) { 'PROPUESTA EXISTENTE - sin duplicar.' } else { 'PROPUESTA CREADA - NO AUTOENCOLADA.' }
+  Render-IdeaProposal -Proposal $result.proposal
+  Set-CenterMessage -Text 'IDEA -> MISION: propuesta estructurada y guardada. La cola sigue bajo decision humana.'
+}
+
+function Refresh-IdeaProposals {
+  $result = Invoke-CenterApi -Method 'GET' -Path '/ideas'
+  if ($null -eq $result -or $null -eq $result.items) {
+    $ideaStatus.Text = 'Sin conexión al registro de propuestas.'
+    return
+  }
+  $ideaStatus.Text = 'Propuestas guardadas: ' + [string]$result.total + ' | autoencolado: PROHIBIDO'
+  if ($result.items.Count -gt 0) {
+    $latest = $result.items[0]
+    $ideaDetail.Text = ($latest | ConvertTo-Json -Depth 16)
+  }
 }
 
 function Refresh-Center {
@@ -762,6 +843,8 @@ $notificationGrid.Add_SelectionChanged({ Show-NotificationDetail })
 $notificationRefresh.Add_Click({ Refresh-Notifications })
 $notificationMarkRead.Add_Click({ Mark-SelectedNotificationRead })
 $notificationMarkAllRead.Add_Click({ Mark-AllNotificationsRead })
+$ideaAnalyze.Add_Click({ Submit-IdeaProposal })
+$ideaRefresh.Add_Click({ Refresh-IdeaProposals })
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000
@@ -771,6 +854,7 @@ $timer.Add_Tick({
     Refresh-Catalog
     Refresh-Queue
     Refresh-Notifications
+    Refresh-IdeaProposals
   }
   catch {
     Set-CenterMessage -Text ('UI ERROR: ' + $_.Exception.Message) -IsError $true
@@ -781,5 +865,6 @@ $timer.Start()
 Refresh-Center
 Refresh-Catalog
 Refresh-Queue
+Refresh-IdeaProposals
 Refresh-Notifications
 [void]$form.ShowDialog()
