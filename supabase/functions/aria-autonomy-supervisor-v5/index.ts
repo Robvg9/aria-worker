@@ -17,13 +17,21 @@ async function authorized(r:Request){
   return c?Boolean(await rpc("aria_autonomy_cron_authorize",{p_token:c})):false;
 }
 async function kick(){
-  const response=await fetch(`${GATEWAY}/v1/autonomy/cycle`,{
-    method:"POST",
-    headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json","x-aria-trigger":"autonomy-supervisor-v5"},
-    body:JSON.stringify({trigger:"autonomy-supervisor-v5"})
-  });
+  const [response,auditResponse]=await Promise.all([
+    fetch(`${GATEWAY}/v1/autonomy/cycle`,{
+      method:"POST",
+      headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json","x-aria-trigger":"autonomy-supervisor-v5"},
+      body:JSON.stringify({trigger:"autonomy-supervisor-v5"})
+    }),
+    fetch(`${GATEWAY}/v1/audit/all-for-one/tick`,{
+      method:"POST",
+      headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json","x-aria-trigger":"all-for-one-supervisor-v1"},
+      body:"{}"
+    })
+  ]);
   const payload=await response.json().catch(()=>({}));
-  return {http_status:response.status,...payload};
+  const audit=await auditResponse.json().catch(()=>({ok:false,status:"audit_response_invalid"}));
+  return {http_status:response.status,...payload,audit_http_status:auditResponse.status,audit};
 }
 Deno.serve(async r=>{
   if(r.method!=="POST")return out({error:"method_not_allowed"},405);
