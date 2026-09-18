@@ -561,6 +561,16 @@ async function runAgentAuditor(runId:string,a:any,snapshot:any){
   if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||`agent_runtime_${r.status}`));
   return {status:'succeeded',report:String(b?.response?.content??''),model_id:b?.model_id??a.model_id,metadata:b};
 }
+function classifyAllForOneProviderBlock(payload:any,httpStatus:number){
+  const error=payload?.error&&typeof payload.error==='object'?payload.error:{};
+  const providerStatus=Number(error?.provider_status??payload?.provider_status??httpStatus);
+  const code=String(error?.code??payload?.code??'');
+  const message=String(error?.message??payload?.message??'');
+  if(providerStatus===429||code==='rate_limit'||/rate\s*limit|free-models-per-day/i.test(message)){
+    return {reason:'rate_limit',provider_status:providerStatus||429,message};
+  }
+  return null;
+}
 async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
   if(!account)throw new Error('model_account_unavailable');
   const selected={status:'selected',provider_id:account.provider_id,account_id:account.account_id,model_id:m.model_id,capability:'text_generation'};
@@ -580,7 +590,19 @@ async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
     })
   });
   const b:any=await r.json().catch(()=>null);
-  if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||`model_runtime_${r.status}`));
+  if(!r.ok||b?.status!=='succeeded'){
+    const blocked=classifyAllForOneProviderBlock(b,r.status);
+    if(blocked){
+      return {
+        status:'blocked',
+        reason:blocked.reason,
+        report:'PROVIDER BLOCKED: '+blocked.reason+' — '+blocked.message,
+        model_id:m.model_id,
+        metadata:{classification:'blocked_provider',reason:blocked.reason,provider_status:blocked.provider_status,error:b?.error??null}
+      };
+    }
+    throw new Error(String(b?.error?.message||b?.error||`model_runtime_${r.status}`));
+  }
   return {status:'succeeded',report:String(b?.response?.content??''),model_id:m.model_id,metadata:b};
 }
 async function allForOneStart(){
@@ -638,7 +660,9 @@ async function allForOneTick(){
           }else{
             out={status:'succeeded',report:String(a.report||'deterministic surface audit'),model_id:null};
           }
-          await supabase.schema('aria_internal').from('all_for_one_auditors').update({status:'completed',report:out.report,evidence:out.metadata??{},verdict:'audited',finished_at:new Date().toISOString()}).eq('auditor_id',a.auditor_id);
+          const auditorStatus=out.status==='blocked'?'blocked':'completed';
+          const auditorVerdict=out.status==='blocked'?'blocked_provider':'audited';
+          await supabase.schema('aria_internal').from('all_for_one_auditors').update({status:auditorStatus,report:out.report,evidence:out.metadata??{},verdict:auditorVerdict,error:out.status==='blocked'?String(out.reason||'provider_blocked'):null,finished_at:new Date().toISOString()}).eq('auditor_id',a.auditor_id);
           return out;
         }catch(e){
           await supabase.schema('aria_internal').from('all_for_one_auditors').update({status:'failed',error:e instanceof Error?e.message:String(e),finished_at:new Date().toISOString()}).eq('auditor_id',a.auditor_id);
