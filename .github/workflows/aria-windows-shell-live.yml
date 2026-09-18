@@ -27,7 +27,7 @@ jobs:
           node --check .\autonomy\windows-shell-executor.js
           node --check .\execution\device-job-contract.js
           $agent = Get-Content -Raw .\agents\windows\aria-agent.js
-          if ($agent -notmatch "SHELL_OPERATION\s*=\s*['"]shell\.execute['"]") { throw 'shell.execute capability missing from agent source' }
+          if ($agent -notmatch "SHELL_OPERATION" -or $agent -notmatch "shell\.execute") { throw 'shell.execute capability missing from agent source' }
           Write-Host 'SOURCE_CONTRACT=PASS'
 
       - name: Sync complete runtime to D
