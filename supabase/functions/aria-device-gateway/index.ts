@@ -97,8 +97,24 @@ async function mission5ModelProbe(b:any,d:any){
   const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
   const risk=typeof b?.risk==='string'?b.risk:'READ';
   const allowed={
+    'google/gemini-3.8-flash-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
+    'google/gemini-3.7-flash-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
+    'google/gemini-3.6-flash-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
+    'google/gemini-3.5-flash-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
     'google/gemini-3.5-flash-lite-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
-    'google/gemini-2.5-flash-lite':{provider_id:'openrouter',account_id:'acct_openrouter_primary'}
+    'google/gemini-3.1-flash-lite-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
+    'nvidia/nemotron-3-ultra-550b-a55b:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'poolside/laguna-s-2.1:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'inclusionai/ling-3.0-flash-fin:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'nvidia/nemotron-3.5-lightning:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'thinking-machines/inkling:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'thinking-machines/inkling-small:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'inclusionai/ling-3.0-flash-vl:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'poolside/laguna-xs-2.1:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'nvidia/nemotron-3-nano-omni:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'nex-agi/nex-n2.5-mini:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'cohere/north-mini-code:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'},
+    'dots-studio/dots3-note-preview:free':{provider_id:'openrouter',account_id:'acct_openrouter_primary'}
   } as Record<string,{provider_id:string;account_id:string}>;
   const route=allowed[modelId];
   if(!route)throw new Error('model_not_allowed_for_mission5_probe');
