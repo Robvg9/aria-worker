@@ -643,8 +643,8 @@ Deno.serve(async (request) => {
     const agentIds = agentSteps.map((step) => String(step.target?.agent_id || "")).filter(Boolean);
     const verifiedTerminalMarkers = {
       universal_execution_verified: true,
-      model_execution_verified: modelSteps.every((step) => verifyStep(step, results[String(step.id)])),
-      agent_execution_verified: agentSteps.every((step) => verifyStep(step, results[String(step.id)])),
+      model_execution_verified: modelSteps.length > 0 && modelSteps.every((step) => verifyStep(step, results[String(step.id)])),
+      agent_execution_verified: agentSteps.length > 0 && agentSteps.every((step) => verifyStep(step, results[String(step.id)])),
     };
     await emitEvent(missionId, "mission_verified", {
       steps: steps.length,
