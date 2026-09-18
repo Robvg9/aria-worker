@@ -9,6 +9,8 @@ const EXPECTED_ROLES = Object.freeze({
   'aria-agent-memory-v1':'memory',
   'aria-agent-business-v1':'business',
   'aria-agent-device-v1':'device',
+  'aria-agent-planner-gemini35-v1':'planner',
+  'aria-agent-verifier-gemini35-v1':'verifier',
 });
 
 function adaptCatalogAgent(item){
@@ -39,7 +41,7 @@ function catalogCoverage(agents=[]){
   const ids=new Set(agents.map(a=>a.id));
   const missing=Object.keys(EXPECTED_ROLES).filter(id=>!ids.has(id));
   const roleSet=new Set(agents.map(a=>a.role));
-  return {expected:8,available:agents.length,missing,roles:[...roleSet].sort(),complete:missing.length===0};
+  return {expected:10,available:agents.length,missing,roles:[...roleSet].sort(),complete:missing.length===0};
 }
 
 module.exports={EXPECTED_ROLES,adaptCatalogAgent,adaptCatalog,catalogCoverage};
