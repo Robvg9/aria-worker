@@ -366,12 +366,32 @@ function readyBatch(steps: any[], completed: Set<string>) {
   return ready.slice(0, 1);
 }
 
+async function chainNextMeditationMission(requestUrl: string, depth: number) {
+  if (depth >= 8) return { status: "chain_limit_reached", depth };
+  const next = await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
+  const nextMissionId = next?.mission_id ? String(next.mission_id) : null;
+  if (!nextMissionId) return { status: "idle", depth };
+  try {
+    const response = await fetch(requestUrl, { method: "POST", headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" }, body: JSON.stringify({ mission_id: nextMissionId, chain_depth: depth + 1 }) });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || (payload.status === "paused" && payload.ok === false)) throw new Error(String(payload?.error || `chained_runtime_http_${response.status}`));
+    return { status: "chained", mission_id: nextMissionId, child_status: payload.status || null, child_runtime: payload.runtime || null, child_chain: payload.chained || null, depth: depth + 1 };
+  } catch (error) {
+    try {
+      await rpc("aria_mission_update_lease", { p_mission_id: nextMissionId, p_worker_id: V, p_mission: { status: "queued", lease_owner: null, lease_until: null, next_action: "recovery: immediate chain invocation failed" } });
+    } catch {}
+    return { status: "chain_invoke_failed", mission_id: nextMissionId, error: error instanceof Error ? error.message : String(error), depth };
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
   if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
 
   const body = await request.json().catch(() => ({}));
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
+  const chainDepth = Math.max(0, Math.min(8, Number(body?.chain_depth || 0)));
+  const meditationChain = request.headers.get("x-aria-trigger") === "meditation-ia";
   const token = tokenOf(request);
 
   try {
@@ -588,7 +608,8 @@ Deno.serve(async (request) => {
       },
     });
 
-    return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size });
+    const chained = meditationChain ? await chainNextMeditationMission(request.url, chainDepth) : null;
+    return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     if (requestedMissionId) {
