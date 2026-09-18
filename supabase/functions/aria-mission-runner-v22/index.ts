@@ -740,19 +740,21 @@ Deno.serve(async (request) => {
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     const failedMissionId = activeMissionId || requestedMissionId;
+    let recoveryUpdate = "not_attempted";
     if (failedMissionId) {
       try {
-        await updateMission(failedMissionId, {
+        const recovered = await updateMission(failedMissionId, {
           status: "paused",
           next_action: "recovery: universal runner exception",
           last_stderr: reason,
           lease_owner: null,
           lease_until: null,
         });
-      } catch {
-        // Lease fencing intentionally rejects stale mutation.
+        recoveryUpdate = recovered ? "applied" : "lease_lost";
+      } catch (recoveryError) {
+        recoveryUpdate = `failed:${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
       }
     }
-    return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V });
+    return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V, error: reason, recovery_update: recoveryUpdate });
   }
 });
