@@ -89,7 +89,7 @@ for($i=0;$i -lt 30;$i++){
 if($null -eq $health){ throw 'CONTROL_SERVER_HEALTH_FAILED' }
 
 Write-Host "HEALTH_OK version=$($health.version) pid=$($health.pid) mode=$($health.mode)"
-if([string]$health.version -ne 'aria-windows-meditation-controller-v2'){ throw "OLD_CONTROLLER_VERSION $($health.version)" }
+if([string]$health.version -ne 'aria-windows-meditation-controller-v3'){ throw "OLD_CONTROLLER_VERSION $($health.version)" }
 
 Write-Host '7. Prueba real de activacion...'
 $result = Invoke-RestMethod -Method Post -Uri "$base/start" -TimeoutSec 15 -ErrorAction Stop
