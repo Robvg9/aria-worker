@@ -254,6 +254,39 @@ async function intelligentRouterDecision(b:any){
  if(record.error)payload.persistence={recorded:false,error:record.error.message};else payload.persistence={recorded:true,decision_id:record.data?.decision_id};
  return payload;
 }
+async function intelligentRouterExecute(b:any,d:any){
+  const authorization=b?.authorization;
+  if(!authorization||authorization.status!=='approved')return{status:'blocked',reason:'authorization_not_approved'};
+  const routeDecision=await intelligentRouterDecision({
+    task:b?.task,capability:b?.capability||'text_generation',complexity:b?.complexity,risk:b?.risk,
+    preferred_model:b?.preferred_model,preferred_provider:b?.preferred_provider,trace_id:b?.trace_id||null
+  });
+  if(routeDecision.status!=='selected')return{status:routeDecision.status||'no_route',route_decision:routeDecision};
+  const routes=[routeDecision.selected,...(Array.isArray(routeDecision.fallback)?routeDecision.fallback:[])];
+  const results:any[]=[];
+  for(let i=0;i<routes.length;i++){
+    const selected=routes[i];
+    if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
+    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+      method:'POST',
+      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-router-execution'},
+      body:JSON.stringify({
+        execution_version:'1',
+        request_id:`mission6:${d.device_id}:${crypto.randomUUID()}`,
+        task_id:String(b?.task_id||'mission6-router-execution'),
+        capability:b?.capability||'text_generation',
+        selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:b?.capability||'text_generation'},
+        authorization,
+        input:b?.input||{payload:{prompt:String(b?.task||'')}},
+        policy:{risk:String(b?.risk||'READ'),mission6:true,router_decision:true,selected_agent_id:selected.agent_id||null}
+      })
+    });
+    const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
+    results.push({rank:i+1,route:selected,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
+    if(payload?.status==='succeeded')return{status:'succeeded',route_decision:routeDecision,selected_route:selected,attempts:results,fallback_used:i>0,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+  }
+  return{status:'failed',route_decision:routeDecision,attempts:results,fallback_used:results.length>1,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+}
 function objectiveHumanGate(goal:any,mission:any,gateEvents:any[]=[]){const gate=mission?.metadata?.human_gate;if(!gate||typeof gate!=='object'||gate.enabled!==true||!String(gate.method||'').trim())return{required:false,status:'none',label:'NO EXISTE MISION HUMANA',reason:null,method:null,instructions:null};const completed=mission?.checkpoint?.human_gate?.status==='completed'&&mission?.checkpoint?.human_gate?.verified===true;return{required:true,status:completed?'completed':'pending',label:completed?'HUMAN GATE COMPLETADO':'HUMAN GATE PENDIENTE',reason:String(gate.reason||'Verificación humana requerida antes del cierre.'),method:String(gate.method),instructions:String(gate.instructions||'Confirmar manualmente la verificación requerida.')}}
 function missionProgress(m:any){const plan=Array.isArray(m?.checkpoint?.plan)?m.checkpoint.plan:[];const total=plan.length||Number(m?.total_steps||0)||0;const done=Array.isArray(m?.checkpoint?.completed_steps)?m.checkpoint.completed_steps.length:Number(m?.completed_steps||0)||0;const progress=total?Math.max(0,Math.min(100,Math.round(done/total*1000)/10)):String(m?.status||'')==='succeeded'?100:0;return{percent:progress,completed:done,total}}
 function missionStepRows(m:any){
