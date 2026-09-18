@@ -8,6 +8,8 @@ const root = path.resolve(__dirname, '..');
 const gateway = fs.readFileSync(path.join(root, 'supabase/functions/aria-device-gateway/index.ts'), 'utf8');
 const canonical = fs.readFileSync(path.join(root, 'supabase/functions/aria-canonical-runtime-v1/index.ts'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
+const controller = fs.readFileSync(path.join(root, 'agents/windows/aria-meditation-controller.js'), 'utf8');
+const queueMigration = fs.readFileSync(path.join(root, 'supabase/migrations/20260918021000_meditation_center_queue_v1.sql'), 'utf8');
 
 test('Meditation IA tick delegates execution to canonical runtime', () => {
   assert.ok(gateway.includes('/functions/v1/aria-canonical-runtime-v1'));
