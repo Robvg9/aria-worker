@@ -47,7 +47,7 @@ jobs:
           if(Get-Command pip.exe -ErrorAction SilentlyContinue){try{pip.exe cache purge | Out-Host}catch{}}
           $ollama=Join-Path $env:USERPROFILE '.ollama\models';$ollamaD=Join-Path $dRoot 'ollama-models'
           if(Test-Path $ollama -PathType Container){try{$it=Get-Item $ollama -Force;if(-not($it.Attributes -band [IO.FileAttributes]::ReparsePoint)){if(Test-Path $ollamaD){Remove-Item $ollamaD -Recurse -Force -ErrorAction SilentlyContinue};New-Item -ItemType Directory -Force -Path (Split-Path $ollamaD)|Out-Null;Get-Process -Name ollama -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue;Move-Item -LiteralPath $ollama -Destination $ollamaD -Force;New-Item -ItemType Junction -Path $ollama -Target $ollamaD|Out-Null;Write-Host "OLLAMA_MODELS_RELOCATED=True TARGET=$ollamaD"}else{Write-Host 'OLLAMA_MODELS_ALREADY_RELOCATED=True'}}catch{Write-Warning "OLLAMA_RELOCATE_FAILED=$($_.Exception.Message)"}}
-          if(Get-Command dism.exe -ErrorAction SilentlyContinue){try{dism.exe /Online /Cleanup-Image /StartComponentCleanup /Quiet|Out-Host}catch{}}
+          if(Get-Command dism.exe -ErrorAction SilentlyContinue){try{dism.exe /Online /Cleanup-Image /StartComponentCleanup /Quiet|Out-Host;if($LASTEXITCODE -ne 0){Write-Warning "DISM_OPTIONAL_CLEANUP_SKIPPED_EXIT=$LASTEXITCODE";$global:LASTEXITCODE=0}}catch{Write-Warning "DISM_OPTIONAL_CLEANUP_SKIPPED=$($_.Exception.Message)";$global:LASTEXITCODE=0}}
           $after=(Get-PSDrive C).Free
           Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))"
           Write-Host "C_FREED_GB=$([math]::Round(($after-$before)/1GB,2))"
