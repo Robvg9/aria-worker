@@ -491,7 +491,7 @@ async function autonomyCycle(b:any){
 }
 
 async function githubAuditRead(operation:string,args:Record<string,unknown>){
-  const r=await fetch(\`\${URL}/functions/v1/aria-github-app-runtime-v1\`,{
+  const r=await fetch(`${URL}/functions/v1/aria-github-app-runtime-v1`,{
     method:'POST',
     headers:{'content-type':'application/json','x-aria-autonomy-token':RUNTIME_SECRET},
     body:JSON.stringify({operation,...args})
@@ -555,17 +555,17 @@ function auditPrompt(scope:any,role:string,label:string){
 }
 async function runAgentAuditor(runId:string,a:any,snapshot:any){
   const body={agent_id:a.agent_id,operation:'delegate',mission_id:'all-for-one-'+runId,step_id:'audit-agent-'+a.agent_id,risk:'READ',input:{message:auditPrompt(snapshot,String(a.role||'general'),String(a.agent_id))},policy:{tool_use:false,read_only:true,audit_protocol:'all-for-one-v1'}};
-  const r=await fetch(\`\${URL}/functions/v1/aria-agent-runtime-v1\`,{method:'POST',headers:{'content-type':'application/json',authorization:\`Bearer \${RUNTIME_SECRET}\`},body:JSON.stringify(body)});
+  const r=await fetch(`${URL}/functions/v1/aria-agent-runtime-v1`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},body:JSON.stringify(body)});
   const b:any=await r.json().catch(()=>null);
-  if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||\`agent_runtime_\${r.status}\`));
+  if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||`agent_runtime_${r.status}`));
   return {status:'succeeded',report:String(b?.response?.content??''),model_id:b?.model_id??a.model_id,metadata:b};
 }
 async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
   if(!account)throw new Error('model_account_unavailable');
   const selected={status:'selected',provider_id:account.provider_id,account_id:account.account_id,model_id:m.model_id,capability:'text_generation'};
-  const r=await fetch(\`\${URL}/functions/v1/aria-execution-runtime-v1\`,{
+  const r=await fetch(`${URL}/functions/v1/aria-execution-runtime-v1`,{
     method:'POST',
-    headers:{'content-type':'application/json',authorization:\`Bearer \${RUNTIME_SECRET}\`},
+    headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},
     body:JSON.stringify({
       execution_version:'1',
       request_id:'all-for-one:'+runId+':model:'+m.model_id+':'+crypto.randomUUID(),
@@ -579,7 +579,7 @@ async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
     })
   });
   const b:any=await r.json().catch(()=>null);
-  if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||\`model_runtime_\${r.status}\`));
+  if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||`model_runtime_${r.status}`));
   return {status:'succeeded',report:String(b?.response?.content??''),model_id:m.model_id,metadata:b};
 }
 async function allForOneStart(){
@@ -668,7 +668,7 @@ async function allForOneTick(){
         const reviewerPrompt='SECOND-PASS ADVERSARIAL REVIEW. Challenge these first-pass findings. Confirm, reject, or mark unresolved. Identify duplicated claims and missing evidence. Do not make changes. Return CONFIRMED, REJECTED, UNRESOLVED and the strongest evidence.\\n\\nFIRST PASS REPORTS:\\n'+evidenceText;
         try{
           const body={agent_id:r.reviewer_key,operation:'delegate',mission_id:'all-for-one-review-'+run.run_id,step_id:'review-'+r.reviewer_key,risk:'READ',input:{message:reviewerPrompt},policy:{tool_use:false,read_only:true,audit_protocol:'all-for-one-v1-second-pass'}};
-          const rr=await fetch(\`\${URL}/functions/v1/aria-agent-runtime-v1\`,{method:'POST',headers:{'content-type':'application/json',authorization:\`Bearer \${RUNTIME_SECRET}\`},body:JSON.stringify(body)});
+          const rr=await fetch(`${URL}/functions/v1/aria-agent-runtime-v1`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`},body:JSON.stringify(body)});
           const b:any=await rr.json().catch(()=>null);
           if(!rr.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||'review_failed'));
           await supabase.schema('aria_internal').from('all_for_one_reviews').update({status:'completed',review:String(b?.response?.content??''),verdict:'reviewed',updated_at:new Date().toISOString()}).eq('review_id',r.review_id);
