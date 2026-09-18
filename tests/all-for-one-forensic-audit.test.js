@@ -18,7 +18,7 @@ assert.match(migration,/revoke execute on function aria_internal\.run_mission_ru
 assert.match(migration,/alter function aria_internal\.canonical_vision_goal_id\(p_objective_id text\) set search_path/i);
 assert.match(migration,/alter table aria_internal\.goal_audit_snapshots_v1\s+add constraint/i);
 assert.match(migration,/create index if not exists .*execution_jobs_device_id_idx/i);
-assert.match(migration,/aria-autonomy-supervisor-v5/);
+assert.match(migration,/v10 compatibility shim -> v5 -> Gateway/);
 console.log("ALL FOR ONE FORENSIC AUDIT CONTRACT: PASS");
 
 const emergency=fs.readFileSync(path.join(root,".github/workflows/aria-windows-emergency-repair.yml"),"utf8");
