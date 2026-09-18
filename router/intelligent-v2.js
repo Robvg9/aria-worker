@@ -31,6 +31,25 @@ function riskAllowed(maxRisk,taskRisk){
   const a=RISK_ORDER[String(maxRisk||'medium')];const b=RISK_ORDER[String(taskRisk||'low')];
   return Number.isFinite(a)&&Number.isFinite(b)&&a>=b;
 }
+function classifyFallbackFailure(error={}){
+  const status=Number(error?.provider_status??error?.status??0);
+  const code=String(error?.code||'');
+  if(status===429||code==='rate_limit')return 'rate_limit';
+  if(code==='credential_unavailable'||code==='account_unavailable')return 'account_unavailable';
+  if(status>=500||code==='provider_unavailable')return 'provider_unavailable';
+  return 'execution_failure';
+}
+function governFallback(primary,alternatives=[],failureKind='execution_failure',policy={}){
+  const visited=new Set(Array.isArray(policy.visited)?policy.visited.map(String):[]);
+  if(failureKind==='rate_limit'&&policy.allow_rate_limit_fallback!==true)return [];
+  return alternatives.filter(x=>{
+    const key=String(x?.provider_id||'')+'|'+String(x?.account_id||'')+'|'+String(x?.model_id||'');
+    if(visited.has(key))return false;
+    if(failureKind==='provider_unavailable'&&x?.provider_id===primary?.provider_id)return false;
+    if(failureKind==='account_unavailable'&&x?.account_id===primary?.account_id)return false;
+    return true;
+  });
+}
 
 function numeric(value){return Number.isFinite(Number(value))?Number(value):null;}
 
@@ -192,4 +211,4 @@ function parallelPlan(tasks,{maxParallel=2,risk=null}={}){
   return {status:'planned',version:VERSION,max_parallel:Math.max(1,Math.floor(maxParallel)),batches};
 }
 
-module.exports={VERSION,classifyTask,domainsForTask,riskAllowed,normalizeCandidate,reliabilityScore,select,parallelPlan};
+module.exports={VERSION,classifyTask,domainsForTask,riskAllowed,normalizeCandidate,reliabilityScore,select,parallelPlan,classifyFallbackFailure,governFallback};
