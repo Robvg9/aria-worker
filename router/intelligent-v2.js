@@ -121,6 +121,7 @@ function select(candidates,input={}){
     if(c.agents.length){
       const eligibleAgents=c.agents.filter(a=>String(a.status||'available')==='available'&&riskAllowed(a.max_risk,taskRisk));
       if(!eligibleAgents.length)hard.push('no_agent_with_required_risk');
+      if(taskRisk==='critical'&&domains.length===0&&!eligibleAgents.some(a=>['security','reviewer','verifier','planner'].includes(String(a.role||''))))hard.push('critical_requires_specialist');
     }
     if(input.preferred_provider&&c.provider_id!==input.preferred_provider)hard.push('preferred_provider_mismatch');
     if(input.preferred_model&&c.model_id!==input.preferred_model)hard.push('preferred_model_mismatch');
@@ -130,10 +131,10 @@ function select(candidates,input={}){
     const score=
       live*0.20+
       capabilityScore*0.15+
-      (rel.score===null?0.05:rel.score*0.20)+
-      (lat.score===null?0.05:lat.score*0.15)+
-      (cost===null?0.05:cost*0.10)+
-      spec.score*0.15+
+      (rel.score===null?0.05:rel.score*0.15)+
+      (lat.score===null?0.05:lat.score*0.10)+
+      (cost===null?0.05:cost*0.05)+
+      spec.score*0.30+
       providerDirect*0.05;
     const agents=c.agents.filter(a=>String(a.status||'available')==='available'&&riskAllowed(a.max_risk,taskRisk));
     const agent=agents.sort((a,b)=>String(a.agent_id).localeCompare(String(b.agent_id)))[0]||null;
