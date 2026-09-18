@@ -51,4 +51,12 @@ assert.ok(dbGuard.includes('NO_CHANGE_REQUIRED'));
 const githubRuntime = fs.readFileSync(path.join(root, 'supabase/functions/aria-github-app-runtime-v1/index.ts'), 'utf8');
 assert.ok(githubRuntime.includes('idempotent:true'));
 assert.ok(githubRuntime.includes('existing?.content'));
+
+const executionRuntime = fs.readFileSync(
+  path.join(root, 'supabase/functions/aria-execution-runtime-v1/index.ts'),
+  'utf8'
+);
+assert.ok(executionRuntime.includes('max_completion_tokens:boundedCompletion'));
+assert.ok(executionRuntime.includes('Math.min(Math.floor(requestedCompletion),4000)'));
+assert.ok(!executionRuntime.includes('reqBody.max_tokens=p.max_tokens'));
 console.log('MEDITATION_IA_RUNTIME_BRIDGE=PASS');
