@@ -90,6 +90,29 @@ async function renewLease(missionId: string) {
   return renewed;
 }
 
+async function finalizeVerifiedMission(missionId: string, checkpoint: Record<string, unknown>, totalSteps: number) {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const finalized = await rpc("aria_mission_finalize_verified_lease_v1", {
+        p_mission_id: missionId,
+        p_worker_id: V,
+        p_checkpoint: checkpoint,
+        p_total_steps: totalSteps,
+        p_finished_at: new Date().toISOString(),
+      });
+      if (!finalized) throw new Error("mission_finalize_lease_lost");
+      return finalized;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/statement timeout|canceling statement due to statement timeout|mission_lease_lost/i.test(message) || attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || "mission_finalize_failed"));
+}
+
 async function updateMission(missionId: string, patch: Record<string, unknown>) {
   const updated = await rpc("aria_mission_update_lease", {
     p_mission_id: missionId,
@@ -598,29 +621,20 @@ Deno.serve(async (request) => {
     const agentIds = steps.filter((step) => executorType(step) === "agent").map((step) => String(step.target?.agent_id || "")).filter(Boolean);
     await emitEvent(missionId, "mission_verified", { steps: steps.length, completed_steps: completed.size, executor_types: executorTypes, agent_ids: agentIds, verified: true });
 
-    await updateMission(missionId, {
-      status: "succeeded",
-      current_step: steps.length,
-      total_steps: steps.length,
-      completed_steps: steps.length,
-      next_action: null,
-      finished_at: new Date().toISOString(),
-      lease_owner: null,
-      lease_until: null,
-      checkpoint: {
-        ...(mission.checkpoint || {}),
-        cognitive_context: cognitiveContext,
-        plan: steps,
-        completed_steps: [...completed],
-        attempts,
-        results,
-        pending_jobs: {},
-        model_execution_verified: steps.some((step) => executorType(step) === "model"),
-        agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
-        universal_execution_verified: true,
-        executor_types: executorTypes,
-      },
-    });
+    const terminalCheckpoint = {
+      ...(mission.checkpoint || {}),
+      cognitive_context: cognitiveContext,
+      plan: steps,
+      completed_steps: [...completed],
+      attempts,
+      results,
+      pending_jobs: {},
+      model_execution_verified: steps.some((step) => executorType(step) === "model"),
+      agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
+      universal_execution_verified: true,
+      executor_types: executorTypes,
+    };
+    await finalizeVerifiedMission(missionId, terminalCheckpoint, steps.length);
 
     const chained = meditationChain ? await chainNextMeditationMission(request.url, chainDepth) : null;
     return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });
