@@ -125,7 +125,7 @@ async function mission5ModelProbe(b:any,d:any){
     });
     const textBody=await response.text();
     let payload:any;try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
-    if(!response.ok)throw new Error(String(payload?.error?.message||payload?.error||`execution_runtime_http_${response.status}`));
+    if(!response.ok)return {ok:false,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||'http_error',runtime_http_status:response.status,response:payload?.response||null,usage:payload?.usage||null,runtime_error:payload?.error||String(textBody||''),metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
     return {ok:true,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||null,response:payload?.response||null,usage:payload?.usage||null,runtime_error:payload?.error||null,metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
   }catch(e:any){
     if(e?.name==='AbortError')throw new Error('mission5_model_probe_timeout');
