@@ -45,3 +45,5 @@ assert.doesNotMatch(gateway,/from\('all_for_one_runs'\)\.select\('\*'\)\.order\(
 assert.match(supervisorSource,/x-aria-autonomy-token/);
 
 assert.match(gateway,/input:\{payload:\{prompt:auditPrompt\(snapshot,'independent model reviewer',String\(m\.model_id\)\),max_tokens:1400/);
+
+assert.match(gateway,/auditPrompt\(snapshot,'independent model reviewer',String\(m\.model_id\)\)\.slice\(0,16000\)/);
