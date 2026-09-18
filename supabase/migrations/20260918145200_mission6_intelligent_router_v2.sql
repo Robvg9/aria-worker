@@ -20,7 +20,7 @@ grant select, insert, update, delete on aria_internal.router_decisions to servic
 create or replace function aria_internal.router_live_snapshot()
 returns jsonb language sql security definer set search_path=aria_internal as $$
 with models as (
- select m.*, cm.capability_id,
+ select m.*, cm.capability_id, true as capability_verified,
    ar.account_id, ar.status account_status, ar.enabled account_enabled,
    qr.status quota_status,
    coalesce((qr.metadata->>'rate_limit_status'), case when qr.rate_limit_requests is null then 'unknown' else 'available' end) rate_limit_status,
