@@ -35,8 +35,8 @@ assert(ui.includes("$notificationsTab.Text = 'NOTIFICACIONES'"), 'notification U
 assert(ui.includes('function Refresh-Notifications'), 'notification refresh missing');
 assert(ui.includes('function Mark-SelectedNotificationRead'), 'single notification read action missing');
 assert(ui.includes('function Mark-AllNotificationsRead'), 'mark-all read action missing');
-assert(ui.includes('Refresh-Notifications\n[void]$form.ShowDialog()'), 'notification UI initial load missing');
-assert(ui.includes('Refresh-Notifications\n  }'), 'notification UI timer refresh missing');
+assert(/Refresh-Notifications\s*\[void\]\$form\.ShowDialog\(\)/.test(ui), 'notification UI initial load missing');
+assert(/Refresh-Notifications\s*\}\s*\)\;/.test(ui), 'notification UI timer refresh missing');
 
 console.log('MEDITATION IA NOTIFICATIONS CONTRACT: PASS');
 console.log(JSON.stringify({required_event_classes: requiredKinds.length, traceability: true, dedupe_key: 'source_event_id', local_center: true, external_channels: {configured: false}}, null, 2));
