@@ -31,25 +31,11 @@ jobs:
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Run full test suite
         run: npm test
-      - name: Apply Grok embedded-browser consent compatibility patch
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('worker.js')
-          s = p.read_text()
-          marker = 'html = html.replace(/method\\s*=\\s*["\\\']post["\\\']/gi,\'method="get"\');'
-          if marker not in s:
-              raise SystemExit('expected consent rewrite marker not found')
-          if 'Grok embedded browser compatibility: use plain same-origin HTTPS links' not in s:
-              injected = '''\n    // Grok embedded browser compatibility: use plain same-origin HTTPS links instead of HTML form submits.\n    html = html.replace(/<form[^>]*action="([^"]*\\/authorize\\/consent)"[^>]*>\\s*<input[^>]*name="pending_id"[^>]*value="([^"]+)"[^>]*>\\s*<input[^>]*name="decision"[^>]*value="(allow|deny)"[^>]*>\\s*<button[^>]*>([^<]+)<\\/button>\\s*<\\/form>/gi,\n      (_, action, pendingId, decision, label) => `<a class="btn" href="${action}?pending_id=${encodeURIComponent(pendingId)}&decision=${decision}">${label}</a>`);'''
-              s = s.replace(marker, marker + injected, 1)
-              p.write_text(s)
-          print('CONSENT_LINK_PATCH=OK')
-          PY
       - name: Verify Grok consent compatibility patch
         run: |
-          grep -q 'plain same-origin HTTPS links instead of HTML form submits' worker.js
-          grep -q 'encodeURIComponent(pendingId)' worker.js
+          grep -q 'x-aria-grok-consent":"direct-link-v2' worker.js
+          grep -q 'class="btn" href="${allow}"' worker.js
+          grep -q 'class="btn secondary" href="${deny}"' worker.js
       - name: Verify required Cloudflare deployment secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
