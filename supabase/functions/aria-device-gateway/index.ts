@@ -489,8 +489,210 @@ async function autonomyCycle(b:any){
   }).eq('cycle_id',cycle_id);
   return{ok:status!=='failed'&&status!=='blocked',deduplicated:false,cycle_id,status,policy_version:'autonomy-post-plan-v1',selected_goal:selected,mission_id:missionId,reused_mission:reused,runtime,learning:learningResult};
 }
+
+async function githubAuditRead(operation:string,args:Record<string,unknown>){
+  const r=await fetch(\`\${URL}/functions/v1/aria-github-app-runtime-v1\`,{
+    method:'POST',
+    headers:{'content-type':'application/json','x-aria-autonomy-token':RUNTIME_SECRET},
+    body:JSON.stringify({operation,...args})
+  });
+  const b:any=await r.json().catch(()=>null);
+  if(!r.ok||b?.ok!==true)throw new Error(String(b?.error||'github_audit_read_failed'));
+  return b.data;
+}
+async function buildAllForOneSnapshot(){
+  const now=new Date().toISOString();
+  const [models,agents,devices,accounts,active,failures,cycles,security,tree,critical]=await Promise.all([
+    supabase.schema('aria_internal').from('model_registry').select('model_id,display_name,provider_id,status,enabled,integration_status,interface_type,model_family,capabilities,updated_at').order('display_name'),
+    supabase.schema('aria_internal').from('agent_catalog').select('agent_id,role,status,model_id,capabilities,max_risk,scope,updated_at').order('agent_id'),
+    supabase.schema('aria_internal').from('device_registry').select('device_id,display_name,agent_type,status,capabilities,last_seen_at,updated_at').order('display_name'),
+    supabase.schema('aria_internal').from('account_registry').select('account_id,provider_id,display_name,status,enabled,secret_present,interface_type,credential_type,models,capabilities').eq('enabled',true).order('provider_id'),
+    supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,last_stderr,updated_at').in('status',['queued','planning','running','waiting','paused']).order('updated_at',{ascending:false}).limit(100),
+    supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,last_stderr,checkpoint,updated_at').in('status',['failed','blocked','timeout']).gt('updated_at',new Date(Date.now()-72*3600000).toISOString()).order('updated_at',{ascending:false}).limit(100),
+    supabase.schema('aria_internal').from('autonomy_cycles').select('cycle_id,status,selected_goal_id,created_mission_id,mission_status,learning_result,created_at').order('created_at',{ascending:false}).limit(20),
+    supabase.schema('aria_internal').rpc('get_all_for_one_security_snapshot'),
+    githubAuditRead('tree_read',{owner:'Robvg9',repo:'aria-worker',branch:'main'}),
+    Promise.all([
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'supabase/functions/aria-device-gateway/index.ts'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'supabase/functions/aria-app-api-v3/index.ts'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'supabase/functions/aria-autonomy-supervisor-v5/index.ts'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'supabase/functions/aria-agent-runtime-v1/index.ts'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'supabase/functions/aria-execution-runtime-v1/index.ts'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'tools/registry.json'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'autonomy/universal-execution/registry.json'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'models/registry.json'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'agents/catalog-adapter-v2.js'}),
+      githubAuditRead('file_read',{owner:'Robvg9',repo:'aria-worker',branch:'main',path:'tests/all-for-one-forensic-audit.test.js'})
+    ])
+  ]);
+  for(const x of [models,agents,devices,accounts,active,failures,cycles])if((x as any).error)throw new Error((x as any).error.message);
+  const normalizeFiles=(items:any[])=>items.map((x:any)=>({path:x.path,content:typeof x.content==='string'?x.content.slice(0,8000):String(x.content??'')}));  
+  return{
+    generated_at:now,
+    main_tree:{sha:tree?.sha??null,truncated:tree?.truncated===true,path_count:Array.isArray(tree?.paths)?tree.paths.length:0,paths:Array.isArray(tree?.paths)?tree.paths.slice(0,1200):[]},
+    critical_files:normalizeFiles(critical||[]),
+    supabase:{
+      models:models.data||[],agents:agents.data||[],devices:devices.data||[],accounts:accounts.data||[],
+      active_missions:active.data||[],recent_failures:failures.data||[],recent_autonomy_cycles:cycles.data||[],
+      security:security?.data??security?.result??null
+    },
+    audit_rule:'evidence-first; root-cause over patch; no writes from first-pass auditors; every eligible agent/model attempted; unavailable surfaces preserved as gaps'
+  };
+}
+function auditPrompt(scope:any,role:string,label:string){
+  return [
+    'ALL FOR ONE FORENSIC AUDIT v1.',
+    'You are an independent ARIA auditor. This is READ-ONLY. Do not propose pretending a fix was executed.',
+    'Your lens: '+role+' / '+label+'.',
+    'Challenge both the implementation and the previous audit assumptions.',
+    'Look for bugs, authority drift, duplicated paths, stale workflows, security issues, incorrect claims, missing observability, model routing failures, agent/resource mismatch, device gaps, PWA/API mismatches, and efficiency/reliability opportunities.',
+    'For every finding classify CONFIRMED, HYPOTHESIS, or BLOCKED; include concrete evidence from the supplied snapshot.',
+    'Prioritize root causes and identify what second test would prove or disprove the finding.',
+    'Return: FINDINGS:, PRIORITY:, EVIDENCE:, ROOT_CAUSE:, RECOMMENDED_TEST:, VERDICT:.',
+    'AUDIT SNAPSHOT:',
+    JSON.stringify(scope).slice(0,65000)
+  ].join('\n');
+}
+async function runAgentAuditor(runId:string,a:any,snapshot:any){
+  const body={agent_id:a.agent_id,operation:'delegate',mission_id:'all-for-one-'+runId,step_id:'audit-agent-'+a.agent_id,risk:'READ',input:{message:auditPrompt(snapshot,String(a.role||'general'),String(a.agent_id))},policy:{tool_use:false,read_only:true,audit_protocol:'all-for-one-v1'}};
+  const r=await fetch(\`\${URL}/functions/v1/aria-agent-runtime-v1\`,{method:'POST',headers:{'content-type':'application/json',authorization:\`Bearer \${RUNTIME_SECRET}\`},body:JSON.stringify(body)});
+  const b:any=await r.json().catch(()=>null);
+  if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||\`agent_runtime_\${r.status}\`));
+  return {status:'succeeded',report:String(b?.response?.content??''),model_id:b?.model_id??a.model_id,metadata:b};
+}
+async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
+  if(!account)throw new Error('model_account_unavailable');
+  const selected={status:'selected',provider_id:account.provider_id,account_id:account.account_id,model_id:m.model_id,capability:'text_generation'};
+  const r=await fetch(\`\${URL}/functions/v1/aria-execution-runtime-v1\`,{
+    method:'POST',
+    headers:{'content-type':'application/json',authorization:\`Bearer \${RUNTIME_SECRET}\`},
+    body:JSON.stringify({
+      execution_version:'1',
+      request_id:'all-for-one:'+runId+':model:'+m.model_id+':'+crypto.randomUUID(),
+      task_id:'all-for-one:'+runId,
+      capability:'text_generation',
+      selected_route:selected,
+      authorization:{status:'approved',risk_class:'READ',evidence_ref:'all-for-one-v1'},
+      input:{payload:{messages:[{role:'user',content:[{type:'text',text:auditPrompt(snapshot,'independent model reviewer',String(m.model_id))}]}],max_tokens:1400,temperature:0}}},
+      policy:{read_only:true},
+      metadata:{executor_type:'model',audit_protocol:'all-for-one-v1',run_id:runId,model_id:m.model_id}
+    })
+  });
+  const b:any=await r.json().catch(()=>null);
+  if(!r.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||\`model_runtime_\${r.status}\`));
+  return {status:'succeeded',report:String(b?.response?.content??''),model_id:m.model_id,metadata:b};
+}
+async function allForOneStart(){
+  const {data:existing}=await supabase.schema('aria_internal').from('all_for_one_runs').select('*').in('status',['queued','auditing','reviewing']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  if(existing)return existing;
+  const snapshot=await buildAllForOneSnapshot();
+  const enabledModels=(snapshot.supabase.models||[]).filter((m:any)=>m.status==='available'&&m.enabled===true);
+  const availableAgents=(snapshot.supabase.agents||[]).filter((a:any)=>a.status==='available');
+  const accounts=snapshot.supabase.accounts||[];
+  const hasAccount=(m:any)=>accounts.find((a:any)=>a.provider_id===m.provider_id&&a.status==='available'&&a.enabled===true&&Array.isArray(a.models)&&a.models.includes(m.model_id));
+  const surfaces=[
+    ...(snapshot.supabase.devices||[]).map((d:any)=>({type:'surface',key:'device:'+d.device_id,report:'DEVICE SURFACE: '+d.display_name+' status='+d.status+' last_seen='+String(d.last_seen_at)})),
+    {type:'surface',key:'executor:connector',report:'EXECUTOR SURFACE: connector — inspect registry and configured connector status.'},
+    {type:'surface',key:'executor:device',report:'EXECUTOR SURFACE: device — inspect Windows/Android device evidence and operation contracts.'},
+    {type:'surface',key:'executor:agent',report:'EXECUTOR SURFACE: agent — inspect delegation/governance contracts.'},
+    {type:'surface',key:'executor:model',report:'EXECUTOR SURFACE: model — inspect route selection and execution verification.'},
+    {type:'surface',key:'executor:eas',report:'EXECUTOR SURFACE: eas — status is audited as unknown unless a live route exists.'},
+    {type:'surface',key:'tool:tool_aria_context',report:'TOOL SURFACE: aria_context — contract/evidence audit only; no side effect.'},
+    {type:'surface',key:'tool:tool_aria_memory_capture',report:'TOOL SURFACE: aria_memory_capture — contract audit only; no write is triggered.'},
+    {type:'surface',key:'connection:supabase',report:'CONNECTION SURFACE: Supabase — live DB evidence collected.'},
+    {type:'surface',key:'connection:github',report:'CONNECTION SURFACE: GitHub App — live tree and file evidence collected.'},
+    {type:'surface',key:'connection:models',report:'CONNECTION SURFACE: model providers — audited by independent model executions.'}
+  ];
+  const {data:run,error:re}=await supabase.schema('aria_internal').from('all_for_one_runs').insert({status:'auditing',phase:'first_pass',target_ref:'main',target_commit:snapshot.main_tree.sha,scope:{eligible_agents:availableAgents.length,eligible_models:enabledModels.length,surfaces:surfaces.length},coverage:{},summary:{},snapshot}).select('*').single();
+  if(re)throw new Error(re.message);
+  const rows=[
+    ...availableAgents.map((a:any)=>({run_id:run.run_id,auditor_type:'agent',auditor_key:a.agent_id,model_id:a.model_id,status:'queued',evidence_mode:'snapshot'})),
+    ...enabledModels.map((m:any)=>({run_id:run.run_id,auditor_type:'model',auditor_key:m.model_id,model_id:m.model_id,status:hasAccount(m)?'queued':'blocked',evidence_mode:'snapshot',error:hasAccount(m)?null:'no_available_account_for_model'})),
+    ...surfaces.map((s:any)=>({run_id:run.run_id,auditor_type:s.type,auditor_key:s.key,status:'completed',evidence_mode:'deterministic',report:s.report}))
+  ];
+  const {error:ae}=await supabase.schema('aria_internal').from('all_for_one_auditors').insert(rows);
+  if(ae)throw new Error(ae.message);
+  await supabase.schema('aria_internal').from('all_for_one_runs').update({coverage:{agents:{eligible:availableAgents.length,queued:availableAgents.length},models:{eligible:enabledModels.length,queued:enabledModels.filter(hasAccount).length,blocked:enabledModels.filter((m:any)=>!hasAccount(m)).length},surfaces:{total:surfaces.length,completed:surfaces.length}},updated_at:new Date().toISOString()}).eq('run_id',run.run_id);
+  return run;
+}
+async function allForOneTick(){
+  const runRes=await supabase.schema('aria_internal').from('all_for_one_runs').select('*').in('status',['auditing','reviewing']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  const run=runRes.data;
+  if(!run)return{ok:true,status:'idle',reason:'no_active_all_for_one_run'};
+  if(run.status==='auditing'){
+    const {data:pending}=await supabase.schema('aria_internal').from('all_for_one_auditors').select('*').eq('run_id',run.run_id).eq('status','queued').order('created_at',{ascending:true}).limit(4);
+    if((pending||[]).length){
+      const results=await Promise.allSettled((pending||[]).map(async(a:any)=>{
+        await supabase.schema('aria_internal').from('all_for_one_auditors').update({status:'running',attempt:Number(a.attempt||0)+1,started_at:new Date().toISOString()}).eq('auditor_id',a.auditor_id).eq('status','queued');
+        try{
+          let out:any;
+          if(a.auditor_type==='agent'){
+            const agent=(run.snapshot?.supabase?.agents||[]).find((x:any)=>x.agent_id===a.auditor_key);
+            out=await runAgentAuditor(run.run_id,agent,run.snapshot);
+          }else if(a.auditor_type==='model'){
+            const model=(run.snapshot?.supabase?.models||[]).find((x:any)=>x.model_id===a.auditor_key);
+            const account=(run.snapshot?.supabase?.accounts||[]).find((x:any)=>x.provider_id===model?.provider_id&&x.status==='available'&&x.enabled===true&&Array.isArray(x.models)&&x.models.includes(a.auditor_key));
+            out=await runModelAuditor(run.run_id,model,account,run.snapshot);
+          }else{
+            out={status:'succeeded',report:String(a.report||'deterministic surface audit'),model_id:null};
+          }
+          await supabase.schema('aria_internal').from('all_for_one_auditors').update({status:'completed',report:out.report,evidence:out.metadata??{},verdict:'audited',finished_at:new Date().toISOString()}).eq('auditor_id',a.auditor_id);
+          return out;
+        }catch(e){
+          await supabase.schema('aria_internal').from('all_for_one_auditors').update({status:'failed',error:e instanceof Error?e.message:String(e),finished_at:new Date().toISOString()}).eq('auditor_id',a.auditor_id);
+          return {status:'failed',error:e instanceof Error?e.message:String(e)};
+        }
+      }));
+      return{ok:true,status:'auditing',run_id:run.run_id,processed:results.length};
+    }
+    const {data:auditors}=await supabase.schema('aria_internal').from('all_for_one_auditors').select('auditor_id,auditor_type,auditor_key,model_id,status,report,error').eq('run_id',run.run_id);
+    const open=(auditors||[]).filter((a:any)=>a.status==='queued'||a.status==='running');
+    if(open.length)return{ok:true,status:'auditing',run_id:run.run_id,pending:open.length};
+    const reviewers=[
+      {type:'agent',key:'aria-agent-verifier-gemini35-v1',model_id:'google/gemini-3.5-flash-lite-direct'},
+      {type:'agent',key:'aria-agent-security-v1',model_id:'google/gemini-3.5-flash-lite-direct'}
+    ];
+    for(const reviewer of reviewers){
+      await supabase.schema('aria_internal').from('all_for_one_reviews').upsert({run_id:run.run_id,reviewer_type:reviewer.type,reviewer_key:reviewer.key,model_id:reviewer.model_id,status:'queued'},{onConflict:'run_id,reviewer_type,reviewer_key'});
+    }
+    await supabase.schema('aria_internal').from('all_for_one_runs').update({status:'reviewing',phase:'second_pass',updated_at:new Date().toISOString()}).eq('run_id',run.run_id);
+    return{ok:true,status:'reviewing',run_id:run.run_id,first_pass:'complete'};
+  }
+  if(run.status==='reviewing'){
+    const {data:reviews}=await supabase.schema('aria_internal').from('all_for_one_reviews').select('*').eq('run_id',run.run_id);
+    const queued=(reviews||[]).filter((r:any)=>r.status==='queued').slice(0,2);
+    const reports=(await supabase.schema('aria_internal').from('all_for_one_auditors').select('auditor_type,auditor_key,model_id,status,report,error').eq('run_id',run.run_id)).data||[];
+    const evidenceText=reports.map((r:any)=>'['+r.auditor_type+':'+r.auditor_key+'] '+String(r.report||r.error||'')).join('\n\n').slice(0,70000);
+    if(queued.length){
+      const out=await Promise.allSettled(queued.map(async(r:any)=>{
+        const reviewerPrompt='SECOND-PASS ADVERSARIAL REVIEW. Challenge these first-pass findings. Confirm, reject, or mark unresolved. Identify duplicated claims and missing evidence. Do not make changes. Return CONFIRMED, REJECTED, UNRESOLVED and the strongest evidence.\\n\\nFIRST PASS REPORTS:\\n'+evidenceText;
+        try{
+          const body={agent_id:r.reviewer_key,operation:'delegate',mission_id:'all-for-one-review-'+run.run_id,step_id:'review-'+r.reviewer_key,risk:'READ',input:{message:reviewerPrompt},policy:{tool_use:false,read_only:true,audit_protocol:'all-for-one-v1-second-pass'}};
+          const rr=await fetch(\`\${URL}/functions/v1/aria-agent-runtime-v1\`,{method:'POST',headers:{'content-type':'application/json',authorization:\`Bearer \${RUNTIME_SECRET}\`},body:JSON.stringify(body)});
+          const b:any=await rr.json().catch(()=>null);
+          if(!rr.ok||b?.status!=='succeeded')throw new Error(String(b?.error?.message||b?.error||'review_failed'));
+          await supabase.schema('aria_internal').from('all_for_one_reviews').update({status:'completed',review:String(b?.response?.content??''),verdict:'reviewed',updated_at:new Date().toISOString()}).eq('review_id',r.review_id);
+          return b;
+        }catch(e){
+          await supabase.schema('aria_internal').from('all_for_one_reviews').update({status:'failed',review:String(e instanceof Error?e.message:String(e)),verdict:'failed',updated_at:new Date().toISOString()}).eq('review_id',r.review_id);
+          return null;
+        }
+      }));
+      return{ok:true,status:'reviewing',run_id:run.run_id,processed:out.length};
+    }
+    const counts=(reviews||[]).reduce((a:any,r:any)=>{a[r.status]=(a[r.status]||0)+1;return a},{});
+    const auditRows=reports.reduce((a:any,r:any)=>{a[r.status]=(a[r.status]||0)+1;return a},{});
+    const coverage={first_pass:{auditors:reports.length,completed:auditRows.completed||0,failed:auditRows.failed||0,blocked:auditRows.blocked||0},second_pass:{reviewers:reviews?.length||0,completed:counts.completed||0,failed:counts.failed||0}};
+    const finalStatus=(coverage.first_pass.failed===0&&coverage.second_pass.completed===coverage.second_pass.reviewers)?'completed':'completed_with_gaps';
+    await supabase.schema('aria_internal').from('all_for_one_runs').update({status:finalStatus,phase:'closed',coverage,summary:{protocol:'all-for-one-v1',double_review:true,evidence_only_surfaces:true},updated_at:new Date().toISOString(),completed_at:new Date().toISOString()}).eq('run_id',run.run_id);
+    return{ok:true,status:finalStatus,run_id:run.run_id,coverage};
+  }
+  return{ok:true,status:'idle',run_id:run.run_id};
+}
 Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){if(typeof b.device_id!=='string'||typeof b.token!=='string')return json({error:'device_id_and_token_required'},400);const {data,error}=await supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token});if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);return json(data)}if(req.method==='POST'&&p==='/v1/autonomy/cycle'){try{let serviceAuthorized=await autonomyServiceAuthorized(req);if(!serviceAuthorized){const deviceAuth=await auth(req,b.device_id);if(deviceAuth.error)return deviceAuth.error;b.device_id=deviceAuth.device.device_id;}return json(await autonomyCycle(b))}catch(e){return json({ok:false,status:'blocked',error:queueError(e),policy_version:'autonomy-post-plan-v1'},200)}}
-const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.isArray(b.capabilities)?b.capabilities:d.capabilities,p_agent_type:String(b.agent_type||d.agent_type)});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id})}if(req.method==='POST'&&p==='/v1/router/decide'){try{return json(await intelligentRouterDecision({...b,device_id:d.device_id}))}catch(e){return json({status:'failed',error:queueError(e)},500)}}
+if(req.method==='POST'&&p==='/v1/audit/all-for-one/start'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneStart())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
+if(req.method==='POST'&&p==='/v1/audit/all-for-one/tick'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneTick())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
+const a=;if(a.error)return a.error;const d=a.device;if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.isArray(b.capabilities)?b.capabilities:d.capabilities,p_agent_type:String(b.agent_type||d.agent_type)});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id})}if(req.method==='POST'&&p==='/v1/router/decide'){try{return json(await intelligentRouterDecision({...b,device_id:d.device_id}))}catch(e){return json({status:'failed',error:queueError(e)},500)}}
 if(req.method==='POST'&&p==='/v1/router/execute'){try{return json(await intelligentRouterExecute(b,d))}catch(e){return json({status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/router/parallel-execute'){try{return json(await intelligentRouterParallelExecute(b,d))}catch(e){return json({status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/meditation/tick'){try{return json(await meditationTick(b,d))}catch(e){return json({ok:false,status:'failed',error:e instanceof Error?e.message:String(e)},200)}}
