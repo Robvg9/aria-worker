@@ -28,3 +28,31 @@ alter table aria_internal.mission_events drop constraint if exists mission_event
 alter table aria_internal.mission_events add constraint mission_events_event_type_check check (event_type = any (array[
 'mission_created','mission_queued','mission_planning','mission_started','mission_running','step_started','step_succeeded','step_failed','step_retrying','step_batch_started','executor_selected','execution_started','execution_completed','execution_failed','execution_timeout','mission_waiting','mission_blocked','mission_paused','mission_resumed','mission_succeeded','mission_failed','mission_cancelled','checkpoint_saved','agent_heartbeat','human_gate_requested','human_gate_completed','self_improvement_human_gate','recovery_attempted','mission_verified','mission_dead_lettered','cognitive_recall_completed','cognitive_planning_context_used','cognitive_loop_completed','agent_executor_diagnostic','mission_chain_completed'
 ]));
+
+-- Strengthen the fail-closed boundary: direct succeeded writes must also carry verified mission evidence.
+create or replace function aria_internal.enforce_meditation_human_gate_before_succeeded()
+returns trigger
+language plpgsql
+security definer
+set search_path to pg_catalog, aria_internal
+as $$
+declare gate jsonb;
+begin
+  if new.status='succeeded' and coalesce(new.metadata->>'source',old.metadata->>'source')='meditation-ia-v1' then
+    if coalesce(new.total_steps,0)<=0 or coalesce(new.completed_steps,0)<>coalesce(new.total_steps,0) then
+      raise exception 'semantic_verification_required:steps_incomplete';
+    end if;
+    if not exists (select 1 from aria_internal.mission_events e where e.mission_id=new.mission_id and e.event_type='mission_verified' and coalesce((e.payload->>'verified')::boolean,false)=true) then
+      raise exception 'semantic_verification_required:mission_verified_event';
+    end if;
+    gate:=coalesce(new.metadata->'human_gate',old.metadata->'human_gate');
+    if jsonb_typeof(gate)='object' and coalesce((gate->>'enabled')::boolean,false) is true and coalesce(btrim(gate->>'method'),'')<>'' then
+      if coalesce(new.checkpoint->'human_gate'->>'status','')<>'completed'
+         or coalesce(new.checkpoint->'human_gate'->>'verified','false')<>'true'
+         or not exists (select 1 from aria_internal.mission_events e where e.mission_id=new.mission_id and e.event_type='human_gate_completed' and coalesce((e.payload->>'verified')::boolean,false)=true)
+      then raise exception 'human_gate_required:completion_pending'; end if;
+    end if;
+  end if;
+  return new;
+end;
+$$;
