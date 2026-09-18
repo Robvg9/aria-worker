@@ -57,6 +57,11 @@ begin
     'proof','successfully_verified_parent_then_successfully_verified_child_without_scheduler_tick'
   );
 
+  update aria_internal.mission_state
+     set checkpoint=coalesce(checkpoint,'{}'::jsonb)||jsonb_build_object('continuity_proof',ev),
+         updated_at=clock_timestamp()
+   where mission_id=p_parent_mission_id;
+
   insert into aria_internal.mission_events(mission_id,step_index,event_type,payload)
   values(p_parent_mission_id,null,'mission_chain_completed',ev);
 
