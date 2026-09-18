@@ -35,3 +35,7 @@ assert.doesNotMatch(cloudflareWorkflow,/Apply Grok embedded-browser consent comp
 assert.match(cloudflareWorkflow,/x-aria-grok-consent/);
 const forbiddenSelfPatcher=path.join(root,".github/workflows/fix-grok-consent-compat.yml");
 assert.equal(fs.existsSync(forbiddenSelfPatcher),false);
+
+const windowsShell=fs.readFileSync(path.join(root,".github/workflows/aria-windows-shell-live.yml"),"utf8");
+assert.match(windowsShell,/SHELL_OPERATION\\s\*=\\s\*\[['"]shell\\\.execute\[['"]]/);
+assert.doesNotMatch(windowsShell,/SHELL_OPERATION = 'shell\.execute'/);
