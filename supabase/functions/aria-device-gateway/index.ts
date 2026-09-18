@@ -92,6 +92,47 @@ async function meditationIdeaProposalById(deviceId:string,id:string){
   return data;
 }
 
+async function mission5ModelProbe(b:any,d:any){
+  const modelId=typeof b?.model_id==='string'?b.model_id.trim():'';
+  const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
+  const risk=typeof b?.risk==='string'?b.risk:'READ';
+  const allowed={
+    'google/gemini-3.5-flash-lite-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
+    'google/gemini-2.5-flash-lite':{provider_id:'openrouter',account_id:'acct_openrouter_primary'}
+  } as Record<string,{provider_id:string;account_id:string}>;
+  const route=allowed[modelId];
+  if(!route)throw new Error('model_not_allowed_for_mission5_probe');
+  if(risk!=='READ')throw new Error('mission5_model_probe_read_only');
+  if(!prompt||!prompt.includes('M5_MODEL_E2E_OK'))throw new Error('mission5_model_probe_prompt_contract');
+  if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),30000);
+  try{
+    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+      method:'POST',
+      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission5-model-probe'},
+      body:JSON.stringify({
+        execution_version:'1',
+        request_id:`mission5:model:${modelId}:${crypto.randomUUID()}`,
+        task_id:'mission5_model_probe',
+        capability:'text_generation',
+        selected_route:{status:'selected',provider_id:route.provider_id,account_id:route.account_id,model_id:modelId,capability:'text_generation'},
+        authorization:{status:'approved',risk_class:'READ',evidence_ref:`mission5:model-probe:${modelId}`},
+        input:{payload:{prompt}},
+        policy:{risk:'READ',mission5:true,probe:true}
+      }),
+      signal:controller.signal
+    });
+    const textBody=await response.text();
+    let payload:any;try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
+    if(!response.ok)throw new Error(String(payload?.error?.message||payload?.error||`execution_runtime_http_${response.status}`));
+    return {ok:true,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||null,response:payload?.response||null,usage:payload?.usage||null,metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
+  }catch(e:any){
+    if(e?.name==='AbortError')throw new Error('mission5_model_probe_timeout');
+    throw e;
+  }finally{clearTimeout(timer)}
+}
+
 async function mission5AgentProbe(b:any,d:any){
   const agentId=typeof b?.agent_id==='string'?b.agent_id.trim():'';
   const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
@@ -176,6 +217,7 @@ if(req.method==='POST'&&p==='/v1/meditation/human-gate/complete'){try{const miss
 if(req.method==='GET'&&p==='/v1/meditation/notifications'){try{return json(await meditationNotificationsSnapshot(String(u.searchParams.get('unread_only')||'false').toLowerCase()==='true',Number(u.searchParams.get('limit')||50)))}catch(e){return json({ok:false,error:queueError(e)},500)}}
 if(req.method==='POST'&&p==='/v1/meditation/notifications/read'){try{return json(await markMeditationNotificationsRead(b))}catch(e){return json({ok:false,error:queueError(e)},400)}}
 if(req.method==='POST'&&p==='/v1/mission5/agent-probe'){try{return json(await mission5AgentProbe(b,d))}catch(e){return json({ok:false,error:queueError(e)},400)}}
+if(req.method==='POST'&&p==='/v1/mission5/model-probe'){try{return json(await mission5ModelProbe(b,d))}catch(e){return json({ok:false,error:queueError(e)},400)}}
 if(req.method==='POST'&&p==='/v1/meditation/idea-to-mission'){try{return json(await createMeditationIdeaProposal(b,d))}catch(e){return json({ok:false,error:queueError(e)},400)}}
 if(req.method==='GET'&&p==='/v1/meditation/ideas'){try{return json(await meditationIdeaProposalsSnapshot(d.device_id,Number(u.searchParams.get('limit')||50)))}catch(e){return json({ok:false,error:queueError(e)},500)}}
 const ideaMatch=p.match(/^\/v1\/meditation\/ideas\/([^/]+)$/);
