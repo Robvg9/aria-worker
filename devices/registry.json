@@ -5,7 +5,18 @@
       "device_id": "device_android_runtime",
       "resource_class": "mobile",
       "platform_family": "android",
-      "capabilities": ["screen.capture", "ui.observe", "ui.act", "audio.capture", "audio.play", "shell.execute", "file.read", "file.write", "device.telemetry"],
+      "capabilities": [
+        "screen.capture",
+        "ui.observe",
+        "ui.act",
+        "audio.capture",
+        "audio.play",
+        "shell.execute",
+        "file.read",
+        "file.write",
+        "device.telemetry",
+        "notifications.push"
+      ],
       "health": "unknown",
       "security": "restricted",
       "executor": "android-runtime",
@@ -15,7 +26,18 @@
       "device_id": "device_pc_runtime",
       "resource_class": "desktop",
       "platform_family": "pc",
-      "capabilities": ["screen.capture", "ui.observe", "ui.act", "audio.capture", "audio.play", "shell.execute", "file.read", "file.write", "network.request", "device.telemetry"],
+      "capabilities": [
+        "screen.capture",
+        "ui.observe",
+        "ui.act",
+        "audio.capture",
+        "audio.play",
+        "shell.execute",
+        "file.read",
+        "file.write",
+        "network.request",
+        "device.telemetry"
+      ],
       "health": "unknown",
       "security": "restricted",
       "executor": "pc-runtime",
@@ -25,7 +47,14 @@
       "device_id": "device_browser_runtime",
       "resource_class": "browser",
       "platform_family": "browser",
-      "capabilities": ["screen.capture", "ui.observe", "ui.act", "network.request", "file.read", "file.write"],
+      "capabilities": [
+        "screen.capture",
+        "ui.observe",
+        "ui.act",
+        "network.request",
+        "file.read",
+        "file.write"
+      ],
       "health": "unknown",
       "security": "restricted",
       "executor": "browser-runtime",
@@ -35,7 +64,11 @@
       "device_id": "device_cloudflare_runtime",
       "resource_class": "cloud_runtime",
       "platform_family": "cloudflare",
-      "capabilities": ["network.request", "cloud.deploy", "device.telemetry"],
+      "capabilities": [
+        "network.request",
+        "cloud.deploy",
+        "device.telemetry"
+      ],
       "health": "unknown",
       "security": "restricted",
       "executor": "cloudflare-runtime",
@@ -45,7 +78,11 @@
       "device_id": "device_supabase_runtime",
       "resource_class": "database_runtime",
       "platform_family": "supabase",
-      "capabilities": ["database.query", "network.request", "device.telemetry"],
+      "capabilities": [
+        "database.query",
+        "network.request",
+        "device.telemetry"
+      ],
       "health": "unknown",
       "security": "restricted",
       "executor": "supabase-runtime",
@@ -55,7 +92,13 @@
       "device_id": "device_local_runtime",
       "resource_class": "local_runtime",
       "platform_family": "local",
-      "capabilities": ["shell.execute", "file.read", "file.write", "network.request", "device.telemetry"],
+      "capabilities": [
+        "shell.execute",
+        "file.read",
+        "file.write",
+        "network.request",
+        "device.telemetry"
+      ],
       "health": "unknown",
       "security": "restricted",
       "executor": "local-runtime",
@@ -65,7 +108,10 @@
       "device_id": "device_iot_runtime",
       "resource_class": "iot",
       "platform_family": "iot",
-      "capabilities": ["device.telemetry", "network.request"],
+      "capabilities": [
+        "device.telemetry",
+        "network.request"
+      ],
       "health": "unknown",
       "security": "restricted",
       "executor": "iot-runtime",
