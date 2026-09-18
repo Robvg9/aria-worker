@@ -1,0 +1,22 @@
+name: Mission 6 Router V2
+
+on:
+  push:
+    branches:
+      - feat/mission6-intelligent-router-v2
+  pull_request:
+    branches: [main]
+
+jobs:
+  mission6:
+    name: Mission 6 router contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Router V2 contract
+        run: node tests/intelligent-router-v2.test.js
+      - name: Gateway contract
+        run: node tests/mission6-router-v2-gateway-contract.test.js
