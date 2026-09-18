@@ -12,7 +12,7 @@ where model_id='google/gemini-2.5-flash-lite';
 
 update aria_internal.capability_matrix
 set status='unknown',
-    evidence_type='provider_error',
+    evidence_type='provider',
     evidence_ref='device-gateway://mission5:model-probe:google/gemini-2.5-flash-lite',
     notes='LIVE 2026-09-18 provider returned HTTP 402 insufficient credits; route is fail-closed until real account capacity exists.',
     metadata=metadata || jsonb_build_object('mission5_live_probe',true,'routable',false),
