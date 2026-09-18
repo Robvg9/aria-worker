@@ -192,6 +192,24 @@ function verifyStep(step: any, result: any) {
   return true;
 }
 
+function realHumanGate(mission: any) {
+  const gate = mission?.metadata?.human_gate;
+  if (!gate || typeof gate !== "object") return null;
+  if (gate.enabled !== true) return null;
+  const method = String(gate.method || "").trim();
+  if (!method) return null;
+  return {
+    method,
+    instructions: String(gate.instructions || "Confirmar manualmente la verificación requerida."),
+    reason: String(gate.reason || "Verificación humana requerida antes del cierre."),
+  };
+}
+
+function humanGateCompleted(mission: any) {
+  const gate = mission?.checkpoint?.human_gate;
+  return gate?.status === "completed" && gate?.verified === true;
+}
+
 function jobIdFor(missionId: string, stepId: string) {
   const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 28);
   return `uo_${safe(missionId)}_${safe(stepId)}`;
@@ -636,6 +654,50 @@ Deno.serve(async (request) => {
 
     const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
     if (!finalVerified) throw new Error("final_verification_failed");
+
+    const humanGate = realHumanGate(mission);
+    if (humanGate && !humanGateCompleted(mission)) {
+      const alreadyRequested = mission?.checkpoint?.human_gate?.status === "pending";
+      if (!alreadyRequested) {
+        await emitEvent(missionId, "human_gate_requested", {
+          required: true,
+          method: humanGate.method,
+          instructions: humanGate.instructions,
+          reason: humanGate.reason,
+        });
+      }
+      await updateMission(missionId, {
+        status: "paused",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: "human_gate:confirm",
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          plan: steps,
+          completed_steps: [...completed],
+          attempts,
+          results,
+          human_gate: {
+            required: true,
+            status: "pending",
+            verified: false,
+            method: humanGate.method,
+            instructions: humanGate.instructions,
+            reason: humanGate.reason,
+          },
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      return out({
+        ok: true,
+        status: "human_gate_required",
+        mission_id: missionId,
+        runtime: V,
+        completed_steps: completed.size,
+        human_gate: { status: "pending", method: humanGate.method, instructions: humanGate.instructions },
+      });
+    }
 
     const executorTypes = [...new Set(steps.map(executorType))];
     const agentSteps = steps.filter((step) => executorType(step) === "agent");
