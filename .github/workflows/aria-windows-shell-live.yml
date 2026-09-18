@@ -87,13 +87,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $task = 'ARIA-Windows-Local-Agent'
-          $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>&1
+          $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>$null
           if ($LASTEXITCODE -ne 0) {
             if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) { throw 'ARIA_DEVICE_TOKEN is required to restore the official Windows agent task' }
             powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
             if ($LASTEXITCODE -ne 0) { throw "Official ARIA Windows agent installer failed: $LASTEXITCODE" }
             Start-Sleep -Seconds 5
-            $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>&1
+            $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>$null
           }
           if ($LASTEXITCODE -ne 0) { throw "ARIA scheduled task is still missing after official install: $query" }
           if ($query -notmatch 'Status:\s+Running') {
