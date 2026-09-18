@@ -1,0 +1,10 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const p=require('node:path');
+const root=p.resolve(__dirname,'..');
+const sql=fs.readFileSync(p.join(root,'supabase/migrations/20260918035800_meditation_stale_recovery_duplicate_guard_v1.sql'),'utf8');
+assert.match(sql,/duplicate_inflight_goal_prevented_during_stale_recovery/);
+assert.match(sql,/not exists\s*\(\s*select 1 from aria_internal\.mission_state other/is);
+assert.match(sql,/waiting_for_human_gate/);
+console.log('MEDITATION STALE RECOVERY DUPLICATE GUARD: PASS');
