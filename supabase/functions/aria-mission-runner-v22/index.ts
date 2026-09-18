@@ -354,10 +354,10 @@ async function easExecute(step: any) {
   throw new Error("eas_operation_not_supported:" + operation);
 }
 
-async function executeStep(missionId: string, step: any, token: string | null) {
+async function executeStep(missionId: string, step: any, auth: AuthContext) {
   validateStep(step);
   const type = executorType(step);
-  if (type === "connector") return connectorExecute(missionId, step, token);
+  if (type === "connector") return connectorExecute(missionId, step, auth.token);
   if (type === "device") return deviceExecute(missionId, step);
   if (type === "model") return modelExecute(missionId, step, auth);
   if (type === "agent") return agentExecute(missionId, step, auth);
@@ -503,7 +503,7 @@ Deno.serve(async (request) => {
 
         let result: any;
         try {
-          result = await executeStep(missionId, step, token);
+          result = await executeStep(missionId, step, auth);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
