@@ -19,6 +19,11 @@ test('Meditation IA tick delegates execution to canonical runtime', () => {
 
 test('Canonical runtime remains the single mission execution entrypoint', () => {
   assert.ok(canonical.includes('aria-mission-runner-v22'));
+  assert.ok(canonical.includes('x-aria-trigger'));
+  assert.ok(canonical.includes('meditation-ia'));
+  assert.ok(runner.includes('aria_mission_claim_next_lease'));
+  assert.ok(runner.includes('chain_depth'));
+  assert.ok(runner.includes('chainNextMeditationMission'));
   assert.ok(canonical.includes('RUNNER'));
   assert.ok(runner.includes('createPlan'));
   assert.ok(runner.includes('executeStep'));
