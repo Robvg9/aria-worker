@@ -81,12 +81,21 @@ jobs:
           if ($module -notmatch 'powershell.exe') { throw 'D runtime shell executor is missing powershell.exe' }
           Write-Host 'RUNTIME_D_PROOF=PASS'
 
-      - name: Agent task proof
+      - name: Ensure official ARIA agent task
+        env:
+          ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $task = 'ARIA-Windows-Local-Agent'
           $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>&1
-          if ($LASTEXITCODE -ne 0) { throw "ARIA scheduled task is missing: $query" }
+          if ($LASTEXITCODE -ne 0) {
+            if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN)) { throw 'ARIA_DEVICE_TOKEN is required to restore the official Windows agent task' }
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\agents\windows\install-v2.ps1'
+            if ($LASTEXITCODE -ne 0) { throw "Official ARIA Windows agent installer failed: $LASTEXITCODE" }
+            Start-Sleep -Seconds 5
+            $query = & schtasks.exe /Query /TN $task /FO LIST /V 2>&1
+          }
+          if ($LASTEXITCODE -ne 0) { throw "ARIA scheduled task is still missing after official install: $query" }
           if ($query -notmatch 'Status:\s+Running') {
             & schtasks.exe /Run /TN $task | Out-Null
             Start-Sleep -Seconds 5
