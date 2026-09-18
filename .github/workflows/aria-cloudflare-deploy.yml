@@ -48,8 +48,9 @@ jobs:
           PY
       - name: Verify Grok consent compatibility patch
         run: |
-          grep -q 'plain same-origin HTTPS links instead of HTML form submits' worker.js
-          grep -q 'encodeURIComponent(pendingId)' worker.js
+          grep -q 'x-aria-grok-consent":"direct-link-v2' worker.js
+          grep -q 'class="btn" href="${allow}"' worker.js
+          grep -q 'class="btn secondary" href="${deny}"' worker.js
       - name: Verify required Cloudflare deployment secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
