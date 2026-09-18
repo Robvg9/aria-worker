@@ -5,6 +5,7 @@ import path from "node:path";
 const root=process.cwd();
 const gateway=fs.readFileSync(path.join(root,"supabase/functions/aria-device-gateway/index.ts"),"utf8");
 const migration=fs.readFileSync(path.join(root,"supabase/migrations/20260918152500_mission7_autonomy_cycles.sql"),"utf8");
+const recoveryFix=fs.readFileSync(path.join(root,"supabase/migrations/20260918154000_fix_stale_recovery_same_goal_race.sql"),"utf8");
 const supervisor=fs.readFileSync(path.join(root,"supabase/functions/aria-autonomy-supervisor-v5/index.ts"),"utf8");
 
 assert.match(gateway,/p===['"]\/v1\/autonomy\/cycle['"]/);
@@ -26,4 +27,7 @@ assert.match(migration,/create table if not exists aria_internal\.autonomy_cycle
 assert.match(migration,/cycle_id text primary key/);
 assert.match(migration,/policy_version/);
 assert.match(migration,/enable row level security/);
+assert.match(recoveryFix,/row_number\(\) over/);
+assert.match(recoveryFix,/partition by nullif\(m\.metadata->>'goal_id'/);
+assert.match(recoveryFix,/rn=1/);
 console.log("MISSION 7 AUTONOMY INTEGRATION CONTRACT: PASS");
