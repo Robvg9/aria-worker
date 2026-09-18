@@ -109,7 +109,7 @@ $notificationsTab.Text = 'NOTIFICACIONES'
 [void]$tabs.TabPages.Add($notificationsTab)
 
 $ideaTab = New-Object System.Windows.Forms.TabPage
-$ideaTab.Text = 'IDEA → MISIÓN'
+$ideaTab.Text = 'IDEA -> MISION'
 [void]$tabs.TabPages.Add($ideaTab)
 
 $activeTitle = New-Object System.Windows.Forms.Label
@@ -600,7 +600,7 @@ function Refresh-IdeaProposals {
     $ideaStatus.Text = 'Sin conexión al registro de propuestas.'
     return
   }
-  $ideaStatus.Text = 'Propuestas guardadas: ' + [string]$result.total + ' | Autoencolado: PROHIBIDO'
+  $ideaStatus.Text = 'Propuestas guardadas: ' + [string]$result.total + ' | autoencolado: PROHIBIDO'
   if ($result.items.Count -gt 0) {
     $latest = $result.items[0]
     $ideaDetail.Text = ($latest | ConvertTo-Json -Depth 16)
