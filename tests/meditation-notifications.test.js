@@ -25,6 +25,12 @@ for (const eventType of [
 
 assert(/source_event_id bigint not null unique/i.test(migration), 'notification dedupe key missing');
 assert(migration.includes('on conflict (source_event_id) do nothing'), 'trigger idempotency missing');
+const humanMigration = read('supabase/migrations/20260918235000_meditation_notification_human_language_v1.sql');
+assert(humanMigration.includes('meditation_notification_mission_label'), 'human mission label helper missing');
+assert(humanMigration.includes('mission_label'), 'human mission label metadata missing');
+assert(humanMigration.includes('opaque identifiers remain out of notification title/message'), 'human-language governance comment missing');
+assert(humanMigration.includes("v_message := format('ARIA completó y verificó: %s.', v_mission_label);"), 'verified notification is not humanized');
+assert(!/format\('La misión %s/.test(humanMigration), 'new notification messages must not expose raw mission ids');
 assert(migration.includes('trg_meditation_notifications_on_event'), 'notification trigger missing');
 assert(gateway.includes("p==='/v1/meditation/notifications'"), 'notification read route missing');
 assert(gateway.includes("p==='/v1/meditation/notifications/read'"), 'notification ack route missing');
