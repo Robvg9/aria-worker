@@ -8,6 +8,8 @@ const root = path.resolve(__dirname, '..');
 const gateway = fs.readFileSync(path.join(root, 'supabase/functions/aria-device-gateway/index.ts'), 'utf8');
 const canonical = fs.readFileSync(path.join(root, 'supabase/functions/aria-canonical-runtime-v1/index.ts'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
+const controller = fs.readFileSync(path.join(root, 'agents/windows/aria-meditation-controller.js'), 'utf8');
+const queueMigration = fs.readFileSync(path.join(root, 'supabase/migrations/20260918021000_meditation_center_queue_v1.sql'), 'utf8');
 
 test('Meditation IA tick delegates execution to canonical runtime', () => {
   assert.ok(gateway.includes('/functions/v1/aria-canonical-runtime-v1'));
@@ -60,3 +62,22 @@ assert.ok(executionRuntime.includes('max_completion_tokens:boundedCompletion'));
 assert.ok(executionRuntime.includes('Math.min(Math.floor(requestedCompletion),4000)'));
 assert.ok(!executionRuntime.includes('reqBody.max_tokens=p.max_tokens'));
 console.log('MEDITATION_IA_RUNTIME_BRIDGE=PASS');
+
+
+test('Meditation center catalog and manual queue contracts are present', () => {
+  for (const route of ['/v1/meditation/catalog','/v1/meditation/queue','/v1/meditation/queue/add','/v1/meditation/queue/remove','/v1/meditation/queue/reorder','/v1/meditation/queue/run-next']) {
+    assert.ok(gateway.includes(route), 'gateway route missing: ' + route);
+  }
+  for (const marker of ['meditationCatalog','meditationQueueSnapshot','meditation_queue_add','meditation_queue_claim_next','meditation_queue_remove','meditation_queue_resequence','processManualQueue','missionStepRows']) {
+    assert.ok(gateway.includes(marker), 'gateway queue marker missing: ' + marker);
+  }
+  assert.ok(gateway.includes("runCanonicalMission(missionId,'meditation-ia-manual')"));
+  assert.ok(gateway.includes('NO EXISTE MISION HUMANA'));
+  assert.ok(controller.includes("'/catalog'"));
+  assert.ok(controller.includes("'/queue/add'"));
+  assert.ok(queueMigration.includes('create table if not exists aria_internal.meditation_queue'));
+  assert.ok(queueMigration.includes('enable row level security'));
+  assert.ok(queueMigration.includes('unique(device_id,item_type,item_id)'));
+  assert.ok(queueMigration.includes('revoke all on aria_internal.meditation_queue from anon, authenticated'));
+  assert.ok(queueMigration.includes('grant execute on function public.meditation_queue_add(text,text,text) to service_role'));
+});

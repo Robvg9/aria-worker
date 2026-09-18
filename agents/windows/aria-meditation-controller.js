@@ -74,6 +74,25 @@ async function isUserIdle() {
   });
 }
 
+
+async function readJsonBody(req) {
+  const chunks=[]; for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk));
+  const raw=Buffer.concat(chunks).toString('utf8'); if(!raw)return {};
+  try{return JSON.parse(raw);}catch{throw new Error('invalid_json_body');}
+}
+async function requestGateway(pathName,{method='GET',body=null}={}) {
+  if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID) return {ok:false,status:'blocked',error:'meditation_gateway_config_missing'};
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),15000);
+  try {
+    const headers={authorization:`Bearer ${DEVICE_TOKEN}`,'x-aria-device-id':DEVICE_ID,'cache-control':'no-store'};
+    if(body!==null){headers['content-type']='application/json';}
+    const response=await fetch(`${GATEWAY_URL.replace(/\/$/,'')}${pathName}`,{method,headers,body:body===null?undefined:JSON.stringify(body),signal:controller.signal});
+    const text=await response.text(); let payload; try{payload=text?JSON.parse(text):{};}catch{payload={ok:false,error:'gateway_invalid_json'};}
+    return response.ok?payload:{ok:false,status:'failed',error:payload?.error||`gateway_${response.status}`,http_status:response.status};
+  } catch(error){return {ok:false,status:'failed',error:String(error?.message||error)}}
+  finally{clearTimeout(timer)}
+}
+
 async function requestTick({ state, reason, tick }) {
   if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) return { status: 'blocked', error: 'meditation_gateway_config_missing' };
   const controller = new AbortController();
@@ -122,6 +141,12 @@ function startControlServer(controller) {
       if (req.method === 'GET' && url.pathname === '/status') return respond(200, controller.status());
       if (req.method === 'GET' && url.pathname === '/health') return respond(200, { ok: true, service: 'aria-meditation-control', version: CONTROLLER_VERSION, pid: process.pid, port: CONTROL_PORT, mode: controller.status().mode });
       if (req.method === 'GET' && url.pathname === '/log') { await ensureLogFile(); return respond(200, { path: LOG_PATH, content: await fsp.readFile(LOG_PATH, 'utf8') }); }
+      if (req.method === 'GET' && url.pathname === '/catalog') return respond(200, await requestGateway('/v1/meditation/catalog'));
+      if (req.method === 'GET' && url.pathname === '/queue') return respond(200, await requestGateway('/v1/meditation/queue'));
+      if (req.method === 'POST' && url.pathname === '/queue/add') return respond(200, await requestGateway('/v1/meditation/queue/add',{method:'POST',body:await readJsonBody(req)}));
+      if (req.method === 'POST' && url.pathname === '/queue/remove') return respond(200, await requestGateway('/v1/meditation/queue/remove',{method:'POST',body:await readJsonBody(req)}));
+      if (req.method === 'POST' && url.pathname === '/queue/reorder') return respond(200, await requestGateway('/v1/meditation/queue/reorder',{method:'POST',body:await readJsonBody(req)}));
+      if (req.method === 'POST' && url.pathname === '/queue/run-next') return respond(200, await requestGateway('/v1/meditation/queue/run-next',{method:'POST',body:{}}));
       if (req.method === 'POST' && url.pathname === '/start') return respond(200, await controller.start());
       if (req.method === 'POST' && url.pathname === '/pause') return respond(200, await controller.pause());
       if (req.method === 'POST' && url.pathname === '/resume') return respond(200, await controller.resume());

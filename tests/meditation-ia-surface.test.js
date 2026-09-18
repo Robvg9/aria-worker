@@ -50,3 +50,16 @@ test('Meditation IA installer publishes the control surface and launcher', () =>
 });
 
 console.log('MEDITATION IA DESKTOP SURFACE: PASS');
+
+
+test('Meditation IA center exposes catalog, queue and Human Gate UI', () => {
+  const ui = read('agents/windows/aria-meditation-ui.ps1');
+  const controller = read('agents/windows/aria-meditation-controller.js');
+  for (const route of ['/catalog','/queue','/queue/add','/queue/remove','/queue/reorder','/queue/run-next']) {
+    assert.ok(ui.includes(route), 'UI center route missing: ' + route);
+    assert.ok(controller.includes(route), 'controller center route missing: ' + route);
+  }
+  for (const marker of ['CATÁLOGO','COLA MANUAL','AGREGAR A COLA','EJECUTAR SIGUIENTE','NO EXISTE MISION HUMANA','RESULTADO:','SOLUCIÓN:','MEJORA ARIA:']) {
+    assert.ok(ui.includes(marker), 'UI marker missing: ' + marker);
+  }
+});
