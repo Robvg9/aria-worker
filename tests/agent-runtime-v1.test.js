@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const file = path.join(__dirname, '..', 'supabase', 'functions', 'aria-agent-runtime-v1', 'index.ts');
+const loopFile = path.join(__dirname, '..', 'supabase', 'functions', 'aria-agent-runtime-v1', 'tool-loop.ts');
 const source = fs.readFileSync(file, 'utf8');
+const loopSource = fs.readFileSync(loopFile, 'utf8');
 
 assert.match(source, /aria-agent-planner-v1/);
 assert.match(source, /aria-agent-reviewer-v1/);
@@ -26,5 +28,8 @@ assert.match(source, /agent_unavailable_or_not_cataloged/);
 assert.match(source, /prompt_missing/);
 assert.doesNotMatch(source, /OPENAI_API_KEY|GOOGLE_API_KEY|GROK_API_KEY|sk-[A-Za-z0-9]{10,}/);
 assert.doesNotMatch(source, /console\.log\s*\(.*SECRET/);
+assert.match(loopSource, /max_completion_tokens:\s*1200/);
+assert.match(loopSource, /service_tier:\s*"flex"/);
+assert.doesNotMatch(loopSource, /\bmax_tokens:\s*3000/);
 
 console.log('AGENT RUNTIME V1 CONTRACT: PASS');
