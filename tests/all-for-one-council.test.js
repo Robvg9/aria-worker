@@ -50,3 +50,6 @@ assert.match(gateway,/input:\{payload:\{prompt:auditPrompt\(snapshot,'independen
 assert.match(gateway,/auditPrompt\(snapshot,'independent model reviewer',String\(m\.model_id\)\)\.slice\(0,16000\)/);
 
 assert.match(executionRuntime,/reasoning:\{effort:'none'\}/);
+
+assert.match(gateway,/existing\.target_commit===currentTree\?\.sha/);
+assert.match(gateway,/const currentTree=await githubAuditRead\('tree_read'/);

@@ -585,7 +585,8 @@ async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
 }
 async function allForOneStart(){
   const {data:existing}=await supabase.schema('aria_internal').from('all_for_one_runs').select('*').order('updated_at',{ascending:false}).limit(1).maybeSingle();
-  if(existing)return existing;
+  const currentTree=await githubAuditRead('tree_read',{owner:'Robvg9',repo:'aria-worker',branch:'main'});
+  if(existing&&existing.target_commit===currentTree?.sha)return existing;
   const snapshot=await buildAllForOneSnapshot();
   const enabledModels=(snapshot.supabase.models||[]).filter((m:any)=>m.status==='available'&&m.enabled===true);
   const availableAgents=(snapshot.supabase.agents||[]).filter((a:any)=>a.status==='available');
