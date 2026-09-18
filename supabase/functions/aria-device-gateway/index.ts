@@ -216,7 +216,7 @@ function m6Domains(task:string){return M6_RULES.filter(x=>x.re.test(task)).map(x
 function m6Num(v:any){return Number.isFinite(Number(v))?Number(v):null}
 function m6FreeCost(p:any){const tier=String(p?.tier||p?.billing_tier||'').toLowerCase();if(tier==='free'||p?.cost==='$0'||p?.cost===0)return 1;const i=m6Num(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6Num(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===0&&o===0)return 1;if(i!==null||o!==null)return .5;return null}
 async function intelligentRouterDecision(b:any){
- const {data:snapshot,error}=await supabase.rpc('router_live_snapshot');if(error)throw new Error(error.message);
+ const {data:snapshot,error}=await supabase.schema('aria_internal').rpc('router_live_snapshot');if(error)throw new Error(error.message);
  const candidates=Array.isArray(snapshot?.candidates)?snapshot.candidates:[];
  const tasks=Array.isArray(b?.tasks)?b.tasks:null;
  const choose=(input:any)=>{
@@ -250,7 +250,7 @@ async function intelligentRouterDecision(b:any){
   const selections=planTasks.map((t:any)=>({...choose({...t,capability:t.capability||b.capability||'text_generation',risk:t.risk||b.risk}),id:t.id}));
   payload={status:selections.every((s:any)=>s.status==='selected')?'selected':'no_route',version:'aria-intelligent-router-v2.0.0',selections,parallel_plan:{status:'planned',max_parallel:batches.length?maxParallel:1,batches}};
  }else payload=choose(b);
- const record=await supabase.rpc('record_router_decision',{p_decision:{decision_id:'router_'+crypto.randomUUID(),trace_id:b?.trace_id||null,task:b?.task||'parallel_batch',capability_id:b?.capability||'text_generation',complexity:payload.complexity||'mixed',selected:payload.selected||null,fallback:payload.fallback||payload.selections?.map((x:any)=>x.fallback||[])||[],evidence:payload.selection_evidence||{parallel:!!tasks},candidates_considered:payload.candidates_considered||candidates.length,rejected:payload.rejected_candidates||payload.selections?.flatMap((x:any)=>x.rejected_candidates||[])||[],parallel_plan:payload.parallel_plan||null}});
+ const record=await supabase.schema('aria_internal').rpc('record_router_decision',{p_decision:{decision_id:'router_'+crypto.randomUUID(),trace_id:b?.trace_id||null,task:b?.task||'parallel_batch',capability_id:b?.capability||'text_generation',complexity:payload.complexity||'mixed',selected:payload.selected||null,fallback:payload.fallback||payload.selections?.map((x:any)=>x.fallback||[])||[],evidence:payload.selection_evidence||{parallel:!!tasks},candidates_considered:payload.candidates_considered||candidates.length,rejected:payload.rejected_candidates||payload.selections?.flatMap((x:any)=>x.rejected_candidates||[])||[],parallel_plan:payload.parallel_plan||null}});
  if(record.error)payload.persistence={recorded:false,error:record.error.message};else payload.persistence={recorded:true,decision_id:record.data?.decision_id};
  return payload;
 }
