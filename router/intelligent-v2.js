@@ -125,6 +125,17 @@ function select(candidates,input={}){
     }
     if(input.preferred_provider&&c.provider_id!==input.preferred_provider)hard.push('preferred_provider_mismatch');
     if(input.preferred_model&&c.model_id!==input.preferred_model)hard.push('preferred_model_mismatch');
+    const requiredTools=Array.isArray(input.required_tools)?input.required_tools.map(String):[];
+    if(requiredTools.length){
+      const eligibleAgents=c.agents.filter(a=>String(a.status||'available')==='available'&&riskAllowed(a.max_risk,taskRisk));
+      const toolMatch=eligibleAgents.some(a=>{
+        const caps=new Set(Array.isArray(a.capabilities)?a.capabilities.map(String):[]);
+        const scope=new Set(Array.isArray(a.scope)?a.scope.map(String):[]);
+        return requiredTools.every(t=>caps.has(t)||scope.has(t));
+      });
+      if(!toolMatch)hard.push('required_tools_unavailable');
+    }
+    if(input.prefer_specialist_agent===true&&!c.agents.some(a=>String(a.status||'available')==='available'&&riskAllowed(a.max_risk,taskRisk)))hard.push('specialist_agent_required');
     if(hard.length){rejected.push({model_id:c.model_id,provider_id:c.provider_id,reasons:hard});continue;}
     const rel=reliabilityScore(c.observation);const lat=latencyScore(c.observation.avg_latency_ms,allLatencies);const cost=freeCostScore(c.pricing);const spec=specializationScore(c,domains);
     const live=c.live_verified?1:0;const capabilityScore=c.capability_verified?1:0;const providerDirect=String(c.metadata?.access_path||'').includes('direct')?1:0.5;
