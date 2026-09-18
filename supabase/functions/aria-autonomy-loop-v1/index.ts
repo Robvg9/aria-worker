@@ -182,7 +182,7 @@ async function cycle(reqBody:any){
   const inserted=await ensureCandidates(generated,id);
   snap=await snapshot();
 
-  let selected=null,mission:null|{missionId:string;gate:any}=null,run:null|{http_status:number;body:any}=null,learning:any=null;
+  let selected:any=null,mission:any=null,run:any=null,learning:any=null;
   if(activeCount===0){
     selected=selectDynamicGoal(generated, new Set(
       snap.goals.filter((g:any)=>["blocked","completed","running"].includes(g.status)).map((g:any)=>g.goal_id)
