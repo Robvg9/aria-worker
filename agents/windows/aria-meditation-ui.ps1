@@ -586,12 +586,12 @@ function Submit-IdeaProposal {
   $result = Invoke-CenterApi -Method 'POST' -Path '/idea-to-mission' -Body @{ idea = $idea }
   if ($null -eq $result -or $result.ok -ne $true) {
     $ideaStatus.Text = 'ERROR: ' + [string]$result.error
-    Set-CenterMessage -Text ('IDEA → MISION ERROR: ' + [string]$result.error) -IsError $true
+    Set-CenterMessage -Text ('IDEA -> MISION ERROR: ' + [string]$result.error) -IsError $true
     return
   }
-  $ideaStatus.Text = if ($result.deduplicated) { 'PROPUESTA EXISTENTE — sin duplicar.' } else { 'PROPUESTA CREADA — NO AUTOENCOLADA.' }
+  $ideaStatus.Text = if ($result.deduplicated) { 'PROPUESTA EXISTENTE - sin duplicar.' } else { 'PROPUESTA CREADA - NO AUTOENCOLADA.' }
   Render-IdeaProposal -Proposal $result.proposal
-  Set-CenterMessage -Text 'IDEA → MISIÓN: propuesta estructurada y guardada. La cola sigue bajo decisión humana.'
+  Set-CenterMessage -Text 'IDEA -> MISION: propuesta estructurada y guardada. La cola sigue bajo decision humana.'
 }
 
 function Refresh-IdeaProposals {
@@ -865,6 +865,6 @@ $timer.Start()
 Refresh-Center
 Refresh-Catalog
 Refresh-Queue
-Refresh-Notifications
 Refresh-IdeaProposals
+Refresh-Notifications
 [void]$form.ShowDialog()
