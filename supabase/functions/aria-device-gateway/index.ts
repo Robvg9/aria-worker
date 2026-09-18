@@ -305,10 +305,10 @@ async function intelligentRouterParallelExecute(b:any,d:any){
      const task=tasks.find((t:any)=>String(t.id)===taskId);
      const selection=selectionById.get(taskId);
      if(!selection||selection.status!=='selected')return{task_id:taskId,status:'failed',error:'route_not_selected'};
-     const routes=[selection.selected,...(Array.isArray(selection.fallback)?selection.fallback:[])];
-     const attempts:any[]=[];
-     for(let i=0;i<routes.length;i++){
-       const selected=routes[i];
+     let routes=[selection.selected,...(Array.isArray(selection.fallback)?selection.fallback:[])];
+     const attempts:any[]=[];let primary=routes[0];let attemptCount=0;
+     while(routes.length&&attemptCount<4){
+       const selected=routes.shift();attemptCount++;
        const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
          method:'POST',
          headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-parallel-router'},
@@ -324,8 +324,10 @@ async function intelligentRouterParallelExecute(b:any,d:any){
          })
        });
        const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
-       attempts.push({rank:i+1,route:selected,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
-       if(payload?.status==='succeeded')return{task_id:taskId,status:'succeeded',selected_route:selected,attempts,fallback_used:i>0};
+       attempts.push({rank:attemptCount,route:selected,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
+       if(payload?.status==='succeeded')return{task_id:taskId,status:'succeeded',selected_route:selected,attempts,fallback_used:attemptCount>1};
+       const failureKind=m6ClassifyFallbackFailure(payload?.error||{provider_status:response.status});
+       routes=m6GovernFallback(primary,routes,failureKind,{allow_rate_limit_fallback:b?.allow_rate_limit_fallback===true});
      }
      return{task_id:taskId,status:'failed',attempts,fallback_used:attempts.length>1};
    }));
