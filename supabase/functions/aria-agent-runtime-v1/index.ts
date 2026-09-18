@@ -27,7 +27,7 @@ const profiles: Record<string, { role: string; system: string }> = {
 type CatalogAgent = { agent_id: string; role: string; capabilities: string[]; scope: string[]; max_risk: string; status: string; model_id: string };
 async function loadCatalog(): Promise<CatalogAgent[]> { const { data, error } = await sb.rpc("aria_agent_catalog"); if (error || !Array.isArray(data)) return []; return data.filter((x: any) => x && typeof x.agent_id === "string" && typeof x.status === "string" && typeof x.model_id === "string") as CatalogAgent[]; }
 async function resolveResource(id: string, capability = "text_generation") {
-  const { data, error } = await sb.rpc("resolve_agent_resource", { p_agent_id: id, p_capability_id: capability });
+  const { data, error } = await internal.rpc("resolve_agent_resource", { p_agent_id: id, p_capability_id: capability });
   if (error || !data || typeof data !== "object") return null;
   return data as any;
 }
