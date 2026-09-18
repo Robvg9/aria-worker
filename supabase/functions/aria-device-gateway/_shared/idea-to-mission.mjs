@@ -10,7 +10,7 @@ const P = Object.freeze({
   capability: [/\b(nueva capacidad|capacidad nueva|new capability|capability gap|gap de capacidad)\b/i,/\bnuevo\s+(modelo|agente|proveedor|conector)\b/i],
   governance: [/\b(seguridad|security|gobernanza|governance|permiso|permissions?|autorizaci[oó]n|production|producci[oó]n|merge)\b/i],
   deferred: [/\b(diferir|diferido|deferred|postponer|postpone|m[aá]s adelante|later|despu[eé]s)\b/i],
-  notViable: [/\b(no viable|not viable|imposible|impossible|no se puede|cannot be done|not possible|fuera de alcance|out of scope)\b/i],
+  notViable: [/\b(no\s+(?:es\s+)?viable|not viable|imposible|impossible|no se puede|cannot be done|not possible|fuera de alcance|out of scope)\b/i],
   mutation: [/\b(crear|crear|implementar|modificar|actualizar|a[nñ]adir|anadir|eliminar|desarrollar|refactorizar|escribir|migrar|reparar|corregir|fix|build|implement|modify|update|add|remove|develop|refactor|write|migrate|repair)\b/i]
 });
 
