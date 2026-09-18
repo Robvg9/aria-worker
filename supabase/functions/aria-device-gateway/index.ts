@@ -569,6 +569,9 @@ function classifyAllForOneProviderBlock(payload:any,httpStatus:number){
   if(providerStatus===429||code==='rate_limit'||/rate\s*limit|free-models-per-day/i.test(message)){
     return {reason:'rate_limit',provider_status:providerStatus||429,message};
   }
+  if(providerStatus>=500||code==='provider_unavailable'||/currently experiencing high demand|spikes in demand|temporarily unavailable|service unavailable/i.test(message)){
+    return {reason:'provider_unavailable',provider_status:providerStatus||503,message};
+  }
   return null;
 }
 async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
