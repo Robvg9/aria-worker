@@ -20,7 +20,7 @@ function redact(text) {
   return value;
 }
 function shellQuote(value) {
-  return `'${String(value).replace(/'/g, '\\'"\\\'\\\'"')}'`;
+  return "'" + String(value).replace(/'/g, "'\\\"'\\\"'") + "'";
 }
 function parseAndroidNotificationPayload(command) {
   let payload;
