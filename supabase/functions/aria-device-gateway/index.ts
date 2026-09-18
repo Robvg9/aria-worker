@@ -420,7 +420,7 @@ async function autonomyCycle(b:any){
   if(existing)return{ok:true,deduplicated:true,cycle:existing};
   const recover=await supabase.rpc('aria_autonomy_recover_stale_missions',{p_stale_after:'00:02:00'});
   if(recover.error)throw new Error(`recovery:${recover.error.message}`);
-  const governance=await supabase.rpc('aria_internal.reconcile_mission_queue_governance_v1');
+  const governance=await supabase.schema('aria_internal').rpc('reconcile_mission_queue_governance_v1');
   if(governance.error)throw new Error(`queue_governance:${governance.error.message}`);
   const snap=await autonomySnapshot();
   const now=new Date().toISOString();
