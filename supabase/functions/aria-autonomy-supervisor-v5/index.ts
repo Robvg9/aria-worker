@@ -16,17 +16,17 @@ async function authorized(r:Request){
   const c=r.headers.get("x-aria-autonomy-token");
   return c?Boolean(await rpc("aria_autonomy_cron_authorize",{p_token:c})):false;
 }
-async function kick(){
+async function kick(r:Request){
   const start=await fetch(`${GATEWAY}/v1/audit/all-for-one/start`,{
     method:"POST",
-    headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json","x-aria-trigger":"all-for-one-supervisor-v1"},
+    headers:{...(r.headers.get("x-aria-autonomy-token")?{"x-aria-autonomy-token":r.headers.get("x-aria-autonomy-token")}:{authorization:`Bearer ${SECRET}`}),"content-type":"application/json","x-aria-trigger":"all-for-one-supervisor-v1"},
     body:"{}"
   });
   const startPayload=await start.json().catch(()=>({}));
   const [response,auditResponse]=await Promise.all([
     fetch(`${GATEWAY}/v1/autonomy/cycle`,{
       method:"POST",
-      headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json","x-aria-trigger":"autonomy-supervisor-v5"},
+      headers:{...(r.headers.get("x-aria-autonomy-token")?{"x-aria-autonomy-token":r.headers.get("x-aria-autonomy-token")}:{authorization:`Bearer ${SECRET}`}),"content-type":"application/json","x-aria-trigger":"autonomy-supervisor-v5"},
       body:JSON.stringify({trigger:"autonomy-supervisor-v5"})
     }),
     fetch(`${GATEWAY}/v1/audit/all-for-one/tick`,{
@@ -43,7 +43,7 @@ Deno.serve(async r=>{
   if(r.method!=="POST")return out({error:"method_not_allowed"},405);
   try{
     if(!await authorized(r))return out({error:"unauthorized"},401);
-    const runtime=await kick();
+    const runtime=await kick(r);
     return out({
       ok:runtime.http_status>=200&&runtime.http_status<300&&runtime.ok!==false,
       authority:"aria-device-gateway:/v1/autonomy/cycle",
