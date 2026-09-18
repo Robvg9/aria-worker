@@ -26,7 +26,7 @@ assert.equal(r.parallelPlan([{id:'a',depends_on:['a']}]).status,'blocked');
 
 console.log('MISSION 6 ROUTER V2 CONTRACT: PASS');
 
-out=r.select(candidates,{task:'write code and debug a regression',capability:'text_generation',risk:'high',required_tools:['code']});
+out=r.select(candidates,{task:'write code and debug a regression',capability:'text_generation',risk:'high',required_tools:['coding']});
 assert.equal(out.status,'selected');
 assert.equal(out.selected.model_id,'m-fast');
 assert.equal(out.selected.agent_role,'coder');
