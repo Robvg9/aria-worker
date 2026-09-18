@@ -155,4 +155,4 @@ function validateProposal(p){
   return {valid:true,reason:null};
 }
 
-module.exports=Object.freeze({MAX_IDEA_LENGTH,SCHEMA_VERSION,classifyIdea,buildIdeaMissionProposal,validateProposal});
+export { MAX_IDEA_LENGTH, SCHEMA_VERSION, classifyIdea, buildIdeaMissionProposal, validateProposal };
