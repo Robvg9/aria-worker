@@ -11,9 +11,16 @@ const sanitize=(m:unknown)=>String(m??"error").replace(/Bearer\s+[A-Za-z0-9._-]+
 async function directGemini(route:any,input:any){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
   if(route.account_id!=="acct_google_gemini_free")return out({status:"blocked",reason:"route_not_selectable"});
-  if(route.model_id!=="google/gemini-3.5-flash-lite-direct")return out({status:"blocked",reason:"model_not_verified"});
+  const googleModels:Record<string,string>={
+"google/gemini-3.8-flash-direct":"gemini-3.8-flash",
+"google/gemini-3.7-flash-direct":"gemini-3.7-flash",
+"google/gemini-3.6-flash-direct":"gemini-3.6-flash",
+"google/gemini-3.5-flash-direct":"gemini-3.5-flash",
+"google/gemini-3.5-flash-lite-direct":"gemini-3.5-flash-lite",
+"google/gemini-3.1-flash-lite-direct":"gemini-3.1-flash-lite"
+};const model=googleModels[route.model_id];if(!model)return out({status:"blocked",reason:"model_not_verified"});
   if(!GOOGLE_API_KEY)return out({status:"failed",error:{code:"credential_unavailable",message:"google credential unavailable"}});
-  const p=input?.payload??{};const model="gemini-3.5-flash-lite";const contents=Array.isArray(p.contents)&&p.contents.length?p.contents:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",parts:[{text:p.prompt}]}]:null);
+  const p=input?.payload??{};const contents=Array.isArray(p.contents)&&p.contents.length?p.contents:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",parts:[{text:p.prompt}]}]:null);
   if(!contents)return out({status:"blocked",reason:"input_missing"});
   const body:any={contents};if(p.systemInstruction)body.systemInstruction=p.systemInstruction;if(p.generationConfig)body.generationConfig={...p.generationConfig};
   if(body.generationConfig?.temperature!==undefined){const {temperature,...rest}=body.generationConfig;body.generationConfig=rest;}
