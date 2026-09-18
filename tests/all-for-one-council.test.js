@@ -28,3 +28,7 @@ assert.match(securityMigration,/get_all_for_one_security_snapshot/);
 assert.match(migration,/revoke all on aria_internal\.all_for_one_runs from anon, authenticated/i);
 
 console.log('ALL FOR ONE COUNCIL CONTRACT: PASS');
+const v2Workflow=fs.readFileSync(path.join(root,'.github/workflows/aria-app-api-v2-deploy.yml'),'utf8');
+assert.doesNotMatch(v2Workflow,/--verify-jwt/);
+assert.match(v2Workflow,/supabase functions deploy aria-app-api-v2/);
+assert.equal(fs.existsSync(path.join(root,'.github/workflows/restore-inbound-issuer.yml')),false);
