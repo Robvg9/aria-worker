@@ -596,7 +596,19 @@ Deno.serve(async (request) => {
 
     const executorTypes = [...new Set(steps.map(executorType))];
     const agentIds = steps.filter((step) => executorType(step) === "agent").map((step) => String(step.target?.agent_id || "")).filter(Boolean);
-    await emitEvent(missionId, "mission_verified", { steps: steps.length, completed_steps: completed.size, executor_types: executorTypes, agent_ids: agentIds, verified: true });
+    const verifiedTerminalMarkers = {
+      universal_execution_verified: true,
+      model_execution_verified: steps.some((step) => executorType(step) === "model"),
+      agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
+    };
+    await emitEvent(missionId, "mission_verified", {
+      steps: steps.length,
+      completed_steps: completed.size,
+      executor_types: executorTypes,
+      agent_ids: agentIds,
+      verified: true,
+      ...verifiedTerminalMarkers,
+    });
 
     const finalized = await rpc("aria_mission_finalize_verified_lease", {
       p_mission_id: missionId,
