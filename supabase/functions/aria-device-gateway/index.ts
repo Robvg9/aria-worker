@@ -215,6 +215,8 @@ function m6Complexity(task:string,explicit?:string){if(explicit&&['low','medium'
 function m6Domains(task:string){return M6_RULES.filter(x=>x.re.test(task)).map(x=>x.domain)}
 function m6Num(v:any){return Number.isFinite(Number(v))?Number(v):null}
 function m6FreeCost(p:any){const tier=String(p?.tier||p?.billing_tier||'').toLowerCase();if(tier==='free'||p?.cost==='$0'||p?.cost===0)return 1;const i=m6Num(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6Num(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===0&&o===0)return 1;if(i!==null||o!==null)return .5;return null}
+function m6ClassifyFallbackFailure(error:any){const status=Number(error?.provider_status??error?.status??0),code=String(error?.code||'');if(status===429||code==='rate_limit')return'rate_limit';if(code==='credential_unavailable'||code==='account_unavailable')return'account_unavailable';if(status>=500||code==='provider_unavailable')return'provider_unavailable';return'execution_failure'}
+function m6GovernFallback(primary:any,alternatives:any[],failureKind:string,policy:any={}){const visited=new Set(Array.isArray(policy?.visited)?policy.visited.map(String):[]);if(failureKind==='rate_limit'&&policy?.allow_rate_limit_fallback!==true)return[];return alternatives.filter((x:any)=>{const key=String(x?.provider_id||'')+'|'+String(x?.account_id||'')+'|'+String(x?.model_id||'');if(visited.has(key))return false;if(failureKind==='provider_unavailable'&&x?.provider_id===primary?.provider_id)return false;if(failureKind==='account_unavailable'&&x?.account_id===primary?.account_id)return false;return true})}
 async function intelligentRouterDecision(b:any){
  const {data:snapshot,error}=await supabase.schema('aria_internal').rpc('router_live_snapshot');if(error)throw new Error(error.message);
  const candidates=Array.isArray(snapshot?.candidates)?snapshot.candidates:[];
@@ -265,28 +267,27 @@ async function intelligentRouterExecute(b:any,d:any){
     preferred_model:b?.preferred_model,preferred_provider:b?.preferred_provider,trace_id:b?.trace_id||null
   });
   if(routeDecision.status!=='selected')return{status:routeDecision.status||'no_route',route_decision:routeDecision};
-  const routes=[routeDecision.selected,...(Array.isArray(routeDecision.fallback)?routeDecision.fallback:[])];
-  const results:any[]=[];
-  for(let i=0;i<routes.length;i++){
-    const selected=routes[i];
+  let routes=[routeDecision.selected,...(Array.isArray(routeDecision.fallback)?routeDecision.fallback:[])];
+  const results:any[]=[];let primary=routes[0];let attempts=0;
+  while(routes.length&&attempts<4){
+    const selected=routes.shift();attempts++;
     if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
     const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
       method:'POST',
       headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-router-execution'},
       body:JSON.stringify({
-        execution_version:'1',
-        request_id:`mission6:${d.device_id}:${crypto.randomUUID()}`,
-        task_id:String(b?.task_id||'mission6-router-execution'),
-        capability:b?.capability||'text_generation',
-        selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:b?.capability||'text_generation'},
-        authorization,
-        input:b?.input||{payload:{prompt:String(b?.task||'')}},
+        execution_version:'1',request_id:`mission6:${d.device_id}:${crypto.randomUUID()}`,
+        task_id:String(b?.task_id||'mission6-router-execution'),capability:b?.capability||'text_generation',
+        selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:b?.capability||'text_generation',agent_id:selected.agent_id||null},
+        authorization,input:b?.input||{payload:{prompt:String(b?.task||'')}},
         policy:{risk:String(b?.risk||'READ'),mission6:true,router_decision:true,selected_agent_id:selected.agent_id||null}
       })
     });
     const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
-    results.push({rank:i+1,route:selected,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
-    if(payload?.status==='succeeded')return{status:'succeeded',route_decision:routeDecision,selected_route:selected,attempts:results,fallback_used:i>0,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+    results.push({rank:attempts,route:selected,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
+    if(payload?.status==='succeeded')return{status:'succeeded',route_decision:routeDecision,selected_route:selected,attempts,attempt_results:results,fallback_used:attempts>1,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+    const failureKind=m6ClassifyFallbackFailure(payload?.error||{provider_status:response.status});
+    routes=m6GovernFallback(primary,routes,failureKind,{allow_rate_limit_fallback:b?.allow_rate_limit_fallback===true});
   }
   return{status:'failed',route_decision:routeDecision,attempts:results,fallback_used:results.length>1,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
 }
