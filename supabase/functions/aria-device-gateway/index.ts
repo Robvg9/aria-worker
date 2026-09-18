@@ -583,7 +583,7 @@ async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
   return {status:'succeeded',report:String(b?.response?.content??''),model_id:m.model_id,metadata:b};
 }
 async function allForOneStart(){
-  const {data:existing}=await supabase.schema('aria_internal').from('all_for_one_runs').select('*').in('status',['queued','auditing','reviewing']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  const {data:existing}=await supabase.schema('aria_internal').from('all_for_one_runs').select('*').order('created_at',{ascending:false}).limit(1).maybeSingle();
   if(existing)return existing;
   const snapshot=await buildAllForOneSnapshot();
   const enabledModels=(snapshot.supabase.models||[]).filter((m:any)=>m.status==='available'&&m.enabled===true);
