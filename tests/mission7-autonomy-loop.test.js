@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+
+const root=process.cwd();
+const fn=fs.readFileSync(path.join(root,"supabase/functions/aria-autonomy-loop-v1/index.ts"),"utf8");
+const engine=fs.readFileSync(path.join(root,"supabase/functions/aria-autonomy-loop-v1/_shared/dynamic-goal-engine.mjs"),"utf8");
+const migration=fs.readFileSync(path.join(root,"supabase/migrations/20260918152500_mission7_autonomy_cycles.sql"),"utf8");
+
+assert.match(fn,/aria-autonomy-loop-v1/);
+assert.match(fn,/autonomy-post-plan-v1/);
+assert.match(fn,/aria_autonomy_recover_stale_missions/);
+assert.match(fn,/generateCandidates/);
+assert.match(fn,/selectDynamicGoal/);
+assert.match(fn,/aria-mission-intake-v1/);
+assert.match(fn,/aria-canonical-runtime-v1/);
+assert.match(fn,/aria-learning-v3/);
+assert.match(fn,/autonomy_cycles/);
+assert.match(fn,/human_gate/);
+assert.match(fn,/manual_confirmation/);
+assert.match(fn,/if\(activeCount===0\)/);
+assert.match(fn,/deduplicated/);
+assert.match(engine,/generateCandidates/);
+assert.match(engine,/selectDynamicGoal/);
+assert.match(engine,/derived_from_failure/);
+assert.match(migration,/create table if not exists aria_internal\.autonomy_cycles/);
+assert.match(migration,/cycle_id text primary key/);
+assert.match(migration,/policy_version/);
+assert.match(migration,/enable row level security/);
+console.log("MISSION 7 AUTONOMY LOOP CONTRACT: PASS");
