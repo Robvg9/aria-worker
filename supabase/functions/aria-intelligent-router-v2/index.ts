@@ -41,6 +41,7 @@ function scoreCandidate(c:any,task:string,capability:string,taskRisk:string,doma
   if(c.live_verified!==true)hard.push("live_not_verified");
   const agents=Array.isArray(c.agents)?c.agents.filter((a:any)=>a?.status==="available"&&riskAllowed(a?.max_risk,taskRisk)):[];
   if(Array.isArray(c.agents)&&c.agents.length&&!agents.length)hard.push("no_agent_with_required_risk");
+  if(taskRisk==="critical"&&domains.length===0&&!agents.some((a:any)=>["security","reviewer","verifier","planner"].includes(String(a.role||""))))hard.push("critical_requires_specialist");
   if(c.context_window!==null&&Math.ceil(task.length/4)>Number(c.context_window))hard.push("context_too_small");
   if(hard.length)return {hard,selectedAgent:null};
   const attempts=num(c.attempts)??0,successes=num(c.successes)??0,reliability=attempts>0?Math.max(0,Math.min(1,successes/attempts)):null;
