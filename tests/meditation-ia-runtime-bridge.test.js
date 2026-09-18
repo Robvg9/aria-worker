@@ -29,6 +29,15 @@ test('Canonical runtime remains the single mission execution entrypoint', () => 
   assert.ok(runner.includes('executeStep'));
   assert.ok(runner.includes('verifyStep'));
   assert.ok(runner.includes('aria_mission_claim_by_id_lease'));
+  assert.ok(runner.includes('explicitlyUnverified'));
+  assert.ok(runner.includes('mutating_operation_required'));
+  assert.ok(runner.includes('Lease preserved for stale recovery') || runner.includes('lease_preserved_for_stale_recovery'));
+  assert.ok(runner.includes('const failedMissionId = activeMissionId || requestedMissionId'));
+  assert.ok(runner.includes('agentSteps.every'));
+  assert.ok(runner.includes('modelSteps.every'));
 });
 
+const githubRuntime = fs.readFileSync(path.join(root, 'supabase/functions/aria-github-app-runtime-v1/index.ts'), 'utf8');
+assert.ok(githubRuntime.includes('idempotent:true'));
+assert.ok(githubRuntime.includes('existing?.content'));
 console.log('MEDITATION_IA_RUNTIME_BRIDGE=PASS');
