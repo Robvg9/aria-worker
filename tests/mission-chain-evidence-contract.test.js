@@ -20,3 +20,5 @@ assert.match(migration, /child_mission_not_terminal_succeeded/);
 assert.match(migration, /child_mission_not_verified/);
 
 console.log('MISSION CHAIN EVIDENCE CONTRACT: PASS');
+
+assert.match(migration, /continuity_proof/);
