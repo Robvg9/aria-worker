@@ -26,3 +26,12 @@ assert.match(emergency,/aria-approved-repair/);
 assert.match(emergency,/github\.event\.issue\.user\.login == 'Robvg9'/);
 assert.doesNotMatch(emergency,/git push origin main/);
 assert.match(emergency,/gh pr create --draft/);
+
+const appWorkflow=fs.readFileSync(path.join(root,".github/workflows/aria-app-api-deploy.yml"),"utf8");
+assert.doesNotMatch(appWorkflow,/--verify-jwt/);
+assert.match(appWorkflow,/supabase functions deploy aria-app-api-v1/);
+const cloudflareWorkflow=fs.readFileSync(path.join(root,".github/workflows/aria-cloudflare-deploy.yml"),"utf8");
+assert.doesNotMatch(cloudflareWorkflow,/Apply Grok embedded-browser consent compatibility patch/);
+assert.match(cloudflareWorkflow,/x-aria-grok-consent/);
+const forbiddenSelfPatcher=path.join(root,".github/workflows/fix-grok-consent-compat.yml");
+assert.equal(fs.existsSync(forbiddenSelfPatcher),false);
