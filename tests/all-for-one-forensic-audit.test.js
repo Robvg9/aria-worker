@@ -20,3 +20,9 @@ assert.match(migration,/alter table aria_internal\.goal_audit_snapshots_v1 add c
 assert.match(migration,/create index if not exists .*execution_jobs_device_id_idx/i);
 assert.match(migration,/aria-autonomy-supervisor-v5/);
 console.log("ALL FOR ONE FORENSIC AUDIT CONTRACT: PASS");
+
+const emergency=fs.readFileSync(path.join(root,".github/workflows/aria-windows-emergency-repair.yml"),"utf8");
+assert.match(emergency,/aria-approved-repair/);
+assert.match(emergency,/github\.event\.issue\.user\.login == 'Robvg9'/);
+assert.doesNotMatch(emergency,/git push origin main/);
+assert.match(emergency,/gh pr create --draft/);
