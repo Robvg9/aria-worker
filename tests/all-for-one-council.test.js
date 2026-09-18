@@ -19,7 +19,7 @@ assert.match(gateway,/evidence-first; root-cause over patch/);
 assert.match(gateway,/every eligible agent\/model attempted/);
 
 assert.match(supervisorSource,/\/v1\/audit\/all-for-one\/tick/);
-assert.match(supervisor,/all-for-one-supervisor-v1/);
+assert.match(supervisorSource,/all-for-one-supervisor-v1/);
 
 assert.match(migration,/all_for_one_runs/);
 assert.match(migration,/all_for_one_auditors/);
