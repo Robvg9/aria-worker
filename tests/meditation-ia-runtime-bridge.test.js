@@ -35,6 +35,15 @@ test('Canonical runtime remains the single mission execution entrypoint', () => 
   assert.ok(runner.includes('const failedMissionId = activeMissionId || requestedMissionId'));
   assert.ok(runner.includes('agentSteps.every'));
   assert.ok(runner.includes('modelSteps.every'));
+
+const dbGuard = fs.readFileSync(
+  path.join(root, 'supabase/migrations/20260918013000_meditation_verified_db_guard_v1.sql'),
+  'utf8'
+);
+assert.ok(dbGuard.includes('semantic_verification_required:mission_verified_event'));
+assert.ok(dbGuard.includes('semantic_verification_failed:explicit_unverified'));
+assert.ok(dbGuard.includes('mutation_without_change'));
+assert.ok(dbGuard.includes('NO_CHANGE_REQUIRED'));
 });
 
 const githubRuntime = fs.readFileSync(path.join(root, 'supabase/functions/aria-github-app-runtime-v1/index.ts'), 'utf8');
