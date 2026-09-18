@@ -30,9 +30,9 @@
       "account_id": "acct_xai_primary",
       "provider_id": "xai",
       "credential_ref": "secret://xai/acct_xai_primary",
-      "status": "active",
+      "status": "inactive",
       "model_refs": ["xai/grok-4.6"],
-      "metadata": {"verified_at":"2026-09-10","evidence":"xAI API key bound via ARIA secret boundary","notes":"Credential reference only. XAI_API_KEY lives in the credential store, never in this registry or source."}
+      "metadata": {"verified_at":"2026-09-18","credential_present":false,"evidence":"Live credential reachability audit: credential_secret_not_found","notes":"Known account identity retained for reconciliation, but it is inactive until a real xAI credential exists in ARIA secret storage."}
     }
   ],
   "indexes": {

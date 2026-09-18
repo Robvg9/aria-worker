@@ -48,9 +48,9 @@
       "canonical_name": "Grok 4.6 (xAI direct API)",
       "upstream_model": "grok-4.6",
       "upstream_provider_id": "xai",
-      "status": "available",
-      "availability": "public",
-      "metadata": {"access_path":"xai_responses","verified_at":"2026-09-10","evidence":"xAI official Responses API documentation","notes":"Direct route through xAI Responses API; credential in ARIA secret boundary. Supports Remote MCP tools."},
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {"access_path":"xai_responses","verified_at":"2026-09-18","evidence":"Live credential reachability audit: credential_secret_not_found","notes":"Adapter remains registered, but no xAI credential exists in ARIA secret store; route intentionally not selectable until a real credential is installed."},
       "capability_refs": ["text_generation"]
     }
   ],
