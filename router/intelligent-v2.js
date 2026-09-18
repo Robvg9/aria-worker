@@ -148,7 +148,12 @@ function select(candidates,input={}){
       spec.score*0.30+
       providerDirect*0.05;
     const agents=c.agents.filter(a=>String(a.status||'available')==='available'&&riskAllowed(a.max_risk,taskRisk));
-    const agent=agents.sort((a,b)=>String(a.agent_id).localeCompare(String(b.agent_id)))[0]||null;
+    const rolePriority=domains.flatMap(d=>TASK_DOMAIN_RULES.find(x=>x.domain===d)?.roles||[]);
+    const agent=agents.slice().sort((a,b)=>{
+      const ai=rolePriority.indexOf(String(a.role||'')),bi=rolePriority.indexOf(String(b.role||''));
+      const ar=ai<0?999:ai,br=bi<0?999:bi;
+      return ar-br||String(a.agent_id).localeCompare(String(b.agent_id));
+    })[0]||null;
     ranked.push({
       ...c,
       selected_agent_id:agent?.agent_id||null,
