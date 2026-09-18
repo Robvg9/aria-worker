@@ -74,7 +74,7 @@ with candidates as (
    and cm.capability_id=p_capability_id
   where a.agent_id=p_agent_id
     and a.status='available'
-    and a.capabilities ? p_capability_id
+    and a.scope ? 'reason'
 )
 select jsonb_build_object(
   'status',
