@@ -622,6 +622,18 @@ Deno.serve(async (request) => {
     if (!finalized) throw new Error("verified_terminalization_lease_lost");
 
     const chained = meditationChain ? await chainNextMeditationMission(chainDepth) : null;
+    if (chained?.status === "chained" && chained?.child_status === "succeeded" && chained?.mission_id) {
+      try {
+        await rpc("aria_internal.record_mission_chain_evidence", {
+          p_parent_mission_id: missionId,
+          p_child_mission_id: String(chained.mission_id),
+          p_worker_id: V,
+          p_depth: Number(chained.depth || chainDepth + 1),
+        });
+      } catch {
+        // Chain execution succeeded; proof persistence is best-effort and never rewrites a terminal mission.
+      }
+    }
     return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
