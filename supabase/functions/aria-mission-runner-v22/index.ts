@@ -596,31 +596,25 @@ Deno.serve(async (request) => {
 
     const executorTypes = [...new Set(steps.map(executorType))];
     const agentIds = steps.filter((step) => executorType(step) === "agent").map((step) => String(step.target?.agent_id || "")).filter(Boolean);
-    await emitEvent(missionId, "mission_verified", { steps: steps.length, completed_steps: completed.size, executor_types: executorTypes, agent_ids: agentIds, verified: true });
-
-    await updateMission(missionId, {
-      status: "succeeded",
-      current_step: steps.length,
-      total_steps: steps.length,
-      completed_steps: steps.length,
-      next_action: null,
-      finished_at: new Date().toISOString(),
-      lease_owner: null,
-      lease_until: null,
-      checkpoint: {
-        ...(mission.checkpoint || {}),
-        cognitive_context: cognitiveContext,
-        plan: steps,
-        completed_steps: [...completed],
-        attempts,
-        results,
-        pending_jobs: {},
-        model_execution_verified: steps.some((step) => executorType(step) === "model"),
-        agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
-        universal_execution_verified: true,
-        executor_types: executorTypes,
-      },
+    const verifiedTerminalMarkers = {
+      universal_execution_verified: true,
+      model_execution_verified: steps.some((step) => executorType(step) === "model"),
+      agent_execution_verified: steps.some((step) => executorType(step) === "agent"),
+    };
+    await emitEvent(missionId, "mission_verified", {
+      steps: steps.length,
+      completed_steps: completed.size,
+      executor_types: executorTypes,
+      agent_ids: agentIds,
+      verified: true,
+      ...verifiedTerminalMarkers,
     });
+
+    const finalized = await rpc("aria_mission_finalize_verified_lease", {
+      p_mission_id: missionId,
+      p_worker_id: V,
+    });
+    if (!finalized) throw new Error("verified_terminalization_lease_lost");
 
     const chained = meditationChain ? await chainNextMeditationMission(request.url, chainDepth) : null;
     return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });
