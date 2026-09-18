@@ -11,6 +11,7 @@ for(const marker of [
 "resource_graph:'aria_internal.resolve_agent_resource'",
 "aria-agent-planner-gemini35-v1",
 "aria-agent-verifier-gemini35-v1",
+"M5_VERIFIER_E2E_OK",
 "x-aria-trigger':'mission5-agent-probe"
 ]) assert.ok(source.includes(marker),'missing Mission 5 probe marker: '+marker);
 assert.ok(source.includes("v1/mission5/model-probe"),'missing Mission 5 model probe marker: '+"v1/mission5/model-probe");
