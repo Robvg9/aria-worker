@@ -25,3 +25,14 @@ assert.deepEqual(r.parallelPlan([{id:'a'},{id:'b'},{id:'c',depends_on:['a','b']}
 assert.equal(r.parallelPlan([{id:'a',depends_on:['a']}]).status,'blocked');
 
 console.log('MISSION 6 ROUTER V2 CONTRACT: PASS');
+
+out=r.select(candidates,{task:'write code and debug a regression',capability:'text_generation',risk:'high',required_tools:['code']});
+assert.equal(out.status,'selected');
+assert.equal(out.selected.model_id,'m-fast');
+assert.equal(out.selected.agent_role,'coder');
+out=r.select(candidates,{task:'research and synthesize findings',capability:'text_generation',risk:'medium',prefer_specialist_agent:true});
+assert.equal(out.status,'selected');
+assert.equal(out.selected.agent_role,'researcher');
+out=r.select(candidates,{task:'research with unavailable tool',capability:'text_generation',risk:'medium',required_tools:['device']});
+assert.equal(out.status,'no_route');
+console.log('MISSION 6 ROUTER V2 SPECIALIZATION/TOOLS: PASS');
