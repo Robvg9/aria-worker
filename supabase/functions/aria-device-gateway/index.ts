@@ -142,7 +142,8 @@ async function mission5AgentProbe(b:any,d:any){
   const allowed=new Set(['aria-agent-planner-gemini35-v1','aria-agent-verifier-gemini35-v1']);
   if(!allowed.has(agentId))throw new Error('agent_not_allowed_for_mission5_probe');
   if(risk!=='READ')throw new Error('mission5_probe_read_only');
-  if(!prompt||!prompt.includes('M5_AGENT_E2E_OK'))throw new Error('mission5_probe_prompt_contract');
+  const requiredMarker=agentId==='aria-agent-verifier-gemini35-v1'?'M5_VERIFIER_E2E_OK':'M5_AGENT_E2E_OK';
+  if(!prompt||!prompt.includes(requiredMarker))throw new Error('mission5_probe_prompt_contract');
   if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),30000);
