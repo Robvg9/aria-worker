@@ -14,6 +14,8 @@ const {createVerifierV2}=require('../agents/verifier-v2');
     {agent_id:'aria-agent-memory-v1',role:'memory',capabilities:['memory'],scope:['reason'],max_risk:'low',status:'available',model_id:'model-memory'},
     {agent_id:'aria-agent-business-v1',role:'business',capabilities:['business'],scope:['reason'],max_risk:'low',status:'available',model_id:'model-business'},
     {agent_id:'aria-agent-device-v1',role:'device',capabilities:['device'],scope:['reason'],max_risk:'low',status:'available',model_id:'model-device'}
+    {agent_id:'aria-agent-planner-gemini35-v1',role:'planner',capabilities:['planning'],scope:['reason'],max_risk:'low',status:'available',model_id:'google/gemini-3.5-flash-lite-direct'},
+    {agent_id:'aria-agent-verifier-gemini35-v1',role:'verifier',capabilities:['verification'],scope:['reason'],max_risk:'low',status:'available',model_id:'google/gemini-3.5-flash-lite-direct'}
   ];
   const agents=adaptCatalog(rawCatalog);
   const coverage=catalogCoverage(agents);
