@@ -47,7 +47,8 @@ assertContains(plannerWorkflow,'supabase functions deploy aria-planner-v11 --pro
 if(plannerWorkflow.includes('--verify-jwt'))throw new Error('planner workflow uses removed Supabase CLI verify-jwt flag');
 assertContains(executor,'route.provider_id!=="openrouter"','openrouter route guard missing');
 assertContains(executor,'route.account_id!=="acct_openrouter_primary"','openrouter account guard missing');
-assertContains(executor,'route.model_id!=="google/gemini-2.5-flash-lite"','openrouter model guard missing');
+assertContains(executor,'const freeOpenRouterModels=new Set','openrouter free model allowlist missing');
+assertContains(executor,'nvidia/nemotron-3-ultra-550b-a55b:free','expanded free model catalog missing');
 assertContains(executor,'status:"succeeded"','successful execution contract missing');
 if(!plannerConfig.includes('"imports"'))throw new Error('planner v11 deno.json invalid');
 console.log('aria-app-api-v3-contract.test.js: PASS');
