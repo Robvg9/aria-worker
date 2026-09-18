@@ -1,0 +1,33 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const root=process.cwd();
+const gateway=fs.readFileSync(path.join(root,"supabase/functions/aria-device-gateway/index.ts"),"utf8");
+const migration=fs.readFileSync(path.join(root,"supabase/migrations/20260918152500_mission7_autonomy_cycles.sql"),"utf8");
+const recoveryFix=fs.readFileSync(path.join(root,"supabase/migrations/20260918154000_fix_stale_recovery_same_goal_race.sql"),"utf8");
+const supervisor=fs.readFileSync(path.join(root,"supabase/functions/aria-autonomy-supervisor-v5/index.ts"),"utf8");
+
+assert.match(gateway,/p===['"]\/v1\/autonomy\/cycle['"]/);
+assert.match(gateway,/autonomyCycle/);
+assert.match(gateway,/autonomy-post-plan-v1/);
+assert.match(gateway,/autonomy_cycles/);
+assert.match(gateway,/aria_autonomy_recover_stale_missions/);
+assert.match(gateway,/generateCandidates/);
+assert.match(gateway,/selectDynamicGoal/);
+assert.match(gateway,/autonomy_only/);
+assert.match(gateway,/aria-learning-v3/);
+assert.match(gateway,/manual_confirmation/);
+assert.match(gateway,/human_gate:/);
+assert.match(gateway,/cycle_id/);
+assert.match(gateway,/deduplicated/);
+assert.match(supervisor,/aria-device-gateway/);
+assert.match(supervisor,/\/v1\/autonomy\/cycle/);
+assert.match(migration,/create table if not exists aria_internal\.autonomy_cycles/);
+assert.match(migration,/cycle_id text primary key/);
+assert.match(migration,/policy_version/);
+assert.match(migration,/enable row level security/);
+assert.match(recoveryFix,/row_number\(\) over/);
+assert.match(recoveryFix,/partition by nullif\(m\.metadata->>'goal_id'/);
+assert.match(recoveryFix,/rn=1/);
+console.log("MISSION 7 AUTONOMY INTEGRATION CONTRACT: PASS");
