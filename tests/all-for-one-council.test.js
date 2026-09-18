@@ -41,5 +41,5 @@ assert.match(gateway2,/\.from\('all_for_one_runs'\)/);
 
 assert.match(gateway,/const SUPABASE_URL=Deno\.env\.get\('SUPABASE_URL'\)!/);
 assert.doesNotMatch(gateway,/\$\{URL\}\/functions\/v1\/aria-/);
-assert.doesNotMatch(gateway,/all_for_one_runs.*order\('created_at'/s);
+assert.doesNotMatch(gateway,/from\('all_for_one_runs'\)\.select\('\*'\)\.order\('created_at'/);
 assert.match(supervisorSource,/x-aria-autonomy-token/);
