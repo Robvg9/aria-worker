@@ -83,7 +83,7 @@ jobs:
             Start-Sleep -Seconds 1
             try{
               $h=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:45873/health' -TimeoutSec 2
-              if($h.service -eq 'aria-meditation-control' -and [string]$h.version -eq 'aria-windows-meditation-controller-v2'){$ok=$true;break}
+              if($h.service -eq 'aria-meditation-control' -and [string]$h.version -eq 'aria-windows-meditation-controller-v3'){$ok=$true;break}
             }catch{}
           }
           if(-not$ok){throw 'Meditation controller did not reload with v2 surface'}

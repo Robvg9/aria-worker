@@ -1,4 +1,4 @@
-# Control routes: /status /log /start /pause /resume /stop | Center routes: /catalog /queue /queue/add /queue/remove /queue/reorder /queue/run-next /human-gate/complete
+# Control routes: /status /log /start /pause /resume /stop | Center routes: /catalog /queue /queue/add /queue/remove /queue/reorder /queue/run-next /notifications /notifications/read /human-gate/complete
 param(
   [int]$Port = 45873
 )
@@ -103,6 +103,10 @@ $catalogTab.Text = 'CATÁLOGO'
 $queueTab = New-Object System.Windows.Forms.TabPage
 $queueTab.Text = 'COLA MANUAL'
 [void]$tabs.TabPages.Add($queueTab)
+
+$notificationsTab = New-Object System.Windows.Forms.TabPage
+$notificationsTab.Text = 'NOTIFICACIONES'
+[void]$tabs.TabPages.Add($notificationsTab)
 
 $activeTitle = New-Object System.Windows.Forms.Label
 $activeTitle.AutoSize = $false
@@ -258,6 +262,51 @@ $queueRefresh.Size = New-Object System.Drawing.Size(180, 44)
 $queueRefresh.Location = New-Object System.Drawing.Point(665, 450)
 $queueTab.Controls.Add($queueRefresh)
 
+$notificationsCount = New-Object System.Windows.Forms.Label
+$notificationsCount.AutoSize = $true
+$notificationsCount.Location = New-Object System.Drawing.Point(15, 15)
+$notificationsTab.Controls.Add($notificationsCount)
+
+$notificationGrid = New-Object System.Windows.Forms.DataGridView
+$notificationGrid.Location = New-Object System.Drawing.Point(15, 48)
+$notificationGrid.Size = New-Object System.Drawing.Size(1115, 360)
+$notificationGrid.ReadOnly = $true
+$notificationGrid.AllowUserToAddRows = $false
+$notificationGrid.SelectionMode = 'FullRowSelect'
+$notificationGrid.MultiSelect = $false
+$notificationGrid.RowHeadersVisible = $false
+$notificationGrid.AutoSizeColumnsMode = 'Fill'
+[void]$notificationGrid.Columns.Add('time', 'Fecha')
+[void]$notificationGrid.Columns.Add('severity', 'Nivel')
+[void]$notificationGrid.Columns.Add('title', 'Notificacion')
+[void]$notificationGrid.Columns.Add('kind', 'Tipo')
+[void]$notificationGrid.Columns.Add('state', 'Estado')
+$notificationsTab.Controls.Add($notificationGrid)
+
+$notificationDetail = New-Object System.Windows.Forms.RichTextBox
+$notificationDetail.ReadOnly = $true
+$notificationDetail.Location = New-Object System.Drawing.Point(15, 425)
+$notificationDetail.Size = New-Object System.Drawing.Size(760, 165)
+$notificationsTab.Controls.Add($notificationDetail)
+
+$notificationRefresh = New-Object System.Windows.Forms.Button
+$notificationRefresh.Text = 'ACTUALIZAR'
+$notificationRefresh.Size = New-Object System.Drawing.Size(160, 44)
+$notificationRefresh.Location = New-Object System.Drawing.Point(800, 430)
+$notificationsTab.Controls.Add($notificationRefresh)
+
+$notificationMarkRead = New-Object System.Windows.Forms.Button
+$notificationMarkRead.Text = 'MARCAR LEIDA'
+$notificationMarkRead.Size = New-Object System.Drawing.Size(160, 44)
+$notificationMarkRead.Location = New-Object System.Drawing.Point(975, 430)
+$notificationsTab.Controls.Add($notificationMarkRead)
+
+$notificationMarkAllRead = New-Object System.Windows.Forms.Button
+$notificationMarkAllRead.Text = 'MARCAR TODO LEIDO'
+$notificationMarkAllRead.Size = New-Object System.Drawing.Size(335, 44)
+$notificationMarkAllRead.Location = New-Object System.Drawing.Point(800, 485)
+$notificationsTab.Controls.Add($notificationMarkAllRead)
+
 function Set-CenterMessage {
   param([string]$Text, [bool]$IsError = $false)
   $message.Text = $Text
@@ -278,6 +327,26 @@ function Get-Queue {
 
 function Get-Status {
   return Invoke-CenterApi -Method 'GET' -Path '/status'
+}
+
+function Get-Notifications {
+  return Invoke-CenterApi -Method 'GET' -Path '/notifications'
+}
+
+function Get-SelectedNotification {
+  param([object]$Model)
+
+  if ($notificationGrid.SelectedRows.Count -lt 1 -or $null -eq $Model) {
+    return $null
+  }
+
+  $id = [string]$notificationGrid.SelectedRows[0].Tag
+  foreach ($item in @($Model.notifications)) {
+    if ([string]$item.notification_id -eq $id) {
+      return $item
+    }
+  }
+  return $null
 }
 
 function Get-SelectedCatalogItem {
@@ -375,6 +444,86 @@ function Refresh-Queue {
   }
 
   $queueCount.Text = "Cola manual: $($queueGrid.Rows.Count)"
+}
+
+function Refresh-Notifications {
+  $model = Get-Notifications
+  $notificationGrid.Rows.Clear()
+
+  if ($null -eq $model -or $null -eq $model.notifications) {
+    $notificationsCount.Text = 'Notificaciones: sin conexion'
+    $notificationsTab.Text = 'NOTIFICACIONES'
+    $notificationDetail.Text = ''
+    return
+  }
+
+  $unread = [int]$model.unread_count
+  $notificationsCount.Text = "Notificaciones: $($model.notifications.Count) | Sin leer: $unread"
+  $notificationsTab.Text = if ($unread -gt 0) { "NOTIFICACIONES ($unread)" } else { 'NOTIFICACIONES' }
+
+  foreach ($item in @($model.notifications)) {
+    $readState = if ($null -eq $item.read_at) { 'NUEVA' } else { 'LEIDA' }
+    $time = try { ([DateTime]::Parse([string]$item.created_at)).ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss') } catch { [string]$item.created_at }
+    $rowIndex = $notificationGrid.Rows.Add(
+      $time,
+      [string]$item.severity,
+      [string]$item.title,
+      [string]$item.kind,
+      $readState
+    )
+    $notificationGrid.Rows[$rowIndex].Tag = [string]$item.notification_id
+  }
+}
+
+function Show-NotificationDetail {
+  $model = Get-Notifications
+  $item = Get-SelectedNotification -Model $model
+  if ($null -eq $item) {
+    $notificationDetail.Text = ''
+    return
+  }
+
+  $nl = [Environment]::NewLine
+  $notificationDetail.Text =
+    ('TITULO:' + $nl + [string]$item.title + $nl + $nl +
+     'MENSAJE:' + $nl + [string]$item.message + $nl + $nl +
+     'TIPO: ' + [string]$item.kind + ' | NIVEL: ' + [string]$item.severity + $nl +
+     'MISION: ' + [string]$item.mission_id + $nl +
+     'ACCION: ' + [string]$item.action + $nl +
+     'ESTADO: ' + $(if($null -eq $item.read_at){'NUEVA'}else{'LEIDA'}))
+}
+
+function Mark-SelectedNotificationRead {
+  if ($notificationGrid.SelectedRows.Count -lt 1) {
+    return
+  }
+
+  $id = [string]$notificationGrid.SelectedRows[0].Tag
+  $result = Invoke-CenterApi -Method 'POST' -Path '/notifications/read' -Body @{
+    notification_ids = @($id)
+  }
+
+  if ($null -eq $result -or $result.ok -ne $true) {
+    Set-CenterMessage -Text ('ERROR NOTIFICACION: ' + [string]$result.error) -IsError $true
+    return
+  }
+
+  Set-CenterMessage -Text 'NOTIFICACIONES: marcada como leida.'
+  Refresh-Notifications
+}
+
+function Mark-AllNotificationsRead {
+  $result = Invoke-CenterApi -Method 'POST' -Path '/notifications/read' -Body @{
+    all = $true
+  }
+
+  if ($null -eq $result -or $result.ok -ne $true) {
+    Set-CenterMessage -Text ('ERROR NOTIFICACIONES: ' + [string]$result.error) -IsError $true
+    return
+  }
+
+  Set-CenterMessage -Text 'NOTIFICACIONES: todas marcadas como leidas.'
+  Refresh-Notifications
 }
 
 function Refresh-Center {
@@ -609,6 +758,10 @@ $queueDown.Add_Click({ Reorder-SelectedQueueItem -Delta 1 })
 $queueRemove.Add_Click({ Remove-SelectedQueueItem })
 $queueRun.Add_Click({ Run-NextQueueItem })
 $queueRefresh.Add_Click({ Refresh-Queue })
+$notificationGrid.Add_SelectionChanged({ Show-NotificationDetail })
+$notificationRefresh.Add_Click({ Refresh-Notifications })
+$notificationMarkRead.Add_Click({ Mark-SelectedNotificationRead })
+$notificationMarkAllRead.Add_Click({ Mark-AllNotificationsRead })
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000
@@ -617,6 +770,7 @@ $timer.Add_Tick({
     Refresh-Center
     Refresh-Catalog
     Refresh-Queue
+    Refresh-Notifications
   }
   catch {
     Set-CenterMessage -Text ('UI ERROR: ' + $_.Exception.Message) -IsError $true
@@ -627,4 +781,5 @@ $timer.Start()
 Refresh-Center
 Refresh-Catalog
 Refresh-Queue
+Refresh-Notifications
 [void]$form.ShowDialog()
