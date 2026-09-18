@@ -16,7 +16,7 @@ assert.match(v10,/deprecated:true/);
 assert.doesNotMatch(v10,/generateCandidates/);
 assert.match(migration,/revoke execute on function aria_internal\.run_mission_runner_tick_v1\(\)/i);
 assert.match(migration,/alter function aria_internal\.canonical_vision_goal_id\(p_objective_id text\) set search_path/i);
-assert.match(migration,/alter table aria_internal\.goal_audit_snapshots_v1 add constraint/i);
+assert.match(migration,/alter table aria_internal\.goal_audit_snapshots_v1\s+add constraint/i);
 assert.match(migration,/create index if not exists .*execution_jobs_device_id_idx/i);
 assert.match(migration,/aria-autonomy-supervisor-v5/);
 console.log("ALL FOR ONE FORENSIC AUDIT CONTRACT: PASS");
