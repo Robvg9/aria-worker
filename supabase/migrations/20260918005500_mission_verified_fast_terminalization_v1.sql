@@ -23,6 +23,22 @@ begin
          finished_at=coalesce(m.finished_at,clock_timestamp()),
          lease_owner=null,
          lease_until=null,
+         checkpoint=jsonb_set(
+           jsonb_set(
+             jsonb_set(
+               coalesce(m.checkpoint,'{}'::jsonb),
+               '{universal_execution_verified}',
+               'true'::jsonb,
+               true
+             ),
+             '{agent_execution_verified}',
+             to_jsonb(exists(select 1 from jsonb_array_elements(coalesce(m.checkpoint->'plan','[]'::jsonb)) s where coalesce(s->>'executor_type',s->'target'->>'type','')='agent')),
+             true
+           ),
+           '{model_execution_verified}',
+           to_jsonb(exists(select 1 from jsonb_array_elements(coalesce(m.checkpoint->'plan','[]'::jsonb)) s where coalesce(s->>'executor_type',s->'target'->>'type','')='model')),
+           true
+         ),
          updated_at=clock_timestamp()
    where m.mission_id=p_mission_id
      and m.lease_owner=p_worker_id
