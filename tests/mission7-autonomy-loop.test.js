@@ -1,6 +1,6 @@
-import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const root=process.cwd();
 const gateway=fs.readFileSync(path.join(root,"supabase/functions/aria-device-gateway/index.ts"),"utf8");
