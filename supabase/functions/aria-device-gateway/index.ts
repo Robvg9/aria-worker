@@ -382,28 +382,112 @@ async function autonomyServiceAuthorized(r:Request){
   return !error&&data===true;
 }
 function autonomyCycleId(now=new Date()){const slot=new Date(Math.floor(now.getTime()/60000)*60000);return`autonomy-cycle-${slot.toISOString().replace(/[:.]/g,'-')}`;}
+
+async function autonomySnapshot(){
+  const [goalsRes,activeRes,failRes,gapRes,learnRes]=await Promise.all([
+    supabase.schema('aria_internal').from('autonomy_goals').select('goal_id,goal,priority,status,next_run_at,attempts,max_attempts,last_mission_id,created_at,updated_at,source_type,source_ref,dynamic_score,metadata').in('status',['queued','paused','running','blocked','completed']).order('updated_at',{ascending:false}).limit(300),
+    supabase.schema('aria_internal').from('mission_state').select('mission_id,status,metadata,updated_at').in('status',['queued','planning','running','waiting','paused']).limit(100),
+    supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,last_stderr,checkpoint,metadata,updated_at,created_at').in('status',['failed','blocked','timeout']).gt('updated_at',new Date(Date.now()-72*3600000).toISOString()).order('updated_at',{ascending:false}).limit(100),
+    supabase.schema('aria_internal').from('capability_matrix').select('model_id,capability_id,status,evidence_type,evidence_ref,verified_at,notes,metadata,updated_at').neq('status','verified').order('updated_at',{ascending:false}).limit(100),
+    supabase.schema('aria_internal').from('autonomy_learnings').select('lesson_id,goal_id,category,summary,evidence,confidence,reusable,created_at').in('category',['operational_failure','verified_success','verified_procedure']).gt('created_at',new Date(Date.now()-7*86400000).toISOString()).order('created_at',{ascending:false}).limit(100)
+  ]);
+  for(const r of [goalsRes,activeRes,failRes,gapRes,learnRes])if(r.error)throw new Error(r.error.message);
+  return{goals:goalsRes.data||[],active:activeRes.data||[],failures:failRes.data||[],capabilityGaps:gapRes.data||[],learnings:learnRes.data||[]};
+}
+async function autonomyEnsureCandidates(candidates:any[],cycleId:string){
+  let inserted=0;
+  for(const c of candidates.slice(0,25)){
+    const {data:exists,error:lookup}=await supabase.schema('aria_internal').from('autonomy_goals').select('goal_id,status').eq('goal_id',c.goal_id).maybeSingle();
+    if(lookup)throw new Error(lookup.message);
+    if(exists)continue;
+    const {error}=await supabase.schema('aria_internal').from('autonomy_goals').insert({
+      goal_id:c.goal_id,goal:c.goal,priority:Math.round(Number(c.priority??50)),status:'queued',
+      next_run_at:new Date().toISOString(),attempts:0,max_attempts:3,source_type:c.source_type??'dynamic',
+      source_ref:c.source_ref??c.goal_id,dynamic_score:Number(c.dynamic_score??0),
+      metadata:{...(c.metadata&&typeof c.metadata==='object'?c.metadata:{}),autonomy_cycle_id:cycleId,generated_by:'aria-autonomy-cycle-v1',governed:true}
+    });
+    if(error){
+      if(String(error.message||'').toLowerCase().includes('duplicate'))continue;
+      throw new Error(error.message);
+    }
+    inserted++;
+  }
+  return inserted;
+}
 async function autonomyCycle(b:any){
   const cycle_id=autonomyCycleId();
   const {data:existing}=await supabase.schema('aria_internal').from('autonomy_cycles').select('*').eq('cycle_id',cycle_id).maybeSingle();
   if(existing)return{ok:true,deduplicated:true,cycle:existing};
-  let deviceId=typeof b?.device_id==='string'?b.device_id.trim():'';
-  let device:any=null;
-  if(deviceId){
-    const {data,error}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities').eq('device_id',deviceId).maybeSingle();
-    if(error)throw new Error(error.message); device=data;
-  }else{
-    const {data,error}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities').eq('status','online').eq('agent_type','windows-local').order('last_seen_at',{ascending:false}).limit(1).maybeSingle();
-    if(error)throw new Error(error.message); device=data;
+  const recover=await supabase.rpc('aria_autonomy_recover_stale_missions',{p_stale_after:'00:02:00'});
+  if(recover.error)throw new Error(`recovery:${recover.error.message}`);
+  const governance=await supabase.rpc('aria_internal.reconcile_mission_queue_governance_v1');
+  if(governance.error)throw new Error(`queue_governance:${governance.error.message}`);
+  const snap=await autonomySnapshot();
+  const now=new Date().toISOString();
+  const candidates=generateCandidates(snap,{now});
+  const inserted=await autonomyEnsureCandidates(candidates,cycle_id);
+  const refreshed=await autonomySnapshot();
+  const blockedIds=new Set(refreshed.goals.filter((g:any)=>['blocked','completed'].includes(g.status)).map((g:any)=>g.goal_id));
+  const activeIds=new Set(refreshed.goals.filter((g:any)=>g.status==='running').map((g:any)=>g.goal_id));
+  const eligible=refreshed.goals.filter((g:any)=>g.status==='queued'&&(!g.next_run_at||Date.parse(g.next_run_at)<=Date.now()));
+  const ranked=generateCandidates({goals:eligible},{now});
+  const selected=selectDynamicGoal(ranked,blockedIds,activeIds);
+  await supabase.schema('aria_internal').from('autonomy_cycles').insert({
+    cycle_id,cycle_slot:new Date(Math.floor(Date.now()/60000)*60000).toISOString(),
+    trigger:String(b?.trigger||'manual'),status:'started',policy_version:'autonomy-post-plan-v1',
+    active_missions_count:refreshed.active.length,goals_scanned:refreshed.goals.length,
+    failures_scanned:refreshed.failures.length,capability_gaps_scanned:refreshed.capabilityGaps.length,
+    learnings_scanned:refreshed.learnings.length,candidates_generated:candidates.length,candidates_inserted:inserted
+  });
+  if(!selected){
+    const evidence={recovery:recover.data??0,queue_governance:governance.data??null,reason:'no_eligible_goal'};
+    await supabase.schema('aria_internal').from('autonomy_cycles').update({status:'idle',evidence,updated_at:new Date().toISOString()}).eq('cycle_id',cycle_id);
+    return{ok:true,deduplicated:false,cycle_id,status:'idle',policy_version:'autonomy-post-plan-v1',generated_candidates:candidates.length,inserted_candidates:inserted};
   }
-  if(!device)throw new Error('no_online_windows_device');
-  const {data:active,error:ae}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,status').in('status',['queued','planning','running','waiting','paused']).limit(50);
-  if(ae)throw new Error(ae.message);
-  await supabase.schema('aria_internal').from('autonomy_cycles').insert({cycle_id,cycle_slot:new Date(Math.floor(Date.now()/60000)*60000).toISOString(),trigger:String(b?.trigger||'cron'),status:'started',policy_version:'autonomy-post-plan-v1',active_missions_count:Number(active?.length||0)});
-  const result=await meditationTick({autonomy_only:true,trigger:'autonomy-7',session_id:null},device);
-  const status=result?.status==='succeeded'||result?.status==='completed'?'completed':result?.status==='paused'||result?.status==='waiting'?'waiting':result?.status==='failed'||result?.status==='blocked'?'blocked':result?.mission_created?'processed':'idle';
-  const evidence={device_id:device.device_id,agent_type:device.agent_type,result,cycle_dedupe:true,governed:true,no_manual_queue:true};
-  await supabase.schema('aria_internal').from('autonomy_cycles').update({status,mission_status:result?.status??null,created_mission_id:result?.mission_created??result?.active_mission_id??null,selected_goal_id:result?.goal_id??null,learning_result:result?.postLearning??result?.learning??{},evidence,candidates_generated:Number(result?.candidate_count||0),candidates_inserted:Number(result?.generated_count||0),updated_at:new Date().toISOString()}).eq('cycle_id',cycle_id);
-  return{ok:true,deduplicated:false,cycle_id,status,policy_version:'autonomy-post-plan-v1',device_id:device.device_id,result};
+  const {data:claimed,error:claimError}=await supabase.schema('aria_internal').from('autonomy_goals').update({status:'running',attempts:Number(selected.attempts||0)+1,updated_at:new Date().toISOString()}).eq('goal_id',selected.goal_id).eq('status','queued').select('*').maybeSingle();
+  if(claimError)throw new Error(`goal_claim:${claimError.message}`);
+  if(!claimed){
+    await supabase.schema('aria_internal').from('autonomy_cycles').update({status:'raced',evidence:{reason:'goal_claim_lost_race'},updated_at:new Date().toISOString()}).eq('cycle_id',cycle_id);
+    return{ok:true,deduplicated:false,cycle_id,status:'raced',policy_version:'autonomy-post-plan-v1'};
+  }
+  const {data:existingMission,error:existingError}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,status,goal,metadata').eq('metadata->>goal_id',selected.goal_id).in('status',['queued','planning','running','waiting','paused']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  if(existingError)throw new Error(`existing_mission:${existingError.message}`);
+  let missionId:string;
+  let reused=false;
+  if(existingMission){
+    missionId=String(existingMission.mission_id);reused=true;
+  }else{
+    const missionPayload={mission_id:`auto_${crypto.randomUUID()}`,status:'queued',goal:String(selected.goal),current_step:0,completed_steps:0,
+      checkpoint:{autonomy:{cycle_id,source_type:selected.source_type??null,source_ref:selected.source_ref??null,dynamic_score:selected.dynamic_score??null}},
+      metadata:{source:'autonomy-loop-v1',autonomy_cycle_id:cycle_id,goal_id:selected.goal_id,device_id:b.device_id||null,dynamic_goal:true,dynamic_score:selected.dynamic_score??null,goal_source:selected.source_type??null,human_gate:/\\b(production|prod|merge|main|master|delete|destroy|destructive|credential|secret|api[_ -]?key|password|payment|billing|purchase|deploy)\\b/i.test(String(selected.goal||''))?{enabled:true,method:'manual_confirmation',instructions:'Revisar y confirmar manualmente cualquier acción sensible antes de continuar.',reason:'La misión autónoma toca una frontera sensible de producción, credenciales, pago o cambio destructivo.'}:{enabled:false}}};
+    const {data:created,error:ce}=await supabase.rpc('aria_mission_create',{p_mission:missionPayload});
+    if(ce){
+      if(String(ce.code||'')==='23505'||String(ce.message||'').includes('mission_state_one_inflight_goal_idx')){
+        const {data:race}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,status,goal,metadata').eq('metadata->>goal_id',selected.goal_id).in('status',['queued','planning','running','waiting','paused']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+        if(!race)throw new Error(ce.message);
+        missionId=String(race.mission_id);reused=true;
+      }else{
+        await supabase.schema('aria_internal').from('autonomy_goals').update({status:'queued',attempts:Math.max(0,Number(claimed.attempts||1)-1),updated_at:new Date().toISOString()}).eq('goal_id',selected.goal_id).eq('status','running');
+        throw new Error(`mission_create:${ce.message}`);
+      }
+    }else{
+      missionId=String(created.mission_id);
+    }
+  }
+  await supabase.schema('aria_internal').from('autonomy_goals').update({status:'running',last_mission_id:missionId,updated_at:new Date().toISOString()}).eq('goal_id',selected.goal_id).eq('status','running');
+  const runtime=await runCanonicalMission(missionId,'autonomy-7');
+  let learningResult:any=null;
+  if(runtime.status==='succeeded')learningResult=await learnMissionViaV3(missionId);
+  const {data:finished}=await supabase.schema('aria_internal').from('mission_state').select('status,last_exit_code,last_stdout,last_stderr,checkpoint,metadata,finished_at').eq('mission_id',missionId).maybeSingle();
+  const goalStatus=finished?.status==='succeeded'?'completed':(finished?.status==='failed'?'queued':'running');
+  await supabase.schema('aria_internal').from('autonomy_goals').update({status:goalStatus,last_mission_id:missionId,updated_at:new Date().toISOString()}).eq('goal_id',selected.goal_id).eq('status','running');
+  const status=finished?.status==='succeeded'?'completed':finished?.status==='failed'?'failed':finished?.status==='blocked'?'blocked':finished?.status==='paused'||finished?.status==='waiting'?'waiting':runtime.status||'processed';
+  const evidence={recovery:recover.data??0,queue_governance:governance.data??null,selected,reused_mission:reused,runtime,finished,learning:learningResult};
+  await supabase.schema('aria_internal').from('autonomy_cycles').update({
+    status,selected_goal_id:selected.goal_id,created_mission_id:missionId,mission_status:finished?.status??null,
+    learning_result:learningResult??{},evidence,updated_at:new Date().toISOString()
+  }).eq('cycle_id',cycle_id);
+  return{ok:status!=='failed'&&status!=='blocked',deduplicated:false,cycle_id,status,policy_version:'autonomy-post-plan-v1',selected_goal:selected,mission_id:missionId,reused_mission:reused,runtime,learning:learningResult};
 }
 Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){if(typeof b.device_id!=='string'||typeof b.token!=='string')return json({error:'device_id_and_token_required'},400);const {data,error}=await supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token});if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);return json(data)}if(req.method==='POST'&&p==='/v1/autonomy/cycle'){try{let serviceAuthorized=await autonomyServiceAuthorized(req);if(!serviceAuthorized){const deviceAuth=await auth(req,b.device_id);if(deviceAuth.error)return deviceAuth.error;b.device_id=deviceAuth.device.device_id;}return json(await autonomyCycle(b))}catch(e){return json({ok:false,status:'blocked',error:queueError(e),policy_version:'autonomy-post-plan-v1'},200)}}
 const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.isArray(b.capabilities)?b.capabilities:d.capabilities,p_agent_type:String(b.agent_type||d.agent_type)});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id})}if(req.method==='POST'&&p==='/v1/router/decide'){try{return json(await intelligentRouterDecision({...b,device_id:d.device_id}))}catch(e){return json({status:'failed',error:queueError(e)},500)}}
