@@ -13,6 +13,7 @@ assert.doesNotMatch(v5,/aria-mission-runner-v6/);
 assert.doesNotMatch(v5,/async function createMission/);
 assert.doesNotMatch(v5,/generateCandidates/);assert.match(gateway,/classifyAllForOneProviderBlock/);
 assert.match(gateway,/free-models-per-day/);
+assert.match(gateway,/currently experiencing high demand/);
 assert.match(gateway,/blocked_provider/);
 assert.match(gateway,/const auditorStatus=out\.status===.blocked./);
 assert.match(gateway,/coverage\.first_pass\.failed===0/);
