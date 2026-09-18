@@ -1,0 +1,93 @@
+[
+  {
+    "name": "Entrar y ver el centro de mando",
+    "sanity": true,
+    "viewport": "mobile",
+    "covers": [
+      "authentication",
+      "ARIA dashboard",
+      "live capability summary",
+      "current PWA build"
+    ],
+    "description": "Verifica el acceso, la superficie principal y que la PWA carga la compilación actual.",
+    "steps": [
+      "Abrir ARIA",
+      "Introducir credenciales válidas",
+      "Entrar",
+      "Comprobar que el Centro de Mando muestra el build actual y la sincronización LIVE"
+    ],
+    "expected": "Se muestra el Centro de Mando con inventario de capacidades, la compilación actual y el estado de sincronización LIVE cuando el núcleo responde."
+  },
+  {
+    "name": "Conversar y seguir una misión con sincronización automática",
+    "viewport": "desktop",
+    "covers": [
+      "conversation send",
+      "mission execution",
+      "mission status",
+      "live mission sync without manual refresh"
+    ],
+    "description": "Verifica que una misión en ejecución actualiza su estado sin recargar manualmente la PWA.",
+    "steps": [
+      "Escribir una solicitud útil",
+      "Enviar a ARIA",
+      "Observar respuesta y estado",
+      "Mientras la misión sigue en curso, esperar una actualización de progreso sin recargar la página"
+    ],
+    "expected": "ARIA muestra la respuesta y el progreso/estado de la misión se actualiza automáticamente mientras el backend cambia."
+  },
+  {
+    "name": "Explorar modelos, agentes, dispositivos y conexiones",
+    "viewport": "mobile",
+    "covers": [
+      "capability catalog",
+      "models",
+      "agents",
+      "devices",
+      "executors",
+      "connections"
+    ],
+    "description": "Verifica la superficie de inventario operativo.",
+    "steps": [
+      "Abrir Capacidades",
+      "Entrar en Modelos",
+      "Revisar Agentes, Dispositivos, Executors y Conexiones"
+    ],
+    "expected": "Se muestran datos reales del catálogo LIVE sin secretos."
+  },
+  {
+    "name": "Abrir el resumen de una misión terminada",
+    "viewport": "desktop",
+    "covers": [
+      "mission detail",
+      "mission events",
+      "succeeded failed summary"
+    ],
+    "description": "Verifica el resumen humano de una misión y su timeline.",
+    "steps": [
+      "Ejecutar o abrir una misión existente",
+      "Abrir su resumen",
+      "Revisar resultado y timeline"
+    ],
+    "expected": "Se muestra estado final, resultado, fechas y eventos comprensibles."
+  },
+  {
+    "name": "Controlar Meditación IA",
+    "viewport": "mobile",
+    "covers": [
+      "meditation overview",
+      "meditation control",
+      "human gates",
+      "blocked missions",
+      "resume sync after focus or reconnect"
+    ],
+    "description": "Verifica el centro de continuidad y que la sincronización se reanuda al volver a la pestaña o recuperar red.",
+    "steps": [
+      "Abrir Meditación IA",
+      "Leer estado cloud",
+      "Cambiar de pestaña y volver",
+      "Comprobar que el estado cloud vuelve a sincronizarse sin recarga manual"
+    ],
+    "expected": "La pantalla refleja el estado cloud y la sincronización se reanuda automáticamente al recuperar foco o conectividad."
+  }
+]
