@@ -199,53 +199,60 @@ async function markMeditationNotificationsRead(body:any){
   if(error)throw new Error(error.message);
   return{ok:true,marked_read:Number(data?.length||0),notification_ids:(data||[]).map((x:any)=>String(x.notification_id))};
 }
+const M6_RISK:Record<string,number>={low:0,medium:1,high:2,critical:3};
+const M6_RULES=[
+ {domain:'coding',re:/\b(code|coding|debug|bug|refactor|program|implementation|typescript|javascript|sql|patch|fix)\b/i,roles:['coder']},
+ {domain:'research',re:/\b(research|investigate|sources|compare|literature|synthesis|analysis)\b/i,roles:['researcher']},
+ {domain:'planning',re:/\b(plan|planning|decompose|roadmap|architecture|break down)\b/i,roles:['planner']},
+ {domain:'verification',re:/\b(verify|verification|review|audit|test|regression|check)\b/i,roles:['reviewer','verifier']},
+ {domain:'security',re:/\b(security|threat|vulnerability|attack|secret|permission|auth)\b/i,roles:['security']},
+ {domain:'memory',re:/\b(memory|recall|remember|consolidate|knowledge)\b/i,roles:['memory']},
+ {domain:'device',re:/\b(device|windows|android|computer|hardware|diagnostic)\b/i,roles:['device']},
+ {domain:'business',re:/\b(business|strategy|sales|market|customer|pricing)\b/i,roles:['business']}
+];
+function m6RiskAllowed(maxRisk:string,taskRisk:string){return Number.isFinite(M6_RISK[maxRisk||'medium'])&&Number.isFinite(M6_RISK[taskRisk||'low'])&&M6_RISK[maxRisk||'medium']>=M6_RISK[taskRisk||'low']}
+function m6Complexity(task:string,explicit?:string){if(explicit&&['low','medium','high','critical'].includes(explicit))return explicit;if(/critical|production|irreversible|destructive|security|migration/i.test(task))return'critical';if(/complex|architecture|multi[- ]step|debug|research|deep|audit/i.test(task)||task.length>240)return'high';if(/write|summarize|classify|extract|transform|explain/i.test(task)||task.length>80)return'medium';return'low'}
+function m6Domains(task:string){return M6_RULES.filter(x=>x.re.test(task)).map(x=>x.domain)}
+function m6Num(v:any){return Number.isFinite(Number(v))?Number(v):null}
+function m6FreeCost(p:any){const tier=String(p?.tier||p?.billing_tier||'').toLowerCase();if(tier==='free'||p?.cost==='$0'||p?.cost===0)return 1;const i=m6Num(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6Num(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===0&&o===0)return 1;if(i!==null||o!==null)return .5;return null}
 async function intelligentRouterDecision(b:any){
-  if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
-  const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-intelligent-router-v2`,{
-    method:'POST',
-    headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-router'},
-    body:JSON.stringify(b)
-  });
-  const textBody=await response.text();let payload:any;try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_router_json'}};
-  if(!response.ok)throw new Error(String(payload?.error||`router_http_${response.status}`));
-  return payload;
-}
-async function intelligentRouterExecute(b:any,d:any){
-  const authorization=b?.authorization;
-  if(!authorization||authorization.status!=='approved')return{status:'blocked',reason:'authorization_not_approved'};
-  const routeDecision=await intelligentRouterDecision({
-    task:b?.task,
-    capability:b?.capability||'text_generation',
-    complexity:b?.complexity,
-    risk:b?.risk,
-    preferred_model:b?.preferred_model,
-    preferred_provider:b?.preferred_provider,
-    trace_id:b?.trace_id||null
-  });
-  if(routeDecision.status!=='selected')return{status:routeDecision.status||'no_route',route_decision:routeDecision};
-  const routes=[routeDecision.selected,...(Array.isArray(routeDecision.fallback)?routeDecision.fallback:[])];
-  const results:any[]=[];
-  for(let i=0;i<routes.length;i++){
-    const selected=routes[i];
-    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
-      method:'POST',
-      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission6-router-execution'},
-      body:JSON.stringify({
-        execution_version:'1',
-        request_id:`mission6:${d.device_id}:${crypto.randomUUID()}`,
-        task_id:String(b?.task_id||'mission6-router-execution'),
-        capability:b?.capability||'text_generation',
-        selected_route:{status:'selected',provider_id:selected.provider_id,account_id:selected.account_id,model_id:selected.model_id,capability:b?.capability||'text_generation'},
-        authorization,
-        input:b?.input||{payload:{prompt:String(b?.task||'')}} ,
-        policy:{risk:String(b?.risk||'READ'),mission6:true,router_decision:true,selected_agent_id:selected.agent_id||null}
-      })
-    });
-    const tb=await response.text();let payload:any;try{payload=tb?JSON.parse(tb):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
-    results.push({rank:i+1,route:selected,status:payload?.status||'failed',response:payload?.response||null,usage:payload?.usage||null,error:payload?.error||null});
-    if(payload?.status==='succeeded')return{status:'succeeded',route_decision:routeDecision,selected_route:selected,attempts:results,fallback_used:i>0,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+ const {data:snapshot,error}=await supabase.rpc('router_live_snapshot');if(error)throw new Error(error.message);
+ const candidates=Array.isArray(snapshot?.candidates)?snapshot.candidates:[];
+ const tasks=Array.isArray(b?.tasks)?b.tasks:null;
+ const choose=(input:any)=>{
+  const task=String(input?.task||'').trim();if(!task)return{status:'no_route',reason:'task_required',version:'aria-intelligent-router-v2.0.0'};
+  const capability=String(input?.capability||'text_generation'),complexity=m6Complexity(task,input?.complexity),risk=String(input?.risk||complexity),domains=m6Domains(task),latencies=candidates.map((c:any)=>m6Num(c.avg_latency_ms)).filter(Number.isFinite);
+  const rejected:any[]=[];const ranked:any[]=[];
+  for(const c of candidates.filter((x:any)=>x.capability_id===capability&&x.capability_verified===true)){
+   const hard:string[]=[];if(c.status!=='available'||c.enabled!==true)hard.push('model_unavailable');if(c.integration_status==='not_connected')hard.push('integration_not_connected');if(c.account_status!=='available'||c.account_enabled!==true)hard.push('account_inactive');if(['unavailable','exhausted'].includes(String(c.quota_status)))hard.push('capacity_unavailable');if(['unavailable','exhausted'].includes(String(c.rate_limit_status)))hard.push('rate_limit_unavailable');if(c.live_verified!==true)hard.push('live_not_verified');
+   const agents=Array.isArray(c.agents)?c.agents.filter((a:any)=>a?.status==='available'&&m6RiskAllowed(String(a.max_risk||'medium'),risk)):[];
+   if(Array.isArray(c.agents)&&c.agents.length&&!agents.length)hard.push('no_agent_with_required_risk');
+   if(risk==='critical'&&domains.length===0&&!agents.some((a:any)=>['security','reviewer','verifier','planner'].includes(String(a.role||''))))hard.push('critical_requires_specialist');
+   if(c.context_window!==null&&Math.ceil(task.length/4)>Number(c.context_window))hard.push('context_too_small');
+   if(input?.preferred_provider&&c.provider_id!==input.preferred_provider)hard.push('preferred_provider_mismatch');
+   if(input?.preferred_model&&c.model_id!==input.preferred_model)hard.push('preferred_model_mismatch');
+   if(hard.length){rejected.push({model_id:c.model_id,reasons:hard});continue}
+   const attempts=m6Num(c.attempts)||0,successes=m6Num(c.successes)||0,reliability=attempts>0?Math.max(0,Math.min(1,successes/attempts)):null,latency=m6Num(c.avg_latency_ms),finite=latencies,latScore=latency===null?null:(Math.max(...finite)===Math.min(...finite)?1:(Math.max(...finite)-latency)/(Math.max(...finite)-Math.min(...finite)));
+   const specialists=agents.filter((a:any)=>domains.some(d=>M6_RULES.find(x=>x.domain===d)?.roles.includes(String(a.role||''))));const spec=specialists.length?1:(agents.some((a:any)=>Array.isArray(a.capabilities)&&a.capabilities.includes(capability))?.45:.5);const cost=m6FreeCost(c.pricing),direct=String(c.metadata?.access_path||'').includes('direct')?1:.5;const score=Number((.20+.15+.15*(reliability??.25)+.10*(latScore??.25)+.05*(cost??.25)+.30*spec+.05*direct).toFixed(6));const agent=specialists[0]||agents[0]||null;
+   ranked.push({...c,score,selection_evidence:{complexity,task_risk:risk,domains,reliability:{state:reliability===null?'unknown':'observed',attempts,successes,score:reliability},latency:{state:latency===null?'unknown':'observed',avg_latency_ms:latency,score:latScore},cost_state:cost===null?'unknown':cost,specialization:{score:spec,matches:specialists.map((a:any)=>a.agent_id)},live_verified:true,capability_verified:true,direct_path:direct},selected_agent_id:agent?.agent_id||null,selected_agent_role:agent?.role||null});
   }
-  return{status:'failed',route_decision:routeDecision,attempts:results,fallback_used:results.length>1,metadata:{router_version:'aria-intelligent-router-v2.0.0',device_id:d.device_id}};
+  ranked.sort((a,b2)=>b2.score-a.score||String(a.provider_id).localeCompare(String(b2.provider_id))||String(a.model_id).localeCompare(String(b2.model_id)));
+  if(!ranked.length)return{status:'no_route',reason:'no_eligible_candidate',version:'aria-intelligent-router-v2.0.0',complexity,task_risk:risk,domains,rejected_candidates:rejected};
+  const w=ranked[0];return{status:'selected',version:'aria-intelligent-router-v2.0.0',capability,task,complexity,task_risk:risk,domains,selected:{provider_id:w.provider_id,account_id:w.account_id,model_id:w.model_id,capability,agent_id:w.selected_agent_id,agent_role:w.selected_agent_role},score:w.score,selection_evidence:w.selection_evidence,fallback:ranked.slice(1,4).map((x:any,i:number)=>({rank:i+2,provider_id:x.provider_id,account_id:x.account_id,model_id:x.model_id,agent_id:x.selected_agent_id,score:x.score})),candidates_considered:ranked.length,rejected_candidates:rejected}
+ };
+ let payload:any;
+ if(tasks){
+  const ids=new Set<string>();for(const t of tasks){const id=String(t?.id||'');if(!id||ids.has(id))return{status:'blocked',reason:'duplicate_or_missing_task_id',version:'aria-intelligent-router-v2.0.0'};ids.add(id)}
+  const planTasks=tasks.map((t:any)=>({...t,id:String(t.id),depends_on:Array.isArray(t.depends_on)?t.depends_on.map(String):[]}));
+  const batches:string[][]=[],done=new Set<string>();const maxParallel=Math.max(1,Math.floor(Number(b?.max_parallel||2)));
+  for(const t of planTasks)for(const dep of t.depends_on)if(!ids.has(dep)||dep===t.id)return{status:'blocked',reason:'invalid_dependency',version:'aria-intelligent-router-v2.0.0'};
+  while(done.size<planTasks.length){const ready=planTasks.filter((t:any)=>!done.has(t.id)&&t.depends_on.every((d:string)=>done.has(d))).slice(0,maxParallel);if(!ready.length)return{status:'blocked',reason:'dependency_cycle',version:'aria-intelligent-router-v2.0.0'};batches.push(ready.map((t:any)=>t.id));ready.forEach((t:any)=>done.add(t.id))}
+  const selections=planTasks.map((t:any)=>({...choose({...t,capability:t.capability||b.capability||'text_generation',risk:t.risk||b.risk}),id:t.id}));
+  payload={status:selections.every((s:any)=>s.status==='selected')?'selected':'no_route',version:'aria-intelligent-router-v2.0.0',selections,parallel_plan:{status:'planned',max_parallel:batches.length?maxParallel:1,batches}};
+ }else payload=choose(b);
+ const record=await supabase.rpc('record_router_decision',{p_decision:{decision_id:'router_'+crypto.randomUUID(),trace_id:b?.trace_id||null,task:b?.task||'parallel_batch',capability_id:b?.capability||'text_generation',complexity:payload.complexity||'mixed',selected:payload.selected||null,fallback:payload.fallback||payload.selections?.map((x:any)=>x.fallback||[])||[],evidence:payload.selection_evidence||{parallel:!!tasks},candidates_considered:payload.candidates_considered||candidates.length,rejected:payload.rejected_candidates||payload.selections?.flatMap((x:any)=>x.rejected_candidates||[])||[],parallel_plan:payload.parallel_plan||null}});
+ if(record.error)payload.persistence={recorded:false,error:record.error.message};else payload.persistence={recorded:true,decision_id:record.data?.decision_id};
+ return payload;
 }
 function objectiveHumanGate(goal:any,mission:any,gateEvents:any[]=[]){const gate=mission?.metadata?.human_gate;if(!gate||typeof gate!=='object'||gate.enabled!==true||!String(gate.method||'').trim())return{required:false,status:'none',label:'NO EXISTE MISION HUMANA',reason:null,method:null,instructions:null};const completed=mission?.checkpoint?.human_gate?.status==='completed'&&mission?.checkpoint?.human_gate?.verified===true;return{required:true,status:completed?'completed':'pending',label:completed?'HUMAN GATE COMPLETADO':'HUMAN GATE PENDIENTE',reason:String(gate.reason||'Verificación humana requerida antes del cierre.'),method:String(gate.method),instructions:String(gate.instructions||'Confirmar manualmente la verificación requerida.')}}
 function missionProgress(m:any){const plan=Array.isArray(m?.checkpoint?.plan)?m.checkpoint.plan:[];const total=plan.length||Number(m?.total_steps||0)||0;const done=Array.isArray(m?.checkpoint?.completed_steps)?m.checkpoint.completed_steps.length:Number(m?.completed_steps||0)||0;const progress=total?Math.max(0,Math.min(100,Math.round(done/total*1000)/10)):String(m?.status||'')==='succeeded'?100:0;return{percent:progress,completed:done,total}}
