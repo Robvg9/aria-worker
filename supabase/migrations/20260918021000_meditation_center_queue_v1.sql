@@ -35,7 +35,7 @@ begin
   if p_item_type='goal' then
     select * into v_goal from aria_internal.autonomy_goals where goal_id=p_item_id;
     if not found then raise exception 'goal_not_found'; end if;
-    if v_goal.status='completed' then raise exception 'goal_terminal'; end if;
+    if v_goal.status in ('completed','blocked') then raise exception 'goal_not_runnable'; end if;
   else
     select * into v_mission from aria_internal.mission_state where mission_id=p_item_id;
     if not found then raise exception 'mission_not_found'; end if;
@@ -94,3 +94,20 @@ end;
 $$;
 
 revoke all on aria_internal.meditation_queue from anon, authenticated;
+
+\ncreate or replace function public.meditation_queue_add(p_device_id text,p_item_type text,p_item_id text)
+returns jsonb language sql security invoker set search_path='' as $$ select aria_internal.meditation_queue_add($1,$2,$3) $$;
+create or replace function public.meditation_queue_claim_next(p_device_id text)
+returns jsonb language sql security invoker set search_path='' as $$ select aria_internal.meditation_queue_claim_next($1) $$;
+create or replace function public.meditation_queue_remove(p_device_id text,p_queue_id text)
+returns jsonb language sql security invoker set search_path='' as $$ select aria_internal.meditation_queue_remove($1,$2) $$;
+create or replace function public.meditation_queue_resequence(p_device_id text,p_queue_ids text[])
+returns integer language sql security invoker set search_path='' as $$ select aria_internal.meditation_queue_resequence($1,$2) $$;
+revoke all on function public.meditation_queue_add(text,text,text) from public,anon,authenticated;
+revoke all on function public.meditation_queue_claim_next(text) from public,anon,authenticated;
+revoke all on function public.meditation_queue_remove(text,text) from public,anon,authenticated;
+revoke all on function public.meditation_queue_resequence(text,text[]) from public,anon,authenticated;
+grant execute on function public.meditation_queue_add(text,text,text) to service_role;
+grant execute on function public.meditation_queue_claim_next(text) to service_role;
+grant execute on function public.meditation_queue_remove(text,text) to service_role;
+grant execute on function public.meditation_queue_resequence(text,text[]) to service_role;
