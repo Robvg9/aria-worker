@@ -229,6 +229,9 @@ async function intelligentRouterDecision(b:any){
    if(Array.isArray(c.agents)&&c.agents.length&&!agents.length)hard.push('no_agent_with_required_risk');
    if(risk==='critical'&&domains.length===0&&!agents.some((a:any)=>['security','reviewer','verifier','planner'].includes(String(a.role||''))))hard.push('critical_requires_specialist');
    if(c.context_window!==null&&Math.ceil(task.length/4)>Number(c.context_window))hard.push('context_too_small');
+   const requiredTools=Array.isArray(input?.required_tools)?input.required_tools.map(String):[];
+   if(requiredTools.length){const toolMatch=agents.some((a:any)=>{const caps=new Set(Array.isArray(a.capabilities)?a.capabilities.map(String):[]);const scope=new Set(Array.isArray(a.scope)?a.scope.map(String):[]);return requiredTools.every((t:string)=>caps.has(t)||scope.has(t));});if(!toolMatch)hard.push('required_tools_unavailable');}
+   if(input?.prefer_specialist_agent===true&&!agents.length)hard.push('specialist_agent_required');
    if(input?.preferred_provider&&c.provider_id!==input.preferred_provider)hard.push('preferred_provider_mismatch');
    if(input?.preferred_model&&c.model_id!==input.preferred_model)hard.push('preferred_model_mismatch');
    if(hard.length){rejected.push({model_id:c.model_id,reasons:hard});continue}
