@@ -1,0 +1,20 @@
+name: Mission 7 Autonomy Integration
+
+on:
+  push:
+    branches:
+      - feat/mission7-autonomy-integration-v1
+  pull_request:
+    branches: [main]
+
+jobs:
+  mission7:
+    name: Mission 7 autonomy contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Autonomy loop contract
+        run: node tests/mission7-autonomy-loop.test.js
