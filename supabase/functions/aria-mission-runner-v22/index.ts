@@ -374,7 +374,7 @@ async function chainNextMeditationMission(requestUrl: string, depth: number) {
   try {
     const response = await fetch(requestUrl, { method: "POST", headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" }, body: JSON.stringify({ mission_id: nextMissionId, chain_depth: depth + 1 }) });
     const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload || (payload.status === "paused" && payload.ok === false)) throw new Error(String(payload?.error || `chained_runtime_http_${response.status}`));
+    if (!response.ok || !payload || payload.ok !== true) throw new Error(String(payload?.error || payload?.status || `chained_runtime_http_${response.status}`));
     return { status: "chained", mission_id: nextMissionId, child_status: payload.status || null, child_runtime: payload.runtime || null, child_chain: payload.chained || null, depth: depth + 1 };
   } catch (error) {
     try {
