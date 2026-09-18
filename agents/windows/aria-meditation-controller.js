@@ -14,7 +14,7 @@ const CONTROL_PORT = Number(process.env.ARIA_MEDITATION_PORT || 45873);
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL || '';
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN || '';
 const DEVICE_ID = process.env.ARIA_DEVICE_ID || '';
-const CONTROLLER_VERSION = 'aria-windows-meditation-controller-v2';
+const CONTROLLER_VERSION = 'aria-windows-meditation-controller-v3';
 
 async function appendLog(message) {
   await fsp.mkdir(path.dirname(LOG_PATH), { recursive: true });
@@ -147,6 +147,8 @@ function startControlServer(controller) {
       if (req.method === 'POST' && url.pathname === '/queue/remove') return respond(200, await requestGateway('/v1/meditation/queue/remove',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/queue/reorder') return respond(200, await requestGateway('/v1/meditation/queue/reorder',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/queue/run-next') return respond(200, await requestGateway('/v1/meditation/queue/run-next',{method:'POST',body:{}}));
+      if (req.method === 'GET' && url.pathname === '/notifications') return respond(200, await requestGateway('/v1/meditation/notifications'));
+      if (req.method === 'POST' && url.pathname === '/notifications/read') return respond(200, await requestGateway('/v1/meditation/notifications/read',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/human-gate/complete') return respond(200, await requestGateway('/v1/meditation/human-gate/complete',{method:'POST',body:await readJsonBody(req)}));
       if (req.method === 'POST' && url.pathname === '/start') return respond(200, await controller.start());
       if (req.method === 'POST' && url.pathname === '/pause') return respond(200, await controller.pause());
