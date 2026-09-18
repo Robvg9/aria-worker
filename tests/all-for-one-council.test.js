@@ -7,6 +7,7 @@ const gateway=fs.readFileSync(path.join(root,'supabase/functions/aria-device-gat
 const supervisorSource=fs.readFileSync(path.join(root,'supabase/functions/aria-autonomy-supervisor-v5/index.ts'),'utf8');
 const migration=fs.readFileSync(path.join(root,'supabase/migrations/20260918190000_all_for_one_council_v1.sql'),'utf8');
 const securityMigration=fs.readFileSync(path.join(root,'supabase/migrations/20260918190100_all_for_one_security_snapshot.sql'),'utf8');
+const executionRuntime=fs.readFileSync(path.join(root,'supabase/functions/aria-execution-runtime-v1/index.ts'),'utf8');
 
 assert.match(gateway,/\/v1\/audit\/all-for-one\/start/);
 assert.match(gateway,/\/v1\/audit\/all-for-one\/tick/);
