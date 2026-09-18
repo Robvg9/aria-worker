@@ -15,10 +15,18 @@
       "canonical_name": "Gemini 2.5 Flash Lite via OpenRouter",
       "upstream_model": "google/gemini-2.5-flash-lite",
       "upstream_provider_id": "google",
-      "status": "available",
-      "availability": "public",
-      "metadata": {"access_path":"openrouter","verified_at":"2026-08-31","evidence":"Control Plane materialization seed","notes":"Mediated route; existing verified account path."},
-      "capability_refs": ["text_generation"]
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {
+        "access_path": "openrouter",
+        "verified_at": "2026-09-18",
+        "evidence": "LIVE governed Windows device model probe",
+        "notes": "Registered route is not currently selectable. ARIA does not auto-purchase credits; restore routability only after real account capacity is available and a new LIVE probe succeeds.",
+        "last_probe": "HTTP 402 insufficient OpenRouter credits for requested completion"
+      },
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "google/gemini-3.5-flash-lite-direct",
@@ -28,8 +36,15 @@
       "upstream_provider_id": "google",
       "status": "available",
       "availability": "public",
-      "metadata": {"access_path":"google_gemini_direct","verified_at":"2026-09-07","evidence":"LIVE direct provider smoke + canonical mission pending final route certification","notes":"Direct route through Google Gemini API; Free Tier credential in ARIA secret boundary."},
-      "capability_refs": ["text_generation"]
+      "metadata": {
+        "access_path": "google_gemini_direct",
+        "verified_at": "2026-09-07",
+        "evidence": "LIVE direct provider smoke + canonical mission pending final route certification",
+        "notes": "Direct route through Google Gemini API; Free Tier credential in ARIA secret boundary."
+      },
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "google/gemini-2.5-flash-lite-direct",
@@ -39,8 +54,15 @@
       "upstream_provider_id": "google",
       "status": "unavailable",
       "availability": "restricted",
-      "metadata": {"access_path":"google_gemini_direct","verified_at":"2026-09-07","evidence":"Google provider response","notes":"Retired from Direct routing after Google rejected the model for this new-user account."},
-      "capability_refs": ["text_generation"]
+      "metadata": {
+        "access_path": "google_gemini_direct",
+        "verified_at": "2026-09-07",
+        "evidence": "Google provider response",
+        "notes": "Retired from Direct routing after Google rejected the model for this new-user account."
+      },
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "xai/grok-4.6",
@@ -50,15 +72,28 @@
       "upstream_provider_id": "xai",
       "status": "unavailable",
       "availability": "restricted",
-      "metadata": {"access_path":"xai_responses","verified_at":"2026-09-18","evidence":"Live credential reachability audit: credential_secret_not_found","notes":"Adapter remains registered, but no xAI credential exists in ARIA secret store; route intentionally not selectable until a real credential is installed."},
-      "capability_refs": ["text_generation"]
+      "metadata": {
+        "access_path": "xai_responses",
+        "verified_at": "2026-09-18",
+        "evidence": "Live credential reachability audit: credential_secret_not_found",
+        "notes": "Adapter remains registered, but no xAI credential exists in ARIA secret store; route intentionally not selectable until a real credential is installed."
+      },
+      "capability_refs": [
+        "text_generation"
+      ]
     }
   ],
   "indexes": {
     "by_provider": {
-      "openrouter": ["google/gemini-2.5-flash-lite"],
-      "google": ["google/gemini-3.5-flash-lite-direct"],
-      "xai": ["xai/grok-4.6"]
+      "openrouter": [
+        "google/gemini-2.5-flash-lite"
+      ],
+      "google": [
+        "google/gemini-3.5-flash-lite-direct"
+      ],
+      "xai": [
+        "xai/grok-4.6"
+      ]
     },
     "by_model_id": {
       "google/gemini-2.5-flash-lite": "openrouter",

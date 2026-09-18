@@ -22,7 +22,7 @@ for (const agentId of expectedAgents) {
 }
 assert.ok(source.includes('sb.rpc("aria_agent_catalog")'));
 assert.ok(source.includes('status === "available"'));
-assert.ok(source.includes('catalogAgent.model_id'));
+assert.ok(source.includes('resource.model.model_id'));
 assert.ok(source.includes('catalog_source: "aria_agent_catalog"'));
 assert.ok(source.includes('agent_risk_exceeded'));
 assert.ok(source.includes('agent_scope_denied'));

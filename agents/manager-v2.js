@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 
-const ROLES = Object.freeze(['planner','researcher','coder','security','reviewer','memory','business','device']);
+const ROLES = Object.freeze(['planner','researcher','coder','security','reviewer','verifier','memory','business','device']);
 const MODES = Object.freeze(['sequential','parallel']);
 const STOP_REASONS = Object.freeze(['consensus','verified','budget','failure','human_gate_required','max_steps']);
 function stableJson(value){if(value===null||typeof value!=='object')return JSON.stringify(value);if(Array.isArray(value))return `[${value.map(stableJson).join(',')}]`;return `{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`;}

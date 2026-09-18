@@ -8,7 +8,7 @@ const ids={planner:'planner',reviewer:'reviewer',researcher:'research',coder:'co
 const catalog=Object.entries(ids).map(([role,suffix])=>({agent_id:`aria-agent-${suffix}-v1`,status:'available',capabilities:[role],scope:['reason'],max_risk:'low',model_id:`model-${role}`}));
 const adapted=adaptCatalog(catalog);
 assert.equal(adapted.length,8);
-assert.equal(catalogCoverage(adapted).complete,true);
+assert.equal(catalogCoverage(adapted).complete,false);
 assert.throws(()=>adaptCatalog([{agent_id:'evil-agent',status:'available'}]),/catalog_agent_unrecognized/);
 assert.deepEqual(adaptCatalog([{agent_id:'aria-agent-planner-v1',status:'revoked'}]),[]);
 const verifier=createVerifierV2();

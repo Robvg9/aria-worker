@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict');
+const assertCoverage=require('node:assert/strict');
+const adapter=require('../agents/catalog-adapter-v2');
+const ids=['aria-agent-planner-v1','aria-agent-reviewer-v1','aria-agent-research-v1','aria-agent-coding-v1','aria-agent-security-v1','aria-agent-memory-v1','aria-agent-business-v1','aria-agent-device-v1','aria-agent-planner-gemini35-v1','aria-agent-verifier-gemini35-v1'];
+const roles={};
+ids.forEach(id=>{roles[id]=id.includes('planner')?'planner':id.includes('reviewer')?'reviewer':id.includes('research')?'researcher':id.includes('coding')?'coder':id.includes('security')?'security':id.includes('memory')?'memory':id.includes('business')?'business':id.includes('device')?'device':'verifier';});
+const coverage=adapter.catalogCoverage(ids.map(id=>({id,role:roles[id]})));
+assert.equal(coverage.expected,10);
+assert.equal(coverage.available,10);
+assert.equal(coverage.complete,true);
+assert.equal(adapter.adaptCatalogAgent({agent_id:'aria-agent-planner-gemini35-v1',role:'planner',capabilities:['planning'],scope:['read','reason'],max_risk:'medium',status:'available',model_id:'google/gemini-3.5-flash-lite-direct'}).id,'aria-agent-planner-gemini35-v1');
+console.log('MISSION 5 AGENT EXPANSION CONTRACT: PASS');

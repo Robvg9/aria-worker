@@ -92,6 +92,78 @@ async function meditationIdeaProposalById(deviceId:string,id:string){
   return data;
 }
 
+async function mission5ModelProbe(b:any,d:any){
+  const modelId=typeof b?.model_id==='string'?b.model_id.trim():'';
+  const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
+  const risk=typeof b?.risk==='string'?b.risk:'READ';
+  const allowed={
+    'google/gemini-3.5-flash-lite-direct':{provider_id:'google',account_id:'acct_google_gemini_free'},
+    'google/gemini-2.5-flash-lite':{provider_id:'openrouter',account_id:'acct_openrouter_primary'}
+  } as Record<string,{provider_id:string;account_id:string}>;
+  const route=allowed[modelId];
+  if(!route)throw new Error('model_not_allowed_for_mission5_probe');
+  if(risk!=='READ')throw new Error('mission5_model_probe_read_only');
+  if(!prompt||!prompt.includes('M5_MODEL_E2E_OK'))throw new Error('mission5_model_probe_prompt_contract');
+  if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),30000);
+  try{
+    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-execution-runtime-v1`,{
+      method:'POST',
+      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission5-model-probe'},
+      body:JSON.stringify({
+        execution_version:'1',
+        request_id:`mission5:model:${modelId}:${crypto.randomUUID()}`,
+        task_id:'mission5_model_probe',
+        capability:'text_generation',
+        selected_route:{status:'selected',provider_id:route.provider_id,account_id:route.account_id,model_id:modelId,capability:'text_generation'},
+        authorization:{status:'approved',risk_class:'READ',evidence_ref:`mission5:model-probe:${modelId}`},
+        input:{payload:{prompt}},
+        policy:{risk:'READ',mission5:true,probe:true}
+      }),
+      signal:controller.signal
+    });
+    const textBody=await response.text();
+    let payload:any;try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_execution_runtime_json'}};
+    if(!response.ok)return {ok:false,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||'http_error',runtime_http_status:response.status,response:payload?.response||null,usage:payload?.usage||null,runtime_error:payload?.error||String(textBody||''),metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
+    return {ok:true,device_id:d.device_id,mission5:true,probe:true,model_id:modelId,provider_id:route.provider_id,account_id:route.account_id,runtime_status:payload?.status||null,response:payload?.response||null,usage:payload?.usage||null,runtime_error:payload?.error||null,metadata:{...payload?.metadata,transport:'device-gateway',evidence_ref:`mission5:model-probe:${modelId}`}};
+  }catch(e:any){
+    if(e?.name==='AbortError')throw new Error('mission5_model_probe_timeout');
+    throw e;
+  }finally{clearTimeout(timer)}
+}
+
+async function mission5AgentProbe(b:any,d:any){
+  const agentId=typeof b?.agent_id==='string'?b.agent_id.trim():'';
+  const prompt=typeof b?.prompt==='string'?b.prompt.trim():'';
+  const risk=typeof b?.risk==='string'?b.risk:'READ';
+  const missionId=typeof b?.mission_id==='string'&&b.mission_id.trim()?b.mission_id.trim():'mission5-agent-probe-'+crypto.randomUUID();
+  const stepId=typeof b?.step_id==='string'&&b.step_id.trim()?b.step_id.trim():'mission5_probe_1';
+  const allowed=new Set(['aria-agent-planner-gemini35-v1','aria-agent-verifier-gemini35-v1']);
+  if(!allowed.has(agentId))throw new Error('agent_not_allowed_for_mission5_probe');
+  if(risk!=='READ')throw new Error('mission5_probe_read_only');
+  const requiredMarker=agentId==='aria-agent-verifier-gemini35-v1'?'M5_VERIFIER_E2E_OK':'M5_AGENT_E2E_OK';
+  if(!prompt||!prompt.includes(requiredMarker))throw new Error('mission5_probe_prompt_contract');
+  if(!RUNTIME_SECRET)throw new Error('meditation_runtime_secret_missing');
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),30000);
+  try{
+    const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-agent-runtime-v1`,{
+      method:'POST',
+      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'mission5-agent-probe'},
+      body:JSON.stringify({operation:'delegate',agent_id:agentId,mission_id:missionId,step_id:stepId,risk:'READ',input:{prompt},policy:{risk:'READ',mission5:true,probe:true}})
+      ,signal:controller.signal
+    });
+    const textBody=await response.text();
+    let payload:any; try{payload=textBody?JSON.parse(textBody):{}}catch{payload={status:'failed',error:'invalid_agent_runtime_json'}};
+    if(!response.ok)throw new Error(String(payload?.error?.message||payload?.error||`agent_runtime_http_${response.status}`));
+    return {ok:true,device_id:d.device_id,mission5:true,probe:true,agent_id:agentId,mission_id:missionId,step_id:stepId,runtime_status:payload?.status||null,provider_id:payload?.provider_id||payload?.metadata?.provider_id||null,account_id:payload?.account_id||payload?.metadata?.account_id||null,model_id:payload?.model_id||payload?.metadata?.model_id||null,capability_id:payload?.capability_id||payload?.metadata?.capability_id||null,response:payload?.response||null,usage:payload?.usage||null,metadata:{...payload?.metadata,transport:'device-gateway',resource_graph:'aria_internal.resolve_agent_resource'}};
+  }catch(e:any){
+    if(e?.name==='AbortError')throw new Error('mission5_agent_probe_timeout');
+    throw e;
+  }finally{clearTimeout(timer)}
+}
+
 async function markMeditationNotificationsRead(body:any){
   const ids=Array.isArray(body?.notification_ids)?body.notification_ids.map(String).filter(Boolean):[];
   const all=body?.all===true;
@@ -145,6 +217,8 @@ if(req.method==='POST'&&p==='/v1/meditation/queue/run-next'){try{const manual=aw
 if(req.method==='POST'&&p==='/v1/meditation/human-gate/complete'){try{const missionId=String(b.mission_id||'');if(!missionId)return json({error:'mission_id_required'},400);if(b.confirm!==true)return json({error:'human_gate_confirmation_required'},400);const {data,error}=await supabase.rpc('meditation_human_gate_complete',{p_mission_id:missionId,p_device_id:d.device_id,p_note:typeof b.note==='string'?b.note:null});if(error)return json({ok:false,error:queueError(error)},409);return json({ok:true,status:'human_gate_completed',mission_id:missionId,mission:data})}catch(e){return json({ok:false,error:queueError(e)},409)}}
 if(req.method==='GET'&&p==='/v1/meditation/notifications'){try{return json(await meditationNotificationsSnapshot(String(u.searchParams.get('unread_only')||'false').toLowerCase()==='true',Number(u.searchParams.get('limit')||50)))}catch(e){return json({ok:false,error:queueError(e)},500)}}
 if(req.method==='POST'&&p==='/v1/meditation/notifications/read'){try{return json(await markMeditationNotificationsRead(b))}catch(e){return json({ok:false,error:queueError(e)},400)}}
+if(req.method==='POST'&&p==='/v1/mission5/agent-probe'){try{return json(await mission5AgentProbe(b,d))}catch(e){return json({ok:false,error:queueError(e)},400)}}
+if(req.method==='POST'&&p==='/v1/mission5/model-probe'){try{return json(await mission5ModelProbe(b,d))}catch(e){return json({ok:false,error:queueError(e)},400)}}
 if(req.method==='POST'&&p==='/v1/meditation/idea-to-mission'){try{return json(await createMeditationIdeaProposal(b,d))}catch(e){return json({ok:false,error:queueError(e)},400)}}
 if(req.method==='GET'&&p==='/v1/meditation/ideas'){try{return json(await meditationIdeaProposalsSnapshot(d.device_id,Number(u.searchParams.get('limit')||50)))}catch(e){return json({ok:false,error:queueError(e)},500)}}
 const ideaMatch=p.match(/^\/v1\/meditation\/ideas\/([^/]+)$/);
