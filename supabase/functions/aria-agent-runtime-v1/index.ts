@@ -50,15 +50,15 @@ Deno.serve(async (r) => {
   const resource = agent;
   if (String(b.operation || "delegate") !== "delegate") return out({ ok: false, status: "blocked", error: { code: "operation_not_supported" } });
   const missionId = String(b.mission_id || ""), stepId = String(b.step_id || ""); if (!missionId || !stepId) return out({ ok: false, status: "blocked", error: { code: "mission_or_step_missing" } });
-  const requestedRisk = String(b.risk || "READ"); if (!riskAllowed(requestedRisk, agent.max_risk)) return out({ ok: false, status: "blocked", error: { code: "agent_risk_exceeded", agent_id: agentId, requested_risk: requestedRisk, max_risk: agent.max_risk } });
-  if (!agent.scope.includes("reason")) return out({ ok: false, status: "blocked", error: { code: "agent_scope_denied", agent_id: agentId, required_scope: "reason" } });
+  const requestedRisk = String(b.risk || "READ"); if (!riskAllowed(requestedRisk, catalogAgent.max_risk)) return out({ ok: false, status: "blocked", error: { code: "agent_risk_exceeded", agent_id: agentId, requested_risk: requestedRisk, max_risk: catalogAgent.max_risk } });
+  if (!catalogAgent.scope.includes("reason")) return out({ ok: false, status: "blocked", error: { code: "agent_scope_denied", agent_id: agentId, required_scope: "reason" } });
   const prompt = typeof b.input?.prompt === "string" ? b.input.prompt.trim() : String(b.input?.message || "").trim(); if (!prompt) return out({ ok: false, status: "blocked", error: { code: "prompt_missing" } });
   const repairRequired = b.policy?.repair_required === true; const toolUse = b.policy?.tool_use === true || repairRequired;
   try {
     if (repairRequired) {
       if (agentId !== "aria-agent-coding-v1") return out({ ok: false, status: "blocked", error: { code: "repair_agent_must_be_coding_agent", agent_id: agentId } });
       if (requestedRisk !== "LOW_RISK_WRITE") return out({ ok: false, status: "blocked", error: { code: "repair_requires_low_risk_write", requested_risk: requestedRisk } });
-      if (!agent.scope.includes("code")) return out({ ok: false, status: "blocked", error: { code: "repair_agent_lacks_code_scope" } });
+      if (!catalogAgent.scope.includes("code")) return out({ ok: false, status: "blocked", error: { code: "repair_agent_lacks_code_scope" } });
       return out(await toolLoop(agent, missionId, stepId, prompt, true));
     }
     if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false));
