@@ -23,3 +23,8 @@ drop trigger if exists trg_meditation_human_gate_before_succeeded on aria_intern
 create trigger trg_meditation_human_gate_before_succeeded before update of status on aria_internal.mission_state for each row execute function aria_internal.enforce_meditation_human_gate_before_succeeded();
 revoke all on function aria_internal.enforce_meditation_human_gate_before_succeeded() from public, anon, authenticated;
 grant execute on function aria_internal.enforce_meditation_human_gate_before_succeeded() to service_role;
+-- The existing mission event allowlist must recognize the governed Human Gate completion event.
+alter table aria_internal.mission_events drop constraint if exists mission_events_event_type_check;
+alter table aria_internal.mission_events add constraint mission_events_event_type_check check (event_type = any (array[
+'mission_created','mission_queued','mission_planning','mission_started','mission_running','step_started','step_succeeded','step_failed','step_retrying','step_batch_started','executor_selected','execution_started','execution_completed','execution_failed','execution_timeout','mission_waiting','mission_blocked','mission_paused','mission_resumed','mission_succeeded','mission_failed','mission_cancelled','checkpoint_saved','agent_heartbeat','human_gate_requested','human_gate_completed','self_improvement_human_gate','recovery_attempted','mission_verified','mission_dead_lettered','cognitive_recall_completed','cognitive_planning_context_used','cognitive_loop_completed','agent_executor_diagnostic','mission_chain_completed'
+]));
