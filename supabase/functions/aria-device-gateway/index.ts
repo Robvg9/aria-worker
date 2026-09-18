@@ -574,7 +574,7 @@ async function runModelAuditor(runId:string,m:any,account:any,snapshot:any){
       capability:'text_generation',
       selected_route:selected,
       authorization:{status:'approved',risk_class:'READ',evidence_ref:'all-for-one-v1'},
-      input:{payload:{messages:[{role:'user',content:[{type:'text',text:auditPrompt(snapshot,'independent model reviewer',String(m.model_id))}]}],max_tokens:1400,temperature:0}},
+      input:{payload:{prompt:auditPrompt(snapshot,'independent model reviewer',String(m.model_id)),max_tokens:1400,temperature:0}},
       policy:{read_only:true},
       metadata:{executor_type:'model',audit_protocol:'all-for-one-v1',run_id:runId,model_id:m.model_id}
     })
