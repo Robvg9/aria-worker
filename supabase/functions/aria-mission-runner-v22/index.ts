@@ -564,6 +564,8 @@ Deno.serve(async (request) => {
           completed_steps: completed.size,
           next_action: "recovery: scheduler may resume from checkpoint",
           checkpoint: { ...checkpoint, recovery: { status: "retry_exhausted", failed_step_ids: failures.map((item) => String(item.step.id)) } },
+          lease_owner: null,
+          lease_until: null,
         });
         return out({ ok: false, status: "failed", mission_id: missionId, runtime: V, completed_steps: completed.size, failed_steps: failures.map((item) => String(item.step.id)) });
       }
