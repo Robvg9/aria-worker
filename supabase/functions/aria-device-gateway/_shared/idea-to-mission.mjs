@@ -62,6 +62,7 @@ function classifyIdea(idea) {
     execution_state:state,
     categories,
     signals,
+    ...signals,
     blockers,
     intervention:(signals.human_gate_required||signals.governance_or_security)?'human_required':'none'
   };
