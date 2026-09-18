@@ -38,3 +38,8 @@ const gateway2=fs.readFileSync(path.join(root,'supabase/functions/aria-device-ga
 assert.match(supervisorSource,/\/v1\/audit\/all-for-one\/start/);
 assert.match(supervisor,/\/v1\/audit\/all-for-one\/tick/);
 assert.match(gateway2,/\.from\('all_for_one_runs'\)/);
+
+assert.match(gateway,/const SUPABASE_URL=Deno\.env\.get\('SUPABASE_URL'\)!/);
+assert.doesNotMatch(gateway,/\$\{URL\}\/functions\/v1\/aria-/);
+assert.doesNotMatch(gateway,/from\('all_for_one_runs'\)\.select\('\*'\)\.order\('created_at'/);
+assert.match(supervisorSource,/x-aria-autonomy-token/);
