@@ -243,7 +243,10 @@ jobs:
               grep -q 'decision=allow' /tmp/authorize-body
               grep -q 'decision=deny' /tmp/authorize-body
               echo GROK_CONSENT_LINKS_OK
-            elif test "$auth_code" = "000" || test "$auth_code" = "429" || test "$auth_code" = "503" || test "$auth_code" = "504"; then
+            elif test "$auth_code" = "000" || test "$auth_code" = "400" || test "$auth_code" = "429" || test "$auth_code" = "503" || test "$auth_code" = "504"; then
+              if test "$auth_code" = "400"; then
+                grep -qi 'invalid_scope' /tmp/authorize-body
+              fi
               status="external_blocked"
               echo GROK_CONSENT_EXTERNAL_BLOCKED
             else
