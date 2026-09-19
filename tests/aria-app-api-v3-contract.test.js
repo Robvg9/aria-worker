@@ -33,6 +33,9 @@ assertContains(appApi,'target?.provider_id','conversation model provider validat
 assertContains(appApi,'target?.account_id','conversation model account validation missing');
 assertContains(appApi,'target?.model_id','conversation model id validation missing');
 assertContains(appApi,'conversation_model_execution_failed','conversation failure boundary missing');
+assertContains(appApi,'conversationRoutes','conversation route catalog missing');
+assertContains(appApi,'executeConversationWithFallback','conversation fallback boundary missing');
+assertContains(appApi,'fallback_count','conversation fallback evidence missing');
 assertContains(appApi,'aria-execution-runtime-v1','canonical execution runtime missing');
 assertContains(appApi,'aria-app-v1','app provenance missing');
 if(appApi.includes('SUPABASE_ANON_KEY'))throw new Error('v3 must not depend on legacy anon-key reauthentication');

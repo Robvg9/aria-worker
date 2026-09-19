@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
-const API = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3';
+const API = '/api';
+const CACHE_PREFIX = 'aria-runtime-cache-v2';
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
-const BUILD = import.meta.env.VITE_BUILD ?? 'dev';
+const BUILD = import.meta.env.VITE_BUILD ?? '2026.09.19-pwa-v9';
 
 type Session = {
   accessToken: string;
@@ -26,16 +27,77 @@ type CapabilityCatalog = {
 type Mission = any;
 type MissionEvent = any;
 
+function cacheKey(kind: string, userId: string) {
+  return CACHE_PREFIX + ':' + userId + ':' + kind;
+}
+
+function readCached<T>(kind: string, userId: string): T | null {
+  try {
+    const raw = localStorage.getItem(cacheKey(kind, userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCached<T>(kind: string, userId: string, data: T) {
+  try {
+    localStorage.setItem(cacheKey(kind, userId), JSON.stringify({ savedAt: Date.now(), data }));
+  } catch {}
+}
+
+const HUMAN_API_ERRORS: Record<string, string> = {
+  app_api_unreachable: 'No pude conectar con ARIA. La red está inestable; los datos que ya estaban cargados se mantienen disponibles.',
+  conversation_model_execution_failed: 'El modelo que tomó la solicitud no pudo completar la respuesta. ARIA agotó las rutas disponibles; inténtalo de nuevo.',
+  conversation_planner_failed: 'El planificador de ARIA no respondió. La interfaz sigue disponible y puedes reintentar.',
+  invalid_or_expired_session: 'La sesión de ARIA expiró. Vuelve a entrar para continuar.'
+};
+
 async function api(path: string, token: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  headers.set('authorization', 'Bearer ' + token);
-  if (init.body) headers.set('content-type', 'application/json');
-  const response = await fetch(API + path, { ...init, headers, cache: (!init.method || init.method.toUpperCase() === 'GET') ? 'no-store' : undefined });
-  const raw = await response.text();
-  let data: any = null;
-  try { data = raw ? JSON.parse(raw) : null; } catch {}
-  if (!response.ok) throw new Error(data?.error ?? 'ARIA API (' + response.status + ')');
-  return data;
+  const method = String(init.method ?? 'GET').toUpperCase();
+  const isRead = method === 'GET' || method === 'HEAD';
+  const attempts = isRead ? 2 : 1;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const headers = new Headers(init.headers);
+    headers.set('authorization', 'Bearer ' + token);
+    if (init.body) headers.set('content-type', 'application/json');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), isRead ? 9000 : path.endsWith('/conversation') ? 30000 : 20000);
+    try {
+      const response = await fetch(API + path, { ...init, headers, cache: 'no-store', signal: controller.signal });
+      const raw = await response.text();
+      let data: any = null;
+      try { data = raw ? JSON.parse(raw) : null; } catch {}
+      if (!response.ok) {
+        const code = String(data?.error ?? 'aria_api_error');
+        const detail = HUMAN_API_ERRORS[code];
+        throw new Error(detail ?? code);
+      }
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts) {
+        await new Promise(resolve => window.setTimeout(resolve, 250 * (attempt + 1)));
+        continue;
+      }
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error(isRead
+          ? 'ARIA está tardando en actualizar los datos. Los datos guardados siguen disponibles.'
+          : 'ARIA tardó demasiado en responder. Revisa la conexión e inténtalo de nuevo.');
+      }
+      if (error instanceof TypeError) {
+        throw new Error('No pude conectar con ARIA. Revisa la conexión e inténtalo de nuevo.');
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('No se pudo conectar con ARIA.');
 }
 
 async function signIn(email: string, password: string) {
@@ -182,6 +244,29 @@ function StatCard({ value, label, color = '' }: { value: string | number; label:
   return <div className='statCard'><div className={'statValue ' + color}>{value}</div><div className='statLabel'>{label}</div></div>;
 }
 
+function QuickCatalogModal({ title, items, onClose }: { title: string; items: any[]; onClose: () => void }) {
+  return (
+    <div className='modalBackdrop' onClick={onClose}>
+      <section className='detailModal compactModal' onClick={e => e.stopPropagation()}>
+        <div className='detailTop'>
+          <div><div className='eyebrow'>INVENTARIO RÁPIDO</div><h2>{title}</h2><div className='muted'>{items.length} elementos disponibles en la última sincronización.</div></div>
+          <button className='ghost' onClick={onClose}>Cerrar</button>
+        </div>
+        <div className='catalogList'>
+          {items.slice(0, 40).map((item: any, index: number) => {
+            const id = item.model_id ?? item.agent_id ?? item.device_id ?? item.id ?? item.provider_id ?? index;
+            const title = item.display_name ?? item.agent_id ?? item.name ?? item.provider_id ?? item.id ?? 'Elemento';
+            const sub = item.model_id ?? item.role ?? item.type ?? item.agent_type ?? item.purpose ?? '';
+            const st = item.status ?? item.integration_status ?? 'available';
+            return <div className='catalogRow' key={id}><div><strong>{title}</strong><small>{sub}</small></div><span className={'pill ' + tone(st)}>{statusLabel(st)}</span></div>;
+          })}
+          {!items.length && <div className='emptyState'>Todavía no hay datos disponibles para este inventario.</div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function CapabilityCenter({
   caps,
   onBack,
@@ -278,33 +363,58 @@ function Chat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [system, setSystem] = useState<any>(null);
-  const [caps, setCaps] = useState<CapabilityCatalog | null>(null);
-  const [mission, setMission] = useState<Mission | null>(null);
+  const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
+  const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
+  const [mission, setMission] = useState<Mission | null>(() => readCached('active_mission', session.userId));
   const [events, setEvents] = useState<MissionEvent[]>([]);
   const [showMission, setShowMission] = useState(false);
   const [showNewMission, setShowNewMission] = useState(false);
+  const [quickView, setQuickView] = useState<{ title: string; items: any[] } | null>(null);
   const [goal, setGoal] = useState('');
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
+    system || caps || mission ? 'cached' : 'offline'
+  );
 
-  const syncLive = async () => {
-    const [systemResult, capabilityResult, overviewResult] = await Promise.all([
+  const syncSystemAndMission = async () => {
+    let fresh = false;
+    const [systemResult, overviewResult] = await Promise.all([
       api('/system', session.accessToken).catch(() => null),
-      api('/capabilities', session.accessToken).catch(() => null),
       api('/meditation/overview', session.accessToken).catch(() => null)
     ]);
-    if (systemResult) setSystem(systemResult.aria);
-    if (capabilityResult) setCaps(capabilityResult.capabilities);
-    const active = overviewResult?.active_mission;
-    if (active?.mission_id) {
-      setMission(active);
-      const ev = await api('/missions/' + encodeURIComponent(active.mission_id) + '/events', session.accessToken).catch(() => ({ events: [] }));
-      setEvents(ev.events ?? []);
+    if (systemResult) {
+      setSystem(systemResult.aria);
+      writeCached('system', session.userId, systemResult.aria);
+      fresh = true;
+    }
+    if (overviewResult) {
+      const active = overviewResult?.active_mission;
+      setMission(active ?? null);
+      writeCached('active_mission', session.userId, active ?? null);
+      if (active?.mission_id) {
+        const ev = await api('/missions/' + encodeURIComponent(active.mission_id) + '/events', session.accessToken).catch(() => ({ events: [] }));
+        setEvents(ev.events ?? []);
+      } else {
+        setEvents([]);
+      }
+      fresh = true;
+    }
+    setSyncState(fresh ? 'live' : (system || caps || mission ? 'cached' : 'offline'));
+  };
+
+  const syncCapabilities = async () => {
+    const capabilityResult = await api('/capabilities', session.accessToken).catch(() => null);
+    if (capabilityResult?.capabilities) {
+      setCaps(capabilityResult.capabilities);
+      writeCached('capabilities', session.userId, capabilityResult.capabilities);
+      setSyncState('live');
     }
   };
-  useLiveSync(syncLive, session.accessToken, 6000);
+
+  useLiveSync(syncSystemAndMission, session.accessToken, 8000);
+  useLiveSync(syncCapabilities, session.accessToken, 60000);
 
   useEffect(() => {
     const onBefore = (e: Event) => e.preventDefault();
@@ -375,22 +485,21 @@ function Chat({
   return (
     <main className='appShell'>
       <header className='topBar'>
-        <div className='brandLine'><div className='brandOrb'>A</div><div><div className='eyebrow'>ARIA · COGNITIVE CORE</div><h1>Centro de Mando</h1><div className='sub'>{system ? 'Núcleo conectado · sincronización LIVE' : 'Conectando con el núcleo…'} · build {BUILD}</div></div></div>
+        <div className='brandLine'><div className='brandOrb'>A</div><div><div className='eyebrow'>ARIA · COGNITIVE CORE</div><h1>Centro de Mando</h1><div className='sub'>{syncState === 'live' ? 'Núcleo conectado · sincronización LIVE' : syncState === 'cached' ? 'Núcleo listo · datos locales disponibles' : 'Conectando con el núcleo…'} · build {BUILD}</div></div></div>
         <div className='topActions'><InstallButton /><button className='ghost' onClick={onCapabilities}>Capacidades</button><button className='ghost' onClick={onMeditation}>Meditación IA</button><button className='ghost' onClick={() => setShowNewMission(true)}>Nueva misión</button><button className='ghost' onClick={onSignOut}>Salir</button></div>
       </header>
 
       <section className='heroPanel'>
         <div className='heroLeft'><div className='heroOrb'>ARIA</div><div><div className='eyebrow'>ESTADO REAL</div><h2>{mission ? statusLabel(String(mission.status)) : 'Lista para actuar'}</h2><p>{mission ? mission.goal : 'Habla con ARIA, lanza una misión o abre el universo completo de capacidades.'}</p></div></div>
         <div className='statsGrid'>
-          <StatCard value={caps?.summary.models_available ?? '—'} label='Modelos disponibles' color='violet' />
-          <StatCard value={caps?.summary.agents_available ?? '—'} label='Agentes disponibles' color='cyan' />
-          <StatCard value={caps?.summary.devices_online ?? '—'} label='Dispositivos online' color='green' />
-          <StatCard value={caps?.summary.connections ?? '—'} label='Conexiones' color='gold' />
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Modelos disponibles', items: (caps?.models ?? []).filter((m:any) => m.enabled && m.status === 'available') })}><div className='statValue violet'>{caps?.summary.models_available ?? '—'}</div><div className='statLabel'>Modelos disponibles</div></button>
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Agentes disponibles', items: (caps?.agents ?? []).filter((a:any) => a.status === 'available') })}><div className='statValue cyan'>{caps?.summary.agents_available ?? '—'}</div><div className='statLabel'>Agentes disponibles</div></button>
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Dispositivos online', items: (caps?.devices ?? []).filter((d:any) => d.status === 'online') })}><div className='statValue green'>{caps?.summary.devices_online ?? '—'}</div><div className='statLabel'>Dispositivos online</div></button>
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Conexiones', items: caps?.connections ?? [] })}><div className='statValue gold'>{caps?.summary.connections ?? '—'}</div><div className='statLabel'>Conexiones</div></button>
         </div>
       </section>
 
-      <section className='commandGrid'>
-        <div className='panel'>
+      <section className='panel'>
           <div className='panelTitle'>CONVERSACIÓN DIRECTA</div>
           <div className='chatWindow'>{messages.length ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}>{m.text}</div>) : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}</div>
           {file && <div className='fileChip'>{file.name}<button onClick={() => setFile(null)}>×</button></div>}
@@ -412,6 +521,8 @@ function Chat({
         </div>
       </section>
 
+      {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
+
       {mission && <section className='panel livePanel'><div className='panelHeading'><div><div className='panelTitle'>EJECUCIÓN ACTUAL</div><h2>{mission.goal}</h2></div><button className={'pill ' + tone(String(mission.status))} onClick={() => setShowMission(true)}>{statusLabel(String(mission.status))}</button></div><div className='progressBar'><span style={{ width: (Math.max(0, Math.min(100, Number(mission.completed_steps ?? 0) / Math.max(1, Number(mission.total_steps ?? 1)) * 100)) + '%') }} /></div><div className='muted'>Paso {mission.completed_steps ?? 0} de {mission.total_steps ?? mission.steps?.length ?? '—'} · {mission.next_action ?? 'sin siguiente acción'}</div></section>}
 
       {showMission && mission && <MissionDetail mission={mission} events={events} onClose={() => setShowMission(false)} />}
@@ -422,8 +533,8 @@ function Chat({
 }
 
 function Meditation({ session, onBack, onCapabilities }: { session: Session; onBack: () => void; onCapabilities: () => void }) {
-  const [o, setO] = useState<any>(null);
-  const [caps, setCaps] = useState<CapabilityCatalog | null>(null);
+  const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
+  const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -433,13 +544,17 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
         api('/meditation/overview', session.accessToken),
         api('/capabilities', session.accessToken)
       ]);
-      setO(overview); setCaps(capability.capabilities); setError('');
+      setO(overview);
+      setCaps(capability.capabilities);
+      writeCached('meditation_overview', session.userId, overview);
+      writeCached('capabilities', session.userId, capability.capabilities);
+      setError('');
     } catch (x) {
-      setError(x instanceof Error ? x.message : 'No se pudo sincronizar Meditación IA.');
+      if (!o) setError(x instanceof Error ? x.message : 'No se pudo sincronizar Meditación IA.');
     }
   }
 
-  useLiveSync(load, session.accessToken, 4000);
+  useLiveSync(load, session.accessToken, 10000);
 
   async function control(action: string) {
     setBusy(true); setError('');
@@ -468,11 +583,14 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
 }
 
 function Capabilities({ session, onBack, onMeditation, onMission }: { session: Session; onBack: () => void; onMeditation: () => void; onMission: () => void }) {
-  const [caps, setCaps] = useState<CapabilityCatalog | null>(null);
+  const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   useLiveSync(async () => {
     const d = await api('/capabilities', session.accessToken);
-    setCaps(d.capabilities);
-  }, session.accessToken, 10000);
+    if (d?.capabilities) {
+      setCaps(d.capabilities);
+      writeCached('capabilities', session.userId, d.capabilities);
+    }
+  }, session.accessToken, 60000);
   return <CapabilityCenter caps={caps} onBack={onBack} onMission={onMission} />;
 }
 

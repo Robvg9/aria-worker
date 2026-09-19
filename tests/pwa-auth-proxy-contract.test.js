@@ -6,6 +6,13 @@ if (!worker.includes('async function proxyPasswordSignIn')) throw new Error('mis
 if (worker.includes('SUPABASE_PUBLISHABLE_KEY')) throw new Error('publishable key must not be embedded in worker');
 if (!worker.includes('request.headers.get("apikey")')) throw new Error('worker must accept browser publishable key');
 if (!worker.includes('controller.abort(),12000')) throw new Error('missing upstream auth timeout');
+if (!worker.includes('if(url.pathname==="/api"||url.pathname.startsWith("/api/"))')) throw new Error('missing same-origin app api proxy');
+if (!worker.includes('async function proxyAppApi')) throw new Error('missing app api proxy implementation');
+if (!app.includes("const API = '/api';")) throw new Error('PWA must use same-origin app api');
+if (!app.includes('CACHE_PREFIX')) throw new Error('PWA cache layer missing');
+if (!app.includes('readCached')) throw new Error('PWA stale-cache read path missing');
+if (!app.includes('QuickCatalogModal')) throw new Error('dashboard inventory modal missing');
+if (!app.includes('conversation_model_execution_failed')) throw new Error('conversation error mapping missing');
 if (!app.includes("fetch('/auth/token?grant_type=password'")) throw new Error('PWA still calls Supabase Auth directly');
 if (!app.includes('controller.abort(), 15000')) throw new Error('missing browser auth timeout');
 console.log('PWA AUTH PROXY CONTRACT: PASS');

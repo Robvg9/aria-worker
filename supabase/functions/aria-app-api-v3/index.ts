@@ -17,7 +17,67 @@ async function requireUser(token: string) { if (!token) throw Object.assign(new 
 async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
-async function execute(step: any, prompt: string, conversationId: string) { const target = step?.target; if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete"); const x = await internal(EXEC, { execution_version: "1", request_id: `${conversationId}:${crypto.randomUUID()}`, task_id: `conversation:${conversationId}`, capability: "text_generation", selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" }, input: { payload: { messages: [{ role: "user", content: [{ type: "text", text: prompt }] }], max_tokens: 512, temperature: 0.3 } }, policy: {}, metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model", multimodal: false } }); if (!x.r.ok || x.b?.status !== "succeeded") throw new Error(`executor_http_${x.r.status}_${x.b?.error?.code ?? x.b?.reason ?? "execution_failed"}`); return x.b; }
+let conversationRouteCache:{expiresAt:number;routes:any[]}|null=null;
+
+async function conversationRoutes() {
+  if(conversationRouteCache && conversationRouteCache.expiresAt>Date.now()) return conversationRouteCache.routes;
+  const [{data:models},{data:caps},{data:accounts}] = await Promise.all([
+    serviceClient().schema("aria_internal").from("model_registry").select("model_id,provider_id,status,enabled"),
+    serviceClient().schema("aria_internal").from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),
+    serviceClient().schema("aria_internal").from("account_registry").select("account_id,provider_id,status,enabled")
+  ]);
+  const routes=(models ?? []).filter((m:any)=>m.enabled && m.status==="available").map((m:any)=>{
+    const cap=(caps ?? []).find((x:any)=>x.model_id===m.model_id);
+    const account=(accounts ?? []).find((a:any)=>a.provider_id===m.provider_id && a.enabled && ["available","active"].includes(String(a.status)));
+    if(!account)return null;
+    const providerBoost=m.provider_id==="google"?12:m.provider_id==="xai"?8:0;
+    return {model_id:m.model_id,provider_id:m.provider_id,account_id:account.account_id,capability_status:cap?.status ?? "unknown",evidence_type:cap?.evidence_type ?? "unknown",evidence_ref:cap?.evidence_ref ?? null,score:(cap?.status==="verified"?100:50)+providerBoost};
+  }).filter(Boolean).sort((a:any,b:any)=>b.score-a.score);
+  conversationRouteCache={expiresAt:Date.now()+30000,routes};
+  return routes;
+}
+
+async function execute(step: any, prompt: string, conversationId: string) {
+  const target = step?.target;
+  if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
+  const x = await internal(EXEC, { execution_version: "1", request_id: conversationId + ":" + crypto.randomUUID(), task_id: "conversation:" + conversationId, capability: "text_generation", selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" }, input: { payload: { messages: [{ role: "user", content: [{ type: "text", text: prompt }] }], max_tokens: 512, temperature: 0.3 } }, policy: {}, metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model", multimodal: false } });
+  if (!x.r.ok || x.b?.status !== "succeeded") throw new Error("executor_http_" + x.r.status + "_" + (x.b?.error?.code ?? x.b?.reason ?? "execution_failed"));
+  return x.b;
+}
+
+async function executeConversationWithFallback(step:any, prompt:string, conversationId:string) {
+  const failures:any[]=[];
+  if(step?.target){
+    try{
+      const result=await execute(step,prompt,conversationId);
+      return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
+    }catch(error){
+      failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
+    }
+  }
+
+  const routes=await conversationRoutes();
+  const seen=new Set<string>();
+  if(step?.target) seen.add(String(step.target.provider_id)+"|"+String(step.target.account_id)+"|"+String(step.target.model_id));
+
+  for(const route of routes.slice(0,4)){
+    const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
+    if(seen.has(key)) continue;
+    seen.add(key);
+    try{
+      const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
+      const result=await execute(candidate,prompt,conversationId);
+      return {result,route,fallback_count:failures.length,failures};
+    }catch(error){
+      failures.push({provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,error:String(error instanceof Error?error.message:error)});
+    }
+  }
+
+  const error:any=new Error("conversation_all_routes_failed");
+  error.failures=failures;
+  throw error;
+}
+
 async function missionForUser(missionId: string, userId: string) { const x = await internal(`${DIRECT}/missions/get`, { mission_id: missionId, user_id: userId, "x-aria-user-id": userId }); if (!x.r.ok) return null; const mission = x.b?.mission ?? x.b?.data?.mission ?? null; const owner = mission?.metadata?.user_id ?? mission?.metadata?.owner_user_id ?? null; return owner && owner !== userId ? null : mission; }
 async function meditationStatus(userId: string) { const { data, error } = await serviceClient().schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id", "primary").maybeSingle(); if (error) throw new Error(error.message); if (data?.owner_user_id && data.owner_user_id !== userId) return { owned: false, desired_mode: "stopped", controller_id: "primary" }; return { owned: Boolean(data?.owner_user_id), controller: data }; }
 async function meditationControl(userId: string, action: string) { const mode = action === "activate" || action === "start" ? "active" : action === "pause" || action === "paused" ? "paused" : action === "stop" || action === "stopped" ? "stopped" : ""; if (!mode) throw Object.assign(new Error("action_required"), { status: 400 }); const sb = serviceClient(); const { data: current, error: ce } = await sb.schema("aria_internal").from("meditation_control").select("*").eq("controller_id", "primary").maybeSingle(); if (ce) throw new Error(ce.message); if (current?.owner_user_id && current.owner_user_id !== userId) throw Object.assign(new Error("meditation_control_owned_by_another_user"), { status: 403 }); const next = { controller_id: "primary", owner_user_id: current?.owner_user_id || userId, desired_mode: mode, session_id: mode === "active" ? `med-${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : (current?.session_id || null), revision: Number(current?.revision || 0) + 1, last_command: mode, last_command_at: new Date().toISOString(), updated_at: new Date().toISOString() }; const { data, error } = await sb.schema("aria_internal").from("meditation_control").upsert(next, { onConflict: "controller_id" }).select("*").single(); if (error) throw new Error(error.message); return data; }
@@ -91,7 +151,7 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && path.endsWith("/meditation/control")) { const body = await req.json().catch(() => null); const controller = await meditationControl(user.id, String(body?.action || "").toLowerCase()); return json({ ok: true, controller, trace_id: trace }); }
     if (req.method === "GET" && path.endsWith("/meditation/overview")) return json({ ok: true, ...(await meditationOverview(user.id)), trace_id: trace });
     if (req.method === "POST" && path.endsWith("/media/upload-url")) { const body = await req.json().catch(() => null); const fileName = typeof body?.fileName === "string" && body.fileName.trim() ? body.fileName.trim().replace(/[^A-Za-z0-9._-]/g, "_") : "upload.bin"; const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`; const { data, error } = await serviceClient().storage.from(MEDIA_BUCKET).createSignedUploadUrl(objectPath); if (error || !data?.signedUrl) return json({ error: "media_upload_url_failed", stage: "media", trace_id: trace }, 502); return json({ ok: true, bucket: MEDIA_BUCKET, path: objectPath, signedUrl: data.signedUrl, trace_id: trace }); }
-    if (req.method === "POST" && path.endsWith("/conversation")) { const body = await req.json().catch(() => null); const parts = Array.isArray(body?.parts) ? body.parts : []; const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n"); if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400); const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID(); const memory = await recall(text,user.id); let step: any; try { step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 }); } catch (e) { return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503); } const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n"); const prompt = ["Eres ARIA. Responde directamente al usuario.","No inventes acciones ejecutadas.",context ? `Memoria contextual autorizada:\n${context}` : "",`Usuario: ${text}`].filter(Boolean).join("\n\n"); try { const result = await execute(step, prompt, conversationId); const content = typeof result?.response?.content === "string" ? result.response.content.trim() : ""; if (!content) throw new Error("empty_conversation_response"); return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: step.target.provider_id, model_id: step.target.model_id }, trace_id: trace }); } catch (e) { return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), trace_id: trace }, 502); } }
+    if (req.method === "POST" && path.endsWith("/conversation")) { const body = await req.json().catch(() => null); const parts = Array.isArray(body?.parts) ? body.parts : []; const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n"); if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400); const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID(); const memory = await recall(text,user.id); let step: any; try { step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 }); } catch (e) { return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503); } const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n"); const prompt = ["Eres ARIA. Responde directamente al usuario.","No inventes acciones ejecutadas.",context ? "Memoria contextual autorizada:\n" + context : "","Usuario: " + text].filter(Boolean).join("\n\n"); try { const execution = await executeConversationWithFallback(step, prompt, conversationId); const result=execution.result; const content = typeof result?.response?.content === "string" ? result.response.content.trim() : ""; if (!content) throw new Error("empty_conversation_response"); return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count }, trace_id: trace }); } catch (e) { return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502); }
     if (req.method === "POST" && path.endsWith("/missions")) { const body = await req.json().catch(() => null); const goal = typeof body?.goal === "string" ? body.goal.trim() : ""; if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400); const direct = await internal(DIRECT, { goal, mission_id: typeof body?.missionId === "string" ? body.missionId : undefined, metadata: { source_application: "aria-app-v1", user_id: user.id, goal_source: "user" }, "x-aria-user-id": user.id }); if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status); return json({ ok: true, ...direct.b, trace_id: trace }); }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
