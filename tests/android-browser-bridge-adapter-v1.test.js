@@ -69,10 +69,10 @@ function makeDispatcher() {
     calls,
     async execute({ step }) {
       calls.push(step);
-      assert.equal(step.operation, 'shell.execute');
+      assert.equal(step.operation, 'computer.use.android');
       assert.equal(step.target.device_id, 'android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092');
 
-      if (step.command.includes('/v1/observe')) {
+      if (step.command.includes('"action":"observe"')) {
         return {
           status: 'succeeded',
           stdout: JSON.stringify(bridgePayload({ clicked })) + '\nARIA_HTTP_STATUS:200\n',
@@ -80,7 +80,7 @@ function makeDispatcher() {
         };
       }
 
-      if (step.command.includes('/v1/action')) {
+      if (step.command.includes('"action":{"action":"click"')) {
         assert.match(step.command, /127\.0\.0\.1:43817\/v1\/action/);
         clicked = true;
         return {
@@ -144,15 +144,13 @@ test('blocks secret-shaped native typing and unsupported select', () => {
     /secret_material|credential/
   );
 
-  assert.throws(
-    () => actionToNative({
-      action: 'type',
-      target: { ref: '0.2' },
-      text: 'not-a-secret',
-      metadata: { credential_ref: 'secret://supabase/login' }
-    }),
-    /credential_ref_requires_secure_device_transport/
-  );
+  const secure = actionToNative({
+    action: 'type',
+    target: { ref: '0.2' },
+    metadata: { credential_ref: 'secret://rwht/rwht_android_password' }
+  });
+  assert.equal(secure.secret_ref, 'secret://rwht/rwht_android_password');
+  assert.equal(secure.action.text, undefined);
 
   assert.throws(
     () => actionToNative({
