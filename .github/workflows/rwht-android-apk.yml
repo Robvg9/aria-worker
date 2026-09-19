@@ -1,0 +1,54 @@
+name: RWHT Android Bridge APK
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: rwht-android-apk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build release APK
+        working-directory: android-rwht-bridge
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK
+        working-directory: android-rwht-bridge
+        run: |
+          set -euo pipefail
+          test -s app/build/outputs/apk/release/app-release.apk
+          sha256sum app/build/outputs/apk/release/app-release.apk
+          du -h app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload RWHT APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-rwht-android-bridge-v1
+          path: android-rwht-bridge/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
