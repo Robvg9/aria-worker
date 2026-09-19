@@ -17,7 +17,7 @@ if (!app.includes('readCached')) throw new Error('PWA stale-cache read path miss
 if (!app.includes('QuickCatalogModal')) throw new Error('dashboard inventory modal missing');
 if (!app.includes('conversation_model_execution_failed')) throw new Error('conversation error mapping missing');
 if (!app.includes("fetch('/auth/token?grant_type=password'")) throw new Error('PWA still calls Supabase Auth directly');
-if (!app.includes('controller.abort(), 15000')) throw new Error('missing browser auth timeout');
+if (!app.includes('controller.abort(), 7000')) throw new Error('missing browser auth timeout');
 if (!html.includes("manifest-%VITE_BUILD%.json")) throw new Error('immutable manifest reference missing');
 if (!html.includes("sw-%VITE_BUILD%.js")) throw new Error('build-versioned service worker reference missing');
 
