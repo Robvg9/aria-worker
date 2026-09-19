@@ -19,11 +19,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Run Android bridge contracts
-        run: |
-          node tests/android-browser-bridge-termux-v1.test.js
-          node tests/android-browser-bridge-adapter-v1.test.js
-          node tests/android-browser-bridge-v1.test.js
-          node tests/device-job-contract.test.js
-      - name: Validate RWHT runner syntax
+      - name: Termux bridge transport test
+        run: node tests/android-browser-bridge-termux-v1.test.js
+      - name: Computer-use Android adapter test
+        run: node tests/android-browser-bridge-adapter-v1.test.js
+      - name: Core computer-use Android contract test
+        run: node tests/android-browser-bridge-v1.test.js
+      - name: Device job contract test
+        run: node tests/device-job-contract.test.js
+      - name: RWHT runner syntax
         run: node -e "require('./computer-use/android-rwht-v1')"
