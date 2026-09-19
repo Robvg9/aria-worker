@@ -25,6 +25,17 @@ jobs:
           node-version: 22
       - name: Install Supabase CLI
         run: npm install -g supabase
+      - name: Verify ARIA APP API v3 source contract
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const source = fs.readFileSync('supabase/functions/aria-app-api-v3/index.ts', 'utf8');
+          for (const fragment of ['executeConversationWithFallback','conversationRouteCache','path.endsWith("/conversation")']) {
+            if (!source.includes(fragment)) throw new Error('missing contract: ' + fragment);
+          }
+          console.log('ARIA APP API v3 source contract: PASS');
+          NODE
       - name: Deploy ARIA APP API v3
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
