@@ -42,12 +42,9 @@ assert.match(cloudflareWorkflow,/x-aria-grok-consent/);
 const forbiddenSelfPatcher=path.join(root,".github/workflows/fix-grok-consent-compat.yml");
 assert.equal(fs.existsSync(forbiddenSelfPatcher),false);
 
-const windowsShell=fs.readFileSync(path.join(root,".github/workflows/aria-windows-shell-live.yml"),"utf8");
-assert.match(windowsShell,/SHELL_OPERATION/);
-assert.match(windowsShell,/shell\.execute/);
-
-const windowsLive=fs.readFileSync(path.join(root,'.github/workflows/aria-windows-shell-live.yml'),'utf8');
-assert.match(windowsLive,/Ensure official ARIA agent task/);
-assert.match(windowsLive,/install-v2\.ps1/);
-assert.match(windowsLive,/ARIA_DEVICE_TOKEN/);
-assert.match(windowsLive,/schtasks\.exe \/Query \/TN \$task \/FO LIST \/V 2>\$null/);
+const windowsQwen3=fs.readFileSync(path.join(root,".github/workflows/aria-autonomous-windows-qwen3.yml"),"utf8");
+assert.match(windowsQwen3,/windows-qwen3/);
+assert.match(windowsQwen3,/ARIA_SELF_MODEL_SKILL_E2E_OK|AUTONOMOUS_WINDOWS_QWEN3/);
+assert.equal(fs.existsSync(path.join(root,".github/workflows/aria-windows-shell-live.yml")),false);
+assert.equal(fs.existsSync(path.join(root,".github/workflows/aria-windows-shell-live-v2.yml")),false);
+assert.equal(fs.existsSync(path.join(root,".github/workflows/aria-windows-direct-repair.yml")),false);
