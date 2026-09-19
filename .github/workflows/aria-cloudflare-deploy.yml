@@ -104,10 +104,14 @@ jobs:
             exit 1
           fi
           base="https://aria.robvg9.workers.dev/auth/token?grant_type=password"
+          set +e
           proxy_code="$(curl --silent --show-error --max-time 10 --retry 0 -o /tmp/auth-proxy-body -w '%{http_code}' "$base" \
             -X POST -H 'Content-Type: application/json' \
             -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
             -d "$body")"
+          proxy_curl_status=$?
+          set -e
+          if test "$proxy_curl_status" -ne 0; then proxy_code="000"; fi
           echo "proxy auth status=$proxy_code"
           cat /tmp/auth-proxy-body || true
           if test "$proxy_code" -ge 400 && test "$proxy_code" -lt 500; then
