@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 const API = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3';
+const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const BUILD = import.meta.env.VITE_BUILD ?? 'dev';
 
@@ -43,7 +44,7 @@ async function signIn(email: string, password: string) {
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', apikey: ANON },
       body: JSON.stringify({ email: email.trim(), password }),
       cache: 'no-store',
       signal: controller.signal
