@@ -39,3 +39,8 @@ if (!worker.includes('cache:isShell?"no-store":"default"')) throw new Error('PWA
 if (!app.includes("fetch('/pwa/version.json?ts='")) throw new Error('PWA stale-build self check missing');
 if (!fs.readFileSync('pwa/public/sw.js', 'utf8').includes("if (!url.pathname.startsWith('/pwa/')) return;")) throw new Error('service worker scope guard missing');
 console.log('PWA UPDATE RESILIENCE CONTRACT: PASS');
+
+if (!app.includes('async function signInDirect')) throw new Error('direct auth path missing');
+if (!app.includes('async function signInProxy')) throw new Error('proxy auth fallback missing');
+if (!app.includes('7000')) throw new Error('direct auth timeout missing');
+if (!app.includes('8000')) throw new Error('proxy auth timeout missing');
