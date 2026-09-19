@@ -57,7 +57,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
+        run: |
+          sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
           wrangler deploy worker.js --name aria
       - name: Sync Cloudflare runtime secret
         env:
