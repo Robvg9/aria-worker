@@ -14,19 +14,23 @@ function fakeFetch(expected) {
   return async (url, options = {}) => {
     expected.push({ url, options });
     if (url.endsWith('/v1/observe')) {
-      return new Response(JSON.stringify({ ok: true, root: { id: '0', children: [] }, evidence_hash: 'h1' }), {
+      return {
         status: 200,
-        headers: { 'content-type': 'application/json' }
-      });
+        ok: true,
+        async text() { return JSON.stringify({ ok: true, root: { id: '0', children: [] }, evidence_hash: 'h1' }); }
+      };
     }
-    return new Response(JSON.stringify({
-      ok: true,
-      evidence_hash: 'h2',
-      ui: { root: { id: '0', children: [] }, packageName: 'com.android.chrome' }
-    }), {
+    return {
       status: 200,
-      headers: { 'content-type': 'application/json' }
-    });
+      ok: true,
+      async text() {
+        return JSON.stringify({
+          ok: true,
+          evidence_hash: 'h2',
+          ui: { root: { id: '0', children: [] }, packageName: 'com.android.chrome' }
+        });
+      }
+    };
   };
 }
 
