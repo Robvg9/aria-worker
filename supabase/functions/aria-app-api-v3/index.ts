@@ -13,7 +13,13 @@ const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
 const bearer = (req: Request) => { const value = req.headers.get("authorization") ?? ""; return value.startsWith("Bearer ") ? value.slice(7).trim() : ""; };
 function serviceClient() { if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error("service_role_not_configured"); return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } }); }
-async function requireUser(token: string) { if (!token) throw Object.assign(new Error("missing_authorization"), { status: 401 }); const { data, error } = await serviceClient().auth.getUser(token); if (error || !data?.user?.id) throw Object.assign(new Error("invalid_or_expired_session"), { status: 401 }); return data.user; }
+async function requireUser(token: string) {
+  if (!token) throw Object.assign(new Error("missing_authorization"), { status: 401 });
+  const { data, error } = await serviceClient().auth.getClaims(token);
+  const claims:any = data?.claims;
+  if (error || !claims?.sub) throw Object.assign(new Error("invalid_or_expired_session"), { status: 401 });
+  return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
+}
 async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
