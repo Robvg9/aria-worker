@@ -72,11 +72,26 @@ if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
 function endpoint(path) { return `${GATEWAY_URL.replace(/\/$/, '')}${path}`; }
 function headers() { return { 'content-type': 'application/json', authorization: `Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id': DEVICE_ID }; }
 async function api(path, options = {}) {
-  const response = await fetch(endpoint(path), { ...options, headers: { ...headers(), ...(options.headers || {}) } });
-  const text = await response.text();
-  let body = null; try { body = text ? JSON.parse(text) : null; } catch (_) { body = { raw: text }; }
-  if (!response.ok) throw new Error(`gateway ${response.status}: ${body?.error || 'request failed'}`);
-  return body;
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1_000, Number(options.timeoutMs || process.env.ARIA_GATEWAY_TIMEOUT_MS || 15_000));
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { timeoutMs: _ignored, ...fetchOptions } = options;
+  try {
+    const response = await fetch(endpoint(path), {
+      ...fetchOptions,
+      signal: controller.signal,
+      headers: { ...headers(), ...(fetchOptions.headers || {}) }
+    });
+    const text = await response.text();
+    let body = null; try { body = text ? JSON.parse(text) : null; } catch (_) { body = { raw: text }; }
+    if (!response.ok) throw new Error(`gateway ${response.status}: ${body?.error || 'request failed'}`);
+    return body;
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`gateway timeout after ${timeoutMs}ms: ${path}`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 function run(command, cwd, timeoutMs) {
   return new Promise((resolve) => {
