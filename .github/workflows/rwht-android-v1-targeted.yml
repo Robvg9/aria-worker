@@ -1,0 +1,29 @@
+name: RWHT Android V1 Targeted
+
+on:
+  push:
+    branches:
+      - chbauto/rwht-android-v1
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  rwht-android-v1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run Android bridge contracts
+        run: |
+          node tests/android-browser-bridge-termux-v1.test.js
+          node tests/android-browser-bridge-adapter-v1.test.js
+          node tests/android-browser-bridge-v1.test.js
+          node tests/device-job-contract.test.js
+      - name: Validate RWHT runner syntax
+        run: node -e "require('./computer-use/android-rwht-v1')"
