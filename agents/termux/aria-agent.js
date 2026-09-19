@@ -3,6 +3,7 @@
 const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
+const { executeAndroidBrowserJob } = require('./android-browser-bridge-v1');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -69,6 +70,7 @@ if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
 }
 
 function endpoint(path) { return `${GATEWAY_URL.replace(/\/$/, '')}${path}`; }
+function secretGatewayBase() { return GATEWAY_URL.replace(/\/$/, '').replace(/\/aria-device-gateway$/, ''); }
 function headers() { return { 'content-type': 'application/json', authorization: `Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id': DEVICE_ID }; }
 async function api(path, options = {}) {
   const response = await fetch(endpoint(path), { ...options, headers: { ...headers(), ...(options.headers || {}) } });
@@ -93,8 +95,22 @@ function run(command, cwd, timeoutMs) {
     child.on('error', error => { clearTimeout(timer); resolve({ status: 'failed', exit_code: null, stdout, stderr: String(error.message).slice(0, 4096), duration_ms: Date.now() - started }); });
   });
 }
+async function resolveSecret(jobId, secretRef) {
+  const response = await fetch(`${secretGatewayBase()}/aria-device-secret-v1/v1/jobs/${encodeURIComponent(jobId)}/resolve`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ device_id: DEVICE_ID, secret_ref: secretRef })
+  });
+  const text = await response.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch (_) { body = null; }
+  if (!response.ok || body?.ok !== true || typeof body.secret !== 'string' || body.secret.length === 0) {
+    throw new Error(`credential unavailable: ${body?.error || 'secret_resolution_failed'}`);
+  }
+  return body.secret;
+}
 async function heartbeat() {
-  try { await api('/v1/devices/heartbeat', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, agent_type: 'android-termux', capabilities: ['shell.execute', 'notifications.push'] }) }); log(`ONLINE device=${DEVICE_ID}`); }
+  try { await api('/v1/devices/heartbeat', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, agent_type: 'android-termux', capabilities: ['shell.execute', 'notifications.push', 'computer.use.android'] }) }); log(`ONLINE device=${DEVICE_ID}`); }
   catch (error) { console.error(`[heartbeat] ${error.message}`); }
 }
 async function claimAndExecute() {
@@ -103,13 +119,30 @@ async function claimAndExecute() {
     if (!body?.job) return;
     const job = body.job;
     if (job.device_id !== DEVICE_ID) throw new Error('gateway returned job for another device');
-    if (!['shell.execute', 'android.notification'].includes(job.operation)) throw new Error(`unsupported operation: ${job.operation}`);
+    if (!['shell.execute', 'android.notification', 'computer.use.android'].includes(job.operation)) throw new Error(`unsupported operation: ${job.operation}`);
     log(`JOB RECEIVED id=${job.job_id} operation=${job.operation}`);
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
     log(`JOB START id=${job.job_id}`);
-    const result = job.operation === 'android.notification'
-      ? await runAndroidNotification(parseAndroidNotificationPayload(job.command))
-      : await run(job.command, job.cwd, job.timeout_ms);
+    let result;
+    if (job.operation === 'android.notification') {
+      result = await runAndroidNotification(parseAndroidNotificationPayload(job.command));
+    } else if (job.operation === 'computer.use.android') {
+      const bridgeResult = await executeAndroidBrowserJob({
+        command: job.command,
+        resolveSecret: secretRef => resolveSecret(job.job_id, secretRef)
+      });
+      result = {
+        status: bridgeResult.status,
+        exit_code: bridgeResult.status === 'succeeded' ? 0 : 1,
+        stdout: '',
+        stderr: bridgeResult.status === 'succeeded' ? '' : String(bridgeResult.reason || 'android_browser_bridge_failed'),
+        duration_ms: null,
+        result: bridgeResult.payload || null,
+        metadata: { android_browser_bridge: true, http_status: bridgeResult.http_status ?? null }
+      };
+    } else {
+      result = await run(job.command, job.cwd, job.timeout_ms);
+    }
     result.metadata = {
       ...(result.metadata || {}),
       platform: `android-termux/${os.release()}`,
