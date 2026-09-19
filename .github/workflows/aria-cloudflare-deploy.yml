@@ -188,6 +188,7 @@ jobs:
       - name: Smoke test Grok OAuth DCR and authorization bootstrap
         run: |
           set -euo pipefail
+          echo GROK_OAUTH_GOVERNED_TIMEOUT_V1
           base="https://aria.robvg9.workers.dev"
           register_payload='{"client_name":"aria-grok-ci","redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"none"}'
           registration="$(curl --fail --silent --show-error --max-time 20 --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d "$register_payload")"
