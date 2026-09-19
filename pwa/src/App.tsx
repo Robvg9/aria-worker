@@ -500,24 +500,15 @@ function Chat({
       </section>
 
       <section className='panel'>
-          <div className='panelTitle'>CONVERSACIÓN DIRECTA</div>
-          <div className='chatWindow'>{messages.length ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}>{m.text}</div>) : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}</div>
-          {file && <div className='fileChip'>{file.name}<button onClick={() => setFile(null)}>×</button></div>}
-          {error && <div className='errorBox'>{error}</div>}
-          <div className='composer'>
-            <input type='file' ref={fileRef} hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
-            <button className='tool' onClick={() => fileRef.current?.click()}>Adjunto</button>
-            <textarea value={text} onChange={e => setText(e.target.value)} placeholder='Habla con ARIA…' />
-            <button className='send' disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
-          </div>
-        </div>
-
-        <div className='panel missionPanel'>
-          <div className='panelTitle'>ACCIONES GOBERNADAS</div>
-          <button className='actionCard' onClick={() => setShowNewMission(true)}><strong>Ejecutar una misión</strong><span>Objetivo → planner → governance → runtime → verificación.</span></button>
-          <button className='actionCard' onClick={onCapabilities}><strong>Explorar capacidades</strong><span>Modelos, agentes, dispositivos, executors y conexiones reales.</span></button>
-          <button className='actionCard' onClick={onMeditation}><strong>Controlar Meditación IA</strong><span>Continuidad, Human Gates, bloqueos y progreso.</span></button>
-          {mission && <button className='actionCard emphasis' onClick={() => setShowMission(true)}><strong>Ver misión actual</strong><span>{statusLabel(String(mission.status))} · abrir resultado y timeline.</span></button>}
+        <div className='panelTitle'>CONVERSACIÓN DIRECTA</div>
+        <div className='chatWindow'>{messages.length ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}>{m.text}</div>) : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}</div>
+        {file && <div className='fileChip'>{file.name}<button onClick={() => setFile(null)}>×</button></div>}
+        {error && <div className='errorBox'>{error}</div>}
+        <div className='composer'>
+          <input type='file' ref={fileRef} hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
+          <button className='tool' onClick={() => fileRef.current?.click()}>Adjunto</button>
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder='Habla con ARIA…' />
+          <button className='send' disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
         </div>
       </section>
 
