@@ -28,14 +28,19 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Verify preinstalled Android SDK
+      - name: Detect preinstalled Android SDK
         run: |
           set -euo pipefail
-          export ANDROID_SDK_ROOT="/usr/local/lib/android/sdk"
-          export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin:$PATH"
-          test -d "$ANDROID_SDK_ROOT/platforms/android-35"
-          test -d "$ANDROID_SDK_ROOT/build-tools/35.0.0"
-          test -x "$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager"
+          SDK_ROOT="/usr/local/lib/android/sdk"
+          test -d "$SDK_ROOT/platforms"
+          sdk_dir="$(find "$SDK_ROOT/platforms" -maxdepth 1 -mindepth 1 -type d -name 'android-*' | sed 's#.*/android-##' | sort -n | tail -1)"
+          build_tools="$(find "$SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sed 's#.*/##' | sort -V | tail -1)"
+          test -n "$sdk_dir"
+          test -n "$build_tools"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_COMPILE_SDK=$sdk_dir" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_TOOLS=$build_tools" >> "$GITHUB_ENV"
+          echo "Detected Android compileSdk=$sdk_dir buildTools=$build_tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
