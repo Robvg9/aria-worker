@@ -16,3 +16,11 @@ if (!app.includes('conversation_model_execution_failed')) throw new Error('conve
 if (!app.includes("fetch('/auth/token?grant_type=password'")) throw new Error('PWA still calls Supabase Auth directly');
 if (!app.includes('controller.abort(), 15000')) throw new Error('missing browser auth timeout');
 console.log('PWA AUTH PROXY CONTRACT: PASS');
+
+const html = fs.readFileSync('pwa/index.html','utf8');
+const workflow = fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','utf8');
+if (!html.includes("./sw-%VITE_BUILD%.js")) throw new Error('PWA must register build-versioned service worker');
+if (!workflow.includes('cp public/sw.js "public/sw-${GITHUB_SHA}.js"')) throw new Error('deploy must generate versioned service worker');
+if (!workflow.includes('rm public/sw.js')) throw new Error('deploy must remove unversioned service worker artifact');
+if (!workflow.includes('sw-${GITHUB_SHA}.js')) throw new Error('LIVE smoke must validate versioned service worker');
+console.log('PWA VERSIONED SERVICE WORKER CONTRACT: PASS');

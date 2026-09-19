@@ -43,7 +43,9 @@ jobs:
         env:
           VITE_BUILD: ${{ github.sha }}
         run: |
-          sed -i "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js
+          cp public/sw.js "public/sw-${GITHUB_SHA}.js"
+          sed -i "s/__BUILD__/${GITHUB_SHA}/g" "public/sw-${GITHUB_SHA}.js"
+          rm public/sw.js
           npm run build
 
       - name: Install Wrangler
@@ -65,7 +67,7 @@ jobs:
           echo "$html"
           grep -q 'ARIA — Centro de Mando' <<<"$html"
           grep -q "${GITHUB_SHA}" <<<"$html"
-          sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw.js?build=${GITHUB_SHA}")"
+          sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw-${GITHUB_SHA}.js")"
           echo "$sw"
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
           manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}manifest.json")"
