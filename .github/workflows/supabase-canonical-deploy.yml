@@ -41,6 +41,7 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
           supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          supabase migration fetch --linked --yes
           supabase db push --include-all
       - name: Deploy canonical ARIA functions
         env:
