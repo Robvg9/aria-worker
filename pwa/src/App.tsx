@@ -100,9 +100,34 @@ async function api(path: string, token: string, init: RequestInit = {}) {
   throw lastError instanceof Error ? lastError : new Error('No se pudo conectar con ARIA.');
 }
 
-async function signIn(email: string, password: string) {
+async function parseAuthResponse(response: Response) {
+  const d: any = await response.json().catch(() => ({}));
+  if (!response.ok || !d.access_token || !d.user?.id) {
+    throw new Error(d.error_description || d.msg || d.error || 'No se pudo iniciar sesión.');
+  }
+  return d;
+}
+
+async function signInDirect(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 15000);
+  const timer = window.setTimeout(() => controller.abort(), 7000);
+  try {
+    const r = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: ANON },
+      body: JSON.stringify({ email: email.trim(), password }),
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    return parseAuthResponse(r);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function signInProxy(email: string, password: string) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 8000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
@@ -111,10 +136,16 @@ async function signIn(email: string, password: string) {
       cache: 'no-store',
       signal: controller.signal
     });
-    const d: any = await r.json().catch(() => ({}));
-    if (!r.ok || !d.access_token || !d.user?.id) {
-      throw new Error(d.error_description || d.msg || d.error || 'No se pudo iniciar sesión.');
-    }
+    return parseAuthResponse(r);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function signIn(email: string, password: string) {
+  let directError: unknown = null;
+  try {
+    const d: any = await signInDirect(email, password);
     const s: Session = {
       accessToken: d.access_token,
       refreshToken: d.refresh_token,
@@ -125,15 +156,30 @@ async function signIn(email: string, password: string) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(s));
     return s;
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('La autenticación está tardando demasiado. Revisa la conexión e inténtalo de nuevo.');
+    directError = error;
+    const retryable = error instanceof DOMException && error.name === 'AbortError' || error instanceof TypeError;
+    if (!retryable) throw error;
+  }
+
+  try {
+    const d: any = await signInProxy(email, password);
+    const s: Session = {
+      accessToken: d.access_token,
+      refreshToken: d.refresh_token,
+      userId: d.user.id,
+      expiresAt: Date.now() + Math.max(60, Number(d.expires_in ?? 3600)) * 1000,
+      email: d.user.email
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    return s;
+  } catch (proxyError) {
+    if ((proxyError instanceof DOMException && proxyError.name === 'AbortError') || proxyError instanceof TypeError) {
+      throw new Error('ARIA no pudo alcanzar el servicio de autenticación por ninguna de sus rutas. La red o el servicio de autenticación está tardando demasiado.');
     }
-    throw error;
-  } finally {
-    window.clearTimeout(timer);
+    if (proxyError instanceof Error && proxyError.message) throw proxyError;
+    throw directError instanceof Error ? directError : new Error('No se pudo iniciar sesión.');
   }
 }
-
 function statusLabel(status: string) {
   const map: Record<string, string> = {
     succeeded: 'Completada',
