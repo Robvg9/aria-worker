@@ -83,6 +83,15 @@ jobs:
           test "$code" -lt 500
           echo PWA_LOGIN_AUTH_BOUNDARY_OK
 
+      - name: Smoke test PWA API network boundary
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev/api/session"
+          code="$(curl --silent --show-error --max-time 12 --retry 1 --retry-delay 1 -o /tmp/app-api-body -w '%{http_code}' "$base" -H 'Authorization: Bearer invalid-smoke-token')"
+          cat /tmp/app-api-body
+          test "$code" = "401"
+          echo PWA_API_BOUNDARY_OK
+
       - name: Smoke test direct ARIA interface
         run: |
           set -euo pipefail
