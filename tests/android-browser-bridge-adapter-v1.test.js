@@ -75,22 +75,25 @@ function makeDispatcher() {
       if (step.command.includes('"action":"observe"')) {
         return {
           status: 'succeeded',
-          stdout: JSON.stringify(bridgePayload({ clicked })) + '\nARIA_HTTP_STATUS:200\n',
-          stderr: ''
+          result: { status: 'succeeded', result: bridgePayload({ clicked }), duration_ms: 5 },
+          metadata: { android_browser_bridge: true }
         };
       }
 
       if (step.command.includes('"action":{"action":"click"')) {
-        assert.match(step.command, /127\.0\.0\.1:43817\/v1\/action/);
         clicked = true;
         return {
           status: 'succeeded',
-          stdout: JSON.stringify({
-            ok: true,
-            ui: bridgePayload({ clicked }),
-            evidence_hash: 'after-hash'
-          }) + '\nARIA_HTTP_STATUS:200\n',
-          stderr: ''
+          result: {
+            status: 'succeeded',
+            result: {
+              ok: true,
+              ui: bridgePayload({ clicked }),
+              evidence_hash: 'after-hash'
+            },
+            duration_ms: 5
+          },
+          metadata: { android_browser_bridge: true }
         };
       }
 
@@ -130,8 +133,8 @@ test('runs computer-use observe -> plan -> physical adapter -> verify', async ()
   assert.equal(result.status, 'succeeded');
   assert.ok(result.ui);
   assert.equal(dispatcher.calls.length, 2);
-  assert.match(dispatcher.calls[0].command, /\/v1\/observe/);
-  assert.match(dispatcher.calls[1].command, /\/v1\/action/);
+  assert.match(dispatcher.calls[0].command, /"action":"observe"/);
+  assert.match(dispatcher.calls[1].command, /"action":{"action":"click"/);
 });
 
 test('blocks secret-shaped native typing and unsupported select', () => {
