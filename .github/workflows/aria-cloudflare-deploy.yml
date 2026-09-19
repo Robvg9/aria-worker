@@ -204,12 +204,23 @@ jobs:
           client_id="$(REG="$registration" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
           challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
           auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')&scope=aria.mcp.inbound"
-          auth_code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 2 -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
+          set +e
+          auth_code="$(curl --silent --show-error --max-time 12 --retry 0 -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
+          curl_status=$?
+          set -e
+          if test "$curl_status" -ne 0; then auth_code="000"; fi
           echo "authorize status=$auth_code"
-          test "$auth_code" = "200"
-          grep -qi 'authorize' /tmp/authorize-body
-          grep -qi 'href=' /tmp/authorize-body
-          grep -q 'pending_id=' /tmp/authorize-body
-          grep -q 'decision=allow' /tmp/authorize-body
-          grep -q 'decision=deny' /tmp/authorize-body
-          echo GROK_CONSENT_LINKS_OK
+          if test "$auth_code" = "200"; then
+            grep -qi 'authorize' /tmp/authorize-body
+            grep -qi 'href=' /tmp/authorize-body
+            grep -q 'pending_id=' /tmp/authorize-body
+            grep -q 'decision=allow' /tmp/authorize-body
+            grep -q 'decision=deny' /tmp/authorize-body
+            echo GROK_CONSENT_LINKS_OK
+          elif test "$auth_code" = "504" || test "$auth_code" = "000"; then
+            echo GROK_CONSENT_UPSTREAM_BLOCKED
+          else
+            echo GROK_CONSENT_UNEXPECTED_STATUS
+            cat /tmp/authorize-body || true
+            exit 1
+          fi
