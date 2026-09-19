@@ -11,7 +11,7 @@ assert.match(source,/supabase link --project-ref "\$SUPABASE_PROJECT_REF"/,'cano
 assert.match(source,/supabase migration fetch --linked --yes/,'canonical deploy must fetch remote migration files before push');
 assert.match(source,/supabase db push --include-all/,'canonical deploy must apply pending migrations');
 assert.ok(workerPwa.includes('const isShell=shellPath==="/"||shellPath==="/index.html"||isServiceWorker||shellPath==="/sw.js"||shellPath==="/manifest.json"'),'PWA shell paths must be explicitly identified for cache control');
-assert.match(workerPwa,/isServiceWorker=\/\^\\\/sw-\[\^\\\/\]\+\\\.js\$\//,'versioned service-worker shell path must be explicitly identified');
+assert.ok(workerPwa.includes('const isServiceWorker=/^\\/sw-[^/]+\\.js$/.test(shellPath);'),'versioned service-worker shell path must be explicitly identified');
 assert.ok(workerPwa.includes('responseHeaders.set("cache-control","no-store, max-age=0")'),'PWA shell must disable browser/CDN cache');
 assert.ok(workerPwa.includes('cache:isShell?"no-store":"default"'),'PWA shell asset fetch must bypass Cloudflare asset cache');
 assert.match(source,/remote_hashes/,'canonical deploy must compare migration content against remote history');
