@@ -1,7 +1,6 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const test = require('node:test');
 
 const {
   parseJob,
@@ -13,61 +12,59 @@ const {
 function fakeFetch(expected) {
   return async (url, options = {}) => {
     expected.push({ url, options });
+
     if (url.endsWith('/v1/observe')) {
       return {
         status: 200,
         ok: true,
-        async text() { return JSON.stringify({ ok: true, root: { id: '0', children: [] }, evidence_hash: 'h1' }); }
+        text: async () => JSON.stringify({
+          ok: true,
+          root: { id: '0', children: [] },
+          evidence_hash: 'h1'
+        })
       };
     }
+
     return {
       status: 200,
       ok: true,
-      async text() {
-        return JSON.stringify({
-          ok: true,
-          evidence_hash: 'h2',
-          ui: { root: { id: '0', children: [] }, packageName: 'com.android.chrome' }
-        });
-      }
+      text: async () => JSON.stringify({
+        ok: true,
+        evidence_hash: 'h2',
+        ui: { root: { id: '0', children: [] }, packageName: 'com.android.chrome' }
+      })
     };
   };
 }
 
-test('parses observe and secret reference without resolving secret', () => {
+(async () => {
   const observed = parseJob(JSON.stringify({ operation: 'observe' }));
   assert.equal(observed.operation, 'observe');
   assert.equal(secretRefFromPayload(observed), null);
 
-  const action = parseJob(JSON.stringify({
+  const securePayload = parseJob(JSON.stringify({
     operation: 'action',
     action: { action: 'type', nodeId: '0.2', text: null },
     secret_ref: 'secret://rwht/rwht_android_password'
   }));
-  assert.equal(secretRefFromPayload(action), 'secret://rwht/rwht_android_password');
-  assert.equal(action.action.action, 'type');
-});
+  assert.equal(secretRefFromPayload(securePayload), 'secret://rwht/rwht_android_password');
+  assert.equal(securePayload.action.action, 'type');
 
-test('rejects non-RWHT secret references', () => {
   assert.throws(
     () => secretRefFromPayload({ secret_ref: 'secret://supabase/service_role' }),
     /secret_ref_invalid/
   );
-});
 
-test('observes through the real local-bridge HTTP shape', async () => {
   const calls = [];
-  const result = await requestLocalBridge({
+  const observeResult = await requestLocalBridge({
     operation: 'observe',
     fetchImpl: fakeFetch(calls)
   });
-  assert.equal(result.status, 'succeeded');
+  assert.equal(observeResult.status, 'succeeded');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://127.0.0.1:43817/v1/observe');
-});
 
-test('resolves secret only at execution time and never from persisted command', async () => {
-  const calls = [];
+  const actionCalls = [];
   const command = JSON.stringify({
     operation: 'action',
     action: { action: 'type', nodeId: '0.2', text: null },
@@ -82,11 +79,18 @@ test('resolves secret only at execution time and never from persisted command', 
       resolved += 1;
       return 'runtime-only-secret';
     },
-    fetchImpl: fakeFetch(calls)
+    fetchImpl: fakeFetch(actionCalls)
   });
 
   assert.equal(result.status, 'succeeded');
   assert.equal(resolved, 1);
-  assert.match(calls[0].options.body, /runtime-only-secret/);
+  assert.equal(actionCalls.length, 1);
+  assert.equal(actionCalls[0].url, 'http://127.0.0.1:43817/v1/action');
+  assert.match(actionCalls[0].options.body, /runtime-only-secret/);
   assert.doesNotMatch(command, /runtime-only-secret/);
+
+  console.log('ANDROID TERMUX BROWSER BRIDGE CONTRACT: PASS');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
 });
