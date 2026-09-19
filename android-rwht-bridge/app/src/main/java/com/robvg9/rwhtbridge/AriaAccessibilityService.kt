@@ -345,16 +345,13 @@ class AriaAccessibilityService : AccessibilityService() {
                             return
                         }
                         val action = mutableMapOf<String, Any?>()
-                        val names = payload.names()
-                        if (names != null) {
-                            for (i in 0 until names.length()) {
-                                val key = names.optString(i)
-                                if (key.isNotEmpty()) {
-                                    val value = payload.opt(key)
-                                    action[key] = if (value == JSONObject.NULL) null else value
-                                }
-                            }
-                        }
+                        if (payload.has("action")) action["action"] = payload.optString("action")
+                        if (payload.has("nodeId")) action["nodeId"] = payload.optString("nodeId")
+                        if (payload.has("text")) action["text"] = payload.optString("text")
+                        if (payload.has("keyCode")) action["keyCode"] = payload.optInt("keyCode")
+                        if (payload.has("direction")) action["direction"] = payload.optString("direction")
+                        if (payload.has("url")) action["url"] = payload.optString("url")
+                        if (payload.has("ms")) action["ms"] = payload.optLong("ms")
                         val result = execute(action)
                         val out = JSONObject(result)
                         if (result["ok"] == true) {
