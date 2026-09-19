@@ -339,7 +339,12 @@ class AriaAccessibilityService : AccessibilityService() {
                         }
                     }
                     method == "POST" && path == "/v1/action" -> {
-                        val payload = runCatching { JSONObject(String(body.concatToString())) }.getOrNull()
+                        val bodyText = body.concatToString()
+                        val payload: JSONObject? = try {
+                            JSONObject(bodyText)
+                        } catch (_: Exception) {
+                            null
+                        }
                         if (payload == null) {
                             writeResponse(writer, 400, JSONObject(mapOf("ok" to false, "error" to "invalid_json")))
                             return
