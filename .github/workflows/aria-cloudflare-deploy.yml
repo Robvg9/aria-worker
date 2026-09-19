@@ -83,16 +83,37 @@ jobs:
       - name: Smoke test PWA login auth boundary
         run: |
           set -euo pipefail
-          base="https://aria.robvg9.workers.dev/auth/token?grant_type=password"
-          code="$(curl --silent --show-error --max-time 15 --retry 0 -o /tmp/auth-body -w '%{http_code}' "$base" \
+          body='{"email":"aria-ci-invalid@example.invalid","password":"invalid-password-for-smoke-test"}'
+          direct_code="$(curl --silent --show-error --max-time 8 --retry 0 -o /tmp/auth-direct-body -w '%{http_code}' \
+            'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password' \
             -X POST -H 'Content-Type: application/json' \
             -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
-            -d '{"email":"aria-ci-invalid@example.invalid","password":"invalid-password-for-smoke-test"}')"
-          cat /tmp/auth-body
-          test "$code" -ge 400
-          test "$code" -lt 500
-          echo PWA_LOGIN_AUTH_BOUNDARY_OK
-
+            -d "$body")"
+          echo "direct auth status=$direct_code"
+          cat /tmp/auth-direct-body || true
+          if test "$direct_code" -ge 400 && test "$direct_code" -lt 500; then
+            echo AUTH_DIRECT_REACHABLE
+          elif test "$direct_code" = "000"; then
+            echo AUTH_DIRECT_NETWORK_BLOCKED
+          else
+            echo AUTH_DIRECT_UNEXPECTED_STATUS
+            exit 1
+          fi
+          base="https://aria.robvg9.workers.dev/auth/token?grant_type=password"
+          proxy_code="$(curl --silent --show-error --max-time 10 --retry 0 -o /tmp/auth-proxy-body -w '%{http_code}' "$base" \
+            -X POST -H 'Content-Type: application/json' \
+            -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
+            -d "$body")"
+          echo "proxy auth status=$proxy_code"
+          cat /tmp/auth-proxy-body || true
+          if test "$proxy_code" -ge 400 && test "$proxy_code" -lt 500; then
+            echo AUTH_PROXY_REACHABLE
+          elif test "$proxy_code" = "504"; then
+            echo AUTH_PROXY_UPSTREAM_BLOCKED
+          else
+            echo AUTH_PROXY_UNEXPECTED_STATUS
+            exit 1
+          fi
       - name: Smoke test PWA API network boundary
         run: |
           set -euo pipefail

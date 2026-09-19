@@ -8,7 +8,7 @@ if (!worker.includes('if(url.pathname==="/auth/token")')) throw new Error('missi
 if (!worker.includes('async function proxyPasswordSignIn')) throw new Error('missing auth proxy implementation');
 if (worker.includes('SUPABASE_PUBLISHABLE_KEY')) throw new Error('publishable key must not be embedded in worker');
 if (!worker.includes('request.headers.get("apikey")')) throw new Error('worker must accept browser publishable key');
-if (!worker.includes('controller.abort(),12000')) throw new Error('missing upstream auth timeout');
+if (!worker.includes('controller.abort(),8000')) throw new Error('missing upstream auth timeout');
 if (!worker.includes('if(url.pathname==="/api"||url.pathname.startsWith("/api/"))')) throw new Error('missing same-origin app api proxy');
 if (!worker.includes('async function proxyAppApi')) throw new Error('missing app api proxy implementation');
 if (!app.includes("const API = '/api';")) throw new Error('PWA must use same-origin app api');
@@ -17,7 +17,7 @@ if (!app.includes('readCached')) throw new Error('PWA stale-cache read path miss
 if (!app.includes('QuickCatalogModal')) throw new Error('dashboard inventory modal missing');
 if (!app.includes('conversation_model_execution_failed')) throw new Error('conversation error mapping missing');
 if (!app.includes("fetch('/auth/token?grant_type=password'")) throw new Error('PWA still calls Supabase Auth directly');
-if (!app.includes('controller.abort(), 15000')) throw new Error('missing browser auth timeout');
+if (!app.includes('controller.abort(), 7000')) throw new Error('missing browser auth timeout');
 if (!html.includes("manifest-%VITE_BUILD%.json")) throw new Error('immutable manifest reference missing');
 if (!html.includes("sw-%VITE_BUILD%.js")) throw new Error('build-versioned service worker reference missing');
 
@@ -39,3 +39,8 @@ if (!worker.includes('cache:isShell?"no-store":"default"')) throw new Error('PWA
 if (!app.includes("fetch('/pwa/version.json?ts='")) throw new Error('PWA stale-build self check missing');
 if (!fs.readFileSync('pwa/public/sw.js', 'utf8').includes("if (!url.pathname.startsWith('/pwa/')) return;")) throw new Error('service worker scope guard missing');
 console.log('PWA UPDATE RESILIENCE CONTRACT: PASS');
+
+if (!app.includes('async function signInDirect')) throw new Error('direct auth path missing');
+if (!app.includes('async function signInProxy')) throw new Error('proxy auth fallback missing');
+if (!app.includes('7000')) throw new Error('direct auth timeout missing');
+if (!app.includes('8000')) throw new Error('proxy auth timeout missing');
