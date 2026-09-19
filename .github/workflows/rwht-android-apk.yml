@@ -28,13 +28,14 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Provision Android SDK components
+      - name: Verify preinstalled Android SDK
         run: |
           set -euo pipefail
-          SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager"
-          test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          export ANDROID_SDK_ROOT="/usr/local/lib/android/sdk"
+          export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin:$PATH"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-35"
+          test -d "$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -x "$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
