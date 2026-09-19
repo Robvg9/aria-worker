@@ -4,6 +4,11 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rwht-android-apk.yml
   workflow_dispatch:
 
 concurrency:
@@ -11,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -62,6 +67,31 @@ jobs:
           sha256sum app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk
           du -h app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk
 
+
+      - name: Publish public RWHT APK branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp android-rwht-bridge/app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk /tmp/aria-rwht-android-bridge-v1.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin rwht-apk-public || true
+          if git show-ref --verify --quiet refs/remotes/origin/rwht-apk-public; then
+            git switch --force-create rwht-apk-public origin/rwht-apk-public
+          else
+            git switch --force-create rwht-apk-public HEAD
+          fi
+          mkdir -p rwht-public
+          cp /tmp/aria-rwht-android-bridge-v1.apk rwht-public/aria-rwht-android-bridge-v1.apk
+          git add rwht-public/aria-rwht-android-bridge-v1.apk
+          if git diff --cached --quiet; then
+            echo APK_PUBLIC_UNCHANGED
+            exit 0
+          fi
+          git commit -m "chore(rwht): publish Android bridge APK"
+          git push origin HEAD:rwht-apk-public
 
       - name: Upload RWHT APK
         uses: actions/upload-artifact@v4
