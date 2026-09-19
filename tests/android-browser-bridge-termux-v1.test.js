@@ -52,7 +52,7 @@ function fakeFetch(expected) {
 
   assert.throws(
     () => secretRefFromPayload({ secret_ref: 'secret://supabase/service_role' }),
-    /\/secret_ref invalid\//
+    /secret_ref invalid/
   );
 
   const calls = [];
