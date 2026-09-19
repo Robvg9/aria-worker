@@ -72,6 +72,9 @@ function toUiState(payload) {
 
 function actionToNative(action) {
   if (!action || typeof action !== 'object') throw new TypeError('action_required');
+  if (action.risk === 'high_risk_write' || action.risk === 'destructive') {
+    throw new Error('approval_required');
+  }
 
   switch (action.action) {
     case 'click':
