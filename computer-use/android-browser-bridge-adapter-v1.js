@@ -67,6 +67,10 @@ function toUiState(payload) {
 
 function actionToNative(action) {
   if (!action || typeof action !== 'object') throw new TypeError('action_required');
+  const serialized = JSON.stringify(action);
+  if (/(sk-[A-Za-z0-9]{16,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN .*PRIVATE KEY-----|Bearer\\s+[A-Za-z0-9._~-]{12,})/.test(serialized)) {
+    throw new Error('secret_material_rejected');
+  }
   if (action.risk === 'high_risk_write' || action.risk === 'destructive') {
     throw new Error('approval_required');
   }
