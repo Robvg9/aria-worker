@@ -17,19 +17,24 @@ async function requireUser(token: string) { if (!token) throw Object.assign(new 
 async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
+let conversationRouteCache:{expiresAt:number;routes:any[]}|null=null;
+
 async function conversationRoutes() {
+  if(conversationRouteCache && conversationRouteCache.expiresAt>Date.now()) return conversationRouteCache.routes;
   const [{data:models},{data:caps},{data:accounts}] = await Promise.all([
     serviceClient().schema("aria_internal").from("model_registry").select("model_id,provider_id,status,enabled"),
     serviceClient().schema("aria_internal").from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),
     serviceClient().schema("aria_internal").from("account_registry").select("account_id,provider_id,status,enabled")
   ]);
-  return (models ?? []).filter((m:any)=>m.enabled && m.status==="available").map((m:any)=>{
+  const routes=(models ?? []).filter((m:any)=>m.enabled && m.status==="available").map((m:any)=>{
     const cap=(caps ?? []).find((x:any)=>x.model_id===m.model_id);
     const account=(accounts ?? []).find((a:any)=>a.provider_id===m.provider_id && a.enabled && ["available","active"].includes(String(a.status)));
     if(!account)return null;
     const providerBoost=m.provider_id==="google"?12:m.provider_id==="xai"?8:0;
     return {model_id:m.model_id,provider_id:m.provider_id,account_id:account.account_id,capability_status:cap?.status ?? "unknown",evidence_type:cap?.evidence_type ?? "unknown",evidence_ref:cap?.evidence_ref ?? null,score:(cap?.status==="verified"?100:50)+providerBoost};
   }).filter(Boolean).sort((a:any,b:any)=>b.score-a.score);
+  conversationRouteCache={expiresAt:Date.now()+30000,routes};
+  return routes;
 }
 
 async function execute(step: any, prompt: string, conversationId: string) {
@@ -41,26 +46,36 @@ async function execute(step: any, prompt: string, conversationId: string) {
 }
 
 async function executeConversationWithFallback(step:any, prompt:string, conversationId:string) {
+  const failures:any[]=[];
+  if(step?.target){
+    try{
+      const result=await execute(step,prompt,conversationId);
+      return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
+    }catch(error){
+      failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
+    }
+  }
+
   const routes=await conversationRoutes();
   const seen=new Set<string>();
-  const ordered:any[]=[];
-  if(step?.target) ordered.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id});
-  ordered.push(...routes.slice(0,4));
-  const failures:any[]=[];
-  for(const route of ordered){
+  if(step?.target) seen.add(String(step.target.provider_id)+"|"+String(step.target.account_id)+"|"+String(step.target.model_id));
+
+  for(const route of routes.slice(0,4)){
     const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
     if(seen.has(key)) continue;
     seen.add(key);
-    try {
+    try{
       const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
       const result=await execute(candidate,prompt,conversationId);
       return {result,route,fallback_count:failures.length,failures};
-    } catch(error) {
+    }catch(error){
       failures.push({provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,error:String(error instanceof Error?error.message:error)});
     }
   }
+
   throw new Error("conversation_all_routes_failed");
 }
+
 async function missionForUser(missionId: string, userId: string) { const x = await internal(`${DIRECT}/missions/get`, { mission_id: missionId, user_id: userId, "x-aria-user-id": userId }); if (!x.r.ok) return null; const mission = x.b?.mission ?? x.b?.data?.mission ?? null; const owner = mission?.metadata?.user_id ?? mission?.metadata?.owner_user_id ?? null; return owner && owner !== userId ? null : mission; }
 async function meditationStatus(userId: string) { const { data, error } = await serviceClient().schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id", "primary").maybeSingle(); if (error) throw new Error(error.message); if (data?.owner_user_id && data.owner_user_id !== userId) return { owned: false, desired_mode: "stopped", controller_id: "primary" }; return { owned: Boolean(data?.owner_user_id), controller: data }; }
 async function meditationControl(userId: string, action: string) { const mode = action === "activate" || action === "start" ? "active" : action === "pause" || action === "paused" ? "paused" : action === "stop" || action === "stopped" ? "stopped" : ""; if (!mode) throw Object.assign(new Error("action_required"), { status: 400 }); const sb = serviceClient(); const { data: current, error: ce } = await sb.schema("aria_internal").from("meditation_control").select("*").eq("controller_id", "primary").maybeSingle(); if (ce) throw new Error(ce.message); if (current?.owner_user_id && current.owner_user_id !== userId) throw Object.assign(new Error("meditation_control_owned_by_another_user"), { status: 403 }); const next = { controller_id: "primary", owner_user_id: current?.owner_user_id || userId, desired_mode: mode, session_id: mode === "active" ? `med-${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : (current?.session_id || null), revision: Number(current?.revision || 0) + 1, last_command: mode, last_command_at: new Date().toISOString(), updated_at: new Date().toISOString() }; const { data, error } = await sb.schema("aria_internal").from("meditation_control").upsert(next, { onConflict: "controller_id" }).select("*").single(); if (error) throw new Error(error.message); return data; }
