@@ -11,8 +11,10 @@ assert.match(source,/supabase link --project-ref "\$SUPABASE_PROJECT_REF"/,'cano
 assert.match(source,/supabase migration fetch --linked --yes/,'canonical deploy must fetch remote migration files before push');
 assert.match(source,/supabase db push --include-all/,'canonical deploy must apply pending migrations');
 assert.ok(workerPwa.includes('const isShell=shellPath==="/"||shellPath==="/index.html"||isServiceWorker||shellPath==="/sw.js"||shellPath==="/manifest.json"'),'PWA shell paths must be explicitly identified for cache control');
-assert.ok(workerPwa.includes('const isServiceWorker=/^\\/sw-[^/]+\\.js$/.test(shellPath);'),'versioned service-worker shell path must be explicitly identified');
-assert.ok(workerPwa.includes('assetUrl.searchParams.set("__aria_shell_bust__",crypto.randomUUID())'),'PWA shell fetch must bypass asset binding cache with a unique cache-buster');
+assert.ok(workerPwa.includes('const PWA_BUILD = "__PWA_BUILD__";'),'PWA build placeholder must be explicit');
+assert.ok(workerPwa.includes('shellPath="/index-"+PWA_BUILD+".html"'),'PWA root must map to immutable index asset');
+assert.ok(workerPwa.includes('shellPath="/manifest-"+PWA_BUILD+".json"'),'PWA manifest must map to immutable asset');
+assert.ok(workerPwa.includes('shellPath="/sw-"+PWA_BUILD+".js"'),'PWA legacy SW path must map to immutable service worker asset');
 assert.ok(workerPwa.includes('responseHeaders.set("cache-control","no-store, max-age=0")'),'PWA shell must disable browser/CDN cache');
 assert.ok(workerPwa.includes('cache:isShell?"no-store":"default"'),'PWA shell asset fetch must bypass Cloudflare asset cache');
 assert.match(source,/remote_hashes/,'canonical deploy must compare migration content against remote history');
@@ -21,3 +23,8 @@ assert.match(source,/MIGRATION_ALREADY_APPLIED=/,'canonical deploy must skip alr
 assert.match(source,/LEGACY_MIGRATION_IGNORED=/,'canonical deploy must quarantine legacy malformed migration filenames');
 assert.match(source,/duplicate pending migration versions/,'canonical deploy must fail on duplicate pending versions');
 console.log('SUPABASE CANONICAL DEPLOY CONTRACT: PASS');
+
+assert.ok(source.includes('cp dist/index.html "dist/index-${GITHUB_SHA}.html"'),'deploy must generate immutable index asset');
+assert.ok(source.includes('cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"'),'deploy must generate immutable manifest asset');
+assert.ok(source.includes('cp public/sw.js "dist/sw-${GITHUB_SHA}.js"'),'deploy must generate immutable service worker asset');
+assert.ok(source.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js'),'deploy must inject current build into worker');
