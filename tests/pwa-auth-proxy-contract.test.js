@@ -24,3 +24,7 @@ if (!workflow.includes('cp public/sw.js "public/sw-${GITHUB_SHA}.js"')) throw ne
 if (!workflow.includes('rm public/sw.js')) throw new Error('deploy must remove unversioned service worker artifact');
 if (!workflow.includes('sw-${GITHUB_SHA}.js')) throw new Error('LIVE smoke must validate versioned service worker');
 console.log('PWA VERSIONED SERVICE WORKER CONTRACT: PASS');
+
+const workerShell = fs.readFileSync('worker.js','utf8');
+if (!workerShell.includes('assetUrl.searchParams.set("__aria_shell_bust__",crypto.randomUUID())')) throw new Error('shell cache-buster missing');
+console.log('PWA SHELL CACHE-BYPASS CONTRACT: PASS');
