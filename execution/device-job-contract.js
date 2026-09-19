@@ -36,10 +36,13 @@ function validateAndroidBrowserBridgePayload(command) {
     return { ok: false, error: 'android browser bridge payload must be an object' };
   }
 
-  const operation = payload.operation || 'action';
+  const operation = payload.operation || (payload.action === 'observe' ? 'observe' : 'action');
 
   if (operation === 'observe') {
-    if (payload.action !== undefined || payload.secret_ref !== undefined) {
+    if (
+      (payload.action !== undefined && payload.action !== 'observe') ||
+      payload.secret_ref !== undefined
+    ) {
       return { ok: false, error: 'android browser bridge observe payload contains unsupported fields' };
     }
     return { ok: true, payload };
