@@ -5,12 +5,13 @@ plugins {
 
 android {
     namespace = "com.robvg9.rwhtbridge"
-    compileSdk = 35
+    val runnerSdk = System.getenv("ANDROID_COMPILE_SDK")?.toIntOrNull() ?: 35
+    compileSdk = runnerSdk
 
     defaultConfig {
         applicationId = "com.robvg9.rwhtbridge"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = runnerSdk
         versionCode = 1
         versionName = "1.0.0"
     }
