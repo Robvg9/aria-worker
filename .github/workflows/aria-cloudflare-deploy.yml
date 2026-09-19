@@ -200,7 +200,7 @@ jobs:
           if test "$register_curl_status" -ne 0; then registration="000"; fi
           echo "register status=$registration"
 
-          if test "$registration" = "200"; then
+          if test "$registration" = "200" || test "$registration" = "201"; then
             body="$(cat /tmp/grok-register-body)"
             echo "$body"
             REG="$body" python - <<'PY'
