@@ -55,14 +55,16 @@ jobs:
         working-directory: android-rwht-bridge
         run: |
           set -euo pipefail
-          test -s app/build/outputs/apk/release/app-release.apk
-          sha256sum app/build/outputs/apk/release/app-release.apk
-          du -h app/build/outputs/apk/release/app-release.apk
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          mv app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/aria-rwht-android-bridge-v1.apk
+          test -s app/build/outputs/apk/release/aria-rwht-android-bridge-v1.apk
+          sha256sum app/build/outputs/apk/release/aria-rwht-android-bridge-v1.apk
+          du -h app/build/outputs/apk/release/aria-rwht-android-bridge-v1.apk
 
       - name: Upload RWHT APK
         uses: actions/upload-artifact@v4
         with:
           name: aria-rwht-android-bridge-v1
-          path: android-rwht-bridge/app/build/outputs/apk/release/app-release.apk
+          path: android-rwht-bridge/app/build/outputs/apk/release/aria-rwht-android-bridge-v1.apk
           if-no-files-found: error
           retention-days: 14
