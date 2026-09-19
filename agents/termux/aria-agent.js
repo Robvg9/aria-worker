@@ -70,7 +70,6 @@ if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
 }
 
 function endpoint(path) { return `${GATEWAY_URL.replace(/\/$/, '')}${path}`; }
-function secretGatewayBase() { return GATEWAY_URL.replace(/\/$/, '').replace(/\/aria-device-gateway$/, ''); }
 function headers() { return { 'content-type': 'application/json', authorization: `Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id': DEVICE_ID }; }
 async function api(path, options = {}) {
   const response = await fetch(endpoint(path), { ...options, headers: { ...headers(), ...(options.headers || {}) } });
@@ -96,15 +95,11 @@ function run(command, cwd, timeoutMs) {
   });
 }
 async function resolveSecret(jobId, secretRef) {
-  const response = await fetch(`${secretGatewayBase()}/aria-device-secret-v1/v1/jobs/${encodeURIComponent(jobId)}/resolve`, {
+  const body = await api(`/v1/jobs/${encodeURIComponent(jobId)}/resolve-secret`, {
     method: 'POST',
-    headers: headers(),
     body: JSON.stringify({ device_id: DEVICE_ID, secret_ref: secretRef })
   });
-  const text = await response.text();
-  let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch (_) { body = null; }
-  if (!response.ok || body?.ok !== true || typeof body.secret !== 'string' || body.secret.length === 0) {
+  if (body?.ok !== true || typeof body.secret !== 'string' || body.secret.length === 0) {
     throw new Error(`credential unavailable: ${body?.error || 'secret_resolution_failed'}`);
   }
   return body.secret;
