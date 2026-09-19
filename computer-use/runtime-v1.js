@@ -79,7 +79,13 @@ function createAction(input) {
   if (!input.id) throw new TypeError('action_id_required');
   if (looksSecret(input)) throw new TypeError('secret_material_rejected');
   if (['click','type','select'].includes(input.action) && !input.target) throw new TypeError('target_required');
-  if (input.action === 'type' && typeof input.text !== 'string') throw new TypeError('text_required');
+  if (
+    input.action === 'type' &&
+    typeof input.text !== 'string' &&
+    !(input.text == null && typeof input.metadata?.credential_ref === 'string')
+  ) {
+    throw new TypeError('text_required');
+  }
   const risk = input.risk || 'read';
   if (!RISKS.includes(risk)) throw new TypeError('risk_invalid');
   return Object.freeze({
