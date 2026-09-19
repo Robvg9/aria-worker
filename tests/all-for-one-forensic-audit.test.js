@@ -44,7 +44,7 @@ assert.equal(fs.existsSync(forbiddenSelfPatcher),false);
 
 const windowsQwen3=fs.readFileSync(path.join(root,".github/workflows/aria-autonomous-windows-qwen3.yml"),"utf8");
 assert.match(windowsQwen3,/windows-qwen3/);
-assert.match(windowsQwen3,/ARIA_SELF_MODEL_SKILL_E2E_OK|AUTONOMOUS_WINDOWS_QWEN3/);
+assert.match(windowsQwen3,/ARIA Autonomous Windows Qwen3|Autonomous Windows Qwen3/);
 assert.equal(fs.existsSync(path.join(root,".github/workflows/aria-windows-shell-live.yml")),false);
 assert.equal(fs.existsSync(path.join(root,".github/workflows/aria-windows-shell-live-v2.yml")),false);
 assert.equal(fs.existsSync(path.join(root,".github/workflows/aria-windows-direct-repair.yml")),false);
