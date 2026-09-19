@@ -344,11 +344,16 @@ class AriaAccessibilityService : AccessibilityService() {
                             writeResponse(writer, 400, JSONObject(mapOf("ok" to false, "error" to "invalid_json")))
                             return
                         }
-                        val action = mutableMapOf<String,Any?>()
-                        val keys = payload.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            action[key] = payload.opt(key).let { if (it == JSONObject.NULL) null else it }
+                        val action = mutableMapOf<String, Any?>()
+                        val names = payload.names()
+                        if (names != null) {
+                            for (i in 0 until names.length()) {
+                                val key = names.optString(i)
+                                if (key.isNotEmpty()) {
+                                    val value = payload.opt(key)
+                                    action[key] = if (value == JSONObject.NULL) null else value
+                                }
+                            }
                         }
                         val result = execute(action)
                         val out = JSONObject(result)
