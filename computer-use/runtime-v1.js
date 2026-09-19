@@ -94,12 +94,31 @@ function planAction({id, intent, ui, preferredTarget, risk='read'} = {}) {
   if (!RISKS.includes(risk)) throw new TypeError('risk_invalid');
   if (!ui) throw new TypeError('ui_state_required');
   const target = preferredTarget || {};
+
+  if (target.action === 'navigate') {
+    const url = target.value && target.value.url != null
+      ? String(target.value.url)
+      : target.url != null
+        ? String(target.url)
+        : '';
+    if (!/^https?:\/\//i.test(url)) {
+      return {status:'blocked', reason:'navigation_target_invalid', intent, diagnostics:{query:clone(target)}};
+    }
+    const action = createAction({
+      id, action:'navigate', target:null,
+      text:null, value:{url}, risk, reason:intent, expectation:target.expectation,
+      metadata:target.metadata || {}
+    });
+    return {status:'planned', action};
+  }
+
   const match = findElement(ui, target);
   if (match.status === 'not_found') return {status:'blocked', reason:'element_not_found', intent, diagnostics:{query:clone(target)}};
   if (match.status === 'ambiguous') return {status:'blocked', reason:'element_ambiguous', intent, diagnostics:{query:clone(target), candidates:match.candidates.map(x=>x.id)}};
   const action = createAction({
     id, action:target.action || 'click', target:{ref:match.element.id, query:clone(target)},
-    text:target.text, value:target.value, risk, reason:intent, expectation:target.expectation
+    text:target.text, value:target.value, risk, reason:intent, expectation:target.expectation,
+    metadata:target.metadata || {}
   });
   return {status:'planned', action};
 }
