@@ -2,6 +2,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const source=fs.readFileSync('.github/workflows/supabase-canonical-deploy.yml','utf8');
+const pwaDeploy=fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 for(const fn of ['aria-planner-v10','aria-autonomy-supervisor-v10','aria-mission-runner-v17','aria-canonical-runtime-v1','aria-direct-v1','aria-memory-v2','aria-device-gateway']) assert.match(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must be deployed`);
 assert.doesNotMatch(source,/functions deploy aria-mission-runner-v14\b/);
@@ -24,7 +25,7 @@ assert.match(source,/LEGACY_MIGRATION_IGNORED=/,'canonical deploy must quarantin
 assert.match(source,/duplicate pending migration versions/,'canonical deploy must fail on duplicate pending versions');
 console.log('SUPABASE CANONICAL DEPLOY CONTRACT: PASS');
 
-assert.ok(source.includes('cp dist/index.html "dist/index-${GITHUB_SHA}.html"'),'deploy must generate immutable index asset');
-assert.ok(source.includes('cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"'),'deploy must generate immutable manifest asset');
-assert.ok(source.includes('cp public/sw.js "dist/sw-${GITHUB_SHA}.js"'),'deploy must generate immutable service worker asset');
-assert.ok(source.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js'),'deploy must inject current build into worker');
+assert.ok(pwaDeploy.includes('cp dist/index.html "dist/index-${GITHUB_SHA}.html"'),'deploy must generate immutable index asset');
+assert.ok(pwaDeploy.includes('cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"'),'deploy must generate immutable manifest asset');
+assert.ok(pwaDeploy.includes('cp public/sw.js "dist/sw-${GITHUB_SHA}.js"'),'deploy must generate immutable service worker asset');
+assert.ok(pwaDeploy.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js'),'deploy must inject current build into worker');
