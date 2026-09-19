@@ -71,6 +71,18 @@ jobs:
           manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}manifest.json")"
           grep -q 'ARIA — Centro de Mando Cognitivo' <<<"$manifest"
 
+      - name: Smoke test PWA login auth boundary
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev/auth/token?grant_type=password"
+          code="$(curl --silent --show-error --max-time 15 --retry 0 -o /tmp/auth-body -w '%{http_code}' "$base" \
+            -X POST -H 'Content-Type: application/json' \
+            -d '{"email":"aria-ci-invalid@example.invalid","password":"invalid-password-for-smoke-test"}')"
+          cat /tmp/auth-body
+          test "$code" -ge 400
+          test "$code" -lt 500
+          echo PWA_LOGIN_AUTH_BOUNDARY_OK
+
       - name: Smoke test direct ARIA interface
         run: |
           set -euo pipefail

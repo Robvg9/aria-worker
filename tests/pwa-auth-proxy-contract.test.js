@@ -1,0 +1,11 @@
+const fs = require('fs');
+const worker = fs.readFileSync('worker.js', 'utf8');
+const app = fs.readFileSync('pwa/src/App.tsx', 'utf8');
+if (!worker.includes('if(url.pathname==="/auth/token")')) throw new Error('missing auth proxy route');
+if (!worker.includes('async function proxyPasswordSignIn')) throw new Error('missing auth proxy implementation');
+if (worker.includes('SUPABASE_PUBLISHABLE_KEY')) throw new Error('publishable key must not be embedded in worker');
+if (!worker.includes('request.headers.get("apikey")')) throw new Error('worker must accept browser publishable key');
+if (!worker.includes('controller.abort(),12000')) throw new Error('missing upstream auth timeout');
+if (!app.includes("fetch('/auth/token?grant_type=password'")) throw new Error('PWA still calls Supabase Auth directly');
+if (!app.includes('controller.abort(), 15000')) throw new Error('missing browser auth timeout');
+console.log('PWA AUTH PROXY CONTRACT: PASS');
