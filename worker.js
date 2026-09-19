@@ -12,7 +12,6 @@ const CANONICAL_RUNTIME = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1
 const DIRECT_ARIA = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-direct-v1";
 const CRON_AUTH_URL = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const SUPABASE_AUTH = "https://icuqsstxfdbvjytkhlog.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw";
 const RESOURCE = PUBLIC_RESOURCE;
 const RESOURCE_METADATA = `${PUBLIC_ISSUER}/.well-known/oauth-protected-resource/mcp`;
 const SCOPES = ["aria.mcp.inbound"];
@@ -32,6 +31,8 @@ function escapeHtml(value){return String(value).replace(/[&<>'\"]/g,ch=>({"&":"&
 async function proxyPasswordSignIn(request, url){
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);
   if(url.searchParams.get("grant_type")!=="password")return json({error:"unsupported_grant_type"},400);
+  const apiKey=request.headers.get("apikey");
+  if(!apiKey)return json({error:"missing_apikey"},400);
   const body=await request.text();
   if(!body)return json({error:"invalid_request",error_description:"Falta el cuerpo de autenticación."},400);
   const controller=new AbortController();
@@ -39,7 +40,7 @@ async function proxyPasswordSignIn(request, url){
   try{
     const upstream=await fetch(SUPABASE_AUTH+"/auth/v1/token?grant_type=password",{
       method:"POST",
-      headers:{"content-type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY,"accept":"application/json"},
+      headers:{"content-type":"application/json","apikey":apiKey,"accept":"application/json"},
       body,
       signal:controller.signal
     });
