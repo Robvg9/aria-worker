@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
 const API = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3';
-const SUPABASE = 'https://icuqsstxfdbvjytkhlog.supabase.co';
-const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const BUILD = import.meta.env.VITE_BUILD ?? 'dev';
 
@@ -40,24 +38,37 @@ async function api(path: string, token: string, init: RequestInit = {}) {
 }
 
 async function signIn(email: string, password: string) {
-  const r = await fetch(SUPABASE + '/auth/v1/token?grant_type=password', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', apikey: ANON },
-    body: JSON.stringify({ email: email.trim(), password })
-  });
-  const d: any = await r.json().catch(() => ({}));
-  if (!r.ok || !d.access_token || !d.user?.id) {
-    throw new Error(d.error_description || d.msg || 'Credenciales inválidas.');
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 15000);
+  try {
+    const r = await fetch('/auth/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), password }),
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    const d: any = await r.json().catch(() => ({}));
+    if (!r.ok || !d.access_token || !d.user?.id) {
+      throw new Error(d.error_description || d.msg || d.error || 'No se pudo iniciar sesión.');
+    }
+    const s: Session = {
+      accessToken: d.access_token,
+      refreshToken: d.refresh_token,
+      userId: d.user.id,
+      expiresAt: Date.now() + Math.max(60, Number(d.expires_in ?? 3600)) * 1000,
+      email: d.user.email
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    return s;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('La autenticación está tardando demasiado. Revisa la conexión e inténtalo de nuevo.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
   }
-  const s: Session = {
-    accessToken: d.access_token,
-    refreshToken: d.refresh_token,
-    userId: d.user.id,
-    expiresAt: Date.now() + Math.max(60, Number(d.expires_in ?? 3600)) * 1000,
-    email: d.user.email
-  };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-  return s;
 }
 
 function statusLabel(status: string) {
