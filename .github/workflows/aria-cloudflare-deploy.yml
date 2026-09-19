@@ -43,10 +43,13 @@ jobs:
         env:
           VITE_BUILD: ${{ github.sha }}
         run: |
-          cp public/sw.js "public/sw-${GITHUB_SHA}.js"
-          sed -i "s/__BUILD__/${GITHUB_SHA}/g" "public/sw-${GITHUB_SHA}.js"
-          rm public/sw.js
+          sed -i "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js
           npm run build
+          cp dist/index.html "dist/index-${GITHUB_SHA}.html"
+          cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"
+          cp public/sw.js "dist/sw-${GITHUB_SHA}.js"
+          sed -i "s/__BUILD__/${GITHUB_SHA}/g" "dist/sw-${GITHUB_SHA}.js"
+          rm -f public/sw.js dist/index.html dist/manifest.json
 
       - name: Install Wrangler
         run: npm install --global wrangler@latest
@@ -54,7 +57,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: wrangler deploy worker.js --name aria
+        run: sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
+          wrangler deploy worker.js --name aria
       - name: Sync Cloudflare runtime secret
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -67,10 +71,12 @@ jobs:
           echo "$html"
           grep -q 'ARIA — Centro de Mando' <<<"$html"
           grep -q "${GITHUB_SHA}" <<<"$html"
+          versioned_html="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}index-${GITHUB_SHA}.html")"
+          grep -q "${GITHUB_SHA}" <<<"$versioned_html"
           sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw-${GITHUB_SHA}.js")"
           echo "$sw"
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
-          manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}manifest.json")"
+          manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}manifest-${GITHUB_SHA}.json")"
           grep -q 'ARIA — Centro de Mando Cognitivo' <<<"$manifest"
 
       - name: Smoke test PWA login auth boundary
