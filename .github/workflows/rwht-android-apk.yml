@@ -1,0 +1,70 @@
+name: RWHT Android Bridge APK
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: rwht-android-apk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Detect preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="/usr/local/lib/android/sdk"
+          test -d "$SDK_ROOT/platforms"
+          sdk_dir="$(find "$SDK_ROOT/platforms" -maxdepth 1 -mindepth 1 -type d -name 'android-*' | sed 's#.*/android-##' | sort -n | tail -1)"
+          build_tools="$(find "$SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sed 's#.*/##' | sort -V | tail -1)"
+          test -n "$sdk_dir"
+          test -n "$build_tools"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_COMPILE_SDK=$sdk_dir" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_TOOLS=$build_tools" >> "$GITHUB_ENV"
+          echo "Detected Android compileSdk=$sdk_dir buildTools=$build_tools"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build release APK
+        working-directory: android-rwht-bridge
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK
+        working-directory: android-rwht-bridge
+        run: |
+          set -euo pipefail
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk
+          test -s app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk
+          sha256sum app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk
+          du -h app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk
+
+      - name: Upload RWHT APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-rwht-android-bridge-v1
+          path: android-rwht-bridge/app/build/outputs/apk/release/aria-rwht-android-bridge-v1.apk
+          if-no-files-found: error
+          retention-days: 14

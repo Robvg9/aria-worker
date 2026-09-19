@@ -21,6 +21,35 @@ const planned = planAction({
 assert.equal(planned.status, 'planned');
 assert.equal(planned.action.target.ref, 'login');
 
+const navigation = planAction({
+  id: 'm1-nav',
+  intent: 'Open canonical PWA',
+  ui,
+  preferredTarget: { action: 'navigate', value: { url: 'https://aria.robvg9.workers.dev/pwa/' } }
+});
+assert.equal(navigation.status, 'planned');
+assert.equal(navigation.action.action, 'navigate');
+assert.equal(navigation.action.target, null);
+assert.equal(navigation.action.value.url, 'https://aria.robvg9.workers.dev/pwa/');
+
+const secureType = planAction({
+  id: 'm1-secure-type',
+  intent: 'Type password using governed credential reference',
+  ui: createUiState({
+    surface: 'android-browser',
+    nodes: [{ id: 'password', role: 'textbox', name: 'Contraseña', label: 'Contraseña' }]
+  }),
+  preferredTarget: {
+    role: 'textbox',
+    name: 'Contraseña',
+    action: 'type',
+    metadata: { credential_ref: 'secret://rwht/rwht_android_password' }
+  }
+});
+assert.equal(secureType.status, 'planned');
+assert.equal(secureType.action.metadata.credential_ref, 'secret://rwht/rwht_android_password');
+assert.equal(secureType.action.text, null);
+
 assert.equal(planAction({
   id: 'm1-a2', intent: 'Missing', ui,
   preferredTarget: { role: 'button', name: 'Missing', action: 'click' }

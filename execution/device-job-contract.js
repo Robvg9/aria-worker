@@ -3,7 +3,8 @@
 const DEVICE_JOB_OPERATIONS = Object.freeze({
   SHELL_EXECUTE: 'shell.execute',
   OLLAMA_QWEN3: 'ollama.qwen3',
-  COMPUTER_USE: 'computer.use'
+  COMPUTER_USE: 'computer.use',
+  ANDROID_BROWSER_BRIDGE: 'computer.use.android'
 });
 
 const OLLAMA_QWEN3_MODEL = 'qwen3:4b';
@@ -21,6 +22,97 @@ function validInteger(value, min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAF
   return Number.isInteger(value) && value >= min && value <= max;
 }
 
+function validateAndroidBrowserBridgePayload(command) {
+  if (typeof command !== 'string' || command.trim().length === 0) {
+    return { ok: false, error: 'android browser bridge payload required' };
+  }
+
+  let payload;
+  try { payload = JSON.parse(command); } catch {
+    return { ok: false, error: 'android browser bridge payload must be valid JSON' };
+  }
+
+  if (!isPlainObject(payload)) {
+    return { ok: false, error: 'android browser bridge payload must be an object' };
+  }
+
+  const operation = payload.operation || (payload.action === 'observe' ? 'observe' : 'action');
+
+  if (operation === 'observe') {
+    if (
+      (payload.action !== undefined && payload.action !== 'observe') ||
+      payload.secret_ref !== undefined
+    ) {
+      return { ok: false, error: 'android browser bridge observe payload contains unsupported fields' };
+    }
+    return { ok: true, payload };
+  }
+
+  if (operation !== 'action') {
+    return { ok: false, error: 'android browser bridge operation unsupported' };
+  }
+
+  const action = payload.action;
+  if (!isPlainObject(action) || typeof action.action !== 'string') {
+    return { ok: false, error: 'android browser bridge action required' };
+  }
+
+  if (!['navigate', 'click', 'type', 'press', 'scroll', 'select', 'wait'].includes(action.action)) {
+    return { ok: false, error: 'android browser bridge action unsupported' };
+  }
+
+  if (action.action === 'click' && (typeof action.nodeId !== 'string' || !action.nodeId)) {
+    return { ok: false, error: 'android browser bridge click node invalid' };
+  }
+
+  if (action.action === 'type' && (typeof action.nodeId !== 'string' || !action.nodeId)) {
+    return { ok: false, error: 'android browser bridge type node invalid' };
+  }
+
+  if (action.action === 'type' && action.text !== undefined &&
+      (typeof action.text !== 'string' || action.text.length === 0 || action.text.length > 32768)) {
+    return { ok: false, error: 'android browser bridge type text invalid' };
+  }
+
+  if (action.action === 'scroll' && (
+    typeof action.nodeId !== 'string' ||
+    !['forward', 'backward'].includes(action.direction)
+  )) {
+    return { ok: false, error: 'android browser bridge scroll invalid' };
+  }
+
+  if (action.action === 'navigate' && (
+    typeof action.url !== 'string' ||
+    !/^https?:\/\//i.test(action.url)
+  )) {
+    return { ok: false, error: 'android browser bridge navigation invalid' };
+  }
+
+  if (action.action === 'press' && !Number.isInteger(action.keyCode)) {
+    return { ok: false, error: 'android browser bridge key invalid' };
+  }
+
+  if (action.action === 'wait' && !validInteger(action.ms, 0, 60000)) {
+    return { ok: false, error: 'android browser bridge wait invalid' };
+  }
+
+  if (action.action === 'select') {
+    return { ok: false, error: 'android browser bridge select not supported in v1' };
+  }
+
+  const secretRef = payload.secret_ref;
+  if (secretRef !== undefined &&
+      (typeof secretRef !== 'string' || !/^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/.test(secretRef))) {
+    return { ok: false, error: 'android browser bridge secret_ref invalid' };
+  }
+
+  if (secretRef !== undefined && action.action !== 'type') {
+    return { ok: false, error: 'android browser bridge secret_ref requires type' };
+  }
+
+  return { ok: true, payload };
+}
+
 function validateDeviceJobOperation(operation, command) {
   if (operation === DEVICE_JOB_OPERATIONS.SHELL_EXECUTE) {
     if (typeof command !== 'string' || command.trim().length === 0) return { ok: false, error: 'command required' };
@@ -36,8 +128,12 @@ function validateDeviceJobOperation(operation, command) {
     if (keys.some(key => !OLLAMA_QWEN3_ALLOWED_FIELDS.has(key))) return { ok: false, error: 'ollama.qwen3 payload contains unsupported fields' };
     if (typeof payload.prompt !== 'string' || payload.prompt.trim().length === 0) return { ok: false, error: 'ollama.qwen3 prompt required' };
     if (payload.model !== undefined && payload.model !== OLLAMA_QWEN3_MODEL) return { ok: false, error: 'ollama.qwen3 model must be qwen3:4b' };
-    if (payload.timeout_ms !== undefined && (!validInteger(payload.timeout_ms, 1000, 3600000))) return { ok: false, error: 'ollama.qwen3 timeout_ms must be an integer between 1000 and 3600000' };
+    if (payload.timeout_ms !== undefined && !validInteger(payload.timeout_ms, 1000, 3600000)) return { ok: false, error: 'ollama.qwen3 timeout_ms must be an integer between 1000 and 3600000' };
     return { ok: true, payload: { ...payload, model: OLLAMA_QWEN3_MODEL } };
+  }
+
+  if (operation === DEVICE_JOB_OPERATIONS.ANDROID_BROWSER_BRIDGE) {
+    return validateAndroidBrowserBridgePayload(command);
   }
 
   if (operation === DEVICE_JOB_OPERATIONS.COMPUTER_USE) {
@@ -86,4 +182,10 @@ function validateDeviceJobOperation(operation, command) {
   return { ok: false, error: 'unsupported operation' };
 }
 
-module.exports = Object.freeze({ DEVICE_JOB_OPERATIONS, OLLAMA_QWEN3_MODEL, COMPUTER_USE_ACTIONS, validateDeviceJobOperation });
+module.exports = Object.freeze({
+  DEVICE_JOB_OPERATIONS,
+  OLLAMA_QWEN3_MODEL,
+  COMPUTER_USE_ACTIONS,
+  validateAndroidBrowserBridgePayload,
+  validateDeviceJobOperation
+});
