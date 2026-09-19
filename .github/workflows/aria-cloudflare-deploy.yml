@@ -84,11 +84,15 @@ jobs:
         run: |
           set -euo pipefail
           body='{"email":"aria-ci-invalid@example.invalid","password":"invalid-password-for-smoke-test"}'
+          set +e
           direct_code="$(curl --silent --show-error --max-time 8 --retry 0 -o /tmp/auth-direct-body -w '%{http_code}' \
             'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password' \
             -X POST -H 'Content-Type: application/json' \
             -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
             -d "$body")"
+          direct_curl_status=$?
+          set -e
+          if test "$direct_curl_status" -ne 0; then direct_code="000"; fi
           echo "direct auth status=$direct_code"
           cat /tmp/auth-direct-body || true
           if test "$direct_code" -ge 400 && test "$direct_code" -lt 500; then
@@ -100,10 +104,14 @@ jobs:
             exit 1
           fi
           base="https://aria.robvg9.workers.dev/auth/token?grant_type=password"
+          set +e
           proxy_code="$(curl --silent --show-error --max-time 10 --retry 0 -o /tmp/auth-proxy-body -w '%{http_code}' "$base" \
             -X POST -H 'Content-Type: application/json' \
             -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
             -d "$body")"
+          proxy_curl_status=$?
+          set -e
+          if test "$proxy_curl_status" -ne 0; then proxy_code="000"; fi
           echo "proxy auth status=$proxy_code"
           cat /tmp/auth-proxy-body || true
           if test "$proxy_code" -ge 400 && test "$proxy_code" -lt 500; then
