@@ -1,12 +1,14 @@
 name: RWHT Android V1 Targeted
 
 on:
-  push:
-    branches:
-      - chbauto/rwht-android-v1
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: rwht-android-v1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
