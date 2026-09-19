@@ -86,6 +86,7 @@ jobs:
           base="https://aria.robvg9.workers.dev/auth/token?grant_type=password"
           code="$(curl --silent --show-error --max-time 15 --retry 0 -o /tmp/auth-body -w '%{http_code}' "$base" \
             -X POST -H 'Content-Type: application/json' \
+            -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
             -d '{"email":"aria-ci-invalid@example.invalid","password":"invalid-password-for-smoke-test"}')"
           cat /tmp/auth-body
           test "$code" -ge 400
@@ -101,6 +102,19 @@ jobs:
           test "$code" = "401"
           echo PWA_API_BOUNDARY_OK
 
+      - name: Smoke test PWA version recovery
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev/pwa/"
+          version="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}version.json")"
+          VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ['VERSION'])['build'] == os.environ['GITHUB_SHA']
+          PY
+          stale="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}index-stale-test.html")"
+          grep -q "${GITHUB_SHA}" <<<"$stale"
+          stale_sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw-stale-test.js")"
+          grep -q "aria-pwa-${GITHUB_SHA}" <<<"$stale_sw"
       - name: Smoke test direct ARIA interface
         run: |
           set -euo pipefail
