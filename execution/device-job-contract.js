@@ -3,7 +3,8 @@
 const DEVICE_JOB_OPERATIONS = Object.freeze({
   SHELL_EXECUTE: 'shell.execute',
   OLLAMA_QWEN3: 'ollama.qwen3',
-  COMPUTER_USE: 'computer.use'
+  COMPUTER_USE: 'computer.use',
+  ANDROID_BROWSER_BRIDGE: 'computer.use.android'
 });
 
 const OLLAMA_QWEN3_MODEL = 'qwen3:4b';
@@ -40,7 +41,7 @@ function validateDeviceJobOperation(operation, command) {
     return { ok: true, payload: { ...payload, model: OLLAMA_QWEN3_MODEL } };
   }
 
-  if (operation === DEVICE_JOB_OPERATIONS.COMPUTER_USE) {
+  if (operation === DEVICE_JOB_OPERATIONS.COMPUTER_USE || operation === DEVICE_JOB_OPERATIONS.ANDROID_BROWSER_BRIDGE) {
     if (typeof command !== 'string' || command.trim().length === 0) return { ok: false, error: 'computer.use payload required' };
     let payload;
     try { payload = JSON.parse(command); } catch { return { ok: false, error: 'computer.use payload must be valid JSON' }; }
@@ -70,6 +71,18 @@ function validateDeviceJobOperation(operation, command) {
     }
     if (payload.action === 'focus' && (typeof payload.process !== 'string' || !payload.process.trim())) {
       return { ok: false, error: 'computer.use process invalid' };
+    }
+    if (operation === DEVICE_JOB_OPERATIONS.ANDROID_BROWSER_BRIDGE) {
+      if (!['observe', 'action'].includes(payload.operation || 'action')) {
+        return { ok: false, error: 'android browser bridge operation unsupported' };
+      }
+      if (payload.operation === 'action' && (!payload.action || typeof payload.action !== 'object')) {
+        return { ok: false, error: 'android browser bridge action required' };
+      }
+      const secretRef = payload.secret_ref;
+      if (secretRef !== undefined && (typeof secretRef !== 'string' || !/^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/.test(secretRef))) {
+        return { ok: false, error: 'android browser bridge secret_ref invalid' };
+      }
     }
     if (payload.action === 'wait' && !validInteger(payload.ms, 0, 60000)) {
       return { ok: false, error: 'computer.use wait invalid' };
