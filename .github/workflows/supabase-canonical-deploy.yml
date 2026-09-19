@@ -41,8 +41,48 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
           supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+          rm -rf .ci/supabase-migrations-source
+          mkdir -p .ci/supabase-migrations-source
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print0 | while IFS= read -r -d '' file; do
+            mv "$file" ".ci/supabase-migrations-source/$(basename "$file")"
+          done
+
           supabase migration fetch --linked --yes
-          supabase db push --include-all
+
+          declare -A remote_hashes=()
+          while IFS= read -r -d '' file; do
+            hash="$(sha256sum "$file" | awk '{print $1}')"
+            remote_hashes["$hash"]=1
+          done < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print0)
+
+          pending=0
+          for file in .ci/supabase-migrations-source/*.sql; do
+            [[ -e "$file" ]] || continue
+            name="$(basename "$file")"
+            if [[ ! "$name" =~ ^[0-9]{14}_.+\.sql$ ]]; then
+              echo "LEGACY_MIGRATION_IGNORED=$name"
+              continue
+            fi
+            hash="$(sha256sum "$file" | awk '{print $1}')"
+            if [[ -n "\${remote_hashes[$hash]+x}" ]]; then
+              echo "MIGRATION_ALREADY_APPLIED=$name"
+              continue
+            fi
+            cp "$file" "supabase/migrations/$name"
+            echo "MIGRATION_PENDING=$name"
+            pending=$((pending + 1))
+          done
+
+          duplicate_versions="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sed -E 's/^([0-9]{14})_.*/\1/' | sort | uniq -d)"
+          if [[ -n "$duplicate_versions" ]]; then
+            echo "ERROR: duplicate pending migration versions:"
+            echo "$duplicate_versions"
+            exit 1
+          fi
+
+          echo "MIGRATIONS_PENDING_COUNT=$pending"
+          supabase db push --include-all --yes
       - name: Deploy canonical ARIA functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
