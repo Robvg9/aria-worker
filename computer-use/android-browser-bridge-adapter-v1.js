@@ -4,12 +4,7 @@ const crypto = require('node:crypto');
 const { createUiState } = require('./runtime-v1');
 
 const TERMINAL = new Set(['succeeded', 'failed', 'blocked', 'cancelled', 'verification_failed']);
-const DEFAULT_PORT = 43817;
 const DEFAULT_TIMEOUT_MS = 20_000;
-
-function shellQuote(value) {
-  return "'" + String(value).replace(/'/g, "'\\"'\\"'") + "'";
-}
 
 function flattenTree(root, nodes = [], parentId = null) {
   if (!root || typeof root !== 'object') return nodes;
@@ -78,22 +73,34 @@ function actionToNative(action) {
 
   switch (action.action) {
     case 'click':
-      return { action: 'click', nodeId: action.target?.ref };
-    case 'type':
-      if (action.metadata?.credential_ref) throw new Error('credential_ref_requires_secure_device_transport');
-      return { action: 'type', nodeId: action.target?.ref, text: action.text };
+      return { action: { action: 'click', nodeId: action.target?.ref } };
+    case 'type': {
+      const ref = action.metadata?.credential_ref;
+      if (ref) {
+        if (typeof ref !== 'string' || !/^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/.test(ref)) {
+          throw new Error('credential_ref_invalid');
+        }
+        return {
+          action: { action: 'type', nodeId: action.target?.ref },
+          secret_ref: ref
+        };
+      }
+      return { action: { action: 'type', nodeId: action.target?.ref, text: action.text } };
+    }
     case 'press':
-      return { action: 'press', keyCode: Number(action.value?.keyCode ?? action.metadata?.keyCode) };
+      return { action: { action: 'press', keyCode: Number(action.value?.keyCode ?? action.metadata?.keyCode) } };
     case 'scroll':
       return {
-        action: 'scroll',
-        nodeId: action.target?.ref,
-        direction: action.value?.direction === 'backward' ? 'backward' : 'forward'
+        action: {
+          action: 'scroll',
+          nodeId: action.target?.ref,
+          direction: action.value?.direction === 'backward' ? 'backward' : 'forward'
+        }
       };
     case 'navigate':
-      return { action: 'navigate', url: action.value?.url || action.metadata?.url };
+      return { action: { action: 'navigate', url: action.value?.url || action.metadata?.url } };
     case 'wait':
-      return { action: 'wait', ms: Number(action.value?.ms ?? action.metadata?.ms ?? 500) };
+      return { action: { action: 'wait', ms: Number(action.value?.ms ?? action.metadata?.ms ?? 500) } };
     case 'select':
       throw new Error('select_not_supported_in_android_bridge_v1');
     default:
@@ -101,43 +108,28 @@ function actionToNative(action) {
   }
 }
 
-function parseShellResponse(stdout) {
-  const raw = String(stdout || '');
-  const marker = '\nARIA_HTTP_STATUS:';
-  const index = raw.lastIndexOf(marker);
-  if (index < 0) return { status: null, body: raw.trim() };
-  const body = raw.slice(0, index).trim();
-  const status = Number(raw.slice(index + marker.length).trim());
-  return { status: Number.isInteger(status) ? status : null, body };
+function extractBridgePayload(result) {
+  return result?.result?.result
+    || result?.result?.payload
+    || result?.result
+    || null;
 }
 
 function createAndroidBrowserBridgeAdapter({
   deviceDispatcher,
   device_id,
-  bridge_port = DEFAULT_PORT,
-  shell_timeout_ms = DEFAULT_TIMEOUT_MS
+  timeout_ms = DEFAULT_TIMEOUT_MS
 } = {}) {
   if (!deviceDispatcher || typeof deviceDispatcher.execute !== 'function') {
     throw new TypeError('deviceDispatcher required');
   }
   if (!device_id || typeof device_id !== 'string') throw new TypeError('device_id required');
 
-  async function request(missionId, stepId, method, path, body = null, timeoutMs = shell_timeout_ms) {
-    const args = [
-      'curl', '-sS',
-      '--connect-timeout', '3',
-      '--max-time', String(Math.max(1, Math.ceil(timeoutMs / 1000))),
-      '-H', shellQuote('Content-Type: application/json'),
-      '-X', shellQuote(method),
-      shellQuote('http://127.0.0.1:' + bridge_port + path),
-      '--write-out', shellQuote('\\nARIA_HTTP_STATUS:%{http_code}\\n')
-    ];
-    if (body != null) args.splice(args.length - 1, 0, '--data', shellQuote(JSON.stringify(body)));
-    const command = args.join(' ');
+  async function request(missionId, stepId, payload, timeoutMs = timeout_ms) {
     const step = {
       id: stepId,
-      operation: 'shell.execute',
-      command,
+      operation: 'computer.use.android',
+      command: JSON.stringify(payload),
       timeout_ms: timeoutMs,
       target: { device_id }
     };
@@ -147,51 +139,32 @@ function createAndroidBrowserBridgeAdapter({
       return { status: 'failed', reason: 'invalid_device_result' };
     }
     if (result.status !== 'succeeded') {
-      return { status: result.status, reason: result.stderr || 'device_shell_failed', raw: result };
+      return { status: result.status, reason: result.stderr || 'android_browser_bridge_failed', raw: result };
     }
-
-    const parsed = parseShellResponse(result.stdout);
-    let payload = null;
-    try { payload = parsed.body ? JSON.parse(parsed.body) : null; } catch {
-      return { status: 'failed', reason: 'bridge_invalid_json' };
-    }
-
-    if (parsed.status && parsed.status >= 400) {
-      return {
-        status: parsed.status === 409 ? 'failed' : 'blocked',
-        reason: payload?.error || payload?.reason || 'bridge_http_error',
-        raw: payload
-      };
-    }
-
-    return { status: payload?.ok === false ? 'failed' : 'succeeded', payload };
+    return { status: 'succeeded', payload: extractBridgePayload(result), raw: result };
   }
 
   return Object.freeze({
     adapter_id: 'aria-android-browser-bridge-v1',
     executor_type: 'android-accessibility',
+
     async observe({ mission_id } = {}) {
       if (!mission_id) throw new TypeError('mission_id required');
       const result = await request(
         mission_id,
         mission_id + '-observe-' + crypto.randomUUID().slice(0, 8),
-        'GET',
-        '/v1/observe'
+        { action: 'observe' }
       );
       if (result.status !== 'succeeded') return result;
-      try {
-        return toUiState(result.payload);
-      } catch {
-        return { status: 'failed', reason: 'ui_state_normalization_failed' };
-      }
+      return toUiState(result.payload);
     },
 
     async execute({ mission_id, action } = {}) {
       if (!mission_id || !action) throw new TypeError('mission_id and action required');
 
-      let nativeAction;
+      let jobPayload;
       try {
-        nativeAction = actionToNative(action);
+        jobPayload = actionToNative(action);
       } catch (error) {
         return {
           status: 'blocked',
@@ -202,17 +175,15 @@ function createAndroidBrowserBridgeAdapter({
       const result = await request(
         mission_id,
         action.id || mission_id + '-action-' + crypto.randomUUID().slice(0, 8),
-        'POST',
-        '/v1/action',
-        nativeAction
+        jobPayload
       );
 
       if (result.status !== 'succeeded') return result;
 
-      let ui = null;
-      if (result.payload?.ui) {
-        ui = toUiState(result.payload.ui);
-      }
+      const ui = result.payload?.ui
+        ? toUiState(result.payload.ui)
+        : null;
+
       return {
         status: 'succeeded',
         ui,
@@ -225,4 +196,9 @@ function createAndroidBrowserBridgeAdapter({
   });
 }
 
-module.exports = Object.freeze({ createAndroidBrowserBridgeAdapter, toUiState, actionToNative, flattenTree });
+module.exports = Object.freeze({
+  createAndroidBrowserBridgeAdapter,
+  toUiState,
+  actionToNative,
+  flattenTree
+});
