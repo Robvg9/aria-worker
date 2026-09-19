@@ -7,5 +7,6 @@ assert.doesNotMatch(source,/functions deploy aria-mission-runner-v14\b/);
 assert.doesNotMatch(source,/functions deploy aria-mcp-server-grok-v2\b/);
 assert.doesNotMatch(source,/functions deploy aria-mcp-oauth-grok-v2\b/);
 assert.match(source,/supabase link --project-ref "\$SUPABASE_PROJECT_REF"/,'canonical deploy must link the target project before migration push');
+assert.match(source,/supabase migration fetch --linked --yes/,'canonical deploy must fetch remote migration files before push');
 assert.match(source,/supabase db push --include-all/,'canonical deploy must apply pending migrations');
 console.log('SUPABASE CANONICAL DEPLOY CONTRACT: PASS');
