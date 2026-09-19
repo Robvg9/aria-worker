@@ -656,6 +656,23 @@ function Capabilities({ session, onBack, onMeditation, onMission }: { session: S
 }
 
 export default function App() {
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 3500);
+    (async () => {
+      try {
+        const response = await fetch('/pwa/version.json?ts=' + Date.now(), { cache: 'no-store', signal: controller.signal });
+        const live = await response.json().catch(() => null);
+        if (!cancelled && live?.build && live.build !== BUILD && BUILD !== 'dev') {
+          window.location.replace('/pwa/?update=' + live.build + '-' + Date.now());
+        }
+      } catch {}
+      finally { window.clearTimeout(timer); }
+    })();
+    return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
+  }, []);
+
   const [session, setSession] = useState<Session | null>(() => {
     try {
       const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
