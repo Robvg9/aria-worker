@@ -485,23 +485,65 @@ function Chat({
   return (
     <main className='appShell'>
       <header className='topBar'>
-        <div className='brandLine'><div className='brandOrb'>A</div><div><div className='eyebrow'>ARIA · COGNITIVE CORE</div><h1>Centro de Mando</h1><div className='sub'>{syncState === 'live' ? 'Núcleo conectado · sincronización LIVE' : syncState === 'cached' ? 'Núcleo listo · datos locales disponibles' : 'Conectando con el núcleo…'} · build {BUILD}</div></div></div>
-        <div className='topActions'><InstallButton /><button className='ghost' onClick={onCapabilities}>Capacidades</button><button className='ghost' onClick={onMeditation}>Meditación IA</button><button className='ghost' onClick={() => setShowNewMission(true)}>Nueva misión</button><button className='ghost' onClick={onSignOut}>Salir</button></div>
+        <div className='brandLine'>
+          <div className='brandOrb'>A</div>
+          <div>
+            <div className='eyebrow'>ARIA · COGNITIVE CORE</div>
+            <h1>Centro de Mando</h1>
+            <div className='sub'>
+              {syncState === 'live'
+                ? 'Núcleo conectado · sincronización LIVE'
+                : syncState === 'cached'
+                  ? 'Núcleo listo · datos locales disponibles'
+                  : 'Conectando con el núcleo…'} · build {BUILD}
+            </div>
+          </div>
+        </div>
+        <div className='topActions'>
+          <InstallButton />
+          <button className='ghost' onClick={onCapabilities}>Capacidades</button>
+          <button className='ghost' onClick={onMeditation}>Meditación IA</button>
+          <button className='ghost' onClick={() => setShowNewMission(true)}>Nueva misión</button>
+          <button className='ghost' onClick={onSignOut}>Salir</button>
+        </div>
       </header>
 
       <section className='heroPanel'>
-        <div className='heroLeft'><div className='heroOrb'>ARIA</div><div><div className='eyebrow'>ESTADO REAL</div><h2>{mission ? statusLabel(String(mission.status)) : 'Lista para actuar'}</h2><p>{mission ? mission.goal : 'Habla con ARIA, lanza una misión o abre el universo completo de capacidades.'}</p></div></div>
+        <div className='heroLeft'>
+          <div className='heroOrb'>ARIA</div>
+          <div>
+            <div className='eyebrow'>ESTADO REAL</div>
+            <h2>{mission ? statusLabel(String(mission.status)) : 'Lista para actuar'}</h2>
+            <p>{mission ? mission.goal : 'Habla con ARIA, lanza una misión o abre el universo completo de capacidades.'}</p>
+          </div>
+        </div>
         <div className='statsGrid'>
-          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Modelos disponibles', items: (caps?.models ?? []).filter((m:any) => m.enabled && m.status === 'available') })}><div className='statValue violet'>{caps?.summary.models_available ?? '—'}</div><div className='statLabel'>Modelos disponibles</div></button>
-          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Agentes disponibles', items: (caps?.agents ?? []).filter((a:any) => a.status === 'available') })}><div className='statValue cyan'>{caps?.summary.agents_available ?? '—'}</div><div className='statLabel'>Agentes disponibles</div></button>
-          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Dispositivos online', items: (caps?.devices ?? []).filter((d:any) => d.status === 'online') })}><div className='statValue green'>{caps?.summary.devices_online ?? '—'}</div><div className='statLabel'>Dispositivos online</div></button>
-          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Conexiones', items: caps?.connections ?? [] })}><div className='statValue gold'>{caps?.summary.connections ?? '—'}</div><div className='statLabel'>Conexiones</div></button>
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Modelos disponibles', items: (caps?.models ?? []).filter((m:any) => m.enabled && m.status === 'available') })}>
+            <div className='statValue violet'>{caps?.summary.models_available ?? '—'}</div>
+            <div className='statLabel'>Modelos disponibles</div>
+          </button>
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Agentes disponibles', items: (caps?.agents ?? []).filter((a:any) => a.status === 'available') })}>
+            <div className='statValue cyan'>{caps?.summary.agents_available ?? '—'}</div>
+            <div className='statLabel'>Agentes disponibles</div>
+          </button>
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Dispositivos online', items: (caps?.devices ?? []).filter((d:any) => d.status === 'online') })}>
+            <div className='statValue green'>{caps?.summary.devices_online ?? '—'}</div>
+            <div className='statLabel'>Dispositivos online</div>
+          </button>
+          <button className='statCard statButton' onClick={() => setQuickView({ title: 'Conexiones', items: caps?.connections ?? [] })}>
+            <div className='statValue gold'>{caps?.summary.connections ?? '—'}</div>
+            <div className='statLabel'>Conexiones</div>
+          </button>
         </div>
       </section>
 
       <section className='panel'>
         <div className='panelTitle'>CONVERSACIÓN DIRECTA</div>
-        <div className='chatWindow'>{messages.length ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}>{m.text}</div>) : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}</div>
+        <div className='chatWindow'>
+          {messages.length
+            ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}>{m.text}</div>)
+            : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
+        </div>
         {file && <div className='fileChip'>{file.name}<button onClick={() => setFile(null)}>×</button></div>}
         {error && <div className='errorBox'>{error}</div>}
         <div className='composer'>
@@ -514,15 +556,43 @@ function Chat({
 
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
 
-      {mission && <section className='panel livePanel'><div className='panelHeading'><div><div className='panelTitle'>EJECUCIÓN ACTUAL</div><h2>{mission.goal}</h2></div><button className={'pill ' + tone(String(mission.status))} onClick={() => setShowMission(true)}>{statusLabel(String(mission.status))}</button></div><div className='progressBar'><span style={{ width: (Math.max(0, Math.min(100, Number(mission.completed_steps ?? 0) / Math.max(1, Number(mission.total_steps ?? 1)) * 100)) + '%') }} /></div><div className='muted'>Paso {mission.completed_steps ?? 0} de {mission.total_steps ?? mission.steps?.length ?? '—'} · {mission.next_action ?? 'sin siguiente acción'}</div></section>}
+      {mission && (
+        <section className='panel livePanel'>
+          <div className='panelHeading'>
+            <div>
+              <div className='panelTitle'>EJECUCIÓN ACTUAL</div>
+              <h2>{mission.goal}</h2>
+            </div>
+            <button className={'pill ' + tone(String(mission.status))} onClick={() => setShowMission(true)}>
+              {statusLabel(String(mission.status))}
+            </button>
+          </div>
+          <div className='progressBar'>
+            <span style={{ width: (Math.max(0, Math.min(100, Number(mission.completed_steps ?? 0) / Math.max(1, Number(mission.total_steps ?? 1)) * 100)) + '%') }} />
+          </div>
+          <div className='muted'>Paso {mission.completed_steps ?? 0} de {mission.total_steps ?? mission.steps?.length ?? '—'} · {mission.next_action ?? 'sin siguiente acción'}</div>
+        </section>
+      )}
 
       {showMission && mission && <MissionDetail mission={mission} events={events} onClose={() => setShowMission(false)} />}
 
-      {showNewMission && <div className='modalBackdrop' onClick={() => setShowNewMission(false)}><section className='detailModal compactModal' onClick={e => e.stopPropagation()}><div className='eyebrow'>NUEVA MISIÓN</div><h2>¿Qué debe hacer ARIA?</h2><p className='muted'>La solicitud seguirá el runtime canónico y sus controles de governance.</p><textarea value={goal} onChange={e => setGoal(e.target.value)} placeholder='Ejemplo: revisa el estado de X y dime qué está mal.' /><div className='modalActions'><button className='ghost' onClick={() => setShowNewMission(false)}>Cancelar</button><button className='primary' disabled={!goal.trim() || sending} onClick={runMission}>{sending ? 'Enviando…' : 'Crear misión'}</button></div></section></div>}
+      {showNewMission && (
+        <div className='modalBackdrop' onClick={() => setShowNewMission(false)}>
+          <section className='detailModal compactModal' onClick={e => e.stopPropagation()}>
+            <div className='eyebrow'>NUEVA MISIÓN</div>
+            <h2>¿Qué debe hacer ARIA?</h2>
+            <p className='muted'>La solicitud seguirá el runtime canónico y sus controles de governance.</p>
+            <textarea value={goal} onChange={e => setGoal(e.target.value)} placeholder='Ejemplo: revisa el estado de X y dime qué está mal.' />
+            <div className='modalActions'>
+              <button className='ghost' onClick={() => setShowNewMission(false)}>Cancelar</button>
+              <button className='primary' disabled={!goal.trim() || sending} onClick={runMission}>{sending ? 'Enviando…' : 'Crear misión'}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
-
 function Meditation({ session, onBack, onCapabilities }: { session: Session; onBack: () => void; onCapabilities: () => void }) {
   const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
