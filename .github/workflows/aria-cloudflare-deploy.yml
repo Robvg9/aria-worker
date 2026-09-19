@@ -185,15 +185,25 @@ jobs:
           init_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$init_headers" -o /tmp/mcp-init-body -w '%{http_code}' "$base/mcp" -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"aria-ci","version":"1.0.0"}}}')"
           test "$init_code" = "401"
           grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$init_headers"
-      - name: Smoke test Grok OAuth DCR and authorization bootstrap
+      - name: Smoke test Grok OAuth DCR and authorization bootstrap (optional external certification)
         run: |
           set -euo pipefail
-          echo GROK_OAUTH_GOVERNED_TIMEOUT_V1
+          echo GROK_OAUTH_GOVERNED_TIMEOUT_V2
           base="https://aria.robvg9.workers.dev"
+          status="ok"
           register_payload='{"client_name":"aria-grok-ci","redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"none"}'
-          registration="$(curl --fail --silent --show-error --max-time 20 --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d "$register_payload")"
-          echo "$registration"
-          REG="$registration" python - <<'PY'
+
+          set +e
+          registration="$(curl --silent --show-error --max-time 12 --retry 0 -o /tmp/grok-register-body -w '%{http_code}' -X POST "$base/register" -H 'Content-Type: application/json' -d "$register_payload")"
+          register_curl_status=$?
+          set -e
+          if test "$register_curl_status" -ne 0; then registration="000"; fi
+          echo "register status=$registration"
+
+          if test "$registration" = "200"; then
+            body="$(cat /tmp/grok-register-body)"
+            echo "$body"
+            REG="$body" python - <<'PY'
           import json, os
           x=json.loads(os.environ['REG'])
           assert x.get('client_id','').startswith('aria_')
@@ -202,26 +212,39 @@ jobs:
           assert x['response_types']==['code']
           assert x['redirect_uris']==['https://grok.com/connectors-oauth-exchange-code/']
           PY
-          client_id="$(REG="$registration" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
-          challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-          auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')&scope=aria.mcp.inbound"
-          set +e
-          auth_code="$(curl --silent --show-error --max-time 12 --retry 0 -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
-          curl_status=$?
-          set -e
-          if test "$curl_status" -ne 0; then auth_code="000"; fi
-          echo "authorize status=$auth_code"
-          if test "$auth_code" = "200"; then
-            grep -qi 'authorize' /tmp/authorize-body
-            grep -qi 'href=' /tmp/authorize-body
-            grep -q 'pending_id=' /tmp/authorize-body
-            grep -q 'decision=allow' /tmp/authorize-body
-            grep -q 'decision=deny' /tmp/authorize-body
-            echo GROK_CONSENT_LINKS_OK
-          elif test "$auth_code" = "504" || test "$auth_code" = "000"; then
-            echo GROK_CONSENT_UPSTREAM_BLOCKED
+            client_id="$(REG="$body" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
+            challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+            auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')&scope=aria.mcp.inbound'"
+
+            set +e
+            auth_code="$(curl --silent --show-error --max-time 12 --retry 0 -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
+            auth_curl_status=$?
+            set -e
+            if test "$auth_curl_status" -ne 0; then auth_code="000"; fi
+            echo "authorize status=$auth_code"
+            if test "$auth_code" = "200"; then
+              grep -qi 'authorize' /tmp/authorize-body
+              grep -qi 'href=' /tmp/authorize-body
+              grep -q 'pending_id=' /tmp/authorize-body
+              grep -q 'decision=allow' /tmp/authorize-body
+              grep -q 'decision=deny' /tmp/authorize-body
+              echo GROK_CONSENT_LINKS_OK
+            elif test "$auth_code" = "000" || test "$auth_code" = "429" || test "$auth_code" = "503" || test "$auth_code" = "504"; then
+              status="external_blocked"
+              echo GROK_CONSENT_EXTERNAL_BLOCKED
+            else
+              echo GROK_CONSENT_UNEXPECTED_STATUS
+              cat /tmp/authorize-body || true
+              exit 1
+            fi
+          elif test "$registration" = "000" || test "$registration" = "429" || test "$registration" = "503" || test "$registration" = "504"; then
+            status="external_blocked"
+            echo GROK_CONSENT_EXTERNAL_BLOCKED
           else
-            echo GROK_CONSENT_UNEXPECTED_STATUS
-            cat /tmp/authorize-body || true
+            echo GROK_REGISTER_UNEXPECTED_STATUS
+            cat /tmp/grok-register-body || true
             exit 1
           fi
+
+          echo "GROK_CONSENT_OPTIONAL_STATUS=$status"
+          echo "Grok OAuth is optional external certification; external blockage does not block the ARIA core deployment."

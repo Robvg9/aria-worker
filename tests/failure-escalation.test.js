@@ -1,0 +1,11 @@
+const assert = require('node:assert/strict');
+const { decideFailureEscalation, buildFailureDecisionMessage } = require('../autonomy/failure-escalation');
+assert.equal(decideFailureEscalation({ consecutive_failures: 1 }).mode, 'continue');
+assert.equal(decideFailureEscalation({ consecutive_failures: 3 }).action, 'change_path');
+assert.equal(decideFailureEscalation({ consecutive_failures: 3, external_dependency: true, optional: true }).action, 'request_human_decision');
+assert.equal(decideFailureEscalation({ consecutive_failures: 5, external_dependency: true, optional: true }).user_decision_required, true);
+assert.equal(decideFailureEscalation({ consecutive_failures: 3, external_dependency: true, optional: true, new_evidence: ['new_http_trace'] }).action, 'change_path');
+const message = buildFailureDecisionMessage({ consecutive_failures: 3, external_dependency: true, optional: true });
+assert.match(message, /All For One no forma parte/i);
+assert.match(message, /otra IA\/proveedor/i);
+console.log('failure-escalation.test.js: PASS');
