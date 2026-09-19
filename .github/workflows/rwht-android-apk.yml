@@ -65,6 +65,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aria-rwht-android-bridge-v1
-          path: android-rwht-bridge/app/build/outputs/apk/release/aria-rwht-android-bridge-v1.apk
+          path: android-rwht-bridge/app/build/outputs/apk/debug/aria-rwht-android-bridge-v1.apk
           if-no-files-found: error
           retention-days: 14
