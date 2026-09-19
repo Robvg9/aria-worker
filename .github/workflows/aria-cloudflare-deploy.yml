@@ -140,7 +140,7 @@ jobs:
           set -euo pipefail
           base="https://aria.robvg9.workers.dev"
           register_payload='{"client_name":"aria-grok-ci","redirect_uris":["https://grok.com/connectors-oauth-exchange-code/"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"none"}'
-          registration="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d "$register_payload")"
+          registration="$(curl --fail --silent --show-error --max-time 20 --retry 3 --retry-delay 2 -X POST "$base/register" -H 'Content-Type: application/json' -d "$register_payload")"
           echo "$registration"
           REG="$registration" python - <<'PY'
           import json, os
@@ -154,7 +154,7 @@ jobs:
           client_id="$(REG="$registration" python -c 'import json,os; print(json.loads(os.environ["REG"])["client_id"])')"
           challenge="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
           auth_url="$base/authorize?client_id=$client_id&redirect_uri=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://grok.com/connectors-oauth-exchange-code/",safe=""))')&response_type=code&state=aria-ci-state&code_challenge=$challenge&code_challenge_method=S256&resource=$(python -c 'import urllib.parse; print(urllib.parse.quote("https://aria.robvg9.workers.dev/mcp",safe=""))')&scope=aria.mcp.inbound"
-          auth_code="$(curl --silent --show-error --retry 3 --retry-delay 2 -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
+          auth_code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 2 -o /tmp/authorize-body -w '%{http_code}' "$auth_url")"
           echo "authorize status=$auth_code"
           test "$auth_code" = "200"
           grep -qi 'authorize' /tmp/authorize-body
