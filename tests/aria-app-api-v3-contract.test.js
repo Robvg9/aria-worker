@@ -12,7 +12,8 @@ const plannerWorkflow=read('.github','workflows','aria-planner-v11-deploy.yml');
 function assertContains(source,fragment,message){if(!source.includes(fragment))throw new Error(message||`Missing: ${fragment}`);}
 function assertAny(source,fragments,message){if(!fragments.some(f=>source.includes(f)))throw new Error(message||`Missing one of: ${fragments.join(' | ')}`);}
 assertContains(appApi,'SUPABASE_SERVICE_ROLE_KEY','service-role binding missing');
-assertContains(appApi,'auth.getUser(token)','server-side user resolution missing');
+assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verification missing');
+if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
 assertContains(appApi,'path.endsWith("/missions")','mission route missing');
 assertContains(appApi,'path.endsWith("/memory/search")','memory search route missing');
