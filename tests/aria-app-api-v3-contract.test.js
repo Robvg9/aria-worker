@@ -24,7 +24,7 @@ assertContains(appApi,'agent_catalog','live agent registry must feed capability 
 assertContains(appApi,'device_registry','live device registry must feed capability catalog');
 assertContains(appApi,'aria-capability-catalog-v1','capability catalog version marker missing');
 assertContains(appApi,'path.endsWith("/events")','mission event detail route missing');
-assertContains(appApi,'function liveAssistantContext(userId: string)','chat must receive live runtime context');
+assertContains(appApi,'function liveAssistantContext(userId:string)','chat must receive live runtime context');
 assertContains(appApi,'Estado LIVE del sistema ARIA (fuente operativa)','chat live-state prompt marker missing');
 assertContains(appApi,'function missionPhase(m:any)','mission phase model missing');
 assertContains(appApi,'phase:missionPhase(m)','mission phase must be exposed to UI');
