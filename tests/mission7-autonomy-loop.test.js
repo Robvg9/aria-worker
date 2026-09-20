@@ -29,7 +29,7 @@ assert.match(gateway,/deduplicated/);
 assert.match(supervisor,/aria-device-gateway/);
 assert.match(supervisor,/\/v1\/autonomy\/cycle/);
 assert.match(supervisor,/aria-autonomy-supervisor-v10/);
-assert.match(supervisor,/\/v1\/meditation\/tick-service/);
+assert.match(repairSupervisor,/\/v1\/meditation\/tick-service/);
 assert.match(direct,/meditation_queue_add/);
 assert.match(direct,/autonomy_managed/);
 assert.match(repairSupervisor,/pr_checks/);
