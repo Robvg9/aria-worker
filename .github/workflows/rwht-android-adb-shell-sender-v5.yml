@@ -1,0 +1,82 @@
+name: RWHT Android ADB sender hotfix
+
+on:
+  push:
+    branches:
+      - fix/rwht-android-adb-shell-sender-v5
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[rwht-adb-hotfix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch receiver authorization
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          receiver = Path("android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/CommandReceiver.kt")
+          text = receiver.read_text()
+          old = '''import android.os.Build
+import android.util.Base64'''
+          new = '''import android.os.Build
+import android.os.Process
+import android.util.Base64'''
+          if old not in text:
+              raise SystemExit("receiver import anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '''        if (senderUid != termuxUid || senderUid < 0) {
+            finish(false, """{"ok":false,"reason":"caller_not_allowed"}""")
+            return
+        }'''
+          new = '''        val callerAllowed = senderUid >= 0 && (
+            senderUid == termuxUid ||
+                senderUid == Process.SHELL_UID
+            )
+        if (!callerAllowed) {
+            finish(false, """{"ok":false,"reason":"caller_not_allowed"}""")
+            return
+        }'''
+          if old not in text:
+              raise SystemExit("receiver authorization anchor not found")
+          text = text.replace(old, new, 1)
+          receiver.write_text(text)
+
+          gradle = Path("android-ui-agent/app/build.gradle.kts")
+          text = gradle.read_text()
+          text = text.replace("versionCode = 5", "versionCode = 6", 1)
+          text = text.replace('versionName = "1.0.4"', 'versionName = "1.0.5"', 1)
+          gradle.write_text(text)
+
+          test = Path("tests/android-accessibility-v1.test.js")
+          text = test.read_text()
+          text = text.replace("assert.ok(!receiver.includes('Process.SHELL_UID'));",
+                              "assert.ok(receiver.includes('Process.SHELL_UID'));\nassert.ok(receiver.includes('callerAllowed'));", 1)
+          text = text.replace("versionCode = 5", "versionCode = 6", 1)
+          text = text.replace('versionName = "1.0.4"', 'versionName = "1.0.5"', 1)
+          test.write_text(text)
+
+          hotfix = Path(".github/workflows/rwht-android-adb-shell-sender-v5.yml")
+          hotfix.unlink(missing_ok=True)
+          PY
+
+      - name: Run targeted tests
+        run: node tests/android-accessibility-v1.test.js
+
+      - name: Commit hotfix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/CommandReceiver.kt android-ui-agent/app/build.gradle.kts tests/android-accessibility-v1.test.js .github/workflows/rwht-android-adb-shell-sender-v5.yml
+          git commit -m "fix(rwht): allow ADB shell sender [rwht-adb-hotfix]"
+          git push origin HEAD
