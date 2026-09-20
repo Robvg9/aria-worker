@@ -576,8 +576,12 @@ Deno.serve(async (request) => {
   const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
   const chainDepth = Math.max(0, Math.min(8, Number(body?.chain_depth || 0)));
   const meditationChain = request.headers.get("x-aria-trigger") === "meditation-ia";
+  // The temporary RWHT exclusivity guard must never become a global mission blocker.
+  // It is only active when an explicit RWHT-exclusive trigger is supplied, and it
+  // protects the original mission probe without blocking other mission IDs.
+  const rwhtExclusive = request.headers.get("x-aria-trigger") === "rwht-exclusive";
   const rwhtGuardMission = "mission_rwht_final_20260920_02";
-  if (requestedMissionId !== rwhtGuardMission) {
+  if (rwhtExclusive && requestedMissionId !== rwhtGuardMission) {
     return out({ ok:true, status:"paused_load_guard", runtime:V, reason:"temporary_rwht_exclusive_run" });
   }
   const auth = authContextOf(request);
