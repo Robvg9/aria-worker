@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const read=(...parts)=>fs.readFileSync(path.join(__dirname,'..',...parts),'utf8');
 const appApi=read('supabase','functions','aria-app-api-v3','index.ts');
+const pwa=read('pwa','src','App.tsx');
 const planner=read('supabase','functions','aria-planner-v11','index.ts');
 const plannerConfig=read('supabase','functions','aria-planner-v11','deno.json');
 const memory=read('supabase','functions','aria-memory-v2','index.ts');
