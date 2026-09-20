@@ -38,7 +38,7 @@ function runCommand(command, timeoutMs = 12000) {
   return new Promise(resolve => {
     const started = Date.now();
     const child = spawn('/data/data/com.termux/files/usr/bin/bash', ['-lc', command], {
-      env: process.env
+      env: { ...process.env, PATH: '/system/bin:/system/xbin:' + (process.env.PATH || '') }
     });
     let stdout = '';
     let stderr = '';
