@@ -37,7 +37,7 @@ assert.match(loopSource, /callGeminiModel/, 'tool loop must support Google Gemin
 assert.match(loopSource, /functionDeclarations/, 'Gemini tool declarations missing');
 assert.match(loopSource, /functionCallingConfig/, 'Gemini function calling config missing');
 assert.match(loopSource, /geminiParts/, 'Gemini response parts must be preserved for thought signatures');
-assert.match(loopSource, /thoughtSignature/, 'Gemini thought signatures must be preserved across tool turns');
+assert.match(loopSource, /geminiParts/, 'Gemini response parts must be preserved verbatim across tool turns (including provider thought signatures when present)');
 assert.match(loopSource, /gemini-3.5-flash-direct/, 'agent runtime must have a verified Google free-model fallback order');
 assert.match(loopSource, /gemini-3.1-flash-lite-direct/, 'agent runtime must include a second Google free-model fallback');
 assert.match(loopSource, /github_file_patch/, 'coding agent must have a governed targeted patch tool');
