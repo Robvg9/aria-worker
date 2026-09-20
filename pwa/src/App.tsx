@@ -676,7 +676,7 @@ function Chat({
       const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId: crypto.randomUUID(), conversationId: crypto.randomUUID() }) });
       const p = d.parts?.find((x: any) => x.type === 'text');
       if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text }]);
-      if (d.mission?.mission_id) await trackMission(d.mission.mission_id);
+      if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
     } catch (x) {
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
     } finally {
@@ -685,16 +685,22 @@ function Chat({
   }
 
   async function trackMission(id: string) {
-    for (let i = 0; i < 90; i++) {
-      const [md, ev] = await Promise.all([
-        api('/missions/' + encodeURIComponent(id), session.accessToken),
-        api('/missions/' + encodeURIComponent(id) + '/events', session.accessToken).catch(() => ({ events: [] }))
-      ]);
-      setMission(md.mission);
-      setEvents(ev.events ?? []);
-      if (['succeeded', 'failed', 'blocked', 'cancelled'].includes(String(md.mission.status))) {
-        setShowMission(true);
-        return;
+    for (let i = 0; i < 120; i++) {
+      try {
+        const [md, ev] = await Promise.all([
+          api('/missions/' + encodeURIComponent(id), session.accessToken),
+          api('/missions/' + encodeURIComponent(id) + '/events', session.accessToken).catch(() => ({ events: [] }))
+        ]);
+        if (md?.mission) {
+          setMission(md.mission);
+          setEvents(ev.events ?? []);
+          if (['succeeded', 'failed', 'blocked', 'cancelled'].includes(String(md.mission.status))) {
+            setShowMission(true);
+            return;
+          }
+        }
+      } catch {
+        // Background mission tracking must never block the conversational channel.
       }
       await new Promise(r => setTimeout(r, 1500));
     }
@@ -707,7 +713,7 @@ function Chat({
     try {
       const d = await api('/missions', session.accessToken, { method: 'POST', body: JSON.stringify({ goal: clean }) });
       setGoal(''); setShowNewMission(false);
-      if (d.mission?.mission_id) await trackMission(d.mission.mission_id);
+      if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
     } catch (x) {
       setError(x instanceof Error ? x.message : 'No se pudo iniciar la misión.');
     } finally {
@@ -800,10 +806,16 @@ function Chat({
               {statusLabel(String(mission.status))}
             </button>
           </div>
+          <div className='muted'>{mission.phase?.index ?? 1}/6 · {mission.phase?.label ?? statusLabel(String(mission.status))}</div>
           <div className='progressBar'>
             <span style={{ width: (Math.max(0, Math.min(100, Number(mission.completed_steps ?? 0) / Math.max(1, Number(mission.total_steps ?? 1)) * 100)) + '%') }} />
           </div>
           <div className='muted'>Paso {mission.completed_steps ?? 0} de {mission.total_steps ?? mission.steps?.length ?? '—'} · {mission.next_action ?? 'sin siguiente acción'}</div>
+          <div className='detailTimeline'>
+            <div className='panelTitle'>TRABAJO EN VIVO</div>
+            {events.slice(-6).map((e: any, i: number) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small></div></div>)}
+            {!events.length && <div className='muted'>ARIA aún está iniciando la misión…</div>}
+          </div>
         </section>
       )}
 

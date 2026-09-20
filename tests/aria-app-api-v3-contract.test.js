@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const read=(...parts)=>fs.readFileSync(path.join(__dirname,'..',...parts),'utf8');
 const appApi=read('supabase','functions','aria-app-api-v3','index.ts');
+const pwa=read('pwa','src','App.tsx');
 const planner=read('supabase','functions','aria-planner-v11','index.ts');
 const plannerConfig=read('supabase','functions','aria-planner-v11','deno.json');
 const memory=read('supabase','functions','aria-memory-v2','index.ts');
@@ -24,6 +25,12 @@ assertContains(appApi,'agent_catalog','live agent registry must feed capability 
 assertContains(appApi,'device_registry','live device registry must feed capability catalog');
 assertContains(appApi,'aria-capability-catalog-v1','capability catalog version marker missing');
 assertContains(appApi,'path.endsWith("/events")','mission event detail route missing');
+assertContains(appApi,'function liveAssistantContext(userId:string)','chat must receive live runtime context');
+assertContains(appApi,'Estado LIVE del sistema ARIA (fuente operativa)','chat live-state prompt marker missing');
+assertContains(appApi,'function missionPhase(m:any)','mission phase model missing');
+assertContains(appApi,'phase:missionPhase(m)','mission phase must be exposed to UI');
+assertContains(appApi,'from("mission_state")','mission lookup must use the canonical mission_state store');
+
 
 assertContains(appApi,'aria-app-media','private media bucket missing');
 assert.ok(appApi.includes('const objectPath=`${u.id}/${crypto.randomUUID()}/${fileName}`') || appApi.includes('const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`'),'media object path is not user-scoped');
@@ -69,3 +76,12 @@ assertContains(executor,'nvidia/nemotron-3-ultra-550b-a55b:free','expanded free 
 assertContains(executor,'status:"succeeded"','successful execution contract missing');
 if(!plannerConfig.includes('"imports"'))throw new Error('planner v11 deno.json invalid');
 console.log('aria-app-api-v3-contract.test.js: PASS');
+
+for (const fragment of [
+  "void trackMission(d.mission.mission_id)",
+  "Background mission tracking must never block the conversational channel.",
+]) {
+  // PWA assertions are mirrored here so the main npm contract gate covers
+  // conversational/mission concurrency without requiring a browser runner.
+  if (!pwa.includes(fragment)) throw new Error("PWA runtime contract missing: " + fragment);
+}
