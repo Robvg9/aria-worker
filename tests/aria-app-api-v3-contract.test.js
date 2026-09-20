@@ -19,7 +19,7 @@ assertContains(appApi,'path.endsWith("/conversation")','conversation route missi
 assertContains(appApi,'function looksLikeMissionRequest(input: string)','chat mission intent classifier missing');
 assertContains(appApi,'internal(DIRECT, {','chat mission handoff must reuse canonical DIRECT mission intake');
 assertContains(appApi,'canonical-direct-v1','chat mission canonical intake marker missing');
-assertContains(appApi,'event_type: "mission_accepted"','chat mission acceptance event missing');
+assertContains(appApi,'const mission = direct.b?.mission ?? direct.b?.result ?? null;','chat mission must consume canonical mission result');
 assertContains(appApi,'visualState: "mission_queued"','chat mission queued UI state missing');
 
 assertContains(appApi,'path.endsWith("/missions")','mission route missing');
