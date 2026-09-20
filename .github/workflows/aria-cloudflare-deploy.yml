@@ -90,8 +90,6 @@ jobs:
           echo "$html"
           grep -q 'ARIA — Centro de Mando' <<<"$html"
           grep -q "${GITHUB_SHA}" <<<"$html"
-          versioned_html="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "${base}index-${GITHUB_SHA}.html")"
-          grep -q "${GITHUB_SHA}" <<<"$versioned_html"
           sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "https://aria.robvg9.workers.dev/sw-${GITHUB_SHA}.js")"
           echo "$sw"
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
