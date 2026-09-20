@@ -225,7 +225,7 @@ async function superviseMission(mission: any) {
   if (pr.merged === true) {
     const filesBody = await github("pr_files", { number: Number(pr.number) });
     const files = Array.isArray(filesBody?.files) ? filesBody.files : [];
-    const verification = await verifyMainAfterMerge(String(pr?.merge_sha ?? pr?.head_sha ?? ""), files);
+    const verification = await verifyMainAfterMerge(String(pr?.merge_commit_sha ?? pr?.merge_sha ?? pr?.head_sha ?? ""), files);
     if (verification.status === "awaiting_main_ci") {
       await updateBlocked(mission, {
         status: "blocked",
@@ -243,8 +243,10 @@ async function superviseMission(mission: any) {
       });
       return { mission_id: mission.mission_id, status: "failed", pr_number: pr.number };
     }
-    const finalized = await finalizeVerified(mission, pr, files, String(pr?.merge_sha ?? pr?.head_sha ?? ""));
-    if (finalized.status === "finalization_dispatched") await queueFinalize(mission.mission_id);
+    const finalized = await finalizeVerified(mission, pr, files, String(pr?.merge_commit_sha ?? pr?.merge_sha ?? pr?.head_sha ?? ""));
+    if (finalized.status === "finalization_dispatched" && finalized.payload?.status === "succeeded") {
+      await queueFinalize(mission.mission_id);
+    }
     return { mission_id: mission.mission_id, status: finalized.status, pr_number: pr.number, verification };
   }
 
