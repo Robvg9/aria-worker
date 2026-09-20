@@ -90,6 +90,15 @@ function canonicalToolName(name:string) {
   return value;
 }
 
+const patchTool = {
+  type: "function",
+  function: {
+    name: "github_file_patch",
+    description: "Apply one exact find/replace patch to an existing file on the governed non-main repair branch. Prefer this for targeted edits; the find text must match exactly once.",
+    parameters: { type: "object", properties: { path: { type: "string" }, find: { type: "string" }, replace: { type: "string" }, message: { type: "string" } }, required: ["path", "find", "replace", "message"] },
+  },
+};
+
 const writeTool = {
   type: "function",
   function: {
@@ -174,12 +183,12 @@ export async function callModel(model:string,messages:any[],tools:any[],forceToo
 export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
   const toolRoute = await resolveToolRoute(agent);
   const branch = `aria/repair/${missionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)}`;
-  const tools = allowWrite ? [...readTools, writeTool] : readTools;
+  const tools = allowWrite ? [...readTools, patchTool, writeTool] : readTools;
   const system = [
     `You are ARIA's governed ${agent.role} executor.`,
     "Use available tools to inspect evidence.",
     allowWrite
-      ? `For changes, use only non-main branch ${branch}; never modify main/master. A concrete write is required for a repair unless NO_CHANGE_REQUIRED is justified.`
+      ? `For changes, use only non-main branch ${branch}; never modify main/master. Prefer github_file_patch for targeted edits; use github_file_write for new files or large replacements. A concrete write is required for a repair unless NO_CHANGE_REQUIRED is justified.`
       : "This is read-only: do not fabricate changes.",
     "Never claim tests, deployment, or production changes that were not actually verified.",
     "Your final response is mandatory: begin with FINDINGS: and finish with VERDICT:. Include concrete evidence from the tools you actually used.",
@@ -242,6 +251,32 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
           const readBranch = String(args.branch || "main");
           result = await ghTool("file_read", { owner: "Robvg9", repo: "aria-worker", branch: readBranch, path: String(args.path || "") });
           reads.push({ operation: name, path: String(args.path || ""), branch: readBranch });
+        } else if (name === "github_file_patch" && allowWrite) {
+          if (!branchCreated) {
+            await ghTool("create_branch", { owner: "Robvg9", repo: "aria-worker", branch, ref: "main" });
+            branchCreated = true;
+          }
+          const patchPath = String(args.path || "");
+          const patchFind = String(args.find || "");
+          const patchReplace = String(args.replace ?? "");
+          const patchRead = await ghTool("file_read", { owner: "Robvg9", repo: "aria-worker", branch, path: patchPath });
+          const patchContent = String(patchRead?.content ?? "");
+          const matchCount = patchFind ? patchContent.split(patchFind).length - 1 : 0;
+          if (matchCount !== 1) {
+            result = { ok: false, error: `patch_match_count_${matchCount}`, path: patchPath, branch };
+          } else {
+            const patchedContent = patchContent.replace(patchFind, patchReplace);
+            result = await ghTool("file_write", {
+              owner: "Robvg9",
+              repo: "aria-worker",
+              branch,
+              path: patchPath,
+              content: patchedContent,
+              message: String(args.message || "chore: ARIA governed patch"),
+              risk_level: "low",
+            });
+            writes.push({ path: patchPath, branch, commit_sha: result?.data?.commit_sha ?? null, operation: "github_file_patch", match_count: 1 });
+          }
         } else if (name === "github_file_write" && allowWrite) {
           if (!branchCreated) {
             await ghTool("create_branch", { owner: "Robvg9", repo: "aria-worker", branch, ref: "main" });
