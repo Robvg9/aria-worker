@@ -28,6 +28,52 @@ type CapabilityCatalog = {
 type Mission = any;
 type MissionEvent = any;
 
+function missionResultText(mission: any): string {
+  const direct = [mission?.last_stdout, mission?.last_stderr]
+    .map((v: any) => typeof v === 'string' ? v.trim() : '')
+    .filter(Boolean);
+  if (direct.length) return direct.join('\n\n');
+  const results = mission?.checkpoint?.results && typeof mission.checkpoint.results === 'object' ? mission.checkpoint.results : {};
+  const texts: string[] = [];
+  for (const value of Object.values(results) as any[]) {
+    const candidates = [value?.response?.content, value?.response?.text, value?.stdout, value?.output, value?.message, value?.result?.response?.content];
+    const found = candidates.find((v: any) => typeof v === 'string' && v.trim());
+    if (found) texts.push(String(found).trim());
+  }
+  return texts.join('\n\n');
+}
+
+function humanOperation(operation: any, executorType: any): string {
+  const op = String(operation || '');
+  const ex = String(executorType || '');
+  if (op === 'text_generation') return 'procesar y generar la respuesta con el motor de IA';
+  if (op === 'shell.execute') return 'ejecutar una instrucción controlada en el dispositivo';
+  if (op === 'file.read') return 'leer información de un archivo';
+  if (op === 'file.write') return 'escribir información en un archivo';
+  if (op === 'database.query') return 'consultar información de la base de datos';
+  if (op === 'database.write') return 'actualizar información en la base de datos';
+  if (op === 'cloud.deploy') return 'desplegar cambios en la nube';
+  if (ex === 'model') return 'procesar la misión con el motor de IA';
+  if (ex === 'device') return 'realizar una acción controlada en un dispositivo';
+  return op || ex || 'ejecutar un paso gobernado';
+}
+
+function missionHumanSummary(mission: any) {
+  const steps = Array.isArray(mission?.steps) ? mission.steps : (Array.isArray(mission?.checkpoint?.plan) ? mission.checkpoint.plan : []);
+  const completed = steps.filter((step: any) => ['succeeded', 'skipped'].includes(String(step?.status)));
+  const operations = completed.map((step: any) => humanOperation(step?.operation, step?.executor_type));
+  const uniqueOperations = Array.from(new Set(operations));
+  const readOnly = steps.length > 0 && steps.every((step: any) => String(step?.risk || '').toUpperCase() === 'READ' && !/(write|create|update|delete|deploy)/i.test(String(step?.operation || '')));
+  const result = missionResultText(mission);
+  const hasMemoryRecall = Boolean(mission?.checkpoint?.cognitive_loop?.recalled_before_planning);
+  const what = completed.length ? 'ARIA completó ' + completed.length + ' paso' + (completed.length === 1 ? '' : 's') + ' y los verificó correctamente.' : 'ARIA todavía no tiene pasos completados para resumir.';
+  const how = [hasMemoryRecall ? 'Primero recuperó contexto de su memoria autorizada.' : '', uniqueOperations.length ? 'Después realizó: ' + uniqueOperations.join(', ') + '.' : '', 'Al terminar, comprobó el resultado según las reglas de verificación de la misión.'].filter(Boolean).join(' ');
+  const changed = readOnly ? 'No realizó cambios en ARIA ni en sistemas externos; esta misión fue de lectura/análisis.' : 'La misión incluyó operaciones con capacidad de modificar información. Los cambios concretos deben describirse a partir del resultado real de cada paso, nunca suponerse.';
+  const improvement = readOnly ? 'No se modificó el sistema. El valor de esta misión es la información o respuesta obtenida y verificada.' : 'La mejora esperada es la definida por el objetivo de la misión y solo se considera realizada cuando el resultado la demuestra.';
+  const expected = result ? 'Resultado obtenido:' : 'Resultado esperado: la misión debía producir un resultado verificable para el objetivo indicado.';
+  return { what, how, changed, improvement, expected, result };
+}
+
 function cacheKey(kind: string, userId: string) {
   return CACHE_PREFIX + ':' + userId + ':' + kind;
 }
@@ -375,8 +421,8 @@ function CapabilityCenter({
 function MissionDetail({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
-  const rawResult = mission.last_stdout || mission.last_stderr || (terminal ? 'La misión terminó sin texto adicional.' : 'La misión continúa.');
-  const humanTitle = status === 'succeeded' ? 'Qué hizo ARIA' : status === 'failed' ? 'Qué falló' : 'Situación actual';
+  const summary = missionHumanSummary(mission);
+  const humanTitle = status === 'succeeded' ? 'Resumen humano' : status === 'failed' ? 'Qué falló' : 'Situación actual';
   return (
     <div className='modalBackdrop' onClick={onClose}>
       <section className='detailModal' onClick={e => e.stopPropagation()}>
@@ -386,16 +432,28 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
           <StatCard value={terminal ? 'Final' : 'En curso'} label='Estado' />
           <StatCard value={formatDate(mission.finished_at)} label='Finalización' />
         </div>
-        <div className='detailResult'><div className='panelTitle'>{humanTitle.toUpperCase()}</div><pre>{String(rawResult)}</pre></div>
-        <div className='detailTimeline'>
-          <div className='panelTitle'>TIMELINE REAL</div>
-          {events.length ? events.map((e: any, i) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small>{e.payload && <pre>{JSON.stringify(e.payload, null, 2)}</pre>}</div></div>) : <div className='muted'>No hay eventos adicionales disponibles.</div>}
+        <div className='detailResult'>
+          <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
+          <div className='humanSummaryGrid'>
+            <div><strong>Qué hizo ARIA</strong><p>{summary.what}</p></div>
+            <div><strong>Cómo lo hizo</strong><p>{summary.how}</p></div>
+            <div><strong>Qué cambió</strong><p>{summary.changed}</p></div>
+            <div><strong>Qué mejora ahora</strong><p>{summary.improvement}</p></div>
+            <div><strong>{summary.result ? 'Resultado obtenido' : 'Resultado esperado'}</strong><p>{summary.expected}</p></div>
+          </div>
+          {summary.result ? <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><pre>{summary.result}</pre></div> : <div className='muted'>ARIA no registró todavía un texto de resultado.</div>}
         </div>
+        <details className='technicalDetails'>
+          <summary>Ver detalles técnicos</summary>
+          <div className='detailTimeline'>
+            <div className='panelTitle'>TIMELINE REAL</div>
+            {events.length ? events.map((e: any, i) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small>{e.payload && <pre>{JSON.stringify(e.payload, null, 2)}</pre>}</div></div>) : <div className='muted'>No hay eventos adicionales disponibles.</div>}
+          </div>
+        </details>
       </section>
     </div>
   );
 }
-
 function PwaNotificationCenter({ session }: { session: Session }) {
   const [items, setItems] = useState<PwaNotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
