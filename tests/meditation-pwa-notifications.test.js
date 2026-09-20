@@ -20,9 +20,9 @@ const sw = read('pwa/public/sw.js');
 assert(migration.includes('drop trigger if exists trg_meditation_android_notification_delivery'), 'legacy Android notification trigger not retired');
 assert(migration.includes('drop function if exists aria_internal.enqueue_android_notification_jobs'), 'legacy Android notification enqueue function not retired');
 
-assert(agent.includes("job.operation === 'android.notification'"), 'legacy Android notification operation guard missing');
-assert(agent.includes('pwa_notification_cutover'), 'legacy Termux meditation notification suppression missing');
-assert(/pwa_notification_cutover/.test(agent), 'Termux suppression evidence missing');
+assert(agent.includes("job.operation === 'android.notification'"), 'legacy Android notification operation must remain available for non-Meditation uses');
+assert(migration.includes("status = 'cancelled'"), 'legacy queued Termux deliveries are not cancelled');
+assert(migration.includes("metadata->>'source' = 'meditation_notifications'"), 'legacy meditation notification jobs are not scoped for cancellation');
 
 assert(api.includes("path.endsWith('/meditation/notifications')"), 'PWA notification GET route missing');
 assert(api.includes("path.endsWith('/meditation/notifications/read')"), 'PWA notification read route missing');
