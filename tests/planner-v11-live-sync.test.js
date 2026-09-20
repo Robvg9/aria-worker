@@ -16,7 +16,8 @@ for (const marker of [
 const mutation=source.match(/const mutationIntent=.*?\.test\(g\);/);
 assert.ok(mutation,'mutation intent contract missing');
 assert.doesNotMatch(source, /\\(\\?i\\)/, 'planner source must not contain unsupported JavaScript inline regex flags');
-assert.match(source, /const repairIntent=/, 'repair intent route missing');\nassert.match(source, /policy:\{tool_use:true,mutating_operation_required:true/, 'implementation change route must force tool use');
+assert.match(source, /const repairIntent=/, 'repair intent route missing');
+assert.match(source, /policy:\{tool_use:true,mutating_operation_required:true/, 'implementation change route must force tool use');
 assert.match(source, /operationAuditPlan/, 'operation forensic route missing');
 assert.match(source, /planner-v11-operation-forensic-v1/, 'operation forensic planner marker missing');
 for (const term of ['corregir','crear','implementar','modificar','actualizar','añadir','anadir','eliminar','desarrollar','refactorizar','escribir','migrar','promover','arreglar','arregla','arreglalo','solucionar','reparar']) {
