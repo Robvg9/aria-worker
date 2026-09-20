@@ -744,7 +744,7 @@ Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/
   const {data:control,error:ce}=await supabase.schema('aria_internal').from('meditation_control').select('controller_id,owner_user_id,desired_mode,session_id,metadata').eq('controller_id','primary').maybeSingle();
   if(ce)return json({ok:false,status:'failed',error:ce.message},500);
   if(!control||control.desired_mode!=='active')return json({ok:true,status:'inactive',service_tick:true});
-  let deviceId=String(b.device_id||control.metadata?.device_id||'').trim();
+  let deviceId=String(b.device_id||'').trim();
   let device:any=null;
   if(deviceId){
    const {data}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities,last_seen_at,metadata').eq('device_id',deviceId).maybeSingle();
