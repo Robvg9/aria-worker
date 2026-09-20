@@ -15,6 +15,11 @@ for (const marker of [
 
 const mutation=source.match(/const mutationIntent=.*?\.test\(g\);/);
 assert.ok(mutation,'mutation intent contract missing');
+assert.match(source, /const uiImplementationIntent=/, 'UI implementation intent route missing');
+for (const term of ['dashboard','pantalla','interfaz','navegación','deslizar','swipe','layout']) {
+  assert.ok(source.includes(term), `UI implementation term missing: ${term}`);
+}
+assert.match(source, /planner-v11-governed-change-v3/, 'UI implementation change planner marker missing');
 assert.doesNotMatch(source, /\\(\\?i\\)/, 'planner source must not contain unsupported JavaScript inline regex flags');
 assert.match(source, /const repairIntent=/, 'repair intent route missing');
 assert.match(source, /policy:\{tool_use:true,mutating_operation_required:true/, 'implementation change route must force tool use');
