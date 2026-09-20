@@ -102,10 +102,21 @@ function geminiContents(messages:any[]) {
     if(role==="system"){if(typeof message?.content==="string"&&message.content.trim())systemParts.push(message.content.trim());continue;}
     if(role==="user"){contents.push({role:"user",parts:[{text:String(message?.content??"")}]});continue;}
     if(role==="assistant"){
+      const exactParts=Array.isArray(message?.geminiParts)?message.geminiParts:null;
+      if(exactParts&&exactParts.length){
+        for(const part of exactParts){
+          const call=part?.functionCall;
+          if(call?.id&&call?.name)toolNames.set(String(call.id),String(call.name));
+        }
+        contents.push({role:"model",parts:exactParts});
+        continue;
+      }
       const parts:any[]=[]; if(typeof message?.content==="string"&&message.content.trim())parts.push({text:message.content});
       for(const call of Array.isArray(message?.tool_calls)?message.tool_calls:[]){
         const name=String(call?.function?.name||""); const id=String(call?.id||crypto.randomUUID()); let args:any={};
         try{args=JSON.parse(call?.function?.arguments||"{}");}catch{}
+        const original=call?.geminiPart&&typeof call.geminiPart==="object"?call.geminiPart:null;
+        if(original){ parts.push(original); if(name)toolNames.set(id,name); continue; }
         if(name){toolNames.set(id,name);parts.push({functionCall:{id,name,args}});}
       }
       if(parts.length)contents.push({role:"model",parts});
@@ -125,9 +136,14 @@ function geminiTools(tools:any[]) {
 function geminiMessage(json:any){
   const parts=json?.candidates?.[0]?.content?.parts; if(!Array.isArray(parts))return null;
   const text=parts.filter((p:any)=>typeof p?.text==="string").map((p:any)=>p.text).join("").trim();
-  const calls=parts.filter((p:any)=>p?.functionCall?.name).map((p:any)=>({id:String(p.functionCall.id||crypto.randomUUID()),type:"function",function:{name:String(p.functionCall.name),arguments:JSON.stringify(p.functionCall.args||{})}}));
+  const calls=parts.filter((p:any)=>p?.functionCall?.name).map((p:any)=>({
+    id:String(p.functionCall.id||crypto.randomUUID()),
+    type:"function",
+    function:{name:String(p.functionCall.name),arguments:JSON.stringify(p.functionCall.args||{})},
+    geminiPart:p,
+  }));
   if(!text&&!calls.length)return null;
-  return {role:"assistant",content:text,tool_calls:calls};
+  return {role:"assistant",content:text,tool_calls:calls,geminiParts:parts};
 }
 export async function callGeminiModel(model:string,messages:any[],tools:any[],forceTool=false){
   const secret=String(Deno.env.get("GOOGLE_API_KEY")||"").trim(); if(!secret)throw new Error("google_credential_unavailable");
