@@ -5,7 +5,7 @@ const URL=Deno.env.get("SUPABASE_URL")!;
 const KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
 const GATEWAY=`${URL}/functions/v1/aria-device-gateway`;
-const REPAIR_SUPERVISOR=`${URL}/functions/v1/aria-repair-supervisor-v1`;
+const REPAIR_SUPERVISOR=`${URL}/functions/v1/aria-autonomy-supervisor-v10`;
 const sb=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false}});
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
@@ -25,13 +25,6 @@ async function kick(r:Request){
   const repairResponse=await fetch(REPAIR_SUPERVISOR,{method:"POST",headers:{...authHeaders,"x-aria-trigger":"aria-autonomous-repair-supervisor"},body:"{}"});
   const repair=await repairResponse.json().catch(()=>({ok:false,status:"repair_supervisor_invalid"}));
 
-  const meditationResponse=await fetch(`${GATEWAY}/v1/meditation/tick-service`,{
-    method:"POST",
-    headers:{...authHeaders,"x-aria-trigger":"meditation-ia-cloud-supervisor"},
-    body:JSON.stringify({source:"aria-autonomy-supervisor-v5"})
-  });
-  const meditation=await meditationResponse.json().catch(()=>({ok:false,status:"meditation_tick_invalid"}));
-
   const [response,auditResponse]=await Promise.all([
     fetch(`${GATEWAY}/v1/autonomy/cycle`,{method:"POST",headers:{...authHeaders,"x-aria-trigger":"autonomy-supervisor-v5"},body:JSON.stringify({trigger:"autonomy-supervisor-v5"})}),
     fetch(`${GATEWAY}/v1/audit/all-for-one/tick`,{method:"POST",headers:{...authHeaders,"x-aria-trigger":"all-for-one-supervisor-v1"},body:"{}"})
@@ -41,7 +34,6 @@ async function kick(r:Request){
   return {
     http_status:response.status,...payload,
     repair_http_status:repairResponse.status,repair,
-    meditation_http_status:meditationResponse.status,meditation,
     audit_start_http_status:start.status,audit_start:startPayload,
     audit_http_status:auditResponse.status,audit
   };
