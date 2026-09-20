@@ -34,7 +34,14 @@ async function projectReviewPlan(goal:string,context:any){
   const live=await liveOperationalContext(goal);
   const preferred=["aria-agent-research-v1","aria-agent-reviewer-v1","aria-agent-device-v1"];
   const {data:agents}=await db.from("agent_catalog").select("agent_id,role,model_id,status,max_risk,capabilities,scope").eq("status","available");
-  const agent=(agents||[]).find((a:any)=>preferred.includes(a.agent_id))||(agents||[])[0];
+  let agent:any=null;
+  for(const id of preferred){
+    const candidate=(agents||[]).find((a:any)=>a.agent_id===id);
+    if(!candidate)continue;
+    const {data:resource}=await db.rpc("resolve_agent_resource",{p_agent_id:id,p_capability_id:"text_generation"});
+    if(resource&&resource.status==="ready"){agent=candidate;break;}
+  }
+  if(!agent)agent=(agents||[])[0];
   if(!agent)return out({error:"no_review_agent_available"},503);
   const prompt=`FINDINGS. Answer the user original goal directly: ${goal}. This is a LIVE ARIA project review, not a generic explanation. Use the live operational context below as authoritative for current runtime facts. Identify what is confirmed working, what is currently wrong or degraded, what evidence supports each point, what is merely historical or uncertain, and the concrete next action. Do not ask the user to define what ARIA means; ARIA here is the software system. Do not claim code changes, deployment, tests, or physical execution unless the evidence proves them. Separate CONFIRMED, HYPOTHESIS and BLOCKED. Finish with VERDICT that directly answers the goal.\n\nLIVE OPERATIONAL CONTEXT:\n${JSON.stringify(live).slice(0,14000)}\n\nPLANNER CONTEXT:\n${JSON.stringify(context).slice(0,5000)}`;
   return out({ok:true,plan:{goal,steps:[{id:"project_review_1",operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:agent.agent_id},capability:"delegation",input:{goal:"Live ARIA project review",prompt,max_tokens:2600},risk:"READ",timeout_ms:150000,policy:{live_project_review:true,safe_read_only:true,goal_aligned:true},verify:{response_content_contains:"VERDICT:"},selection:{review_role:agent.role,model_id:agent.model_id||null,live_context_version:"live-operational-context-v1"}}],planner_version:"aria-planner-v11-live-project-review-v1",live_project_review:true,live_operational_context:live}});
