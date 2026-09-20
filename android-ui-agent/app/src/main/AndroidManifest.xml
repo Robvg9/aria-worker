@@ -18,7 +18,8 @@
 
         <receiver
             android:name=".CommandReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.DUMP">
             <intent-filter>
                 <action android:name="com.robvg9.ariauiagent.ACTION_EXECUTE" />
             </intent-filter>
