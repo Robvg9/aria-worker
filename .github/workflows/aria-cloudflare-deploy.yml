@@ -50,7 +50,7 @@ jobs:
           cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"
           cp public/sw.js "dist/sw-${GITHUB_SHA}.js"
           sed -i "s/__BUILD__/${GITHUB_SHA}/g" "dist/sw-${GITHUB_SHA}.js"
-          rm -f public/sw.js dist/index.html dist/manifest.json
+          rm -f public/sw.js dist/index.html
 
 
       - name: Install Wrangler

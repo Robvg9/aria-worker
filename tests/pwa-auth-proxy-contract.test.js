@@ -23,7 +23,7 @@ if (!html.includes("sw-%VITE_BUILD%.js")) throw new Error('build-versioned servi
 
 if (!worker.includes('const PWA_BUILD = "__PWA_BUILD__";')) throw new Error('PWA build placeholder missing');
 if (!worker.includes('shellPath="/index-"+PWA_BUILD+".html"')) throw new Error('immutable index mapping missing');
-if (!worker.includes('shellPath="/manifest-"+PWA_BUILD+".json"')) throw new Error('immutable manifest mapping missing');
+if (!worker.includes('if(shellPath==="/manifest.json"||oldManifest)shellPath="/manifest.json";')) throw new Error('stable manifest mapping missing');
 if (!worker.includes('shellPath="/sw-"+PWA_BUILD+".js"')) throw new Error('immutable service worker mapping missing');
 
 if (!workflow.includes('cp dist/index.html "dist/index-${GITHUB_SHA}.html"')) throw new Error('immutable index build missing');
