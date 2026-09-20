@@ -42,6 +42,73 @@ if(op==="code_search"){
   return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{total_count:Number(result?.total_count||0),items:Array.isArray(result?.items)?result.items.slice(0,30):[]},installation_id:installation.id,account:installation.account});
 }
 if(op==="file_read"){const ref=String(b.branch||b.ref||b.base||"main"),p=pathSafe(b.path);return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/contents/${p}?ref=${encodeURIComponent(ref)}`,{},t.token),installation_id:installation.id,account:installation.account})}
+if(op==="ref_read"){
+  const branch=String(b.branch||"main");
+  if(!/^[A-Za-z0-9._\/-]+$/.test(branch))throw new Error("invalid_ref");
+  const ref=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/git/ref/heads/${encodeURIComponent(branch)}`,{},t.token);
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{branch,sha:String(ref?.object?.sha||"")},installation_id:installation.id,account:installation.account});
+}
+if(op==="pr_find"){
+  const branch=String(b.branch||"");
+  const base=String(b.base||"main");
+  if(!branch)throw new Error("pr_branch_required");
+  const state=String(b.state||"all");
+  const prs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls?head=${encodeURIComponent(owner+":"+branch)}&base=${encodeURIComponent(base)}&state=${encodeURIComponent(state)}&per_page=20`,{},t.token);
+  const items=Array.isArray(prs)?prs:[];
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{items:items.map((pr:any)=>({number:pr.number,state:pr.state,merged_at:pr.merged_at,mergeable:pr.mergeable,mergeable_state:pr.mergeable_state,draft:pr.draft,head_sha:pr.head?.sha||null,head_ref:pr.head?.ref||null,base_ref:pr.base?.ref||null,url:pr.html_url||null,title:pr.title||null}))},installation_id:installation.id,account:installation.account});
+}
+if(op==="pr_read"){
+  const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
+  const pr=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}`,{},t.token);
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number:pr.number,state:pr.state,merged:pr.merged===true,merged_at:pr.merged_at||null,mergeable:pr.mergeable,mergeable_state:pr.mergeable_state,draft:pr.draft,head_sha:pr.head?.sha||null,head_ref:pr.head?.ref||null,base_ref:pr.base?.ref||null,base_sha:pr.base?.sha||null,url:pr.html_url||null,title:pr.title||null},installation_id:installation.id,account:installation.account});
+}
+if(op==="pr_files"){
+  const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
+  const files=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}/files?per_page=100`,{},t.token);
+  const items=Array.isArray(files)?files:[];
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{files:items.map((x:any)=>({filename:x.filename,status:x.status,additions:x.additions,deletions:x.deletions,changes:x.changes}))},installation_id:installation.id,account:installation.account});
+}
+if(op==="pr_checks"){
+  const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
+  const pr=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}`,{},t.token);
+  const sha=String(pr?.head?.sha||"");if(!sha)throw new Error("pr_head_sha_missing");
+  const runs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`,{},t.token);
+  const items=Array.isArray(runs?.check_runs)?runs.check_runs:[];
+  const pending=items.filter((x:any)=>String(x.status||"")!=="completed");
+  const failed=items.filter((x:any)=>String(x.status||"") === "completed" && !["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number,head_sha:sha,total:items.length,pending:pending.length,failed:failed.length,all_passed:items.length>0&&pending.length===0&&failed.length===0,runs:items.map((x:any)=>({name:x.name,status:x.status,conclusion:x.conclusion,completed_at:x.completed_at,html_url:x.html_url}))},installation_id:installation.id,account:installation.account});
+}
+if(op==="main_workflow_runs"){
+  const sha=String(b.commit_sha||"");if(!/^[0-9a-f]{7,64}$/i.test(sha))throw new Error("commit_sha_required");
+  const runs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=100`,{},t.token);
+  const items=Array.isArray(runs?.workflow_runs)?runs.workflow_runs:[];
+  const pending=items.filter((x:any)=>String(x.status||"")!=="completed");
+  const failed=items.filter((x:any)=>String(x.status||"")==="completed"&&!["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{commit_sha:sha,total:items.length,pending:pending.length,failed:failed.length,all_passed:items.length===0?true:(pending.length===0&&failed.length===0),runs:items.map((x:any)=>({name:x.name,status:x.status,conclusion:x.conclusion,head_sha:x.head_sha,html_url:x.html_url}))},installation_id:installation.id,account:installation.account});
+}
+if(op==="pr_merge"){
+  const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
+  const branch=String(b.branch||"");const base=String(b.base||"main");
+  const risk=String(b.risk_level||"").toUpperCase();
+  if(base!=="main")throw new Error("auto_merge_base_must_be_main");
+  if(!branch.startsWith("aria/repair/"))throw new Error("auto_merge_branch_not_governed");
+  if(risk!=="LOW_RISK_WRITE")throw new Error("auto_merge_risk_not_allowed");
+  if(b.auto_merge!==true)throw new Error("auto_merge_explicit_consent_required");
+  const pr=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}`,{},t.token);
+  if(String(pr?.head?.ref||"")!==branch)throw new Error("auto_merge_branch_mismatch");
+  if(String(pr?.base?.ref||"")!=="main")throw new Error("auto_merge_target_mismatch");
+  if(pr?.state!=="open")return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number,merged:pr?.merged===true,state:pr?.state,already_terminal:true}},200);
+  const sha=String(pr?.head?.sha||"");
+  const runs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`,{},t.token);
+  const items=Array.isArray(runs?.check_runs)?runs.check_runs:[];
+  const pending=items.filter((x:any)=>String(x.status||"")!=="completed");
+  const failed=items.filter((x:any)=>String(x.status||"")==="completed"&&!["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
+  if(items.length===0)throw new Error("auto_merge_checks_missing");
+  if(pending.length)throw new Error("auto_merge_checks_pending");
+  if(failed.length)throw new Error("auto_merge_checks_failed");
+  const merged=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}/merge`,{method:"PUT",body:JSON.stringify({merge_method:"squash",commit_title:String(b.commit_title||"ARIA autonomous repair"),commit_message:String(b.commit_message||"Merged by ARIA after governed CI verification.")})},t.token);
+  return out({ok:merged?.merged===true,status:merged?.merged===true?200:409,executor_type:"github_app",connector_id:"github",operation:op,data:{number,merged:merged?.merged===true,sha:merged?.sha||null,message:merged?.message||null}},merged?.merged===true?200:409);
+}
 if(op==="create_branch"){const branch=String(b.branch||""),ref=String(b.ref||b.base||"main");if(!branch||["main","master"].includes(branch)||!/^[A-Za-z0-9._\/-]{1,200}$/.test(branch)||branch.includes(".."))throw new Error("invalid_branch");const source=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/git/ref/heads/${encodeURIComponent(ref)}`,{},t.token);try{const created=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/git/refs`,{method:"POST",body:JSON.stringify({ref:`refs/heads/${branch}`,sha:source.object?.sha})},t.token);return out({ok:true,status:201,executor_type:"github_app",connector_id:"github",operation:op,data:created,installation_id:installation.id,account:installation.account})}catch(e){const msg=String(e instanceof Error?e.message:e);if(!msg.startsWith("github_422:"))throw e;const existing=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/git/ref/heads/${encodeURIComponent(branch)}`,{},t.token);if(existing?.object?.sha!==source?.object?.sha)throw new Error("branch_conflict_existing_different_base");return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:existing,installation_id:installation.id,account:installation.account,idempotent:true})}}
 if(op==="file_write"){const branch=String(b.branch||""),p=pathSafe(b.path),content=String(b.content??"");if(!branch||["main","master"].includes(branch))throw new Error("write_branch_required");if(String(b.risk_level||"low")!=="low")throw new Error("risk_not_allowed");let existing:any=null;try{existing=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/contents/${p}?ref=${encodeURIComponent(branch)}`,{},t.token)}catch(e){if(!String(e instanceof Error?e.message:e).startsWith("github_404:"))throw e}const encodedContent=btoa(unescape(encodeURIComponent(content)));if(existing?.content&&String(existing.content).replace(/\\s+/g,"")===encodedContent.replace(/\\s+/g,""))return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{commit_sha:null,path:p,branch},installation_id:installation.id,account:installation.account,idempotent:true});const payload:any={message:String(b.message||"chore: ARIA governed repair"),content:encodedContent,branch};if(existing?.sha)payload.sha=existing.sha;const written=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/contents/${p}`,{method:"PUT",body:JSON.stringify(payload)},t.token);return out({ok:true,status:201,executor_type:"github_app",connector_id:"github",operation:op,data:{commit_sha:written?.commit?.sha??null,path:p,branch},installation_id:installation.id,account:installation.account})}
 if(op==="open_pr"){const branch=String(b.branch||""),base=String(b.base||"main");if(!branch||["main","master"].includes(branch))throw new Error("pr_branch_required");const existing=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls?head=${encodeURIComponent(owner+":"+branch)}&base=${encodeURIComponent(base)}&state=open`,{},t.token);if(Array.isArray(existing)&&existing.length)return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number:existing[0]?.number??null,url:existing[0]?.html_url??null},installation_id:installation.id,account:installation.account,idempotent:true});const pr=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls`,{method:"POST",body:JSON.stringify({title:String(b.title||"chore: ARIA governed change"),body:String(b.body||"Generated by ARIA after governed validation."),head:branch,base})},t.token);return out({ok:true,status:201,executor_type:"github_app",connector_id:"github",operation:op,data:{number:pr?.number??null,url:pr?.html_url??null},installation_id:installation.id,account:installation.account})}
