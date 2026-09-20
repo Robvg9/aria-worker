@@ -3,7 +3,7 @@
 const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
-const { executeAndroidBrowserJob } = require('./android-browser-bridge-v1');
+const { executeAndroidAccessibilityJob } = require('../../computer-use/android-accessibility-v1');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -51,133 +51,85 @@ async function runAndroidNotification(payload) {
     '--group', shellQuote('aria-meditation')
   ].join(' ');
   const result = await run(command, process.cwd(), 30_000);
-  result.metadata = {
-    ...(result.metadata || {}),
-    agent_version: 'aria-termux-agent-v2',
-    operation: 'android.notification',
-    notification_id: payload.notification_id,
-    mission_id: payload.mission_id,
-    severity: payload.severity,
-    kind: payload.kind,
-    action: payload.action || null
-  };
+  result.metadata = { ...(result.metadata || {}), agent_version:'aria-termux-agent-v2', operation:'android.notification', notification_id:payload.notification_id, mission_id:payload.mission_id, severity:payload.severity, kind:payload.kind, action:payload.action || null };
   return result;
 }
-
 if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
   console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');
   process.exit(2);
 }
-
 function endpoint(path) { return `${GATEWAY_URL.replace(/\/$/, '')}${path}`; }
-function headers() { return { 'content-type': 'application/json', authorization: `Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id': DEVICE_ID }; }
+function headers() { return { 'content-type':'application/json', authorization:`Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id':DEVICE_ID }; }
 async function api(path, options = {}) {
   const controller = new AbortController();
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || process.env.ARIA_GATEWAY_TIMEOUT_MS || 15_000));
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const { timeoutMs: _ignored, ...fetchOptions } = options;
   try {
-    const response = await fetch(endpoint(path), {
-      ...fetchOptions,
-      signal: controller.signal,
-      headers: { ...headers(), ...(fetchOptions.headers || {}) }
-    });
+    const response = await fetch(endpoint(path), { ...fetchOptions, signal:controller.signal, headers:{ ...headers(), ...(fetchOptions.headers||{}) } });
     const text = await response.text();
-    let body = null; try { body = text ? JSON.parse(text) : null; } catch (_) { body = { raw: text }; }
+    let body = null; try { body = text ? JSON.parse(text) : null; } catch (_) { body = { raw:text }; }
     if (!response.ok) throw new Error(`gateway ${response.status}: ${body?.error || 'request failed'}`);
     return body;
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error(`gateway timeout after ${timeoutMs}ms: ${path}`);
     throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+  } finally { clearTimeout(timer); }
 }
 function run(command, cwd, timeoutMs) {
   return new Promise((resolve) => {
-    const started = Date.now();
-    const child = spawn('/data/data/com.termux/files/usr/bin/bash', ['-lc', command], { cwd: cwd || process.cwd(), env: process.env });
-    let stdout = ''; let stderr = ''; let killed = false;
-    const append = (current, chunk) => (current + chunk.toString()).slice(-MAX_OUTPUT);
-    const timer = setTimeout(() => { killed = true; child.kill('SIGTERM'); }, Math.max(1_000, timeoutMs || 120_000));
-    child.stdout.on('data', chunk => { stdout = append(stdout, chunk); });
-    child.stderr.on('data', chunk => { stderr = append(stderr, chunk); });
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      resolve({ status: killed ? 'timeout' : code === 0 ? 'succeeded' : 'failed', exit_code: typeof code === 'number' ? code : null, stdout, stderr, duration_ms: Date.now() - started, signal });
-    });
-    child.on('error', error => { clearTimeout(timer); resolve({ status: 'failed', exit_code: null, stdout, stderr: String(error.message).slice(0, 4096), duration_ms: Date.now() - started }); });
+    const started=Date.now();
+    const child=spawn('/data/data/com.termux/files/usr/bin/bash',['-lc',command],{cwd:cwd||process.cwd(),env:process.env});
+    let stdout=''; let stderr=''; let killed=false;
+    const append=(current,chunk)=>(current+chunk.toString()).slice(-MAX_OUTPUT);
+    const timer=setTimeout(()=>{killed=true;child.kill('SIGTERM')},Math.max(1000,timeoutMs||120000));
+    child.stdout.on('data',chunk=>{stdout=append(stdout,chunk)});
+    child.stderr.on('data',chunk=>{stderr=append(stderr,chunk)});
+    child.on('close',(code,signal)=>{clearTimeout(timer);resolve({status:killed?'timeout':code===0?'succeeded':'failed',exit_code:typeof code==='number'?code:null,stdout,stderr,duration_ms:Date.now()-started,signal})});
+    child.on('error',error=>{clearTimeout(timer);resolve({status:'failed',exit_code:null,stdout,stderr:String(error.message).slice(0,4096),duration_ms:Date.now()-started})});
   });
 }
 async function resolveSecret(jobId, secretRef) {
-  const body = await api(`/v1/jobs/${encodeURIComponent(jobId)}/resolve-secret`, {
-    method: 'POST',
-    body: JSON.stringify({ device_id: DEVICE_ID, secret_ref: secretRef })
-  });
-  if (body?.ok !== true || typeof body.secret !== 'string' || body.secret.length === 0) {
-    throw new Error(`credential unavailable: ${body?.error || 'secret_resolution_failed'}`);
-  }
+  const body=await api(`/v1/jobs/${encodeURIComponent(jobId)}/resolve-secret`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,secret_ref:secretRef})});
+  if(body?.ok!==true||typeof body.secret!=='string'||!body.secret.length) throw new Error(`credential unavailable: ${body?.error||'secret_resolution_failed'}`);
   return body.secret;
 }
 async function heartbeat() {
-  try { await api('/v1/devices/heartbeat', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, agent_type: 'android-termux', capabilities: ['shell.execute', 'notifications.push', 'computer.use.android'] }) }); log(`ONLINE device=${DEVICE_ID}`); }
-  catch (error) { console.error(`[heartbeat] ${error.message}`); }
+  try { await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'android-termux',capabilities:['shell.execute','notifications.push','computer.use.android']})}); log(`ONLINE device=${DEVICE_ID}`); }
+  catch(error){ console.error(`[heartbeat] ${error.message}`); }
 }
 async function claimAndExecute() {
   try {
-    const body = await api('/v1/jobs/claim', { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
-    if (!body?.job) return;
-    const job = body.job;
-    if (job.device_id !== DEVICE_ID) throw new Error('gateway returned job for another device');
-    if (!['shell.execute', 'android.notification', 'computer.use.android'].includes(job.operation)) throw new Error(`unsupported operation: ${job.operation}`);
+    const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
+    if(!body?.job)return;
+    const job=body.job;
+    if(job.device_id!==DEVICE_ID)throw new Error('gateway returned job for another device');
+    if(!['shell.execute','android.notification','computer.use.android'].includes(job.operation))throw new Error(`unsupported operation: ${job.operation}`);
     log(`JOB RECEIVED id=${job.job_id} operation=${job.operation}`);
-    await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID }) });
+    await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
     log(`JOB START id=${job.job_id}`);
     let result;
-    if (job.operation === 'android.notification') {
-      result = await runAndroidNotification(parseAndroidNotificationPayload(job.command));
-    } else if (job.operation === 'computer.use.android') {
-      const bridgeResult = await executeAndroidBrowserJob({
-        command: job.command,
-        resolveSecret: secretRef => resolveSecret(job.job_id, secretRef)
-      });
-      result = {
-        status: bridgeResult.status,
-        exit_code: bridgeResult.status === 'succeeded' ? 0 : 1,
-        stdout: '',
-        stderr: bridgeResult.status === 'succeeded' ? '' : String(bridgeResult.reason || 'android_browser_bridge_failed'),
-        duration_ms: null,
-        result: bridgeResult.payload || null,
-        metadata: { android_browser_bridge: true, http_status: bridgeResult.http_status ?? null }
-      };
+    if(job.operation==='android.notification') {
+      result=await runAndroidNotification(parseAndroidNotificationPayload(job.command));
+    } else if(job.operation==='computer.use.android') {
+      const bridgeResult=await executeAndroidAccessibilityJob({command:job.command,timeoutMs:job.timeout_ms||12000});
+      result={status:bridgeResult.status,exit_code:bridgeResult.status==='succeeded'?0:1,stdout:'',stderr:bridgeResult.status==='succeeded'?'':String(bridgeResult.reason||'android_accessibility_failed'),duration_ms:null,result:bridgeResult.payload||null,metadata:{...(bridgeResult.metadata||{}),android_ui_agent:true}};
+      if (result.result?.metadata?.secret_ref) delete result.result.metadata.secret_ref;
     } else {
-      result = await run(job.command, job.cwd, job.timeout_ms);
+      result=await run(job.command,job.cwd,job.timeout_ms);
     }
-    result.metadata = {
-      ...(result.metadata || {}),
-      platform: `android-termux/${os.release()}`,
-      request_nonce: crypto.randomUUID()
-    };
-    const safeStdout = redact(result.stdout);
-    const safeStderr = redact(result.stderr);
+    result.metadata={...(result.metadata||{}),platform:`android-termux/${os.release()}`,request_nonce:crypto.randomUUID()};
+    const safeStdout=redact(result.stdout);
+    const safeStderr=redact(result.stderr);
     log(`JOB RESULT id=${job.job_id} status=${result.status} exit_code=${result.exit_code} duration_ms=${result.duration_ms}`);
-    if (safeStdout) log(`STDOUT ${JSON.stringify(safeStdout)}`);
-    if (safeStderr) log(`STDERR ${JSON.stringify(safeStderr)}`);
-    await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`, { method: 'POST', body: JSON.stringify({ device_id: DEVICE_ID, result }) });
+    if(safeStdout)log(`STDOUT ${JSON.stringify(safeStdout)}`);
+    if(safeStderr)log(`STDERR ${JSON.stringify(safeStderr)}`);
+    await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})});
     log(`JOB ACK id=${job.job_id} status=${result.status}`);
-  } catch (error) { console.error(`[job] ${error.message}`); }
+  }catch(error){console.error(`[job] ${error.message}`)}
 }
-
-let stopping = false;
-async function loop() {
-  while (!stopping) { await claimAndExecute(); await new Promise(r => setTimeout(r, POLL_MS)); }
-}
-process.on('SIGTERM', () => { stopping = true; log('STOP requested'); });
-process.on('SIGINT', () => { stopping = true; log('STOP requested'); });
-
-(async () => {
-  log(`START device=${DEVICE_ID} platform=android-termux node=${process.version}`);
-  await heartbeat();
-  setInterval(heartbeat, HEARTBEAT_MS);
-  await loop();
-})().catch(error => { console.error(error); process.exit(1); });
+let stopping=false;
+async function loop(){while(!stopping){await claimAndExecute();await new Promise(r=>setTimeout(r,POLL_MS));}}
+process.on('SIGTERM',()=>{stopping=true;log('STOP requested')});
+process.on('SIGINT',()=>{stopping=true;log('STOP requested')});
+(async()=>{log(`START device=${DEVICE_ID} platform=android-termux node=${process.version}`);await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);await loop();})().catch(error=>{console.error(error);process.exit(1)});
