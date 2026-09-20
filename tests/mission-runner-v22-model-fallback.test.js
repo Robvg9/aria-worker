@@ -8,10 +8,12 @@ const required = [
   "verifiedModelFallbackRoutes",
   'String(original?.provider_id || "") !== "openrouter"',
   'risk !== "READ"',
-  'String(model.status) !== "available"',
-  '!modelId.endsWith(":free")',
-  'String(x.status) === "verified"',
-  'out.slice(0,4)',
+  'provider_id, "google"',
+  'providerId === "google" && !modelId.endsWith("-direct")',
+  'providerId === "openrouter" && !modelId.endsWith(":free")',
+  'Array.isArray(a.models)',
+  'x.models.includes(modelId)',
+  "_provider_priority",
   "model_fallback_used",
   "model_execution_failures",
 ];
@@ -22,4 +24,4 @@ for (const fragment of required) {
   }
 }
 
-console.log("mission-runner-v22 model fallback contract: PASS");
+console.log("mission-runner-v22 model fallback multi-provider contract: PASS");
