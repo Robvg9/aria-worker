@@ -2,6 +2,12 @@
 const assert=require('node:assert/strict');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');
 const {createFileStateStore,createMeditationController,fingerprintMission}=require('../autonomy/meditation-ia-controller');const {createMeditationPolicy,autonomousActionAllowed}=require('../autonomy/meditation-ia-policy');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+const gatewaySource=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-device-gateway','index.ts'),'utf8');
+const supervisorSource=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-autonomy-supervisor-v10','index.ts'),'utf8');
+assert(gatewaySource.includes("p==='/v1/meditation/tick-service'"),'cloud Meditation tick service route missing');
+assert(gatewaySource.includes("last_cloud_tick_at"),'cloud Meditation tick must persist tick evidence');
+assert(supervisorSource.includes('/v1/meditation/tick-service'),'Meditation supervisor must invoke canonical cloud tick');
+
 (async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'aria-meditation-'));const events=[];let commands=[];let ticks=0;let checkpoints=0;const store=createFileStateStore({root_dir:root});const controller=createMeditationController({stateStore:store,commandSource:{async read(offset){const entries=commands.map(c=>({command:c,next_offset:offset+c.length+1}));commands=[];return{entries,next_offset:entries.at(-1)?.next_offset??offset}}},log:async m=>events.push(m),requestTick:async({tick})=>{ticks++;return{ok:true,status:'idle',tick}},checkpoint:async r=>{checkpoints++;return{status:'saved',...r}},isUserIdle:async()=>true,ensureNotepad:async()=>events.push('NOTEPAD'),now:()=>new Date(100000),heartbeat_ms:30000,min_idle_seconds:45,max_consecutive_failures:3});
 assert.equal(fingerprintMission(' Abre   PowerShell '),'abre powershell');const policy=createMeditationPolicy();assert.equal(autonomousActionAllowed({risk:'low'},policy).allowed,true);assert.equal(autonomousActionAllowed({risk:'critical'},policy).allowed,false);assert.equal(autonomousActionAllowed({production_merge:true,risk:'low'},policy).allowed,false);
 assert.equal((await controller.start()).status,'started');assert.equal(controller.status().mode,'active');for(let i=0;i<100&&ticks===0;i++)await delay(2);assert.equal(ticks,1);for(let i=0;i<100&&controller.status().tick_count<1;i++)await delay(2);await delay(10);
