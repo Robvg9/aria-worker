@@ -80,6 +80,13 @@ console.log('aria-app-api-v3-contract.test.js: PASS');
 for (const fragment of [
   "void trackMission(d.mission.mission_id)",
   "Background mission tracking must never block the conversational channel.",
+  "function missionResultText(mission: any)",
+  "function missionHumanSummary(mission: any)",
+  "RESPUESTA / RESULTADO DE ARIA",
+  "Qué hizo ARIA",
+  "Qué cambió",
+  "Qué mejora ahora",
+  "Ver detalles técnicos",
 ]) {
   // PWA assertions are mirrored here so the main npm contract gate covers
   // conversational/mission concurrency without requiring a browser runner.
