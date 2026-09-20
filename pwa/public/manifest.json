@@ -4,7 +4,7 @@
   "short_name": "ARIA",
   "description": "Interfaz instalable para el núcleo cognitivo y operativo de ARIA.",
   "start_url": "/pwa/",
-  "scope": "./",
+  "scope": "/pwa/",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#09070f",
