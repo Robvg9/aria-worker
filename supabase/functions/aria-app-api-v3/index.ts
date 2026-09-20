@@ -8,6 +8,7 @@ const DIRECT = `${SUPABASE_URL}/functions/v1/aria-direct-v1`;
 const MEMORY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
 const EXEC = `${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`;
+const DEVICE_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-device-gateway`;
 const MEDIA_BUCKET = "aria-app-media";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
