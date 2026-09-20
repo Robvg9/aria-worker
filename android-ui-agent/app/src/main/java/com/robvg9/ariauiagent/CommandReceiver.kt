@@ -5,8 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Binder
-import android.os.Handler
-import android.os.Looper
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
