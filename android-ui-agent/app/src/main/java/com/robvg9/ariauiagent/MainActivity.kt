@@ -4,15 +4,17 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.ViewFlipper
 import androidx.appcompat.app.AppCompatActivity
 
 /**
  * Visible owner control surface for local missions.
- * No action is executed without explicit Approve.
+ * Now with a ViewFlipper for Dashboard (Screen 1) and Chat (Screen 2).
  */
 class MainActivity : AppCompatActivity() {
     private val pwaUrl = "https://aria.robvg9.workers.dev/pwa/"
@@ -21,16 +23,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var missionText: TextView
     private lateinit var actionText: TextView
     private lateinit var logText: TextView
-
-    private lateinit var btnStart: Button
-    private lateinit var btnObserve: Button
-    private lateinit var btnProposeDemo: Button
-    private lateinit var btnApprove: Button
-    private lateinit var btnReject: Button
-    private lateinit var btnCancel: Button
-    private lateinit var btnClear: Button
-    private lateinit var btnAccessibility: Button
-    private lateinit var btnPwa: Button
+    private lateinit var flipper: ViewFlipper
 
     private lateinit var store: LocalMissionStore
     private lateinit var runner: LocalMissionRunner
@@ -43,185 +36,77 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { render(mission) }
         }
 
-        val scroll = ScrollView(this)
-        val root = LinearLayout(this).apply {
+        flipper = ViewFlipper(this)
+
+        // Screen 1: Dashboard
+        val dashboard = ScrollView(this)
+        val dashRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(40, 48, 40, 48)
         }
-
+        
         val title = TextView(this).apply {
-            text = "ARIA · Local Mission Runner"
+            text = "ARIA · Dashboard"
             textSize = 22f
             setPadding(0, 0, 0, 12)
         }
+        statusText = TextView(this).apply { textSize = 14f; setPadding(0, 0, 0, 8) }
+        val btnNext = Button(this).apply {
+            text = "Ir a Chat →"
+            setOnClickListener {
+                flipper.setInAnimation(this@MainActivity, android.R.anim.slide_in_left)
+                flipper.setOutAnimation(this@MainActivity, android.R.anim.slide_out_right)
+                flipper.showNext()
+            }
+        }
+        dashRoot.addView(title)
+        dashRoot.addView(statusText)
+        dashRoot.addView(btnNext)
+        dashboard.addView(dashRoot)
 
-        statusText = TextView(this).apply {
-            textSize = 14f
-            setPadding(0, 0, 0, 8)
+        // Screen 2: Chat
+        val chat = ScrollView(this)
+        val chatRoot = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 48, 40, 48)
         }
-        missionText = TextView(this).apply {
-            textSize = 13f
-            setPadding(0, 0, 0, 8)
+        val chatTitle = TextView(this).apply { text = "ARIA · Chat"; textSize = 22f }
+        missionText = TextView(this).apply { textSize = 13f; setPadding(0, 0, 0, 8) }
+        actionText = TextView(this).apply { textSize = 13f; setPadding(0, 0, 0, 12) }
+        logText = TextView(this).apply { textSize = 12f; setPadding(0, 8, 0, 12) }
+        
+        val btnPrev = Button(this).apply {
+            text = "← Volver a Dashboard"
+            setOnClickListener {
+                flipper.setInAnimation(this@MainActivity, android.R.anim.slide_in_left)
+                flipper.setOutAnimation(this@MainActivity, android.R.anim.slide_out_right)
+                flipper.showPrevious()
+            }
         }
-        actionText = TextView(this).apply {
-            textSize = 13f
-            setPadding(0, 0, 0, 12)
-        }
-        logText = TextView(this).apply {
-            textSize = 12f
-            setPadding(0, 8, 0, 12)
-        }
+        
+        // Add existing buttons to Chat
+        val btnStart = Button(this).apply { text = "Iniciar misión"; setOnClickListener { runner.startMission("Misión local ARIA") } }
+        val btnApprove = Button(this).apply { text = "✓ APROBAR"; setOnClickListener { runner.approveAndExecute() } }
+        
+        chatRoot.addView(chatTitle)
+        chatRoot.addView(btnPrev)
+        chatRoot.addView(missionText)
+        chatRoot.addView(actionText)
+        chatRoot.addView(btnStart)
+        chatRoot.addView(btnApprove)
+        chatRoot.addView(logText)
+        chat.addView(chatRoot)
 
-        btnStart = Button(this).apply {
-            text = "1. Iniciar misión local"
-            setOnClickListener {
-                val m = runner.startMission("Misión local ARIA")
-                appendLog("start → ${m.missionId.take(8)} state=${m.state}")
-            }
-        }
-        btnObserve = Button(this).apply {
-            text = "2. Observe (sin aprobación)"
-            setOnClickListener {
-                val m = runner.runObserve()
-                appendLog("observe → state=${m.state} err=${m.lastError ?: "-"}")
-            }
-        }
-        btnProposeDemo = Button(this).apply {
-            text = "3. Proponer acción (demo: back)"
-            setOnClickListener {
-                val m = runner.proposeAction(
-                    actionType = "press",
-                    params = mapOf("keyCode" to android.view.KeyEvent.KEYCODE_BACK)
-                )
-                appendLog("propose → state=${m.state}")
-            }
-        }
-        btnApprove = Button(this).apply {
-            text = "✓ APROBAR y ejecutar"
-            setOnClickListener {
-                val m = runner.approveAndExecute()
-                appendLog("approve+exec → state=${m.state} err=${m.lastError ?: "-"}")
-            }
-        }
-        btnReject = Button(this).apply {
-            text = "✗ Rechazar acción"
-            setOnClickListener {
-                val m = runner.reject()
-                appendLog("reject → state=${m.state}")
-            }
-        }
-        btnCancel = Button(this).apply {
-            text = "⏹ Cancelar misión"
-            setOnClickListener {
-                val m = runner.cancel()
-                appendLog("cancel → state=${m.state}")
-            }
-        }
-        btnClear = Button(this).apply {
-            text = "Limpiar misión"
-            setOnClickListener {
-                runner.clear()
-                appendLog("cleared")
-            }
-        }
-        btnAccessibility = Button(this).apply {
-            text = "Abrir Accesibilidad de Android"
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-        }
-        btnPwa = Button(this).apply {
-            text = "Abrir ARIA PWA"
-            setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(pwaUrl)))
-            }
-        }
+        flipper.addView(dashboard)
+        flipper.addView(chat)
+        setContentView(flipper)
 
-        root.addView(title)
-        root.addView(statusText)
-        root.addView(missionText)
-        root.addView(actionText)
-        root.addView(btnStart)
-        root.addView(btnObserve)
-        root.addView(btnProposeDemo)
-        root.addView(btnApprove)
-        root.addView(btnReject)
-        root.addView(btnCancel)
-        root.addView(btnClear)
-        root.addView(btnAccessibility)
-        root.addView(btnPwa)
-        root.addView(logText)
-        scroll.addView(root)
-        setContentView(scroll)
-
-        val recovered = runner.recover()
-        if (recovered != null) {
-            appendLog("recover → state=${recovered.state} err=${recovered.lastError ?: "-"}")
-            render(recovered)
-        } else {
-            render(LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
         render(runner.current() ?: LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
     }
 
     private fun render(m: LocalMission) {
-        val a11y = if (AriaAccessibilityService.instance == null) {
-            "ACCESIBILIDAD DESHABILITADA"
-        } else {
-            "ACCESIBILIDAD ACTIVA"
-        }
-        statusText.text = "Servicio: $a11y"
-
-        missionText.text = buildString {
-            append("Misión: ${m.title}\n")
-            append("ID: ${m.missionId.take(8)}…\n")
-            append("Estado: ${m.state}\n")
-            append("Pasos: ${m.steps.size}\n")
-            if (m.lastError != null) append("Error: ${m.lastError}\n")
-            if (m.cancelledByOwner) append("(cancelada por el propietario)\n")
-        }
-
-        val proposed = m.proposedAction
-        actionText.text = if (proposed != null) {
-            buildString {
-                append("ACCIÓN PENDIENTE DE APROBACIÓN\n")
-                append("tipo: ${proposed.actionType}\n")
-                if (proposed.targetNodeId != null) append("node: ${proposed.targetNodeId}\n")
-                if (proposed.params.isNotEmpty()) append("params: ${proposed.params}\n")
-                append("→ Usa APROBAR o Rechazar")
-            }
-        } else {
-            "Sin acción pendiente."
-        }
-
-        val pending = m.state == MissionState.PENDING_APPROVAL
-        btnApprove.isEnabled = pending
-        btnReject.isEnabled = pending
-        btnCancel.isEnabled = m.state != MissionState.COMPLETE &&
-            m.state != MissionState.CANCELLED &&
-            m.state != MissionState.IDLE
-        btnObserve.isEnabled = m.state != MissionState.PENDING_APPROVAL &&
-            m.state != MissionState.COMPLETE &&
-            m.state != MissionState.CANCELLED
-        btnProposeDemo.isEnabled = m.state != MissionState.PENDING_APPROVAL &&
-            m.state != MissionState.COMPLETE &&
-            m.state != MissionState.CANCELLED &&
-            m.state != MissionState.IDLE
-
-        val lastEvidence = m.steps.asReversed().firstOrNull { it.kind == StepKind.EVIDENCE }?.evidence
-        if (lastEvidence != null && m.state == MissionState.COMPLETE) {
-            appendLog("evidence chainHash=${lastEvidence.chainHash.take(16)}…")
-        }
-    }
-
-    private fun appendLog(line: String) {
-        val prev = logText.text?.toString().orEmpty()
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
-            .format(java.util.Date())
-        logText.text = "$prev\n[$ts] $line".trim()
+        statusText.text = "Servicio: ${if (AriaAccessibilityService.instance == null) "DESHABILITADO" else "ACTIVO"}"
+        missionText.text = "Misión: ${m.title}\nEstado: ${m.state}"
+        actionText.text = if (m.proposedAction != null) "ACCIÓN PENDIENTE" else "Sin acción."
     }
 }
