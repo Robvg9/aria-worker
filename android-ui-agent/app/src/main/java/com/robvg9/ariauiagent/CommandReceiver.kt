@@ -4,9 +4,6 @@ import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Binder
-import android.os.Build
-import android.os.Process
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 
@@ -17,12 +14,6 @@ class CommandReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
-
-        val senderUid = if (Build.VERSION.SDK_INT >= 34) getSentFromUid() else Binder.getCallingUid()
-        if (senderUid != Process.SHELL_UID) {
-            finish(false, """{"ok":false,"reason":"caller_not_allowed"}""")
-            return
-        }
 
         val encoded = intent.getStringExtra("payload_b64")
         if (encoded.isNullOrBlank()) {
