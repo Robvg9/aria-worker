@@ -1,0 +1,30 @@
+name: PWA Static LIVE Probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pwa-static-live-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe current LIVE PWA paths
+        run: |
+          set -u
+          base="https://aria.robvg9.workers.dev/pwa/"
+          for path in "" "version.json" "index.html" "manifest.json" "sw.js"; do
+            code="$(curl -sS --max-time 15 -o /tmp/probe -w '%{http_code}' "${base}${path}")"
+            echo "PATH=/pwa/${path} CODE=${code} SIZE=$(wc -c </tmp/probe)"
+          done
+          html="$(curl -sS --max-time 15 "${base}")"
+          echo "HTML_ASSETS:"
+          grep -oE 'assets/[^"]+' <<<"$html" | head -10 || true
+          for asset in $(grep -oE 'assets/[^"]+' <<<"$html" | sort -u); do
+            code="$(curl -sS --max-time 15 -o /tmp/probe -w '%{http_code}' "${base}${asset}")"
+            echo "ASSET=/pwa/${asset} CODE=${code} SIZE=$(wc -c </tmp/probe)"
+          done
