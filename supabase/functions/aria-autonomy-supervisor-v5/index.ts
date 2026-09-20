@@ -25,13 +25,6 @@ async function kick(r:Request){
   const repairResponse=await fetch(REPAIR_SUPERVISOR,{method:"POST",headers:{...authHeaders,"x-aria-trigger":"aria-autonomous-repair-supervisor"},body:"{}"});
   const repair=await repairResponse.json().catch(()=>({ok:false,status:"repair_supervisor_invalid"}));
 
-  const meditationResponse=await fetch(`${GATEWAY}/v1/meditation/tick-service`,{
-    method:"POST",
-    headers:{...authHeaders,"x-aria-trigger":"meditation-ia-cloud-supervisor"},
-    body:JSON.stringify({source:"aria-autonomy-supervisor-v5"})
-  });
-  const meditation=await meditationResponse.json().catch(()=>({ok:false,status:"meditation_tick_invalid"}));
-
   const [response,auditResponse]=await Promise.all([
     fetch(`${GATEWAY}/v1/autonomy/cycle`,{method:"POST",headers:{...authHeaders,"x-aria-trigger":"autonomy-supervisor-v5"},body:JSON.stringify({trigger:"autonomy-supervisor-v5"})}),
     fetch(`${GATEWAY}/v1/audit/all-for-one/tick`,{method:"POST",headers:{...authHeaders,"x-aria-trigger":"all-for-one-supervisor-v1"},body:"{}"})
@@ -41,7 +34,6 @@ async function kick(r:Request){
   return {
     http_status:response.status,...payload,
     repair_http_status:repairResponse.status,repair,
-    meditation_http_status:meditationResponse.status,meditation,
     audit_start_http_status:start.status,audit_start:startPayload,
     audit_http_status:auditResponse.status,audit
   };
