@@ -85,7 +85,89 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   throw error;
 }
 
-async function missionForUser(missionId: string, userId: string) { const x = await internal(`${DIRECT}/missions/get`, { mission_id: missionId, user_id: userId, "x-aria-user-id": userId }); if (!x.r.ok) return null; const mission = x.b?.mission ?? x.b?.data?.mission ?? null; const owner = mission?.metadata?.user_id ?? mission?.metadata?.owner_user_id ?? null; return owner && owner !== userId ? null : mission; }
+function missionPhase(m:any) {
+  const status=String(m?.status||"");
+  const done=Number(m?.completed_steps||0);
+  const total=Number(m?.total_steps||0);
+  const recovery=m?.checkpoint?.recovery?.status;
+  const gate=m?.checkpoint?.human_gate;
+  if (["succeeded","failed","cancelled"].includes(status)) return { index: 6, total: 6, label: "Finalizar misión" };
+  if (status==="blocked" || gate?.status==="pending" || /human_gate|blocked|approval/i.test(String(m?.next_action||""))) return { index: 5, total: 6, label: "Human Gate / Bloqueo" };
+  if (status==="queued") return { index: 1, total: 6, label: "Procesar misión" };
+  if (status==="planning" || !Array.isArray(m?.checkpoint?.plan) || m.checkpoint.plan.length===0) return { index: 2, total: 6, label: "Separar en pasos" };
+  const results=m?.checkpoint?.results&&typeof m.checkpoint.results==="object"?m.checkpoint.results:{};
+  if (status==="running" && done===0 && Object.keys(results).length===0) return { index: 3, total: 6, label: "Revisar Human Gates y bloqueos" };
+  if (status==="paused" && recovery==="waiting_for_async_executor") return { index: 4, total: 6, label: "Continuar con la misión" };
+  if (status==="running" || status==="waiting") return { index: 4, total: 6, label: total>0 ? \`Ejecutando · paso \${Math.min(done+1,total)} de \${total}\` : "Continuar con la misión" };
+  return { index: 4, total: 6, label: "Continuar con la misión" };
+}
+
+async function enrichMission(m:any, sb:any) {
+  const steps=rows(m);
+  const tw=steps.reduce((a,s)=>a+s.weight,0);
+  const dw=steps.filter(s=>s.status==="succeeded"||s.status==="skipped").reduce((a,s)=>a+s.weight,0);
+  const progress=tw?Math.max(0,Math.min(100,Math.round(dw/tw*1000)/10)):(m.total_steps?Math.round((m.completed_steps||0)/m.total_steps*1000)/10:0);
+  const eta=await etaFor(sb,steps);
+  return { ...m, progress_percent:progress, step_count:steps.length, steps, eta, terminal:terminal.has(String(m.status)), phase:missionPhase(m) };
+}
+
+async function missionForUser(missionId: string, userId: string) {
+  const sb=serviceClient();
+  const {data:mission,error}=await sb.schema("aria_internal").from("mission_state")
+    .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
+    .eq("mission_id",missionId).maybeSingle();
+  if(error || !mission)return null;
+  const md=mission?.metadata&&typeof mission.metadata==="object"?mission.metadata:{};
+  const owner=md.user_id??md.owner_user_id??null;
+  if(owner && owner!==userId)return null;
+  return enrichMission(mission,sb);
+}
+
+async function liveAssistantContext(userId:string) {
+  const sb=serviceClient();
+  const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control")
+    .select("desired_mode,session_id,last_cloud_tick_at,last_cloud_status")
+    .eq("controller_id","primary").maybeSingle();
+  if(ce)throw new Error(ce.message);
+  const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state")
+    .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,metadata,updated_at,finished_at,checkpoint")
+    .order("updated_at",{ascending:false}).limit(100);
+  if(me)throw new Error(me.message);
+  const sessionId=controller?.session_id?String(controller.session_id):"";
+  const owned=(all??[]).filter((m:any)=>{
+    const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};
+    return md.user_id===userId||md.owner_user_id===userId||(sessionId&&md.meditation_session_id===sessionId);
+  });
+  const active=owned.find((m:any)=>["queued","planning","running","waiting","paused"].includes(String(m.status)))||null;
+  const recent=owned.slice(0,8).map((m:any)=>({
+    mission_id:String(m.mission_id),
+    goal:String(m.goal||""),
+    status:String(m.status||""),
+    current_step:Number(m.current_step||0),
+    total_steps:Number(m.total_steps||m.checkpoint?.plan?.length||0),
+    completed_steps:Number(m.completed_steps||0),
+    next_action:m.next_action??null,
+    updated_at:m.updated_at??null
+  }));
+  const counts=owned.reduce((acc:any,m:any)=>{const k=String(m.status||"unknown");acc[k]=(acc[k]||0)+1;return acc},{} as Record<string,number>);
+  return {
+    autonomy_mode:String(controller?.desired_mode||"stopped"),
+    last_cloud_tick_at:controller?.last_cloud_tick_at??null,
+    last_cloud_status:controller?.last_cloud_status??null,
+    active_mission:active?{
+      mission_id:String(active.mission_id),
+      goal:String(active.goal||""),
+      status:String(active.status||""),
+      current_step:Number(active.current_step||0),
+      total_steps:Number(active.total_steps||active.checkpoint?.plan?.length||0),
+      completed_steps:Number(active.completed_steps||0),
+      next_action:active.next_action??null,
+      phase:missionPhase(active)
+    }:null,
+    counts,
+    recent_missions:recent
+  };
+}
 async function meditationStatus(userId: string) { const { data, error } = await serviceClient().schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id", "primary").maybeSingle(); if (error) throw new Error(error.message); if (data?.owner_user_id && data.owner_user_id !== userId) return { owned: false, desired_mode: "stopped", controller_id: "primary" }; return { owned: Boolean(data?.owner_user_id), controller: data }; }
 async function meditationControl(userId: string, action: string) {
   const mode = action === "activate" || action === "start"
@@ -235,7 +317,7 @@ async function markMeditationNotificationsReadForUser(userId:string,body:any){
   if(error)throw new Error(error.message);
   return{ok:true,marked_read:Number(data?.length||0),notification_ids:(data||[]).map((x:any)=>String(x.notification_id))};
 }
-async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);if(controller?.owner_user_id&&controller.owner_user_id!==userId)return{version:"aria-meditation-dashboard-v1",mode:"stopped",controller:null,active_mission:null,missions:[],human_gates:[],blocked:[],counts:{missions:0,human_gates:0,blocked:0}};const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at").order("updated_at",{ascending:false}).limit(100);if(me)throw new Error(me.message);const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(controller?.session_id&&md.meditation_session_id===controller.session_id)});const missions=await Promise.all(owned.slice(0,30).map(async(m:any)=>{const steps=rows(m),tw=steps.reduce((a,s)=>a+s.weight,0),dw=steps.filter(s=>s.status==='succeeded'||s.status==='skipped').reduce((a,s)=>a+s.weight,0),progress=tw?Math.max(0,Math.min(100,Math.round(dw/tw*1000)/10)):(m.total_steps?Math.round((m.completed_steps||0)/m.total_steps*1000)/10:0),eta=await etaFor(sb,steps);return{...m,progress_percent:progress,step_count:steps.length,steps,eta,terminal:terminal.has(String(m.status))};}));const active=missions.find(m=>['running','queued','planning','paused','waiting'].includes(String(m.status)))??null;const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),reason:m.last_stderr||m.next_action||m.checkpoint?.recovery?.status||"La misión quedó bloqueada.",next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:["Revisa el motivo indicado.",m.next_action?`Siguiente acción: ${m.next_action}`:"Determina qué recurso o autorización falta.","Corrige el bloqueo y vuelve a ejecutar la misión desde el checkpoint."],updated_at:m.updated_at}));return{version:"aria-meditation-dashboard-v1",mode:String(controller?.desired_mode??"stopped"),controller,active_mission:active,missions,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),counts:{missions:missions.length,human_gates:gates.length,blocked:blocked.length}};}
+async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);if(controller?.owner_user_id&&controller.owner_user_id!==userId)return{version:"aria-meditation-dashboard-v1",mode:"stopped",controller:null,active_mission:null,missions:[],human_gates:[],blocked:[],counts:{missions:0,human_gates:0,blocked:0}};const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at").order("updated_at",{ascending:false}).limit(100);if(me)throw new Error(me.message);const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(controller?.session_id&&md.meditation_session_id===controller.session_id)});const missions=await Promise.all(owned.slice(0,30).map((m:any)=>enrichMission(m,sb)));const active=missions.find(m=>['running','queued','planning','paused','waiting'].includes(String(m.status)))??null;const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),reason:m.last_stderr||m.next_action||m.checkpoint?.recovery?.status||"La misión quedó bloqueada.",next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:["Revisa el motivo indicado.",m.next_action?`Siguiente acción: ${m.next_action}`:"Determina qué recurso o autorización falta.","Corrige el bloqueo y vuelve a ejecutar la misión desde el checkpoint."],updated_at:m.updated_at}));return{version:"aria-meditation-dashboard-v1",mode:String(controller?.desired_mode??"stopped"),controller,active_mission:active,missions,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),counts:{missions:missions.length,human_gates:gates.length,blocked:blocked.length}};}
 
 Deno.serve(async (req) => {
   const trace = req.headers.get("x-aria-trace-id") ?? crypto.randomUUID();
@@ -254,7 +336,18 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/meditation/notifications")) { const url = new URL(req.url); const unreadOnly = url.searchParams.get("unread_only") === "true"; const limit = Number(url.searchParams.get("limit") || 50); return json({ ok: true, ...(await meditationNotificationsForUser(user.id, unreadOnly, limit)), trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/meditation/notifications/read")) { const body = await req.json().catch(() => null); return json({ ...await markMeditationNotificationsReadForUser(user.id, body), trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/media/upload-url")) { const body = await req.json().catch(() => null); const fileName = typeof body?.fileName === "string" && body.fileName.trim() ? body.fileName.trim().replace(/[^A-Za-z0-9._-]/g, "_") : "upload.bin"; const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`; const { data, error } = await serviceClient().storage.from(MEDIA_BUCKET).createSignedUploadUrl(objectPath); if (error || !data?.signedUrl) return json({ error: "media_upload_url_failed", stage: "media", trace_id: trace }, 502); return json({ ok: true, bucket: MEDIA_BUCKET, path: objectPath, signedUrl: data.signedUrl, trace_id: trace }); }
-    if (req.method === "POST" && path.endsWith("/conversation")) { const body = await req.json().catch(() => null); const parts = Array.isArray(body?.parts) ? body.parts : []; const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n"); if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400); const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID(); const memory = await recall(text,user.id); let step: any; try { step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 }); } catch (e) { return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503); } const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n"); const prompt = ["Eres ARIA. Responde directamente al usuario.","No inventes acciones ejecutadas.",context ? "Memoria contextual autorizada:\n" + context : "","Usuario: " + text].filter(Boolean).join("\n\n"); try { const execution = await executeConversationWithFallback(step, prompt, conversationId); const result=execution.result; const content = typeof result?.response?.content === "string" ? result.response.content.trim() : ""; if (!content) throw new Error("empty_conversation_response"); return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count }, trace_id: trace }); } catch (e) { return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502); } }
+    if (req.method === "POST" && path.endsWith("/conversation")) { const body = await req.json().catch(() => null); const parts = Array.isArray(body?.parts) ? body.parts : []; const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n"); if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400); const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID(); const memory = await recall(text,user.id); let step: any; try { step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 }); } catch (e) { return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503); } const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
+      const live = await liveAssistantContext(user.id).catch(() => null);
+      const liveText = live ? "Estado LIVE del sistema ARIA (fuente operativa):\n" + JSON.stringify(live) : "";
+      const prompt = [
+        "Eres ARIA, la IA operativa del sistema.",
+        "Conoces el estado actual de tu runtime y debes responder sobre lo que está ocurriendo realmente.",
+        "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto LIVE demuestra lo contrario.",
+        "No inventes acciones ejecutadas. Distingue siempre entre en cola, ejecutando, bloqueada, completada o fallida.",
+        liveText,
+        context ? "Memoria contextual autorizada:\n" + context : "",
+        "Usuario: " + text
+      ].filter(Boolean).join("\n\n"); try { const execution = await executeConversationWithFallback(step, prompt, conversationId); const result=execution.result; const content = typeof result?.response?.content === "string" ? result.response.content.trim() : ""; if (!content) throw new Error("empty_conversation_response"); return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count }, trace_id: trace }); } catch (e) { return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502); } }
     if (req.method === "POST" && path.endsWith("/missions")) { const body = await req.json().catch(() => null); const goal = typeof body?.goal === "string" ? body.goal.trim() : ""; if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400); const direct = await internal(DIRECT, { goal, mission_id: typeof body?.missionId === "string" ? body.missionId : undefined, metadata: { source_application: "aria-app-v1", user_id: user.id, goal_source: "user" }, "x-aria-user-id": user.id }); if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status); return json({ ok: true, ...direct.b, trace_id: trace }); }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
