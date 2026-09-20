@@ -29,8 +29,8 @@ async function resolveToolRoute(agent: any) {
     .map((x:any)=>String(x.model_id))
     .filter((id:string)=>id.endsWith("-direct"));
   const preferredOrder = [
-    "google/gemini-3.5-flash-direct",
     "google/gemini-3.1-flash-lite-direct",
+    "google/gemini-3.5-flash-direct",
     "google/gemini-3.5-flash-lite-direct",
   ];
   const google = preferredOrder.find((id)=>googleCandidates.includes(id)) || googleCandidates[0];
