@@ -38,8 +38,7 @@ Deno.serve(async r=>{
   try{
     const control=await meditationActive();
     if(control){
-      const meditation=await meditationKick(r,control);
-      return out({ok:meditation.http_status>=200&&meditation.http_status<300&&meditation.ok!==false,deprecated:false,canonical_authority:"aria-device-gateway:/v1/meditation/tick-service",meditation});
+      return out({ok:true,status:"paused_load_guard",deprecated:false,canonical_authority:"aria-device-gateway:/v1/meditation/tick-service",meditation:{status:"paused_load_guard",reason:"temporary_resource_stabilization",session_id:control.session_id}});
     }
     const response=await fetch(CANONICAL,{
       method:"POST",
