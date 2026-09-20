@@ -318,35 +318,102 @@ async function connectorExecute(missionId: string, step: any, token: string | nu
   throw new Error(`connector_operation_not_allowed:${connector}:${operation}`);
 }
 
+async function verifiedModelFallbackRoutes(original: any, operation: string) {
+  if (operation !== "text_generation") return [];
+  if (String(original?.provider_id || "") !== "openrouter") return [];
+  const risk = String(original?.risk || "READ").toUpperCase();
+  if (risk !== "READ") return [];
+  const [modelsRes, capsRes, accountsRes] = await Promise.all([
+    sb.schema("aria_internal").from("model_registry").select("model_id,provider_id,status,enabled").eq("provider_id","openrouter"),
+    sb.schema("aria_internal").from("capability_matrix").select("model_id,status,verified_at").eq("capability_id","text_generation").eq("status","verified"),
+    sb.schema("aria_internal").from("account_registry").select("account_id,provider_id,status,enabled").eq("provider_id","openrouter"),
+  ]);
+  if (modelsRes.error || capsRes.error || accountsRes.error) return [];
+  const caps = new Map((capsRes.data || []).map((x:any) => [String(x.model_id), x]));
+  const accounts = (accountsRes.data || []).filter((x:any) => x.enabled && ["available","active"].includes(String(x.status)));
+  const out:any[] = [];
+  for (const model of modelsRes.data || []) {
+    const modelId = String(model.model_id || "");
+    const cap = caps.get(modelId);
+    if (!model.enabled || String(model.status) !== "available" || !modelId.endsWith(":free") || !cap) continue;
+    const account = accounts.find((a:any) => a.provider_id === model.provider_id);
+    if (!account) continue;
+    out.push({
+      status: "selected",
+      provider_id: "openrouter",
+      account_id: String(account.account_id),
+      model_id: modelId,
+      capability: operation,
+      _verified_at: cap.verified_at || null,
+    });
+  }
+  out.sort((a:any,b:any) => String(b._verified_at || "").localeCompare(String(a._verified_at || "")));
+  return out.map(({_verified_at,...route}:any) => route);
+}
+
 async function modelExecute(missionId: string, step: any, auth: AuthContext) {
-  const route = {
+  const primary = {
     status: "selected",
     provider_id: String(step.target.provider_id),
     account_id: String(step.target.account_id),
     model_id: String(step.target.model_id),
     capability: String(step.operation),
   };
+  const fallbackRoutes = await verifiedModelFallbackRoutes({ ...primary, risk: step.risk }, String(step.operation));
+  const routes = [primary, ...fallbackRoutes.filter((r:any) => r.provider_id !== primary.provider_id || r.account_id !== primary.account_id || r.model_id !== primary.model_id)].slice(0,4);
+  const failures:any[] = [];
   const authorization = step.authorization && typeof step.authorization === "object"
     ? step.authorization
     : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
-  const response = await fetch(EXEC, {
-    method: "POST",
-    headers: downstreamHeaders(auth),
-    body: JSON.stringify({
-      execution_version: "1",
-      request_id: `${missionId}:${step.id}`,
-      task_id: step.id,
-      capability: String(step.operation),
-      selected_route: route,
-      authorization,
-      input: step.input || {},
-      policy: step.policy || {},
-      metadata: { mission_id: missionId, step_id: step.id, executor_type: "model", runner: V },
-    }),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || body?.status !== "succeeded") throw new Error(String(body?.error?.message || body?.error || `execution_${response.status}`));
-  return { ...body, executor_type: "model", operation: step.operation, provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id };
+
+  for (const route of routes) {
+    const response = await fetch(EXEC, {
+      method: "POST",
+      headers: downstreamHeaders(auth),
+      body: JSON.stringify({
+        execution_version: "1",
+        request_id: `${missionId}:${step.id}:${crypto.randomUUID()}`,
+        task_id: step.id,
+        capability: String(step.operation),
+        selected_route: route,
+        authorization,
+        input: step.input || {},
+        policy: step.policy || {},
+        metadata: { mission_id: missionId, step_id: step.id, executor_type: "model", runner: V, fallback_route: route.model_id !== primary.model_id },
+      }),
+    });
+    const body = await response.json().catch(() => null);
+    if (response.ok && body?.status === "succeeded") {
+      return { ...body, executor_type: "model", operation: step.operation, provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id, model_fallback_used: route.model_id !== primary.model_id, model_fallback_attempts: failures.length };
+    }
+    const err = body?.error && typeof body.error === "object" ? body.error : { message: String(body?.error || body?.reason || `execution_${response.status}`) };
+    failures.push({
+      provider_id: route.provider_id,
+      account_id: route.account_id,
+      model_id: route.model_id,
+      http_status: response.status,
+      code: String(err.code || "execution_failed"),
+      message: String(err.message || "model execution failed"),
+      provider_status: err.provider_status ?? null,
+    });
+  }
+
+  const last = failures[failures.length - 1] || { code: "execution_failed", message: "model execution failed" };
+  return {
+    status: "failed",
+    executor_type: "model",
+    operation: step.operation,
+    provider_id: primary.provider_id,
+    account_id: primary.account_id,
+    model_id: primary.model_id,
+    error: {
+      code: "model_execution_failed",
+      message: String(last.message || "model execution failed"),
+      provider_status: last.provider_status ?? null,
+      attempts: failures.length,
+    },
+    model_execution_failures: failures.map((x:any) => ({ provider_id:x.provider_id, model_id:x.model_id, http_status:x.http_status, code:x.code, message:x.message, provider_status:x.provider_status })),
+  };
 }
 
 async function agentExecute(missionId: string, step: any, auth: AuthContext) {
