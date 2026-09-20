@@ -39,6 +39,9 @@ assert.match(loopSource, /thoughtSignature/, 'Gemini thought signatures must be 
 assert.match(loopSource, /gemini-3.5-flash-direct/, 'agent runtime must have a verified Google free-model fallback order');
 assert.match(loopSource, /gemini-3.1-flash-lite-direct/, 'agent runtime must include a second Google free-model fallback');
 assert.match(loopSource, /github_file_patch/, 'coding agent must have a governed targeted patch tool');
+assert.match(loopSource, /inspect pwa\\/src\\/App\\.tsx/, 'UI implementation prompt must require PWA source inspection');
+assert.match(loopSource, /Do NOT return NO_CHANGE_REQUIRED/, 'implementation missions must not silently downgrade to read-only analysis');
+assert.match(loopSource, /max_completion_tokens:4000/, 'coding agent needs sufficient output for tool-driven implementation');
 assert.match(loopSource, /patch_match_count_/, 'targeted patch must fail closed on non-unique matches');
 assert.doesNotMatch(loopSource, /preferred\.startsWith\("google\/"/, 'exhausted Google catalog preference must not bypass fallback ordering');
 assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');
