@@ -8,7 +8,7 @@ const required = [
   "verifiedModelFallbackRoutes",
   'String(original?.provider_id || "") !== "openrouter"',
   'risk !== "READ"',
-  'provider_id, "google"',
+  .in("provider_id", ["openrouter", "google"])
   'providerId === "google" && !modelId.endsWith("-direct")',
   'providerId === "openrouter" && !modelId.endsWith(":free")',
   'Array.isArray(a.models)',
