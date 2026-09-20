@@ -1,0 +1,50 @@
+name: Apply ARIA Supabase migrations
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROJECT_REF: icuqsstxfdbvjytkhlog
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Validate migration credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${SUPABASE_DB_URL}" ]; then
+            echo "Using configured database URL."
+          elif [ -n "${SUPABASE_DB_PASSWORD}" ]; then
+            echo "Using configured project password."
+          else
+            echo "No database connection secret is configured."
+            exit 1
+          fi
+
+      - name: Apply migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${SUPABASE_DB_URL}" ]; then
+            supabase db push --db-url "${SUPABASE_DB_URL}" --yes
+          else
+            supabase link --project-ref "${PROJECT_REF}" --password "${SUPABASE_DB_PASSWORD}" --yes
+            supabase db push --linked --yes
+          fi
