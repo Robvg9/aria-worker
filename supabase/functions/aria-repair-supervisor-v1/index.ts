@@ -86,6 +86,55 @@ function changedNeedsMainVerification(files: any[]) {
   });
 }
 
+async function ensureQueuedMissions() {
+  const { data: devices, error: deviceError } = await sb.schema("aria_internal").from("device_registry")
+    .select("device_id,agent_type,status,last_seen_at")
+    .eq("agent_type", "android-termux")
+    .eq("status", "online")
+    .order("last_seen_at", { ascending: false })
+    .limit(1);
+  if (deviceError) throw new Error(deviceError.message);
+  const device = devices?.[0];
+  if (!device?.device_id) return { status: "awaiting_device", queued: 0 };
+
+  const { data: missions, error: missionError } = await sb.schema("aria_internal").from("mission_state")
+    .select("mission_id,goal,status,metadata,created_at,updated_at")
+    .eq("status", "queued")
+    .contains("metadata", { autonomy_managed: true })
+    .order("created_at", { ascending: true })
+    .limit(20);
+  if (missionError) throw new Error(missionError.message);
+
+  let queued = 0;
+  let skipped = 0;
+  for (const mission of missions ?? []) {
+    const source = String(mission?.metadata?.goal_source ?? mission?.metadata?.source ?? "").toLowerCase();
+    if (!(source.includes("chat") || source.includes("user") || source.includes("direct"))) {
+      skipped++;
+      continue;
+    }
+    const { data: existing, error: queueError } = await sb.schema("aria_internal").from("meditation_queue")
+      .select("queue_id,status,resolved_mission_id")
+      .eq("item_type", "mission")
+      .eq("item_id", String(mission.mission_id))
+      .in("status", ["queued", "running", "paused"])
+      .limit(1);
+    if (queueError) throw new Error(queueError.message);
+    if (existing?.length) {
+      skipped++;
+      continue;
+    }
+    const { error } = await sb.rpc("meditation_queue_add", {
+      p_device_id: String(device.device_id),
+      p_item_type: "mission",
+      p_item_id: String(mission.mission_id),
+    });
+    if (error) throw new Error(error.message);
+    queued++;
+  }
+  return { status: "queued", queued, skipped, device_id: device.device_id };
+}
+
 async function updateBlocked(mission: any, patch: Record<string, unknown>) {
   const claimed = await rpc("aria_mission_claim_by_id_lease", {
     p_mission_id: mission.mission_id,
@@ -310,6 +359,8 @@ Deno.serve(async (req: Request) => {
   if (!(await authorized(req))) return out({ error: "unauthorized" }, 401);
 
   try {
+    const queueRecovery = await ensureQueuedMissions();
+
     const { data, error } = await sb.schema("aria_internal")
       .from("mission_state")
       .select("mission_id,goal,status,total_steps,current_step,completed_steps,next_action,last_stderr,checkpoint,metadata,updated_at,created_at")
@@ -327,7 +378,7 @@ Deno.serve(async (req: Request) => {
         results.push({ mission_id: mission.mission_id, status: "supervisor_error", error: error instanceof Error ? error.message : String(error) });
       }
     }
-    return out({ ok: true, supervisor: WORKER, scanned: data?.length ?? 0, results });
+    return out({ ok: true, supervisor: WORKER, queue_recovery: queueRecovery, scanned: data?.length ?? 0, results });
   } catch (error) {
     return out({ ok: false, supervisor: WORKER, error: error instanceof Error ? error.message : String(error) }, 200);
   }
