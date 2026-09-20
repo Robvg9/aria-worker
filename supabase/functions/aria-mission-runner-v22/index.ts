@@ -201,7 +201,9 @@ function verifyStep(step: any, result: any) {
   if (typeof verify.stdout_contains === "string" && !String(result?.stdout ?? "").includes(verify.stdout_contains)) return false;
   if (typeof verify.stderr_contains === "string" && !String(result?.stderr ?? "").includes(verify.stderr_contains)) return false;
   if (typeof verify.response_content_equals === "string" && String(result?.response?.content ?? result?.response?.output_text ?? "") !== verify.response_content_equals) return false;
-  if (typeof verify.response_content_contains === "string" && !String(result?.response?.content ?? result?.response?.output_text ?? "").includes(verify.response_content_contains)) return false;
+  const responseContent = String(result?.response?.content ?? result?.response?.output_text ?? "").trim();
+  if (verify.response_content_nonempty === true && !responseContent) return false;
+  if (typeof verify.response_content_contains === "string" && !responseContent.includes(verify.response_content_contains)) return false;
   return true;
 }
 
