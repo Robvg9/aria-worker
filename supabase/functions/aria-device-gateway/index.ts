@@ -742,7 +742,29 @@ async function allForOneTick(){
   }
   return{ok:true,status:'idle',run_id:run.run_id};
 }
-Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-probe'){
+Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-model-probe'){
+  try{
+    if(!RUNTIME_SECRET)return json({ok:false,error:'runtime_secret_unavailable'},503);
+    const response=await fetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
+      method:'POST',
+      headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'rwht-direct-model-probe'},
+      body:JSON.stringify({
+        execution_version:'1',
+        request_id:'rwht-direct-model-probe',
+        task_id:'rwht-direct-model-probe',
+        capability:'text_generation',
+        selected_route:{status:'selected',provider_id:'openrouter',account_id:'acct_openrouter_primary',model_id:'nex-agi/nex-n2.5-mini:free',capability:'text_generation'},
+        authorization:{status:'approved',risk_class:'READ',evidence_ref:'rwht-direct-model-probe'},
+        input:{payload:{prompt:'FINDINGS. ARIA direct runtime probe. Return the exact marker ARIA_RUNTIME_PROBE_OK and one short factual sentence.',max_tokens:120,temperature:0}},
+        policy:{risk:'READ',runtime_probe:true},
+        metadata:{source:'rwht-direct-model-probe'}
+      })
+    });
+    const text=await response.text();
+    return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
+  }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e)},502);}
+}
+if(req.method==='POST'&&p==='/v1/rwht-final-probe'){
   if(String(b?.mission_id||'')!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
   if(!RUNTIME_SECRET)return json({error:'runtime_secret_unavailable'},503);
   try{
