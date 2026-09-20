@@ -7,6 +7,10 @@ const supervisorSource=fs.readFileSync(path.join(__dirname,'..','supabase','func
 assert(gatewaySource.includes("p==='/v1/meditation/tick-service'"),'cloud Meditation tick service route missing');
 assert(gatewaySource.includes("last_cloud_tick_at"),'cloud Meditation tick must persist tick evidence');
 assert(supervisorSource.includes('/v1/meditation/tick-service'),'Meditation supervisor must invoke canonical cloud tick');
+assert(gatewaySource.includes("eq('metadata->>device_id',deviceId)"),'Meditation mission selection must be device-scoped');
+assert(gatewaySource.includes("metadata->>meditation_session_id"),'Meditation mission selection must be session-scoped');
+assert(gatewaySource.includes("let deviceId=String(b.device_id||'')"),'Meditation service must not trust stale control device identity');
+assert(supervisorSource.includes('device_id:null'),'Meditation supervisor must not forward stale device identity');
 
 (async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'aria-meditation-'));const events=[];let commands=[];let ticks=0;let checkpoints=0;const store=createFileStateStore({root_dir:root});const controller=createMeditationController({stateStore:store,commandSource:{async read(offset){const entries=commands.map(c=>({command:c,next_offset:offset+c.length+1}));commands=[];return{entries,next_offset:entries.at(-1)?.next_offset??offset}}},log:async m=>events.push(m),requestTick:async({tick})=>{ticks++;return{ok:true,status:'idle',tick}},checkpoint:async r=>{checkpoints++;return{status:'saved',...r}},isUserIdle:async()=>true,ensureNotepad:async()=>events.push('NOTEPAD'),now:()=>new Date(100000),heartbeat_ms:30000,min_idle_seconds:45,max_consecutive_failures:3});
 assert.equal(fingerprintMission(' Abre   PowerShell '),'abre powershell');const policy=createMeditationPolicy();assert.equal(autonomousActionAllowed({risk:'low'},policy).allowed,true);assert.equal(autonomousActionAllowed({risk:'critical'},policy).allowed,false);assert.equal(autonomousActionAllowed({production_merge:true,risk:'low'},policy).allowed,false);
