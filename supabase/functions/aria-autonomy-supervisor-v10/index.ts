@@ -7,6 +7,8 @@ const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const GITHUB = `${URL}/functions/v1/aria-github-app-runtime-v1`;
 const CANONICAL = `${URL}/functions/v1/aria-canonical-runtime-v1`;
 const WORKER = "aria-repair-supervisor-v1";
+const CANONICAL_AUTHORITY = "aria-autonomy-supervisor-v5";
+const GATEWAY = "${URL}/functions/v1/aria-device-gateway";
 const sb = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } });
 
 const out = (body: unknown, status = 200) =>
@@ -32,6 +34,23 @@ async function authorized(req: Request) {
   if (!cron) return false;
   const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: cron });
   return !error && data === true;
+}
+
+async function meditationTick(req: Request) {
+  const headers = {
+    ...(req.headers.get("x-aria-autonomy-token")
+      ? { "x-aria-autonomy-token": req.headers.get("x-aria-autonomy-token")! }
+      : { authorization: `Bearer ${SECRET}` }),
+    "content-type": "application/json",
+    "x-aria-trigger": "meditation-ia-cloud-supervisor",
+  };
+  const response = await fetch(`${GATEWAY}/v1/meditation/tick-service`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ device_id: null, source: "aria-autonomy-supervisor-v10" }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { http_status: response.status, ...payload };
 }
 
 async function rpc(name: string, args: Record<string, unknown>) {
@@ -378,7 +397,15 @@ Deno.serve(async (req: Request) => {
         results.push({ mission_id: mission.mission_id, status: "supervisor_error", error: error instanceof Error ? error.message : String(error) });
       }
     }
-    return out({ ok: true, supervisor: WORKER, queue_recovery: queueRecovery, scanned: data?.length ?? 0, results });
+    return out({
+      ok: true,
+      supervisor: WORKER,
+      canonical_authority: CANONICAL_AUTHORITY,
+      meditation_tick: meditation,
+      queue_recovery: queueRecovery,
+      scanned: data?.length ?? 0,
+      results
+    });
   } catch (error) {
     return out({ ok: false, supervisor: WORKER, error: error instanceof Error ? error.message : String(error) }, 200);
   }
