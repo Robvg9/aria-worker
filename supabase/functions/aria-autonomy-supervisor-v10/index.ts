@@ -8,7 +8,7 @@ const GITHUB = `${URL}/functions/v1/aria-github-app-runtime-v1`;
 const CANONICAL = `${URL}/functions/v1/aria-canonical-runtime-v1`;
 const WORKER = "aria-repair-supervisor-v1";
 const CANONICAL_AUTHORITY = "aria-autonomy-supervisor-v5";
-const GATEWAY = "${URL}/functions/v1/aria-device-gateway";
+const GATEWAY = `${URL}/functions/v1/aria-device-gateway`;
 const sb = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } });
 
 const out = (body: unknown, status = 200) =>
@@ -47,7 +47,7 @@ async function meditationTick(req: Request) {
   const response = await fetch(`${GATEWAY}/v1/meditation/tick-service`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ device_id: null, source: "aria-autonomy-supervisor-v10" }),
+    body: JSON.stringify({device_id:null,source:"aria-autonomy-supervisor-v10"}),
   });
   const payload = await response.json().catch(() => ({}));
   return { http_status: response.status, ...payload };
@@ -399,6 +399,7 @@ Deno.serve(async (req: Request) => {
     }
     return out({
       ok: true,
+      deprecated: true,
       supervisor: WORKER,
       canonical_authority: CANONICAL_AUTHORITY,
       meditation_tick: meditation,
