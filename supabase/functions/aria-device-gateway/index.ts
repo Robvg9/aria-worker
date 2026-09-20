@@ -6,6 +6,8 @@ const supabase=createClient(SUPABASE_URL,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY
 const CANONICAL_RUNTIME=`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-canonical-runtime-v1`;
 const RUNTIME_SECRET=Deno.env.get('ARIA_RUNTIME_SHARED_SECRET')||'';
 const LEARNING=`${Deno.env.get("SUPABASE_URL")}/functions/v1/aria-learning-v3`;
+import postgres from "npm:postgres@3.4.7";
+
 function json(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','cache-control':'no-store'}})}
 async function hash(t:string){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}
 async function body(r:Request){try{return await r.json()}catch{return {}}}
@@ -742,7 +744,23 @@ async function allForOneTick(){
   }
   return{ok:true,status:'idle',run_id:run.run_id};
 }
-Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-direct-db-capability'){
+Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-final-repair'){
+  if(String(b?.mission_id||'')!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
+  const dbUrl=Deno.env.get('SUPABASE_DB_URL')||'';
+  if(!dbUrl)return json({error:'db_url_unavailable'},503);
+  let sql:any=null;
+  try{
+    sql=postgres(dbUrl,{max:1,idle_timeout:5,connect_timeout:10});
+    await sql`select pg_notify('pgrst','reload schema')`;
+    await sql`select pg_notify('pgrst','reload config')`;
+    await new Promise(r=>setTimeout(r,1200));
+    if(!RUNTIME_SECRET)return json({error:'runtime_secret_unavailable'},503);
+    const response=await fetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'meditation-ia'},body:JSON.stringify({mission_id:'mission_rwht_final_20260920_02'})});
+    const text=await response.text();
+    return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
+  }catch(e){return json({ok:false,status:'repair_probe_failed',error:e instanceof Error?e.message:String(e)},502);}
+  finally{try{await sql?.end({timeout:5});}catch{}}
+}if(req.method==='POST'&&p==='/v1/rwht-direct-db-capability'){
   return json({
     db_url:!!Deno.env.get('SUPABASE_DB_URL'),
     database_url:!!Deno.env.get('DATABASE_URL'),
