@@ -22,7 +22,6 @@ async function recordDiagnostic(missionId: string, stepId: string, payload: Reco
 
 async function resolveToolRoute(agent: any) {
   const preferred = String(agent?.model?.model_id ?? agent?.model_id ?? "").trim();
-  if (preferred.startsWith("google/") && preferred.endsWith("-direct")) return { provider: "google", model: preferred.slice("google/".length, -"-direct".length) };
   if (preferred.startsWith("openrouter/")) return { provider: "openrouter", model: preferred };
 
   const { data: googleModels } = await internal.from("model_registry").select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
