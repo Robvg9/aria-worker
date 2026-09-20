@@ -19,7 +19,7 @@ assert.doesNotMatch(source, /\\(\\?i\\)/, 'planner source must not contain unsup
 assert.match(source, /const repairIntent=/, 'repair intent route missing');
 assert.match(source, /operationAuditPlan/, 'operation forensic route missing');
 assert.match(source, /planner-v11-operation-forensic-v1/, 'operation forensic planner marker missing');
-for (const term of ['corregir','crear','implementar','modificar','actualizar','añadir','anadir','eliminar','desarrollar','refactorizar','escribir','migrar','promover']) {
+for (const term of ['corregir','crear','implementar','modificar','actualizar','añadir','anadir','eliminar','desarrollar','refactorizar','escribir','migrar','promover','arreglar','arregla','arreglalo','solucionar','reparar']) {
   assert.ok(mutation[0].includes(term), `Spanish mutation term missing: ${term}`);
 }
 console.log('PLANNER V11 LIVE SYNC + SPANISH INTENT CONTRACT: PASS');
