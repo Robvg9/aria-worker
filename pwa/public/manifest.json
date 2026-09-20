@@ -10,6 +10,6 @@
   "theme_color": "#09070f",
   "background_color": "#09070f",
   "icons": [
-    {"src":"./icons/aria.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+    {"src":"/icons/aria.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
   ]
 }
