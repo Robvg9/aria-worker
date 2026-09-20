@@ -26,7 +26,15 @@ async function resolveToolRoute(agent: any) {
   if (preferred.startsWith("openrouter/")) return { provider: "openrouter", model: preferred };
 
   const { data: googleModels } = await internal.from("model_registry").select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
-  const google = (googleModels ?? []).map((x:any)=>String(x.model_id)).find((id:string)=>id.endsWith("-direct"));
+  const googleCandidates = (googleModels ?? [])
+    .map((x:any)=>String(x.model_id))
+    .filter((id:string)=>id.endsWith("-direct"));
+  const preferredOrder = [
+    "google/gemini-3.5-flash-direct",
+    "google/gemini-3.1-flash-lite-direct",
+    "google/gemini-3.5-flash-lite-direct",
+  ];
+  const google = preferredOrder.find((id)=>googleCandidates.includes(id)) || googleCandidates[0];
   if (google) return { provider:"google", model:google.slice("google/".length,-"-direct".length) };
 
   const { data: openModels } = await internal.from("model_registry").select("model_id,status,enabled").eq("provider_id","openrouter").eq("status","available").eq("enabled",true);
