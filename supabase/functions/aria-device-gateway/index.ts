@@ -742,7 +742,30 @@ async function allForOneTick(){
   }
   return{ok:true,status:'idle',run_id:run.run_id};
 }
-Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-model-probe'){
+Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);
+if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
+  const requestedProbeMission=req.method==='GET'?String(u.searchParams.get('mission_id')||''):String(b?.mission_id||'');
+  if(requestedProbeMission!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
+  let dbReload:any={attempted:false,ok:false};
+  try{
+    const dbUrl=Deno.env.get('SUPABASE_DB_URL')||'';
+    if(dbUrl){
+      const mod:any=await import('https://deno.land/x/postgresjs@v3.4.5/mod.js');
+      const sql=mod.default(dbUrl,{connect_timeout:5,max_lifetime:30});
+      try{
+        const rows=await sql`select n.nspname as schema,p.proname,pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid=p.pronamespace where p.proname='aria_autonomy_recover_stale_missions'`;
+        await sql`notify pgrst, 'reload schema'`;
+        dbReload={attempted:true,ok:true,function_count:Array.isArray(rows)?rows.length:0};
+      }finally{await sql.end({timeout:2});}
+    }else dbReload={attempted:true,ok:false,reason:'SUPABASE_DB_URL_UNAVAILABLE'};
+  }catch(e){dbReload={attempted:true,ok:false,reason:e instanceof Error?e.message:String(e)}}
+  if(!RUNTIME_SECRET)return json({error:'runtime_secret_unavailable',dbReload},503);
+  try{
+    const response=await fetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'meditation-ia'},body:JSON.stringify({mission_id:'mission_rwht_final_20260920_02'})});
+    const text=await response.text();
+    return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store','x-aria-db-reload':JSON.stringify(dbReload)}});
+  }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e),dbReload},502);}
+}if(req.method==='POST'&&p==='/v1/rwht-model-probe'){
   try{
     if(!RUNTIME_SECRET)return json({ok:false,error:'runtime_secret_unavailable'},503);
     const response=await fetch(`${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`,{
