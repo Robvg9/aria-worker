@@ -38,6 +38,8 @@ assert.match(loopSource, /geminiParts/, 'Gemini response parts must be preserved
 assert.match(loopSource, /thoughtSignature/, 'Gemini thought signatures must be preserved across tool turns');
 assert.match(loopSource, /gemini-3.5-flash-direct/, 'agent runtime must have a verified Google free-model fallback order');
 assert.match(loopSource, /gemini-3.1-flash-lite-direct/, 'agent runtime must include a second Google free-model fallback');
+assert.match(loopSource, /github_file_patch/, 'coding agent must have a governed targeted patch tool');
+assert.match(loopSource, /patch_match_count_/, 'targeted patch must fail closed on non-unique matches');
 assert.doesNotMatch(loopSource, /preferred\.startsWith\("google\/"/, 'exhausted Google catalog preference must not bypass fallback ordering');
 assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');
 assert.match(loopSource, /provider_id", "openrouter"/, 'tool model resolution must use the OpenRouter provider registry');
