@@ -111,6 +111,8 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
 
   const amCommand = [
     '/system/bin/am broadcast',
+    '--user', '0',
+    '--receiver-foreground',
     '-n', shellQuote(PACKAGE + '/' + RECEIVER),
     '-a', shellQuote(ACTION),
     '--es', 'payload_b64', shellQuote(encoded)
