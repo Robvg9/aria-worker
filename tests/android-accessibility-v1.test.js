@@ -26,9 +26,16 @@ assert.equal(invalid.reason, 'broadcast_result_invalid');
 const transport = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'android-accessibility-v1.js'), 'utf8');
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'aria-agent.js'), 'utf8');
 const manifest = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
+const receiver = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'CommandReceiver.kt'), 'utf8');
+
 assert.ok(transport.includes('/system/bin/am broadcast'));
+assert.ok(transport.includes("PATH: '/system/bin:/system/xbin:'"));
 assert.ok(agent.includes('android-accessibility-v1'));
 assert.ok(manifest.includes('AriaAccessibilityService'));
+assert.ok(manifest.includes('android:permission="android.permission.DUMP"'));
+assert.ok(receiver.includes('setResultData'));
+assert.ok(!receiver.includes('getSentFromUid'));
+assert.ok(!receiver.includes('Process.SHELL_UID'));
 assert.ok(!transport.includes('127.0.0.1:43817'));
 assert.ok(!agent.includes('android-browser-bridge-v1'));
 assert.ok(!manifest.includes('ARIA Browser Bridge'));
