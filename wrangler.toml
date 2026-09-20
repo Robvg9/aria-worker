@@ -10,4 +10,3 @@ crons = ["* * * * *"]
 
 [assets]
 directory = "./pwa/dist"
-run_worker_first = ["/pwa/*"]
