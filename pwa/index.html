@@ -6,8 +6,8 @@
   <meta name='theme-color' content='#09070f' />
   <meta name='description' content='ARIA — Centro de Mando Cognitivo' />
   <meta name='aria-build' content='%VITE_BUILD%' />
-  <link rel='manifest' href='./manifest-%VITE_BUILD%.json' />
-  <link rel='icon' href='./icons/aria.svg' type='image/svg+xml' />
+  <link rel='manifest' href='/manifest.json' />
+  <link rel='icon' href='/icons/aria.svg' type='image/svg+xml' />
   <title>ARIA — Centro de Mando</title>
 </head>
 <body>
@@ -16,7 +16,7 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', function () { window.location.reload(); });
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw-%VITE_BUILD%.js').then(function (registration) { return registration.update(); }).catch(function () {});
+        navigator.serviceWorker.register('/sw-%VITE_BUILD%.js', { scope: '/pwa/' }).then(function (registration) { return registration.update(); }).catch(function () {});
       });
     }
   </script>
