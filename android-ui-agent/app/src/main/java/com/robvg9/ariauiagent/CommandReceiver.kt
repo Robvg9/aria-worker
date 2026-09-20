@@ -5,8 +5,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
@@ -20,12 +22,12 @@ class CommandReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
 
-        val callingUid = Binder.getCallingUid()
+        val sentUid = if (Build.VERSION.SDK_INT >= 34) getSentFromUid() else Binder.getCallingUid()
         val pending = goAsync()
 
         executor.submit {
             try {
-                if (!isTrustedCaller(context, callingUid)) {
+                if (!isTrustedSender(sentUid)) {
                     finish(pending, false, """{"ok":false,"reason":"caller_not_allowed"}""")
                     return@submit
                 }
@@ -66,10 +68,8 @@ class CommandReceiver : BroadcastReceiver() {
         }, 9000L)
     }
 
-    private fun isTrustedCaller(context: Context, uid: Int): Boolean {
-        val packages = context.packageManager.getPackagesForUid(uid)?.toSet() ?: emptySet()
-        return "com.termux" in packages
-    }
+    private fun isTrustedSender(uid: Int): Boolean =
+        uid == Process.SHELL_UID
 
     private fun finish(pending: PendingResult, ok: Boolean, json: String) {
         if (pending.isFinished) return
