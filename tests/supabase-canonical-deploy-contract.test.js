@@ -12,7 +12,7 @@ assert.match(source,/supabase link --project-ref "\$SUPABASE_PROJECT_REF"/,'cano
 assert.match(source,/supabase migration fetch --linked --yes/,'canonical deploy must fetch remote migration files before push');
 assert.match(source,/supabase db push --include-all/,'canonical deploy must apply pending migrations');
 assert.ok(workerPwa.includes('const PWA_BUILD = "__PWA_BUILD__";'),'PWA build placeholder must be explicit');
-assert.ok(workerPwa.includes('const isShell=shellPath==="/index-"+PWA_BUILD+".html"||shellPath==="/manifest-"+PWA_BUILD+".json"||shellPath==="/sw-"+PWA_BUILD+".js"'),'immutable PWA shell paths must be explicitly identified');
+assert.ok(workerPwa.includes('const isShell=shellPath==="/index-"+PWA_BUILD+".html"||shellPath==="/manifest.json"||shellPath==="/sw-"+PWA_BUILD+".js"'),'immutable PWA shell paths must be explicitly identified');
 assert.ok(workerPwa.includes('shellPath="/index-"+PWA_BUILD+".html"'),'PWA root must map to immutable index asset');
 assert.ok(workerPwa.includes('shellPath="/manifest-"+PWA_BUILD+".json"'),'PWA manifest must map to immutable asset');
 assert.ok(workerPwa.includes('shellPath="/sw-"+PWA_BUILD+".js"'),'PWA legacy SW path must map to immutable service worker asset');
