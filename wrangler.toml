@@ -7,6 +7,3 @@ crons = ["* * * * *"]
 
 # OAuth proxy deployment sync checkpoint
 # OAuth HTML response hardening deployment trigger
-
-[assets]
-directory = "./pwa/dist"
