@@ -1,0 +1,24 @@
+name: RWHT Direct DB Capability Probe
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 60             -X POST -H 'content-type: application/json' -d '{}'             'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway/v1/rwht-direct-db-capability'             | tee /tmp/cap.json
+      - name: Assert
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/cap.json'))
+          print(json.dumps(p,indent=2))
+          PY
