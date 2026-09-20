@@ -322,10 +322,15 @@ async function meditationOverview(userId:string){const sb=serviceClient();const 
 function looksLikeMissionRequest(input: string) {
   const value = String(input || "").trim();
   if (!value) return false;
-  const action = /\b(misi[oó]n|ejecuta|ejecutar|haz|hacer|arregla|arreglar|arr[eé]glalo|corrige|corregir|crea|crear|implementa|implementar|modifica|modificar|actualiza|actualizar|despliega|desplegar|repara|reparar|soluciona|solucionar|construye|construir|prueba|probar|cambia|cambiar|a[nñ]ade|a[nñ]adir)\b/i.test(value);
+
+  // Treat direct "haz que..." instructions (and the common "has que..." typo)
+  // as executable requests before the broader action vocabulary check.
+  if (/\b(?:haz|has)\s+que\b/i.test(value)) return true;
+
+  const action = /\b(misi[oó]n|ejecuta|ejecutar|haz|hacer|arregla|arreglar|arr[eé]glalo|corrige|corregir|crea|crear|implementa|implementar|modifica|modificar|actualiza|actualizar|despliega|desplegar|repara|reparar|soluciona|solucionar|construye|construir|prueba|probar|cambia|cambiar|mueve|mover|pon|poner|organiza|organizar|rediseña|rediseñar|ordena|ordenar|quita|quitar|elimina|eliminar|a[nñ]ade|a[nñ]adir|agrega|agregar|configura|configurar|ajusta|ajustar)\b/i.test(value);
   if (!action) return false;
   const explanatory = /^(qu[eé] es|que es|c[oó]mo|como|por qu[eé]|porque|expl[ií]came|explica|dime qu[eé]|dime como)\b/i.test(value);
-  const explicitTask = /\b(necesito que|quiero que|hazlo|arreglalo|arr[eé]glalo|ejecuta esto|crea esto|implementa esto|dame una misi[oó]n|lanza una misi[oó]n|manda una misi[oó]n)\b/i.test(value);
+  const explicitTask = /\b(necesito que|quiero que|haz que|has que|hazlo|arreglalo|arr[eé]glalo|ejecuta esto|crea esto|implementa esto|dame una misi[oó]n|lanza una misi[oó]n|manda una misi[oó]n)\b/i.test(value);
   return !explanatory || explicitTask;
 }
 
