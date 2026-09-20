@@ -34,6 +34,8 @@ assert.match(loopSource, /resolveToolRoute/, 'tool loop must resolve a provider/
 assert.match(loopSource, /callGeminiModel/, 'tool loop must support Google Gemini direct function calling');
 assert.match(loopSource, /functionDeclarations/, 'Gemini tool declarations missing');
 assert.match(loopSource, /functionCallingConfig/, 'Gemini function calling config missing');
+assert.match(loopSource, /geminiParts/, 'Gemini response parts must be preserved for thought signatures');
+assert.match(loopSource, /thoughtSignature/, 'Gemini thought signatures must be preserved across tool turns');
 assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');
 assert.match(loopSource, /provider_id", "openrouter"/, 'tool model resolution must use the OpenRouter provider registry');
 assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
