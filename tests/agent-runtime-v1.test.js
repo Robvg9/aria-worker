@@ -47,7 +47,7 @@ assert.match(loopSource, /max_completion_tokens:4000/, 'coding agent needs suffi
 assert.match(loopSource, /patch_match_count_/, 'targeted patch must fail closed on non-unique matches');
 assert.doesNotMatch(loopSource, /preferred\.startsWith\("google\/"/, 'exhausted Google catalog preference must not bypass fallback ordering');
 assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');
-assert.match(loopSource, /provider_id", "openrouter"/, 'tool model resolution must use the OpenRouter provider registry');
+assert.match(loopSource, /eq\("provider_id","openrouter"\)/, 'tool model resolution must use the OpenRouter provider registry');
 assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
 assert.match(loopSource, /code|coder|coding/, 'tool model resolution must prefer coding-capable model names when available');
 assert.doesNotMatch(loopSource, /\bmax_tokens:\s*3000/);
