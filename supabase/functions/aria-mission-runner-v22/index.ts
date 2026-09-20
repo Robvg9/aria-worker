@@ -336,32 +336,67 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
   if (String(original?.provider_id || "") !== "openrouter") return [];
   const risk = String(original?.risk || "READ").toUpperCase();
   if (risk !== "READ") return [];
+
+  // Cross-provider fallback is intentionally READ-only. The primary route remains
+  // unchanged; only already-verified, enabled routes registered in ARIA may be used.
   const [modelsRes, capsRes, accountsRes] = await Promise.all([
-    sb.schema("aria_internal").from("model_registry").select("model_id,provider_id,status,enabled").eq("provider_id","openrouter"),
-    sb.schema("aria_internal").from("capability_matrix").select("model_id,status,verified_at").eq("capability_id","text_generation").eq("status","verified"),
-    sb.schema("aria_internal").from("account_registry").select("account_id,provider_id,status,enabled").eq("provider_id","openrouter"),
+    sb.schema("aria_internal").from("model_registry")
+      .select("model_id,provider_id,status,enabled")
+      .in("provider_id", ["openrouter", "google"]),
+    sb.schema("aria_internal").from("capability_matrix")
+      .select("model_id,status,verified_at")
+      .eq("capability_id","text_generation")
+      .eq("status","verified"),
+    sb.schema("aria_internal").from("account_registry")
+      .select("account_id,provider_id,status,enabled,models")
+      .in("provider_id", ["openrouter", "google"]),
   ]);
   if (modelsRes.error || capsRes.error || accountsRes.error) return [];
+
   const caps = new Map((capsRes.data || []).map((x:any) => [String(x.model_id), x]));
-  const accounts = (accountsRes.data || []).filter((x:any) => x.enabled && ["available","active"].includes(String(x.status)));
+  const accounts = (accountsRes.data || []).filter((x:any) =>
+    x.enabled && ["available","active"].includes(String(x.status))
+  );
+
   const out:any[] = [];
   for (const model of modelsRes.data || []) {
     const modelId = String(model.model_id || "");
+    const providerId = String(model.provider_id || "");
     const cap = caps.get(modelId);
-    if (!model.enabled || String(model.status) !== "available" || !modelId.endsWith(":free") || !cap) continue;
-    const account = accounts.find((a:any) => a.provider_id === model.provider_id);
+    if (!model.enabled || String(model.status) !== "available" || !cap) continue;
+
+    // Preserve the existing free-only contract for OpenRouter. Google direct
+    // routes are selected only from the explicitly registered Gemini-free account.
+    if (providerId === "openrouter" && !modelId.endsWith(":free")) continue;
+    if (providerId === "google" && !modelId.endsWith("-direct")) continue;
+
+    const account = accounts.find((a:any) =>
+      a.provider_id === providerId &&
+      Array.isArray(a.models) &&
+      a.models.includes(modelId)
+    );
     if (!account) continue;
+
     out.push({
       status: "selected",
-      provider_id: "openrouter",
+      provider_id: providerId,
       account_id: String(account.account_id),
       model_id: modelId,
       capability: operation,
       _verified_at: cap.verified_at || null,
+      // Prefer a different provider before spending remaining same-provider
+      // fallback attempts when the primary provider is exhausted.
+      _provider_priority: providerId === "google" ? 0 : 1,
     });
   }
-  out.sort((a:any,b:any) => String(b._verified_at || "").localeCompare(String(a._verified_at || "")));
-  return out.map(({_verified_at,...route}:any) => route);
+
+  out.sort((a:any,b:any) =>
+    Number(a._provider_priority ?? 9) - Number(b._provider_priority ?? 9) ||
+    String(b._verified_at || "").localeCompare(String(a._verified_at || "")) ||
+    String(a.model_id).localeCompare(String(b.model_id))
+  );
+
+  return out.map(({_verified_at,_provider_priority,...route}:any) => route);
 }
 
 async function modelExecute(missionId: string, step: any, auth: AuthContext) {
