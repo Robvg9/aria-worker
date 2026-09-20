@@ -46,27 +46,12 @@ jobs:
         run: |
           sed -i "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js
           npm run build
-
-          # Preserve the established immutable root aliases for regression
-          # contracts and stale-build recovery.
           cp dist/index.html "dist/index-${GITHUB_SHA}.html"
           cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"
           cp public/sw.js "dist/sw-${GITHUB_SHA}.js"
           sed -i "s/__BUILD__/${GITHUB_SHA}/g" "dist/sw-${GITHUB_SHA}.js"
-
-          # Publish the canonical PWA under /pwa/* so Cloudflare's native
-          # static-asset router can serve the browser entry files directly.
-          mkdir -p dist/pwa
-          cp -R dist/assets dist/pwa/
-          cp dist/index.html dist/pwa/index.html
-          cp dist/manifest.json dist/pwa/manifest.json
-          cp public/sw.js dist/pwa/sw.js
-          sed -i "s/__BUILD__/${GITHUB_SHA}/g" "dist/pwa/sw.js"
-          cp dist/pwa/index.html "dist/pwa/index-${GITHUB_SHA}.html"
-          cp dist/pwa/manifest.json "dist/pwa/manifest-${GITHUB_SHA}.json"
-          cp dist/pwa/sw.js "dist/pwa/sw-${GITHUB_SHA}.js"
-
           rm -f public/sw.js dist/index.html dist/manifest.json
+
 
       - name: Install Wrangler
         run: npm install --global wrangler@latest
