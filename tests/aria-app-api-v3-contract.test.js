@@ -17,6 +17,8 @@ assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verificati
 if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
 assertContains(appApi,'function looksLikeMissionRequest(input: string)','chat mission intent classifier missing');
+assertContains(appApi,'(?:haz|has)\\s+que\\b/i.test(value)','chat must classify direct "haz que..." and common "has que..." commands as missions');
+assertContains(appApi,'mueve|mover|pon|poner|organiza|organizar','chat mission classifier must recognize common UI/action commands');
 assertContains(appApi,'internal(DIRECT, {','chat mission handoff must reuse canonical DIRECT mission intake');
 assertContains(appApi,'canonical-direct-v1','chat mission canonical intake marker missing');
 assertContains(appApi,'const mission = direct.b?.mission ?? direct.b?.result ?? null;','chat mission must consume canonical mission result');
