@@ -324,6 +324,7 @@ function looksLikeMissionRequest(input: string) {
   if (!value) return false;
 
   const explanatory = /^(qu[eé] es|que es|c[oó]mo|como|por qu[eé]|porque|expl[ií]came|explica|dime qu[eé]|dime como)\b/i.test(value);
+  if (/(?:haz|has)\s+que\b/i.test(value)) return true;
   const explicitTask = /\b(necesito que|quiero que|haz que|has que|hazlo|arreglalo|arr[eé]glalo|ejecuta esto|crea esto|implementa esto|dame una misi[oó]n|lanza una misi[oó]n|manda una misi[oó]n)\b/i.test(value);
 
   // Explicit task phrasing wins even when the action verb is conjugated
