@@ -102,13 +102,26 @@ async function updateMission(missionId: string, patch: Record<string, unknown>) 
 }
 
 async function emitEvent(missionId: string, event_type: string, payload: unknown) {
-  const event = await rpc("aria_mission_append_event_lease", {
-    p_mission_id: missionId,
-    p_worker_id: V,
-    p_event: { event_type, payload },
-  });
-  if (!event) throw new Error("mission_event_lease_lost");
-  return event;
+  try {
+    const event = await rpc("aria_mission_append_event_lease", {
+      p_mission_id: missionId,
+      p_worker_id: V,
+      p_event: { event_type, payload },
+    });
+    if (!event) throw new Error("mission_event_lease_lost");
+    return { persisted: true, event };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    if (/statement timeout|canceling statement|query canceled|timeout/i.test(reason)) {
+      return {
+        persisted: false,
+        deferred: true,
+        event_type,
+        reason,
+      };
+    }
+    throw error;
+  }
 }
 
 async function recall(goal: string, auth: AuthContext) {
