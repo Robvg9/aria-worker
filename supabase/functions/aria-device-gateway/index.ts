@@ -756,7 +756,7 @@ Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/
   }
   if(!device||device.status==='disabled')return json({ok:false,status:'blocked',error:'android_device_unavailable',service_tick:true},200);
   const tick=await meditationTick({session_id:b.session_id||control.session_id||null,autonomy_only:false,service_tick:true,source:String(b.source||'cloud-meditation-supervisor')},{device_id:device.device_id,agent_type:device.agent_type,capabilities:device.capabilities||[]});
-  const metadata={...(control.metadata&&typeof control.metadata==='object'?control.metadata:{}),device_id:device.device_id,last_cloud_mission_id:tick.active_mission_id||null,last_cloud_tick_status:tick.status||null};
+  const metadata={...(control.metadata&&typeof control.metadata==='object'?control.metadata:{}),device_id:device.device_id,meditation_session_id:b.session_id||control.session_id||null,last_cloud_mission_id:tick.active_mission_id||null,last_cloud_tick_status:tick.status||null};
   await supabase.schema('aria_internal').from('meditation_control').update({metadata,last_cloud_tick_at:new Date().toISOString(),last_cloud_status:String(tick.status||'unknown'),updated_at:new Date().toISOString()}).eq('controller_id','primary');
   return json({ok:tick.ok!==false,status:tick.status||'unknown',service_tick:true,device_id:device.device_id,mission_id:tick.active_mission_id||null,tick});
  }catch(e){return json({ok:false,status:'failed',error:e instanceof Error?e.message:String(e),service_tick:true},200)}
