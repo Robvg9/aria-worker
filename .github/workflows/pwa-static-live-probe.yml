@@ -13,18 +13,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Probe current LIVE PWA paths
+      - name: Probe exact LIVE PWA resources
         run: |
           set -u
-          base="https://aria.robvg9.workers.dev/pwa/"
-          for path in "" "version.json" "index.html" "manifest.json" "sw.js"; do
-            code="$(curl -sS --max-time 15 -o /tmp/probe -w '%{http_code}' "${base}${path}")"
-            echo "PATH=/pwa/${path} CODE=${code} SIZE=$(wc -c </tmp/probe)"
+          base='https://aria.robvg9.workers.dev'
+          echo '--- HTML ---'
+          curl -sS --max-time 15 -D /tmp/html_headers -o /tmp/html "$base/pwa/?probe=$(date +%s)" || true
+          grep -E 'HTTP/|aria-build|manifest|script type|stylesheet|serviceWorker.register' /tmp/html_headers /tmp/html || true
+          echo '--- EXACT URL STATUS ---'
+          for path in '/manifest.json' '/icons/aria.svg' '/sw-a8d7ea743a9bf7ad9d4724d5d47a2d1ae92087cc.js'; do
+            code=$(curl -sS --max-time 15 -o /tmp/probe -w '%{http_code}' "$base$path" || true)
+            echo "$path -> $code -> $(wc -c </tmp/probe 2>/dev/null || echo 0) bytes"
           done
-          html="$(curl -sS --max-time 15 "${base}")"
-          echo "HTML_ASSETS:"
-          grep -oE 'assets/[^"]+' <<<"$html" | head -10 || true
-          for asset in $(grep -oE 'assets/[^"]+' <<<"$html" | sort -u); do
-            code="$(curl -sS --max-time 15 -o /tmp/probe -w '%{http_code}' "${base}${asset}")"
-            echo "ASSET=/pwa/${asset} CODE=${code} SIZE=$(wc -c </tmp/probe)"
+          echo '--- BUNDLE URLS FROM LIVE HTML ---'
+          grep -oE '/assets/[^" ]+\.(js|css)' /tmp/html | sort -u | while read -r path; do
+            code=$(curl -sS --max-time 15 -o /tmp/probe -w '%{http_code}' "$base$path" || true)
+            echo "$path -> $code -> $(wc -c </tmp/probe 2>/dev/null || echo 0) bytes"
           done
