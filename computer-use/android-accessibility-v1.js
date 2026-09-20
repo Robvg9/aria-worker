@@ -3,7 +3,9 @@
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 
-const PACKAGE = 'com.robvg9.ariauiagent';
+// The public APK workflow intentionally builds the Debug variant.
+// Its applicationId is therefore com.robvg9.ariauiagent.debug.
+const PACKAGE = 'com.robvg9.ariauiagent.debug';
 const RECEIVER = '.CommandReceiver';
 const ACTION = 'com.robvg9.ariauiagent.ACTION_EXECUTE';
 const SECRET_REF_PATTERN = /^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/;
