@@ -24,8 +24,8 @@ assert(agent.includes("job.operation === 'android.notification'"), 'legacy Andro
 assert(migration.includes("status = 'cancelled'"), 'legacy queued Termux deliveries are not cancelled');
 assert(migration.includes("metadata->>'source' = 'meditation_notifications'"), 'legacy meditation notification jobs are not scoped for cancellation');
 
-assert(/path\.endsWith\([\"']\\/meditation\\/notifications[\"']\)/.test(api), 'PWA notification GET route missing');
-assert(/path\.endsWith\([\"']\\/meditation\\/notifications\\/read[\"']\)/.test(api), 'PWA notification read route missing');
+assert(api.includes('path.endsWith("/meditation/notifications")') || api.includes("path.endsWith('/meditation/notifications')"), 'PWA notification GET route missing');
+assert(api.includes('path.endsWith("/meditation/notifications/read")') || api.includes("path.endsWith('/meditation/notifications/read')"), 'PWA notification read route missing');
 assert(api.includes('meditationNotificationsForUser'), 'user-scoped notification reader missing');
 assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped notification ack missing');
 
