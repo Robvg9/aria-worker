@@ -764,8 +764,9 @@ Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/
     return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e)},502);}
 }
-if(req.method==='POST'&&p==='/v1/rwht-final-probe'){
-  if(String(b?.mission_id||'')!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
+if((req.method==='POST'||req.method==='GET')&&p==='/v1/rwht-final-probe'){
+  const requestedProbeMission=req.method==='GET'?String(u.searchParams.get('mission_id')||''):String(b?.mission_id||'');
+  if(requestedProbeMission!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
   if(!RUNTIME_SECRET)return json({error:'runtime_secret_unavailable'},503);
   try{
     const response=await fetch(CANONICAL_RUNTIME,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${RUNTIME_SECRET}`,'x-aria-trigger':'meditation-ia'},body:JSON.stringify({mission_id:'mission_rwht_final_20260920_02'})});
