@@ -34,7 +34,7 @@ assert(app.includes('PwaNotificationCenter'), 'PWA notification center missing')
 assert(app.includes('/meditation/notifications'), 'PWA notification polling missing');
 assert(app.includes('/meditation/notifications/read'), 'PWA notification read action missing');
 
-assert(helper.includes('ServiceWorkerRegistration'), 'service-worker notification helper missing');
+assert(helper.includes('navigator.serviceWorker'), 'service-worker notification helper missing');
 assert(helper.includes('showNotification'), 'persistent PWA notification call missing');
 assert(helper.includes('/pwa/#notification='), 'notification deep link missing');
 
