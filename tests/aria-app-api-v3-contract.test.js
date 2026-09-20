@@ -36,6 +36,11 @@ assertContains(appApi,'target?.model_id','conversation model id validation missi
 assertContains(appApi,'conversation_model_execution_failed','conversation failure boundary missing');
 assertContains(appApi,'conversationRoutes','conversation route catalog missing');
 assertContains(appApi,'executeConversationWithFallback','conversation fallback boundary missing');
+assertContains(appApi,'content: prompt','conversation payload must use provider-compatible string content');
+assertContains(appApi,'/v1/meditation/tick-service','Meditation activation must trigger the canonical cloud tick');
+assertContains(planner,'aria-planner-v11-runtime-probe-v1','runtime probe planner branch missing');
+assertContains(planner,'planner_no_supported_goal','generic mission planner must fail closed instead of legacy README fallback');
+
 assertContains(appApi,'fallback_count','conversation fallback evidence missing');
 assertContains(appApi,'aria-execution-runtime-v1','canonical execution runtime missing');
 assertContains(appApi,'aria-app-v1','app provenance missing');

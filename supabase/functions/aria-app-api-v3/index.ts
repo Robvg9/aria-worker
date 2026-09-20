@@ -8,6 +8,7 @@ const DIRECT = `${SUPABASE_URL}/functions/v1/aria-direct-v1`;
 const MEMORY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
 const EXEC = `${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`;
+const DEVICE_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-device-gateway`;
 const MEDIA_BUCKET = "aria-app-media";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
@@ -46,7 +47,7 @@ async function conversationRoutes() {
 async function execute(step: any, prompt: string, conversationId: string) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
-  const x = await internal(EXEC, { execution_version: "1", request_id: conversationId + ":" + crypto.randomUUID(), task_id: "conversation:" + conversationId, capability: "text_generation", selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" }, input: { payload: { messages: [{ role: "user", content: [{ type: "text", text: prompt }] }], max_tokens: 512, temperature: 0.3 } }, policy: {}, metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model", multimodal: false } });
+  const x = await internal(EXEC, { execution_version: "1", request_id: conversationId + ":" + crypto.randomUUID(), task_id: "conversation:" + conversationId, capability: "text_generation", selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" }, input: { payload: { messages: [{ role: "user", content: prompt }], max_tokens: 512, temperature: 0.3 } }, policy: {}, metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model", multimodal: false } });
   if (!x.r.ok || x.b?.status !== "succeeded") throw new Error("executor_http_" + x.r.status + "_" + (x.b?.error?.code ?? x.b?.reason ?? "execution_failed"));
   return x.b;
 }
@@ -86,7 +87,58 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
 
 async function missionForUser(missionId: string, userId: string) { const x = await internal(`${DIRECT}/missions/get`, { mission_id: missionId, user_id: userId, "x-aria-user-id": userId }); if (!x.r.ok) return null; const mission = x.b?.mission ?? x.b?.data?.mission ?? null; const owner = mission?.metadata?.user_id ?? mission?.metadata?.owner_user_id ?? null; return owner && owner !== userId ? null : mission; }
 async function meditationStatus(userId: string) { const { data, error } = await serviceClient().schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id", "primary").maybeSingle(); if (error) throw new Error(error.message); if (data?.owner_user_id && data.owner_user_id !== userId) return { owned: false, desired_mode: "stopped", controller_id: "primary" }; return { owned: Boolean(data?.owner_user_id), controller: data }; }
-async function meditationControl(userId: string, action: string) { const mode = action === "activate" || action === "start" ? "active" : action === "pause" || action === "paused" ? "paused" : action === "stop" || action === "stopped" ? "stopped" : ""; if (!mode) throw Object.assign(new Error("action_required"), { status: 400 }); const sb = serviceClient(); const { data: current, error: ce } = await sb.schema("aria_internal").from("meditation_control").select("*").eq("controller_id", "primary").maybeSingle(); if (ce) throw new Error(ce.message); if (current?.owner_user_id && current.owner_user_id !== userId) throw Object.assign(new Error("meditation_control_owned_by_another_user"), { status: 403 }); const next = { controller_id: "primary", owner_user_id: current?.owner_user_id || userId, desired_mode: mode, session_id: mode === "active" ? `med-${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : (current?.session_id || null), revision: Number(current?.revision || 0) + 1, last_command: mode, last_command_at: new Date().toISOString(), updated_at: new Date().toISOString() }; const { data, error } = await sb.schema("aria_internal").from("meditation_control").upsert(next, { onConflict: "controller_id" }).select("*").single(); if (error) throw new Error(error.message); return data; }
+async function meditationControl(userId: string, action: string) {
+  const mode = action === "activate" || action === "start"
+    ? "active"
+    : action === "pause" || action === "paused"
+      ? "paused"
+      : action === "stop" || action === "stopped"
+        ? "stopped"
+        : "";
+  if (!mode) throw Object.assign(new Error("action_required"), { status: 400 });
+
+  const sb = serviceClient();
+  const { data: current, error: ce } = await sb.schema("aria_internal").from("meditation_control")
+    .select("*").eq("controller_id", "primary").maybeSingle();
+  if (ce) throw new Error(ce.message);
+  if (current?.owner_user_id && current.owner_user_id !== userId) {
+    throw Object.assign(new Error("meditation_control_owned_by_another_user"), { status: 403 });
+  }
+
+  const existingMetadata = current?.metadata && typeof current.metadata === "object" && !Array.isArray(current.metadata)
+    ? current.metadata
+    : {};
+  const next = {
+    controller_id: "primary",
+    owner_user_id: current?.owner_user_id || userId,
+    desired_mode: mode,
+    session_id: mode === "active" ? "med-" + Date.now() + "-" + crypto.randomUUID().slice(0, 8) : (current?.session_id || null),
+    revision: Number(current?.revision || 0) + 1,
+    last_command: mode,
+    last_command_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    metadata: { ...existingMetadata, owner_user_id: userId, activation_source: "aria-pwa-v3" }
+  };
+  const { data, error } = await sb.schema("aria_internal").from("meditation_control")
+    .upsert(next, { onConflict: "controller_id" }).select("*").single();
+  if (error) throw new Error(error.message);
+
+  if (mode !== "active") return data;
+
+  let cloud_tick: any = null;
+  try {
+    const x = await internal(DEVICE_GATEWAY + "/v1/meditation/tick-service", {
+      session_id: data.session_id,
+      user_id: userId,
+      source: "aria-pwa-v3-activation"
+    });
+    cloud_tick = { ok: x.r.ok, http_status: x.r.status, result: x.b };
+  } catch (e) {
+    cloud_tick = { ok: false, http_status: 503, result: { error: String(e instanceof Error ? e.message : e) } };
+  }
+
+  return { ...data, cloud_tick };
+}
 const terminal = new Set(["succeeded", "failed", "blocked", "cancelled"]);
 const weightOf = (step:any) => { const explicit=Number(step?.weight); if(Number.isFinite(explicit)&&explicit>0)return explicit; const risk=String(step?.risk??"READ").toUpperCase(); const base=risk==="DESTRUCTIVE"?3:risk==="HIGH_RISK_WRITE"?2.2:risk==="LOW_RISK_WRITE"?1.4:1; const type=String(step?.executor_type||step?.target?.type||"").toLowerCase(); return base*((type==="device"||type==="self_improvement")?1.25:type==="agent"?1.15:1); };
 const reasonType = (m:any) => { const raw=[m?.next_action,m?.last_stderr,m?.checkpoint?.recovery?.status,m?.checkpoint?.human_gate?.original_risk].filter(Boolean).join(" ").toLowerCase(); if(/credential|token|secret|auth|login|api key/.test(raw))return"credential"; if(/payment|billing|subscription|plan/.test(raw))return"payment"; if(/human_gate|approval|approve|authorize|permission/.test(raw))return"approval"; if(/device|windows|offline|agent/.test(raw))return"device"; return"execution"; };
