@@ -749,6 +749,7 @@ Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/
   if(deviceId){
    const {data}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities,last_seen_at,metadata').eq('device_id',deviceId).maybeSingle();
    device=data||null;
+   if(device&&device.agent_type!=='android-termux')return json({ok:false,status:'blocked',error:'android_device_required',service_tick:true},409);
   }else{
    const {data}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities,last_seen_at,metadata').eq('agent_type','android-termux').eq('status','online').order('last_seen_at',{ascending:false}).limit(1);
    device=data?.[0]||null;deviceId=device?.device_id||'';
