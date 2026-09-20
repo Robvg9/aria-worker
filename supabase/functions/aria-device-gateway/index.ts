@@ -742,7 +742,16 @@ async function allForOneTick(){
   }
   return{ok:true,status:'idle',run_id:run.run_id};
 }
-Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);
+Deno.serve(async(req)=>{const u=new URL(req.url);const p=u.pathname.replace(/^\/aria-device-gateway/,'').replace(/\/+$/,'')||'/';const b=await body(req);if(req.method==='POST'&&p==='/v1/rwht-direct-db-capability'){
+  return json({
+    db_url:!!Deno.env.get('SUPABASE_DB_URL'),
+    database_url:!!Deno.env.get('DATABASE_URL'),
+    postgres_url:!!Deno.env.get('POSTGRES_URL'),
+    db_password:!!Deno.env.get('SUPABASE_DB_PASSWORD'),
+    db_host:!!Deno.env.get('PGHOST'),
+    db_user:!!Deno.env.get('PGUSER')
+  });
+}
 if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
   const requestedProbeMission=req.method==='GET'?String(u.searchParams.get('mission_id')||''):String(b?.mission_id||'');
   if(requestedProbeMission!=='mission_rwht_final_20260920_02')return json({error:'probe_mission_restricted'},403);
