@@ -4,16 +4,30 @@ import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Binder
+import android.os.Build
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 
 class CommandReceiver : BroadcastReceiver() {
     companion object {
         private const val ACTION = "com.robvg9.ariauiagent.ACTION_EXECUTE"
+        private const val TERMUX_PACKAGE = "com.termux"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
+
+        val senderUid = if (Build.VERSION.SDK_INT >= 34) getSentFromUid() else Binder.getCallingUid()
+        val termuxUid = try {
+            context.packageManager.getApplicationInfo(TERMUX_PACKAGE, 0).uid
+        } catch (_: Exception) {
+            -1
+        }
+        if (senderUid != termuxUid || senderUid < 0) {
+            finish(false, """{"ok":false,"reason":"caller_not_allowed"}""")
+            return
+        }
 
         val encoded = intent.getStringExtra("payload_b64")
         if (encoded.isNullOrBlank()) {
