@@ -62,52 +62,6 @@ jobs:
           sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
           wrangler deploy worker.js --name aria
 
-      - name: Publish RWHT Android installer
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/rwht-apk rwht-download
-          mkdir -p /tmp/rwht-apk rwht-download/public
-          gh_run=35470418265
-          gh_artifact=10592817413
-          curl --fail --silent --show-error --location \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${gh_artifact}/zip" \
-            -o /tmp/rwht-artifact.zip
-          unzip -oq /tmp/rwht-artifact.zip -d /tmp/rwht-apk
-          test -s /tmp/rwht-apk/aria-rwht-android-bridge-v1.apk
-          sha256sum /tmp/rwht-apk/aria-rwht-android-bridge-v1.apk | tee /tmp/rwht-sha.txt
-          grep -q "2e3cab07ac3a719c92088e3a1faaf9201b2172a61ea4c7ef7c6424e3ed7e807c" /tmp/rwht-sha.txt
-          cp /tmp/rwht-apk/aria-rwht-android-bridge-v1.apk rwht-download/public/aria-rwht-android-bridge-v1.apk
-          cat > rwht-download/worker.js <<'EOF'
-          export default {
-            async fetch(request, env) {
-              const url = new URL(request.url);
-              if (url.pathname !== "/aria-rwht-android-bridge-v1.apk") {
-                return new Response("Not Found", { status: 404 });
-              }
-              const upstream = await env.ASSETS.fetch(request);
-              const headers = new Headers(upstream.headers);
-              headers.set("content-type", "application/vnd.android.package-archive");
-              headers.set("content-disposition", "attachment; filename=\"aria-rwht-android-bridge-v1.apk\"");
-              headers.set("cache-control", "no-store");
-              return new Response(upstream.body, { status: upstream.status, headers });
-            }
-          };
-          EOF
-          cd rwht-download
-          wrangler deploy worker.js --name aria-rwht-android-bridge --assets public
-          cd ..
-          curl --fail --silent --show-error --location --max-time 30 \
-            "https://aria-rwht-android-bridge.robvg9.workers.dev/aria-rwht-android-bridge-v1.apk" \
-            -o /tmp/rwht-download-check.apk
-          sha256sum /tmp/rwht-download-check.apk
-          grep -q "2e3cab07ac3a719c92088e3a1faaf9201b2172a61ea4c7ef7c6424e3ed7e807c" \
-            <(sha256sum /tmp/rwht-download-check.apk)
-          echo RWHT_ANDROID_INSTALLER_LIVE
       - name: Sync Cloudflare runtime secret
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
