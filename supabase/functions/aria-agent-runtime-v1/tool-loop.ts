@@ -156,7 +156,10 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
     "Your final response is mandatory: begin with FINDINGS: and finish with VERDICT:. Include concrete evidence from the tools you actually used.",
     "Distinguish CONFIRMED, HYPOTHESIS, and BLOCKED.",
   ].join(" ");
-  let messages: any[] = [{ role: "system", content: `${system}\n\nTask:\n${prompt}` }];
+  let messages: any[] = [
+    { role: "system", content: system },
+    { role: "user", content: `Task:\n${prompt}` },
+  ];
   const writes: any[] = [];
   const reads: any[] = [];
   let text = "";
