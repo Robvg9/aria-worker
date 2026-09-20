@@ -10,5 +10,4 @@ crons = ["* * * * *"]
 
 [assets]
 directory = "./pwa/dist"
-binding = "ARIA_PWA_ASSETS"
-run_worker_first = true
+run_worker_first = ["/pwa/*"]
