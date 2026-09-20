@@ -94,6 +94,8 @@ jobs:
           node scripts/patch-eas-into-mission-runner-v22.js supabase/functions/aria-mission-runner-v22/index.ts
           supabase functions deploy aria-planner-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-autonomy-supervisor-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-autonomy-supervisor-v5 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-repair-supervisor-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mission-runner-v15 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mission-runner-v16 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mission-runner-v17 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
@@ -104,6 +106,7 @@ jobs:
           supabase functions deploy aria-execution-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-github-app-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-device-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mcp-inbound-grok-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
