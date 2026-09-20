@@ -98,7 +98,7 @@ function missionPhase(m:any) {
   const results=m?.checkpoint?.results&&typeof m.checkpoint.results==="object"?m.checkpoint.results:{};
   if (status==="running" && done===0 && Object.keys(results).length===0) return { index: 3, total: 6, label: "Revisar Human Gates y bloqueos" };
   if (status==="paused" && recovery==="waiting_for_async_executor") return { index: 4, total: 6, label: "Continuar con la misión" };
-  if (status==="running" || status==="waiting") return { index: 4, total: 6, label: total>0 ? \`Ejecutando · paso \${Math.min(done+1,total)} de \${total}\` : "Continuar con la misión" };
+  if (status==="running" || status==="waiting") return { index: 4, total: 6, label: total>0 ? `Ejecutando · paso ${Math.min(done+1,total)} de ${total}` : "Continuar con la misión" };
   return { index: 4, total: 6, label: "Continuar con la misión" };
 }
 
