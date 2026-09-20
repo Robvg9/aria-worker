@@ -1,0 +1,139 @@
+name: aria-android-ui-agent-apk
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "android-ui-agent/**"
+      - ".github/workflows/aria-android-ui-agent-apk.yml"
+
+concurrency:
+  group: aria-android-ui-agent-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-assemble:
+    name: test + assembleDebug
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: android-ui-agent
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Record commit SHA
+        id: meta
+        working-directory: .
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Building commit: $(git rev-parse HEAD)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "tools platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Write local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          cat local.properties
+
+      - name: Ensure Gradle Wrapper
+        run: |
+          if [ ! -f ./gradlew ]; then
+            gradle wrapper --gradle-version 8.11.1
+          fi
+          chmod +x ./gradlew
+          ./gradlew --version
+
+      - name: Unit tests
+        id: tests
+        run: |
+          set -o pipefail
+          ./gradlew test --no-daemon --stacktrace 2>&1 | tee ../test-output.log
+          echo "tests_pass=true" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble debug APK
+        id: assemble
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../assemble-output.log
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found at $APK"
+            find app/build -name "*.apk" 2>/dev/null || true
+            exit 1
+          fi
+          SIZE=$(wc -c < "$APK" | tr -d ' ')
+          SHA256=$(sha256sum "$APK" | awk '{print $1}')
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          echo "apk_size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "apk_sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          echo "APK_SIZE=$SIZE" >> "$GITHUB_ENV"
+          echo "APK_SHA256=$SHA256" >> "$GITHUB_ENV"
+          echo "APK generated: $APK ($SIZE bytes)"
+          echo "SHA-256: $SHA256"
+
+      - name: Write build summary
+        if: always()
+        working-directory: .
+        run: |
+          {
+            echo "# ARIA Android UI Agent — Build Summary"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Commit | \`${{ steps.meta.outputs.sha }}\` |"
+            echo "| Tests | ${{ steps.tests.outcome }} |"
+            echo "| Assemble | ${{ steps.assemble.outcome }} |"
+            echo "| APK path | \`${{ steps.assemble.outputs.apk_path }}\` |"
+            echo "| APK size | ${{ steps.assemble.outputs.apk_size }} bytes |"
+            echo "| SHA-256 | \`${{ steps.assemble.outputs.apk_sha256 }}\` |"
+            echo ""
+            echo "## Test log (tail)"
+            echo '```'
+            tail -80 test-output.log 2>/dev/null || echo "(no test log)"
+            echo '```'
+            echo ""
+            echo "## Assemble log (tail)"
+            echo '```'
+            tail -40 assemble-output.log 2>/dev/null || echo "(no assemble log)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-android-ui-agent-debug-apk
+          path: android-ui-agent/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-android-ui-agent-build-logs
+          path: |
+            test-output.log
+            assemble-output.log
+          if-no-files-found: ignore
+          retention-days: 14
