@@ -112,7 +112,7 @@ export async function callOpenRouterModel(model:string,messages:any[],tools:any[
   const { data: secret, error } = await internal.rpc("credential_read_secret", { p_name: "aria_openrouter_primary" });
   if (error || typeof secret !== "string" || secret.length < 10) throw new Error("openrouter_credential_unavailable");
   const toolChoice = tools.length === 0 ? undefined : (forceTool ? "required" : "auto");
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages,temperature:0,max_completion_tokens:1200,service_tier:"flex",...(tools.length?{tools,tool_choice:toolChoice}:{})})});
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages,temperature:0,max_completion_tokens:4000,service_tier:"flex",...(tools.length?{tools,tool_choice:toolChoice}:{})})});
   const body:any=await response.json().catch(()=>null);
   if(!response.ok) throw new Error(`openrouter_http_${response.status}:${body?.error?.message??"provider_error"}`);
   return body?.choices?.[0]?.message??null;
@@ -170,7 +170,7 @@ function geminiMessage(json:any){
 export async function callGeminiModel(model:string,messages:any[],tools:any[],forceTool=false){
   const secret=String(Deno.env.get("GOOGLE_API_KEY")||"").trim(); if(!secret)throw new Error("google_credential_unavailable");
   const {systemInstruction,contents}=geminiContents(messages);
-  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:1200}};
+  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:4000}};
   if(systemInstruction)body.systemInstruction=systemInstruction;
   const declaredTools=geminiTools(tools); if(declaredTools){body.tools=declaredTools;if(forceTool)body.toolConfig={functionCallingConfig:{mode:"ANY"}};}
   const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":secret},body:JSON.stringify(body)});
@@ -188,7 +188,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
     `You are ARIA's governed ${agent.role} executor.`,
     "Use available tools to inspect evidence.",
     allowWrite
-      ? `For changes, use only non-main branch ${branch}; never modify main/master. Prefer github_file_patch for targeted edits; use github_file_write for new files or large replacements. A concrete write is required for a repair unless NO_CHANGE_REQUIRED is justified.`
+      ? `For changes, use only non-main branch ${branch}; never modify main/master. This is a real implementation task: you MUST inspect the repository with tools and then make a concrete mutation. Prefer github_file_patch for targeted edits; use github_file_write for new files or large replacements. For UI/PWA requests, inspect pwa/src/App.tsx and relevant style files. Do NOT return NO_CHANGE_REQUIRED unless you proved the requested behavior already exists exactly. Do not finish after analysis alone.`
       : "This is read-only: do not fabricate changes.",
     "Never claim tests, deployment, or production changes that were not actually verified.",
     "Your final response is mandatory: begin with FINDINGS: and finish with VERDICT:. Include concrete evidence from the tools you actually used.",
@@ -392,13 +392,22 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
     };
   }
   if (/NO_CHANGE_REQUIRED/i.test(text)) {
+    await recordDiagnostic(missionId, stepId, {
+      status: "failed",
+      code: "repair_no_mutation",
+      message: "Implementation mission returned NO_CHANGE_REQUIRED without a concrete mutation.",
+      reads_count: reads.length,
+      writes_count: writes.length,
+      summary: text.slice(0, 8000),
+    });
     return {
-      status: "succeeded",
+      status: "failed",
       executor_type: "agent",
       agent_id: agent.agent_id,
       role: agent.role,
       response: { content: text },
-      repair: { branch, changed: false, writes: [], reads, summary: text, verified: false, verification_status: "unverified" },
+      error: { code: "repair_no_mutation", message: "Implementation mission cannot finish as NO_CHANGE_REQUIRED without proving the requested behavior already exists exactly." },
+      repair: { branch, changed: false, writes: [], reads, summary: text, verified: false, verification_status: "failed" },
     };
   }
   return {
