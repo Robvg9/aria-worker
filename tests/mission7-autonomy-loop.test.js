@@ -8,7 +8,7 @@ const migration=fs.readFileSync(path.join(root,"supabase/migrations/202609181525
 const recoveryFix=fs.readFileSync(path.join(root,"supabase/migrations/20260918154000_fix_stale_recovery_same_goal_race.sql"),"utf8");
 const supervisor=fs.readFileSync(path.join(root,"supabase/functions/aria-autonomy-supervisor-v5/index.ts"),"utf8");
 const direct=fs.readFileSync(path.join(root,"supabase/functions/aria-direct-v1/index.ts"),"utf8");
-const repairSupervisor=fs.readFileSync(path.join(root,"supabase/functions/aria-repair-supervisor-v1/index.ts"),"utf8");
+const repairSupervisor=fs.readFileSync(path.join(root,"supabase/functions/aria-autonomy-supervisor-v10/index.ts"),"utf8");
 const githubRuntime=fs.readFileSync(path.join(root,"supabase/functions/aria-github-app-runtime-v1/index.ts"),"utf8");
 const planner=fs.readFileSync(path.join(root,"supabase/functions/aria-planner-v11/index.ts"),"utf8");
 const scheduler=fs.readFileSync(path.join(root,"supabase/migrations/20260920190000_autonomous_operator_core_v1.sql"),"utf8");
@@ -28,7 +28,7 @@ assert.match(gateway,/cycle_id/);
 assert.match(gateway,/deduplicated/);
 assert.match(supervisor,/aria-device-gateway/);
 assert.match(supervisor,/\/v1\/autonomy\/cycle/);
-assert.match(supervisor,/aria-repair-supervisor-v1/);
+assert.match(supervisor,/aria-autonomy-supervisor-v10/);
 assert.match(supervisor,/\/v1\/meditation\/tick-service/);
 assert.match(direct,/meditation_queue_add/);
 assert.match(direct,/autonomy_managed/);
