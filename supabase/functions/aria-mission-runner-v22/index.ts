@@ -551,7 +551,18 @@ Deno.serve(async (request) => {
   let activeMissionId: string | null = null;
 
   try {
-    await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
+    let staleRecovery: { status: "ok" | "deferred"; reason?: string } = { status: "ok" };
+    try {
+      await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
+    } catch (recoveryError) {
+      const reason = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+      if (/schema cache|retrying|statement timeout|timeout/i.test(reason)) {
+        staleRecovery = { status: "deferred", reason };
+      } else {
+        throw recoveryError;
+      }
+    }
+
     const mission = requestedMissionId
       ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
       : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
