@@ -55,7 +55,7 @@ if(op==="pr_find"){
   const state=String(b.state||"all");
   const prs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls?head=${encodeURIComponent(owner+":"+branch)}&base=${encodeURIComponent(base)}&state=${encodeURIComponent(state)}&per_page=20`,{},t.token);
   const items=Array.isArray(prs)?prs:[];
-  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{items:items.map((pr:any)=>({number:pr.number,state:pr.state,merged_at:pr.merged_at,mergeable:pr.mergeable,mergeable_state:pr.mergeable_state,draft:pr.draft,head_sha:pr.head?.sha||null,head_ref:pr.head?.ref||null,base_ref:pr.base?.ref||null,url:pr.html_url||null,title:pr.title||null}))},installation_id:installation.id,account:installation.account});
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{items:items.map((pr:any)=>({number:pr.number,state:pr.state,merged_at:pr.merged_at,mergeable:pr.mergeable,mergeable_state:pr.mergeable_state,draft:pr.draft,head_sha:pr.head?.sha||null,head_ref:pr.head?.ref||null,base_ref:pr.base?.ref||null,merge_commit_sha:pr.merge_commit_sha||null,url:pr.html_url||null,title:pr.title||null}))},installation_id:installation.id,account:installation.account});
 }
 if(op==="pr_read"){
   const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
