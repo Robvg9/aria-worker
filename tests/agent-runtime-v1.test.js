@@ -30,7 +30,7 @@ assert.match(source, /agent_unavailable_or_not_cataloged/);
 assert.match(source, /prompt_missing/);
 assert.doesNotMatch(source, /OPENAI_API_KEY|GOOGLE_API_KEY|GROK_API_KEY|sk-[A-Za-z0-9]{10,}/);
 assert.doesNotMatch(source, /console\.log\s*\(.*SECRET/);
-assert.match(loopSource, /max_completion_tokens:\s*1200/);
+assert.match(loopSource, /max_completion_tokens:4000/, "coding agent tool loop must retain the governed 4000-token implementation budget");
 assert.match(loopSource, /service_tier:\s*"flex"/);
 assert.match(loopSource, /resolveToolRoute/, 'tool loop must resolve a provider/model tool route');
 assert.match(loopSource, /callGeminiModel/, 'tool loop must support Google Gemini direct function calling');
