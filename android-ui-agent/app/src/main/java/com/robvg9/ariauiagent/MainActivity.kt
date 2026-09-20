@@ -100,7 +100,3 @@ class ChatFragment : Fragment() {
         super.onDestroyView()
     }
 }
-        layout.addView(TextView(requireContext()).apply { text = "Chat ARIA"; textSize = 20f })
-        return layout
-    }
-}
