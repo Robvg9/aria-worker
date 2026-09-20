@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ARIA Android UI Agent</string>
-    <string name="accessibility_service_name">ARIA Android UI Agent</string>
-    <string name="accessibility_description">Permite que ARIA observe y controle la interfaz visible de Android para pruebas gobernadas.</string>
+    <string name="app_name">ARIA Local Mission</string>
+    <string name="accessibility_service_name">ARIA Local Mission</string>
+    <string name="accessibility_description">Permite que ARIA observe la interfaz visible y ejecute acciones solo después de la aprobación explícita del propietario en la pantalla de la aplicación. No ejecuta comandos remotos invisibles.</string>
 </resources>
