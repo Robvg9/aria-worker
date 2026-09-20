@@ -20,35 +20,24 @@ async function recordDiagnostic(missionId: string, stepId: string, payload: Reco
   } catch {}
 }
 
-async function resolveToolModel(agent: any) {
+async function resolveToolRoute(agent: any) {
   const preferred = String(agent?.model?.model_id ?? agent?.model_id ?? "").trim();
-  if (preferred.startsWith("openrouter/")) return preferred;
-  if (preferred && preferred.includes(":free") && !preferred.startsWith("google/")) return preferred;
+  if (preferred.startsWith("google/") && preferred.endsWith("-direct")) return { provider: "google", model: preferred.slice("google/".length, -"-direct".length) };
+  if (preferred.startsWith("openrouter/")) return { provider: "openrouter", model: preferred };
 
-  const { data, error } = await internal
-    .from("model_registry")
-    .select("model_id,provider_id,status,enabled")
-    .eq("provider_id", "openrouter")
-    .eq("status", "available")
-    .eq("enabled", true);
+  const { data: googleModels } = await internal.from("model_registry").select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
+  const google = (googleModels ?? []).map((x:any)=>String(x.model_id)).find((id:string)=>id.endsWith("-direct"));
+  if (google) return { provider:"google", model:google.slice("google/".length,-"-direct".length) };
 
-  if (!error && Array.isArray(data) && data.length) {
-    const { data: caps } = await internal
-      .from("capability_matrix")
-      .select("model_id,status")
-      .eq("capability_id", "text_generation")
-      .eq("status", "verified");
-
-    const verified = new Set((caps ?? []).map((x: any) => String(x.model_id)));
-    const candidates = data
-      .map((x: any) => String(x.model_id))
-      .filter((id: string) => verified.has(id) && id.endsWith(":free"));
-
-    const codeFirst = candidates.find((id: string) => /code|coder|coding/i.test(id));
-    if (codeFirst) return codeFirst;
-    if (candidates[0]) return candidates[0];
+  const { data: openModels } = await internal.from("model_registry").select("model_id,status,enabled").eq("provider_id","openrouter").eq("status","available").eq("enabled",true);
+  if (Array.isArray(openModels) && openModels.length) {
+    const { data: caps } = await internal.from("capability_matrix").select("model_id,status").eq("capability_id","text_generation").eq("status","verified");
+    const verified = new Set((caps ?? []).map((x:any)=>String(x.model_id)));
+    const candidates = openModels.map((x:any)=>String(x.model_id)).filter((id:string)=>verified.has(id)&&id.endsWith(":free"));
+    const codeFirst = candidates.find((id:string)=>/code|coder|coding/i.test(id));
+    if (codeFirst) return { provider:"openrouter", model:codeFirst };
+    if (candidates[0]) return { provider:"openrouter", model:candidates[0] };
   }
-
   throw new Error("agent_tool_model_unavailable");
 }
 
@@ -97,29 +86,64 @@ const writeTool = {
   },
 };
 
-export async function callModel(model: string, messages: any[], tools: any[], forceTool = false) {
+export async function callOpenRouterModel(model:string,messages:any[],tools:any[],forceTool=false) {
   const { data: secret, error } = await internal.rpc("credential_read_secret", { p_name: "aria_openrouter_primary" });
   if (error || typeof secret !== "string" || secret.length < 10) throw new Error("openrouter_credential_unavailable");
   const toolChoice = tools.length === 0 ? undefined : (forceTool ? "required" : "auto");
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0,
-      max_completion_tokens: 1200,
-      service_tier: "flex",
-      ...(tools.length ? { tools, tool_choice: toolChoice } : {}),
-    }),
-  });
-  const body: any = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(`openrouter_http_${response.status}:${body?.error?.message ?? "provider_error"}`);
-  return body?.choices?.[0]?.message ?? null;
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages,temperature:0,max_completion_tokens:1200,service_tier:"flex",...(tools.length?{tools,tool_choice:toolChoice}:{})})});
+  const body:any=await response.json().catch(()=>null);
+  if(!response.ok) throw new Error(`openrouter_http_${response.status}:${body?.error?.message??"provider_error"}`);
+  return body?.choices?.[0]?.message??null;
 }
-
+function geminiContents(messages:any[]) {
+  const systemParts:string[]=[]; const contents:any[]=[]; const toolNames=new Map<string,string>();
+  for(const message of messages){
+    const role=String(message?.role||"");
+    if(role==="system"){if(typeof message?.content==="string"&&message.content.trim())systemParts.push(message.content.trim());continue;}
+    if(role==="user"){contents.push({role:"user",parts:[{text:String(message?.content??"")}]});continue;}
+    if(role==="assistant"){
+      const parts:any[]=[]; if(typeof message?.content==="string"&&message.content.trim())parts.push({text:message.content});
+      for(const call of Array.isArray(message?.tool_calls)?message.tool_calls:[]){
+        const name=String(call?.function?.name||""); const id=String(call?.id||crypto.randomUUID()); let args:any={};
+        try{args=JSON.parse(call?.function?.arguments||"{}");}catch{}
+        if(name){toolNames.set(id,name);parts.push({functionCall:{id,name,args}});}
+      }
+      if(parts.length)contents.push({role:"model",parts});
+      continue;
+    }
+    if(role==="tool"){
+      const callId=String(message?.tool_call_id||""); const name=toolNames.get(callId)||String(message?.name||"unknown_tool");
+      let responseValue:any; try{responseValue=JSON.parse(String(message?.content??"{}"));}catch{responseValue={output:String(message?.content??"")};}
+      contents.push({role:"user",parts:[{functionResponse:{id:callId||undefined,name,response:responseValue&&typeof responseValue==="object"?responseValue:{output:responseValue}}}]});
+    }
+  }
+  return {systemInstruction:systemParts.length?{parts:[{text:systemParts.join("\n\n")}]}:undefined,contents};
+}
+function geminiTools(tools:any[]) {
+  return tools.length?[{functionDeclarations:tools.filter((tool:any)=>tool?.type==="function"&&tool?.function?.name).map((tool:any)=>({name:String(tool.function.name),description:String(tool.function.description||""),parameters:tool.function.parameters||{type:"object",properties:{},required:[]}}))}]:undefined;
+}
+function geminiMessage(json:any){
+  const parts=json?.candidates?.[0]?.content?.parts; if(!Array.isArray(parts))return null;
+  const text=parts.filter((p:any)=>typeof p?.text==="string").map((p:any)=>p.text).join("").trim();
+  const calls=parts.filter((p:any)=>p?.functionCall?.name).map((p:any)=>({id:String(p.functionCall.id||crypto.randomUUID()),type:"function",function:{name:String(p.functionCall.name),arguments:JSON.stringify(p.functionCall.args||{})}}));
+  if(!text&&!calls.length)return null;
+  return {role:"assistant",content:text,tool_calls:calls};
+}
+export async function callGeminiModel(model:string,messages:any[],tools:any[],forceTool=false){
+  const secret=String(Deno.env.get("GOOGLE_API_KEY")||"").trim(); if(!secret)throw new Error("google_credential_unavailable");
+  const {systemInstruction,contents}=geminiContents(messages);
+  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:1200}};
+  if(systemInstruction)body.systemInstruction=systemInstruction;
+  const declaredTools=geminiTools(tools); if(declaredTools){body.tools=declaredTools;if(forceTool)body.toolConfig={functionCallingConfig:{mode:"ANY"}};}
+  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":secret},body:JSON.stringify(body)});
+  const json:any=await response.json().catch(()=>null); if(!response.ok)throw new Error(`google_http_${response.status}:${json?.error?.message??"provider_error"}`);
+  return geminiMessage(json);
+}
+export async function callModel(model:string,messages:any[],tools:any[],forceTool=false,provider="openrouter"){
+  return provider==="google"?callGeminiModel(model,messages,tools,forceTool):callOpenRouterModel(model,messages,tools,forceTool);
+}
 export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
-  const toolModel = await resolveToolModel(agent);
+  const toolRoute = await resolveToolRoute(agent);
   const branch = `aria/repair/${missionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)}`;
   const tools = allowWrite ? [...readTools, writeTool] : readTools;
   const system = [
@@ -140,7 +164,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
   let sawToolCall = false;
   for (let round = 0; round < 8; round += 1) {
     const forceTool = allowWrite && round === 0 && !sawToolCall;
-    const message = await callModel(toolModel, messages, tools, forceTool);
+    const message = await callModel(toolRoute.model, messages, tools, forceTool, toolRoute.provider);
     if (!message) throw new Error("agent_model_empty");
     text = typeof message.content === "string" ? message.content.trim() : "";
     if (!Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
@@ -149,7 +173,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
           status: "failed",
           code: "repair_no_tool_call",
           message: "Repair path expected at least one tool call; model returned text without tools.",
-          model_id: toolModel,
+          model_id: toolRoute.model,
           tool_choice_requested: "required",
         });
         return {
@@ -224,7 +248,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
       role: "user",
       content: "You have finished tool inspection. Now produce the mandatory final report using only the evidence in this conversation. Begin exactly with FINDINGS: and finish with VERDICT:. Do not call any more tools. Do not claim any change/test/deployment you did not verify.",
     });
-    const finalMessage = await callModel(toolModel, messages, []);
+    const finalMessage = await callModel(toolRoute.model, messages, [], false, toolRoute.provider);
     text = typeof finalMessage?.content === "string" ? finalMessage.content.trim() : "";
   }
   if (!/^FINDINGS:/i.test(text) || !/VERDICT:/i.test(text)) {

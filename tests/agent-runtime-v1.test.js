@@ -30,7 +30,11 @@ assert.doesNotMatch(source, /OPENAI_API_KEY|GOOGLE_API_KEY|GROK_API_KEY|sk-[A-Za
 assert.doesNotMatch(source, /console\.log\s*\(.*SECRET/);
 assert.match(loopSource, /max_completion_tokens:\s*1200/);
 assert.match(loopSource, /service_tier:\s*"flex"/);
-assert.match(loopSource, /resolveToolModel/, 'tool loop must resolve a valid tool-capable model');
+assert.match(loopSource, /resolveToolRoute/, 'tool loop must resolve a provider/model tool route');
+assert.match(loopSource, /callGeminiModel/, 'tool loop must support Google Gemini direct function calling');
+assert.match(loopSource, /functionDeclarations/, 'Gemini tool declarations missing');
+assert.match(loopSource, /functionCallingConfig/, 'Gemini function calling config missing');
+assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');
 assert.match(loopSource, /provider_id", "openrouter"/, 'tool model resolution must use the OpenRouter provider registry');
 assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
 assert.match(loopSource, /code|coder|coding/, 'tool model resolution must prefer coding-capable model names when available');
