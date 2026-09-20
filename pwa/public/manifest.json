@@ -3,7 +3,7 @@
   "name": "ARIA — Centro de Mando Cognitivo",
   "short_name": "ARIA",
   "description": "Interfaz instalable para el núcleo cognitivo y operativo de ARIA.",
-  "start_url": "./",
+  "start_url": "/pwa/",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
