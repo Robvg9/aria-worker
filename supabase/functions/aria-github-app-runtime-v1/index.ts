@@ -21,6 +21,17 @@ async function discoverInstallation(){const jwt=await appJwt(),list=await gh("/a
 async function installationToken(repository:string){const installation=await discoverInstallation(),jwt=await appJwt(),r=await fetch(`${API}/app/installations/${installation.id}/access_tokens`,{method:"POST",headers:{accept:"application/vnd.github+json",authorization:`Bearer ${jwt}`,"X-GitHub-Api-Version":"2022-11-28","content-type":"application/json","user-agent":"ARIA-github-app-runtime-v1"},body:JSON.stringify({repositories:[repository]})}),j:any=await r.json().catch(()=>null);if(!r.ok||!j?.token)throw new Error(`github_installation_token_${r.status}:${j?.message??"request_failed"}`);return{token:String(j.token),expires_at:j.expires_at??null,installation_id:installation.id,account:installation.account}}
 function repo(b:any){const owner=String(b.owner??DEFAULT_OWNER),rp=String(b.repo??DEFAULT_REPO);if(!/^[A-Za-z0-9_.-]+$/.test(owner)||!/^[A-Za-z0-9_.-]+$/.test(rp)||!ALLOWED.has(`${owner}/${rp}`.toLowerCase()))throw new Error("repository_not_allowlisted");return{owner,repo:rp}}
 function pathSafe(p:string){const x=String(p||"").replace(/^\/+/,"");if(!x||x.includes("..")||x.includes(".git/")||x.startsWith(".github/workflows/"))throw new Error("unsafe_path");return x}
+function relevantWorkflow(name:string,paths:string[]){
+  const n=String(name||"").toLowerCase();
+  const p=paths.map(x=>String(x||"").toLowerCase());
+  const hasAndroid=p.some(x=>x.startsWith("android-ui-agent/")||x.startsWith("android/")||x.includes("/android/"));
+  const hasPwa=p.some(x=>x.startsWith("pwa/"));
+  const hasBackend=p.some(x=>x.startsWith("supabase/")||x.startsWith("autonomy/")||x.startsWith("agents/")||x.endsWith(".ts")||x.endsWith(".js")||x.endsWith(".sql"));
+  if(n.includes("rwht android") || n.includes("android ui agent") || n.includes("android-adb")) return hasAndroid;
+  if(n.includes("cloudflare") || n.includes("pwa")) return hasPwa || hasBackend;
+  if(n.includes("supabase") || n.includes("meditation ia") || n.includes("aria npm") || n.includes("mission 7") || n.includes("evidence driven") || n.includes("all for one") || n.includes("desktop autonomy")) return hasBackend || hasPwa;
+  return true;
+}
 Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);try{const b:any=await r.json().catch(()=>({})),op=String(b.operation||""),{owner,repo:rp}=repo(b),installation=await discoverInstallation(),t=await installationToken(rp);
 if(op==="installation_info")return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/installation`,{},t.token),installation_id:installation.id,account:installation.account});
 if(op==="repo_read")return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}`,{},t.token),installation_id:installation.id,account:installation.account});
@@ -74,9 +85,12 @@ if(op==="pr_checks"){
   const sha=String(pr?.head?.sha||"");if(!sha)throw new Error("pr_head_sha_missing");
   const runs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`,{},t.token);
   const items=Array.isArray(runs?.check_runs)?runs.check_runs:[];
-  const pending=items.filter((x:any)=>String(x.status||"")!=="completed");
-  const failed=items.filter((x:any)=>String(x.status||"") === "completed" && !["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
-  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number,head_sha:sha,total:items.length,pending:pending.length,failed:failed.length,all_passed:items.length>0&&pending.length===0&&failed.length===0,runs:items.map((x:any)=>({name:x.name,status:x.status,conclusion:x.conclusion,completed_at:x.completed_at,html_url:x.html_url}))},installation_id:installation.id,account:installation.account});
+  const paths=Array.isArray(b.paths)?b.paths.map((x:any)=>String(x||"")):[];
+  const relevant=items.filter((x:any)=>relevantWorkflow(String(x?.name||""),paths));
+  const ignored=items.filter((x:any)=>!relevantWorkflow(String(x?.name||""),paths));
+  const pending=relevant.filter((x:any)=>String(x.status||"")!=="completed");
+  const failed=relevant.filter((x:any)=>String(x.status||"")==="completed"&&!["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number,head_sha:sha,total:items.length,relevant_total:relevant.length,ignored_total:ignored.length,pending:pending.length,failed:failed.length,all_passed:relevant.length>0&&pending.length===0&&failed.length===0,runs:relevant.map((x:any)=>({name:x.name,status:x.status,conclusion:x.conclusion,completed_at:x.completed_at,html_url:x.html_url})),ignored_runs:ignored.map((x:any)=>({name:x.name,status:x.status,conclusion:x.conclusion,html_url:x.html_url}))},installation_id:installation.id,account:installation.account});
 }
 if(op==="main_workflow_runs"){
   const sha=String(b.commit_sha||"");if(!/^[0-9a-f]{7,64}$/i.test(sha))throw new Error("commit_sha_required");
@@ -101,9 +115,11 @@ if(op==="pr_merge"){
   const sha=String(pr?.head?.sha||"");
   const runs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`,{},t.token);
   const items=Array.isArray(runs?.check_runs)?runs.check_runs:[];
-  const pending=items.filter((x:any)=>String(x.status||"")!=="completed");
-  const failed=items.filter((x:any)=>String(x.status||"")==="completed"&&!["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
-  if(items.length===0)throw new Error("auto_merge_checks_missing");
+  const paths=Array.isArray(b.paths)?b.paths.map((x:any)=>String(x||"")):[];
+  const relevant=items.filter((x:any)=>relevantWorkflow(String(x?.name||""),paths));
+  const pending=relevant.filter((x:any)=>String(x.status||"")!=="completed");
+  const failed=relevant.filter((x:any)=>String(x.status||"")==="completed"&&!["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
+  if(relevant.length===0)throw new Error("auto_merge_checks_missing");
   if(pending.length)throw new Error("auto_merge_checks_pending");
   if(failed.length)throw new Error("auto_merge_checks_failed");
   const merged=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}/merge`,{method:"PUT",body:JSON.stringify({merge_method:"squash",commit_title:String(b.commit_title||"ARIA autonomous repair"),commit_message:String(b.commit_message||"Merged by ARIA after governed CI verification.")})},t.token);
