@@ -30,6 +30,10 @@ assert.doesNotMatch(source, /OPENAI_API_KEY|GOOGLE_API_KEY|GROK_API_KEY|sk-[A-Za
 assert.doesNotMatch(source, /console\.log\s*\(.*SECRET/);
 assert.match(loopSource, /max_completion_tokens:\s*1200/);
 assert.match(loopSource, /service_tier:\s*"flex"/);
+assert.match(loopSource, /resolveToolModel/, 'tool loop must resolve a valid tool-capable model');
+assert.match(loopSource, /provider_id", "openrouter"/, 'tool model resolution must use the OpenRouter provider registry');
+assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
+assert.match(loopSource, /code|coder|coding/, 'tool model resolution must prefer coding-capable model names when available');
 assert.doesNotMatch(loopSource, /\bmax_tokens:\s*3000/);
 
 console.log('AGENT RUNTIME V1 CONTRACT: PASS');

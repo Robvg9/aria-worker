@@ -20,6 +20,38 @@ async function recordDiagnostic(missionId: string, stepId: string, payload: Reco
   } catch {}
 }
 
+async function resolveToolModel(agent: any) {
+  const preferred = String(agent?.model?.model_id ?? agent?.model_id ?? "").trim();
+  if (preferred.startsWith("openrouter/")) return preferred;
+  if (preferred && preferred.includes(":free") && !preferred.startsWith("google/")) return preferred;
+
+  const { data, error } = await internal
+    .from("model_registry")
+    .select("model_id,provider_id,status,enabled")
+    .eq("provider_id", "openrouter")
+    .eq("status", "available")
+    .eq("enabled", true);
+
+  if (!error && Array.isArray(data) && data.length) {
+    const { data: caps } = await internal
+      .from("capability_matrix")
+      .select("model_id,status")
+      .eq("capability_id", "text_generation")
+      .eq("status", "verified");
+
+    const verified = new Set((caps ?? []).map((x: any) => String(x.model_id)));
+    const candidates = data
+      .map((x: any) => String(x.model_id))
+      .filter((id: string) => verified.has(id) && id.endsWith(":free"));
+
+    const codeFirst = candidates.find((id: string) => /code|coder|coding/i.test(id));
+    if (codeFirst) return codeFirst;
+    if (candidates[0]) return candidates[0];
+  }
+
+  throw new Error("agent_tool_model_unavailable");
+}
+
 function b64decode(s: string) {
   const clean = s.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
   const padded = clean + "=".repeat((4 - clean.length % 4) % 4);
@@ -86,7 +118,8 @@ export async function callModel(model: string, messages: any[], tools: any[], fo
   return body?.choices?.[0]?.message ?? null;
 }
 
-export async function toolLoop(agent: CatalogAgent, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
+export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
+  const toolModel = await resolveToolModel(agent);
   const branch = `aria/repair/${missionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)}`;
   const tools = allowWrite ? [...readTools, writeTool] : readTools;
   const system = [
@@ -107,7 +140,7 @@ export async function toolLoop(agent: CatalogAgent, missionId: string, stepId: s
   let sawToolCall = false;
   for (let round = 0; round < 8; round += 1) {
     const forceTool = allowWrite && round === 0 && !sawToolCall;
-    const message = await callModel(agent.model_id, messages, tools, forceTool);
+    const message = await callModel(toolModel, messages, tools, forceTool);
     if (!message) throw new Error("agent_model_empty");
     text = typeof message.content === "string" ? message.content.trim() : "";
     if (!Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
@@ -116,7 +149,7 @@ export async function toolLoop(agent: CatalogAgent, missionId: string, stepId: s
           status: "failed",
           code: "repair_no_tool_call",
           message: "Repair path expected at least one tool call; model returned text without tools.",
-          model_id: agent.model_id,
+          model_id: toolModel,
           tool_choice_requested: "required",
         });
         return {
@@ -191,7 +224,7 @@ export async function toolLoop(agent: CatalogAgent, missionId: string, stepId: s
       role: "user",
       content: "You have finished tool inspection. Now produce the mandatory final report using only the evidence in this conversation. Begin exactly with FINDINGS: and finish with VERDICT:. Do not call any more tools. Do not claim any change/test/deployment you did not verify.",
     });
-    const finalMessage = await callModel(agent.model_id, messages, []);
+    const finalMessage = await callModel(toolModel, messages, []);
     text = typeof finalMessage?.content === "string" ? finalMessage.content.trim() : "";
   }
   if (!/^FINDINGS:/i.test(text) || !/VERDICT:/i.test(text)) {
