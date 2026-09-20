@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.BaseBundle
 import android.os.Binder
 import android.os.Handler
 import android.os.Looper
@@ -20,29 +19,36 @@ class CommandReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
+
+        val callingUid = Binder.getCallingUid()
         val pending = goAsync()
+
         executor.submit {
             try {
-                if (!isTrustedCaller(context)) {
+                if (!isTrustedCaller(context, callingUid)) {
                     finish(pending, false, """{"ok":false,"reason":"caller_not_allowed"}""")
                     return@submit
                 }
+
                 val encoded = intent.getStringExtra("payload_b64")
                 if (encoded.isNullOrBlank()) {
                     finish(pending, false, """{"ok":false,"reason":"payload_missing"}""")
                     return@submit
                 }
+
                 val payload = try {
                     String(Base64.decode(encoded, Base64.NO_WRAP), StandardCharsets.UTF_8)
                 } catch (_: Exception) {
                     finish(pending, false, """{"ok":false,"reason":"payload_invalid_base64"}""")
                     return@submit
                 }
+
                 val service = AriaAccessibilityService.instance
                 if (service == null) {
                     finish(pending, false, """{"ok":false,"reason":"accessibility_service_disabled"}""")
                     return@submit
                 }
+
                 val result = service.handle(payload)
                 finish(pending, result.optBoolean("ok", false), result.toString())
             } catch (e: Exception) {
@@ -50,6 +56,7 @@ class CommandReceiver : BroadcastReceiver() {
                 finish(pending, false, """{"ok":false,"reason":"receiver_error:$safe"}""")
             }
         }
+
         Handler(Looper.getMainLooper()).postDelayed({
             if (!pending.isFinished) {
                 pending.setResultCode(Activity.RESULT_CANCELED)
@@ -59,8 +66,7 @@ class CommandReceiver : BroadcastReceiver() {
         }, 9000L)
     }
 
-    private fun isTrustedCaller(context: Context): Boolean {
-        val uid = Binder.getCallingUid()
+    private fun isTrustedCaller(context: Context, uid: Int): Boolean {
         val packages = context.packageManager.getPackagesForUid(uid)?.toSet() ?: emptySet()
         return "com.termux" in packages
     }

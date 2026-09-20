@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const PACKAGE = 'com.robvg9.ariauiagent';
 const RECEIVER = '.CommandReceiver';
 const ACTION = 'com.robvg9.ariauiagent.ACTION_EXECUTE';
+const SECRET_REF_PATTERN = /^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/;
 const MAX_OUTPUT = 128 * 1024;
 
 function shellQuote(value) {
@@ -73,7 +74,7 @@ function runCommand(command, timeoutMs = 12000) {
   });
 }
 
-async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000 } = {}) {
+async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, resolveSecret } = {}) {
   let payload;
   try {
     payload = JSON.parse(String(command || '{}'));
@@ -85,10 +86,29 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000 } = {
   }
 
   const request = { ...payload };
+  const secretRef = request.secret_ref;
+  if (secretRef !== undefined) {
+    if (typeof secretRef !== 'string' || !SECRET_REF_PATTERN.test(secretRef)) {
+      throw new Error('android_accessibility_secret_ref_invalid');
+    }
+    if (typeof resolveSecret !== 'function') {
+      throw new Error('android_accessibility_secret_resolver_required');
+    }
+    const secret = await resolveSecret(secretRef);
+    if (typeof secret !== 'string' || secret.length === 0) {
+      throw new Error('android_accessibility_credential_unavailable');
+    }
+    if (!request.action || typeof request.action !== 'object' || request.action.action !== 'type') {
+      throw new Error('android_accessibility_secret_ref_requires_type');
+    }
+    request.action = { ...request.action, text: secret };
+    delete request.secret_ref;
+  }
+
   const requestId = crypto.randomUUID();
   request.request_id = requestId;
-
   const encoded = Buffer.from(JSON.stringify(request), 'utf8').toString('base64');
+
   const amCommand = [
     '/system/bin/am broadcast',
     '-n', shellQuote(PACKAGE + '/' + RECEIVER),
@@ -136,4 +156,10 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000 } = {
   };
 }
 
-module.exports = Object.freeze({ PACKAGE, RECEIVER, ACTION, parseBroadcastData, executeAndroidAccessibilityJob });
+module.exports = Object.freeze({
+  PACKAGE,
+  RECEIVER,
+  ACTION,
+  parseBroadcastData,
+  executeAndroidAccessibilityJob
+});

@@ -112,7 +112,7 @@ async function claimAndExecute() {
     if(job.operation==='android.notification') {
       result=await runAndroidNotification(parseAndroidNotificationPayload(job.command));
     } else if(job.operation==='computer.use.android') {
-      const bridgeResult=await executeAndroidAccessibilityJob({command:job.command,timeoutMs:job.timeout_ms||12000});
+      const bridgeResult=await executeAndroidAccessibilityJob({command:job.command,timeoutMs:job.timeout_ms||12000,resolveSecret:secretRef=>resolveSecret(job.job_id,secretRef)});
       result={status:bridgeResult.status,exit_code:bridgeResult.status==='succeeded'?0:1,stdout:'',stderr:bridgeResult.status==='succeeded'?'':String(bridgeResult.reason||'android_accessibility_failed'),duration_ms:null,result:bridgeResult.payload||null,metadata:{...(bridgeResult.metadata||{}),android_ui_agent:true}};
       if (result.result?.metadata?.secret_ref) delete result.result.metadata.secret_ref;
     } else {
