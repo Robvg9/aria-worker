@@ -17,6 +17,8 @@ assert.match(source, /aria-agent-memory-v1/);
 assert.match(source, /aria-agent-business-v1/);
 assert.match(source, /aria-agent-device-v1/);
 assert.match(source, /operation.*delegate/);
+assert.match(source, /mutating_operation_required/, 'agent runtime must honor mutation policy');
+assert.match(source, /LOW_RISK_WRITE/, 'LOW_RISK_WRITE must activate governed repair mode');
 assert.match(source, /executor_type.*agent/);
 assert.match(source, /aria-execution-runtime-v1/);
 assert.match(source, /const requestId = `agent:/);

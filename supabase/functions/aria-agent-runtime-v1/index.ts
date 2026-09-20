@@ -53,7 +53,10 @@ Deno.serve(async (r) => {
   const requestedRisk = String(b.risk || "READ"); if (!riskAllowed(requestedRisk, catalogAgent.max_risk)) return out({ ok: false, status: "blocked", error: { code: "agent_risk_exceeded", agent_id: agentId, requested_risk: requestedRisk, max_risk: catalogAgent.max_risk } });
   if (!catalogAgent.scope.includes("reason")) return out({ ok: false, status: "blocked", error: { code: "agent_scope_denied", agent_id: agentId, required_scope: "reason" } });
   const prompt = typeof b.input?.prompt === "string" ? b.input.prompt.trim() : String(b.input?.message || "").trim(); if (!prompt) return out({ ok: false, status: "blocked", error: { code: "prompt_missing" } });
-  const repairRequired = b.policy?.repair_required === true; const toolUse = b.policy?.tool_use === true || repairRequired;
+  const repairRequired = b.policy?.repair_required === true
+    || b.policy?.mutating_operation_required === true
+    || ["LOW_RISK_WRITE","MEDIUM_RISK_WRITE","HIGH_RISK_WRITE","WRITE"].includes(requestedRisk);
+  const toolUse = b.policy?.tool_use === true || repairRequired;
   try {
     if (repairRequired) {
       if (agentId !== "aria-agent-coding-v1") return out({ ok: false, status: "blocked", error: { code: "repair_agent_must_be_coding_agent", agent_id: agentId } });
