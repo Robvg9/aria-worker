@@ -62,7 +62,15 @@ Deno.serve(async (r) => {
       if (agentId !== "aria-agent-coding-v1") return out({ ok: false, status: "blocked", error: { code: "repair_agent_must_be_coding_agent", agent_id: agentId } });
       if (requestedRisk !== "LOW_RISK_WRITE") return out({ ok: false, status: "blocked", error: { code: "repair_requires_low_risk_write", requested_risk: requestedRisk } });
       if (!catalogAgent.scope.includes("code")) return out({ ok: false, status: "blocked", error: { code: "repair_agent_lacks_code_scope" } });
-      return out(await toolLoop(agent, missionId, stepId, prompt, true));
+      const repairResult = await toolLoop(agent, missionId, stepId, prompt, true);
+      await recordDiagnostic(missionId, stepId, {
+        status: String(repairResult?.status || "unknown"),
+        code: "agent_repair_result",
+        repair: repairResult?.repair || null,
+        error: repairResult?.error || null,
+        response: typeof repairResult?.response?.content === "string" ? repairResult.response.content.slice(0, 4000) : null,
+      });
+      return out(repairResult);
     }
     if (toolUse) return out(await toolLoop(agent, missionId, stepId, prompt, false));
     const requestId = `agent:${missionId}:${stepId}`;
