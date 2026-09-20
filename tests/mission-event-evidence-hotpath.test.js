@@ -6,7 +6,7 @@ for (const fragment of [
   "if new.event_type <> 'mission_verified' then",
   "perform aria_evidence.record_claim",
   "exception when others then",
-  "must never block mission terminalization"
+  "return new;"
 ]) {
   if (!source.includes(fragment)) throw new Error("missing evidence hot-path hardening contract: " + fragment);
 }
