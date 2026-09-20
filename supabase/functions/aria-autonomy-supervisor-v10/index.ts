@@ -399,7 +399,7 @@ Deno.serve(async (req: Request) => {
     }
     return out({
       ok: true,
-      deprecated: true,
+      deprecated:true,
       supervisor: WORKER,
       canonical_authority: CANONICAL_AUTHORITY,
       meditation_tick: meditation,
