@@ -77,6 +77,12 @@ const readTools = [
   { type: "function", function: { name: "github_code_search", description: "Search source code in Robvg9/aria-worker on main.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
   { type: "function", function: { name: "github_file_read", description: "Read a text file from Robvg9/aria-worker.", parameters: { type: "object", properties: { path: { type: "string" }, branch: { type: "string" } }, required: ["path"] } } },
 ];
+function canonicalToolName(name:string) {
+  const value=String(name||"").trim();
+  if (value.includes(":")) return value.slice(value.lastIndexOf(":")+1);
+  return value;
+}
+
 const writeTool = {
   type: "function",
   function: {
@@ -213,7 +219,8 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
     sawToolCall = true;
     messages.push(message);
     for (const toolCall of message.tool_calls.slice(0, 4)) {
-      const name = String(toolCall?.function?.name || "");
+      const rawName = String(toolCall?.function?.name || "");
+      const name = canonicalToolName(rawName);
       let args: any = {};
       try { args = JSON.parse(toolCall?.function?.arguments || "{}"); } catch { args = {}; }
       let result: any;
@@ -244,7 +251,13 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
           });
           writes.push({ path: String(args.path || ""), branch, commit_sha: result?.data?.commit_sha ?? null });
         } else {
-          result = { ok: false, error: `unsupported_tool:${name}` };
+          result = { ok: false, error: `unsupported_tool:${name}`, raw_tool_name: rawName };
+          await recordDiagnostic(missionId, stepId, {
+            status: "failed",
+            code: "agent_unsupported_tool",
+            message: `Unsupported tool requested by model: ${rawName}`,
+            canonical_tool_name: name,
+          });
         }
       } catch (error) {
         result = { ok: false, error: error instanceof Error ? error.message : String(error) };
