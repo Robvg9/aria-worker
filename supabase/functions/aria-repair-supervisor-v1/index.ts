@@ -250,7 +250,10 @@ async function superviseMission(mission: any) {
     return { mission_id: mission.mission_id, status: finalized.status, pr_number: pr.number, verification };
   }
 
-  const checks = await github("pr_checks", { number: Number(pr.number) });
+  const filesBody=await github("pr_files",{number:Number(pr.number)});
+  const files=Array.isArray(filesBody?.files)?filesBody.files:[];
+  const paths=files.map((x:any)=>String(x?.filename||""));
+  const checks = await github("pr_checks", { number: Number(pr.number), paths });
   if (Number(checks.failed ?? 0) > 0) {
     await updateBlocked(mission, {
       status: "failed",
@@ -285,6 +288,7 @@ async function superviseMission(mission: any) {
       base: "main",
       risk_level: "LOW_RISK_WRITE",
       auto_merge: true,
+      paths,
       commit_title: `ARIA autonomous repair: ${mission.mission_id}`,
       commit_message: "Merged by ARIA after governed CI verification.",
     });
