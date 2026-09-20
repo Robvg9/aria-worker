@@ -79,8 +79,27 @@ class DashboardFragment : Fragment() {
 }
 
 class ChatFragment : Fragment() {
-    override fun onCreateView(inflater: android.view.LayoutInflater, container: android.view.ViewGroup?, savedInstanceState: Bundle?): android.view.View {
-        val layout = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 40, 40, 40) }
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    override fun onCreateView(
+        inflater: android.view.LayoutInflater,
+        container: android.view.ViewGroup?,
+        savedInstanceState: Bundle?
+    ): android.view.View {
+        val webView = android.webkit.WebView(requireContext()).apply {
+            webViewClient = android.webkit.WebViewClient()
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.loadsImagesAutomatically = true
+            loadUrl("https://aria.robvg9.workers.dev/pwa/")
+        }
+        return webView
+    }
+
+    override fun onDestroyView() {
+        (view as? android.webkit.WebView)?.destroy()
+        super.onDestroyView()
+    }
+}
         layout.addView(TextView(requireContext()).apply { text = "Chat ARIA"; textSize = 20f })
         return layout
     }
