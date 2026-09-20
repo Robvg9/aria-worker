@@ -96,6 +96,32 @@ jobs:
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
           manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "${base}manifest-${GITHUB_SHA}.json")"
           grep -q 'ARIA — Centro de Mando Cognitivo' <<<"$manifest"
+          # Verify the actual browser entry assets, not only the HTML shell.
+          js_asset="$(python - <<'PY' <<<"$html"
+import re,sys
+x=sys.stdin.read()
+items=re.findall(r'<script[^>]+src=["']([^"']+\.js)["']',x)
+print(items[0] if items else '')
+PY
+)"
+          css_asset="$(python - <<'PY' <<<"$html"
+import re,sys
+x=sys.stdin.read()
+items=re.findall(r'<link[^>]+href=["']([^"']+\.css)["']',x)
+print(items[0] if items else '')
+PY
+)"
+          test -n "$js_asset"
+          test -n "$css_asset"
+          js_code="$(curl --silent --show-error --max-time 15 --retry 3 --retry-delay 1 -o /tmp/aria-pwa-js -w '%{http_code}' "${base}${js_asset#./}")"
+          css_code="$(curl --silent --show-error --max-time 15 --retry 3 --retry-delay 1 -o /tmp/aria-pwa-css -w '%{http_code}' "${base}${css_asset#./}")"
+          echo "PWA_JS_STATUS=$js_code asset=$js_asset"
+          echo "PWA_CSS_STATUS=$css_code asset=$css_asset"
+          test "$js_code" = "200"
+          test "$css_code" = "200"
+          test -s /tmp/aria-pwa-js
+          test -s /tmp/aria-pwa-css
+          echo PWA_STATIC_ASSETS_OK
       - name: Smoke test PWA login auth boundary
         run: |
           set -euo pipefail

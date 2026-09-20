@@ -7,3 +7,8 @@ crons = ["* * * * *"]
 
 # OAuth proxy deployment sync checkpoint
 # OAuth HTML response hardening deployment trigger
+
+[assets]
+directory = "./pwa/dist"
+binding = "ARIA_PWA_ASSETS"
+run_worker_first = true
