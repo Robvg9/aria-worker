@@ -29,3 +29,36 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 @keyframes breath{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
 @media(max-width:900px){.heroPanel{grid-template-columns:1fr}.commandGrid{grid-template-columns:1fr}.statsGrid{grid-template-columns:repeat(2,1fr)}.capGrid{grid-template-columns:repeat(2,1fr)}.topBar{align-items:flex-start}.topActions{justify-content:flex-start}.heroLeft{align-items:flex-start}.heroOrb{width:92px;height:92px}}
 @media(max-width:560px){.appShell{padding:12px 12px 28px}.topBar{flex-direction:column}.topActions{width:100%}.topActions .ghost,.topActions .primary{flex:1}.heroPanel{padding:16px}.heroLeft{flex-direction:column}.statsGrid{grid-template-columns:repeat(2,1fr)}.capGrid{grid-template-columns:repeat(2,1fr)}.capHero{align-items:flex-start}.detailGrid{grid-template-columns:1fr}.bubble{max-width:95%}.statePanel{flex-direction:column;align-items:stretch}.composer .tool{display:none}}
+
+
+.notificationLauncher{position:fixed;right:18px;bottom:18px;z-index:60;border:1px solid rgba(255,255,255,.14);background:rgba(17,12,28,.94);color:#fff;border-radius:999px;padding:11px 15px;display:flex;align-items:center;gap:8px;box-shadow:0 12px 30px rgba(0,0,0,.35);backdrop-filter:blur(10px);font-weight:700;cursor:pointer}
+.notificationLauncher b{min-width:22px;height:22px;border-radius:999px;display:grid;place-items:center;background:#fff;color:#0d0815;font-size:12px}
+.notificationBackdrop{position:fixed;inset:0;z-index:80;background:rgba(4,2,8,.68);display:flex;justify-content:flex-end;align-items:flex-end;padding:18px}
+.notificationPanel{width:min(560px,100%);max-height:min(760px,92vh);overflow:auto;background:#110c1c;border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:18px;box-shadow:0 22px 70px rgba(0,0,0,.5)}
+.notificationHeader{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:14px}
+.notificationHeader h2{margin:3px 0 4px}
+.notificationPermission{display:grid;gap:8px;padding:14px;border-radius:16px;background:rgba(124,86,255,.12);border:1px solid rgba(124,86,255,.24);margin-bottom:14px}
+.notificationPermission span{color:rgba(255,255,255,.72);font-size:14px;line-height:1.45}
+.notificationSelected{display:grid;gap:9px;padding:15px;border-radius:18px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.1);margin-bottom:14px}
+.notificationSelected p{margin:0;line-height:1.5}
+.notificationMeta{display:flex;gap:12px;flex-wrap:wrap;color:rgba(255,255,255,.55);font-size:12px}
+.notificationList{display:grid;gap:8px}
+.notificationRow{width:100%;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:#fff;border-radius:16px;padding:13px 12px;display:grid;grid-template-columns:10px 1fr auto;gap:10px;text-align:left;cursor:pointer}
+.notificationRow:hover{background:rgba(255,255,255,.06)}
+.notificationRow.unread{border-color:rgba(255,255,255,.16);background:rgba(124,86,255,.09)}
+.notificationRow.read{opacity:.76}
+.notificationDot{width:9px;height:9px;border-radius:50%;margin-top:5px;background:#aaa}
+.notificationDot.success{background:#5ce28a}
+.notificationDot.warning{background:#ffcf5a}
+.notificationDot.error{background:#ff6d7d}
+.notificationDot.info{background:#63b5ff}
+.notificationRowText{display:grid;gap:4px}
+.notificationRowText strong{font-size:14px}
+.notificationRowText small{font-size:13px;line-height:1.4;color:rgba(255,255,255,.68)}
+.notificationArrow{font-size:26px;line-height:1;color:rgba(255,255,255,.46)}
+@media(max-width:700px){
+  .notificationLauncher{right:12px;bottom:12px}
+  .notificationBackdrop{padding:10px}
+  .notificationPanel{border-radius:20px;max-height:88vh}
+  .notificationHeader{align-items:center}
+}

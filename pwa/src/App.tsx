@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getNotificationIdFromHash, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
 const CACHE_PREFIX = 'aria-runtime-cache-v2';
@@ -395,6 +396,192 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
   );
 }
 
+function PwaNotificationCenter({ session }: { session: Session }) {
+  const [items, setItems] = useState<PwaNotificationItem[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<PwaNotificationItem | null>(null);
+  const [missionDetail, setMissionDetail] = useState<any>(null);
+  const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const firstSync = useRef(true);
+  const seenKey = 'aria_notification_seen_v1:' + session.userId;
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) setPermission(Notification.permission);
+    else setPermission('unsupported');
+  }, []);
+
+  async function openNotification(item: PwaNotificationItem) {
+    setSelected(item);
+    setOpen(true);
+    setMissionDetail(null);
+    setMissionEvents([]);
+
+    try {
+      await api('/meditation/notifications/read', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ notification_ids: [item.notification_id] })
+      });
+      setItems(current => current.map(x => x.notification_id === item.notification_id
+        ? { ...x, read_at: new Date().toISOString() }
+        : x
+      ));
+      setUnread(current => Math.max(0, current - (item.read_at ? 0 : 1)));
+    } catch {}
+
+    if (item.mission_id) {
+      const [missionResult, eventsResult] = await Promise.all([
+        api('/missions/' + encodeURIComponent(item.mission_id), session.accessToken).catch(() => null),
+        api('/missions/' + encodeURIComponent(item.mission_id) + '/events', session.accessToken).catch(() => ({ events: [] }))
+      ]);
+      if (missionResult?.mission) setMissionDetail(missionResult.mission);
+      setMissionEvents(eventsResult?.events ?? []);
+    }
+  }
+
+  async function loadNotifications() {
+    try {
+      const data = await api('/meditation/notifications?limit=50', session.accessToken);
+      const next = Array.isArray(data?.notifications) ? data.notifications as PwaNotificationItem[] : [];
+      setItems(next);
+      setUnread(Number(data?.unread_count ?? 0));
+
+      let seen: string[] = [];
+      try { seen = JSON.parse(localStorage.getItem(seenKey) || '[]'); } catch {}
+      const seenSet = new Set(seen.map(String));
+      const fresh = next.filter(item => !seenSet.has(String(item.notification_id)));
+
+      if (firstSync.current) {
+        next.forEach(item => seenSet.add(String(item.notification_id)));
+        firstSync.current = false;
+      } else if (permission === 'granted') {
+        for (const item of fresh.slice(0, 3)) {
+          try { await showPwaNotification(item); } catch {}
+          seenSet.add(String(item.notification_id));
+        }
+      } else {
+        fresh.forEach(item => seenSet.add(String(item.notification_id)));
+      }
+
+      const compactSeen = Array.from(seenSet).slice(-200);
+      localStorage.setItem(seenKey, JSON.stringify(compactSeen));
+    } catch {}
+  }
+
+  useLiveSync(loadNotifications, session.accessToken, 8000);
+
+  useEffect(() => {
+    const id = getNotificationIdFromHash();
+    if (!id || !items.length) return;
+    const item = items.find(x => String(x.notification_id) === id);
+    if (!item) return;
+    window.history.replaceState(null, '', '/pwa/');
+    void openNotification(item);
+  }, [items]);
+
+  async function enableNotifications() {
+    const result = await requestPwaNotificationPermission();
+    setPermission(result);
+    if (result === 'granted') {
+      setOpen(true);
+      await loadNotifications();
+    }
+  }
+
+  const selectedCopy = selected ? humanizeMeditationNotification(selected) : null;
+
+  return (
+    <>
+      <button
+        className='notificationLauncher'
+        aria-label={permission === 'granted' ? 'Abrir avisos de ARIA' : 'Activar avisos de ARIA'}
+        onClick={() => permission === 'granted' ? setOpen(true) : void enableNotifications()}
+      >
+        <span>🔔</span>
+        <span>{permission === 'granted' ? 'Avisos' : 'Activar avisos'}</span>
+        {unread > 0 && <b>{unread}</b>}
+      </button>
+
+      {open && (
+        <div className='notificationBackdrop' onClick={() => setOpen(false)}>
+          <section className='notificationPanel' onClick={e => e.stopPropagation()}>
+            <div className='notificationHeader'>
+              <div>
+                <div className='eyebrow'>ARIA / AVISOS</div>
+                <h2>Notificaciones</h2>
+                <div className='muted'>{unread} sin leer · Los avisos de Meditación IA llegan desde ARIA.</div>
+              </div>
+              <button className='ghost' onClick={() => setOpen(false)}>Cerrar</button>
+            </div>
+
+            {permission !== 'granted' && (
+              <div className='notificationPermission'>
+                <strong>Activa los avisos de ARIA en este teléfono.</strong>
+                <span>Así las alertas aparecerán como notificaciones de ARIA y podrás tocarlas para abrir el detalle.</span>
+                <button className='primary' onClick={() => void enableNotifications()}>Activar avisos</button>
+              </div>
+            )}
+
+            {selected && selectedCopy && (
+              <div className='notificationSelected'>
+                <div className='panelTitle'>{selectedCopy.title.toUpperCase()}</div>
+                <p>{selectedCopy.body}</p>
+                {selected.message && selected.message !== selectedCopy.body && (
+                  <div className='muted'>Detalle registrado: {selected.message}</div>
+                )}
+                <div className='notificationMeta'>
+                  <span>{formatDate(selected.created_at)}</span>
+                  <span>{selected.read_at ? 'Leída' : 'Sin leer'}</span>
+                </div>
+                {missionDetail && (
+                  <button className='primary' onClick={() => {
+                    setOpen(false);
+                    setSelected(null);
+                  }}>Abrir misión completa</button>
+                )}
+              </div>
+            )}
+
+            <div className='notificationList'>
+              {items.length ? items.map(item => {
+                const copy = humanizeMeditationNotification(item);
+                return (
+                  <button
+                    key={item.notification_id}
+                    className={'notificationRow ' + (item.read_at ? 'read' : 'unread')}
+                    onClick={() => void openNotification(item)}
+                  >
+                    <span className={'notificationDot ' + item.severity} />
+                    <span className='notificationRowText'>
+                      <strong>{copy.title}</strong>
+                      <small>{copy.body}</small>
+                    </span>
+                    <span className='notificationArrow'>›</span>
+                  </button>
+                );
+              }) : (
+                <div className='emptyState'>Todavía no hay notificaciones de ARIA.</div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {missionDetail && (
+        <MissionDetail
+          mission={missionDetail}
+          events={missionEvents}
+          onClose={() => {
+            setMissionDetail(null);
+            setSelected(null);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 function Chat({
   session,
   onSignOut,
@@ -729,7 +916,14 @@ export default function App() {
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => setPage('aria');
-  if (page === 'meditation') return <Meditation session={session} onBack={() => setPage('aria')} onCapabilities={() => setPage('capabilities')} />;
-  if (page === 'capabilities') return <Capabilities session={session} onBack={() => setPage('aria')} onMeditation={() => setPage('meditation')} onMission={openMission} />;
-  return <Chat session={session} onSignOut={signOut} onMeditation={() => setPage('meditation')} onCapabilities={() => setPage('capabilities')} />;
+  return (
+    <>
+      <PwaNotificationCenter session={session} />
+      {page === 'meditation'
+        ? <Meditation session={session} onBack={() => setPage('aria')} onCapabilities={() => setPage('capabilities')} />
+        : page === 'capabilities'
+          ? <Capabilities session={session} onBack={() => setPage('aria')} onMeditation={() => setPage('meditation')} onMission={openMission} />
+          : <Chat session={session} onSignOut={signOut} onMeditation={() => setPage('meditation')} onCapabilities={() => setPage('capabilities')} />}
+    </>
+  );
 }
