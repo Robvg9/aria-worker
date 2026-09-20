@@ -181,8 +181,18 @@ function explicitlyUnverified(step: any, result: any) {
 
   const mutationRequired = step?.policy?.mutating_operation_required === true
     || String(step?.risk ?? "").toUpperCase().includes("WRITE");
-  if (mutationRequired && result?.repair?.changed === false && result?.repair?.verified !== true) {
-    return true;
+
+  if (mutationRequired) {
+    const type = executorType(step);
+    if (type === "agent") {
+      const repair = result?.repair;
+      const changed = repair?.changed === true;
+      const writes = Array.isArray(repair?.writes) && repair.writes.length > 0;
+      const verified = repair?.verified === true;
+      if (!(changed && writes && verified)) return true;
+    } else if (Object.keys(step?.verify && typeof step.verify === "object" ? step.verify : {}).length === 0) {
+      return true;
+    }
   }
 
   if (mutationRequired && /NO_CHANGE_REQUIRED/i.test(String(result?.repair?.summary ?? result?.response?.content ?? "")) && result?.repair?.verified !== true) {
@@ -190,6 +200,17 @@ function explicitlyUnverified(step: any, result: any) {
   }
 
   return false;
+}
+
+function verificationPending(step: any, result: any) {
+  const mutationRequired = step?.policy?.mutating_operation_required === true
+    || String(step?.risk ?? "").toUpperCase().includes("WRITE");
+  const status = String(result?.repair?.verification_status ?? result?.verification_status ?? "").toLowerCase();
+  return mutationRequired && [
+    "awaiting_ci_or_live_verification",
+    "awaiting_verification",
+    "verification_pending",
+  ].includes(status);
 }
 
 function verifyStep(step: any, result: any) {
@@ -754,6 +775,36 @@ Deno.serve(async (request) => {
 
       const failures = outcomes.filter((item) => !item.passed);
       if (failures.length) {
+        const verificationWait = failures.find((item) => verificationPending(item.step, item.result));
+        if (verificationWait) {
+          const blockedStepId = String(verificationWait.step.id);
+          await updateMission(missionId, {
+            status: "blocked",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: "verification:awaiting_ci_or_live_verification",
+            checkpoint: {
+              ...checkpoint,
+              recovery: {
+                status: "verification_pending",
+                failed_step_id: blockedStepId,
+                verification_status: String(verificationWait.result?.repair?.verification_status || verificationWait.result?.verification_status || "awaiting_verification"),
+              },
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          return out({
+            ok: true,
+            status: "blocked",
+            mission_id: missionId,
+            runtime: V,
+            completed_steps: completed.size,
+            blocked_step_id: blockedStepId,
+            reason: "verification_pending",
+          });
+        }
+
         const retryableFailure = failures.find((item) => item.step.retryable !== false && RETRYABLE_STATUSES.has(String(item.result?.status || "failed")) && Number(attempts[String(item.step.id)]) < Math.min(3, Number(item.step.max_attempts || MAX_STEP_ATTEMPTS)));
         if (retryableFailure) {
           await updateMission(missionId, {

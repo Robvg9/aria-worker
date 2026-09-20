@@ -16,6 +16,11 @@ assertContains(appApi,'SUPABASE_SERVICE_ROLE_KEY','service-role binding missing'
 assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verification missing');
 if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
+assertContains(appApi,'function looksLikeMissionRequest(input: string)','chat mission intent classifier missing');
+assertContains(appApi,'aria_mission_create','chat mission handoff must queue a canonical mission');
+assertContains(appApi,'event_type: "mission_accepted"','chat mission acceptance event missing');
+assertContains(appApi,'visualState: "mission_queued"','chat mission queued UI state missing');
+
 assertContains(appApi,'path.endsWith("/missions")','mission route missing');
 assertContains(appApi,'path.endsWith("/memory/search")','memory search route missing');
 assertContains(appApi,'path.endsWith("/media/upload-url")','media upload preparation route missing');
