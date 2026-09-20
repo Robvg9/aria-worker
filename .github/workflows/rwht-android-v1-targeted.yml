@@ -1,33 +1,30 @@
-name: RWHT Android V1 Targeted
+name: RWHT Android UI Agent v1 Targeted
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: rwht-android-v1-${{ github.event.pull_request.number || github.ref }}
+  group: rwht-android-ui-agent-v1-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  rwht-android-v1:
+  rwht-android-ui-agent-v1:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Termux bridge transport test
-        run: node tests/android-browser-bridge-termux-v1.test.js
-      - name: Computer-use Android adapter test
-        run: node tests/android-browser-bridge-adapter-v1-targeted.test.js
-      - name: Core computer-use Android contract test
-        run: node tests/android-browser-bridge-v1.test.js
-      - name: Device job contract test
+      - name: Android accessibility transport contract
+        run: node tests/android-accessibility-v1.test.js
+      - name: Computer-use runtime contract
+        run: node tests/computer-use-runtime-v1.test.js
+      - name: Device job contract
         run: node tests/device-job-contract.test.js
-      - name: RWHT runner syntax
+      - name: Android RWHT planner syntax
         run: node -e "require('./computer-use/android-rwht-v1')"
