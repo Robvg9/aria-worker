@@ -8,7 +8,7 @@ assert(gatewaySource.includes("p==='/v1/meditation/tick-service'"),'cloud Medita
 assert(gatewaySource.includes("last_cloud_tick_at"),'cloud Meditation tick must persist tick evidence');
 assert(supervisorSource.includes('/v1/meditation/tick-service'),'Meditation supervisor must invoke canonical cloud tick');
 assert(gatewaySource.includes("eq('metadata->>device_id',deviceId)"),'Meditation mission selection must be device-scoped');
-assert(gatewaySource.includes("metadata->>meditation_session_id"),'Meditation mission selection must be session-scoped');
+assert(!gatewaySource.includes("metadata->>meditation_session_id')"),'Meditation mission selection must not be session-scoped');
 assert(gatewaySource.includes("let deviceId=String(b.device_id||'')"),'Meditation service must not trust stale control device identity');
 assert(supervisorSource.includes('device_id:null'),'Meditation supervisor must not forward stale device identity');
 
