@@ -354,46 +354,37 @@ Deno.serve(async (req) => {
       const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
 
       if (looksLikeMissionRequest(text)) {
-        const missionCreate = await serviceClient().schema("aria_internal").rpc("aria_mission_create", {
-          p_mission: {
-            goal: text,
-            status: "queued",
-            checkpoint: {
-              chat_handoff: {
-                version: "chat-mission-router-v1",
-                conversation_id: conversationId,
-                routed_at: new Date().toISOString(),
-              },
-            },
-            metadata: {
-              source_application: "aria-pwa-chat",
-              user_id: user.id,
-              goal_source: "chat",
-              execution_requested: true,
-            },
-          },
-        });
-        if (missionCreate.error || !missionCreate.data?.mission_id) {
-          return json({
-            error: "mission_enqueue_failed",
-            stage: "mission_queue",
-            detail: String(missionCreate.error?.message ?? "mission_create_failed"),
-            trace_id: trace
-          }, 503);
-        }
-        const mission = missionCreate.data;
-        await serviceClient().schema("aria_internal").from("mission_events").insert({
-          mission_id: String(mission.mission_id),
-          step_index: null,
-          event_type: "mission_accepted",
-          payload: {
-            source: "chat",
-            conversation_id: conversationId,
+        const direct = await internal(DIRECT, {
+          goal: text,
+          mission_id: undefined,
+          metadata: {
+            source_application: "aria-pwa-chat",
+            user_id: user.id,
             goal_source: "chat",
             execution_requested: true,
-            created_at: new Date().toISOString(),
+            conversation_id: conversationId,
+            chat_handoff: "canonical-direct-v1",
           },
+          "x-aria-user-id": user.id,
         });
+        if (!direct.r.ok) {
+          return json({
+            error: "mission_enqueue_failed",
+            stage: "canonical_mission_intake",
+            detail: String(direct.b?.error ?? "aria_direct_failed"),
+            upstream_status: direct.r.status,
+            trace_id: trace
+          }, direct.r.status >= 500 ? 503 : direct.r.status);
+        }
+        const mission = direct.b?.mission ?? direct.b?.result ?? null;
+        if (!mission?.mission_id) {
+          return json({
+            error: "mission_enqueue_failed",
+            stage: "canonical_mission_intake",
+            detail: "canonical_direct_returned_no_mission_id",
+            trace_id: trace
+          }, 502);
+        }
         return json({
           ok: true,
           conversationId,
@@ -401,14 +392,15 @@ Deno.serve(async (req) => {
           mission,
           parts: [{
             type: "text",
-            text: "Recibido. Convertí tu solicitud en una misión gobernada y ya está en cola. ARIA la ejecutará mediante sus executors autorizados y solo podrá marcarla completada cuando la ejecución y la verificación aporten evidencia real."
+            text: "Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación."
           }],
           cognitive: {
             recall_count: 0,
             provider_id: null,
             model_id: null,
             fallback_count: 0,
-            routed_to_mission: true
+            routed_to_mission: true,
+            canonical_intake: true
           },
           trace_id: trace
         });

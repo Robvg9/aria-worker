@@ -17,7 +17,8 @@ assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verificati
 if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
 assertContains(appApi,'function looksLikeMissionRequest(input: string)','chat mission intent classifier missing');
-assertContains(appApi,'aria_mission_create','chat mission handoff must queue a canonical mission');
+assertContains(appApi,'internal(DIRECT, {','chat mission handoff must reuse canonical DIRECT mission intake');
+assertContains(appApi,'canonical-direct-v1','chat mission canonical intake marker missing');
 assertContains(appApi,'event_type: "mission_accepted"','chat mission acceptance event missing');
 assertContains(appApi,'visualState: "mission_queued"','chat mission queued UI state missing');
 
