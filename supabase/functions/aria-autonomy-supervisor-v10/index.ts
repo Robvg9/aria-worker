@@ -27,7 +27,7 @@ async function meditationKick(r:any,control:any){
   const response=await fetch(`${GATEWAY}/v1/meditation/tick-service`,{
     method:"POST",
     headers:{...(r.headers.get("x-aria-autonomy-token")?{"x-aria-autonomy-token":r.headers.get("x-aria-autonomy-token")}:{authorization:`Bearer ${SECRET}`}),"content-type":"application/json","x-aria-trigger":"meditation-ia-cloud-supervisor"},
-    body:JSON.stringify({session_id:control.session_id,device_id:control.metadata?.device_id||null,source:"aria-autonomy-supervisor-v10"})
+    body:JSON.stringify({session_id:control.session_id,device_id:null,source:"aria-autonomy-supervisor-v10"})
   });
   const payload=await response.json().catch(()=>({}));
   return {http_status:response.status,...payload};
