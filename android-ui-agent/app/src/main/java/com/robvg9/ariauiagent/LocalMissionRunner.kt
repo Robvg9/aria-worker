@@ -23,11 +23,6 @@ class LocalMissionRunner(
 
     fun current(): LocalMission? = synchronized(lock) { mission }
 
-    /**
-     * Load persisted mission. If it was in ACTION (impossible under normal rules)
-     * or PENDING_APPROVAL, force PENDING_APPROVAL so owner must re-approve.
-     * Never auto-execute.
-     */
     fun recover(): LocalMission? = synchronized(lock) {
         val loaded = store.load() ?: return null
         val safe = when (loaded.state) {
@@ -92,6 +87,23 @@ class LocalMissionRunner(
         }
 
         val ok = raw.optBoolean("ok", false)
+        val observeError = if (ok) {
+            null
+        } else {
+            val reason = raw.optString("reason", "observe_failed")
+            val diag = raw.optJSONObject("diagnostic")
+            if (diag == null) {
+                reason
+            } else {
+                val active = diag.optString("activePackage", "?")
+                val wins = diag.optInt("windowCount", -1)
+                val withRoot = diag.optInt("applicationWindowsWithRoot", -1)
+                val hint = diag.optString("hint", "")
+                val installed = diag.optJSONArray("installedApprovedBrowsers")
+                val installedN = installed?.length() ?: 0
+                "$reason|active=$active|wins=$wins|appRoots=$withRoot|installedBrowsers=$installedN|hint=$hint"
+            }
+        }
         val obs = LocalObservation(
             packageName = raw.optJSONObject("ui")?.optString("packageName")
                 ?: raw.optString("packageName", null),
@@ -100,7 +112,7 @@ class LocalMissionRunner(
             evidenceHash = raw.optString("evidence_hash", null)
                 ?: raw.optJSONObject("ui")?.optString("evidence_hash", null),
             ok = ok,
-            error = if (ok) null else raw.optString("reason", "observe_failed")
+            error = observeError
         )
 
         val step = LocalStep(
