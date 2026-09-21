@@ -78,8 +78,8 @@ async function androidAutonomousDecision(b:any,d:any){
   if(acctRes.error)throw new Error(acctRes.error.message);
   const verified=new Set((capsRes.data||[]).map((x:any)=>String(x.model_id)));
   const preferredModels=[
-    'nex-agi/nex-n2.5-mini:free',
     'google/gemini-3.5-flash-lite-direct',
+    'nex-agi/nex-n2.5-mini:free',
     'google/gemini-3.5-flash-direct',
     'deepseek/deepseek-v4-flash-0731:free',
     'nvidia/nemotron-3.5-lightning:free'
@@ -113,24 +113,27 @@ async function androidAutonomousDecision(b:any,d:any){
   const compactNodes=[...nodes.values()]
     .filter((n:any)=>isSafeNode(n)&&(
       Boolean(n.clickable) ||
-      Boolean(n.focused) ||
       Boolean(n.scrollable) ||
-      Boolean(n.text) ||
-      Boolean(n.name) ||
-      Boolean(n.label)
+      (String(n.role||'').toLowerCase()==='textbox'&&Boolean(n.focused))
     ))
+    .filter((n:any)=>{
+      const b=n?.bounds;
+      if(!b||typeof b!=='object')return true;
+      const top=Number(b.top)||0,bottom=Number(b.bottom)||0;
+      return top>=250&&bottom<=2250;
+    })
     .map((n:any)=>({
       id:String(n.id||''),
       role:typeof n.role==='string'?n.role:null,
-      name:typeof n.name==='string'?n.name.slice(0,120):null,
-      label:typeof n.label==='string'?n.label.slice(0,120):null,
-      text:typeof n.text==='string'?n.text.slice(0,160):null,
+      name:typeof n.name==='string'?n.name.slice(0,100):null,
+      label:typeof n.label==='string'?n.label.slice(0,100):null,
+      text:typeof n.text==='string'?n.text.slice(0,140):null,
       clickable:Boolean(n.clickable),
       focused:Boolean(n.focused),
       scrollable:Boolean(n.scrollable),
       enabled:Boolean(n.enabled)
     }))
-    .slice(0,90);
+    .slice(0,40);
 
   const compactObservation={
     packageName:typeof observation.packageName==='string'?observation.packageName:null,
@@ -140,7 +143,7 @@ async function androidAutonomousDecision(b:any,d:any){
     node_count:nodes.size,
     nodes:compactNodes
   };
-  const uiJson=JSON.stringify(compactObservation).slice(0,12000);
+  const uiJson=JSON.stringify(compactObservation).slice(0,7000);
 
   const prompt=[
     'ARIA ANDROID AUTONOMOUS UI PLANNER.',
@@ -160,31 +163,30 @@ async function androidAutonomousDecision(b:any,d:any){
 
   const attempts=[];
   const parseLine=(raw:string)=>{
-    const line=String(raw||'').split(/\r?\n/).map(x=>x.trim()).find(Boolean)||'';
-    const parts=line.split('|').map(x=>x.trim());
-    if(parts[0]==='WAIT'&&parts.length>=3){
-      return {
-        decision:'act',
-        reason:parts.slice(2).join(' ').slice(0,700),
-        action:{action:'wait',ms:Math.max(0,Math.min(5000,Number(parts[1])||1200))}
-      };
+    const lines=String(raw||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    const parseParts=(line:string)=>{
+      const parts=line.split('|').map(x=>x.trim());
+      if(parts[0]==='WAIT'&&parts.length>=3)return{decision:'act',reason:parts.slice(2).join(' ').slice(0,700)||'safe_model_wait',action:{action:'wait',ms:Math.max(0,Math.min(5000,Number(parts[1])||1200))}};
+      if(parts[0]==='ACT'&&parts[1]==='click'&&parts[2])return{decision:'act',reason:parts.slice(3).join(' ').slice(0,700)||'safe_model_click',action:{action:'click',nodeId:parts[2]}};
+      if(parts[0]==='ACT'&&parts[1]==='scroll'&&parts[2]&&['forward','backward'].includes(parts[3]))return{decision:'act',reason:parts.slice(4).join(' ').slice(0,700)||'safe_model_scroll',action:{action:'scroll',nodeId:parts[2],direction:parts[3]}};
+      if(parts[0]==='ACT'&&parts[1]==='press'&&parts[2])return{decision:'act',reason:parts.slice(3).join(' ').slice(0,700)||'safe_model_press',action:{action:'press',keyCode:parts[2]}};
+      if(parts[0]==='NAV'&&parts[1])return{decision:'act',reason:parts.slice(2).join(' ').slice(0,700)||'safe_model_navigation',action:{action:'navigate',url:parts[1]}};
+      return null;
+    };
+    for(const rawLine of lines){
+      const line=rawLine.replace(/^[-*#\s]+/,'').trim();
+      const parsed=parseParts(line);
+      if(parsed)return parsed;
+      const match=line.match(/(WAIT\|\d+\|[^\r\n]+|ACT\|click\|[^|\s]+\|?[^\r\n]*|ACT\|scroll\|[^|\s]+\|(forward|backward)\|?[^\r\n]*|ACT\|press\|[^|\s]+\|?[^\r\n]*|NAV\|https?:\/\/[^|\s]+\|?[^\r\n]*)/);
+      if(match){const repaired=parseParts(match[1]);if(repaired)return repaired;}
     }
-    if(parts[0]==='ACT'&&parts[1]==='click'&&parts[2]){
-      return {decision:'act',reason:parts.slice(3).join(' ').slice(0,700)||'safe_model_click',action:{action:'click',nodeId:parts[2]}};
-    }
-    if(parts[0]==='ACT'&&parts[1]==='scroll'&&parts[2]&&['forward','backward'].includes(parts[3])){
-      return {decision:'act',reason:parts.slice(4).join(' ').slice(0,700)||'safe_model_scroll',action:{action:'scroll',nodeId:parts[2],direction:parts[3]}};
-    }
-    if(parts[0]==='ACT'&&parts[1]==='press'&&parts[2]){
-      return {decision:'act',reason:parts.slice(3).join(' ').slice(0,700)||'safe_model_press',action:{action:'press',keyCode:parts[2]}};
-    }
-    if(parts[0]==='NAV'&&parts[1]){
-      return {decision:'act',reason:parts.slice(2).join(' ').slice(0,700)||'safe_model_navigation',action:{action:'navigate',url:parts[1]}};
-    }
+    const compact=String(raw||'').trim();
+    const jsonStart=compact.indexOf('{'),jsonEnd=compact.lastIndexOf('}');
+    if(jsonStart>=0&&jsonEnd>jsonStart){try{const obj=JSON.parse(compact.slice(jsonStart,jsonEnd+1));if(obj?.decision==='act'&&obj?.action?.action)return{decision:'act',reason:String(obj.reason||'safe_model_action').slice(0,700),action:obj.action};}catch{}}
     return null;
   };
 
-  for(const route of routes.slice(0,4)){
+  for(const route of routes.slice(0,2)){
     try{
       const decisionPrompt=prompt+'\\nMANDATORY MARKER: include M5_MODEL_E2E_OK inside the REASON field of the single output line.';
       const probe=await mission5ModelProbe({
