@@ -23,7 +23,7 @@ async function decide({ api, goal, observation, history, targetPackage, allowedH
   return payload;
 }
 
-async function executeAutonomousAndroidMission({ api, executeAndroidAccessibilityJob, goal, targetPackage, allowAnyApp, allowedHosts, maxSteps = DEFAULT_MAX_STEPS, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+async function executeAutonomousAndroidMission({ api, executeAndroidAccessibilityJob, goal, targetPackage, allowAnyApp, allowedHosts, startUrl, startApp = false, maxSteps = DEFAULT_MAX_STEPS, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   if (typeof api !== 'function') throw new TypeError('api_required');
   if (typeof executeAndroidAccessibilityJob !== 'function') throw new TypeError('android_executor_required');
   if (!goal || typeof goal !== 'string') throw new TypeError('goal_required');
@@ -40,7 +40,47 @@ async function executeAutonomousAndroidMission({ api, executeAndroidAccessibilit
     evidence.push({ phase, evidence_hash: payload.evidence_hash || null, package_name: payload.packageName || null });
     return payload;
   };
-  observation = await observe('observe_before');
+  if (startApp && targetPackage) {
+    const pre = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({
+        operation: 'action',
+        target_package: targetPackage,
+        allow_any_app: allowAnyApp === true,
+        allowed_hosts: allowedHosts,
+        action: { action: 'launch_app' }
+      }),
+      timeoutMs: Math.min(12_000, remaining())
+    });
+    if (!pre || pre.status !== 'succeeded' || !pre.payload || pre.payload.ok !== true) {
+      return { status: 'failed', reason: 'android_app_launch_failed', steps: 0, trace: [], evidence };
+    }
+    const launched = pre.payload.ui;
+    if (launched && launched.ok === true) {
+      observation = launched;
+      evidence.push({ phase: 'observe_after_launch', evidence_hash: pre.payload.evidence_hash || launched.evidence_hash || null, package_name: launched.packageName || null });
+    }
+  }
+  if (startUrl) {
+    const pre = await executeAndroidAccessibilityJob({
+      command: JSON.stringify({
+        operation: 'action',
+        target_package: targetPackage || null,
+        allow_any_app: allowAnyApp === true,
+        allowed_hosts: allowedHosts,
+        action: { action: 'navigate', url: startUrl }
+      }),
+      timeoutMs: Math.min(12_000, remaining())
+    });
+    if (!pre || pre.status !== 'succeeded' || !pre.payload || pre.payload.ok !== true) {
+      return { status: 'failed', reason: 'android_start_url_navigation_failed', steps: 0, trace: [], evidence };
+    }
+    const navigated = pre.payload.ui;
+    if (navigated && navigated.ok === true) {
+      observation = navigated;
+      evidence.push({ phase: 'observe_after_navigation', evidence_hash: pre.payload.evidence_hash || navigated.evidence_hash || null, package_name: navigated.packageName || null });
+    }
+  }
+  observation = observation || await observe('observe_before');
   for (let step = 0; step < boundedSteps; step += 1) {
     if (remaining() <= 2_000) return { status: 'timeout', reason: 'autonomous_test_timeout', steps: step, trace: history, evidence };
     const decision = await decide({ api, goal, observation, history, targetPackage, allowedHosts });
