@@ -38,6 +38,7 @@ class AriaAccessibilityService : AccessibilityService() {
     }
 
     private val executor = Executors.newCachedThreadPool()
+    private var localIpcServer: LocalIpcServer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val approvedBrowsers = setOf(
         "com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary",
@@ -62,6 +63,7 @@ class AriaAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        localIpcServer = LocalIpcServer(this).also { it.start() }
         serviceInfo = serviceInfo.apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
@@ -77,6 +79,8 @@ class AriaAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         hideObserveOverlay()
+        localIpcServer?.stop()
+        localIpcServer = null
         instance = null
         executor.shutdownNow()
         super.onDestroy()
