@@ -6,6 +6,8 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
@@ -16,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import java.util.concurrent.Executors
 
 /**
  * Visible owner control surface for local missions.
@@ -23,10 +26,12 @@ import androidx.core.view.WindowInsetsCompat
  *
  * Official flow:
  * 1. Iniciar misión → 2. Modo observación (overlay) → OBSERVAR en overlay →
- * 3. Proponer → 4. APROBAR y ejecutar
+ * 3. Proponer → 4. APROBAR y ejecutar (handoff: ARIA → background, Chrome foreground)
  */
 class MainActivity : AppCompatActivity() {
     private val pwaUrl = "https://aria.robvg9.workers.dev/pwa/"
+    private val approveExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private lateinit var statusText: TextView
     private lateinit var missionText: TextView
@@ -51,6 +56,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var contentRoot: LinearLayout
     private lateinit var store: LocalMissionStore
     private lateinit var runner: LocalMissionRunner
+
+    @Volatile private var approveInFlight: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,10 +144,7 @@ class MainActivity : AppCompatActivity() {
         }
         btnApprove = Button(this).apply {
             text = "✓ APROBAR y ejecutar"
-            setOnClickListener {
-                val m = runner.approveAndExecute()
-                appendLog("approve+exec → state=${m.state} err=${m.lastError ?: "-"}")
-            }
+            setOnClickListener { onApproveClicked() }
         }
         btnReject = Button(this).apply {
             text = "✗ Rechazar acción"
@@ -217,7 +221,60 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Opens the system App Info screen for this package (not the app list). */
+    /**
+     * Human Gate approve with foreground handoff:
+     * 1. User explicitly approved (button press)
+     * 2. moveTaskToBack — ARIA leaves foreground without finish/kill
+     * 3. Settle so Chrome can become TYPE_APPLICATION active
+     * 4. approveAndExecute on background thread (AccessibilityService + windows_scan)
+     * 5. State persisted; user sees COMPLETE/FAILED when returning to ARIA (onResume)
+     */
+    private fun onApproveClicked() {
+        if (approveInFlight) {
+            appendLog("approve → ignored (already in flight)")
+            return
+        }
+        val current = runner.current()
+        if (current?.state != MissionState.PENDING_APPROVAL) {
+            appendLog("approve → not_pending_approval")
+            return
+        }
+        approveInFlight = true
+        btnApprove.isEnabled = false
+        appendLog("approve → foregroundBeforeAction package=$packageName")
+        appendLog("approve → handoff moveTaskToBack(true)")
+
+        // Leave foreground so Chrome (previous app) can become active window.
+        moveTaskToBack(true)
+
+        approveExecutor.execute {
+            try {
+                // Settle: allow system to restore Chrome as TYPE_APPLICATION active.
+                Thread.sleep(HANDOFF_SETTLE_MS)
+                appendLogSafe("approve → foregroundBeforeExecution (after settle ${HANDOFF_SETTLE_MS}ms)")
+                val m = runner.approveAndExecute()
+                appendLogSafe(
+                    "approve+exec → state=${m.state} err=${m.lastError ?: "-"} " +
+                        "handoff=moveTaskToBack settleMs=$HANDOFF_SETTLE_MS"
+                )
+                mainHandler.post {
+                    approveInFlight = false
+                    render(m)
+                }
+            } catch (e: Exception) {
+                appendLogSafe("approve+exec → exception ${e.message?.take(80)}")
+                mainHandler.post {
+                    approveInFlight = false
+                    render(runner.current() ?: LocalMission(state = MissionState.FAILED, lastError = e.message))
+                }
+            }
+        }
+    }
+
+    private fun appendLogSafe(line: String) {
+        mainHandler.post { appendLog(line) }
+    }
+
     private fun openAppDetailsSettings() {
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -256,6 +313,11 @@ class MainActivity : AppCompatActivity() {
         render(runner.current() ?: LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
     }
 
+    override fun onDestroy() {
+        approveExecutor.shutdownNow()
+        super.onDestroy()
+    }
+
     private fun render(m: LocalMission) {
         val a11y = if (AriaAccessibilityService.instance == null) {
             "ACCESIBILIDAD DESHABILITADA"
@@ -267,6 +329,7 @@ class MainActivity : AppCompatActivity() {
         val stateLabel = when (m.state) {
             MissionState.WAITING_OBSERVE -> "ESPERANDO OBSERVACIÓN (overlay activo)"
             MissionState.PENDING_APPROVAL -> "PENDIENTE DE APROBACIÓN"
+            MissionState.ACTION -> "EJECUTANDO (handoff / Chrome foreground)"
             else -> m.state.name
         }
 
@@ -280,6 +343,9 @@ class MainActivity : AppCompatActivity() {
             if (m.state == MissionState.WAITING_OBSERVE) {
                 append("\n→ Cambia a Chrome. El panel ARIA flota encima.\n")
                 append("→ Pulsa OBSERVAR en el overlay (no en esta Activity).\n")
+            }
+            if (m.state == MissionState.PENDING_APPROVAL) {
+                append("\n→ APROBAR hará handoff: ARIA al fondo, Chrome foreground.\n")
             }
         }
 
@@ -310,7 +376,7 @@ class MainActivity : AppCompatActivity() {
             "Sin acción pendiente.\nHuman Gate: sin propuesta activa."
         }
 
-        val pending = m.state == MissionState.PENDING_APPROVAL
+        val pending = m.state == MissionState.PENDING_APPROVAL && !approveInFlight
         btnApprove.isEnabled = pending
         btnReject.isEnabled = pending
         btnCancel.isEnabled = m.state != MissionState.COMPLETE &&
@@ -319,7 +385,8 @@ class MainActivity : AppCompatActivity() {
         val canObserve = m.state != MissionState.PENDING_APPROVAL &&
             m.state != MissionState.COMPLETE &&
             m.state != MissionState.CANCELLED &&
-            m.state != MissionState.IDLE
+            m.state != MissionState.IDLE &&
+            m.state != MissionState.ACTION
         btnWaitingObserve.isEnabled = canObserve || m.state == MissionState.IDLE
         btnObserveLegacy.isEnabled = canObserve || m.state == MissionState.IDLE
         btnProposeDemo.isEnabled = ProposeGate.canPropose(m)
@@ -374,7 +441,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("1. Iniciar misión local")
             appendLine("2. Modo observación (overlay)  ← flujo oficial")
             appendLine("3. PROPONER ACCIÓN (WAIT 500ms)")
-            appendLine("✓ APROBAR y ejecutar")
+            appendLine("✓ APROBAR y ejecutar (handoff foreground)")
             appendLine("✗ Rechazar / ⏹ Cancelar")
             appendLine("COPIAR TODO")
             appendLine("ACCESIBILIDAD / INFORMACIÓN DE LA APLICACIÓN")
@@ -412,7 +479,8 @@ class MainActivity : AppCompatActivity() {
                 val scalarKeys = listOf(
                     "activePackage", "activeIsBrowser", "installedApprovedBrowsers",
                     "windowsNull", "windowCount", "applicationWindowCount",
-                    "applicationWindowsWithRoot", "source", "hint"
+                    "applicationWindowsWithRoot", "source", "hint",
+                    "resolvePhase", "resolveAttempt", "preferWindowsScan"
                 )
                 scalarKeys.forEach { key ->
                     if (o.has(key)) append("$key: ${o.opt(key)}\n")
@@ -441,6 +509,11 @@ class MainActivity : AppCompatActivity() {
             .format(java.util.Date())
         logText.text = "$prev\n[$ts] $line".trim()
     }
+
+    companion object {
+        /** Settle after moveTaskToBack so Chrome can become active TYPE_APPLICATION. */
+        const val HANDOFF_SETTLE_MS = 450L
+    }
 }
 
 object ProposeGate {
@@ -449,6 +522,7 @@ object ProposeGate {
         if (m.state == MissionState.COMPLETE) return false
         if (m.state == MissionState.CANCELLED) return false
         if (m.state == MissionState.WAITING_OBSERVE) return false
+        if (m.state == MissionState.ACTION) return false
         if (m.steps.isEmpty()) return false
         val last = m.steps.last()
         if (last.kind != StepKind.OBSERVE) return false
