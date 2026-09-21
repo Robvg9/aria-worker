@@ -2,14 +2,24 @@ package com.robvg9.ariauiagent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Color
 import android.graphics.Path
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
+import android.view.Gravity
 import android.view.KeyEvent
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
@@ -24,6 +34,7 @@ class AriaAccessibilityService : AccessibilityService() {
     }
 
     private val executor = Executors.newCachedThreadPool()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val approvedBrowsers = setOf(
         // Chrome family
         "com.android.chrome",
@@ -44,6 +55,9 @@ class AriaAccessibilityService : AccessibilityService() {
         "com.android.browser"
     )
 
+    private var overlayView: View? = null
+    private var overlayStatus: TextView? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -62,9 +76,127 @@ class AriaAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        hideObserveOverlay()
         instance = null
         executor.shutdownNow()
         super.onDestroy()
+    }
+
+    /**
+     * Visible control over the current foreground app (Chrome).
+     * Uses TYPE_ACCESSIBILITY_OVERLAY so the service can still introspect
+     * windows below; FLAG_NOT_FOCUSABLE keeps input focus on the browser.
+     */
+    fun showObserveOverlay() {
+        mainHandler.post {
+            if (overlayView != null) {
+                overlayStatus?.text = "ESPERANDO OBSERVACIÓN\nAbre Chrome y pulsa OBSERVAR"
+                return@post
+            }
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            val panel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(28, 24, 28, 24)
+                setBackgroundColor(Color.argb(230, 12, 40, 28))
+            }
+            val title = TextView(this).apply {
+                text = "ARIA · Observación"
+                setTextColor(Color.WHITE)
+                textSize = 15f
+                setPadding(0, 0, 0, 8)
+            }
+            val status = TextView(this).apply {
+                text = "ESPERANDO OBSERVACIÓN\nAbre Chrome y pulsa OBSERVAR"
+                setTextColor(Color.rgb(180, 255, 210))
+                textSize = 13f
+                setPadding(0, 0, 0, 12)
+            }
+            overlayStatus = status
+            val btnObserve = Button(this).apply {
+                text = "OBSERVAR"
+                setOnClickListener { onOverlayObserveClicked() }
+            }
+            val btnClose = Button(this).apply {
+                text = "Cerrar overlay"
+                setOnClickListener {
+                    LocalMissionRunner.active?.exitWaitingObserve()
+                    hideObserveOverlay()
+                }
+            }
+            panel.addView(title)
+            panel.addView(status)
+            panel.addView(btnObserve)
+            panel.addView(btnClose)
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = 48
+            }
+            try {
+                wm.addView(panel, params)
+                overlayView = panel
+            } catch (e: Exception) {
+                overlayView = null
+                overlayStatus = null
+            }
+        }
+    }
+
+    fun hideObserveOverlay() {
+        mainHandler.post {
+            val view = overlayView ?: return@post
+            try {
+                val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+                wm.removeView(view)
+            } catch (_: Exception) {
+            }
+            overlayView = null
+            overlayStatus = null
+        }
+    }
+
+    private fun onOverlayObserveClicked() {
+        overlayStatus?.text = "Observando… (Chrome debe permanecer activo)"
+        executor.execute {
+            val runner = LocalMissionRunner.active
+            if (runner == null) {
+                mainHandler.post {
+                    overlayStatus?.text = "Error: runner no disponible. Abre ARIA UI."
+                }
+                return@execute
+            }
+            val result = try {
+                runner.runObserve()
+            } catch (e: Exception) {
+                mainHandler.post {
+                    overlayStatus?.text = "Error: ${e.message?.take(60)}"
+                }
+                return@execute
+            }
+            mainHandler.post {
+                val lastObs = result.steps.asReversed().firstOrNull { it.kind == StepKind.OBSERVE }?.observation
+                val pkg = lastObs?.packageName ?: "?"
+                val ok = lastObs?.ok == true
+                val activeHint = lastObs?.diagnosticJson?.let { raw ->
+                    runCatching {
+                        val o = JSONObject(raw)
+                        "active=${o.optString("activePackage")} browser=${o.optBoolean("activeIsBrowser")}"
+                    }.getOrNull()
+                } ?: ""
+                overlayStatus?.text = if (ok) {
+                    "OK · $pkg\n$activeHint\nVuelve a ARIA para proponer/aprobar"
+                } else {
+                    "FALLÓ · ${result.lastError?.take(80)}\n$activeHint"
+                }
+            }
+        }
     }
 
     fun handle(payloadJson: String): JSONObject {
@@ -215,6 +347,8 @@ class AriaAccessibilityService : AccessibilityService() {
 
         if (active != null && activePackage != null && approvedBrowsers.contains(activePackage)) {
             diag.put("source", "rootInActiveWindow")
+            // Still list windows for physical verification of overlay mode
+            appendWindowsDiag(diag)
             return Pair(active, diag)
         }
 
@@ -281,12 +415,44 @@ class AriaAccessibilityService : AccessibilityService() {
         } else if (activePackage != null && !approvedBrowsers.contains(activePackage)) {
             diag.put(
                 "hint",
-                "foreground_is_not_browser_open_chrome_then_keep_it_in_recents_before_observe"
+                "foreground_is_not_browser_use_overlay_observe_mode_keep_chrome_active"
             )
         } else {
             diag.put("hint", "no_browser_window_with_retrievable_root")
         }
         return Pair(null, diag)
+    }
+
+    private fun appendWindowsDiag(diag: JSONObject) {
+        val currentWindows = windows ?: return
+        diag.put("windowsNull", false)
+        diag.put("windowCount", currentWindows.size)
+        val windowRows = JSONArray()
+        var appWindows = 0
+        var appWindowsWithRoot = 0
+        for (window in currentWindows) {
+            val row = JSONObject()
+            row.put("type", window.type)
+            row.put("layer", window.layer)
+            row.put("id", window.id)
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                row.put("isActive", window.isActive)
+                row.put("isFocused", window.isFocused)
+            }
+            val candidate = try { window.root } catch (_: Exception) { null }
+            row.put("hasRoot", candidate != null)
+            val pkg = candidate?.packageName?.toString()
+            row.put("packageName", pkg)
+            row.put("isApprovedBrowser", pkg != null && approvedBrowsers.contains(pkg))
+            windowRows.put(row)
+            if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                appWindows += 1
+                if (candidate != null) appWindowsWithRoot += 1
+            }
+        }
+        diag.put("applicationWindowCount", appWindows)
+        diag.put("applicationWindowsWithRoot", appWindowsWithRoot)
+        diag.put("windows", windowRows)
     }
 
     private data class NodeBudget(var count: Int = 0, val maxCount: Int = 700)
