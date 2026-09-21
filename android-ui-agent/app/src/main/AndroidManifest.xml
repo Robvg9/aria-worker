@@ -8,11 +8,12 @@
         <package android:name="com.chrome.dev" />
         <package android:name="com.chrome.canary" />
         <package android:name="com.google.android.apps.chrome" />
+        <package android:name="com.termux" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Termux query removed: official path is LocalMissionRunner via visible UI approval. -->
+    <!-- Termux package visibility is required for the governed autonomous IPC sender-UID check. -->
 
     <application
         android:allowBackup="false"
