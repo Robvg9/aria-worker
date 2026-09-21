@@ -87,19 +87,19 @@ class LocalMissionRunner(
         }
 
         val ok = raw.optBoolean("ok", false)
+        val diagObj = raw.optJSONObject("diagnostic")
         val observeError = if (ok) {
             null
         } else {
             val reason = raw.optString("reason", "observe_failed")
-            val diag = raw.optJSONObject("diagnostic")
-            if (diag == null) {
+            if (diagObj == null) {
                 reason
             } else {
-                val active = diag.optString("activePackage", "?")
-                val wins = diag.optInt("windowCount", -1)
-                val withRoot = diag.optInt("applicationWindowsWithRoot", -1)
-                val hint = diag.optString("hint", "")
-                val installed = diag.optJSONArray("installedApprovedBrowsers")
+                val active = diagObj.optString("activePackage", "?")
+                val wins = diagObj.optInt("windowCount", -1)
+                val withRoot = diagObj.optInt("applicationWindowsWithRoot", -1)
+                val hint = diagObj.optString("hint", "")
+                val installed = diagObj.optJSONArray("installedApprovedBrowsers")
                 val installedN = installed?.length() ?: 0
                 "$reason|active=$active|wins=$wins|appRoots=$withRoot|installedBrowsers=$installedN|hint=$hint"
             }
@@ -112,7 +112,8 @@ class LocalMissionRunner(
             evidenceHash = raw.optString("evidence_hash", null)
                 ?: raw.optJSONObject("ui")?.optString("evidence_hash", null),
             ok = ok,
-            error = observeError
+            error = observeError,
+            diagnosticJson = if (!ok && diagObj != null) diagObj.toString() else null
         )
 
         val step = LocalStep(
