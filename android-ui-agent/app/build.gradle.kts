@@ -12,8 +12,8 @@ android {
         applicationId = "com.robvg9.ariauiagent"
         minSdk = 26
         targetSdk = runnerSdk
-        versionCode = 11
-        versionName = "1.1.5"
+        versionCode = 12
+        versionName = "1.1.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
