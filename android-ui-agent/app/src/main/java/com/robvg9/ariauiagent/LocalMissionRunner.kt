@@ -7,11 +7,14 @@ import org.json.JSONObject
 /**
  * Local Mission Runner — pure device-side state machine.
  *
- * IDLE → OBSERVE → PENDING_APPROVAL → ACTION → OBSERVE → EVIDENCE → COMPLETE
+ * IDLE → WAITING_OBSERVE → OBSERVE → PENDING_APPROVAL → ACTION → OBSERVE → EVIDENCE → COMPLETE
  * Any point: CANCELLED / FAILED / RECOVERABLE
  *
  * Actions NEVER execute without explicit owner approval via the UI.
  * Recovery after restart never auto-runs pending actions.
+ *
+ * Observe from Accessibility overlay keeps Chrome as active window
+ * (TYPE_ACCESSIBILITY_OVERLAY does not steal introspectable focus).
  */
 class LocalMissionRunner(
     private val store: LocalMissionStore,
@@ -20,6 +23,10 @@ class LocalMissionRunner(
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var mission: LocalMission? = null
     private val lock = Any()
+
+    init {
+        active = this
+    }
 
     fun current(): LocalMission? = synchronized(lock) { mission }
 
@@ -46,6 +53,11 @@ class LocalMissionRunner(
                     loaded.copy(state = MissionState.RECOVERABLE, updatedAtMs = System.currentTimeMillis())
                 }
             }
+            MissionState.WAITING_OBSERVE -> loaded.copy(
+                state = MissionState.IDLE,
+                updatedAtMs = System.currentTimeMillis(),
+                lastError = "recovered_waiting_observe_reset"
+            )
             MissionState.PENDING_APPROVAL -> loaded
             else -> loaded
         }
@@ -65,6 +77,50 @@ class LocalMissionRunner(
         store.save(m)
         notify(m)
         m
+    }
+
+    /**
+     * Enter overlay observe mode. Chrome must remain (or become) the foreground app.
+     * Observe is triggered from the Accessibility overlay, not from MainActivity.
+     */
+    fun enterWaitingObserve(): LocalMission = synchronized(lock) {
+        val m = mission ?: return fail("no_active_mission")
+        if (m.state == MissionState.CANCELLED || m.state == MissionState.COMPLETE) {
+            return fail("mission_terminal")
+        }
+        if (m.state == MissionState.PENDING_APPROVAL) {
+            return fail("already_pending_approval")
+        }
+        val service = AriaAccessibilityService.instance
+            ?: return fail("accessibility_service_disabled")
+
+        val next = m.copy(
+            state = MissionState.WAITING_OBSERVE,
+            lastError = null,
+            updatedAtMs = System.currentTimeMillis()
+        )
+        mission = next
+        store.save(next)
+        notify(next)
+
+        mainHandler.post {
+            service.showObserveOverlay()
+        }
+        next
+    }
+
+    fun exitWaitingObserve(): LocalMission = synchronized(lock) {
+        val m = mission ?: return fail("no_active_mission")
+        if (m.state != MissionState.WAITING_OBSERVE) return m
+        AriaAccessibilityService.instance?.hideObserveOverlay()
+        val next = m.copy(
+            state = MissionState.IDLE,
+            updatedAtMs = System.currentTimeMillis()
+        )
+        mission = next
+        store.save(next)
+        notify(next)
+        next
     }
 
     fun runObserve(): LocalMission = synchronized(lock) {
@@ -113,7 +169,8 @@ class LocalMissionRunner(
                 ?: raw.optJSONObject("ui")?.optString("evidence_hash", null),
             ok = ok,
             error = observeError,
-            diagnosticJson = if (!ok && diagObj != null) diagObj.toString() else null
+            // Always persist diagnostic so physical verification can show activePackage / windows[]
+            diagnosticJson = diagObj?.toString()
         )
 
         val step = LocalStep(
@@ -132,6 +189,11 @@ class LocalMissionRunner(
         mission = next
         store.save(next)
         notify(next)
+
+        // Hide overlay after observe attempt (success or fail)
+        mainHandler.post {
+            AriaAccessibilityService.instance?.hideObserveOverlay()
+        }
         next
     }
 
@@ -224,6 +286,7 @@ class LocalMissionRunner(
             JSONObject().put("ok", false).put("reason", "post_observe_failed")
         }
         val postOk = postRaw.optBoolean("ok", false)
+        val postDiag = postRaw.optJSONObject("diagnostic")
         val postObs = LocalObservation(
             packageName = postRaw.optJSONObject("ui")?.optString("packageName")
                 ?: postRaw.optString("packageName", null),
@@ -232,7 +295,8 @@ class LocalMissionRunner(
             evidenceHash = postRaw.optString("evidence_hash", null)
                 ?: postRaw.optJSONObject("ui")?.optString("evidence_hash", null),
             ok = postOk,
-            error = if (postOk) null else postRaw.optString("reason", "post_observe_failed")
+            error = if (postOk) null else postRaw.optString("reason", "post_observe_failed"),
+            diagnosticJson = postDiag?.toString()
         )
         val observeAfterStep = LocalStep(
             kind = StepKind.OBSERVE,
@@ -301,6 +365,7 @@ class LocalMissionRunner(
         if (m.state == MissionState.COMPLETE || m.state == MissionState.CANCELLED) {
             return m
         }
+        AriaAccessibilityService.instance?.hideObserveOverlay()
         val next = m.copy(
             state = MissionState.CANCELLED,
             cancelledByOwner = true,
@@ -315,6 +380,7 @@ class LocalMissionRunner(
     }
 
     fun clear(): Unit = synchronized(lock) {
+        AriaAccessibilityService.instance?.hideObserveOverlay()
         mission = null
         store.clear()
         notify(LocalMission(state = MissionState.IDLE, title = "(cleared)"))
@@ -335,5 +401,11 @@ class LocalMissionRunner(
 
     private fun notify(m: LocalMission) {
         mainHandler.post { onStateChanged(m) }
+    }
+
+    companion object {
+        @Volatile
+        var active: LocalMissionRunner? = null
+            private set
     }
 }
