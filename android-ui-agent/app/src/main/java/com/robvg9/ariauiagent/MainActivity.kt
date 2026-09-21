@@ -1,5 +1,6 @@
 package com.robvg9.ariauiagent
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -44,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCopyAll: Button
     private lateinit var btnClear: Button
     private lateinit var btnAccessibility: Button
+    private lateinit var btnAppInfo: Button
     private lateinit var btnPwa: Button
 
     private lateinit var contentRoot: LinearLayout
@@ -166,10 +168,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         btnAccessibility = Button(this).apply {
-            text = "Abrir Accesibilidad de Android"
+            text = "ACCESIBILIDAD"
             setOnClickListener {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
+        }
+        btnAppInfo = Button(this).apply {
+            text = "INFORMACIÓN DE LA APLICACIÓN"
+            setOnClickListener { openAppDetailsSettings() }
         }
         btnPwa = Button(this).apply {
             text = "Abrir ARIA PWA"
@@ -194,6 +200,7 @@ class MainActivity : AppCompatActivity() {
         contentRoot.addView(btnClear)
         contentRoot.addView(btnObserveLegacy)
         contentRoot.addView(btnAccessibility)
+        contentRoot.addView(btnAppInfo)
         contentRoot.addView(btnPwa)
         contentRoot.addView(logText)
         scroll.addView(contentRoot)
@@ -207,6 +214,22 @@ class MainActivity : AppCompatActivity() {
             render(recovered)
         } else {
             render(LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
+        }
+    }
+
+    /** Opens the system App Info screen for this package (not the app list). */
+    private fun openAppDetailsSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            appendLog("app_info → opened package=$packageName")
+        } catch (e: ActivityNotFoundException) {
+            appendLog("app_info → ActivityNotFoundException")
+        } catch (e: Exception) {
+            appendLog("app_info → error: ${e.message?.take(60)}")
         }
     }
 
@@ -354,6 +377,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("✓ APROBAR y ejecutar")
             appendLine("✗ Rechazar / ⏹ Cancelar")
             appendLine("COPIAR TODO")
+            appendLine("ACCESIBILIDAD / INFORMACIÓN DE LA APLICACIÓN")
             appendLine("[LEGACY/DEBUG] Observe Activity (no usar en flujo oficial)")
             appendLine()
             appendLine("DIAGNÓSTICO ANDROID")
@@ -419,10 +443,6 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-/**
- * Pure logic for whether "Proponer acción" may be enabled.
- * Extracted for unit tests without Android framework.
- */
 object ProposeGate {
     fun canPropose(m: LocalMission): Boolean {
         if (m.state == MissionState.PENDING_APPROVAL) return false
