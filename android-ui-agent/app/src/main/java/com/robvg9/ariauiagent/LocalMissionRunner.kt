@@ -11,6 +11,9 @@ import org.json.JSONObject
  *
  * Overlay path: AccessibilityService captures browser tree on OBSERVE ACTION_DOWN,
  * then commitOverlayObserve() persists that snapshot (no second live query).
+ *
+ * Approve path: actionResponse already embeds one post-action observation;
+ * approveAndExecute reuses that UI — does NOT call observe a second time.
  */
 class LocalMissionRunner(
     private val store: LocalMissionStore,
@@ -115,10 +118,6 @@ class LocalMissionRunner(
         next
     }
 
-    /**
-     * Persist an observation already captured on overlay ACTION_DOWN.
-     * Does not re-query windows (would see ARIA after the touch).
-     */
     fun commitOverlayObserve(
         packageName: String,
         rootTree: JSONObject,
@@ -300,8 +299,15 @@ class LocalMissionRunner(
             return fail("action_exception:${e.message?.take(80)}")
         }
 
-        val resultOk = raw.optBoolean("ok", false)
-        val resultError = if (resultOk) null else raw.optString("reason", "action_failed")
+        // actionResponse embeds a single post-action observation under "ui".
+        // Do NOT call service.handle(observe) again.
+        val postObs = PostActionResponse.parse(raw)
+        val resultOk = raw.optBoolean("ok", false) && postObs.ok
+        val resultError = when {
+            resultOk -> null
+            raw.optBoolean("ok", false) && !postObs.ok -> postObs.error ?: "post_observe_failed"
+            else -> raw.optString("reason", "action_failed")
+        }
         val executed = approved.copy(
             resultOk = resultOk,
             resultError = resultError,
@@ -313,27 +319,9 @@ class LocalMissionRunner(
             index = moving.steps.size,
             action = executed,
             completedAtMs = System.currentTimeMillis(),
-            error = resultError
+            error = if (raw.optBoolean("ok", false)) null else raw.optString("reason", "action_failed")
         )
 
-        val postRaw = try {
-            service.handle("""{"operation":"observe"}""")
-        } catch (_: Exception) {
-            JSONObject().put("ok", false).put("reason", "post_observe_failed")
-        }
-        val postOk = postRaw.optBoolean("ok", false)
-        val postDiag = postRaw.optJSONObject("diagnostic")
-        val postObs = LocalObservation(
-            packageName = postRaw.optJSONObject("ui")?.optString("packageName")
-                ?: postRaw.optString("packageName", null),
-            uiTreeJson = postRaw.optJSONObject("root")?.toString()
-                ?: postRaw.optJSONObject("ui")?.optJSONObject("root")?.toString(),
-            evidenceHash = postRaw.optString("evidence_hash", null)
-                ?: postRaw.optJSONObject("ui")?.optString("evidence_hash", null),
-            ok = postOk,
-            error = if (postOk) null else postRaw.optString("reason", "post_observe_failed"),
-            diagnosticJson = postDiag?.toString()
-        )
         val observeAfterStep = LocalStep(
             kind = StepKind.OBSERVE,
             index = moving.steps.size + 1,
@@ -443,5 +431,35 @@ class LocalMissionRunner(
         @Volatile
         var active: LocalMissionRunner? = null
             private set
+    }
+}
+
+/**
+ * Pure parser: extract the single post-action observation embedded in actionResponse.
+ * No second AccessibilityService.observe call.
+ */
+object PostActionResponse {
+    fun parse(raw: JSONObject): LocalObservation {
+        val ui = raw.optJSONObject("ui")
+        val diag = raw.optJSONObject("diagnostic")
+        if (ui != null && (ui.optBoolean("ok", false) || ui.has("root"))) {
+            return LocalObservation(
+                packageName = ui.optString("packageName", null).takeIf { it.isNotBlank() },
+                uiTreeJson = ui.optJSONObject("root")?.toString(),
+                evidenceHash = ui.optString("evidence_hash", null).takeIf { it.isNotBlank() },
+                ok = true,
+                error = null,
+                diagnosticJson = diag?.toString()
+            )
+        }
+        val reason = raw.optString("reason", "post_observe_failed")
+        return LocalObservation(
+            packageName = null,
+            uiTreeJson = null,
+            evidenceHash = null,
+            ok = false,
+            error = reason,
+            diagnosticJson = diag?.toString()
+        )
     }
 }
