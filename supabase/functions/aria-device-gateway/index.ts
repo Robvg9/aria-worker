@@ -78,9 +78,9 @@ async function androidAutonomousDecision(b:any,d:any){
   if(acctRes.error)throw new Error(acctRes.error.message);
   const verified=new Set((capsRes.data||[]).map((x:any)=>String(x.model_id)));
   const preferredModels=[
-    'google/gemini-3.5-flash-lite-direct',
-    'nex-agi/nex-n2.5-mini:free',
     'google/gemini-3.5-flash-direct',
+    'nex-agi/nex-n2.5-mini:free',
+    'google/gemini-3.5-flash-lite-direct',
     'deepseek/deepseek-v4-flash-0731:free',
     'nvidia/nemotron-3.5-lightning:free'
   ];
