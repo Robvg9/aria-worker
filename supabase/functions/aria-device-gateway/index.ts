@@ -182,7 +182,22 @@ async function androidAutonomousDecision(b:any,d:any){
     }
     const compact=String(raw||'').trim();
     const jsonStart=compact.indexOf('{'),jsonEnd=compact.lastIndexOf('}');
-    if(jsonStart>=0&&jsonEnd>jsonStart){try{const obj=JSON.parse(compact.slice(jsonStart,jsonEnd+1));if(obj?.decision==='act'&&obj?.action?.action)return{decision:'act',reason:String(obj.reason||'safe_model_action').slice(0,700),action:obj.action};}catch{}}
+    if(jsonStart>=0&&jsonEnd>jsonStart){
+      try{
+        const obj=JSON.parse(compact.slice(jsonStart,jsonEnd+1));
+        if(obj?.decision==='act'&&obj?.action&&typeof obj.action==='object'){
+          const action={...obj.action};
+          if(!action.action&&typeof action.type==='string')action.action=action.type;
+          if(!action.nodeId&&typeof action.node_id==='string')action.nodeId=action.node_id;
+          if(action.keyCode===undefined&&action.key_code!==undefined)action.keyCode=action.key_code;
+          if(action.action)return{
+            decision:'act',
+            reason:String(obj.reason||'safe_model_action').slice(0,700),
+            action
+          };
+        }
+      }catch{}
+    }
     return null;
   };
 
