@@ -1,0 +1,24 @@
+name: RWHT Direct Model Probe
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Invoke direct model probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --max-time 180 --fail-with-body --silent --show-error \
+            -X POST \
+            -H 'content-type: application/json' \
+            --data '{}' \
+            'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway/v1/rwht-model-probe'
