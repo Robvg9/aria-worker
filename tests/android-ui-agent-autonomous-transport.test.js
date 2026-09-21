@@ -11,7 +11,7 @@ const agent = fs.readFileSync(require('node:path').join(root, 'agents/termux/ari
 for (const marker of ['TERMUX_PACKAGE', 'getApplicationInfo(TERMUX_PACKAGE', 'AriaAccessibilityService.instance', 'service.handle(payload)']) {
   assert.ok(receiver.includes(marker), 'missing receiver transport marker: ' + marker);
 }
-for (const marker of ['allow_any_app', 'target_package', 'resolveAnyApplicationRootWithDiag', 'launch_app', 'computer.use.android']) {
+for (const marker of ['allow_any_app', 'target_package', 'resolveAnyApplicationRootWithDiag', 'launch_app', 'navigate']) {
   assert.ok(service.includes(marker), 'missing service autonomy marker: ' + marker);
 }
 for (const marker of ['android-autonomous-runner-v1', 'mode === \'autonomous_test\'', 'executeAutonomousAndroidMission']) {
