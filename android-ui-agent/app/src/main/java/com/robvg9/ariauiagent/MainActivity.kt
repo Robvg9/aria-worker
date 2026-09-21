@@ -63,7 +63,6 @@ class MainActivity : AppCompatActivity() {
         val scroll = ScrollView(this)
         contentRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            // Base padding; system insets applied via WindowInsets listener
             setPadding(40, 24, 40, 24)
         }
 
@@ -125,13 +124,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         btnProposeDemo = Button(this).apply {
-            text = "3. Proponer acción (demo: back)"
+            text = "3. PROPONER ACCIÓN (WAIT 500ms)"
             setOnClickListener {
                 val m = runner.proposeAction(
-                    actionType = "press",
-                    params = mapOf("keyCode" to android.view.KeyEvent.KEYCODE_BACK)
+                    actionType = "wait",
+                    params = mapOf("ms" to 500L)
                 )
-                appendLog("propose → state=${m.state}")
+                appendLog("propose → state=${m.state} action=wait ms=500")
             }
         }
         btnApprove = Button(this).apply {
@@ -211,10 +210,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Pad content using real system bar / cutout / gesture insets.
-     * No fixed magic offsets.
-     */
     private fun applySystemBarInsets(scroll: ScrollView, content: LinearLayout) {
         ViewCompat.setOnApplyWindowInsetsListener(scroll) { _, insets ->
             val bars = insets.getInsets(
@@ -304,11 +299,7 @@ class MainActivity : AppCompatActivity() {
             m.state != MissionState.IDLE
         btnWaitingObserve.isEnabled = canObserve || m.state == MissionState.IDLE
         btnObserveLegacy.isEnabled = canObserve || m.state == MissionState.IDLE
-        btnProposeDemo.isEnabled = m.state != MissionState.PENDING_APPROVAL &&
-            m.state != MissionState.COMPLETE &&
-            m.state != MissionState.CANCELLED &&
-            m.state != MissionState.IDLE &&
-            m.state != MissionState.WAITING_OBSERVE
+        btnProposeDemo.isEnabled = ProposeGate.canPropose(m)
 
         val lastEvidence = m.steps.asReversed().firstOrNull { it.kind == StepKind.EVIDENCE }?.evidence
         if (lastEvidence != null && m.state == MissionState.COMPLETE) {
@@ -359,7 +350,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("ACCIONES DISPONIBLES")
             appendLine("1. Iniciar misión local")
             appendLine("2. Modo observación (overlay)  ← flujo oficial")
-            appendLine("3. Proponer acción")
+            appendLine("3. PROPONER ACCIÓN (WAIT 500ms)")
             appendLine("✓ APROBAR y ejecutar")
             appendLine("✗ Rechazar / ⏹ Cancelar")
             appendLine("COPIAR TODO")
@@ -425,5 +416,22 @@ class MainActivity : AppCompatActivity() {
         val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
             .format(java.util.Date())
         logText.text = "$prev\n[$ts] $line".trim()
+    }
+}
+
+/**
+ * Pure logic for whether "Proponer acción" may be enabled.
+ * Extracted for unit tests without Android framework.
+ */
+object ProposeGate {
+    fun canPropose(m: LocalMission): Boolean {
+        if (m.state == MissionState.PENDING_APPROVAL) return false
+        if (m.state == MissionState.COMPLETE) return false
+        if (m.state == MissionState.CANCELLED) return false
+        if (m.state == MissionState.WAITING_OBSERVE) return false
+        if (m.steps.isEmpty()) return false
+        val last = m.steps.last()
+        if (last.kind != StepKind.OBSERVE) return false
+        return last.observation?.ok == true
     }
 }
