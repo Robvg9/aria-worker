@@ -37,7 +37,9 @@ data class LocalObservation(
     val uiTreeJson: String? = null,
     val evidenceHash: String? = null,
     val ok: Boolean = true,
-    val error: String? = null
+    val error: String? = null,
+    /** Full JSON from resolveApprovedBrowserRootWithDiag() when observe fails. */
+    val diagnosticJson: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("observationId", observationId)
@@ -48,6 +50,7 @@ data class LocalObservation(
         .put("evidenceHash", evidenceHash)
         .put("ok", ok)
         .put("error", error)
+        .put("diagnosticJson", diagnosticJson)
 
     companion object {
         fun fromJson(o: JSONObject): LocalObservation = LocalObservation(
@@ -58,7 +61,8 @@ data class LocalObservation(
             uiTreeJson = o.optString("uiTreeJson", null),
             evidenceHash = o.optString("evidenceHash", null),
             ok = o.optBoolean("ok", true),
-            error = o.optString("error", null)
+            error = o.optString("error", null),
+            diagnosticJson = o.optString("diagnosticJson", null)
         )
     }
 }
