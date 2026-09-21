@@ -7,4 +7,5 @@
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:description="@string/accessibility_description"
-    android:settingsActivity=".MainActivity" />
+    android:settingsActivity=".MainActivity"
+    android:isAccessibilityTool="true" />
