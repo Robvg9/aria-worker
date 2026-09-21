@@ -21,6 +21,35 @@ async function requireUser(token: string) {
   if (error || !claims?.sub) throw Object.assign(new Error("invalid_or_expired_session"), { status: 401 });
   return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
 }
+
+async function sha256Hex(value:string){
+  const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes)).map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+async function approveAndroidPair(userId:string,body:any){
+  const deviceId=String(body?.device_id||"").trim();
+  const pairCode=String(body?.pair_code||"").trim();
+  if(!/^android-ui-[0-9a-f-]{20,}$/i.test(deviceId)||!/^[0-9]{6}$/.test(pairCode)){
+    throw Object.assign(new Error("invalid_pairing_request"),{status:400});
+  }
+  const sb=serviceClient();
+  const {data:device,error}=await sb.schema("aria_internal").from("device_registry")
+    .select("device_id,agent_type,status,metadata").eq("device_id",deviceId).maybeSingle();
+  if(error)throw new Error(error.message);
+  if(!device||device.agent_type!=="android-ui")throw Object.assign(new Error("android_device_not_found"),{status:404});
+  const md=device.metadata&&typeof device.metadata==="object"?device.metadata:{};
+  if(String(md.pairing_status||"")!=="pending")throw Object.assign(new Error("pairing_not_pending"),{status:409});
+  const expires=Date.parse(String(md.pairing_expires_at||""));
+  if(!Number.isFinite(expires)||Date.now()>expires)throw Object.assign(new Error("pairing_expired"),{status:409});
+  const expected=String(md.pairing_code_hash||"");
+  const actual=await sha256Hex(deviceId+":"+pairCode);
+  if(!expected||expected!==actual)throw Object.assign(new Error("pairing_code_invalid"),{status:403});
+  const metadata={...md,pairing_status:"approved",approved_by_user_id:userId,approved_at:new Date().toISOString()};
+  const {error:ue}=await sb.schema("aria_internal").from("device_registry")
+    .update({metadata,updated_at:new Date().toISOString()}).eq("device_id",deviceId).eq("agent_type","android-ui");
+  if(ue)throw new Error(ue.message);
+  return {ok:true,status:"approved",device_id:deviceId};
+}
 async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
@@ -352,6 +381,16 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/meditation/overview")) return json({ ok: true, ...(await meditationOverview(user.id)), trace_id: trace });
     if (req.method === "GET" && path.endsWith("/meditation/notifications")) { const url = new URL(req.url); const unreadOnly = url.searchParams.get("unread_only") === "true"; const limit = Number(url.searchParams.get("limit") || 50); return json({ ok: true, ...(await meditationNotificationsForUser(user.id, unreadOnly, limit)), trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/meditation/notifications/read")) { const body = await req.json().catch(() => null); return json({ ...await markMeditationNotificationsReadForUser(user.id, body), trace_id: trace }); }
+
+    if (req.method === "POST" && path.endsWith("/android/pair/approve")) {
+      try {
+        const body = await req.json().catch(() => null);
+        return json(await approveAndroidPair(user.id, body), 200);
+      } catch (e) {
+        const status = Number((e as any)?.status || 500);
+        return json({ error: String((e as any)?.message ?? e), trace_id: trace }, status >= 400 && status < 600 ? status : 500);
+      }
+    }
     if (req.method === "POST" && path.endsWith("/media/upload-url")) { const body = await req.json().catch(() => null); const fileName = typeof body?.fileName === "string" && body.fileName.trim() ? body.fileName.trim().replace(/[^A-Za-z0-9._-]/g, "_") : "upload.bin"; const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`; const { data, error } = await serviceClient().storage.from(MEDIA_BUCKET).createSignedUploadUrl(objectPath); if (error || !data?.signedUrl) return json({ error: "media_upload_url_failed", stage: "media", trace_id: trace }, 502); return json({ ok: true, bucket: MEDIA_BUCKET, path: objectPath, signedUrl: data.signedUrl, trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/conversation")) {
       const body = await req.json().catch(() => null);
