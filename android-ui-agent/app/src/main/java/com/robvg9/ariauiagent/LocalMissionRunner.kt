@@ -174,7 +174,7 @@ class LocalMissionRunner(
         notify(moving)
 
         val raw = try {
-            service.handle("""{\"operation\":\"observe\"}""")
+            service.handle("{\"operation\":\"observe\"}")
         } catch (e: Exception) {
             return fail("observe_exception:${e.message?.take(80)}")
         }
@@ -451,10 +451,6 @@ class LocalMissionRunner(
         return next
     }
 
-    /**
-     * Fail with a diagnostic observation step so COPIAR TODO / UI shows handoff details
-     * instead of collapsing everything into a bare post_action_window_missing string.
-     */
     private fun failWithDiag(reason: String, diagnostic: JSONObject): LocalMission {
         val m = mission
         val base = m ?: LocalMission()
@@ -496,10 +492,6 @@ class LocalMissionRunner(
     }
 }
 
-/**
- * Pure parser: extract the single post-action observation embedded in actionResponse.
- * No second AccessibilityService.observe call.
- */
 object PostActionResponse {
     fun parse(raw: JSONObject): LocalObservation {
         val ui = raw.optJSONObject("ui")
