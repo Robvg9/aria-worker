@@ -1,4 +1,4 @@
-# ARIA Android — Local Mission Runner (v1.1.0)
+# ARIA Android — Local Mission Runner (v1.1.2)
 
 ## Architecture
 
@@ -44,9 +44,23 @@ On app restart:
 
 ## Version
 
-- versionCode 6
-- versionName 1.1.0
+- versionCode 8
+- versionName 1.1.2
 
 ## Physical validation still required
 
 tests (JVM unit) → assemble → install on device → enable Accessibility → full mission cycle with real Approve → evidence → Cancel
+
+## Fase 7 — Diagnóstico Android real visible (v1.1.2)
+
+Cuando Observe falla con `no_active_browser_window`, MainActivity muestra un panel legible con:
+
+- activePackage, activeIsBrowser
+- installedApprovedBrowsers
+- windowsNull, windowCount
+- applicationWindowCount, applicationWindowsWithRoot
+- hint
+- por cada ventana: type, layer, id, isActive, isFocused, hasRoot, packageName, isApprovedBrowser
+
+El JSON completo se persiste en `LocalObservation.diagnosticJson`.
+La lógica del resolver **no** se modificó en esta fase.
