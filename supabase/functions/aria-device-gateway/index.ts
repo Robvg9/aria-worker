@@ -110,7 +110,42 @@ async function androidAutonomousDecision(b:any,d:any){
     };
   }).filter(Boolean).sort((a:any,b:any)=>preference(a.model_id)-preference(b.model_id)||String(a.model_id).localeCompare(String(b.model_id)));
 
-  const uiJson=JSON.stringify(observation).slice(0,42000);
+  const compactNodes=[...nodes.values()]
+    .filter((n:any)=>isSafeNode(n)&&(
+      Boolean(n.clickable) ||
+      Boolean(n.focused) ||
+      Boolean(n.scrollable) ||
+      Boolean(n.text) ||
+      Boolean(n.name) ||
+      Boolean(n.label)
+    ))
+    .map((n:any)=>({
+      id:String(n.id||''),
+      role:typeof n.role==='string'?n.role:null,
+      name:typeof n.name==='string'?n.name.slice(0,180):null,
+      label:typeof n.label==='string'?n.label.slice(0,180):null,
+      text:typeof n.text==='string'?n.text.slice(0,220):null,
+      clickable:Boolean(n.clickable),
+      focused:Boolean(n.focused),
+      scrollable:Boolean(n.scrollable),
+      enabled:Boolean(n.enabled),
+      bounds:n.bounds&&typeof n.bounds==='object'?{
+        left:Number(n.bounds.left)||0,
+        top:Number(n.bounds.top)||0,
+        right:Number(n.bounds.right)||0,
+        bottom:Number(n.bounds.bottom)||0
+      }:null
+    }))
+    .slice(0,180);
+  const compactObservation={
+    packageName:typeof observation.packageName==='string'?observation.packageName:null,
+    evidence_hash:typeof observation.evidence_hash==='string'?observation.evidence_hash:null,
+    activePackage:observation.diagnostic?.activePackage||observation.packageName||null,
+    selectedPackage:observation.diagnostic?.selectedPackage||observation.packageName||null,
+    node_count:nodes.size,
+    nodes:compactNodes
+  };
+  const uiJson=JSON.stringify(compactObservation).slice(0,16000);
   const prompt=[
     'ARIA ANDROID AUTONOMOUS UI TEST DECISION.',
     'Goal: '+goal,
@@ -148,8 +183,9 @@ async function androidAutonomousDecision(b:any,d:any){
           input:{
             payload:{
               prompt,
-              generationConfig:{maxOutputTokens:900},
-              systemInstruction:'You are a governed UI testing planner. Follow the supplied safety constraints exactly. Output JSON only.'
+              max_completion_tokens:500,
+              temperature:0,
+              systemInstruction:'You are a governed UI testing planner. Follow the supplied safety constraints exactly. Output JSON only. Never explain your reasoning outside the JSON.'
             }
           },
           policy:{risk:'READ',android_autonomous:true}
