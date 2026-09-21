@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +14,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -36,17 +38,14 @@ class AriaAccessibilityService : AccessibilityService() {
     private val executor = Executors.newCachedThreadPool()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val approvedBrowsers = setOf(
-        // Chrome family
         "com.android.chrome",
         "com.chrome.beta",
         "com.chrome.dev",
         "com.chrome.canary",
         "com.google.android.apps.chrome",
-        // Firefox family
         "org.mozilla.firefox",
         "org.mozilla.firefox_beta",
         "org.mozilla.focus",
-        // Others commonly installed
         "com.brave.browser",
         "com.opera.browser",
         "com.opera.mini.native",
@@ -84,8 +83,9 @@ class AriaAccessibilityService : AccessibilityService() {
 
     /**
      * Visible control over the current foreground app (Chrome).
-     * Uses TYPE_ACCESSIBILITY_OVERLAY so the service can still introspect
-     * windows below; FLAG_NOT_FOCUSABLE keeps input focus on the browser.
+     * TYPE_ACCESSIBILITY_OVERLAY keeps windows below introspectable.
+     * FLAG_NOT_FOCUSABLE keeps input focus on the browser.
+     * Vertical offset uses system status/cutout insets (no fixed magic y).
      */
     fun showObserveOverlay() {
         mainHandler.post {
@@ -128,24 +128,45 @@ class AriaAccessibilityService : AccessibilityService() {
             panel.addView(btnObserve)
             panel.addView(btnClose)
 
+            val safeTop = systemSafeTopInsetPx(wm)
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = 48
+                y = safeTop
             }
             try {
                 wm.addView(panel, params)
                 overlayView = panel
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 overlayView = null
                 overlayStatus = null
             }
+        }
+    }
+
+    /** Status bar + display cutout top inset from WindowMetrics / system resources. */
+    private fun systemSafeTopInsetPx(wm: WindowManager): Int {
+        return try {
+            if (Build.VERSION.SDK_INT >= 30) {
+                val metrics = wm.currentWindowMetrics
+                val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()
+                )
+                insets.top
+            } else {
+                @Suppress("DEPRECATION")
+                val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
+                if (resId > 0) resources.getDimensionPixelSize(resId) else 0
+            }
+        } catch (_: Exception) {
+            0
         }
     }
 
@@ -213,7 +234,6 @@ class AriaAccessibilityService : AccessibilityService() {
     }
 
     private fun observeResponse(): JSONObject {
-        // Brief retry: windows list can lag right after activity switch.
         var root: AccessibilityNodeInfo? = null
         var lastDiag: JSONObject? = null
         repeat(3) { attempt ->
@@ -277,7 +297,7 @@ class AriaAccessibilityService : AccessibilityService() {
                     KeyEvent.KEYCODE_BACK -> ok(performGlobalAction(GLOBAL_ACTION_BACK), "back_failed")
                     KeyEvent.KEYCODE_ENTER -> {
                         val focused = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return error("focused_input_not_found")
-                        if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        if (Build.VERSION.SDK_INT >= 30) {
                             ok(focused.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id), "enter_failed")
                         } else {
                             error("enter_not_supported")
@@ -347,7 +367,6 @@ class AriaAccessibilityService : AccessibilityService() {
 
         if (active != null && activePackage != null && approvedBrowsers.contains(activePackage)) {
             diag.put("source", "rootInActiveWindow")
-            // Still list windows for physical verification of overlay mode
             appendWindowsDiag(diag)
             return Pair(active, diag)
         }
@@ -370,7 +389,7 @@ class AriaAccessibilityService : AccessibilityService() {
             row.put("type", window.type)
             row.put("layer", window.layer)
             row.put("id", window.id)
-            if (android.os.Build.VERSION.SDK_INT >= 21) {
+            if (Build.VERSION.SDK_INT >= 21) {
                 row.put("isActive", window.isActive)
                 row.put("isFocused", window.isFocused)
             }
@@ -413,10 +432,7 @@ class AriaAccessibilityService : AccessibilityService() {
         } else if (appWindowsWithRoot == 0 && appWindows > 0) {
             diag.put("hint", "application_windows_present_but_roots_null_oem_or_toggle_service")
         } else if (activePackage != null && !approvedBrowsers.contains(activePackage)) {
-            diag.put(
-                "hint",
-                "foreground_is_not_browser_use_overlay_observe_mode_keep_chrome_active"
-            )
+            diag.put("hint", "foreground_is_not_browser_use_overlay_observe_mode_keep_chrome_active")
         } else {
             diag.put("hint", "no_browser_window_with_retrievable_root")
         }
@@ -435,7 +451,7 @@ class AriaAccessibilityService : AccessibilityService() {
             row.put("type", window.type)
             row.put("layer", window.layer)
             row.put("id", window.id)
-            if (android.os.Build.VERSION.SDK_INT >= 21) {
+            if (Build.VERSION.SDK_INT >= 21) {
                 row.put("isActive", window.isActive)
                 row.put("isFocused", window.isFocused)
             }
@@ -511,7 +527,7 @@ class AriaAccessibilityService : AccessibilityService() {
     }
 
     private fun gestureClick(node: AccessibilityNodeInfo): Boolean {
-        if (!node.isVisibleToUser || android.os.Build.VERSION.SDK_INT < 24) return false
+        if (!node.isVisibleToUser || Build.VERSION.SDK_INT < 24) return false
         val rect = Rect().also { node.getBoundsInScreen(it) }
         if (rect.isEmpty) return false
         val path = Path().apply { moveTo(rect.exactCenterX(), rect.exactCenterY()) }
