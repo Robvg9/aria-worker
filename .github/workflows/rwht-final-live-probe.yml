@@ -1,0 +1,30 @@
+name: RWHT Final Live Probe
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Invoke exact live RWHT probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway/v1/rwht-final-probe?mission_id=mission_rwht_final_20260920_02'
+          echo "Invoking ARIA LIVE probe..."
+          curl --fail-with-body --silent --show-error --max-time 420 "$URL" | tee /tmp/rwht-probe.json
+          python - <<'PY'
+          import json
+          with open('/tmp/rwht-probe.json','r',encoding='utf-8') as f:
+              data=json.load(f)
+          print("PROBE_STATUS=", data.get("status"))
+          print("PROBE_OK=", data.get("ok"))
+          if data.get("ok") is not True and data.get("status") not in {"succeeded","human_gate_required","waiting"}:
+              raise SystemExit("RWHT live probe did not complete successfully: %r" % data)
+          PY
