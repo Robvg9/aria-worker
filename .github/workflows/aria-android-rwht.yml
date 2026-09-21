@@ -1,0 +1,65 @@
+name: ARIA Android RWHT Autonomous
+
+on:
+  pull_request:
+    branches: [main, aria-rwht-autonomous-20260921]
+    paths:
+      - 'android-ui-agent/**'
+      - 'agents/termux/**'
+      - 'computer-use/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'tests/android-*.test.js'
+      - 'tests/planner-v11-android-autonomous.test.js'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'android-ui-agent/**'
+      - 'agents/termux/**'
+      - 'computer-use/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'tests/android-*.test.js'
+      - 'tests/planner-v11-android-autonomous.test.js'
+      - 'package.json'
+
+jobs:
+  android-rwht:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Targeted runtime tests
+        run: |
+          node tests/device-job-contract.test.js
+          node tests/device-dispatcher.test.js
+          node tests/android-browser-bridge-adapter-v1.test.js
+          node tests/android-browser-bridge-v1.test.js
+          node tests/android-autonomous-runner-v1.test.js
+          node tests/android-autonomous-gateway-contract.test.js
+          node tests/planner-v11-android-autonomous.test.js
+          node tests/android-ui-agent-autonomous-transport.test.js
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK bootstrap
+        run: |
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build debug APK
+        working-directory: android-ui-agent
+        run: gradle :app:assembleDebug --no-daemon

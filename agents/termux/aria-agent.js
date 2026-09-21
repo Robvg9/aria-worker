@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
 const { executeAndroidAccessibilityJob } = require('../../computer-use/android-accessibility-v1');
+const { executeAutonomousAndroidMission } = require('./android-autonomous-runner-v1');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -112,9 +113,30 @@ async function claimAndExecute() {
     if (job.operation === 'android.notification') {
       result=await runAndroidNotification(parseAndroidNotificationPayload(job.command));
     } else if (job.operation === 'computer.use.android') {
-      const bridgeResult=await executeAndroidAccessibilityJob({command:job.command,timeoutMs:job.timeout_ms||12000,resolveSecret:secretRef=>resolveSecret(job.job_id,secretRef)});
-      result={status:bridgeResult.status,exit_code:bridgeResult.status==='succeeded'?0:1,stdout:'',stderr:bridgeResult.status==='succeeded'?'':String(bridgeResult.reason||'android_accessibility_failed'),duration_ms:null,result:bridgeResult.payload||null,metadata:{...(bridgeResult.metadata||{}),android_ui_agent:true}};
-      if (result.result?.metadata?.secret_ref) delete result.result.metadata.secret_ref;
+      let commandPayload = {};
+      try { commandPayload = JSON.parse(String(job.command || '{}')); } catch (_) { commandPayload = {}; }
+      if (commandPayload.mode === 'autonomous_test') {
+        const autonomous = await executeAutonomousAndroidMission({
+          api,
+          executeAndroidAccessibilityJob: args => executeAndroidAccessibilityJob({
+            ...args,
+            resolveSecret: secretRef => resolveSecret(job.job_id, secretRef)
+          }),
+          goal: String(commandPayload.goal || ''),
+          targetPackage: typeof commandPayload.target_package === 'string' ? commandPayload.target_package : null,
+          allowAnyApp: commandPayload.allow_any_app === true,
+          allowedHosts: Array.isArray(commandPayload.allowed_hosts) ? commandPayload.allowed_hosts : [],
+          startUrl: typeof commandPayload.start_url === 'string' ? commandPayload.start_url : null,
+          startApp: commandPayload.start_app === true,
+          maxSteps: commandPayload.max_steps,
+          timeoutMs: Math.min(Number(job.timeout_ms || 160000), 160000)
+        });
+        result={status:autonomous.status==='succeeded'?'succeeded':autonomous.status==='timeout'?'timeout':'failed',exit_code:autonomous.status==='succeeded'?0:1,stdout:'',stderr:autonomous.status==='succeeded'?'':String(autonomous.reason||'android_autonomous_test_failed'),duration_ms:null,result:{status:autonomous.status,reason:autonomous.reason,steps:autonomous.steps,trace:autonomous.trace,evidence:autonomous.evidence},metadata:{android_ui_agent:true,autonomous_test:true}};
+      } else {
+        const bridgeResult=await executeAndroidAccessibilityJob({command:job.command,timeoutMs:job.timeout_ms||12000,resolveSecret:secretRef=>resolveSecret(job.job_id,secretRef)});
+        result={status:bridgeResult.status,exit_code:bridgeResult.status==='succeeded'?0:1,stdout:'',stderr:bridgeResult.status==='succeeded'?'':String(bridgeResult.reason||'android_accessibility_failed'),duration_ms:null,result:bridgeResult.payload||null,metadata:{...(bridgeResult.metadata||{}),android_ui_agent:true}};
+        if (result.result?.metadata?.secret_ref) delete result.result.metadata.secret_ref;
+      }
     } else {
       result=await run(job.command,job.cwd,job.timeout_ms);
     }
