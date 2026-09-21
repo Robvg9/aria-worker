@@ -26,7 +26,8 @@ async function directGemini(route:any,input:any){
   if(body.generationConfig?.temperature!==undefined){const {temperature,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topP!==undefined){const {topP,...rest}=body.generationConfig;body.generationConfig=rest;}
   if(body.generationConfig?.topK!==undefined){const {topK,...rest}=body.generationConfig;body.generationConfig=rest;}
-  let res:Response;try{res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":GOOGLE_API_KEY},body:JSON.stringify(body)})}catch{return out({status:"failed",error:{code:"transport_error",message:"transport failure"}})}
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);
+  let res:Response;try{res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":GOOGLE_API_KEY},body:JSON.stringify(body),signal:controller.signal})}catch(error){return out({status:"failed",error:{code:error instanceof Error&&error.name==="AbortError"?"transport_timeout":"transport_error",message:error instanceof Error&&error.name==="AbortError"?"provider request timed out":"transport failure"}})}finally{clearTimeout(timeout)}
   const json=await res.json().catch(()=>null);if(!res.ok)return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});
   const parts=json?.candidates?.[0]?.content?.parts;const text=Array.isArray(parts)?parts.filter((x:any)=>typeof x?.text==="string").map((x:any)=>x.text).join(""):"";
   if(!text)return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});
