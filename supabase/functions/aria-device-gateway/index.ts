@@ -122,21 +122,16 @@ async function androidAutonomousDecision(b:any,d:any){
     .map((n:any)=>({
       id:String(n.id||''),
       role:typeof n.role==='string'?n.role:null,
-      name:typeof n.name==='string'?n.name.slice(0,180):null,
-      label:typeof n.label==='string'?n.label.slice(0,180):null,
-      text:typeof n.text==='string'?n.text.slice(0,220):null,
+      name:typeof n.name==='string'?n.name.slice(0,120):null,
+      label:typeof n.label==='string'?n.label.slice(0,120):null,
+      text:typeof n.text==='string'?n.text.slice(0,160):null,
       clickable:Boolean(n.clickable),
       focused:Boolean(n.focused),
       scrollable:Boolean(n.scrollable),
-      enabled:Boolean(n.enabled),
-      bounds:n.bounds&&typeof n.bounds==='object'?{
-        left:Number(n.bounds.left)||0,
-        top:Number(n.bounds.top)||0,
-        right:Number(n.bounds.right)||0,
-        bottom:Number(n.bounds.bottom)||0
-      }:null
+      enabled:Boolean(n.enabled)
     }))
-    .slice(0,180);
+    .slice(0,90);
+
   const compactObservation={
     packageName:typeof observation.packageName==='string'?observation.packageName:null,
     evidence_hash:typeof observation.evidence_hash==='string'?observation.evidence_hash:null,
@@ -145,26 +140,51 @@ async function androidAutonomousDecision(b:any,d:any){
     node_count:nodes.size,
     nodes:compactNodes
   };
-  const uiJson=JSON.stringify(compactObservation).slice(0,16000);
+  const uiJson=JSON.stringify(compactObservation).slice(0,12000);
+
   const prompt=[
-    'ARIA ANDROID AUTONOMOUS UI TEST DECISION.',
+    'ARIA ANDROID AUTONOMOUS UI PLANNER.',
     'Goal: '+goal,
     'Target package: '+String(targetPackage||'unknown'),
     'Allowed web hosts: '+JSON.stringify(allowedHosts),
-    'This is a physical UI test. On the first decision you MUST choose one safe reversible UI action before any pass.',
-    'Choose only an action whose target nodeId exists in the supplied accessibility tree.',
-    'Allowed safe actions: click, type into non-password fields, press BACK/ENTER, scroll, wait, navigate within allowed hosts.',
-    'Do not click Chrome browser chrome (address bar, home, tabs, menu) unless the goal explicitly requires it.',
-    'When the target URL is already visible but the page content is still loading or only browser chrome is present, choose a safe wait action first (for example 1200ms).',
-    'Once the ARIA PWA content is visible, choose a safe reversible control inside the PWA based on its actual node name/label/text and nodeId.',
-    'Never choose destructive, financial, account deletion, purchase, payment, credential, password, or irreversible actions. For those return fail with reason human_gate_required.',
-    'On step 1 do not return pass. Return exactly one safe action. On a later step return pass only after the action visibly completed the goal.',
-    'Return JSON only: {"decision":"act|pass|fail","reason":"...","action":{...},"expectation":{...}}.',
+    'Choose exactly one safe reversible UI step from the supplied accessibility nodes.',
+    'Never choose browser chrome unless the goal explicitly needs it.',
+    'If the ARIA page is still loading and there is no suitable PWA control, return WAIT|1200|loading.',
+    'If the ARIA page is visible, prefer a real PWA button/control with its exact node id.',
+    'Allowed output: one single line only.',
+    'Formats: ACT|click|NODE_ID|REASON ; ACT|scroll|NODE_ID|forward|REASON ; ACT|press|KEY|REASON ; WAIT|MILLISECONDS|REASON ; NAV|URL|REASON.',
+    'Use ACT only for a real node id from the tree. Use NAV only with an allowed host. Do not include pipe characters inside REASON.',
     'Recent trace: '+JSON.stringify(history),
-    'Current accessibility observation: '+uiJson
+    'Accessibility: '+uiJson
   ].join('\n');
 
-  for(const route of routes.slice(0,3)){
+  const attempts=[];
+  const parseLine=(raw:string)=>{
+    const line=String(raw||'').split(/\r?\n/).map(x=>x.trim()).find(Boolean)||'';
+    const parts=line.split('|').map(x=>x.trim());
+    if(parts[0]==='WAIT'&&parts.length>=3){
+      return {
+        decision:'act',
+        reason:parts.slice(2).join(' ').slice(0,700),
+        action:{action:'wait',ms:Math.max(0,Math.min(5000,Number(parts[1])||1200))}
+      };
+    }
+    if(parts[0]==='ACT'&&parts[1]==='click'&&parts[2]){
+      return {decision:'act',reason:parts.slice(3).join(' ').slice(0,700)||'safe_model_click',action:{action:'click',nodeId:parts[2]}};
+    }
+    if(parts[0]==='ACT'&&parts[1]==='scroll'&&parts[2]&&['forward','backward'].includes(parts[3])){
+      return {decision:'act',reason:parts.slice(4).join(' ').slice(0,700)||'safe_model_scroll',action:{action:'scroll',nodeId:parts[2],direction:parts[3]}};
+    }
+    if(parts[0]==='ACT'&&parts[1]==='press'&&parts[2]){
+      return {decision:'act',reason:parts.slice(3).join(' ').slice(0,700)||'safe_model_press',action:{action:'press',keyCode:parts[2]}};
+    }
+    if(parts[0]==='NAV'&&parts[1]){
+      return {decision:'act',reason:parts.slice(2).join(' ').slice(0,700)||'safe_model_navigation',action:{action:'navigate',url:parts[1]}};
+    }
+    return null;
+  };
+
+  for(const route of routes.slice(0,4)){
     try{
       const response=await fetch(SUPABASE_URL+'/functions/v1/aria-execution-runtime-v1',{
         method:'POST',
@@ -183,51 +203,54 @@ async function androidAutonomousDecision(b:any,d:any){
           input:{
             payload:{
               prompt,
-              max_completion_tokens:500,
+              max_completion_tokens:120,
               temperature:0,
-              systemInstruction:'You are a governed UI testing planner. Follow the supplied safety constraints exactly. Output JSON only. Never explain your reasoning outside the JSON.'
+              systemInstruction:'Output exactly one planner line using the specified format. No explanations.'
             }
           },
           policy:{risk:'READ',android_autonomous:true}
         })
       });
       const body=await response.json().catch(()=>null);
+      const raw=String(body?.response?.content||'');
+      attempts.push({
+        model_id:route.model_id,
+        provider_id:route.provider_id,
+        http_status:response.status,
+        runtime_status:body?.status||null,
+        error_code:body?.error?.code||null,
+        content_head:raw.slice(0,220)
+      });
       if(!response.ok||body?.status!=='succeeded')continue;
-      const decision=autonomousParseDecision(String(body?.response?.content||''));
-      if(!new Set(['act','pass','fail']).has(String(decision?.decision)))continue;
-      if(decision.decision==='pass'){
-        if(history.length===0&&fallbackAction){
-          return json({
-            ok:true,decision:'act',
-            reason:'model_requested_pass_before_required_safe_test_action; governed_safe_step_injected',
-            action:fallbackAction,
-            expectation:{type:'observe_after_safe_navigation'},
-            model_id:route.model_id
-          });
-        }
-        return json({ok:true,decision:'pass',reason:String(decision.reason||'').slice(0,700),action:null,expectation:decision.expectation||null,model_id:route.model_id});
-      }
-      if(decision.decision==='fail')return json({ok:true,decision:'fail',reason:String(decision.reason||'').slice(0,700),action:null,expectation:decision.expectation||null,model_id:route.model_id});
+      const decision=parseLine(raw);
+      if(!decision)continue;
+
       const action=decision.action;
-      if(!action||!['click','type','press','scroll','navigate','wait'].includes(String(action.action)))continue;
-      const node=action.nodeId?nodes.get(String(action.nodeId)):null;
-      if(['click','type','scroll'].includes(String(action.action))&&!isSafeNode(node))continue;
+      const node=action?.nodeId?nodes.get(String(action.nodeId)):null;
+      if(['click','scroll'].includes(String(action?.action))&&!isSafeNode(node))continue;
+      if(action?.action==='click'&&!Boolean(node?.clickable))continue;
+      if(action?.action==='scroll'&&!Boolean(node?.scrollable))continue;
+      if(action?.action==='press'&&!['4','66','BACK','ENTER'].includes(String(action?.keyCode||'')))continue;
       if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))
         return json({ok:true,decision:'fail',reason:'credential_material_blocked',action:null,expectation:null,model_id:route.model_id});
       if(autonomousActionIsDangerous(action,node))
         return json({ok:true,decision:'fail',reason:'human_gate_required_for_sensitive_action',action:null,expectation:null,model_id:route.model_id});
-      if(action.action==='type'&&node&&/password|contraseña|passwd/i.test([node.name,node.label,node.text].filter(Boolean).join(' ')))
-        return json({ok:true,decision:'fail',reason:'human_gate_required_for_credential_input',action:null,expectation:null,model_id:route.model_id});
-      if(action.action==='press'&&!['4','66','BACK','ENTER'].includes(String(action.keyCode||'')))continue;
-      if(action.action==='wait')action.ms=Math.max(0,Math.min(5000,Number(action.ms)||500));
-      if(action.action==='scroll'&&!['backward','forward'].includes(String(action.direction||'')))action.direction='forward';
       if(action.action==='navigate'){
         const u=new URL(String(action.url||''),'https://aria.robvg9.workers.dev/');
         if(!['http:','https:'].includes(u.protocol))continue;
         if(allowedHosts.length&&!allowedHosts.includes(u.hostname))continue;
       }
-      return json({ok:true,decision:'act',reason:String(decision.reason||'safe_ui_test_step').slice(0,700),action,expectation:decision.expectation||null,model_id:route.model_id});
-    }catch{}
+      return json({
+        ok:true,
+        decision:'act',
+        reason:decision.reason||'model_selected_safe_action',
+        action,
+        expectation:{type:'observe_after_model_action'},
+        model_id:route.model_id
+      });
+    }catch(error){
+      attempts.push({model_id:route.model_id,provider_id:route.provider_id,http_status:null,runtime_status:null,error_code:'planner_exception'});
+    }
   }
 
   if(history.length>0){
@@ -250,10 +273,11 @@ async function androidAutonomousDecision(b:any,d:any){
       reason:'governed_safe_fallback_navigation_after_model_route_failure',
       action:fallbackAction,
       expectation:{type:'observe_after_safe_navigation'},
-      model_id:null
+      model_id:null,
+      diagnostics:{attempts:attempts.slice(0,4)}
     });
   }
-  return json({ok:false,error:'android_autonomous_decision_failed'},502);
+  return json({ok:false,error:'android_autonomous_decision_failed',diagnostics:{attempts:attempts.slice(0,4)}},502);
 }
 function queueError(e:any){const m=String(e?.message||e||'queue_error');return m.replace(/^.*?\s*:\s*/,'').slice(0,500)}
 async function meditationQueueSnapshot(deviceId:string){const {data,error}=await supabase.schema('aria_internal').from('meditation_queue').select('queue_id,device_id,item_type,item_id,resolved_mission_id,position,status,last_error,metadata,created_at,started_at,completed_at,updated_at').eq('device_id',deviceId).order('status',{ascending:true}).order('position',{ascending:true}).limit(100);if(error)throw new Error(error.message);return data||[]}
