@@ -20,6 +20,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var missionText: TextView
     private lateinit var actionText: TextView
+    private lateinit var diagText: TextView
     private lateinit var logText: TextView
 
     private lateinit var btnStart: Button
@@ -66,6 +67,12 @@ class MainActivity : AppCompatActivity() {
         actionText = TextView(this).apply {
             textSize = 13f
             setPadding(0, 0, 0, 12)
+        }
+        diagText = TextView(this).apply {
+            textSize = 12f
+            setPadding(20, 16, 20, 16)
+            setBackgroundColor(android.graphics.Color.rgb(18, 58, 42))
+            visibility = TextView.GONE
         }
         logText = TextView(this).apply {
             textSize = 12f
@@ -141,6 +148,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(statusText)
         root.addView(missionText)
         root.addView(actionText)
+        root.addView(diagText)
         root.addView(btnStart)
         root.addView(btnObserve)
         root.addView(btnProposeDemo)
@@ -185,6 +193,19 @@ class MainActivity : AppCompatActivity() {
             if (m.cancelledByOwner) append("(cancelada por el propietario)\n")
         }
 
+        val diagnostic = m.steps.asReversed()
+            .firstOrNull { it.kind == StepKind.OBSERVE }
+            ?.observation
+            ?.diagnosticJson
+
+        if (!diagnostic.isNullOrBlank()) {
+            diagText.visibility = TextView.VISIBLE
+            diagText.text = formatBrowserDiag(diagnostic)
+        } else {
+            diagText.visibility = TextView.GONE
+            diagText.text = ""
+        }
+
         val proposed = m.proposedAction
         actionText.text = if (proposed != null) {
             buildString {
@@ -216,6 +237,37 @@ class MainActivity : AppCompatActivity() {
         if (lastEvidence != null && m.state == MissionState.COMPLETE) {
             appendLog("evidence chainHash=${lastEvidence.chainHash.take(16)}…")
         }
+    }
+
+    private fun formatBrowserDiag(raw: String): String {
+        return runCatching {
+            val o = org.json.JSONObject(raw)
+            buildString {
+                append("══ DIAGNÓSTICO ANDROID REAL ══\n")
+                val scalarKeys = listOf(
+                    "activePackage", "activeIsBrowser", "installedApprovedBrowsers",
+                    "windowsNull", "windowCount", "applicationWindowCount",
+                    "applicationWindowsWithRoot", "hint"
+                )
+                scalarKeys.forEach { key ->
+                    if (o.has(key)) append("$key: \${o.opt(key)}\n")
+                }
+                append("── windows[] ──\n")
+                val windows = o.optJSONArray("windows")
+                if (windows == null || windows.length() == 0) {
+                    append("(sin ventanas reportadas)\n")
+                } else {
+                    for (i in 0 until windows.length()) {
+                        val w = windows.optJSONObject(i) ?: continue
+                        append("[$i] type=\${w.opt("type")} layer=\${w.opt("layer")} id=\${w.opt("id")}\n")
+                        append("    isActive=\${w.opt("isActive")} isFocused=\${w.opt("isFocused")}\n")
+                        append("    hasRoot=\${w.opt("hasRoot")} isApprovedBrowser=\${w.opt("isApprovedBrowser")}\n")
+                        append("    packageName=\${w.opt("packageName")}\n")
+                    }
+                }
+                append("════════════════════════════")
+            }
+        }.getOrElse { "══ DIAGNÓSTICO ANDROID REAL ══\n$raw" }
     }
 
     private fun appendLog(line: String) {
