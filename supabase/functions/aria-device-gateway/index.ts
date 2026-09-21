@@ -94,7 +94,7 @@ async function androidAutonomousDecision(b:any,d:any){
       const nodes=autonomousUiNodeMap(observation.root);const node=action.nodeId?nodes.get(String(action.nodeId)):null;
       if(['click','type','scroll'].includes(String(action.action))&&!node)continue;
       if(['click','type','scroll'].includes(String(action.action))&&(node.visible===false||node.enabled===false))continue;
-      if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))return json({ok:true,decision:'fail',reason:'credential_material_blocked',action:null,expectation:null,model_id:route.model_id});
+      if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))return json({ok:true,decision:'fail',reason:'credential_material_blocked',action:null,expectation:null,model_id:route.model_id});
       if(autonomousActionIsDangerous(action,node))return json({ok:true,decision:'fail',reason:'human_gate_required_for_sensitive_action',action:null,expectation:null,model_id:route.model_id});
       if(action.action==='type'&&node&&/password|contraseña|passwd/i.test([node.name,node.label,node.text].filter(Boolean).join(' ')))return json({ok:true,decision:'fail',reason:'human_gate_required_for_credential_input',action:null,expectation:null,model_id:route.model_id});
       if(action.action==='press'&&!['4','66','BACK','ENTER'].includes(String(action.keyCode||'')))continue;
@@ -493,7 +493,7 @@ if(duplicateInflight || String(me.message||'').includes('mission_state_one_infli
 }
 throw new Error(me.message)}const {error:ue}=await supabase.schema('aria_internal').from('autonomy_goals').update({last_mission_id:missionId,updated_at:new Date().toISOString()}).eq('goal_id',selected.goal_id).eq('status','running');if(ue)throw new Error(ue.message);const runtime=await runCanonicalMission(missionId);let postLearning=null;if(runtime.status==='succeeded'){postLearning=await learnMissionViaV3(missionId);await supabase.schema('aria_internal').from('autonomy_goals').update({status:'completed',updated_at:new Date().toISOString(),last_mission_id:missionId}).eq('goal_id',selected.goal_id).eq('status','running');}return{ok:runtime.status!=='failed'&&runtime.status!=='blocked',status:runtime.status||'runtime_unknown',mission_created:missionId,goal:selected.goal,goal_id:selected.goal_id,dynamic_score:selected.dynamic_score,goal_source:selected.source_type,reused_existing_mission:false,race_recovered:false,recovered,learning,postLearning,goalSync,runtime}}
 async function autonomyServiceAuthorized(r:Request){
-  const t=(r.headers.get('authorization')||'').replace(/^Bearer\\s+/i,'');
+  const t=(r.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
   if(t&&RUNTIME_SECRET&&await Promise.resolve(t===RUNTIME_SECRET))return true;
   const cron=r.headers.get('x-aria-autonomy-token');
   if(!cron)return false;
