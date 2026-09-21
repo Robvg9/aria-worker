@@ -126,6 +126,8 @@ async function claimAndExecute() {
           targetPackage: typeof commandPayload.target_package === 'string' ? commandPayload.target_package : null,
           allowAnyApp: commandPayload.allow_any_app === true,
           allowedHosts: Array.isArray(commandPayload.allowed_hosts) ? commandPayload.allowed_hosts : [],
+          startUrl: typeof commandPayload.start_url === 'string' ? commandPayload.start_url : null,
+          startApp: commandPayload.start_app === true,
           maxSteps: commandPayload.max_steps,
           timeoutMs: Math.min(Number(job.timeout_ms || 160000), 160000)
         });
