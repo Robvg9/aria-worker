@@ -10,9 +10,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -28,11 +30,21 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 
+/**
+ * Accessibility service for local missions.
+ *
+ * Critical observe path: capture approved-browser window on OBSERVE ACTION_DOWN
+ * (while Chrome is still in interactive windows). Touch on TYPE_ACCESSIBILITY_OVERLAY
+ * makes rootInActiveWindow point at the overlay package — never trust that alone
+ * for observe triggered from the overlay.
+ */
 class AriaAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile
         var instance: AriaAccessibilityService? = null
             private set
+
+        private const val OWN_PKG_PREFIX = "com.robvg9.ariauiagent"
     }
 
     private val executor = Executors.newCachedThreadPool()
@@ -55,7 +67,22 @@ class AriaAccessibilityService : AccessibilityService() {
     )
 
     private var overlayView: View? = null
+    private var overlayPanel: LinearLayout? = null
     private var overlayStatus: TextView? = null
+    private var overlayCollapsed: Boolean = false
+    private var overlayParams: WindowManager.LayoutParams? = null
+
+    /** Snapshot taken on OBSERVE ACTION_DOWN before window focus shifts. */
+    private data class ObserveCapture(
+        val packageName: String,
+        val tree: JSONObject,
+        val evidenceHash: String,
+        val diagnostic: JSONObject,
+        val capturedAtElapsedMs: Long
+    )
+
+    @Volatile
+    private var pendingCapture: ObserveCapture? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -81,92 +108,273 @@ class AriaAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /**
-     * Visible control over the current foreground app (Chrome).
-     * TYPE_ACCESSIBILITY_OVERLAY keeps windows below introspectable.
-     * FLAG_NOT_FOCUSABLE keeps input focus on the browser.
-     * Vertical offset uses system status/cutout insets (no fixed magic y).
-     */
     fun showObserveOverlay() {
         mainHandler.post {
             if (overlayView != null) {
-                overlayStatus?.text = "ESPERANDO OBSERVACIÓN\nAbre Chrome y pulsa OBSERVAR"
+                expandOverlayUi()
+                overlayStatus?.text = "ESPERANDO\nChrome → OBSERVAR"
                 return@post
             }
             val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            val safeTop = systemSafeTopInsetPx(wm)
+            val safeBottom = systemSafeBottomInsetPx(wm)
+            val density = resources.displayMetrics.density
+            val panelWidth = (168 * density).toInt()
+
             val panel = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(28, 24, 28, 24)
-                setBackgroundColor(Color.argb(230, 12, 40, 28))
+                setPadding(
+                    (12 * density).toInt(),
+                    (10 * density).toInt(),
+                    (12 * density).toInt(),
+                    (10 * density).toInt()
+                )
+                setBackgroundColor(Color.argb(235, 12, 40, 28))
             }
+            overlayPanel = panel
+
             val title = TextView(this).apply {
-                text = "ARIA · Observación"
+                text = "ARIA ▾"
                 setTextColor(Color.WHITE)
-                textSize = 15f
-                setPadding(0, 0, 0, 8)
+                textSize = 12f
+                setPadding(0, 0, 0, 4)
+                // Drag handle + collapse toggle
+                setOnClickListener { toggleOverlayCollapsed() }
             }
+
             val status = TextView(this).apply {
-                text = "ESPERANDO OBSERVACIÓN\nAbre Chrome y pulsa OBSERVAR"
+                text = "ESPERANDO\nChrome → OBSERVAR"
                 setTextColor(Color.rgb(180, 255, 210))
-                textSize = 13f
-                setPadding(0, 0, 0, 12)
+                textSize = 11f
+                setPadding(0, 0, 0, 6)
             }
             overlayStatus = status
+
             val btnObserve = Button(this).apply {
                 text = "OBSERVAR"
-                setOnClickListener { onOverlayObserveClicked() }
+                textSize = 13f
+                // Capture on DOWN while Chrome is still in windows[]; persist after.
+                setOnTouchListener { _, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            captureObserveOnDown()
+                            true
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            commitObserveAfterDown()
+                            true
+                        }
+                        MotionEvent.ACTION_CANCEL -> {
+                            pendingCapture = null
+                            true
+                        }
+                        else -> false
+                    }
+                }
             }
             val btnClose = Button(this).apply {
-                text = "Cerrar overlay"
+                text = "Cerrar"
+                textSize = 11f
                 setOnClickListener {
                     LocalMissionRunner.active?.exitWaitingObserve()
                     hideObserveOverlay()
                 }
             }
+
             panel.addView(title)
             panel.addView(status)
             panel.addView(btnObserve)
             panel.addView(btnClose)
+            attachPanelDrag(panel, title)
 
-            val safeTop = systemSafeTopInsetPx(wm)
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
+                panelWidth,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = safeTop
+                gravity = Gravity.TOP or Gravity.END
+                x = (8 * density).toInt()
+                y = safeTop + (8 * density).toInt()
             }
+            overlayParams = params
+            // Keep within vertical safe area
+            params.y = params.y.coerceAtLeast(safeTop)
+
             try {
                 wm.addView(panel, params)
                 overlayView = panel
+                overlayCollapsed = false
             } catch (_: Exception) {
                 overlayView = null
                 overlayStatus = null
+                overlayPanel = null
+                overlayParams = null
             }
         }
     }
 
-    /** Status bar + display cutout top inset from WindowMetrics / system resources. */
-    private fun systemSafeTopInsetPx(wm: WindowManager): Int {
-        return try {
-            if (Build.VERSION.SDK_INT >= 30) {
-                val metrics = wm.currentWindowMetrics
-                val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
-                    WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()
-                )
-                insets.top
-            } else {
-                @Suppress("DEPRECATION")
-                val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
-                if (resId > 0) resources.getDimensionPixelSize(resId) else 0
+    private fun toggleOverlayCollapsed() {
+        val panel = overlayPanel ?: return
+        overlayCollapsed = !overlayCollapsed
+        val density = resources.displayMetrics.density
+        if (overlayCollapsed) {
+            // Keep only title as bubble
+            for (i in 1 until panel.childCount) {
+                panel.getChildAt(i).visibility = View.GONE
             }
-        } catch (_: Exception) {
-            0
+            (panel.getChildAt(0) as? TextView)?.text = "ARIA ▸"
+            panel.setPadding(
+                (10 * density).toInt(),
+                (8 * density).toInt(),
+                (10 * density).toInt(),
+                (8 * density).toInt()
+            )
+        } else {
+            expandOverlayUi()
+        }
+    }
+
+    private fun expandOverlayUi() {
+        val panel = overlayPanel ?: return
+        overlayCollapsed = false
+        for (i in 0 until panel.childCount) {
+            panel.getChildAt(i).visibility = View.VISIBLE
+        }
+        (panel.getChildAt(0) as? TextView)?.text = "ARIA ▾"
+        val density = resources.displayMetrics.density
+        panel.setPadding(
+            (12 * density).toInt(),
+            (10 * density).toInt(),
+            (12 * density).toInt(),
+            (10 * density).toInt()
+        )
+    }
+
+    private fun attachPanelDrag(panel: LinearLayout, handle: View) {
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        handle.setOnTouchListener { _, event ->
+            val params = overlayParams ?: return@setOnTouchListener false
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downRawX).toInt()
+                    val dy = (event.rawY - downRawY).toInt()
+                    // Gravity TOP|END: x grows leftward from the right edge
+                    params.x = (startX - dx).coerceAtLeast(0)
+                    val safeTop = systemSafeTopInsetPx(wm)
+                    val safeBottom = systemSafeBottomInsetPx(wm)
+                    val screenH = if (Build.VERSION.SDK_INT >= 30) {
+                        wm.currentWindowMetrics.bounds.height()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        wm.defaultDisplay.height
+                    }
+                    val maxY = (screenH - safeBottom - panel.height).coerceAtLeast(safeTop)
+                    params.y = (startY + dy).coerceIn(safeTop, maxY)
+                    try {
+                        wm.updateViewLayout(panel, params)
+                    } catch (_: Exception) {
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    // Tap without significant move → toggle collapse
+                    if (kotlin.math.abs(event.rawX - downRawX) < 12 &&
+                        kotlin.math.abs(event.rawY - downRawY) < 12
+                    ) {
+                        toggleOverlayCollapsed()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    /**
+     * ACTION_DOWN: Chrome is still listed in interactive windows.
+     * Snapshot browser tree immediately — do not wait for UP or a worker thread.
+     */
+    private fun captureObserveOnDown() {
+        pendingCapture = null
+        overlayStatus?.text = "Capturando…"
+        val (root, diag) = resolveApprovedBrowserRootWithDiag(preferWindowsScan = true)
+        if (root == null) {
+            pendingCapture = null
+            overlayStatus?.text = "Sin Chrome en windows[]"
+            return
+        }
+        val pkg = root.packageName?.toString() ?: "unknown"
+        val tree = serializeNode(root, "0", 0, NodeBudget())
+        val hash = sha256(tree.toString())
+        diag.put("capturePhase", "action_down")
+        diag.put("capturedPackage", pkg)
+        pendingCapture = ObserveCapture(
+            packageName = pkg,
+            tree = tree,
+            evidenceHash = hash,
+            diagnostic = diag,
+            capturedAtElapsedMs = SystemClock.elapsedRealtime()
+        )
+        overlayStatus?.text = "Capturado\n$pkg"
+    }
+
+    /** ACTION_UP: persist the DOWN snapshot into LocalMissionRunner. */
+    private fun commitObserveAfterDown() {
+        val cap = pendingCapture
+        if (cap == null) {
+            overlayStatus?.text = "✗ Sin captura\nMantén Chrome visible"
+            return
+        }
+        pendingCapture = null
+        overlayStatus?.text = "Guardando…"
+        executor.execute {
+            val runner = LocalMissionRunner.active
+            if (runner == null) {
+                mainHandler.post {
+                    overlayStatus?.text = "✗ Runner no activo\nAbre ARIA UI"
+                }
+                return@execute
+            }
+            val result = try {
+                runner.commitOverlayObserve(
+                    packageName = cap.packageName,
+                    rootTree = cap.tree,
+                    evidenceHash = cap.evidenceHash,
+                    diagnostic = cap.diagnostic
+                )
+            } catch (e: Exception) {
+                mainHandler.post {
+                    overlayStatus?.text = "✗ ${e.message?.take(48)}"
+                }
+                return@execute
+            }
+            mainHandler.post {
+                val ok = result.steps.asReversed()
+                    .firstOrNull { it.kind == StepKind.OBSERVE }
+                    ?.observation
+                    ?.ok == true
+                if (ok) {
+                    overlayStatus?.text = "✓ ${cap.packageName}\nVolver a ARIA → Proponer"
+                    // Collapse to avoid covering Chrome content
+                    if (!overlayCollapsed) toggleOverlayCollapsed()
+                } else {
+                    overlayStatus?.text = "✗ ${result.lastError?.take(56) ?: "observe falló"}"
+                }
+            }
         }
     }
 
@@ -180,43 +388,42 @@ class AriaAccessibilityService : AccessibilityService() {
             }
             overlayView = null
             overlayStatus = null
+            overlayPanel = null
+            overlayParams = null
+            pendingCapture = null
+            overlayCollapsed = false
         }
     }
 
-    private fun onOverlayObserveClicked() {
-        overlayStatus?.text = "Observando… (Chrome debe permanecer activo)"
-        executor.execute {
-            val runner = LocalMissionRunner.active
-            if (runner == null) {
-                mainHandler.post {
-                    overlayStatus?.text = "Error: runner no disponible. Abre ARIA UI."
-                }
-                return@execute
+    private fun systemSafeTopInsetPx(wm: WindowManager): Int {
+        return try {
+            if (Build.VERSION.SDK_INT >= 30) {
+                val metrics = wm.currentWindowMetrics
+                metrics.windowInsets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()
+                ).top
+            } else {
+                @Suppress("DEPRECATION")
+                val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
+                if (resId > 0) resources.getDimensionPixelSize(resId) else 0
             }
-            val result = try {
-                runner.runObserve()
-            } catch (e: Exception) {
-                mainHandler.post {
-                    overlayStatus?.text = "Error: ${e.message?.take(60)}"
-                }
-                return@execute
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    private fun systemSafeBottomInsetPx(wm: WindowManager): Int {
+        return try {
+            if (Build.VERSION.SDK_INT >= 30) {
+                val metrics = wm.currentWindowMetrics
+                metrics.windowInsets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.navigationBars() or WindowInsets.Type.displayCutout()
+                ).bottom
+            } else {
+                0
             }
-            mainHandler.post {
-                val lastObs = result.steps.asReversed().firstOrNull { it.kind == StepKind.OBSERVE }?.observation
-                val pkg = lastObs?.packageName ?: "?"
-                val ok = lastObs?.ok == true
-                val activeHint = lastObs?.diagnosticJson?.let { raw ->
-                    runCatching {
-                        val o = JSONObject(raw)
-                        "active=${o.optString("activePackage")} browser=${o.optBoolean("activeIsBrowser")}"
-                    }.getOrNull()
-                } ?: ""
-                overlayStatus?.text = if (ok) {
-                    "OK · $pkg\n$activeHint\nVuelve a ARIA para proponer/aprobar"
-                } else {
-                    "FALLÓ · ${result.lastError?.take(80)}\n$activeHint"
-                }
-            }
+        } catch (_: Exception) {
+            0
         }
     }
 
@@ -237,7 +444,7 @@ class AriaAccessibilityService : AccessibilityService() {
         var root: AccessibilityNodeInfo? = null
         var lastDiag: JSONObject? = null
         repeat(3) { attempt ->
-            val resolved = resolveApprovedBrowserRootWithDiag()
+            val resolved = resolveApprovedBrowserRootWithDiag(preferWindowsScan = false)
             root = resolved.first
             lastDiag = resolved.second
             if (root != null) return@repeat
@@ -347,15 +554,23 @@ class AriaAccessibilityService : AccessibilityService() {
     }
 
     private fun resolveApprovedBrowserRoot(): AccessibilityNodeInfo? =
-        resolveApprovedBrowserRootWithDiag().first
+        resolveApprovedBrowserRootWithDiag(preferWindowsScan = false).first
 
-    private fun resolveApprovedBrowserRootWithDiag(): Pair<AccessibilityNodeInfo?, JSONObject> {
+    /**
+     * @param preferWindowsScan when true (overlay ACTION_DOWN), never trust
+     * rootInActiveWindow if it belongs to our own package — always scan windows.
+     */
+    private fun resolveApprovedBrowserRootWithDiag(
+        preferWindowsScan: Boolean
+    ): Pair<AccessibilityNodeInfo?, JSONObject> {
         val diag = JSONObject()
         val active = rootInActiveWindow
         val activePackage = active?.packageName?.toString()
+        val activeIsOwn = activePackage?.startsWith(OWN_PKG_PREFIX) == true
         diag.put("activePackage", activePackage)
         diag.put("activeIsBrowser", activePackage != null && approvedBrowsers.contains(activePackage))
-        diag.put("approvedBrowsers", JSONArray(approvedBrowsers.toList()))
+        diag.put("activeIsOwnApp", activeIsOwn)
+        diag.put("preferWindowsScan", preferWindowsScan)
 
         val installed = JSONArray()
         for (pkg in approvedBrowsers) {
@@ -365,7 +580,14 @@ class AriaAccessibilityService : AccessibilityService() {
         }
         diag.put("installedApprovedBrowsers", installed)
 
-        if (active != null && activePackage != null && approvedBrowsers.contains(activePackage)) {
+        // Only trust rootInActiveWindow when it is an approved browser AND
+        // we are not in overlay capture mode (where touch makes us "active").
+        if (!preferWindowsScan &&
+            active != null &&
+            activePackage != null &&
+            !activeIsOwn &&
+            approvedBrowsers.contains(activePackage)
+        ) {
             diag.put("source", "rootInActiveWindow")
             appendWindowsDiag(diag)
             return Pair(active, diag)
@@ -383,6 +605,7 @@ class AriaAccessibilityService : AccessibilityService() {
         val windowRows = JSONArray()
         var best: AccessibilityNodeInfo? = null
         var bestLayer = Int.MIN_VALUE
+        var bestActive = false
 
         for (window in currentWindows) {
             val row = JSONObject()
@@ -400,12 +623,19 @@ class AriaAccessibilityService : AccessibilityService() {
             row.put("isApprovedBrowser", pkg != null && approvedBrowsers.contains(pkg))
             windowRows.put(row)
 
+            // Only TYPE_APPLICATION approved browsers; ignore overlay/system
             if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
             if (candidate == null) continue
             if (pkg == null || !approvedBrowsers.contains(pkg)) continue
-            if (best == null || window.layer > bestLayer) {
+            val isActiveWin = Build.VERSION.SDK_INT >= 21 && window.isActive
+            // Prefer active browser window; else highest layer
+            if (best == null ||
+                (isActiveWin && !bestActive) ||
+                (isActiveWin == bestActive && window.layer > bestLayer)
+            ) {
                 best = candidate
                 bestLayer = window.layer
+                bestActive = isActiveWin
             }
         }
 
@@ -431,8 +661,8 @@ class AriaAccessibilityService : AccessibilityService() {
             diag.put("hint", "no_approved_browser_installed")
         } else if (appWindowsWithRoot == 0 && appWindows > 0) {
             diag.put("hint", "application_windows_present_but_roots_null_oem_or_toggle_service")
-        } else if (activePackage != null && !approvedBrowsers.contains(activePackage)) {
-            diag.put("hint", "foreground_is_not_browser_use_overlay_observe_mode_keep_chrome_active")
+        } else if (activeIsOwn || (activePackage != null && !approvedBrowsers.contains(activePackage))) {
+            diag.put("hint", "foreground_is_not_browser_capture_on_action_down_while_chrome_visible")
         } else {
             diag.put("hint", "no_browser_window_with_retrievable_root")
         }
