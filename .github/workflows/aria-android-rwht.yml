@@ -2,7 +2,7 @@ name: ARIA Android RWHT Autonomous
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, aria-rwht-autonomous-20260921]
     paths:
       - 'android-ui-agent/**'
       - 'agents/termux/**'
