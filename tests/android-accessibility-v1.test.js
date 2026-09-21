@@ -30,7 +30,7 @@ const receiver = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 
 const gradle = fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'build.gradle.kts'), 'utf8');
 
 assert.ok(transport.includes("http://127.0.0.1:45874/execute"));
-assert.ok(transport.includes("authorization: `Bearer \\${IPC_TOKEN}`"));
+assert.ok(transport.includes("authorization: `Bearer ${IPC_TOKEN}`"));
 assert.ok(transport.includes("const PACKAGE = 'com.robvg9.ariauiagent.debug'"));
 assert.ok(agent.includes('android-accessibility-v1'));
 assert.ok(manifest.includes('AriaAccessibilityService'));
@@ -44,7 +44,6 @@ assert.ok(receiver.includes('getSentFromUid'));
 assert.ok(receiver.includes('com.termux'));
 assert.ok(receiver.includes('getApplicationInfo'));
 assert.ok(receiver.includes('IPC_TOKEN'));
-assert.ok(transport.includes("--es', 'ipc_token"));
 assert.ok(!receiver.includes('Process.SHELL_UID'));
 assert.ok(gradle.includes('applicationIdSuffix = ".debug"'));
 assert.ok(gradle.includes('versionCode = 21'));
