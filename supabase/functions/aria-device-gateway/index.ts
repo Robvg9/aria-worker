@@ -229,6 +229,8 @@ async function androidAutonomousDecision(b:any,d:any){
         http_status:probe?.ok===true?200:null,
         runtime_status:probe?.runtime_status||null,
         error_code:probe?.runtime_error?.code||null,
+        error_message:probe?.runtime_error?.message||null,
+        provider_status:probe?.runtime_error?.provider_status||null,
         content_head:String(probe?.response?.content||'').slice(0,220)
       });
       if(probe?.ok!==true||probe?.runtime_status!=='succeeded')continue;
