@@ -13,6 +13,10 @@ import androidx.appcompat.app.AppCompatActivity
 /**
  * Visible owner control surface for local missions.
  * No action is executed without explicit Approve.
+ *
+ * Observe path that does not steal Chrome focus:
+ * Iniciar misión → Modo observación (overlay) → open Chrome →
+ * tap OBSERVAR on Accessibility overlay → return here for propose/approve.
  */
 class MainActivity : AppCompatActivity() {
     private val pwaUrl = "https://aria.robvg9.workers.dev/pwa/"
@@ -24,7 +28,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logText: TextView
 
     private lateinit var btnStart: Button
-    private lateinit var btnObserve: Button
+    private lateinit var btnWaitingObserve: Button
+    private lateinit var btnObserveLegacy: Button
     private lateinit var btnProposeDemo: Button
     private lateinit var btnApprove: Button
     private lateinit var btnReject: Button
@@ -86,11 +91,19 @@ class MainActivity : AppCompatActivity() {
                 appendLog("start → ${m.missionId.take(8)} state=${m.state}")
             }
         }
-        btnObserve = Button(this).apply {
-            text = "2. Observe (sin aprobación)"
+        btnWaitingObserve = Button(this).apply {
+            text = "2. Modo observación (overlay)"
+            setOnClickListener {
+                val m = runner.enterWaitingObserve()
+                appendLog("waiting_observe → state=${m.state} err=${m.lastError ?: "-"}")
+                appendLog("→ Abre Chrome; pulsa OBSERVAR en el overlay ARIA")
+            }
+        }
+        btnObserveLegacy = Button(this).apply {
+            text = "2b. Observe desde Activity (roba foco)"
             setOnClickListener {
                 val m = runner.runObserve()
-                appendLog("observe → state=${m.state} err=${m.lastError ?: "-"}")
+                appendLog("observe_activity → state=${m.state} err=${m.lastError ?: "-"}")
             }
         }
         btnProposeDemo = Button(this).apply {
@@ -150,7 +163,8 @@ class MainActivity : AppCompatActivity() {
         root.addView(actionText)
         root.addView(diagText)
         root.addView(btnStart)
-        root.addView(btnObserve)
+        root.addView(btnWaitingObserve)
+        root.addView(btnObserveLegacy)
         root.addView(btnProposeDemo)
         root.addView(btnApprove)
         root.addView(btnReject)
@@ -184,13 +198,23 @@ class MainActivity : AppCompatActivity() {
         }
         statusText.text = "Servicio: $a11y"
 
+        val stateLabel = when (m.state) {
+            MissionState.WAITING_OBSERVE -> "ESPERANDO OBSERVACIÓN (overlay activo)"
+            MissionState.PENDING_APPROVAL -> "PENDIENTE DE APROBACIÓN"
+            else -> m.state.name
+        }
+
         missionText.text = buildString {
             append("Misión: ${m.title}\n")
             append("ID: ${m.missionId.take(8)}…\n")
-            append("Estado: ${m.state}\n")
+            append("Estado: $stateLabel\n")
             append("Pasos: ${m.steps.size}\n")
             if (m.lastError != null) append("Error: ${m.lastError}\n")
             if (m.cancelledByOwner) append("(cancelada por el propietario)\n")
+            if (m.state == MissionState.WAITING_OBSERVE) {
+                append("\n→ Cambia a Chrome. El panel ARIA flota encima.\n")
+                append("→ Pulsa OBSERVAR en el overlay (no en esta Activity).\n")
+            }
         }
 
         val diagnostic = m.steps.asReversed()
@@ -209,7 +233,7 @@ class MainActivity : AppCompatActivity() {
         val proposed = m.proposedAction
         actionText.text = if (proposed != null) {
             buildString {
-                append("ACCIÓN PENDIENTE DE APROBACIÓN\n")
+                append("PROPUESTA — NO EJECUTADA\n")
                 append("tipo: ${proposed.actionType}\n")
                 if (proposed.targetNodeId != null) append("node: ${proposed.targetNodeId}\n")
                 if (proposed.params.isNotEmpty()) append("params: ${proposed.params}\n")
@@ -225,13 +249,17 @@ class MainActivity : AppCompatActivity() {
         btnCancel.isEnabled = m.state != MissionState.COMPLETE &&
             m.state != MissionState.CANCELLED &&
             m.state != MissionState.IDLE
-        btnObserve.isEnabled = m.state != MissionState.PENDING_APPROVAL &&
-            m.state != MissionState.COMPLETE &&
-            m.state != MissionState.CANCELLED
-        btnProposeDemo.isEnabled = m.state != MissionState.PENDING_APPROVAL &&
+        val canObserve = m.state != MissionState.PENDING_APPROVAL &&
             m.state != MissionState.COMPLETE &&
             m.state != MissionState.CANCELLED &&
             m.state != MissionState.IDLE
+        btnWaitingObserve.isEnabled = canObserve || m.state == MissionState.IDLE
+        btnObserveLegacy.isEnabled = canObserve || m.state == MissionState.IDLE
+        btnProposeDemo.isEnabled = m.state != MissionState.PENDING_APPROVAL &&
+            m.state != MissionState.COMPLETE &&
+            m.state != MissionState.CANCELLED &&
+            m.state != MissionState.IDLE &&
+            m.state != MissionState.WAITING_OBSERVE
 
         val lastEvidence = m.steps.asReversed().firstOrNull { it.kind == StepKind.EVIDENCE }?.evidence
         if (lastEvidence != null && m.state == MissionState.COMPLETE) {
@@ -247,7 +275,7 @@ class MainActivity : AppCompatActivity() {
                 val scalarKeys = listOf(
                     "activePackage", "activeIsBrowser", "installedApprovedBrowsers",
                     "windowsNull", "windowCount", "applicationWindowCount",
-                    "applicationWindowsWithRoot", "hint"
+                    "applicationWindowsWithRoot", "source", "hint"
                 )
                 scalarKeys.forEach { key ->
                     if (o.has(key)) append("$key: ${o.opt(key)}\n")
