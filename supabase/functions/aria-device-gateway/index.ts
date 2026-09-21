@@ -259,7 +259,8 @@ async function androidAutonomousDecision(b:any,d:any){
         reason:decision.reason||'model_selected_safe_action',
         action,
         expectation:{type:'observe_after_model_action'},
-        model_id:route.model_id
+        model_id:route.model_id,
+        diagnostics:{attempts:attempts.slice(0,4)}
       });
     }catch(error){
       attempts.push({model_id:route.model_id,provider_id:route.provider_id,http_status:null,runtime_status:null,error_code:'planner_exception'});
