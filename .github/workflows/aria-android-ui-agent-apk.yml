@@ -26,6 +26,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Restore AriaAccessibilityService if PLACEHOLDER
+        working-directory: .
+        run: |
+          SVC="android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/AriaAccessibilityService.kt"
+          if [ -f "$SVC" ]; then
+            BODY=$(head -c 40 "$SVC" | tr -d '\n')
+            if [ "$BODY" = "PLACEHOLDER_SERVICE" ] || [ "$BODY" = "PLACEHOLDER" ]; then
+              echo "PLACEHOLDER detected — restoring known-good service body"
+              curl -fsSL \
+                "https://raw.githubusercontent.com/Robvg9/aria-worker/42b8e654a65e9724fde98dc76663853bd47179a0/android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/AriaAccessibilityService.kt" \
+                -o "$SVC"
+              echo "Restored $(wc -c < "$SVC") bytes"
+              head -c 80 "$SVC"; echo
+            else
+              echo "Service file OK ($(wc -c < "$SVC") bytes)"
+            fi
+          fi
+
       - name: Record commit SHA
         id: meta
         working-directory: .
