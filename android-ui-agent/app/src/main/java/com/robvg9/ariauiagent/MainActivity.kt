@@ -1,22 +1,28 @@
 package com.robvg9.ariauiagent
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 /**
  * Visible owner control surface for local missions.
  * No action is executed without explicit Approve.
  *
- * Observe path that does not steal Chrome focus:
- * Iniciar misión → Modo observación (overlay) → open Chrome →
- * tap OBSERVAR on Accessibility overlay → return here for propose/approve.
+ * Official flow:
+ * 1. Iniciar misión → 2. Modo observación (overlay) → OBSERVAR en overlay →
+ * 3. Proponer → 4. APROBAR y ejecutar
  */
 class MainActivity : AppCompatActivity() {
     private val pwaUrl = "https://aria.robvg9.workers.dev/pwa/"
@@ -26,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var actionText: TextView
     private lateinit var diagText: TextView
     private lateinit var logText: TextView
+    private lateinit var copyFeedback: TextView
 
     private lateinit var btnStart: Button
     private lateinit var btnWaitingObserve: Button
@@ -34,15 +41,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnApprove: Button
     private lateinit var btnReject: Button
     private lateinit var btnCancel: Button
+    private lateinit var btnCopyAll: Button
     private lateinit var btnClear: Button
     private lateinit var btnAccessibility: Button
     private lateinit var btnPwa: Button
 
+    private lateinit var contentRoot: LinearLayout
     private lateinit var store: LocalMissionStore
     private lateinit var runner: LocalMissionRunner
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         store = LocalMissionStore(applicationContext)
         runner = LocalMissionRunner(store) { mission ->
@@ -50,9 +61,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         val scroll = ScrollView(this)
-        val root = LinearLayout(this).apply {
+        contentRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 48, 40, 48)
+            // Base padding; system insets applied via WindowInsets listener
+            setPadding(40, 24, 40, 24)
         }
 
         val title = TextView(this).apply {
@@ -83,6 +95,12 @@ class MainActivity : AppCompatActivity() {
             textSize = 12f
             setPadding(0, 8, 0, 12)
         }
+        copyFeedback = TextView(this).apply {
+            textSize = 14f
+            setTextColor(android.graphics.Color.rgb(80, 220, 140))
+            visibility = TextView.GONE
+            setPadding(0, 8, 0, 8)
+        }
 
         btnStart = Button(this).apply {
             text = "1. Iniciar misión local"
@@ -100,10 +118,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
         btnObserveLegacy = Button(this).apply {
-            text = "2b. Observe desde Activity (roba foco)"
+            text = "[LEGACY/DEBUG] Observe desde Activity (roba foco)"
             setOnClickListener {
                 val m = runner.runObserve()
-                appendLog("observe_activity → state=${m.state} err=${m.lastError ?: "-"}")
+                appendLog("observe_activity_legacy → state=${m.state} err=${m.lastError ?: "-"}")
             }
         }
         btnProposeDemo = Button(this).apply {
@@ -137,6 +155,10 @@ class MainActivity : AppCompatActivity() {
                 appendLog("cancel → state=${m.state}")
             }
         }
+        btnCopyAll = Button(this).apply {
+            text = "COPIAR TODO"
+            setOnClickListener { copyAllVisibleContent() }
+        }
         btnClear = Button(this).apply {
             text = "Limpiar misión"
             setOnClickListener {
@@ -157,24 +179,28 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        root.addView(title)
-        root.addView(statusText)
-        root.addView(missionText)
-        root.addView(actionText)
-        root.addView(diagText)
-        root.addView(btnStart)
-        root.addView(btnWaitingObserve)
-        root.addView(btnObserveLegacy)
-        root.addView(btnProposeDemo)
-        root.addView(btnApprove)
-        root.addView(btnReject)
-        root.addView(btnCancel)
-        root.addView(btnClear)
-        root.addView(btnAccessibility)
-        root.addView(btnPwa)
-        root.addView(logText)
-        scroll.addView(root)
+        contentRoot.addView(title)
+        contentRoot.addView(statusText)
+        contentRoot.addView(missionText)
+        contentRoot.addView(actionText)
+        contentRoot.addView(diagText)
+        contentRoot.addView(btnStart)
+        contentRoot.addView(btnWaitingObserve)
+        contentRoot.addView(btnProposeDemo)
+        contentRoot.addView(btnApprove)
+        contentRoot.addView(btnReject)
+        contentRoot.addView(btnCancel)
+        contentRoot.addView(btnCopyAll)
+        contentRoot.addView(copyFeedback)
+        contentRoot.addView(btnClear)
+        contentRoot.addView(btnObserveLegacy)
+        contentRoot.addView(btnAccessibility)
+        contentRoot.addView(btnPwa)
+        contentRoot.addView(logText)
+        scroll.addView(contentRoot)
         setContentView(scroll)
+
+        applySystemBarInsets(scroll, contentRoot)
 
         val recovered = runner.recover()
         if (recovered != null) {
@@ -183,6 +209,28 @@ class MainActivity : AppCompatActivity() {
         } else {
             render(LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
         }
+    }
+
+    /**
+     * Pad content using real system bar / cutout / gesture insets.
+     * No fixed magic offsets.
+     */
+    private fun applySystemBarInsets(scroll: ScrollView, content: LinearLayout) {
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { _, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            val baseH = (40 * resources.displayMetrics.density).toInt()
+            val baseV = (24 * resources.displayMetrics.density).toInt()
+            content.setPadding(
+                baseH + bars.left,
+                baseV + bars.top,
+                baseH + bars.right,
+                baseV + bars.bottom
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(scroll)
     }
 
     override fun onResume() {
@@ -237,10 +285,11 @@ class MainActivity : AppCompatActivity() {
                 append("tipo: ${proposed.actionType}\n")
                 if (proposed.targetNodeId != null) append("node: ${proposed.targetNodeId}\n")
                 if (proposed.params.isNotEmpty()) append("params: ${proposed.params}\n")
+                append("Human Gate: PENDIENTE DE APROBACIÓN EXPLÍCITA\n")
                 append("→ Usa APROBAR o Rechazar")
             }
         } else {
-            "Sin acción pendiente."
+            "Sin acción pendiente.\nHuman Gate: sin propuesta activa."
         }
 
         val pending = m.state == MissionState.PENDING_APPROVAL
@@ -265,6 +314,79 @@ class MainActivity : AppCompatActivity() {
         if (lastEvidence != null && m.state == MissionState.COMPLETE) {
             appendLog("evidence chainHash=${lastEvidence.chainHash.take(16)}…")
         }
+    }
+
+    private fun copyAllVisibleContent() {
+        val m = runner.current() ?: LocalMission(state = MissionState.IDLE, title = "(sin misión)")
+        val a11y = if (AriaAccessibilityService.instance == null) {
+            "ACCESIBILIDAD DESHABILITADA"
+        } else {
+            "ACCESIBILIDAD ACTIVA"
+        }
+        val stateLabel = when (m.state) {
+            MissionState.WAITING_OBSERVE -> "ESPERANDO OBSERVACIÓN (overlay activo)"
+            MissionState.PENDING_APPROVAL -> "PENDIENTE DE APROBACIÓN"
+            else -> m.state.name
+        }
+        val proposed = m.proposedAction
+        val diagnostic = m.steps.asReversed()
+            .firstOrNull { it.kind == StepKind.OBSERVE }
+            ?.observation
+            ?.diagnosticJson
+
+        val text = buildString {
+            appendLine("ARIA LOCAL MISSION RUNNER")
+            appendLine()
+            appendLine("Servicio: $a11y")
+            appendLine("Misión: ${m.title}")
+            appendLine("ID: ${m.missionId}")
+            appendLine("Estado: $stateLabel")
+            appendLine("Pasos: ${m.steps.size}")
+            if (m.lastError != null) appendLine("Error: ${m.lastError}")
+            if (m.cancelledByOwner) appendLine("(cancelada por el propietario)")
+            appendLine()
+            appendLine("HUMAN GATE")
+            if (proposed != null) {
+                appendLine("Estado: PENDIENTE DE APROBACIÓN EXPLÍCITA")
+                appendLine("Propuesta tipo: ${proposed.actionType}")
+                if (proposed.targetNodeId != null) appendLine("node: ${proposed.targetNodeId}")
+                if (proposed.params.isNotEmpty()) appendLine("params: ${proposed.params}")
+                appendLine("approved: ${proposed.approved}")
+            } else {
+                appendLine("Estado: sin propuesta activa")
+            }
+            appendLine()
+            appendLine("ACCIONES DISPONIBLES")
+            appendLine("1. Iniciar misión local")
+            appendLine("2. Modo observación (overlay)  ← flujo oficial")
+            appendLine("3. Proponer acción")
+            appendLine("✓ APROBAR y ejecutar")
+            appendLine("✗ Rechazar / ⏹ Cancelar")
+            appendLine("COPIAR TODO")
+            appendLine("[LEGACY/DEBUG] Observe Activity (no usar en flujo oficial)")
+            appendLine()
+            appendLine("DIAGNÓSTICO ANDROID")
+            if (!diagnostic.isNullOrBlank()) {
+                appendLine(formatBrowserDiag(diagnostic))
+            } else {
+                appendLine("(sin diagnóstico de observe aún)")
+            }
+            appendLine()
+            appendLine("LOG")
+            val log = logText.text?.toString().orEmpty().trim()
+            if (log.isEmpty()) appendLine("(vacío)") else appendLine(log)
+        }
+
+        val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("ARIA Local Mission", text))
+        copyFeedback.visibility = View.VISIBLE
+        copyFeedback.text = "✓ CONTENIDO COPIADO"
+        copyFeedback.postDelayed({
+            if (copyFeedback.text == "✓ CONTENIDO COPIADO") {
+                copyFeedback.visibility = View.GONE
+            }
+        }, 2500)
+        appendLog("copy_all → clipboard (${text.length} chars)")
     }
 
     private fun formatBrowserDiag(raw: String): String {
