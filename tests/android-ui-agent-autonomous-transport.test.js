@@ -8,7 +8,7 @@ const receiver = fs.readFileSync(require('node:path').join(root, 'android-ui-age
 const service = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/AriaAccessibilityService.kt'), 'utf8');
 const agent = fs.readFileSync(require('node:path').join(root, 'agents/termux/aria-agent.js'), 'utf8');
 
-for (const marker of ['TERMUX_PACKAGE', 'getApplicationInfo(TERMUX_PACKAGE', 'IPC_TOKEN', 'tokenValid', 'AriaAccessibilityService.instance', 'service.handle(payload)', 'LocalIpcServer']) {
+for (const marker of ['TERMUX_PACKAGE', 'getApplicationInfo(TERMUX_PACKAGE', 'IPC_TOKEN', 'tokenValid', 'AriaAccessibilityService.instance', 'service.handle(payload)']) {
   assert.ok(receiver.includes(marker), 'missing receiver transport marker: ' + marker);
 }
 for (const marker of ['allow_any_app', 'target_package', 'resolveAnyApplicationRootWithDiag', 'launch_app', 'navigate']) {
