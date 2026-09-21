@@ -328,7 +328,7 @@ class AriaAccessibilityService : AccessibilityService() {
     ): Pair<AccessibilityNodeInfo?, JSONObject> {
         var lastDiag = JSONObject()
         for (attempt in 0 until attempts) {
-            val resolved = resolveApprovedBrowserRootWithDiag(preferWindowsScan = preferWindowsScan)
+            val resolved = resolveApprovedBrowserRootWithDiag(preferWindowsScan = preferWindowsScan, phase = phase)
             lastDiag = resolved.second
             lastDiag.put("resolveAttempt", attempt + 1)
             lastDiag.put("resolveAttemptsMax", attempts)
@@ -390,12 +390,21 @@ class AriaAccessibilityService : AccessibilityService() {
             .put("diagnostic", lastDiag)
     }
 
-    private fun actionResponse(action: JSONObject?): JSONObject {
+    private fun actionResponse(
+        action: JSONObject?,
+        targetPackage: String?,
+        allowAnyApp: Boolean,
+        allowedHosts: Set<String>
+    ): JSONObject {
         if (action == null) return error("action_required")
-        val result = executeAction(action)
+        val result = executeAction(action, targetPackage, allowAnyApp, allowedHosts)
         if (!result.optBoolean("ok", false)) return result
         Thread.sleep(250)
-        val (observed, diag) = resolveBrowserWithRetries(12, 200L, true, "post_action")
+        val (observed, diag) = if (targetPackage.isNullOrBlank() || approvedBrowsers.contains(targetPackage)) {
+            resolveBrowserWithRetries(12, 200L, true, "post_action")
+        } else {
+            resolveTargetWithRetries(targetPackage, allowAnyApp, 12, 200L, true, "post_action")
+        }
         if (observed == null) return error("post_action_window_missing").put("diagnostic", diag)
         val ui = serializeNode(observed, "0", 0, NodeBudget())
         return result
@@ -422,7 +431,7 @@ class AriaAccessibilityService : AccessibilityService() {
                 ok(clicked, if (clicked) null else "click_failed")
             }
             "type" -> {
-                val root = resolveApprovedBrowserRoot() ?: return error("no_active_browser_window")
+                val root = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("no_active_application_window")
                 val node = nodeByPath(root, action.optString("nodeId")) ?: return error("node_not_found")
                 val text = action.optString("text", "")
                 if (node.isPassword || ((node.inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD) != 0)) {
