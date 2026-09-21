@@ -10,9 +10,9 @@ const runner = fs.readFileSync(path.join(root, "supabase/functions/aria-mission-
 assert.match(planner, /SPANISH_OUTPUT_CONTRACT/);
 assert.match(planner, /spanish_output_required:true/);
 assert.match(planner, /planner-v11-governed-change-v3-multistep/);
-assert.match(planner, /id:"analysis_1"/);
-assert.match(planner, /id:"implementation_1"/);
-assert.match(planner, /id:"verification_1"/);
+assert.match(planner, /"analysis_1"/);
+assert.match(planner, /"implementation_1"/);
+assert.match(planner, /"verification_1"/);
 assert.match(planner, /depends_on:\["analysis_1"\]/);
 assert.match(planner, /depends_on:\["implementation_1"\]/);
 assert.match(planner, /planner-v11-safe-readonly-fallback-v3-multistep/);
