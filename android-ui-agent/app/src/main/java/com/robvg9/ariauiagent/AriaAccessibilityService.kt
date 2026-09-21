@@ -457,7 +457,7 @@ class AriaAccessibilityService : AccessibilityService() {
                 }
             }
             "scroll" -> {
-                val root = resolveApprovedBrowserRoot() ?: return error("no_active_browser_window")
+                val root = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("no_active_application_window")
                 val node = nodeByPath(root, action.optString("nodeId")) ?: return error("node_not_found")
                 val command = if (action.optString("direction", "forward") == "backward") {
                     AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
