@@ -1,0 +1,72 @@
+--- a/supabase/functions/aria-device-gateway/index.ts
++++ b/supabase/functions/aria-device-gateway/index.ts
+@@ -92,6 +92,10 @@
+     return 60;
+   };
+   const isFree=(m:any)=>{
++    const modelId=String(m?.model_id||'');
++    // Google Direct LIVE-certified models are eligible for autonomous decision routing
++    // without requiring free-tier pricing markers in model_registry.
++    if(modelId.startsWith('google/') && modelId.endsWith('-direct')) return true;
+     const pricing=m?.pricing||{};
+     const metadata=m?.metadata||{};
+     return pricing?.cost==='$0' || pricing?.tier==='free' || metadata?.free_tier===true;
+@@ -99,7 +103,13 @@
+   const routes=(candidatesRes.data||[]).map((m:any)=>{
+     const modelId=String(m.model_id||'');
+     if(!modelId||!isFree(m)||!verified.has(modelId))return null;
+-    const account=(acctRes.data||[]).find((a:any)=>a.provider_id===m.provider_id&&Array.isArray(a.models)&&a.models.includes(modelId));
++    const account=(acctRes.data||[]).find((a:any)=>{
++      if(a.provider_id!==m.provider_id)return false;
++      if(Array.isArray(a.models)&&a.models.includes(modelId))return true;
++      // Certified Google Direct may be bound at account level without explicit models[] entry.
++      if(m.provider_id==='google' && modelId.endsWith('-direct') && verified.has(modelId))return true;
++      return false;
++    });
+     if(!account)return null;
+     return {
+       status:'selected',
+@@ -201,14 +211,18 @@
+     return null;
+   };
+ 
+-  for(const route of routes.slice(0,2)){
++  for(const route of routes.slice(0,3)){
+     try{
+-      const decisionPrompt=prompt+'\\nMANDATORY MARKER: include M5_MODEL_E2E_OK inside the REASON field of the single output line.';
+-      const probe=await mission5ModelProbe({
+-        model_id:route.model_id,
+-        prompt:decisionPrompt,
+-        risk:'READ'
+-      },d);
++      const isGoogle=route.provider_id==='google';
++      const decisionPrompt=isGoogle
++        ? (prompt+'\nMANDATORY MARKER: include M5_MODEL_E2E_OK inside the reason field.\nReturn ONLY a single JSON object with keys decision, reason, action. decision must be "act". action must include action (click|scroll|press|wait|navigate) and nodeId or url or keyCode or ms as appropriate. Example: {"decision":"act","reason":"tap primary CTA M5_MODEL_E2E_OK","action":{"action":"click","nodeId":"node-12"}}')
++        : (prompt+'\nMANDATORY MARKER: include M5_MODEL_E2E_OK inside the REASON field of the single output line.');
++      const probePayload:any={model_id:route.model_id,prompt:decisionPrompt,risk:'READ'};
++      if(isGoogle){
++        // Force structured JSON from Gemini Direct so the planner parser accepts the decision.
++        probePayload.generationConfig={responseMimeType:'application/json'};
++      }
++      const probe=await mission5ModelProbe(probePayload,d);
+       attempts.push({
+         model_id:route.model_id,
+         provider_id:route.provider_id,
+@@ -230,6 +244,8 @@
+       if(action?.action==='press'&&!['4','66','BACK','ENTER'].includes(String(action?.keyCode||'')))continue;
+       if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))
+         return json({ok:true,decision:'fail',reason:'credential_material_blocked',action:null,expectation:null,model_id:route.model_id});
++      if(/(password|passwd|api[_ -]?key|secret|token|credential|login|signin|sign-in|usuario|contrase[nñ]a)/i.test(JSON.stringify(action))&&action?.action==='type')
++        return json({ok:true,decision:'fail',reason:'human_gate_required_for_credential_input',action:null,expectation:null,model_id:route.model_id});
+       if(autonomousActionIsDangerous(action,node))
+         return json({ok:true,decision:'fail',reason:'human_gate_required_for_sensitive_action',action:null,expectation:null,model_id:route.model_id});
+       if(action.action==='navigate'){
+@@ -402,7 +418,7 @@
+         capability:'text_generation',
+         selected_route:{status:'selected',provider_id:route.provider_id,account_id:route.account_id,model_id:modelId,capability:'text_generation'},
+         authorization:{status:'approved',risk_class:'READ',evidence_ref:`mission5:model-probe:${modelId}`},
+-        input:{payload:{prompt}},
++        input:{payload:{prompt,...(typeof b?.generationConfig==='object'&&b.generationConfig?{generationConfig:b.generationConfig}:{})}},
+         policy:{risk:'READ',mission5:true,probe:true}
+       }),
+       signal:controller.signal
