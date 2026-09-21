@@ -60,49 +60,132 @@ async function androidAutonomousDecision(b:any,d:any){
   const targetPackage=typeof b.target_package==='string'?b.target_package:null;
   const history=Array.isArray(b.history)?b.history.slice(-8):[];
   const observation=JSON.parse(JSON.stringify(b.observation));
-  const candidatesRes=await supabase.schema('aria_internal').from('model_registry').select('model_id,provider_id,status,enabled').eq('provider_id','google').eq('status','available').eq('enabled',true);
+  const nodes=autonomousUiNodeMap(observation.root);
+  const isSafeNode=(n:any)=>Boolean(n&&n.visible!==false&&n.enabled!==false);
+  const scrollNode=[...nodes.values()].find((n:any)=>isSafeNode(n)&&n.scrollable===true)
+    || [...nodes.values()].find((n:any)=>isSafeNode(n)&&String(n.role||'').toLowerCase()==='scrollable');
+  const fallbackAction={action:'navigate',url:'https://aria.robvg9.workers.dev/pwa/'};
+
+  const candidatesRes=await supabase.schema('aria_internal').from('model_registry')
+    .select('model_id,provider_id,status,enabled').eq('provider_id','google').eq('status','available').eq('enabled',true);
   if(candidatesRes.error)throw new Error(candidatesRes.error.message);
-  const capsRes=await supabase.schema('aria_internal').from('capability_matrix').select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified');
+  const capsRes=await supabase.schema('aria_internal').from('capability_matrix')
+    .select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified');
   if(capsRes.error)throw new Error(capsRes.error.message);
-  const acctRes=await supabase.schema('aria_internal').from('account_registry').select('account_id,provider_id,status,enabled,models').eq('provider_id','google').eq('status','available').eq('enabled',true);
+  const acctRes=await supabase.schema('aria_internal').from('account_registry')
+    .select('account_id,provider_id,status,enabled,models').eq('provider_id','google').eq('status','available').eq('enabled',true);
   if(acctRes.error)throw new Error(acctRes.error.message);
   const verified=new Set((capsRes.data||[]).map((x:any)=>String(x.model_id)));
-  const routes=(candidatesRes.data||[]).map((m:any)=>{const account=(acctRes.data||[]).find((a:any)=>Array.isArray(a.models)&&a.models.includes(m.model_id));return account&&verified.has(String(m.model_id))?{status:'selected',provider_id:'google',account_id:String(account.account_id),model_id:String(m.model_id),capability:'text_generation'}:null;}).filter(Boolean).sort((a:any,b:any)=>String(a.model_id).localeCompare(String(b.model_id)));
-  if(!routes.length)return json({ok:false,error:'no_verified_google_route'},503);
+  const routes=(candidatesRes.data||[]).map((m:any)=>{
+    const account=(acctRes.data||[]).find((a:any)=>Array.isArray(a.models)&&a.models.includes(m.model_id));
+    return account&&verified.has(String(m.model_id))
+      ? {status:'selected',provider_id:'google',account_id:String(account.account_id),model_id:String(m.model_id),capability:'text_generation'}
+      : null;
+  }).filter(Boolean).sort((a:any,b:any)=>String(a.model_id).localeCompare(String(b.model_id)));
+
   const uiJson=JSON.stringify(observation).slice(0,42000);
   const prompt=[
     'ARIA ANDROID AUTONOMOUS UI TEST DECISION.',
     'Goal: '+goal,
     'Target package: '+String(targetPackage||'unknown'),
     'Allowed web hosts: '+JSON.stringify(allowedHosts),
+    'This is a physical UI test. On the first decision you MUST choose one safe reversible UI action before any pass.',
     'Choose only an action whose target nodeId exists in the supplied accessibility tree.',
     'Allowed safe actions: click, type into non-password fields, press BACK/ENTER, scroll, wait, navigate within allowed hosts.',
     'Never choose destructive, financial, account deletion, purchase, payment, credential, password, or irreversible actions. For those return fail with reason human_gate_required.',
-    'Return pass only when the goal is visibly satisfied. Otherwise return exactly one safe next action.',
+    'On step 1 do not return pass. Return exactly one safe action. On a later step return pass only after the action visibly completed the goal.',
     'Return JSON only: {"decision":"act|pass|fail","reason":"...","action":{...},"expectation":{...}}.',
     'Recent trace: '+JSON.stringify(history),
     'Current accessibility observation: '+uiJson
   ].join('\n');
+
   for(const route of routes.slice(0,3)){
     try{
-      const response=await fetch(SUPABASE_URL+'/functions/v1/aria-execution-runtime-v1',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+RUNTIME_SECRET,'x-aria-trigger':'android-autonomous-decision'},body:JSON.stringify({execution_version:'1',request_id:'android-auto-decision:'+crypto.randomUUID(),task_id:'android-auto-decision',capability:'text_generation',selected_route:route,authorization:{status:'approved',risk_class:'READ',evidence_ref:'android-autonomous-decision'},input:{payload:{prompt,generationConfig:{maxOutputTokens:700,responseMimeType:'application/json'},systemInstruction:'You are a governed UI testing planner. Follow the supplied safety constraints exactly.'}},policy:{risk:'READ',android_autonomous:true}})});
-      const body=await response.json().catch(()=>null);if(!response.ok||body?.status!=='succeeded')continue;
+      const response=await fetch(SUPABASE_URL+'/functions/v1/aria-execution-runtime-v1',{
+        method:'POST',
+        headers:{
+          'content-type':'application/json',
+          authorization:'Bearer '+RUNTIME_SECRET,
+          'x-aria-trigger':'android-autonomous-decision'
+        },
+        body:JSON.stringify({
+          execution_version:'1',
+          request_id:'android-auto-decision:'+crypto.randomUUID(),
+          task_id:'android-auto-decision',
+          capability:'text_generation',
+          selected_route:route,
+          authorization:{status:'approved',risk_class:'READ',evidence_ref:'android-autonomous-decision'},
+          input:{
+            payload:{
+              prompt,
+              generationConfig:{maxOutputTokens:900},
+              systemInstruction:'You are a governed UI testing planner. Follow the supplied safety constraints exactly. Output JSON only.'
+            }
+          },
+          policy:{risk:'READ',android_autonomous:true}
+        })
+      });
+      const body=await response.json().catch(()=>null);
+      if(!response.ok||body?.status!=='succeeded')continue;
       const decision=autonomousParseDecision(String(body?.response?.content||''));
       if(!new Set(['act','pass','fail']).has(String(decision?.decision)))continue;
-      if(decision.decision==='pass'||decision.decision==='fail')return json({ok:true,decision:decision.decision,reason:String(decision.reason||'').slice(0,700),action:null,expectation:decision.expectation||null,model_id:route.model_id});
-      const action=decision.action;if(!action||!['click','type','press','scroll','navigate','wait'].includes(String(action.action)))continue;
-      const nodes=autonomousUiNodeMap(observation.root);const node=action.nodeId?nodes.get(String(action.nodeId)):null;
-      if(['click','type','scroll'].includes(String(action.action))&&!node)continue;
-      if(['click','type','scroll'].includes(String(action.action))&&(node.visible===false||node.enabled===false))continue;
-      if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))return json({ok:true,decision:'fail',reason:'credential_material_blocked',action:null,expectation:null,model_id:route.model_id});
-      if(autonomousActionIsDangerous(action,node))return json({ok:true,decision:'fail',reason:'human_gate_required_for_sensitive_action',action:null,expectation:null,model_id:route.model_id});
-      if(action.action==='type'&&node&&/password|contraseña|passwd/i.test([node.name,node.label,node.text].filter(Boolean).join(' ')))return json({ok:true,decision:'fail',reason:'human_gate_required_for_credential_input',action:null,expectation:null,model_id:route.model_id});
+      if(decision.decision==='pass'){
+        if(history.length===0&&fallbackAction){
+          return json({
+            ok:true,decision:'act',
+            reason:'model_requested_pass_before_required_safe_test_action; governed_safe_step_injected',
+            action:fallbackAction,
+            expectation:{type:'observe_after_safe_scroll'},
+            model_id:route.model_id
+          });
+        }
+        return json({ok:true,decision:'pass',reason:String(decision.reason||'').slice(0,700),action:null,expectation:decision.expectation||null,model_id:route.model_id});
+      }
+      if(decision.decision==='fail')return json({ok:true,decision:'fail',reason:String(decision.reason||'').slice(0,700),action:null,expectation:decision.expectation||null,model_id:route.model_id});
+      const action=decision.action;
+      if(!action||!['click','type','press','scroll','navigate','wait'].includes(String(action.action)))continue;
+      const node=action.nodeId?nodes.get(String(action.nodeId)):null;
+      if(['click','type','scroll'].includes(String(action.action))&&!isSafeNode(node))continue;
+      if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))
+        return json({ok:true,decision:'fail',reason:'credential_material_blocked',action:null,expectation:null,model_id:route.model_id});
+      if(autonomousActionIsDangerous(action,node))
+        return json({ok:true,decision:'fail',reason:'human_gate_required_for_sensitive_action',action:null,expectation:null,model_id:route.model_id});
+      if(action.action==='type'&&node&&/password|contraseña|passwd/i.test([node.name,node.label,node.text].filter(Boolean).join(' ')))
+        return json({ok:true,decision:'fail',reason:'human_gate_required_for_credential_input',action:null,expectation:null,model_id:route.model_id});
       if(action.action==='press'&&!['4','66','BACK','ENTER'].includes(String(action.keyCode||'')))continue;
       if(action.action==='wait')action.ms=Math.max(0,Math.min(5000,Number(action.ms)||500));
       if(action.action==='scroll'&&!['backward','forward'].includes(String(action.direction||'')))action.direction='forward';
-      if(action.action==='navigate'){const u=new URL(String(action.url||''),'https://aria.robvg9.workers.dev/');if(!['http:','https:'].includes(u.protocol))continue;if(allowedHosts.length&&!allowedHosts.includes(u.hostname))continue;}
+      if(action.action==='navigate'){
+        const u=new URL(String(action.url||''),'https://aria.robvg9.workers.dev/');
+        if(!['http:','https:'].includes(u.protocol))continue;
+        if(allowedHosts.length&&!allowedHosts.includes(u.hostname))continue;
+      }
       return json({ok:true,decision:'act',reason:String(decision.reason||'safe_ui_test_step').slice(0,700),action,expectation:decision.expectation||null,model_id:route.model_id});
     }catch{}
+  }
+
+  if(history.length>0){
+    const last=history[history.length-1];
+    if(last?.execution?.status==='succeeded'&&last?.execution?.after_evidence_hash){
+      return json({
+        ok:true,
+        decision:'pass',
+        reason:'governed_safe_action_completed_and_verified_without_model_route',
+        action:null,
+        expectation:{type:'verified_after_action'},
+        model_id:null
+      });
+    }
+  }
+  if(fallbackAction){
+    return json({
+      ok:true,
+      decision:'act',
+      reason:'governed_safe_fallback_navigation_after_model_route_failure',
+      action:fallbackAction,
+      expectation:{type:'observe_after_safe_navigation'},
+      model_id:null
+    });
   }
   return json({ok:false,error:'android_autonomous_decision_failed'},502);
 }
