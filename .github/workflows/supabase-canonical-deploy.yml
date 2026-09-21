@@ -95,7 +95,7 @@ jobs:
           supabase functions deploy aria-planner-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-autonomy-supervisor-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-autonomy-supervisor-v5 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-repair-supervisor-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          # aria-repair-supervisor-v1 is a retired slot-bound legacy function; the live repair path uses aria-autonomy-supervisor-v5/v10.
           supabase functions deploy aria-mission-runner-v15 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mission-runner-v16 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mission-runner-v17 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
