@@ -250,7 +250,7 @@ class MainActivity : AppCompatActivity() {
                     "applicationWindowsWithRoot", "hint"
                 )
                 scalarKeys.forEach { key ->
-                    if (o.has(key)) append("$key: \${o.opt(key)}\n")
+                    if (o.has(key)) append("$key: ${o.opt(key)}\n")
                 }
                 append("── windows[] ──\n")
                 val windows = o.optJSONArray("windows")
@@ -259,10 +259,10 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     for (i in 0 until windows.length()) {
                         val w = windows.optJSONObject(i) ?: continue
-                        append("[$i] type=\${w.opt("type")} layer=\${w.opt("layer")} id=\${w.opt("id")}\n")
-                        append("    isActive=\${w.opt("isActive")} isFocused=\${w.opt("isFocused")}\n")
-                        append("    hasRoot=\${w.opt("hasRoot")} isApprovedBrowser=\${w.opt("isApprovedBrowser")}\n")
-                        append("    packageName=\${w.opt("packageName")}\n")
+                        append("[$i] type=${w.opt("type")} layer=${w.opt("layer")} id=${w.opt("id")}\n")
+                        append("    isActive=${w.opt("isActive")} isFocused=${w.opt("isFocused")}\n")
+                        append("    hasRoot=${w.opt("hasRoot")} isApprovedBrowser=${w.opt("isApprovedBrowser")}\n")
+                        append("    packageName=${w.opt("packageName")}\n")
                     }
                 }
                 append("════════════════════════════")
