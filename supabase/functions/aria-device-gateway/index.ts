@@ -186,42 +186,22 @@ async function androidAutonomousDecision(b:any,d:any){
 
   for(const route of routes.slice(0,4)){
     try{
-      const response=await fetch(SUPABASE_URL+'/functions/v1/aria-execution-runtime-v1',{
-        method:'POST',
-        headers:{
-          'content-type':'application/json',
-          authorization:'Bearer '+RUNTIME_SECRET,
-          'x-aria-trigger':'android-autonomous-decision'
-        },
-        body:JSON.stringify({
-          execution_version:'1',
-          request_id:'android-auto-decision:'+crypto.randomUUID(),
-          task_id:'android-auto-decision',
-          capability:'text_generation',
-          selected_route:route,
-          authorization:{status:'approved',risk_class:'READ',evidence_ref:'android-autonomous-decision'},
-          input:{
-            payload:{
-              prompt,
-              max_completion_tokens:120,
-              temperature:0,
-              systemInstruction:'Output exactly one planner line using the specified format. No explanations.'
-            }
-          },
-          policy:{risk:'READ',android_autonomous:true}
-        })
-      });
-      const body=await response.json().catch(()=>null);
-      const raw=String(body?.response?.content||'');
+      const decisionPrompt=prompt+'\\nMANDATORY MARKER: include M5_MODEL_E2E_OK inside the REASON field of the single output line.';
+      const probe=await mission5ModelProbe({
+        model_id:route.model_id,
+        prompt:decisionPrompt,
+        risk:'READ'
+      },d);
       attempts.push({
         model_id:route.model_id,
         provider_id:route.provider_id,
-        http_status:response.status,
-        runtime_status:body?.status||null,
-        error_code:body?.error?.code||null,
-        content_head:raw.slice(0,220)
+        http_status:probe?.ok===true?200:null,
+        runtime_status:probe?.runtime_status||null,
+        error_code:probe?.runtime_error?.code||null,
+        content_head:String(probe?.response?.content||'').slice(0,220)
       });
-      if(!response.ok||body?.status!=='succeeded')continue;
+      if(probe?.ok!==true||probe?.runtime_status!=='succeeded')continue;
+      const raw=String(probe?.response?.content||'');
       const decision=parseLine(raw);
       if(!decision)continue;
 
@@ -231,7 +211,7 @@ async function androidAutonomousDecision(b:any,d:any){
       if(action?.action==='click'&&!Boolean(node?.clickable))continue;
       if(action?.action==='scroll'&&!Boolean(node?.scrollable))continue;
       if(action?.action==='press'&&!['4','66','BACK','ENTER'].includes(String(action?.keyCode||'')))continue;
-      if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))
+      if(/(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\\s+[A-Za-z0-9._~-]{12,}|BEGIN .*PRIVATE KEY)/i.test(JSON.stringify(action)))
         return json({ok:true,decision:'fail',reason:'credential_material_blocked',action:null,expectation:null,model_id:route.model_id});
       if(autonomousActionIsDangerous(action,node))
         return json({ok:true,decision:'fail',reason:'human_gate_required_for_sensitive_action',action:null,expectation:null,model_id:route.model_id});
