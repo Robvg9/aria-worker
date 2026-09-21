@@ -220,7 +220,7 @@ async function androidAutonomousDecision(b:any,d:any){
       const probePayload:any={model_id:route.model_id,prompt:decisionPrompt,risk:'READ'};
       if(isGoogle){
         // Force structured JSON from Gemini Direct so the planner parser accepts the decision.
-        probePayload.generationConfig={responseMimeType:'application/json',responseSchema:{type:'object',properties:{decision:{type:'string',enum:['act']},reason:{type:'string'},action:{type:'object',properties:{action:{type:'string',enum:['click','scroll','press','wait','navigate']},nodeId:{type:'string'},direction:{type:'string',enum:['forward','backward']},keyCode:{type:'string'},ms:{type:'integer'},url:{type:'string'}},required:['action'] }},required:['decision','reason','action'],additionalProperties:false}};
+        probePayload.generationConfig={responseMimeType:'application/json',responseSchema:{type:'object',properties:{decision:{type:'string',enum:['act']},reason:{type:'string'},action:{type:'object',properties:{action:{type:'string',enum:['click','scroll','press','wait','navigate']},nodeId:{type:'string'},direction:{type:'string',enum:['forward','backward']},keyCode:{type:'string'},ms:{type:'integer'},url:{type:'string'}},required:['action'] }},required:['decision','reason','action']}};
       }
       const probe=await mission5ModelProbe(probePayload,d);
       attempts.push({
