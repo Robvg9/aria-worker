@@ -20,11 +20,19 @@ async function recordDiagnostic(missionId: string, stepId: string, payload: Reco
   } catch {}
 }
 
-async function resolveToolRoute(agent: any) {
+async function resolveToolRoutes(agent: any) {
   const preferred = String(agent?.model?.model_id ?? agent?.model_id ?? "").trim();
-  if (preferred.startsWith("openrouter/")) return { provider: "openrouter", model: preferred };
+  const routes:any[] = [];
+  const seen=new Set<string>();
+  const push=(provider:string,model:string)=>{
+    const key=provider+"|"+model;
+    if(model&& !seen.has(key)){seen.add(key);routes.push({provider,model});}
+  };
 
-  const { data: googleModels } = await internal.from("model_registry").select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
+  if (preferred.startsWith("openrouter/")) push("openrouter",preferred);
+
+  const { data: googleModels } = await internal.from("model_registry")
+    .select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
   const googleCandidates = (googleModels ?? [])
     .map((x:any)=>String(x.model_id))
     .filter((id:string)=>id.endsWith("-direct"));
@@ -33,19 +41,30 @@ async function resolveToolRoute(agent: any) {
     "google/gemini-3.5-flash-direct",
     "google/gemini-3.5-flash-lite-direct",
   ];
-  const google = preferredOrder.find((id)=>googleCandidates.includes(id)) || googleCandidates[0];
-  if (google) return { provider:"google", model:google.slice("google/".length,-"-direct".length) };
-
-  const { data: openModels } = await internal.from("model_registry").select("model_id,status,enabled").eq("provider_id","openrouter").eq("status","available").eq("enabled",true);
-  if (Array.isArray(openModels) && openModels.length) {
-    const { data: caps } = await internal.from("capability_matrix").select("model_id,status").eq("capability_id","text_generation").eq("status","verified");
-    const verified = new Set((caps ?? []).map((x:any)=>String(x.model_id)));
-    const candidates = openModels.map((x:any)=>String(x.model_id)).filter((id:string)=>verified.has(id)&&id.endsWith(":free"));
-    const codeFirst = candidates.find((id:string)=>/code|coder|coding/i.test(id));
-    if (codeFirst) return { provider:"openrouter", model:codeFirst };
-    if (candidates[0]) return { provider:"openrouter", model:candidates[0] };
+  for (const google of preferredOrder.filter((id)=>googleCandidates.includes(id))) {
+    push("google",google.slice("google/".length,-"-direct".length));
   }
-  throw new Error("agent_tool_model_unavailable");
+  for (const google of googleCandidates) push("google",google.slice("google/".length,-"-direct".length));
+
+  const { data: openModels } = await internal.from("model_registry")
+    .select("model_id,status,enabled").eq("provider_id","openrouter").eq("status","available").eq("enabled",true);
+  if (Array.isArray(openModels) && openModels.length) {
+    const { data: caps } = await internal.from("capability_matrix")
+      .select("model_id,status").eq("capability_id","text_generation").eq("status","verified");
+    const verified = new Set((caps ?? []).map((x:any)=>String(x.model_id)));
+    const candidates = openModels.map((x:any)=>String(x.model_id))
+      .filter((id:string)=>verified.has(id)&&id.endsWith(":free"));
+    const codeFirst = candidates.filter((id:string)=>/code|coder|coding/i.test(id));
+    for (const id of [...codeFirst,...candidates]) push("openrouter",id);
+  }
+
+  if (!routes.length) throw new Error("agent_tool_model_unavailable");
+  return routes.slice(0,8);
+}
+
+async function resolveToolRoute(agent: any) {
+  const routes=await resolveToolRoutes(agent);
+  return routes[0];
 }
 
 function b64decode(s: string) {
@@ -181,7 +200,8 @@ export async function callModel(model:string,messages:any[],tools:any[],forceToo
   return provider==="google"?callGeminiModel(model,messages,tools,forceTool):callOpenRouterModel(model,messages,tools,forceTool);
 }
 export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
-  const toolRoute = await resolveToolRoute(agent);
+  const toolRoutes = await resolveToolRoutes(agent);
+  let toolRoute = toolRoutes[0];
   const branch = `aria/repair/${missionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)}`;
   const tools = allowWrite ? [...readTools, patchTool, writeTool] : readTools;
   const system = [
@@ -191,6 +211,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
       ? `For changes, use only non-main branch ${branch}; never modify main/master. This is a real implementation task: you MUST inspect the repository with tools and then make a concrete mutation. Prefer github_file_patch for targeted edits; use github_file_write for new files or large replacements. For UI/PWA requests, inspect pwa/src/App.tsx and relevant style files. Do NOT return NO_CHANGE_REQUIRED unless you proved the requested behavior already exists exactly. Do not finish after analysis alone.`
       : "This is read-only: do not fabricate changes.",
     "Never claim tests, deployment, or production changes that were not actually verified.",
+    "RESPONDE TODO EL TEXTO HUMANO EN ESPAÑOL. Puedes conservar únicamente los marcadores técnicos FINDINGS y VERDICT, identificadores, rutas, códigos y nombres propios exactos.",
     "Your final response is mandatory: begin with FINDINGS: and finish with VERDICT:. Include concrete evidence from the tools you actually used.",
     "Distinguish CONFIRMED, HYPOTHESIS, and BLOCKED.",
   ].join(" ");
@@ -205,8 +226,23 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
   let sawToolCall = false;
   for (let round = 0; round < 8; round += 1) {
     const forceTool = allowWrite && round === 0 && !sawToolCall;
-    const message = await callModel(toolRoute.model, messages, tools, forceTool, toolRoute.provider);
-    if (!message) throw new Error("agent_model_empty");
+    let message:any=null;
+    let lastModelError:any=null;
+    const candidates = (!sawToolCall && round === 0) ? toolRoutes : [toolRoute];
+    for (const candidate of candidates) {
+      try {
+        message = await callModel(candidate.model, messages, tools, forceTool, candidate.provider);
+        toolRoute = candidate;
+        break;
+      } catch (error) {
+        lastModelError = error;
+        const reason = error instanceof Error ? error.message : String(error);
+        const retryableQuota = /(^|[^0-9])429([^0-9]|$)|rate.?limit|quota|too many requests/i.test(reason);
+        if (!(round === 0 && !sawToolCall && retryableQuota)) throw error;
+        await recordDiagnostic(missionId, stepId, { status:"fallback", code:"agent_model_quota_fallback", failed_route:candidate, message:reason, next_route:toolRoutes[toolRoutes.indexOf(candidate)+1]??null });
+      }
+    }
+    if (!message) throw (lastModelError instanceof Error ? lastModelError : new Error("agent_model_empty"));
     text = typeof message.content === "string" ? message.content.trim() : "";
     if (!Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
       if (allowWrite && !sawToolCall && round === 0) {
