@@ -12,6 +12,8 @@ import java.util.UUID
 
 enum class MissionState {
     IDLE,
+    /** Owner requested observe; Accessibility overlay is visible; Chrome should stay foreground. */
+    WAITING_OBSERVE,
     OBSERVE,
     PENDING_APPROVAL,
     ACTION,
@@ -38,7 +40,7 @@ data class LocalObservation(
     val evidenceHash: String? = null,
     val ok: Boolean = true,
     val error: String? = null,
-    /** Full JSON from resolveApprovedBrowserRootWithDiag() when observe fails. */
+    /** Full JSON from resolveApprovedBrowserRootWithDiag() (success or failure). */
     val diagnosticJson: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
