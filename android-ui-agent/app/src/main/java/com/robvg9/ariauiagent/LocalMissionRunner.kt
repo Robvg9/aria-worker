@@ -285,6 +285,7 @@ class LocalMissionRunner(
             ?: return fail("accessibility_service_disabled")
 
         // Explicit browser handoff: do not rely on moveTaskToBack alone (OEM may show launcher).
+        // AccessibilityService is a Context — launch intent brings observed browser task forward.
         val observedPkg = BrowserHandoff.selectObservedBrowserPackage(moving.steps)
             ?: return failWithDiag(
                 "no_observed_browser_package",
@@ -293,7 +294,7 @@ class LocalMissionRunner(
                     .put("hint", "approve_requires_prior_successful_observe_with_package")
             )
         val handoffRaw = try {
-            service.handoffToObservedBrowser(observedPkg)
+            BrowserHandoffExecutor.execute(service, observedPkg)
         } catch (e: Exception) {
             return failWithDiag(
                 "browser_handoff_failed",
