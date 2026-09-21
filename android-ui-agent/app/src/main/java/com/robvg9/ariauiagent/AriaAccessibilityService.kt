@@ -25,10 +25,23 @@ class AriaAccessibilityService : AccessibilityService() {
 
     private val executor = Executors.newCachedThreadPool()
     private val approvedBrowsers = setOf(
+        // Chrome family
         "com.android.chrome",
+        "com.chrome.beta",
+        "com.chrome.dev",
+        "com.chrome.canary",
+        "com.google.android.apps.chrome",
+        // Firefox family
         "org.mozilla.firefox",
+        "org.mozilla.firefox_beta",
+        "org.mozilla.focus",
+        // Others commonly installed
         "com.brave.browser",
-        "com.opera.browser"
+        "com.opera.browser",
+        "com.opera.mini.native",
+        "com.microsoft.emmx",
+        "com.sec.android.app.sbrowser",
+        "com.android.browser"
     )
 
     override fun onServiceConnected() {
@@ -68,13 +81,26 @@ class AriaAccessibilityService : AccessibilityService() {
     }
 
     private fun observeResponse(): JSONObject {
-        val root = resolveApprovedBrowserRoot() ?: return error("no_active_browser_window")
+        // Brief retry: windows list can lag right after activity switch.
+        var root: AccessibilityNodeInfo? = null
+        var lastDiag: JSONObject? = null
+        repeat(3) { attempt ->
+            val resolved = resolveApprovedBrowserRootWithDiag()
+            root = resolved.first
+            lastDiag = resolved.second
+            if (root != null) return@repeat
+            if (attempt < 2) Thread.sleep(120L)
+        }
+        if (root == null) {
+            return error("no_active_browser_window").put("diagnostic", lastDiag ?: JSONObject())
+        }
         val tree = serializeNode(root, "0", 0, NodeBudget())
         return JSONObject()
             .put("ok", true)
             .put("packageName", root.packageName?.toString())
             .put("root", tree)
             .put("evidence_hash", sha256(tree.toString()))
+            .put("diagnostic", lastDiag)
     }
 
     private fun actionResponse(action: JSONObject?): JSONObject {
@@ -168,25 +194,99 @@ class AriaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun resolveApprovedBrowserRoot(): AccessibilityNodeInfo? {
+    private fun resolveApprovedBrowserRoot(): AccessibilityNodeInfo? =
+        resolveApprovedBrowserRootWithDiag().first
+
+    private fun resolveApprovedBrowserRootWithDiag(): Pair<AccessibilityNodeInfo?, JSONObject> {
+        val diag = JSONObject()
         val active = rootInActiveWindow
         val activePackage = active?.packageName?.toString()
-        if (active != null && activePackage != null && approvedBrowsers.contains(activePackage)) return active
+        diag.put("activePackage", activePackage)
+        diag.put("activeIsBrowser", activePackage != null && approvedBrowsers.contains(activePackage))
+        diag.put("approvedBrowsers", JSONArray(approvedBrowsers.toList()))
 
-        val currentWindows = windows ?: return null
+        val installed = JSONArray()
+        for (pkg in approvedBrowsers) {
+            if (runCatching { packageManager.getPackageInfo(pkg, 0) }.isSuccess) {
+                installed.put(pkg)
+            }
+        }
+        diag.put("installedApprovedBrowsers", installed)
+
+        if (active != null && activePackage != null && approvedBrowsers.contains(activePackage)) {
+            diag.put("source", "rootInActiveWindow")
+            return Pair(active, diag)
+        }
+
+        val currentWindows = windows
+        if (currentWindows == null) {
+            diag.put("windowsNull", true)
+            diag.put("hint", "windows_null_ensure_FLAG_RETRIEVE_INTERACTIVE_WINDOWS_and_toggle_service")
+            return Pair(null, diag)
+        }
+
+        diag.put("windowsNull", false)
+        diag.put("windowCount", currentWindows.size)
+        val windowRows = JSONArray()
         var best: AccessibilityNodeInfo? = null
         var bestLayer = Int.MIN_VALUE
+
         for (window in currentWindows) {
+            val row = JSONObject()
+            row.put("type", window.type)
+            row.put("layer", window.layer)
+            row.put("id", window.id)
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                row.put("isActive", window.isActive)
+                row.put("isFocused", window.isFocused)
+            }
+            val candidate = try { window.root } catch (_: Exception) { null }
+            row.put("hasRoot", candidate != null)
+            val pkg = candidate?.packageName?.toString()
+            row.put("packageName", pkg)
+            row.put("isApprovedBrowser", pkg != null && approvedBrowsers.contains(pkg))
+            windowRows.put(row)
+
             if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
-            val candidate = window.root ?: continue
-            val pkg = candidate.packageName?.toString() ?: continue
-            if (!approvedBrowsers.contains(pkg)) continue
+            if (candidate == null) continue
+            if (pkg == null || !approvedBrowsers.contains(pkg)) continue
             if (best == null || window.layer > bestLayer) {
                 best = candidate
                 bestLayer = window.layer
             }
         }
-        return best
+
+        var appWindows = 0
+        var appWindowsWithRoot = 0
+        for (window in currentWindows) {
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            appWindows += 1
+            val r = try { window.root } catch (_: Exception) { null }
+            if (r != null) appWindowsWithRoot += 1
+        }
+        diag.put("applicationWindowCount", appWindows)
+        diag.put("applicationWindowsWithRoot", appWindowsWithRoot)
+        diag.put("windows", windowRows)
+
+        if (best != null) {
+            diag.put("source", "windows_scan")
+            diag.put("selectedPackage", best.packageName?.toString())
+            return Pair(best, diag)
+        }
+
+        if (installed.length() == 0) {
+            diag.put("hint", "no_approved_browser_installed")
+        } else if (appWindowsWithRoot == 0 && appWindows > 0) {
+            diag.put("hint", "application_windows_present_but_roots_null_oem_or_toggle_service")
+        } else if (activePackage != null && !approvedBrowsers.contains(activePackage)) {
+            diag.put(
+                "hint",
+                "foreground_is_not_browser_open_chrome_then_keep_it_in_recents_before_observe"
+            )
+        } else {
+            diag.put("hint", "no_browser_window_with_retrievable_root")
+        }
+        return Pair(null, diag)
     }
 
     private data class NodeBudget(var count: Int = 0, val maxCount: Int = 700)
