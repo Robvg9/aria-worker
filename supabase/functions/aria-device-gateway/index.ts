@@ -12,7 +12,78 @@ function json(body:unknown,status=200){return new Response(JSON.stringify(body),
 async function hash(t:string){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}
 async function body(r:Request){try{return await r.json()}catch{return {}}}
 async function auth(r:Request,id?:string){const m=(r.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i);if(!m)return{error:json({error:'unauthorized'},401)};const deviceId=id||r.headers.get('x-aria-device-id');if(!deviceId)return{error:json({error:'device_id_required'},400)};const tokenHash=await hash(m[1]);const {data,error}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities').eq('device_id',deviceId).eq('token_hash',tokenHash).maybeSingle();if(error||!data)return{error:json({error:'unauthorized'},401)};if(data.status==='disabled')return{error:json({error:'device_disabled'},403)};return{device:data}}
-function keyOf(v:unknown){return typeof v==='string'?v.trim().toLowerCase().replace(/\s+/g,' ').replace(/[^a-z0-9:_ -]/g,''):''}
+async function sha256Hex(value:string){
+  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function randomToken(bytes=32){
+  const raw=new Uint8Array(bytes);
+  crypto.getRandomValues(raw);
+  return Array.from(raw).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+async function androidPairStart(b:any){
+  const deviceId=String(b?.device_id||'').trim();
+  const pairCode=String(b?.pair_code||'').trim();
+  if(!/^android-ui-[0-9a-f-]{20,}$/i.test(deviceId)||!/^[0-9]{6}$/.test(pairCode)){
+    return {ok:false,status:'invalid_pairing_request'};
+  }
+  const now=Date.now();
+  const expiresAt=new Date(now+10*60*1000).toISOString();
+  const pairHash=await sha256Hex(deviceId+':'+pairCode);
+  const tokenHash=await sha256Hex('pending:'+deviceId+':'+randomToken(16));
+  const {data:existing,error:ee}=await supabase.schema('aria_internal').from('device_registry')
+    .select('device_id,agent_type,status,metadata').eq('device_id',deviceId).maybeSingle();
+  if(ee)throw new Error(ee.message);
+  const metadata={
+    ...((existing?.metadata&&typeof existing.metadata==='object')?existing.metadata:{}),
+    pairing_status:'pending',
+    pairing_code_hash:pairHash,
+    pairing_expires_at:expiresAt,
+    pairing_started_at:new Date(now).toISOString(),
+    pairing_version:'android-ui-pair-v1'
+  };
+  const row={
+    device_id:deviceId,
+    display_name:String(b?.display_name||'ARIA Android UI'),
+    agent_type:'android-ui',
+    status:'pending',
+    token_hash:tokenHash,
+    capabilities:['computer.use.android','android.ui.mission'],
+    metadata,
+    updated_at:new Date().toISOString()
+  };
+  const {error}=await supabase.schema('aria_internal').from('device_registry').upsert(row,{onConflict:'device_id'});
+  if(error)throw new Error(error.message);
+  return {ok:true,status:'pending',device_id:deviceId,expires_at:expiresAt};
+}
+async function androidPairPoll(b:any){
+  const deviceId=String(b?.device_id||'').trim();
+  const pairCode=String(b?.pair_code||'').trim();
+  if(!/^android-ui-[0-9a-f-]{20,}$/i.test(deviceId)||!/^[0-9]{6}$/.test(pairCode)){
+    return {ok:false,status:'invalid_pairing_request'};
+  }
+  const {data:device,error}=await supabase.schema('aria_internal').from('device_registry')
+    .select('device_id,status,agent_type,token_hash,capabilities,metadata').eq('device_id',deviceId).maybeSingle();
+  if(error)throw new Error(error.message);
+  if(!device||device.agent_type!=='android-ui')return {ok:true,status:'not_found',paired:false};
+  const md=device.metadata&&typeof device.metadata==='object'?device.metadata:{};
+  const expected=String(md.pairing_code_hash||'');
+  const actual=await sha256Hex(deviceId+':'+pairCode);
+  if(expected!==actual)return {ok:true,status:'waiting',paired:false};
+  const expires=Date.parse(String(md.pairing_expires_at||'')); 
+  if(Number.isFinite(expires)&&Date.now()>expires)return {ok:true,status:'expired',paired:false};
+  if(String(md.pairing_status)==='approved'){
+    const token=randomToken(32);
+    const tokenHash=await sha256Hex(token);
+    const nextMd={...md,pairing_status:'completed',paired_at:new Date().toISOString(),pairing_code_hash:null,pairing_expires_at:null};
+    const {error:ue}=await supabase.schema('aria_internal').from('device_registry')
+      .update({status:'offline',token_hash:tokenHash,metadata:nextMd,updated_at:new Date().toISOString()})
+      .eq('device_id',deviceId).eq('agent_type','android-ui');
+    if(ue)throw new Error(ue.message);
+    return {ok:true,status:'paired',paired:true,device_id:deviceId,device_token:token};
+  }
+  return {ok:true,status:'waiting',paired:false,approval_status:md.pairing_status||'pending'};
+}\nfunction keyOf(v:unknown){return typeof v==='string'?v.trim().toLowerCase().replace(/\s+/g,' ').replace(/[^a-z0-9:_ -]/g,''):''}
 async function recoverStale(){const {data,error}=await supabase.rpc('aria_autonomy_recover_stale_missions',{p_stale_after:'00:02:00'});if(error)throw new Error(error.message);return Number(data||0)}
 async function learnRecent(){const cut=new Date(Date.now()-6*60*60*1000).toISOString();const {data,error}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,metadata,last_stderr,last_stdout,updated_at,created_at').in('status',['succeeded','blocked','failed','timeout','cancelled']).gt('updated_at',cut);if(error)throw new Error(error.message);let created=0;for(const m of data||[]){const {data:e}=await supabase.schema('aria_internal').from('autonomy_learnings').select('lesson_id').eq('mission_id',m.mission_id).limit(1);if(!e?.length){const {error:ie}=await supabase.schema('aria_internal').from('autonomy_learnings').insert({mission_id:m.mission_id,goal_id:m.metadata?.goal_id??null,category:m.status==='succeeded'?'verified_success':'operational_failure',summary:`Observed ${m.status}: ${(m.goal||'').slice(0,220)}`,evidence:{status:m.status,stderr:m.last_stderr||null,stdout_sample:(m.last_stdout||'').slice(0,800)},confidence:m.status==='succeeded'?0.9:0.75,reusable:true});if(!ie)created++}}return{scanned:data?.length||0,created}}
 async function learnMissionViaV3(missionId:string){
@@ -838,6 +909,8 @@ if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
     return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e)},502);}
 }
+if(req.method==='POST'&&p==='/v1/android/pair/start'){try{return json(await androidPairStart(b))}catch(e){return json({ok:false,status:'failed',error:queueError(e)},500)}}
+if(req.method==='POST'&&p==='/v1/android/pair/poll'){try{return json(await androidPairPoll(b))}catch(e){return json({ok:false,status:'failed',error:queueError(e)},500)}}
 if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){if(typeof b.device_id!=='string'||typeof b.token!=='string')return json({error:'device_id_and_token_required'},400);const {data,error}=await supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token});if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);return json(data)}if(req.method==='POST'&&p==='/v1/meditation/tick-service'){
  try{
   if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);
@@ -849,10 +922,13 @@ if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-g
   if(deviceId){
    const {data}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities,last_seen_at,metadata').eq('device_id',deviceId).maybeSingle();
    device=data||null;
-   if(device&&device.agent_type!=='android-termux')return json({ok:false,status:'blocked',error:'android_device_required',service_tick:true},409);
   }else{
-   const {data}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities,last_seen_at,metadata').eq('agent_type','android-termux').eq('status','online').order('last_seen_at',{ascending:false}).limit(1);
-   device=data?.[0]||null;deviceId=device?.device_id||'';
+   const {data}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities,last_seen_at,metadata').eq('status','online').order('last_seen_at',{ascending:false}).limit(20);
+   const candidates=data||[];
+   device=candidates.find((x:any)=>String(x.agent_type)==='android-ui' && Array.isArray(x.capabilities) && x.capabilities.includes('computer.use.android'))
+     || candidates.find((x:any)=>String(x.agent_type)==='android-termux' && Array.isArray(x.capabilities) && x.capabilities.includes('computer.use.android'))
+     || null;
+   deviceId=device?.device_id||'';
   }
   if(!device||device.status==='disabled')return json({ok:false,status:'blocked',error:'android_device_unavailable',service_tick:true},200);
   const tick=await meditationTick({session_id:b.session_id||control.session_id||null,autonomy_only:false,service_tick:true,source:String(b.source||'cloud-meditation-supervisor')},{device_id:device.device_id,agent_type:device.agent_type,capabilities:device.capabilities||[]});
@@ -864,7 +940,48 @@ if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-g
 if(req.method==='POST'&&p==='/v1/autonomy/cycle'){try{let serviceAuthorized=await autonomyServiceAuthorized(req);if(!serviceAuthorized){const deviceAuth=await auth(req,b.device_id);if(deviceAuth.error)return deviceAuth.error;b.device_id=deviceAuth.device.device_id;}return json(await autonomyCycle(b))}catch(e){return json({ok:false,status:'blocked',error:queueError(e),policy_version:'autonomy-post-plan-v1'},200)}}
 if(req.method==='POST'&&p==='/v1/audit/all-for-one/start'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneStart())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/audit/all-for-one/tick'){try{if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);return json(await allForOneTick())}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
-const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const agentType=String(b.agent_type||d.agent_type);const caps=new Set(Array.isArray(b.capabilities)?b.capabilities.map(String):Array.isArray(d.capabilities)?d.capabilities.map(String):[]);if(agentType==='android-termux')caps.add('computer.use.android');const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.from(caps),p_agent_type:agentType});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id,capabilities:Array.from(caps)})}if(req.method==='POST'&&p==='/v1/router/decide'){try{return json(await intelligentRouterDecision({...b,device_id:d.device_id}))}catch(e){return json({status:'failed',error:queueError(e)},500)}}
+const a=await auth(req,b.device_id);if(a.error)return a.error;const d=a.device;if(req.method==='POST'&&p==='/v1/devices/heartbeat'){const agentType=String(b.agent_type||d.agent_type);const caps=new Set(Array.isArray(b.capabilities)?b.capabilities.map(String):Array.isArray(d.capabilities)?d.capabilities.map(String):[]);if(agentType==='android-termux')caps.add('computer.use.android');const {error}=await supabase.rpc('heartbeat_device_gateway',{p_device_id:d.device_id,p_capabilities:Array.from(caps),p_agent_type:agentType});if(error)return json({error:'heartbeat_failed'},500);return json({ok:true,device_id:d.device_id,capabilities:Array.from(caps)})}if(req.method==='POST'&&p==='/v1/android/ui/decide'){try{
+  const goal=String(b?.goal||'').trim();
+  const ui=b?.ui&&typeof b.ui==='object'?b.ui:{};
+  const history=Array.isArray(b?.history)?b.history.slice(-8):[];
+  const step=Math.max(1,Number(b?.step||1));
+  const maxSteps=Math.max(step,Math.min(20,Number(b?.max_steps||12)));
+  if(!goal)return json({ok:false,error:'goal_required'},400);
+  const serialized=JSON.stringify({goal,ui,history,step,maxSteps});
+  if(/(sk-[A-Za-z0-9]{16,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._~-]{12,}|PRIVATE KEY)/i.test(serialized))return json({ok:false,error:'secret_material_rejected'},400);
+  const prompt=[
+    'Eres el verificador visual autónomo de ARIA para Android.',
+    'Debes decidir el siguiente paso de una prueba REAL sobre la interfaz visible.',
+    'Solo puedes usar acciones: click,type,scroll,press,navigate,wait.',
+    'Nunca inventes un elemento: el target debe corresponder exactamente a un nodo visible del UI recibido.',
+    'Para type nunca generes contraseñas, tokens, claves, pagos ni secretos.',
+    'Si el objetivo ya está demostrado por evidencia observable, devuelve done con verified=true.',
+    'Si una acción sería peligrosa o requiere una persona, devuelve blocked.',
+    'Devuelve SOLO JSON válido, sin markdown.',
+    'Esquemas:',
+    '{"status":"action","action":"click","target":{"role":"button","text":"ENTRAR"},"reason":"..." }',
+    '{"status":"action","action":"type","target":{"role":"textbox","label":"Nombre"},"text":"valor seguro","reason":"..."}',
+    '{"status":"action","action":"scroll","delta":1,"reason":"..."}',
+    '{"status":"action","action":"wait","ms":1000,"reason":"..."}',
+    '{"status":"done","verified":true,"reason":"..." }',
+    '{"status":"blocked","reason":"..." }',
+    'OBJETIVO: '+goal,
+    'PASO: '+step+'/'+maxSteps,
+    'UI: '+JSON.stringify(ui).slice(0,30000),
+    'HISTORIAL: '+JSON.stringify(history).slice(0,12000)
+  ].join('\n');
+  const decision=await intelligentRouterExecute({
+    task:'Android RWHT decision: '+goal,
+    capability:'text_generation',
+    risk:'READ',
+    authorization:{status:'approved',risk_class:'READ',evidence_ref:'android-ui-decide'},
+    input:{payload:{prompt,max_tokens:700,temperature:0}},
+    trace_id:b?.trace_id||null
+  },d);
+  if(decision.status!=='succeeded')return json({ok:false,error:'ui_decision_failed',decision},502);
+  return json({ok:true,decision:{content:String(decision.attempt_results?.find((x:any)=>x.status==='succeeded')?.response?.content||decision.response?.content||'')},route:decision.selected_route||null});
+}catch(e){return json({ok:false,status:'failed',error:queueError(e)},200)}}
+if(req.method==='POST'&&p==='/v1/router/decide'){try{return json(await intelligentRouterDecision({...b,device_id:d.device_id}))}catch(e){return json({status:'failed',error:queueError(e)},500)}}
 if(req.method==='POST'&&p==='/v1/router/execute'){try{return json(await intelligentRouterExecute(b,d))}catch(e){return json({status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/router/parallel-execute'){try{return json(await intelligentRouterParallelExecute(b,d))}catch(e){return json({status:'failed',error:queueError(e)},200)}}
 if(req.method==='POST'&&p==='/v1/meditation/tick'){try{return json(await meditationTick(b,d))}catch(e){return json({ok:false,status:'failed',error:e instanceof Error?e.message:String(e)},200)}}
