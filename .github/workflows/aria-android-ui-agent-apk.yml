@@ -72,26 +72,22 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           cat local.properties
 
-      - name: Ensure Gradle Wrapper
+      - name: Verify Gradle
         run: |
-          if [ ! -f ./gradlew ]; then
-            gradle wrapper --gradle-version 8.11.1
-          fi
-          chmod +x ./gradlew
-          ./gradlew --version
+          gradle --version
 
       - name: Unit tests
         id: tests
         run: |
           set -o pipefail
-          ./gradlew test --no-daemon --stacktrace 2>&1 | tee ../test-output.log
+          gradle test --no-daemon --stacktrace 2>&1 | tee ../test-output.log
           echo "tests_pass=true" >> "$GITHUB_OUTPUT"
 
       - name: Assemble debug APK
         id: assemble
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../assemble-output.log
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee ../assemble-output.log
           APK="app/build/outputs/apk/debug/app-debug.apk"
           if [ ! -f "$APK" ]; then
             echo "ERROR: APK not found at $APK"
