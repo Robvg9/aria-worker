@@ -20,7 +20,14 @@ for (const marker of ['android-autonomous-runner-v1', 'mode === \'autonomous_tes
 assert.ok(!receiver.includes('broadcast_path_disabled'), 'legacy disabled receiver must not remain active');
 assert.ok(receiver.includes('getSentFromUid()'), 'UID sender identity should still be checked when Android exposes it');
 assert.ok(receiver.includes('ipc_token'), 'explicit IPC token fallback must remain');
-assert.ok(agent.includes('ipc_token'), 'Termux sender must authenticate IPC fallback');
+assert.ok(agent.includes("127.0.0.1:45874/execute"), 'Termux sender must use loopback IPC');
+assert.ok(agent.includes('authorization'), 'Termux sender must authenticate loopback IPC');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
 
 console.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
+
+const ipc = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/LocalIpcServer.kt'), 'utf8');
+assert.ok(ipc.includes('127.0.0.1'));
+assert.ok(ipc.includes('/execute'));
+assert.ok(ipc.includes('IpcAuth.TOKEN'));
+assert.ok(agent.includes('127.0.0.1:45874/execute'));
