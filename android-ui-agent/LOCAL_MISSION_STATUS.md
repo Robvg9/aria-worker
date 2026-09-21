@@ -1,66 +1,25 @@
-# ARIA Android — Local Mission Runner (v1.1.2)
+# Local Mission Status
 
-## Architecture
+## Current (1.1.11 / versionCode 17)
 
-```
-MainActivity (visible UI)
-    → owner starts mission
-    → Observe (no approval needed)
-    → Propose action → PENDING_APPROVAL
-    → Owner APPROVES or REJECTS
-    → LocalMissionRunner executes via AriaAccessibilityService
-    → post-observe + LocalEvidence (chain hash)
-    → COMPLETE / FAILED / CANCELLED
-```
+- Package visibility: OK (`<queries>` for Chrome)
+- Overlay OBSERVE (ACTION_DOWN): OK — Chrome stays active
+- Propose after OBSERVE: OK
+- Human Gate: OK
+- **Browser handoff on APPROVE**: `BrowserHandoffExecutor`
+  - Does **not** rely on `moveTaskToBack` alone (OEM may show launcher)
+  - Uses launch Intent with `REORDER_TO_FRONT | RESET_TASK_IF_NEEDED | SINGLE_TOP | NEW_TASK`
+  - Polls via existing `observe` until `com.android.chrome` is reported
+  - On failure: `browser_handoff_failed` + diagnostic (not silent `post_action_window_missing`)
+- Post-action observe: single observation from `actionResponse` (no duplicate)
 
-## What was reused (not rewritten)
+## Files
 
-- `AriaAccessibilityService` observe / click / type / press / scroll / wait / navigate
-- existing SHA-256 evidence hashes inside the service
-- approved-browser restrictions
+- `BrowserHandoff.kt` — package selection + intent flags
+- `BrowserHandoffExecutor.kt` — startActivity + observe poll
+- `LocalMissionRunner.kt` — handoff before action; `failWithDiag`
+- CI: restores `AriaAccessibilityService.kt` from commit `42b8e654` if PLACEHOLDER detected
 
-## What was added
+## Physical test target
 
-| File | Role |
-|------|------|
-| `LocalModels.kt` | LocalMission, LocalStep, LocalObservation, LocalAction, LocalEvidence |
-| `LocalMissionStore.kt` | durable JSON persistence + chainHash |
-| `LocalMissionRunner.kt` | state machine + recover (never auto-execute) |
-| `MainActivity.kt` | visible Approve / Reject / Cancel / Observe |
-| unit tests | models, chain hash, recovery rules |
-
-## What was retired as primary path
-
-- `CommandReceiver` now always returns `broadcast_path_disabled`
-- Termux `<queries>` removed from AndroidManifest
-- No silent remote / am broadcast UI control
-
-## Recovery contract
-
-On app restart:
-- PENDING_APPROVAL stays PENDING_APPROVAL
-- approved-but-not-executed → forced back to PENDING_APPROVAL
-- never auto-runs an action
-
-## Version
-
-- versionCode 8
-- versionName 1.1.2
-
-## Physical validation still required
-
-tests (JVM unit) → assemble → install on device → enable Accessibility → full mission cycle with real Approve → evidence → Cancel
-
-## Fase 7 — Diagnóstico Android real visible (v1.1.2)
-
-Cuando Observe falla con `no_active_browser_window`, MainActivity muestra un panel legible con:
-
-- activePackage, activeIsBrowser
-- installedApprovedBrowsers
-- windowsNull, windowCount
-- applicationWindowCount, applicationWindowsWithRoot
-- hint
-- por cada ventana: type, layer, id, isActive, isFocused, hasRoot, packageName, isApprovedBrowser
-
-El JSON completo se persiste en `LocalObservation.diagnosticJson`.
-La lógica del resolver **no** se modificó en esta fase.
+Chrome foreground → OBSERVE → PROPOSE → APPROVE → handoff → WAIT 500ms → POST-OBSERVE → EVIDENCE → COMPLETE
