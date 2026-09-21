@@ -56,12 +56,22 @@ class LocalMissionModelsTest {
     @Test
     fun state_enum_covers_required() {
         val required = listOf(
-            "IDLE", "OBSERVE", "PENDING_APPROVAL", "ACTION",
+            "IDLE", "WAITING_OBSERVE", "OBSERVE", "PENDING_APPROVAL", "ACTION",
             "EVIDENCE", "COMPLETE", "CANCELLED", "FAILED", "RECOVERABLE"
         )
         required.forEach { name ->
             assertNotNull(MissionState.valueOf(name))
         }
+    }
+
+    @Test
+    fun waiting_observe_roundtrip() {
+        val mission = LocalMission(
+            title = "overlay path",
+            state = MissionState.WAITING_OBSERVE
+        )
+        val restored = LocalMission.fromJson(mission.toJson())
+        assertEquals(MissionState.WAITING_OBSERVE, restored.state)
     }
 
     @Test
