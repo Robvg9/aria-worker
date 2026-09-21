@@ -64,7 +64,9 @@ async function androidAutonomousDecision(b:any,d:any){
   const isSafeNode=(n:any)=>Boolean(n&&n.visible!==false&&n.enabled!==false);
   const scrollNode=[...nodes.values()].find((n:any)=>isSafeNode(n)&&n.scrollable===true)
     || [...nodes.values()].find((n:any)=>isSafeNode(n)&&String(n.role||'').toLowerCase()==='scrollable');
-  const fallbackAction=scrollNode?{action:'scroll',nodeId:String(scrollNode.id),direction:'forward'}:null;
+  const fallbackAction=scrollNode
+    ? {action:'scroll',nodeId:String(scrollNode.id),direction:'forward'}
+    : {action:'navigate',url:'https://aria.robvg9.workers.dev/pwa/'};
 
   const candidatesRes=await supabase.schema('aria_internal').from('model_registry')
     .select('model_id,provider_id,status,enabled').eq('provider_id','google').eq('status','available').eq('enabled',true);
@@ -164,13 +166,30 @@ async function androidAutonomousDecision(b:any,d:any){
     }catch{}
   }
 
+  if(history.length>0){
+    const last=history[history.length-1];
+    if(last?.execution?.status==='succeeded'&&last?.execution?.after_evidence_hash){
+      return json({
+        ok:true,
+        decision:'pass',
+        reason:'governed_safe_action_completed_and_verified_without_model_route',
+        action:null,
+        expectation:{type:'verified_after_action'},
+        model_id:null
+      });
+    }
+  }
   if(fallbackAction){
     return json({
       ok:true,
       decision:'act',
-      reason:'governed_safe_fallback_scroll_after_model_route_failure',
+      reason:fallbackAction.action==='scroll'
+        ? 'governed_safe_fallback_scroll_after_model_route_failure'
+        : 'governed_safe_fallback_navigation_after_model_route_failure',
       action:fallbackAction,
-      expectation:{type:'observe_after_safe_scroll',nodeId:fallbackAction.nodeId},
+      expectation:fallbackAction.action==='scroll'
+        ? {type:'observe_after_safe_scroll',nodeId:fallbackAction.nodeId}
+        : {type:'observe_after_safe_navigation'},
       model_id:null
     });
   }
