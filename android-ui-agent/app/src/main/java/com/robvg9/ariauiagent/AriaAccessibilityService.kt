@@ -467,11 +467,27 @@ class AriaAccessibilityService : AccessibilityService() {
                 ok(node.performAction(command), "scroll_failed")
             }
             "navigate" -> navigate(action.optString("url"), allowedHosts)
+            "launch_app" -> launchApp(targetPackage)
             "wait" -> {
                 Thread.sleep(action.optLong("ms", 500L).coerceIn(0L, 5000L))
                 ok(true)
             }
             else -> error("unsupported_action")
+        }
+    }
+
+    private fun launchApp(targetPackage: String?): JSONObject {
+        val pkg = targetPackage?.trim().orEmpty()
+        if (pkg.isBlank()) return error("target_package_required")
+        if (pkg.startsWith(OWN_PKG_PREFIX)) return error("target_package_blocked")
+        val launchIntent = runCatching { packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
+            ?: return error("launch_intent_not_found")
+        return try {
+            launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+            ok(true)
+        } catch (_: Exception) {
+            error("launch_failed")
         }
     }
 
