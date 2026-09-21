@@ -19,6 +19,10 @@ class CommandReceiver : BroadcastReceiver() {
     companion object {
         private const val ACTION = "com.robvg9.ariauiagent.ACTION_EXECUTE"
         private const val TERMUX_PACKAGE = "com.termux"
+        // Fallback authentication for Android 14+ shell broadcasts where
+        // getSentFromUid() is INVALID_UID because the sender identity is not shared.
+        // This is IPC authentication only; it is not a user credential or API secret.
+        private const val IPC_TOKEN = "4fa3c34b8093d0ac3633fd58ade90bc224827f2a7b21cf29f26931c637e34d76"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -30,7 +34,9 @@ class CommandReceiver : BroadcastReceiver() {
         } catch (_: Exception) {
             -1
         }
-        if (senderUid != termuxUid || senderUid < 0) {
+        val tokenValid = intent.getStringExtra("ipc_token") == IPC_TOKEN
+        val senderAuthorized = senderUid == termuxUid && senderUid >= 0
+        if (!senderAuthorized && !tokenValid) {
             finish(false, """{"ok":false,"reason":"caller_not_allowed"}""")
             return
         }

@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const PACKAGE = 'com.robvg9.ariauiagent.debug';
 const RECEIVER = '.CommandReceiver';
 const ACTION = 'com.robvg9.ariauiagent.ACTION_EXECUTE';
+const IPC_TOKEN = '4fa3c34b8093d0ac3633fd58ade90bc224827f2a7b21cf29f26931c637e34d76';
 const SECRET_REF_PATTERN = /^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/;
 const MAX_OUTPUT = 128 * 1024;
 
@@ -117,7 +118,8 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
     '--receiver-foreground',
     '-n', shellQuote(PACKAGE + '/' + RECEIVER),
     '-a', shellQuote(ACTION),
-    '--es', 'payload_b64', shellQuote(encoded)
+    '--es', 'payload_b64', shellQuote(encoded),
+    '--es', 'ipc_token', shellQuote(IPC_TOKEN)
   ].join(' ');
 
   const result = await runCommand(amCommand, timeoutMs);
