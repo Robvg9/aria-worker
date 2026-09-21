@@ -26,6 +26,7 @@ assert.ok(
   source.includes("responseMimeType:'application/json'") || source.includes('responseMimeType:"application/json"'),
   'Google path must request application/json responseMimeType'
 );
+assert.ok(source.includes('responseSchema:{type:\'object\''), 'Google path must enforce a JSON response schema');
 
 // 4) generationConfig forwarded through mission5ModelProbe
 assert.ok(
