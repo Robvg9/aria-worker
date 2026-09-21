@@ -22,9 +22,10 @@ for (const term of ['dashboard','pantalla','interfaz','navegación','deslizar','
 assert.match(source, /planner-v11-governed-change-v3/, 'UI implementation change planner marker missing');
 assert.doesNotMatch(source, /\\(\\?i\\)/, 'planner source must not contain unsupported JavaScript inline regex flags');
 assert.match(source, /const repairIntent=/, 'repair intent route missing');
-assert.match(source, /policy:\{tool_use:true,mutating_operation_required:true/, 'implementation change route must force tool use');
+assert.match(source, /governedWritePolicy/, 'implementation change route must use the governed write policy');
+assert.match(source, /tool_use:true/, 'governed write policy must force tool use');
 assert.match(source, /operationAuditPlan/, 'operation forensic route missing');
-assert.match(source, /planner-v11-operation-forensic-v1/, 'operation forensic planner marker missing');
+assert.match(source, /planner-v11-operation-forensic-v2-multistep/, 'operation forensic planner marker missing');
 for (const term of ['corregir','crear','implementar','modificar','actualizar','añadir','anadir','eliminar','desarrollar','refactorizar','escribir','migrar','promover','arreglar','arregla','arreglalo','solucionar','reparar']) {
   assert.ok(mutation[0].includes(term), `Spanish mutation term missing: ${term}`);
 }

@@ -741,7 +741,7 @@ Deno.serve(async (request) => {
           return { step, result, waiting: true, passed: false };
         }
 
-        await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || result?.status || "verification_failed" });
+        await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || (String(result?.status || "") === "succeeded" ? "verification_failed" : (result?.status || "verification_failed")), result_status: result?.status ?? null, verification_status: result?.repair?.verification_status ?? result?.verification_status ?? null });
         return { step, result, passed: false, waiting: false };
       }));
 
