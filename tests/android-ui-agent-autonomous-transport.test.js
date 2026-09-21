@@ -8,7 +8,7 @@ const receiver = fs.readFileSync(require('node:path').join(root, 'android-ui-age
 const service = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/AriaAccessibilityService.kt'), 'utf8');
 const agent = fs.readFileSync(require('node:path').join(root, 'agents/termux/aria-agent.js'), 'utf8');
 
-for (const marker of ['TERMUX_PACKAGE', 'getApplicationInfo(TERMUX_PACKAGE', 'IPC_TOKEN', 'tokenValid', 'AriaAccessibilityService.instance', 'service.handle(payload)']) {
+for (const marker of ['TERMUX_PACKAGE', 'getApplicationInfo(TERMUX_PACKAGE', 'IPC_TOKEN', 'tokenValid', 'AriaAccessibilityService.instance', 'service.handle(payload)', 'LocalIpcServer']) {
   assert.ok(receiver.includes(marker), 'missing receiver transport marker: ' + marker);
 }
 for (const marker of ['allow_any_app', 'target_package', 'resolveAnyApplicationRootWithDiag', 'launch_app', 'navigate']) {
@@ -24,3 +24,9 @@ assert.ok(agent.includes('ipc_token'), 'Termux sender must authenticate IPC fall
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
 
 console.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
+
+const ipc = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/LocalIpcServer.kt'), 'utf8');
+assert.ok(ipc.includes('127.0.0.1'));
+assert.ok(ipc.includes('/execute'));
+assert.ok(ipc.includes('IpcAuth.TOKEN'));
+assert.ok(agent.includes('127.0.0.1:45874/execute'));
