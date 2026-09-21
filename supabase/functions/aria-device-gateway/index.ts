@@ -62,26 +62,53 @@ async function androidAutonomousDecision(b:any,d:any){
   const observation=JSON.parse(JSON.stringify(b.observation));
   const nodes=autonomousUiNodeMap(observation.root);
   const isSafeNode=(n:any)=>Boolean(n&&n.visible!==false&&n.enabled!==false);
-  const scrollNode=[...nodes.values()].find((n:any)=>isSafeNode(n)&&n.scrollable===true)
-    || [...nodes.values()].find((n:any)=>isSafeNode(n)&&String(n.role||'').toLowerCase()==='scrollable');
   const fallbackAction={action:'navigate',url:'https://aria.robvg9.workers.dev/pwa/'};
 
   const candidatesRes=await supabase.schema('aria_internal').from('model_registry')
-    .select('model_id,provider_id,status,enabled').eq('provider_id','google').eq('status','available').eq('enabled',true);
+    .select('model_id,provider_id,status,enabled,pricing,metadata,interface_type')
+    .in('provider_id',['google','openrouter'])
+    .eq('status','available').eq('enabled',true);
   if(candidatesRes.error)throw new Error(candidatesRes.error.message);
   const capsRes=await supabase.schema('aria_internal').from('capability_matrix')
     .select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified');
   if(capsRes.error)throw new Error(capsRes.error.message);
   const acctRes=await supabase.schema('aria_internal').from('account_registry')
-    .select('account_id,provider_id,status,enabled,models').eq('provider_id','google').eq('status','available').eq('enabled',true);
+    .select('account_id,provider_id,status,enabled,models')
+    .in('provider_id',['google','openrouter']).eq('status','available').eq('enabled',true);
   if(acctRes.error)throw new Error(acctRes.error.message);
   const verified=new Set((capsRes.data||[]).map((x:any)=>String(x.model_id)));
+  const preferredModels=[
+    'nex-agi/nex-n2.5-mini:free',
+    'google/gemini-3.5-flash-lite-direct',
+    'google/gemini-3.5-flash-direct',
+    'deepseek/deepseek-v4-flash-0731:free',
+    'nvidia/nemotron-3.5-lightning:free'
+  ];
+  const preference=(modelId:string)=>{
+    const idx=preferredModels.indexOf(modelId);
+    if(idx>=0)return idx;
+    if(modelId.endsWith(':free'))return 20;
+    if(modelId.startsWith('google/'))return 40;
+    return 60;
+  };
+  const isFree=(m:any)=>{
+    const pricing=m?.pricing||{};
+    const metadata=m?.metadata||{};
+    return pricing?.cost==='$0' || pricing?.tier==='free' || metadata?.free_tier===true;
+  };
   const routes=(candidatesRes.data||[]).map((m:any)=>{
-    const account=(acctRes.data||[]).find((a:any)=>Array.isArray(a.models)&&a.models.includes(m.model_id));
-    return account&&verified.has(String(m.model_id))
-      ? {status:'selected',provider_id:'google',account_id:String(account.account_id),model_id:String(m.model_id),capability:'text_generation'}
-      : null;
-  }).filter(Boolean).sort((a:any,b:any)=>String(a.model_id).localeCompare(String(b.model_id)));
+    const modelId=String(m.model_id||'');
+    if(!modelId||!isFree(m)||!verified.has(modelId))return null;
+    const account=(acctRes.data||[]).find((a:any)=>a.provider_id===m.provider_id&&Array.isArray(a.models)&&a.models.includes(modelId));
+    if(!account)return null;
+    return {
+      status:'selected',
+      provider_id:String(m.provider_id),
+      account_id:String(account.account_id),
+      model_id:modelId,
+      capability:'text_generation'
+    };
+  }).filter(Boolean).sort((a:any,b:any)=>preference(a.model_id)-preference(b.model_id)||String(a.model_id).localeCompare(String(b.model_id)));
 
   const uiJson=JSON.stringify(observation).slice(0,42000);
   const prompt=[
@@ -92,6 +119,9 @@ async function androidAutonomousDecision(b:any,d:any){
     'This is a physical UI test. On the first decision you MUST choose one safe reversible UI action before any pass.',
     'Choose only an action whose target nodeId exists in the supplied accessibility tree.',
     'Allowed safe actions: click, type into non-password fields, press BACK/ENTER, scroll, wait, navigate within allowed hosts.',
+    'Do not click Chrome browser chrome (address bar, home, tabs, menu) unless the goal explicitly requires it.',
+    'When the target URL is already visible but the page content is still loading or only browser chrome is present, choose a safe wait action first (for example 1200ms).',
+    'Once the ARIA PWA content is visible, choose a safe reversible control inside the PWA based on its actual node name/label/text and nodeId.',
     'Never choose destructive, financial, account deletion, purchase, payment, credential, password, or irreversible actions. For those return fail with reason human_gate_required.',
     'On step 1 do not return pass. Return exactly one safe action. On a later step return pass only after the action visibly completed the goal.',
     'Return JSON only: {"decision":"act|pass|fail","reason":"...","action":{...},"expectation":{...}}.',
@@ -135,7 +165,7 @@ async function androidAutonomousDecision(b:any,d:any){
             ok:true,decision:'act',
             reason:'model_requested_pass_before_required_safe_test_action; governed_safe_step_injected',
             action:fallbackAction,
-            expectation:{type:'observe_after_safe_scroll'},
+            expectation:{type:'observe_after_safe_navigation'},
             model_id:route.model_id
           });
         }
