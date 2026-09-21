@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Package visibility for approved browsers (Android 11+). Required so PackageManager.getPackageInfo sees Chrome. -->
+    <queries>
+        <package android:name="com.android.chrome" />
+        <package android:name="com.chrome.beta" />
+        <package android:name="com.chrome.dev" />
+        <package android:name="com.chrome.canary" />
+        <package android:name="com.google.android.apps.chrome" />
+    </queries>
+
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Termux query removed: official path is LocalMissionRunner via visible UI approval. -->
