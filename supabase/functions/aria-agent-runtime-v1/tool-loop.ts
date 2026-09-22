@@ -37,10 +37,14 @@ async function resolveToolRoutes(agent: any) {
 
   const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
   const preferredIsFreeOpenRouter = preferredProvider === "openrouter" && preferred.endsWith(":free");
+  const providerLock = agent?.agent?.metadata?.provider_lock === true
+    || agent?.agent_metadata?.provider_lock === true
+    || agent?.metadata?.provider_lock === true;
+  const recoveryOpenRouterOnly = preferredProvider === "openrouter" && recoveryFreeOnly;
   if (preferred.startsWith("openrouter/")) push("openrouter",preferred);
   else if (preferredIsFreeOpenRouter) push("openrouter",preferred);
 
-  const { data: googleModels } = recoveryFreeOnly
+  const { data: googleModels } = recoveryOpenRouterOnly
     ? { data: [] as any[] }
     : await internal.from("model_registry")
     .select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
@@ -56,6 +60,8 @@ async function resolveToolRoutes(agent: any) {
     push("google",google.slice("google/".length,-"-direct".length));
   }
   for (const google of googleCandidates) push("google",google.slice("google/".length,-"-direct".length));
+
+  if (providerLock && preferredProvider === "google") return routes.slice(0,8);
 
   const { data: openModels } = await internal.from("model_registry")
     .select("model_id,status,enabled").eq("provider_id","openrouter").eq("status","available").eq("enabled",true);
