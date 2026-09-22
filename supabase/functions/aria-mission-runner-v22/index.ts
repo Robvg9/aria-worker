@@ -169,13 +169,18 @@ function recoveryTargetsAndroid(recovery: any, step: any) {
 function applyRecoveryAgentFallbacks(steps: any[], recovery: any) {
   if (!recovery?.replan_required) return steps;
   const failed = new Set((Array.isArray(recovery.failed_step_ids) ? recovery.failed_step_ids : []).map(String));
+  const androidRecovery = recoveryTargetsAndroid(recovery, {});
   return steps.map((step: any) => {
-    if (!failed.has(String(step?.id)) || executorType(step) !== "agent") return step;
+    if (executorType(step) !== "agent") return step;
     const current = String(step?.target?.agent_id || "");
+    const shouldRoute = failed.has(String(step?.id)) || androidRecovery;
+    if (!shouldRoute) return step;
     const fallback = recoveryTargetsAndroid(recovery, step)
       ? (current === "aria-agent-coding-v1" || current === "aria-agent-coding-openrouter-v1"
         ? "aria-agent-android-coding-openrouter-v1"
-        : AGENT_RECOVERY_FALLBACKS[current])
+        : current === "aria-agent-reviewer-v1" || current === "aria-agent-verifier-openrouter-v1"
+          ? "aria-agent-verifier-openrouter-v1"
+          : AGENT_RECOVERY_FALLBACKS[current])
       : AGENT_RECOVERY_FALLBACKS[current];
     if (!fallback) return step;
     return {
@@ -1347,7 +1352,7 @@ Deno.serve(async (request) => {
         const failedStepIds = failures.map((item) => String(item.step.id));
         const previousPlan = steps;
         const previousResults = results;
-        const maxReplans = 8;
+        const maxReplans = 12;
         if (replanCount <= maxReplans) {
           const recovery = {
             status: "replan_required",
