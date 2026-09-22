@@ -1,4 +1,4 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+// Canonical deploy trigger: mission recovery policy v8 / Android-aware fallback routing.\nimport "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "../_shared/forensic-continuity-fixes.ts";
