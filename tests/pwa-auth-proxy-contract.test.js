@@ -19,7 +19,7 @@ if (!app.includes('conversation_model_execution_failed')) throw new Error('conve
 if (!app.includes("fetch('/auth/token?grant_type=password'")) throw new Error('PWA still calls Supabase Auth directly');
 if (!app.includes('controller.abort(), 7000')) throw new Error('missing browser auth timeout');
 if (!html.includes("href='/manifest.json'")) throw new Error('stable manifest reference missing');
-if (!html.includes("register('/sw-%VITE_BUILD%.js'")) throw new Error('root versioned service worker reference missing');
+if (!html.includes("register('/pwa/sw-%VITE_BUILD%.js'")) throw new Error('canonical /pwa versioned service worker reference missing');
 
 if (!worker.includes('const PWA_BUILD = "__PWA_BUILD__";')) throw new Error('PWA build placeholder missing');
 if (!worker.includes('shellPath="/index-"+PWA_BUILD+".html"')) throw new Error('immutable index mapping missing');
