@@ -12,6 +12,38 @@ const DEVICE_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-device-gateway`;
 const MEDIA_BUCKET = "aria-app-media";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
+const PROJECTS = Object.freeze([
+  { id: "battlecruiser", name: "BattleCruiser", icon: "🏴‍☠️", context: "BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio." },
+  { id: "cuevacoin", name: "CuevaCoin", icon: "🪙", context: "CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados." },
+  { id: "aria", name: "ARIA", icon: "🧠", context: "ARIA es el sistema cognitivo operativo. Usa estado LIVE, main y evidencia persistida como fuentes prioritarias." },
+] as const);
+function getProject(value: unknown) {
+  const id = String(value ?? "").trim().toLowerCase();
+  return PROJECTS.find((p) => p.id === id) ?? null;
+}
+function normalizeProjectContext(body: any) {
+  const project = getProject(body?.project_id ?? body?.project?.id);
+  if (!project) return null;
+  return { id: project.id, name: project.name, icon: project.icon, context: project.context };
+}
+function normalizeVisualContext(body: any) {
+  const raw = body?.visual_context;
+  if (!raw || typeof raw !== "object") return null;
+  const instruction = typeof raw.instruction === "string" ? raw.instruction.slice(0, 4000) : "";
+  const annotation_summary = typeof raw.annotation_summary === "string" ? raw.annotation_summary.slice(0, 12000) : "";
+  const image_path = typeof raw.image_path === "string" ? raw.image_path.slice(0, 500) : null;
+  const mime_type = typeof raw.mime_type === "string" ? raw.mime_type.slice(0, 100) : null;
+  if (!instruction && !annotation_summary && !image_path) return null;
+  return { instruction, annotation_summary, image_path, mime_type };
+}
+function normalizeAttachments(parts: any[]) {
+  return parts.filter((p: any) => p?.type === "file").slice(0, 3).map((p: any) => ({
+    path: typeof p.path === "string" ? p.path.slice(0, 500) : null,
+    mimeType: typeof p.mimeType === "string" ? p.mimeType.slice(0, 100) : null,
+    filename: typeof p.filename === "string" ? p.filename.slice(0, 200) : null,
+  }));
+}
+
 const bearer = (req: Request) => { const value = req.headers.get("authorization") ?? ""; return value.startsWith("Bearer ") ? value.slice(7).trim() : ""; };
 function serviceClient() { if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error("service_role_not_configured"); return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } }); }
 async function requireUser(token: string) {
@@ -22,6 +54,18 @@ async function requireUser(token: string) {
   return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
 }
 async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
+async function persistConversationMessage(userId:string,conversationId:string,role:"user"|"assistant"|"system",content:string,parts:any[],traceId:string,visualState:string|null,providerId:string|null,modelId:string|null,title:string,project:any){
+  const sb=serviceClient();
+  const ensured=await sb.rpc("aria_app_ensure_conversation",{p_user_id:userId,p_conversation_id:conversationId,p_title:title});
+  if(ensured.error)throw new Error("conversation_persist_ensure_failed");
+  if(project){
+    const {error}=await sb.schema("aria_app").from("conversations").update({metadata:{project_id:project.id,project_name:project.name,project_icon:project.icon,project_context:project.context}}).eq("conversation_id",conversationId).eq("owner_user_id",userId);
+    if(error)throw new Error("conversation_project_metadata_failed");
+  }
+  const saved=await sb.rpc("aria_app_save_message",{p_user_id:userId,p_conversation_id:conversationId,p_role:role,p_content:content,p_parts:parts??[],p_trace_id:traceId,p_visual_state:visualState,p_provider_id:providerId,p_model_id:modelId});
+  if(saved.error)throw new Error("conversation_persist_message_failed");
+}
+
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
 let conversationRouteCache:{expiresAt:number;routes:any[]}|null=null;
@@ -44,19 +88,36 @@ async function conversationRoutes() {
   return routes;
 }
 
-async function execute(step: any, prompt: string, conversationId: string) {
+async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
-  const x = await internal(EXEC, { execution_version: "1", request_id: conversationId + ":" + crypto.randomUUID(), task_id: "conversation:" + conversationId, capability: "text_generation", selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" }, input: { payload: { prompt, max_tokens: 512, temperature: 0.3 } }, policy: {}, metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model", multimodal: false } });
-  if (!x.r.ok || x.b?.status !== "succeeded") throw new Error("executor_http_" + x.r.status + "_" + (x.b?.error?.code ?? x.b?.reason ?? "execution_failed"));
+  let payload:any={prompt,max_tokens:512,temperature:0.3};
+  let multimodal=false;
+  if(visualContext?.image_path && target.provider_id==="google"){
+    const signed=await serviceClient().storage.from(MEDIA_BUCKET).createSignedUrl(String(visualContext.image_path),600);
+    if(signed.error||!signed.data?.signedUrl) throw new Error("visual_signed_url_failed");
+    const imageResponse=await fetch(signed.data.signedUrl);
+    if(!imageResponse.ok) throw new Error("visual_download_failed_"+imageResponse.status);
+    const bytes=new Uint8Array(await imageResponse.arrayBuffer());
+    if(bytes.byteLength>4500000) throw new Error("visual_payload_too_large");
+    let binary="";
+    const chunk=32768;
+    for(let i=0;i<bytes.length;i+=chunk) binary+=String.fromCharCode(...bytes.subarray(i,Math.min(bytes.length,i+chunk)));
+    const base64=btoa(binary);
+    payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:512,temperature:0.3}};
+    multimodal=true;
+  }
+  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}});
+  if(!x.r.ok||x.b?.status!=="succeeded") throw new Error("executor_http_"+x.r.status+"_"+(x.b?.error?.code??x.b?.reason??"execution_failed"));
   return x.b;
 }
 
-async function executeConversationWithFallback(step:any, prompt:string, conversationId:string) {
+function isTransientModelFailure(error:any){const value=String(error instanceof Error?error.message:error||"").toLowerCase();return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502/.test(value);}
+async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null) {
   const failures:any[]=[];
   if(step?.target){
     try{
-      const result=await execute(step,prompt,conversationId);
+      const result=await execute(step,prompt,conversationId,visualContext);
       return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
     }catch(error){
       failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
@@ -67,16 +128,17 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   const seen=new Set<string>();
   if(step?.target) seen.add(String(step.target.provider_id)+"|"+String(step.target.account_id)+"|"+String(step.target.model_id));
 
-  for(const route of routes.slice(0,4)){
+  for(const route of routes.slice(0,2)){
     const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
     if(seen.has(key)) continue;
     seen.add(key);
     try{
       const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
-      const result=await execute(candidate,prompt,conversationId);
+      const result=await execute(candidate,prompt,conversationId,visualContext);
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
       failures.push({provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,error:String(error instanceof Error?error.message:error)});
+      if(!isTransientModelFailure(error)) break;
     }
   }
 
@@ -108,7 +170,8 @@ async function enrichMission(m:any, sb:any) {
   const dw=steps.filter(s=>s.status==="succeeded"||s.status==="skipped").reduce((a,s)=>a+s.weight,0);
   const progress=tw?Math.max(0,Math.min(100,Math.round(dw/tw*1000)/10)):(m.total_steps?Math.round((m.completed_steps||0)/m.total_steps*1000)/10:0);
   const eta=await etaFor(sb,steps);
-  return { ...m, progress_percent:progress, step_count:steps.length, steps, eta, terminal:terminal.has(String(m.status)), phase:missionPhase(m), block_details: missionBlockDetails(m) };
+  const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
+  return { ...m, project_id: md.project_id ?? null, project_name: md.project_name ?? null, progress_percent:progress, step_count:steps.length, steps, eta, terminal:terminal.has(String(m.status)), phase:missionPhase(m), block_details: missionBlockDetails(m) };
 }
 
 async function missionForUser(missionId: string, userId: string) {
@@ -349,6 +412,13 @@ async function markMeditationNotificationsReadForUser(userId:string,body:any){
 async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);if(controller?.owner_user_id&&controller.owner_user_id!==userId)return{version:"aria-meditation-dashboard-v1",mode:"stopped",controller:null,active_mission:null,missions:[],human_gates:[],blocked:[],counts:{missions:0,human_gates:0,blocked:0}};const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at").order("created_at",{ascending:false}).limit(5000);if(me)throw new Error(me.message);const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(controller?.session_id&&md.meditation_session_id===controller.session_id)});const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||`Misión #${owned.length-i}`),description:String(m?.goal||"")}));const missions=await Promise.all(ranked.slice(0,30).map((m:any)=>enrichMission(m,sb)));const active=missions.find(m=>['running','queued','planning','paused','waiting'].includes(String(m.status)))??null;const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:[m.block_details?.remediation||"Revisa el motivo indicado.",m.block_details?.next_action||m.next_action||"Determina qué recurso o autorización falta.","ARIA intentará una estrategia alternativa cuando exista una ruta gobernada disponible."],updated_at:m.updated_at}));const verification_pending=missions.filter(m=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,...(m.block_details||{}),step:m.steps.find((s:any)=>String(s.id)===String(m?.checkpoint?.recovery?.failed_step_id||""))??null,updated_at:m.updated_at}));return{version:"aria-meditation-dashboard-v2",mode:String(controller?.desired_mode??"stopped"),controller,active_mission:active,missions,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:missions.length,human_gates:gates.length,blocked:blocked.length,verification_pending:verification_pending.length}};
 }
 
+function looksLikeSimpleConversation(input:string) {
+  const value=String(input||"").trim();
+  if(!value || value.length>360) return false;
+  if(/\b(analiza|compara|planifica|diseña|programa|c[oó]digo|debug|revisa|audita|investiga|pasos|paso|arquitectura|implementa|configura|misión|misi[oó]n)\b/i.test(value)) return false;
+  return true;
+}
+
 function looksLikeMissionRequest(input: string) {
   const value = String(input || "").trim();
   if (!value) return false;
@@ -377,6 +447,47 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
     if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }
     if (req.method === "GET" && path.endsWith("/capabilities")) return json({ ok: true, capabilities: await capabilityCatalog(user.id), trace_id: trace });
+    if (req.method === "GET" && path.endsWith("/projects")) {
+      return json({ ok: true, projects: PROJECTS, trace_id: trace });
+    }
+    if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/conversation")) {
+      const projectId=decodeURIComponent(path.split("/projects/")[1].replace(/\/conversation$/,"")).toLowerCase();
+      const project=getProject(projectId);
+      if(!project)return json({error:"project_not_found",trace_id:trace},404);
+      const sb=serviceClient();
+      let {data:row,error}=await sb.schema("aria_app").from("conversations").select("conversation_id,metadata,updated_at,last_message_at").eq("owner_user_id",user.id).eq("metadata->>project_id",project.id).order("updated_at",{ascending:false}).limit(1).maybeSingle();
+      if(error) return json({error:"project_conversation_lookup_failed",detail:error.message,trace_id:trace},502);
+      if(!row){
+        const id=crypto.randomUUID();
+        const ensured=await sb.rpc("aria_app_ensure_conversation",{p_user_id:user.id,p_conversation_id:id,p_title:project.name+" · Chat"});
+        if(ensured.error)return json({error:"project_conversation_create_failed",trace_id:trace},502);
+        const {error:metaError}=await sb.schema("aria_app").from("conversations").update({metadata:{project_id:project.id,project_name:project.name,project_icon:project.icon,project_context:project.context}}).eq("conversation_id",id).eq("owner_user_id",user.id);
+        if(metaError)return json({error:"project_conversation_metadata_failed",trace_id:trace},502);
+        row={conversation_id:id,metadata:{project_id:project.id,project_name:project.name},updated_at:null,last_message_at:null};
+      }
+      const payload=await sb.rpc("aria_app_get_conversation",{p_user_id:user.id,p_conversation_id:row.conversation_id});
+      if(payload.error)return json({error:"project_conversation_read_failed",trace_id:trace},502);
+      return json({ok:true,project,conversation_id:row.conversation_id,conversation:payload.data,trace_id:trace});
+    }
+    if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/missions")) {
+      const partsPath = path.split("/projects/")[1].replace(/\/missions$/, "");
+      const projectId = decodeURIComponent(partsPath).toLowerCase();
+      const project = getProject(projectId);
+      if (!project) return json({ error: "project_not_found", trace_id: trace }, 404);
+      const url = new URL(req.url);
+      const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 100)));
+      const sb = serviceClient();
+      const { data, error } = await sb.schema("aria_internal").from("mission_state")
+        .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
+        .order("created_at", { ascending: false }).limit(1000);
+      if (error) return json({ error: "project_missions_failed", detail: error.message, trace_id: trace }, 502);
+      const owned = (data ?? []).filter((m:any) => {
+        const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
+        return (md.user_id === user.id || md.owner_user_id === user.id) && String(md.project_id || "").toLowerCase() === project.id;
+      });
+      const missions = await Promise.all(owned.slice(0, limit).map((m:any) => enrichMission(m, sb)));
+      return json({ ok: true, project: project, missions, queue: "canonical", trace_id: trace });
+    }
     if (req.method === "GET" && path.endsWith("/meditation/status")) return json({ ok: true, ...await meditationStatus(user.id), trace_id: trace });
     if (req.method === "POST" && path.endsWith("/meditation/control")) { const body = await req.json().catch(() => null); const controller = await meditationControl(user.id, String(body?.action || "").toLowerCase()); return json({ ok: true, controller, trace_id: trace }); }
     if (req.method === "GET" && path.endsWith("/meditation/overview")) return json({ ok: true, ...(await meditationOverview(user.id)), trace_id: trace });
@@ -387,8 +498,12 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       const parts = Array.isArray(body?.parts) ? body.parts : [];
       const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n");
+      const project = normalizeProjectContext(body);
+      const visual_context = normalizeVisualContext(body);
+      const attachments = normalizeAttachments(parts);
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
       const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
+      try { await persistConversationMessage(user.id,conversationId,"user",text,parts,trace,null,null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project); } catch(e) { return json({error:"conversation_persist_failed",stage:"persistence",detail:String((e as any)?.message??e),trace_id:trace},502); }
 
       if (looksLikeMissionRequest(text)) {
         const direct = await internal(DIRECT, {
@@ -397,6 +512,11 @@ Deno.serve(async (req) => {
           metadata: {
             source_application: "aria-pwa-chat",
             user_id: user.id,
+            project_id: project?.id ?? null,
+            project_name: project?.name ?? null,
+            project_context: project?.context ?? null,
+            visual_context,
+            attachments,
             goal_source: "chat",
             execution_requested: true,
             conversation_id: conversationId,
@@ -422,6 +542,8 @@ Deno.serve(async (req) => {
             trace_id: trace
           }, 502);
         }
+        const ackText="Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación.";
+        await persistConversationMessage(user.id,conversationId,"assistant",ackText,[{type:"text",text:ackText}],trace,"mission_queued",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
         return json({
           ok: true,
           conversationId,
@@ -429,7 +551,7 @@ Deno.serve(async (req) => {
           mission,
           parts: [{
             type: "text",
-            text: "Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación."
+            text: ackText
           }],
           cognitive: {
             recall_count: 0,
@@ -445,10 +567,16 @@ Deno.serve(async (req) => {
 
       const memory = await recall(text,user.id);
       let step: any;
-      try {
-        step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 });
-      } catch (e) {
-        return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
+      if (looksLikeSimpleConversation(text)) {
+        const routes=await conversationRoutes();
+        if(routes[0]) step={target:{type:"model",provider_id:routes[0].provider_id,account_id:routes[0].account_id,model_id:routes[0].model_id}};
+      }
+      if (!step?.target) {
+        try {
+          step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, project, visual_context, attachments });
+        } catch (e) {
+          return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
+        }
       }
       const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
       const live = await liveAssistantContext(user.id).catch(() => null);
@@ -459,20 +587,46 @@ Deno.serve(async (req) => {
         "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto LIVE demuestra lo contrario.",
         "No inventes acciones ejecutadas. Distingue siempre entre en cola, ejecutando, bloqueada, completada o fallida.",
         liveText,
+        project ? "Proyecto activo: " + JSON.stringify(project) : "",
+        visual_context ? "Diseño visual y anotaciones: " + JSON.stringify(visual_context) : "",
+        attachments.length ? "Adjuntos de esta conversación: " + JSON.stringify(attachments) : "",
         context ? "Memoria contextual autorizada:\n" + context : "",
         "Usuario: " + text
       ].filter(Boolean).join("\n\n");
       try {
-        const execution = await executeConversationWithFallback(step, prompt, conversationId);
+        const execution = await executeConversationWithFallback(step, prompt, conversationId, visual_context);
         const result=execution.result;
         const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
         if (!content) throw new Error("empty_conversation_response");
+        await persistConversationMessage(user.id,conversationId,"assistant",content,[{type:"text",text:content}],trace,"success",execution.route.provider_id,execution.route.model_id,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
         return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count }, trace_id: trace });
       } catch (e) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502);
       }
     }
-    if (req.method === "POST" && path.endsWith("/missions")) { const body = await req.json().catch(() => null); const goal = typeof body?.goal === "string" ? body.goal.trim() : ""; if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400); const direct = await internal(DIRECT, { goal, mission_id: typeof body?.missionId === "string" ? body.missionId : undefined, metadata: { source_application: "aria-app-v1", user_id: user.id, goal_source: "user" }, "x-aria-user-id": user.id }); if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status); return json({ ok: true, ...direct.b, trace_id: trace }); }
+    if (req.method === "POST" && path.endsWith("/missions")) {
+      const body = await req.json().catch(() => null);
+      const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
+      if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400);
+      const project = normalizeProjectContext(body);
+      const visual_context = normalizeVisualContext(body);
+      const direct = await internal(DIRECT, {
+        goal,
+        mission_id: typeof body?.missionId === "string" ? body.missionId : undefined,
+        metadata: {
+          source_application: "aria-app-v1",
+          user_id: user.id,
+          goal_source: "user",
+          project_id: project?.id ?? null,
+          project_name: project?.name ?? null,
+          project_context: project?.context ?? null,
+          visual_context,
+        },
+        "x-aria-user-id": user.id
+      });
+      if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status);
+      return json({ ok: true, ...direct.b, trace_id: trace });
+    }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
       const mission=await missionForUser(missionId,user.id);

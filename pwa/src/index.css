@@ -79,3 +79,43 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .markdownBody code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.markdownBody blockquote{margin:8px 0;padding:8px 12px;border-left:3px solid var(--violet);background:rgba(159,124,255,.06);color:#c8bfd4}
 .markdownHeading{font-weight:950;margin:6px 0 8px;line-height:1.25}.markdownH1{font-size:1.45em}.markdownH2{font-size:1.3em}.markdownH3{font-size:1.16em}.markdownH4,.markdownH5,.markdownH6{font-size:1.02em}
 .markdownListItem{margin:2px 0 2px 8px}.markdownSpacer{height:5px}.markdownBody hr{border:0;border-top:1px solid var(--line);margin:10px 0}.missionAnswer .markdownBody{margin-top:9px}
+
+
+/* ARIA Project Workspaces / ARTIA */
+.statButton{width:100%;text-align:left;cursor:pointer}
+.projectShell{max-width:1240px}
+.projectGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.projectCard{display:flex;align-items:center;gap:12px;text-align:left;padding:15px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#191328,#120e1c);color:var(--text)}
+.projectCard.selected{border-color:#7658df;box-shadow:0 0 0 1px rgba(159,124,255,.15),0 12px 40px rgba(84,60,160,.15)}
+.projectCard:hover{border-color:#56466f}
+.projectCard small{display:block;color:var(--muted);line-height:1.4;margin-top:3px}
+.projectIcon{font-size:30px;width:44px;text-align:center}
+.projectHero{display:flex;justify-content:space-between;gap:16px;align-items:center}
+.projectActions{display:flex;gap:8px;flex-wrap:wrap}
+.projectChatWindow{min-height:420px}
+.projectBubbleText{margin:0;white-space:pre-wrap;font:inherit;line-height:1.5}
+.projectMissionRow{display:flex;width:100%;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;background:none;border:0;border-top:1px solid rgba(255,255,255,.06);color:var(--text);text-align:left}
+.projectMissionRow:first-child{border-top:0}
+.projectMissionRow strong{display:block}
+.projectMissionRow small{display:block;color:var(--muted);margin-top:4px}
+.missionCreateRow{display:flex;gap:8px;align-items:flex-end;margin:10px 0}
+.missionCreateRow textarea{flex:1;min-height:58px;border-radius:14px;border:1px solid var(--line);background:#0f0c18;color:#fff;padding:12px;resize:vertical}
+.visualBoardPanel{padding:18px}
+.drawToolbar{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:12px 0}
+.toolButton{border:1px solid var(--line);border-radius:11px;background:#171122;color:var(--text);padding:8px 10px;font-size:11px;font-weight:800}
+.toolButton.selected{background:#5d45d1;border-color:#7256eb}
+.drawToolbar label{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:11px;padding:0 4px}
+.drawToolbar input[type=color]{width:32px;height:28px;border:0;padding:0;background:transparent}
+.drawToolbar input[type=range]{width:95px}
+.canvasWrap{width:100%;overflow:auto;border:1px solid var(--line);border-radius:17px;background:#0e0b17;touch-action:none}
+.canvasWrap canvas{display:block;width:100%;min-width:560px;cursor:crosshair;touch-action:none}
+.visualInstruction{width:100%;margin-top:10px;min-height:78px;resize:vertical;border:1px solid var(--line);border-radius:14px;background:#0f0c18;color:#fff;padding:12px}
+.visualHint{margin-top:6px}
+.humanSummaryGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.humanSummaryGrid p{margin:5px 0 0;color:#c5bdcf;line-height:1.55}
+.technicalDetails{margin-top:12px}
+.technicalDetails summary{cursor:pointer;color:#bfb5d0;font-weight:800}
+@media(max-width:850px){.projectGrid{grid-template-columns:1fr}.projectHero{flex-direction:column;align-items:flex-start}.missionCreateRow{flex-direction:column;align-items:stretch}.humanSummaryGrid{grid-template-columns:1fr}}
+
+.fileButton{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:11px;background:#171122;color:var(--text);padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer}
+.fileButton:hover{border-color:#7658df}
