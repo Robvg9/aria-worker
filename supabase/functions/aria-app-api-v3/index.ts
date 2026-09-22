@@ -54,6 +54,18 @@ async function requireUser(token: string) {
   return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
 }
 async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
+async function persistConversationMessage(userId:string,conversationId:string,role:"user"|"assistant"|"system",content:string,parts:any[],traceId:string,visualState:string|null,providerId:string|null,modelId:string|null,title:string,project:any){
+  const sb=serviceClient();
+  const ensured=await sb.rpc("aria_app_ensure_conversation",{p_user_id:userId,p_conversation_id:conversationId,p_title:title});
+  if(ensured.error)throw new Error("conversation_persist_ensure_failed");
+  if(project){
+    const {error}=await sb.schema("aria_app").from("conversations").update({metadata:{project_id:project.id,project_name:project.name,project_icon:project.icon,project_context:project.context}}).eq("conversation_id",conversationId).eq("owner_user_id",userId);
+    if(error)throw new Error("conversation_project_metadata_failed");
+  }
+  const saved=await sb.rpc("aria_app_save_message",{p_user_id:userId,p_conversation_id:conversationId,p_role:role,p_content:content,p_parts:parts??[],p_trace_id:traceId,p_visual_state:visualState,p_provider_id:providerId,p_model_id:modelId});
+  if(saved.error)throw new Error("conversation_persist_message_failed");
+}
+
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
 let conversationRouteCache:{expiresAt:number;routes:any[]}|null=null;
@@ -413,6 +425,25 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/projects")) {
       return json({ ok: true, projects: PROJECTS, trace_id: trace });
     }
+    if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/conversation")) {
+      const projectId=decodeURIComponent(path.split("/projects/")[1].replace(/\/conversation$/,"")).toLowerCase();
+      const project=getProject(projectId);
+      if(!project)return json({error:"project_not_found",trace_id:trace_id},404);
+      const sb=serviceClient();
+      let {data:row,error}=await sb.schema("aria_app").from("conversations").select("conversation_id,metadata,updated_at,last_message_at").eq("owner_user_id",user.id).eq("metadata->>project_id",project.id).order("updated_at",{ascending:false}).limit(1).maybeSingle();
+      if(error) return json({error:"project_conversation_lookup_failed",detail:error.message,trace_id:trace},502);
+      if(!row){
+        const id=crypto.randomUUID();
+        const ensured=await sb.rpc("aria_app_ensure_conversation",{p_user_id:user.id,p_conversation_id:id,p_title:project.name+" · Chat"});
+        if(ensured.error)return json({error:"project_conversation_create_failed",trace_id:trace},502);
+        const {error:metaError}=await sb.schema("aria_app").from("conversations").update({metadata:{project_id:project.id,project_name:project.name,project_icon:project.icon,project_context:project.context}}).eq("conversation_id",id).eq("owner_user_id",user.id);
+        if(metaError)return json({error:"project_conversation_metadata_failed",trace_id:trace},502);
+        row={conversation_id:id,metadata:{project_id:project.id,project_name:project.name},updated_at:null,last_message_at:null};
+      }
+      const payload=await sb.rpc("aria_app_get_conversation",{p_user_id:user.id,p_conversation_id:row.conversation_id});
+      if(payload.error)return json({error:"project_conversation_read_failed",trace_id:trace},502);
+      return json({ok:true,project,conversation_id:row.conversation_id,conversation:payload.data,trace_id:trace});
+    }
     if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/missions")) {
       const partsPath = path.split("/projects/")[1].replace(/\/missions$/, "");
       const projectId = decodeURIComponent(partsPath).toLowerCase();
@@ -447,6 +478,10 @@ Deno.serve(async (req) => {
       const attachments = normalizeAttachments(parts);
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
       const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
+      const project = normalizeProjectContext(body);
+      const visual_context = normalizeVisualContext(body);
+      const attachments = normalizeAttachments(parts);
+      try { await persistConversationMessage(user.id,conversationId,"user",text,parts,trace,null,null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project); } catch(e) { return json({error:"conversation_persist_failed",stage:"persistence",detail:String((e as any)?.message??e),trace_id:trace},502); }
 
       if (looksLikeMissionRequest(text)) {
         const direct = await internal(DIRECT, {
@@ -464,6 +499,11 @@ Deno.serve(async (req) => {
             execution_requested: true,
             conversation_id: conversationId,
             chat_handoff: "canonical-direct-v1",
+            project_id: project?.id ?? null,
+            project_name: project?.name ?? null,
+            project_context: project?.context ?? null,
+            visual_context,
+            attachments,
           },
           "x-aria-user-id": user.id,
         });
@@ -485,6 +525,8 @@ Deno.serve(async (req) => {
             trace_id: trace
           }, 502);
         }
+        const ackText="Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación.";
+        await persistConversationMessage(user.id,conversationId,"assistant",ackText,[{type:"text",text:ackText}],trace,"mission_queued",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
         return json({
           ok: true,
           conversationId,
@@ -492,7 +534,7 @@ Deno.serve(async (req) => {
           mission,
           parts: [{
             type: "text",
-            text: "Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación."
+            text: ackText
           }],
           cognitive: {
             recall_count: 0,
@@ -533,6 +575,7 @@ Deno.serve(async (req) => {
         const result=execution.result;
         const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
         if (!content) throw new Error("empty_conversation_response");
+        await persistConversationMessage(user.id,conversationId,"assistant",content,[{type:"text",text:content}],trace,"success",execution.route.provider_id,execution.route.model_id,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
         return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count }, trace_id: trace });
       } catch (e) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502);
