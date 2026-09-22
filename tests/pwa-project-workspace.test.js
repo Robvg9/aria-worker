@@ -27,7 +27,7 @@ assert.match(runner,/explicitlyUnverified/);
 assert.match(runner,/verification_failed/);
 assert.match(runner,/__aria_verified_by_runner/);
 assert.match(css,/visualBoardPanel/);
-assert.match(project,/Cargar captura\/base/);
+assert.match(project,/Cargar imagen/);
 assert.match(project,/conversationId/);
 assert.match(project,/\/projects\/.*conversation/);
 assert.match(project,/Cargar captura\/base/);
