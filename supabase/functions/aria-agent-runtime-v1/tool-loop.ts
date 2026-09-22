@@ -31,10 +31,17 @@ async function resolveToolRoutes(agent: any) {
 
   const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
   const preferredIsFreeOpenRouter = preferredProvider === "openrouter" && preferred.endsWith(":free");
+  const recoveryFreeOnly = preferredProvider === "openrouter" && (
+    agent?.agent?.metadata?.free_route === true
+    || agent?.agent_metadata?.free_route === true
+    || String(agent?.agent?.agent_id || agent?.agent_id || "").includes("-openrouter-")
+  );
   if (preferred.startsWith("openrouter/")) push("openrouter",preferred);
   else if (preferredIsFreeOpenRouter) push("openrouter",preferred);
 
-  const { data: googleModels } = await internal.from("model_registry")
+  const { data: googleModels } = recoveryFreeOnly
+    ? { data: [] as any[] }
+    : await internal.from("model_registry")
     .select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
   const googleCandidates = (googleModels ?? [])
     .map((x:any)=>String(x.model_id))
