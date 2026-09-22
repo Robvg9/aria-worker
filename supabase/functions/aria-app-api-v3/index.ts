@@ -88,19 +88,28 @@ async function conversationRoutes() {
   return routes;
 }
 
-async function execute(step: any, prompt: string, conversationId: string) {
+async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
-  const x = await internal(EXEC, { execution_version: "1", request_id: conversationId + ":" + crypto.randomUUID(), task_id: "conversation:" + conversationId, capability: "text_generation", selected_route: { status: "selected", provider_id: target.provider_id, account_id: target.account_id, model_id: target.model_id, capability: "text_generation" }, authorization: { status: "approved", risk_class: "READ", evidence_ref: "aria-app-api-v3" }, input: { payload: { prompt, max_tokens: 512, temperature: 0.3 } }, policy: {}, metadata: { conversation_id: conversationId, source_application: "aria-app-v1", executor_type: "model", multimodal: false } });
-  if (!x.r.ok || x.b?.status !== "succeeded") throw new Error("executor_http_" + x.r.status + "_" + (x.b?.error?.code ?? x.b?.reason ?? "execution_failed"));
+  let payload:any={prompt,max_tokens:512,temperature:0.3};
+  let multimodal=false;
+  if(visualContext?.image_path && target.provider_id==="google"){
+    const signed=await serviceClient().storage.from(MEDIA_BUCKET).createSignedUrl(String(visualContext.image_path),600);
+    if(signed.error||!signed.data?.signedUrl) throw new Error("visual_signed_url_failed");
+    payload={contents:[{role:"user",parts:[{text:prompt},{fileData:{mimeType:String(visualContext.mime_type||"image/png"),fileUri:signed.data.signedUrl}}]}],generationConfig:{maxOutputTokens:512,temperature:0.3}};
+    multimodal=true;
+  }
+  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}});
+  if(!x.r.ok||x.b?.status!=="succeeded") throw new Error("executor_http_"+x.r.status+"_"+(x.b?.error?.code??x.b?.reason??"execution_failed"));
   return x.b;
 }
 
-async function executeConversationWithFallback(step:any, prompt:string, conversationId:string) {
+function isTransientModelFailure(error:any){const value=String(error instanceof Error?error.message:error||"").toLowerCase();return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502/.test(value);}
+async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null) {
   const failures:any[]=[];
   if(step?.target){
     try{
-      const result=await execute(step,prompt,conversationId);
+      const result=await execute(step,prompt,conversationId,visualContext);
       return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
     }catch(error){
       failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
@@ -111,16 +120,17 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   const seen=new Set<string>();
   if(step?.target) seen.add(String(step.target.provider_id)+"|"+String(step.target.account_id)+"|"+String(step.target.model_id));
 
-  for(const route of routes.slice(0,4)){
+  for(const route of routes.slice(0,2)){
     const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
     if(seen.has(key)) continue;
     seen.add(key);
     try{
       const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
-      const result=await execute(candidate,prompt,conversationId);
+      const result=await execute(candidate,prompt,conversationId,visualContext);
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
       failures.push({provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,error:String(error instanceof Error?error.message:error)});
+      if(!isTransientModelFailure(error)) break;
     }
   }
 
@@ -394,6 +404,13 @@ async function markMeditationNotificationsReadForUser(userId:string,body:any){
 async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);if(controller?.owner_user_id&&controller.owner_user_id!==userId)return{version:"aria-meditation-dashboard-v1",mode:"stopped",controller:null,active_mission:null,missions:[],human_gates:[],blocked:[],counts:{missions:0,human_gates:0,blocked:0}};const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at").order("created_at",{ascending:false}).limit(5000);if(me)throw new Error(me.message);const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(controller?.session_id&&md.meditation_session_id===controller.session_id)});const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||`Misión #${owned.length-i}`),description:String(m?.goal||"")}));const missions=await Promise.all(ranked.slice(0,30).map((m:any)=>enrichMission(m,sb)));const active=missions.find(m=>['running','queued','planning','paused','waiting'].includes(String(m.status)))??null;const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:[m.block_details?.remediation||"Revisa el motivo indicado.",m.block_details?.next_action||m.next_action||"Determina qué recurso o autorización falta.","ARIA intentará una estrategia alternativa cuando exista una ruta gobernada disponible."],updated_at:m.updated_at}));const verification_pending=missions.filter(m=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,...(m.block_details||{}),step:m.steps.find((s:any)=>String(s.id)===String(m?.checkpoint?.recovery?.failed_step_id||""))??null,updated_at:m.updated_at}));return{version:"aria-meditation-dashboard-v2",mode:String(controller?.desired_mode??"stopped"),controller,active_mission:active,missions,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:missions.length,human_gates:gates.length,blocked:blocked.length,verification_pending:verification_pending.length}};
 }
 
+function looksLikeSimpleConversation(input:string) {
+  const value=String(input||"").trim();
+  if(!value || value.length>360) return false;
+  if(/\b(analiza|compara|planifica|diseña|programa|c[oó]digo|debug|revisa|audita|investiga|pasos|paso|arquitectura|implementa|configura|misión|misi[oó]n)\b/i.test(value)) return false;
+  return true;
+}
+
 function looksLikeMissionRequest(input: string) {
   const value = String(input || "").trim();
   if (!value) return false;
@@ -478,9 +495,6 @@ Deno.serve(async (req) => {
       const attachments = normalizeAttachments(parts);
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
       const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
-      const project = normalizeProjectContext(body);
-      const visual_context = normalizeVisualContext(body);
-      const attachments = normalizeAttachments(parts);
       try { await persistConversationMessage(user.id,conversationId,"user",text,parts,trace,null,null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project); } catch(e) { return json({error:"conversation_persist_failed",stage:"persistence",detail:String((e as any)?.message??e),trace_id:trace},502); }
 
       if (looksLikeMissionRequest(text)) {
@@ -499,11 +513,6 @@ Deno.serve(async (req) => {
             execution_requested: true,
             conversation_id: conversationId,
             chat_handoff: "canonical-direct-v1",
-            project_id: project?.id ?? null,
-            project_name: project?.name ?? null,
-            project_context: project?.context ?? null,
-            visual_context,
-            attachments,
           },
           "x-aria-user-id": user.id,
         });
@@ -550,10 +559,16 @@ Deno.serve(async (req) => {
 
       const memory = await recall(text,user.id);
       let step: any;
-      try {
-        step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, project, visual_context, attachments });
-      } catch (e) {
-        return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
+      if (looksLikeSimpleConversation(text)) {
+        const routes=await conversationRoutes();
+        if(routes[0]) step={target:{type:"model",provider_id:routes[0].provider_id,account_id:routes[0].account_id,model_id:routes[0].model_id}};
+      }
+      if (!step?.target) {
+        try {
+          step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, project, visual_context, attachments });
+        } catch (e) {
+          return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
+        }
       }
       const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
       const live = await liveAssistantContext(user.id).catch(() => null);
@@ -571,7 +586,7 @@ Deno.serve(async (req) => {
         "Usuario: " + text
       ].filter(Boolean).join("\n\n");
       try {
-        const execution = await executeConversationWithFallback(step, prompt, conversationId);
+        const execution = await executeConversationWithFallback(step, prompt, conversationId, visual_context);
         const result=execution.result;
         const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
         if (!content) throw new Error("empty_conversation_response");
