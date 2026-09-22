@@ -15,7 +15,10 @@ assert.match(activity, /if \(::runner\.isInitialized\)/, 'Android onResume must 
 assert.match(html, /id='aria-boot'/, 'PWA must include a visible boot surface');
 assert.match(html, /ariaMounted/, 'PWA must expose mounted state');
 assert.match(html, /RECARGAR/, 'PWA boot failure must offer recovery');
+assert.match(html, /position:fixed;inset:0;z-index:9999/, 'PWA boot surface must stay visually above the app during startup/error');
 assert.match(main, /BootErrorBoundary/, 'PWA must catch React render errors');
+assert.match(main, /BootReady/, 'PWA must signal boot readiness from a mounted React component');
+assert.match(main, /useEffect\(\(\) => \{\s*\(window as any\).__ariaBootReady\?\./, 'PWA must dismiss the boot surface only after React commit');
 assert.match(main, /__ariaBootReady/, 'PWA must dismiss the boot surface after mounting');
 
 console.log('ARIA BLANK-SCREEN STARTUP RESILIENCE: PASS');

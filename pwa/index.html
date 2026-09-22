@@ -11,7 +11,7 @@
   <title>ARIA — Centro de Mando</title>
   <style>
     html,body{margin:0;min-height:100%;background:#09070f;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-    #aria-boot{min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;text-align:center}
+    #aria-boot{position:fixed;inset:0;z-index:9999;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;text-align:center;background:#09070f}
     #aria-boot .card{width:min(560px,100%);padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#120e1d;box-shadow:0 24px 90px rgba(0,0,0,.4)}
     #aria-boot .mark{font-size:34px;font-weight:900;margin-bottom:8px}
     #aria-boot .title{font-size:24px;font-weight:850}
@@ -26,7 +26,7 @@
     <div class='card'>
       <div class='mark'>ARIA</div>
       <div class='title'>Iniciando Centro de Mando…</div>
-      <div class='detail'>Cargando la interfaz y verificando la versión LIVE.</div>
+      <div class='detail'>Cargando la interfaz y verificando la versión LIVE. Si algo falla, ARIA mostrará el diagnóstico en esta misma pantalla.</div>
     </div>
   </div>
   <script>
