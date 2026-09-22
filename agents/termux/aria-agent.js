@@ -100,14 +100,19 @@ async function heartbeat() {
   catch(error){ console.error(`[heartbeat] ${error.message}`); }
 }
 async function claimAndExecute() {
+  let activeJob = null;
+  let jobStarted = false;
+  const jobStartedAt = Date.now();
   try {
     const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
     if(!body?.job)return;
     const job=body.job;
+    activeJob = job;
     if(job.device_id!==DEVICE_ID)throw new Error('gateway returned job for another device');
     if(!['shell.execute','android.notification','computer.use.android'].includes(job.operation))throw new Error(`unsupported operation: ${job.operation}`);
     log(`JOB RECEIVED id=${job.job_id} operation=${job.operation}`);
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
+    jobStarted = true;
     log(`JOB START id=${job.job_id}`);
     let result;
     if (job.operation === 'android.notification') {
@@ -148,7 +153,31 @@ async function claimAndExecute() {
     if(safeStderr)log(`STDERR ${JSON.stringify(safeStderr)}`);
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})});
     log(`JOB ACK id=${job.job_id} status=${result.status}`);
-  }catch(error){console.error(`[job] ${error.message}`)}
+  }catch(error){
+    console.error(`[job] ${error.message}`);
+    if(!activeJob?.job_id || !jobStarted)return;
+    const message=String(error?.message||error).slice(-4096);
+    const status=/timeout|timed out/i.test(message)?'timeout':'failed';
+    try{
+      await api(`/v1/jobs/${encodeURIComponent(activeJob.job_id)}/result`,{
+        method:'POST',
+        body:JSON.stringify({
+          device_id:DEVICE_ID,
+          result:{
+            status,
+            exit_code:1,
+            stdout:'',
+            stderr:message,
+            duration_ms:Date.now()-jobStartedAt,
+            metadata:{agent_error:true,error_phase:'claim_and_execute'}
+          }
+        })
+      });
+      log(`JOB ERROR ACK id=${activeJob.job_id} status=${status}`);
+    }catch(resultError){
+      console.error(`[job-result] ${resultError?.message||resultError}`);
+    }
+  }
 }
 let stopping=false;
 async function loop(){while(!stopping){await claimAndExecute();await new Promise(r=>setTimeout(r,POLL_MS));}}
