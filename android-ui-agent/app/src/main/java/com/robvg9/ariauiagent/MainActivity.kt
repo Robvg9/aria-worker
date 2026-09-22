@@ -64,10 +64,6 @@ class MainActivity : AppCompatActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        store = LocalMissionStore(applicationContext)
-        runner = LocalMissionRunner(store) { mission ->
-            runOnUiThread { render(mission) }
-        }
 
         val scroll = ScrollView(this)
         contentRoot = LinearLayout(this).apply {
@@ -212,12 +208,23 @@ class MainActivity : AppCompatActivity() {
 
         applySystemBarInsets(scroll, contentRoot)
 
-        val recovered = runner.recover()
-        if (recovered != null) {
-            appendLog("recover → state=${recovered.state} err=${recovered.lastError ?: "-"}")
-            render(recovered)
-        } else {
-            render(LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
+        // Mount the visible UI before touching durable state or the accessibility runtime.
+        // A startup exception must never leave the owner with a silent white screen.
+        try {
+            store = LocalMissionStore(applicationContext)
+            runner = LocalMissionRunner(store) { mission ->
+                runOnUiThread { render(mission) }
+            }
+
+            val recovered = runner.recover()
+            if (recovered != null) {
+                appendLog("recover → state=${recovered.state} err=${recovered.lastError ?: "-"}")
+                render(recovered)
+            } else {
+                render(LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
+            }
+        } catch (error: Throwable) {
+            showStartupFailure(error)
         }
     }
 
@@ -310,7 +317,28 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        render(runner.current() ?: LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
+        if (::runner.isInitialized) {
+            render(runner.current() ?: LocalMission(state = MissionState.IDLE, title = "(sin misión)"))
+        }
+    }
+
+    private fun showStartupFailure(error: Throwable) {
+        val message = error.message?.take(180)?.ifBlank { error::class.java.simpleName }
+            ?: error::class.java.simpleName
+        statusText.text = "ARIA INICIADA — ERROR DE ARRANQUE"
+        missionText.text = "La interfaz local sí está funcionando, pero el motor de misión no pudo inicializarse."
+        actionText.text = "Puedes abrir INFORMACIÓN DE LA APLICACIÓN o ACCESIBILIDAD para corregir permisos y volver a intentar."
+        diagText.visibility = TextView.VISIBLE
+        diagText.text = "DIAGNÓSTICO DE ARRANQUE\n${error::class.java.simpleName}: $message"
+        appendLog("startup_failure → ${error::class.java.simpleName}: $message")
+        btnStart.isEnabled = false
+        btnWaitingObserve.isEnabled = false
+        btnObserveLegacy.isEnabled = false
+        btnProposeDemo.isEnabled = false
+        btnApprove.isEnabled = false
+        btnReject.isEnabled = false
+        btnCancel.isEnabled = false
+        btnClear.isEnabled = false
     }
 
     override fun onDestroy() {
