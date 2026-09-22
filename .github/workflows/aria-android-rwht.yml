@@ -50,6 +50,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
       - name: Android SDK bootstrap
         run: |
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
