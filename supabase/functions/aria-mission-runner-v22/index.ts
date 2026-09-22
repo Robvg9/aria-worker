@@ -1347,7 +1347,7 @@ Deno.serve(async (request) => {
         const failedStepIds = failures.map((item) => String(item.step.id));
         const previousPlan = steps;
         const previousResults = results;
-        const maxReplans = 5;
+        const maxReplans = 8;
         if (replanCount <= maxReplans) {
           const recovery = {
             status: "replan_required",
