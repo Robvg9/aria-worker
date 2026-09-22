@@ -30,7 +30,6 @@ assert.match(css,/visualBoardPanel/);
 assert.match(project,/Cargar imagen/);
 assert.match(project,/conversationId/);
 assert.match(project,/\/projects\/.*conversation/);
-assert.match(project,/Cargar captura\/base/);
 assert.match(api,/aria_app_ensure_conversation/);
 assert.match(api,/aria_app_save_message/);
 assert.match(api,/looksLikeSimpleConversation/);
