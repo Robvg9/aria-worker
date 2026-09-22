@@ -37,7 +37,7 @@ assert.ok(!transport.includes('127.0.0.1:43817'));
 assert.ok(!agent.includes('android-browser-bridge-v1'));
 assert.ok(manifest.includes('android.permission.INTERNET'));
 assert.ok(ipc.includes('127.0.0.1'));
-assert.ok(ipc.includes('/execute'));
+assert.ok(ipc.includes('IpcAuth.PATH'));
 assert.ok(!transport.includes('/system/bin/am broadcast'));
 assert.ok(!manifest.includes('ARIA Browser Bridge'));
 
