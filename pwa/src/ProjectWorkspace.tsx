@@ -123,7 +123,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       const text='Analiza este diseño visual del proyecto '+project.name+'. '+(instruction.trim()||'Usa las anotaciones como instrucciones exactas.')+'\n\nVISUAL_CONTEXT:\n'+visualContext.annotation_summary;
       const activeConversationId=conversationId||crypto.randomUUID();
       if(createMission){onMission({goal:text,visual_context:visualContext});setNotice('Misión preparada con el diseño visual.');}
-      else { await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts:[{type:'text',text},{type:'file',fileId:path,path,mimeType:'image/png',filename:project.id+'-visual.png'}],clientMessageId:crypto.randomUUID(),conversationId:activeConversationId,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});onChat('Diseño visual enviado a ARIA con imagen y mapa estructurado de trazos.');setNotice('Enviado a ARIA.');}
+      else { const response=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts:[{type:'text',text},{type:'file',fileId:path,path,mimeType:'image/png',filename:project.id+'-visual.png'}],clientMessageId:crypto.randomUUID(),conversationId:activeConversationId,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});const reply=response.parts?.find((p:any)=>p.type==='text')?.text||'Diseño visual enviado a ARIA.';onChat(reply);setNotice(response.cognitive?.fallback_count?'Enviado; ARIA usó fallback gobernado.':'Enviado a ARIA.');}
     } catch (e) { setNotice(e instanceof Error?e.message:'No se pudo enviar el diseño.'); }
     finally { setBusy(false); }
   }
