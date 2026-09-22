@@ -955,6 +955,8 @@ function Chat({
       )}
     </main>
   );
+}
+
 function Meditation({ session, onBack, onCapabilities }: { session: Session; onBack: () => void; onCapabilities: () => void }) {
   const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
