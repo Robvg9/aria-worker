@@ -7,6 +7,7 @@ const planner = fs.readFileSync(path.join(root, "supabase/functions/aria-planner
 const appApi = fs.readFileSync(path.join(root, "supabase/functions/aria-app-api-v3/index.ts"), "utf8");
 const runner = fs.readFileSync(path.join(root, "supabase/functions/aria-mission-runner-v22/index.ts"), "utf8");
 const recoveryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20260922133000_mission_verification_recovery_v1.sql"), "utf8");
+const hardBlockRecoveryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20260922143000_mission_hardblock_recovery_epoch_v1.sql"), "utf8");
 const pwa = fs.readFileSync(path.join(root, "pwa/src/App.tsx"), "utf8");
 
 assert.match(planner, /SPANISH_OUTPUT_CONTRACT/);
@@ -60,5 +61,9 @@ assert.match(recoveryMigration, /verification_pending/);
 assert.match(recoveryMigration, /verification_pending_resumed/);
 assert.match(recoveryMigration, /aria_mission_claim_next_lease/);
 assert.match(recoveryMigration, /aria_mission_claim_by_id_lease/);
+assert.match(hardBlockRecoveryMigration, /mission_recovery_epoch/);
+assert.match(hardBlockRecoveryMigration, /aria_reopen_recoverable_hard_blocks/);
+assert.match(hardBlockRecoveryMigration, /hard_block_reopened_after_recovery_epoch/);
+assert.match(runner, /aria_internal\.aria_reopen_recoverable_hard_blocks/);
 
 console.log("mission-correctness-v1: PASS");

@@ -998,6 +998,7 @@ Deno.serve(async (request) => {
 
   try {
     let staleRecovery: { status: "ok" | "deferred"; reason?: string } = { status: "ok" };
+    let hardBlockRecovery = 0;
     try {
       await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
     } catch (recoveryError) {
@@ -1009,10 +1010,24 @@ Deno.serve(async (request) => {
       }
     }
 
+    try {
+      const reopened = await rpc("aria_internal.aria_reopen_recoverable_hard_blocks", { p_limit: 20 });
+      hardBlockRecovery = Number(reopened || 0);
+      if (hardBlockRecovery > 0 && requestedMissionId) {
+        await emitEvent(String(requestedMissionId), "hard_blocks_reopened", {
+          reopened: hardBlockRecovery,
+          recovery_epoch: "advanced",
+          reason: "new governed recovery capability",
+        }).catch(() => undefined);
+      }
+    } catch {
+      hardBlockRecovery = 0;
+    }
+
     const mission = requestedMissionId
       ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
       : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
-    if (!mission) return out({ ok: true, status: "idle", runtime: V });
+    if (!mission) return out({ ok: true, status: "idle", runtime: V, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });
 
     const missionId = String(mission.mission_id);
     activeMissionId = missionId;
