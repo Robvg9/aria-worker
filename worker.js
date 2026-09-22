@@ -126,6 +126,9 @@ export default {async scheduled(_controller,env,ctx){ctx.waitUntil(runScheduledM
 const rootPwaAsset=/^\/(assets\/|icons\/|sw-[^/]+\.js$)|^\/manifest\.json$/.test(url.pathname);
 if(rootPwaAsset){
   if(request.method!=="GET"&&request.method!=="HEAD")return new Response("Method Not Allowed",{status:405});
+  if(/^\/sw-[^/]+\.js$/.test(url.pathname)){
+    return Response.redirect(new URL("/pwa"+url.pathname,request.url).toString(),302);
+  }
   const assetResponse=await env.ARIA_PWA_ASSETS.fetch(request);
   const headers=new Headers(assetResponse.headers);
   headers.set("cache-control","public, max-age=31536000, immutable");
