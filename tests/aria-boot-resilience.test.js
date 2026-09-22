@@ -22,3 +22,6 @@ assert.match(main, /useEffect\(\(\) => \{\s*\(window as any\).__ariaBootReady\?\
 assert.match(main, /__ariaBootReady/, 'PWA must dismiss the boot surface after mounting');
 
 console.log('ARIA BLANK-SCREEN STARTUP RESILIENCE: PASS');
+
+const boundaryOrder = main.indexOf('<BootErrorBoundary>') < main.indexOf('<BootReady>') && main.indexOf('<BootReady>') < main.indexOf('<App />');
+assert.equal(boundaryOrder, true, 'PWA error boundary must wrap BootReady so startup errors keep the recovery surface visible');
