@@ -40,4 +40,10 @@ assert.match(project, /project_id/, 'Project context must be attached to chat/mi
 assert.match(project, /annotation_summary/, 'Structured visual annotations must be persisted/forwarded.');
 assert.match(project, /<canvas/, 'ARTIA must render a real canvas surface.');
 
+assert.doesNotMatch(
+  app,
+  /onTouchStart=\{onTouchStart\}|onTouchEnd=\{onTouchEnd\}/,
+  'PWA must not reference removed undefined touch handlers.'
+);
+
 console.log('pwa-rwht-surface-contract PASS');

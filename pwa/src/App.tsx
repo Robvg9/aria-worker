@@ -864,7 +864,7 @@ function Chat({
   }
 
   return (
-    <main className='appShell pwaShell' onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <main className='appShell pwaShell'>
       <header className='topBar'>
         <div className='brandLine'>
           <div className='brandOrb'>A</div>
