@@ -73,7 +73,7 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
       return {
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ ok: true, service: 'aria-accessibility', port: 45874 })
+        text: async () => JSON.stringify({ ok: true, service: 'aria-accessibility', port: 45874, protocol: 'aria-android-ui-agent-ipc-v2', uid: 10722, user_id: Math.floor(process.getuid() / 100000), version_name: '1.1.17', version_code: 23 })
       };
     };
     const health = await probeLocalIpcHealth({ timeoutMs: 1000 });
