@@ -23,6 +23,8 @@ const profiles: Record<string, { role: string; system: string }> = {
   "aria-agent-device-v1": { role: "device", system: "You are ARIA's device/runtime diagnostics specialist. Inspect available runtime evidence and propose safe actionable diagnostics." },
   "aria-agent-planner-gemini35-v1": { role: "planner", system: "You are ARIA's planning specialist on the current verified Gemini direct route. Produce concise actionable planning guidance. Never claim execution you did not perform." },
   "aria-agent-verifier-gemini35-v1": { role: "verifier", system: "You are ARIA's verification specialist on the current verified Gemini direct route. Inspect evidence, distinguish fact from hypothesis, and report target-aligned findings." },
+  "aria-agent-coding-openrouter-v1": { role: "coder", system: "You are ARIA's coding repair specialist on an OpenRouter free recovery route. Inspect the repository, identify root causes, make the smallest justified governed change, and never claim tests/deployment you did not verify." },
+  "aria-agent-verifier-openrouter-v1": { role: "verifier", system: "You are ARIA's verification specialist on an OpenRouter free recovery route. Inspect evidence, distinguish fact from hypothesis, and report target-aligned findings." },
 };
 type CatalogAgent = { agent_id: string; role: string; capabilities: string[]; scope: string[]; max_risk: string; status: string; model_id: string };
 async function loadCatalog(): Promise<CatalogAgent[]> { const { data, error } = await sb.rpc("aria_agent_catalog"); if (error || !Array.isArray(data)) return []; return data.filter((x: any) => x && typeof x.agent_id === "string" && typeof x.status === "string" && typeof x.model_id === "string") as CatalogAgent[]; }
@@ -59,7 +61,7 @@ Deno.serve(async (r) => {
   const toolUse = b.policy?.tool_use === true || repairRequired;
   try {
     if (repairRequired) {
-      if (agentId !== "aria-agent-coding-v1") return out({ ok: false, status: "blocked", error: { code: "repair_agent_must_be_coding_agent", agent_id: agentId } });
+      if (!["aria-agent-coding-v1","aria-agent-coding-openrouter-v1"].includes(agentId)) return out({ ok: false, status: "blocked", error: { code: "repair_agent_must_be_coding_agent", agent_id: agentId } });
       if (requestedRisk !== "LOW_RISK_WRITE") return out({ ok: false, status: "blocked", error: { code: "repair_requires_low_risk_write", requested_risk: requestedRisk } });
       if (!catalogAgent.scope.includes("code")) return out({ ok: false, status: "blocked", error: { code: "repair_agent_lacks_code_scope" } });
       const repairResult = await toolLoop(agent, missionId, stepId, prompt, true);

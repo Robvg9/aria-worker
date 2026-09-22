@@ -149,6 +149,31 @@ function executorType(step: any) {
   return String(step?.executor_type || step?.target?.type || "");
 }
 
+const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
+  "aria-agent-coding-v1": "aria-agent-coding-openrouter-v1",
+  "aria-agent-reviewer-v1": "aria-agent-verifier-openrouter-v1",
+};
+
+function applyRecoveryAgentFallbacks(steps: any[], recovery: any) {
+  if (!recovery?.replan_required) return steps;
+  const failed = new Set((Array.isArray(recovery.failed_step_ids) ? recovery.failed_step_ids : []).map(String));
+  return steps.map((step: any) => {
+    if (!failed.has(String(step?.id)) || executorType(step) !== "agent") return step;
+    const current = String(step?.target?.agent_id || "");
+    const fallback = AGENT_RECOVERY_FALLBACKS[current];
+    if (!fallback) return step;
+    return {
+      ...step,
+      target: { ...(step.target || {}), agent_id: fallback },
+      input: {
+        ...(step.input || {}),
+        recovery_rerouted_from_agent: current,
+        recovery_rerouted: true,
+      },
+    };
+  });
+}
+
 function validateStep(step: any) {
   const type = executorType(step);
   if (!["connector", "device", "model", "agent", "eas"].includes(type)) {
@@ -1033,6 +1058,7 @@ Deno.serve(async (request) => {
       }
     }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
+    steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
     for (const step of steps) validateStep(step);
 
     const completed = new Set<string>(Array.isArray(mission.checkpoint?.completed_steps) ? mission.checkpoint.completed_steps.map(String) : []);

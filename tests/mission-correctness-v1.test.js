@@ -40,6 +40,10 @@ assert.match(runner, /retry_exhausted_strategy/);
 assert.match(runner, /replan_count/);
 assert.match(runner, /maxReplans = 5/);
 assert.match(runner, /mission_replanned/);
+assert.match(runner, /AGENT_RECOVERY_FALLBACKS/);
+assert.match(runner, /aria-agent-coding-openrouter-v1/);
+assert.match(runner, /aria-agent-verifier-openrouter-v1/);
+
 assert.match(runner, /verification:await_ci_or_live_verification/);
 assert.match(appApi, /missionBlockDetails/);
 assert.match(appApi, /verification_pending/);
