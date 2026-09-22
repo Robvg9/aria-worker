@@ -78,8 +78,12 @@ class LocalIpcServer(private val service: AriaAccessibilityService) {
 
     fun healthJson(): String {
         val healthy = isHealthy()
+        val uid = android.os.Process.myUid()
+        val userId = uid / 100000
+        val versionName = runCatching { BuildConfig.VERSION_NAME }.getOrDefault("unknown")
+        val versionCode = runCatching { BuildConfig.VERSION_CODE }.getOrDefault(0)
         val error = lastError?.let { ",\"last_error\":\"$it\"" } ?: ""
-        return """{"ok":$healthy,"service":"aria-accessibility","port":${IpcAuth.PORT}$error}"""
+        return """{"ok":$healthy,"service":"aria-accessibility","port":${IpcAuth.PORT},"protocol":"${IpcAuth.HEALTH_PROTOCOL}","package":"$packageName","uid":$uid,"user_id":$userId,"version_name":"$versionName","version_code":$versionCode$error}"""
     }
 
     @Synchronized
