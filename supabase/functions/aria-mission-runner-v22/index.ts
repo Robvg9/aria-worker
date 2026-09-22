@@ -151,8 +151,9 @@ function executorType(step: any) {
 
 const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
   "aria-agent-coding-v1": "aria-agent-coding-openrouter-v1",
-  "aria-agent-reviewer-v1": "aria-agent-verifier-openrouter-v1",
-  "aria-agent-coding-openrouter-v1": "aria-agent-android-coding-openrouter-v1",
+  "aria-agent-reviewer-v1": "aria-agent-coding-openrouter-v1",
+  "aria-agent-verifier-openrouter-v1": "aria-agent-coding-openrouter-v1",
+  "aria-agent-verifier-gemini35-v1": "aria-agent-coding-openrouter-v1",
 };
 
 function recoveryTargetsAndroid(recovery: any, step: any) {
@@ -872,15 +873,54 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
 }
 
 async function agentExecute(missionId: string, step: any, auth: AuthContext) {
-  const agentId = String(step.target.agent_id);
-  const response = await fetch(AGENT, {
-    method: "POST",
-    headers: downstreamHeaders(auth),
-    body: JSON.stringify({ mission_id: missionId, step_id: String(step.id), agent_id: agentId, operation: String(step.operation || "delegate"), risk: step.risk || "READ", policy: step.policy || {}, input: step.input || {} }),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || body?.status !== "succeeded") throw new Error(String(body?.error?.message || body?.error || `agent_execution_${response.status}`));
-  return { ...body, executor_type: "agent", operation: "delegate", agent_id: body.agent_id || agentId };
+  const originalAgentId = String(step.target.agent_id);
+  const attempted = new Set<string>();
+  let agentId = originalAgentId;
+  const fallbackTrail: string[] = [];
+
+  for (let hop = 0; hop < 3; hop += 1) {
+    attempted.add(agentId);
+    const response = await fetch(AGENT, {
+      method: "POST",
+      headers: downstreamHeaders(auth),
+      body: JSON.stringify({
+        mission_id: missionId,
+        step_id: String(step.id),
+        agent_id: agentId,
+        operation: String(step.operation || "delegate"),
+        risk: step.risk || "READ",
+        policy: step.policy || {},
+        input: step.input || {},
+      }),
+    });
+    const body = await response.json().catch(() => null);
+
+    if (response.ok && body?.status === "succeeded") {
+      return {
+        ...body,
+        executor_type: "agent",
+        operation: "delegate",
+        agent_id: body.agent_id || agentId,
+        recovery_agent_fallback_used: agentId !== originalAgentId,
+        recovery_agent_fallback_from: agentId !== originalAgentId ? originalAgentId : null,
+        recovery_agent_fallback_trail: fallbackTrail,
+      };
+    }
+
+    const providerStatus = Number(body?.error?.provider_status ?? body?.provider_status ?? response.status);
+    const message = String(body?.error?.message || body?.error || `agent_execution_${response.status}`);
+    const retryableQuota = providerStatus === 429 || /quota|rate.?limit|too many requests|resource exhausted/i.test(message);
+
+    if (!retryableQuota) throw new Error(message);
+
+    const fallback = AGENT_RECOVERY_FALLBACKS[agentId];
+    if (!fallback || attempted.has(fallback)) throw new Error(message);
+
+    fallbackTrail.push(agentId + " -> " + fallback);
+    agentId = fallback;
+  }
+
+  throw new Error(`agent_fallback_exhausted:${originalAgentId}`);
 }
 
 async function easGraphQL(query: string, variables: Record<string, unknown> = {}) {
