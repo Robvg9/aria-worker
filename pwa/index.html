@@ -16,7 +16,7 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', function () { window.location.reload(); });
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/sw-%VITE_BUILD%.js', { scope: '/pwa/' }).then(function (registration) { return registration.update(); }).catch(function () {});
+        navigator.serviceWorker.register('/pwa/sw-%VITE_BUILD%.js', { scope: '/pwa/' }).then(function (registration) { return registration.update(); }).catch(function () {});
       });
     }
   </script>
