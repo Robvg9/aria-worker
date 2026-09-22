@@ -283,7 +283,7 @@ function renderInlineMarkdown(value: string) {
     if (/^\x60[\s\S]+\x60$/.test(part)) return <code key={key} className='markdownInlineCode'>{part.slice(1, -1)}</code>;
     const link = part.match(/^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)$/);
     if (link) return <a key={key} href={link[2]} target='_blank' rel='noreferrer'>{renderInlineMarkdown(link[1])}</a>;
-    if (/^\*[\s\S]+\*$/.test(part) || /^_[\s\S]+_$/.test(part)) return <em key={key}>{part.slice(1, -1)}</em>;
+    if (/^\*[\s\S]+\*$/.test(part)) return <strong key={key}>{part.slice(1, -1)}</strong>;\n    if (/^_[\s\S]+_$/.test(part)) return <em key={key}>{part.slice(1, -1)}</em>;
     return <span key={key}>{part}</span>;
   });
 }
