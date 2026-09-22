@@ -428,7 +428,7 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/conversation")) {
       const projectId=decodeURIComponent(path.split("/projects/")[1].replace(/\/conversation$/,"")).toLowerCase();
       const project=getProject(projectId);
-      if(!project)return json({error:"project_not_found",trace_id:trace_id},404);
+      if(!project)return json({error:"project_not_found",trace_id:trace},404);
       const sb=serviceClient();
       let {data:row,error}=await sb.schema("aria_app").from("conversations").select("conversation_id,metadata,updated_at,last_message_at").eq("owner_user_id",user.id).eq("metadata->>project_id",project.id).order("updated_at",{ascending:false}).limit(1).maybeSingle();
       if(error) return json({error:"project_conversation_lookup_failed",detail:error.message,trace_id:trace},502);
