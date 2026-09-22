@@ -14,38 +14,83 @@ import java.util.concurrent.Executors
 
 /** Local authenticated IPC bridge between Termux and the AccessibilityService. */
 class LocalIpcServer(private val service: AriaAccessibilityService) {
-    private val acceptExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val clientExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     @Volatile private var running = false
     @Volatile private var serverSocket: ServerSocket? = null
+    @Volatile private var lastError: String? = null
+    private var acceptExecutor: ExecutorService? = null
+    private var clientExecutor: ExecutorService? = null
 
-    fun start() {
-        if (running) return
-        running = true
-        acceptExecutor.execute {
-            try {
-                ServerSocket().use { server ->
-                    server.reuseAddress = true
-                    server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), IpcAuth.PORT), 8)
-                    serverSocket = server
-                    while (running) {
-                        val socket = try { server.accept() } catch (_: Exception) { break }
-                        clientExecutor.execute { handleClient(socket) }
+    /**
+     * Bind synchronously before returning so onServiceConnected() never advertises
+     * a service that has not actually opened the IPC socket yet.
+     */
+    @Synchronized
+    fun start(): Boolean {
+        if (isHealthy()) return true
+        stop()
+        val server = ServerSocket()
+        return try {
+            server.reuseAddress = true
+            server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), IpcAuth.PORT), 8)
+            serverSocket = server
+            running = true
+            lastError = null
+            acceptExecutor = Executors.newSingleThreadExecutor()
+            clientExecutor = Executors.newSingleThreadExecutor()
+            acceptExecutor?.execute {
+                try {
+                    while (running && !server.isClosed) {
+                        val socket = try {
+                            server.accept()
+                        } catch (_: Exception) {
+                            if (running) {
+                                lastError = "accept_failed"
+                                running = false
+                            }
+                            break
+                        }
+                        clientExecutor?.execute { handleClient(socket) }
+                    }
+                } finally {
+                    if (serverSocket === server) {
+                        serverSocket = null
                     }
                 }
-            } catch (_: Exception) {
-                running = false
-            } finally {
-                serverSocket = null
             }
+            true
+        } catch (e: Exception) {
+            running = false
+            lastError = e.message?.replace(Regex("[^A-Za-z0-9._:-]"), "_")?.take(120) ?: "bind_failed"
+            try { server.close() } catch (_: Exception) {}
+            serverSocket = null
+            acceptExecutor?.shutdownNow()
+            clientExecutor?.shutdownNow()
+            acceptExecutor = null
+            clientExecutor = null
+            false
         }
     }
 
+    fun isHealthy(): Boolean {
+        val server = serverSocket
+        return running && server != null && server.isBound && !server.isClosed
+    }
+
+    fun healthJson(): String {
+        val healthy = isHealthy()
+        val error = lastError?.let { ",\"last_error\":\"$it\"" } ?: ""
+        return """{"ok":$healthy,"service":"aria-accessibility","port":${IpcAuth.PORT}$error}"""
+    }
+
+    @Synchronized
     fun stop() {
         running = false
         try { serverSocket?.close() } catch (_: Exception) {}
-        acceptExecutor.shutdownNow()
-        clientExecutor.shutdownNow()
+        serverSocket = null
+        acceptExecutor?.shutdownNow()
+        clientExecutor?.shutdownNow()
+        acceptExecutor = null
+        clientExecutor = null
     }
 
     private fun handleClient(socket: Socket) {
@@ -89,12 +134,19 @@ class LocalIpcServer(private val service: AriaAccessibilityService) {
                     }
                 }
 
-                if (method != "POST" || path != IpcAuth.PATH) {
-                    writeResponse(socket.getOutputStream(), 404, """{"ok":false,"reason":"route_not_found"}""")
+                val authorized = headers["authorization"] == "Bearer " + IpcAuth.TOKEN
+                if (!authorized) {
+                    writeResponse(socket.getOutputStream(), 401, """{"ok":false,"reason":"unauthorized"}""")
                     return
                 }
-                if (headers["authorization"] != "Bearer " + IpcAuth.TOKEN) {
-                    writeResponse(socket.getOutputStream(), 401, """{"ok":false,"reason":"unauthorized"}""")
+
+                if (method == "GET" && path == IpcAuth.HEALTH_PATH) {
+                    writeResponse(socket.getOutputStream(), 200, healthJson())
+                    return
+                }
+
+                if (method != "POST" || path != IpcAuth.PATH) {
+                    writeResponse(socket.getOutputStream(), 404, """{"ok":false,"reason":"route_not_found"}""")
                     return
                 }
 
