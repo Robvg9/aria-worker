@@ -22,12 +22,14 @@ async function recordDiagnostic(missionId: string, stepId: string, payload: Reco
 
 async function resolveToolRoutes(agent: any) {
   const preferred = String(agent?.model?.model_id ?? agent?.model_id ?? "").trim();
-  const recoveryAgentId = String(agent?.agent?.agent_id ?? agent?.agent_id ?? "");
+  const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
   const recoveryFreeOnly =
-    recoveryAgentId.includes("-openrouter-")
-    || agent?.agent?.metadata?.free_route === true
-    || agent?.agent_metadata?.free_route === true
-    || preferred.endsWith(":free");
+    preferredProvider === "openrouter"
+    && (
+      agent?.agent?.metadata?.free_route === true
+      || agent?.agent_metadata?.free_route === true
+      || preferred.endsWith(":free")
+    );
   const routes:any[] = [];
   const seen=new Set<string>();
   const push=(provider:string,model:string)=>{
@@ -35,7 +37,6 @@ async function resolveToolRoutes(agent: any) {
     if(model&& !seen.has(key)){seen.add(key);routes.push({provider,model});}
   };
 
-  const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
   const preferredIsFreeOpenRouter = preferredProvider === "openrouter" && preferred.endsWith(":free");
   const providerLock = agent?.agent?.metadata?.provider_lock === true
     || agent?.agent_metadata?.provider_lock === true
