@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/',
+  base: '/pwa/',
   build: {
     outDir: process.env.APPDEPLOY_VITE_OUT_DIR || 'dist',
     sourcemap:
