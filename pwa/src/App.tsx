@@ -387,7 +387,7 @@ function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <div className='eyebrow'>DIRECT ARIA · {BUILD}</div>
         <h1>Tu centro de mando cognitivo.</h1>
         <p>Conversación, misiones, modelos, agentes, dispositivos y Meditación IA en una sola interfaz.</p>
-        <input aria-label='Correo' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo' autoComplete='username' />
+        <input aria-label='Correo' type='email' inputMode='email' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo electrónico' autoComplete='username' />
         <input aria-label='Contraseña' type='password' value={password} onChange={e => setPassword(e.target.value)} placeholder='Contraseña' autoComplete='current-password' />
         {error && <div className='errorBox'>{error}</div>}
         <button className='primary wide' disabled={busy}>{busy ? 'ENTRANDO…' : 'ENTRAR EN ARIA'}</button>
@@ -443,6 +443,7 @@ function CapabilityCenter({
         <div><div className='eyebrow'>ARIA / UNIVERSO</div><h1>Centro de capacidades</h1><div className='sub'>Inventario real, estado operativo y rutas gobernadas. Sin secretos.</div></div>
         <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='primary' onClick={onMission}>Nueva misión</button></div>
       </header>
+      <div className='pageBodyViewport capabilitiesViewport'>
       <section className='panel'>
         <div className='capHero'>
           <div className='heroOrb smallOrb'>ARIA</div>
@@ -481,7 +482,7 @@ function CapabilityCenter({
   );
 }
 
-function MissionDetail({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
+function MissionDetail\n      </div>({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
@@ -1075,6 +1076,7 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
         <div><div className='eyebrow'>ARIA / CONTINUIDAD</div><h1>MEDITACIÓN IA</h1><div className='sub'>Ejecución autónoma, verificación y Human Gates</div></div>
         <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='ghost' onClick={onCapabilities}>Capacidades</button></div>
       </header>
+      <div className='pageBodyViewport meditationViewport'>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{o?.mode ? statusLabel(String(o.mode)) : 'Sincronizando…'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy} onClick={() => control('stop')}>Detener</button></div></section>
       {error && <div className='errorBox'>{error}</div>}
       <section className='statsGrid'><StatCard value={o?.counts?.missions ?? 0} label='Misiones visibles' /><StatCard value={o?.counts?.human_gates ?? 0} label='Human Gates' /><StatCard value={o?.counts?.blocked ?? 0} label='Bloqueadas' /><StatCard value={caps?.summary.executors ?? 0} label='Executors' /></section>
@@ -1084,6 +1086,7 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
       <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
       <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{r.goal}</strong><small>{statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small></div><span>›</span></button>)}</section>
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
+      </div>
     </main>
   );
 }
