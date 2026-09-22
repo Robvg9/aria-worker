@@ -1015,6 +1015,115 @@ Deno.serve(async (request) => {
     const results: Record<string, unknown> = mission.checkpoint?.results && typeof mission.checkpoint.results === "object" ? { ...mission.checkpoint.results } : {};
     const pendingJobs: Record<string, unknown> = mission.checkpoint?.pending_jobs && typeof mission.checkpoint.pending_jobs === "object" ? { ...mission.checkpoint.pending_jobs } : {};
 
+    if (mission?.checkpoint?.recovery?.status === "verification_pending" && mission?.checkpoint?.recovery?.failed_step_id) {
+      const pendingStepId = String(mission.checkpoint.recovery.failed_step_id);
+      const pendingStep = steps.find((step: any) => String(step.id) === pendingStepId);
+      if (pendingStep) {
+        const pendingResult = results[pendingStepId];
+        const verification = await verifyPendingMutation(missionId, pendingStep, pendingResult, auth);
+        if (verification.status === "verified" && verification.result) {
+          results[pendingStepId] = verification.result;
+          completed.add(pendingStepId);
+          await emitEvent(missionId, "step_succeeded", {
+            step_id: pendingStepId,
+            executor_type: executorType(pendingStep),
+            operation: pendingStep.operation,
+            verified: true,
+            verification_source: verification.result.__aria_verification_evidence?.source || "external_verifier",
+          });
+          await updateMission(missionId, {
+            status: "running",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal",
+            checkpoint: {
+              ...(mission.checkpoint || {}),
+              plan: steps,
+              completed_steps: [...completed],
+              attempts,
+              results,
+              pending_jobs: pendingJobs,
+              recovery: { status: "clear", recovered_from: "verification_pending" },
+            },
+            lease_owner: V,
+            lease_until: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          });
+        } else if (verification.status === "waiting") {
+          await updateMission(missionId, {
+            status: "waiting",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: verification.details?.next_action || "verification:retry_external_check",
+            last_stderr: verification.reason,
+            checkpoint: {
+              ...(mission.checkpoint || {}),
+              plan: steps,
+              completed_steps: [...completed],
+              attempts,
+              results,
+              pending_jobs: pendingJobs,
+              recovery: {
+                status: "verification_pending",
+                failed_step_id: pendingStepId,
+                verification_status: "awaiting_external_evidence",
+                block_details: verification.details,
+              },
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: pendingStepId, recovery: verification.details });
+        } else if (verification.status === "replan") {
+          const recovery = {
+            status: "replan_required",
+            replan_required: true,
+            failed_step_ids: [pendingStepId],
+            failure_reason: verification.reason,
+            block_details: verification.details,
+            previous_plan: steps,
+            previous_results: results,
+          };
+          await updateMission(missionId, {
+            status: "queued",
+            current_step: 0,
+            completed_steps: 0,
+            next_action: "replan: alternative recovery strategy required",
+            last_stderr: verification.reason,
+            checkpoint: { ...(mission.checkpoint || {}), recovery },
+            lease_owner: null,
+            lease_until: null,
+          });
+          return out({ ok: true, status: "replanned", mission_id: missionId, runtime: V, next_action: "replan: alternative recovery strategy required", recovery });
+        } else {
+          const details = verification.details || {
+            kind: "hard_block",
+            recoverable: false,
+            reason: verification.reason,
+            next_action: "manual: inspect mission evidence and choose a new governed strategy",
+            remediation: "Revisar la evidencia de la misión y definir una nueva estrategia gobernada.",
+          };
+          await updateMission(missionId, {
+            status: "blocked",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: details.next_action || "manual: inspect mission evidence",
+            last_stderr: verification.reason,
+            checkpoint: {
+              ...(mission.checkpoint || {}),
+              plan: steps,
+              completed_steps: [...completed],
+              attempts,
+              results,
+              recovery: { status: "hard_block", failed_step_id: pendingStepId, block_details: details },
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V, completed_steps: completed.size, blocked_step_id: pendingStepId, reason: verification.reason, block_details: details });
+        }
+      }
+    }
+
     await updateMission(missionId, {
       status: "running",
       total_steps: steps.length,
@@ -1078,7 +1187,10 @@ Deno.serve(async (request) => {
       }));
 
       const waiting = outcomes.find((item) => item.waiting);
-      for (const outcome of outcomes) if (outcome.passed) completed.add(String(outcome.step.id));
+      for (const outcome of outcomes) {
+        if (outcome.passed) completed.add(String(outcome.step.id));
+        else results[String(outcome.step.id)] = outcome.result;
+      }
 
       const checkpoint = {
         ...(mission.checkpoint || {}),
@@ -1109,18 +1221,32 @@ Deno.serve(async (request) => {
       if (failures.length) {
         const verificationWait = failures.find((item) => verificationPending(item.step, item.result));
         if (verificationWait) {
-          const blockedStepId = String(verificationWait.step.id);
+          const pendingStepId = String(verificationWait.step.id);
+          const details = {
+            kind: "verification_pending",
+            recoverable: true,
+            reason: "ARIA ya ejecutó el cambio; ahora necesita evidencia externa (PR/CI/deploy) para certificarlo.",
+            next_action: "verification:await_ci_or_live_verification",
+            remediation: "No repetir la modificación mientras la verificación está pendiente; el verificador retomará la misión automáticamente.",
+            evidence: {
+              step_id: pendingStepId,
+              verification_status: String(verificationWait.result?.repair?.verification_status || verificationWait.result?.verification_status || "awaiting_verification"),
+              pr_number: verificationWait.result?.repair?.pr?.number ?? verificationWait.result?.pr?.number ?? null,
+            },
+          };
           await updateMission(missionId, {
-            status: "blocked",
+            status: "waiting",
             current_step: completed.size,
             completed_steps: completed.size,
-            next_action: "verification:awaiting_ci_or_live_verification",
+            next_action: details.next_action,
+            last_stderr: "verification_pending",
             checkpoint: {
               ...checkpoint,
               recovery: {
                 status: "verification_pending",
-                failed_step_id: blockedStepId,
-                verification_status: String(verificationWait.result?.repair?.verification_status || verificationWait.result?.verification_status || "awaiting_verification"),
+                failed_step_id: pendingStepId,
+                verification_status: details.evidence.verification_status,
+                block_details: details,
               },
             },
             lease_owner: null,
@@ -1128,12 +1254,12 @@ Deno.serve(async (request) => {
           });
           return out({
             ok: true,
-            status: "blocked",
+            status: "waiting",
             mission_id: missionId,
             runtime: V,
             completed_steps: completed.size,
-            blocked_step_id: blockedStepId,
-            reason: "verification_pending",
+            pending_step: pendingStepId,
+            recovery: details,
           });
         }
 
