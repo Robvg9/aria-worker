@@ -478,6 +478,7 @@ function CapabilityCenter({
           </>
         )}
       </section>
+      </div>
     </main>
   );
 }
