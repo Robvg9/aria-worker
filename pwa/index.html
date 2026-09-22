@@ -9,14 +9,60 @@
   <link rel='manifest' href='/manifest.json' />
   <link rel='icon' href='/icons/aria.svg' type='image/svg+xml' />
   <title>ARIA — Centro de Mando</title>
+  <style>
+    html,body{margin:0;min-height:100%;background:#09070f;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+    #aria-boot{min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;text-align:center}
+    #aria-boot .card{width:min(560px,100%);padding:28px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:#120e1d;box-shadow:0 24px 90px rgba(0,0,0,.4)}
+    #aria-boot .mark{font-size:34px;font-weight:900;margin-bottom:8px}
+    #aria-boot .title{font-size:24px;font-weight:850}
+    #aria-boot .detail{margin-top:10px;color:#b9afc8;line-height:1.5}
+    #aria-boot button{margin-top:16px;border:1px solid rgba(255,255,255,.18);border-radius:12px;background:#5d45d1;color:#fff;padding:11px 15px;font-weight:800}
+    #aria-boot[data-state='ready']{display:none}
+  </style>
 </head>
 <body>
   <div id='root'></div>
+  <div id='aria-boot' aria-live='polite'>
+    <div class='card'>
+      <div class='mark'>ARIA</div>
+      <div class='title'>Iniciando Centro de Mando…</div>
+      <div class='detail'>Cargando la interfaz y verificando la versión LIVE.</div>
+    </div>
+  </div>
   <script>
+    (function(){
+      var boot=document.getElementById('aria-boot');
+      var timer=window.setTimeout(function(){
+        if(!document.documentElement.dataset.ariaMounted) showBootError('ARIA no pudo iniciar','La aplicación no terminó de cargar la interfaz. Pulsa RECARGAR para intentarlo otra vez.');
+      },8000);
+      function showBootError(title,detail){
+        if(!boot)return;
+        boot.dataset.state='error';
+        boot.innerHTML="<div class='card'><div class='mark'>ARIA</div><div class='title'>"+title+"</div><div class='detail'>"+detail+"</div><button type='button' onclick='location.reload()'>RECARGAR</button></div>";
+      }
+      window.__ariaBootReady=function(){
+        window.clearTimeout(timer);
+        document.documentElement.dataset.ariaMounted='true';
+        if(boot)boot.dataset.state='ready';
+      };
+      window.addEventListener('error',function(event){
+        if(document.documentElement.dataset.ariaMounted)return;
+        var detail=(event && (event.message || (event.error && event.error.message))) || 'Error de arranque del cliente.';
+        showBootError('Error al iniciar ARIA',detail);
+      });
+      window.addEventListener('unhandledrejection',function(event){
+        if(document.documentElement.dataset.ariaMounted)return;
+        var reason=event && event.reason;
+        var detail=reason && reason.message ? reason.message : String(reason || 'Error asíncrono de arranque.');
+        showBootError('Error al iniciar ARIA',detail);
+      });
+    })();
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', function () { window.location.reload(); });
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/pwa/sw-%VITE_BUILD%.js', { scope: '/pwa/' }).then(function (registration) { return registration.update(); }).catch(function () {});
+        navigator.serviceWorker.register('/pwa/sw-%VITE_BUILD%.js', { scope: '/pwa/' }).then(function (registration) { return registration.update(); }).catch(function (error) {
+          window.dispatchEvent(new ErrorEvent('error',{message:'No se pudo registrar el Service Worker de ARIA: '+(error && error.message ? error.message : 'error desconocido')}));
+        });
       });
     }
   </script>
