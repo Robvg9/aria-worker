@@ -12,6 +12,38 @@ const DEVICE_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-device-gateway`;
 const MEDIA_BUCKET = "aria-app-media";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
+const PROJECTS = Object.freeze([
+  { id: "battlecruiser", name: "BattleCruiser", icon: "🏴‍☠️", context: "BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio." },
+  { id: "cuevacoin", name: "CuevaCoin", icon: "🪙", context: "CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados." },
+  { id: "aria", name: "ARIA", icon: "🧠", context: "ARIA es el sistema cognitivo operativo. Usa estado LIVE, main y evidencia persistida como fuentes prioritarias." },
+] as const);
+function getProject(value: unknown) {
+  const id = String(value ?? "").trim().toLowerCase();
+  return PROJECTS.find((p) => p.id === id) ?? null;
+}
+function normalizeProjectContext(body: any) {
+  const project = getProject(body?.project_id ?? body?.project?.id);
+  if (!project) return null;
+  return { id: project.id, name: project.name, icon: project.icon, context: project.context };
+}
+function normalizeVisualContext(body: any) {
+  const raw = body?.visual_context;
+  if (!raw || typeof raw !== "object") return null;
+  const instruction = typeof raw.instruction === "string" ? raw.instruction.slice(0, 4000) : "";
+  const annotation_summary = typeof raw.annotation_summary === "string" ? raw.annotation_summary.slice(0, 12000) : "";
+  const image_path = typeof raw.image_path === "string" ? raw.image_path.slice(0, 500) : null;
+  const mime_type = typeof raw.mime_type === "string" ? raw.mime_type.slice(0, 100) : null;
+  if (!instruction && !annotation_summary && !image_path) return null;
+  return { instruction, annotation_summary, image_path, mime_type };
+}
+function normalizeAttachments(parts: any[]) {
+  return parts.filter((p: any) => p?.type === "file").slice(0, 3).map((p: any) => ({
+    path: typeof p.path === "string" ? p.path.slice(0, 500) : null,
+    mimeType: typeof p.mimeType === "string" ? p.mimeType.slice(0, 100) : null,
+    filename: typeof p.filename === "string" ? p.filename.slice(0, 200) : null,
+  }));
+}
+
 const bearer = (req: Request) => { const value = req.headers.get("authorization") ?? ""; return value.startsWith("Bearer ") ? value.slice(7).trim() : ""; };
 function serviceClient() { if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error("service_role_not_configured"); return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } }); }
 async function requireUser(token: string) {
@@ -108,7 +140,8 @@ async function enrichMission(m:any, sb:any) {
   const dw=steps.filter(s=>s.status==="succeeded"||s.status==="skipped").reduce((a,s)=>a+s.weight,0);
   const progress=tw?Math.max(0,Math.min(100,Math.round(dw/tw*1000)/10)):(m.total_steps?Math.round((m.completed_steps||0)/m.total_steps*1000)/10:0);
   const eta=await etaFor(sb,steps);
-  return { ...m, progress_percent:progress, step_count:steps.length, steps, eta, terminal:terminal.has(String(m.status)), phase:missionPhase(m), block_details: missionBlockDetails(m) };
+  const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
+  return { ...m, project_id: md.project_id ?? null, project_name: md.project_name ?? null, progress_percent:progress, step_count:steps.length, steps, eta, terminal:terminal.has(String(m.status)), phase:missionPhase(m), block_details: missionBlockDetails(m) };
 }
 
 async function missionForUser(missionId: string, userId: string) {
@@ -377,6 +410,28 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
     if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }
     if (req.method === "GET" && path.endsWith("/capabilities")) return json({ ok: true, capabilities: await capabilityCatalog(user.id), trace_id: trace });
+    if (req.method === "GET" && path.endsWith("/projects")) {
+      return json({ ok: true, projects: PROJECTS, trace_id: trace });
+    }
+    if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/missions")) {
+      const partsPath = path.split("/projects/")[1].replace(/\/missions$/, "");
+      const projectId = decodeURIComponent(partsPath).toLowerCase();
+      const project = getProject(projectId);
+      if (!project) return json({ error: "project_not_found", trace_id: trace }, 404);
+      const url = new URL(req.url);
+      const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 100)));
+      const sb = serviceClient();
+      const { data, error } = await sb.schema("aria_internal").from("mission_state")
+        .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
+        .order("created_at", { ascending: false }).limit(1000);
+      if (error) return json({ error: "project_missions_failed", detail: error.message, trace_id: trace }, 502);
+      const owned = (data ?? []).filter((m:any) => {
+        const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
+        return (md.user_id === user.id || md.owner_user_id === user.id) && String(md.project_id || "").toLowerCase() === project.id;
+      });
+      const missions = await Promise.all(owned.slice(0, limit).map((m:any) => enrichMission(m, sb)));
+      return json({ ok: true, project: project, missions, queue: "canonical", trace_id: trace });
+    }
     if (req.method === "GET" && path.endsWith("/meditation/status")) return json({ ok: true, ...await meditationStatus(user.id), trace_id: trace });
     if (req.method === "POST" && path.endsWith("/meditation/control")) { const body = await req.json().catch(() => null); const controller = await meditationControl(user.id, String(body?.action || "").toLowerCase()); return json({ ok: true, controller, trace_id: trace }); }
     if (req.method === "GET" && path.endsWith("/meditation/overview")) return json({ ok: true, ...(await meditationOverview(user.id)), trace_id: trace });
@@ -387,6 +442,9 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       const parts = Array.isArray(body?.parts) ? body.parts : [];
       const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n");
+      const project = normalizeProjectContext(body);
+      const visual_context = normalizeVisualContext(body);
+      const attachments = normalizeAttachments(parts);
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
       const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
 
@@ -397,6 +455,11 @@ Deno.serve(async (req) => {
           metadata: {
             source_application: "aria-pwa-chat",
             user_id: user.id,
+            project_id: project?.id ?? null,
+            project_name: project?.name ?? null,
+            project_context: project?.context ?? null,
+            visual_context,
+            attachments,
             goal_source: "chat",
             execution_requested: true,
             conversation_id: conversationId,
@@ -446,7 +509,7 @@ Deno.serve(async (req) => {
       const memory = await recall(text,user.id);
       let step: any;
       try {
-        step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0 });
+        step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, project, visual_context, attachments });
       } catch (e) {
         return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
       }
@@ -459,6 +522,9 @@ Deno.serve(async (req) => {
         "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto LIVE demuestra lo contrario.",
         "No inventes acciones ejecutadas. Distingue siempre entre en cola, ejecutando, bloqueada, completada o fallida.",
         liveText,
+        project ? "Proyecto activo: " + JSON.stringify(project) : "",
+        visual_context ? "Diseño visual y anotaciones: " + JSON.stringify(visual_context) : "",
+        attachments.length ? "Adjuntos de esta conversación: " + JSON.stringify(attachments) : "",
         context ? "Memoria contextual autorizada:\n" + context : "",
         "Usuario: " + text
       ].filter(Boolean).join("\n\n");
@@ -472,7 +538,29 @@ Deno.serve(async (req) => {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502);
       }
     }
-    if (req.method === "POST" && path.endsWith("/missions")) { const body = await req.json().catch(() => null); const goal = typeof body?.goal === "string" ? body.goal.trim() : ""; if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400); const direct = await internal(DIRECT, { goal, mission_id: typeof body?.missionId === "string" ? body.missionId : undefined, metadata: { source_application: "aria-app-v1", user_id: user.id, goal_source: "user" }, "x-aria-user-id": user.id }); if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status); return json({ ok: true, ...direct.b, trace_id: trace }); }
+    if (req.method === "POST" && path.endsWith("/missions")) {
+      const body = await req.json().catch(() => null);
+      const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
+      if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400);
+      const project = normalizeProjectContext(body);
+      const visual_context = normalizeVisualContext(body);
+      const direct = await internal(DIRECT, {
+        goal,
+        mission_id: typeof body?.missionId === "string" ? body.missionId : undefined,
+        metadata: {
+          source_application: "aria-app-v1",
+          user_id: user.id,
+          goal_source: "user",
+          project_id: project?.id ?? null,
+          project_name: project?.name ?? null,
+          project_context: project?.context ?? null,
+          visual_context,
+        },
+        "x-aria-user-id": user.id
+      });
+      if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status);
+      return json({ ok: true, ...direct.b, trace_id: trace });
+    }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
       const mission=await missionForUser(missionId,user.id);
