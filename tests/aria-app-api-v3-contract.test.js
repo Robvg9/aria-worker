@@ -52,7 +52,8 @@ assertContains(appApi,'target?.model_id','conversation model id validation missi
 assertContains(appApi,'conversation_model_execution_failed','conversation failure boundary missing');
 assertContains(appApi,'conversationRoutes','conversation route catalog missing');
 assertContains(appApi,'executeConversationWithFallback','conversation fallback boundary missing');
-assertContains(appApi,'input: { payload: { prompt','conversation payload must use canonical prompt input');
+assertContains(appApi,'input:{payload}','conversation execution payload wrapper missing');
+assertContains(appApi,'prompt,max_tokens:512,temperature:0.3','conversation payload must include canonical prompt parameters');
 assertContains(appApi,'/v1/meditation/tick-service','Meditation activation must trigger the canonical cloud tick');
 assertContains(planner,'aria-planner-v11-runtime-probe-v1','runtime probe planner branch missing');
 assertContains(planner,'aria-planner-v11-safe-readonly-fallback-v3-multistep','generic mission planner must use the governed multi-step read-only fallback');
