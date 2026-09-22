@@ -7,6 +7,17 @@ const IPC_TOKEN = '4fa3c34b8093d0ac3633fd58ade90bc224827f2a7b21cf29f26931c637e34
 const LOCAL_IPC_URL = 'http://127.0.0.1:45874/execute';
 const LOCAL_IPC_HEALTH_URL = 'http://127.0.0.1:45874/health';
 const SECRET_REF_PATTERN = /^secret:\/\/rwht\/[A-Za-z0-9._:-]+$/;
+const REQUIRED_IPC_PROTOCOL = 'aria-android-ui-agent-ipc-v2';
+const ANDROID_UID_PER_USER = 100000;
+
+function localAndroidUserId() {
+  try {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+    return Number.isInteger(uid) ? Math.floor(uid / ANDROID_UID_PER_USER) : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -36,11 +47,51 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
         metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEALTH_URL }
       };
     }
+    if (payload.protocol !== REQUIRED_IPC_PROTOCOL) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_protocol_mismatch',
+        status: response.status,
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_HEALTH_URL,
+          expected_protocol: REQUIRED_IPC_PROTOCOL,
+          actual_protocol: payload.protocol || null,
+          version_name: payload.version_name || null,
+          version_code: payload.version_code || null
+        }
+      };
+    }
+    const localUserId = localAndroidUserId();
+    const remoteUserId = Number.isInteger(Number(payload.user_id)) ? Number(payload.user_id) : null;
+    if (localUserId !== null && remoteUserId !== null && localUserId !== remoteUserId) {
+      return {
+        ok: false,
+        reason: 'android_local_ipc_profile_mismatch',
+        status: response.status,
+        metadata: {
+          transport: 'android-local-http',
+          url: LOCAL_IPC_HEALTH_URL,
+          local_user_id: localUserId,
+          remote_user_id: remoteUserId,
+          remote_uid: Number.isInteger(Number(payload.uid)) ? Number(payload.uid) : null,
+          version_name: payload.version_name || null,
+          version_code: payload.version_code || null
+        }
+      };
+    }
     return {
       ok: true,
       status: response.status,
       payload,
-      metadata: { transport: 'android-local-http', url: LOCAL_IPC_HEALTH_URL }
+      metadata: {
+        transport: 'android-local-http',
+        url: LOCAL_IPC_HEALTH_URL,
+        local_user_id: localUserId,
+        remote_user_id: remoteUserId,
+        version_name: payload.version_name || null,
+        version_code: payload.version_code || null
+      }
     };
   } catch (error) {
     return {
