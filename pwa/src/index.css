@@ -108,7 +108,7 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .drawToolbar input[type=color]{width:32px;height:28px;border:0;padding:0;background:transparent}
 .drawToolbar input[type=range]{width:95px}
 .canvasWrap{width:100%;overflow:auto;border:1px solid var(--line);border-radius:17px;background:#0e0b17;touch-action:none}
-.canvasWrap canvas{display:block;width:100%;min-width:560px;cursor:crosshair;touch-action:none}
+.canvasWrap canvas{display:block;width:100%;min-width:0;cursor:crosshair;touch-action:none}
 .visualInstruction{width:100%;margin-top:10px;min-height:78px;resize:vertical;border:1px solid var(--line);border-radius:14px;background:#0f0c18;color:#fff;padding:12px}
 .visualHint{margin-top:6px}
 .humanSummaryGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
