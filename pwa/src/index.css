@@ -166,7 +166,7 @@ button{touch-action:manipulation;}
 @media(max-width:700px){
   .desktopOnly{display:none !important;}
   .appShell{padding:10px 10px calc(74px + env(safe-area-inset-bottom));}
-  .pwaShell{padding-bottom:0;}
+  .pwaShell{padding-bottom:calc(74px + env(safe-area-inset-bottom));}
   .topBar{gap:8px;}
   .topBar h1{font-size:20px;}
   .topBar .sub{font-size:10px;}
