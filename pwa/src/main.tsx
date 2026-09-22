@@ -45,11 +45,11 @@ if (!rootElement) {
 try {
   createRoot(rootElement).render(
     <StrictMode>
-      <BootReady>
-        <BootErrorBoundary>
+      <BootErrorBoundary>
+        <BootReady>
           <App />
-        </BootErrorBoundary>
-      </BootReady>
+        </BootReady>
+      </BootErrorBoundary>
     </StrictMode>
   );
 } catch (error) {
