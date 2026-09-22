@@ -34,7 +34,8 @@ if (!workflow.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js')) th
 console.log('PWA AUTH/NETWORK/IMMUTABLE SHELL CONTRACT: PASS');
 if (!worker.includes('PWA_BUILD')) throw new Error('PWA build identity missing in worker');
 if (!worker.includes('/version.json')) throw new Error('PWA version endpoint missing');
-if (!worker.includes('cache:isShell?"no-store":"default"')) throw new Error('PWA shell cache boundary missing');
+if (!worker.includes('...(isShell?{cache:"no-store"}:{})')) throw new Error('PWA shell cache boundary missing');
+if (worker.includes('cache:isShell?"no-store":"default"')) throw new Error('PWA assets must not use unsupported cache mode default');
 if (!app.includes("fetch('/pwa/version.json?ts='")) throw new Error('PWA stale-build self check missing');
 if (!fs.readFileSync('pwa/public/sw.js', 'utf8').includes("if (!url.pathname.startsWith('/pwa/')) return;")) throw new Error('service worker scope guard missing');
 console.log('PWA UPDATE RESILIENCE CONTRACT: PASS');
