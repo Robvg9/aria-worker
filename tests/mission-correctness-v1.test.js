@@ -38,13 +38,15 @@ assert.match(runner, /paths: input\.paths/);
 assert.match(runner, /verifyPendingMutation/);
 assert.match(runner, /retry_exhausted_strategy/);
 assert.match(runner, /replan_count/);
-assert.match(runner, /maxReplans = 8/);
+assert.match(runner, /maxReplans = 12/);
 assert.match(runner, /mission_replanned/);
 assert.match(runner, /AGENT_RECOVERY_FALLBACKS/);
 assert.match(runner, /aria-agent-coding-openrouter-v1/);
 assert.match(runner, /aria-agent-verifier-openrouter-v1/);
 assert.match(runner, /aria-agent-android-coding-openrouter-v1/);
 assert.match(runner, /recoveryTargetsAndroid/);
+assert.match(runner, /const androidRecovery/);
+assert.match(runner, /shouldRoute/);
 assert.match(runner, /android-ui-agent/);
 
 assert.match(runner, /verification:await_ci_or_live_verification/);
