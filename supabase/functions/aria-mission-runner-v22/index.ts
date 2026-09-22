@@ -214,6 +214,9 @@ function verificationPending(step: any, result: any) {
 }
 
 function verifyStep(step: any, result: any) {
+  if (result?.__aria_verified_by_runner === true && result?.__aria_verification_evidence?.verified === true) {
+    return true;
+  }
   if (!(result?.status === "succeeded" || result?.ok === true)) return false;
   if (result?.error) return false;
   if (explicitlyUnverified(step, result)) return false;
@@ -305,8 +308,8 @@ async function deviceExecute(missionId: string, step: any) {
 async function githubExecute(step: any, token: string | null) {
   const operation = String(step.operation || "");
   const input = step.input && typeof step.input === "object" ? step.input : {};
-  const readOps = new Set(["repo_read", "file_read"]);
-  const writeOps = new Set(["create_branch", "file_write", "open_pr"]);
+  const readOps = new Set(["repo_read", "file_read", "pr_find", "pr_read", "pr_checks", "main_workflow_runs"]);
+  const writeOps = new Set(["create_branch", "file_write", "open_pr", "pr_merge"]);
   if (!readOps.has(operation) && !writeOps.has(operation)) {
     throw new Error(`github_operation_not_allowed:${operation}`);
   }
@@ -352,6 +355,335 @@ async function connectorExecute(missionId: string, step: any, token: string | nu
   if (connector === "bitrise") return bitriseExecute(rpc, step);
   if (connector === "github") return githubExecute(step, token);
   throw new Error(`connector_operation_not_allowed:${connector}:${operation}`);
+}
+
+async function latestVerificationEvidence(missionId: string, stepId: string, result: any) {
+  if (result?.repair?.pr || result?.pr || result?.verification_evidence) return result;
+  const { data, error } = await sb.schema("aria_internal").from("mission_events")
+    .select("payload,created_at")
+    .eq("mission_id", missionId)
+    .in("event_type", ["agent_executor_diagnostic", "step_succeeded", "step_failed"])
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) return result;
+  for (const event of data || []) {
+    const payload = event?.payload && typeof event.payload === "object" ? event.payload : {};
+    if (String(payload?.step_id || "") !== stepId) continue;
+    if (payload?.repair?.pr || payload?.pr || payload?.verification_evidence) return payload;
+  }
+  return result;
+}
+
+function verificationPaths(step: any, evidence: any) {
+  const writes = evidence?.repair?.writes;
+  const paths = Array.isArray(writes)
+    ? writes.map((x: any) => String(x?.path || "")).filter(Boolean)
+    : [];
+  return paths.length ? paths : [String(step?.input?.path || "")].filter(Boolean);
+}
+
+function pendingVerificationResult(step: any, evidence: any) {
+  const repair = evidence?.repair && typeof evidence.repair === "object" ? evidence.repair : {};
+  const pr = repair?.pr ?? evidence?.pr ?? null;
+  const branch = String(repair?.branch || pr?.head_ref || evidence?.branch || "");
+  const number = Number(pr?.number || 0);
+  const policy = step?.policy && typeof step.policy === "object" ? step.policy : {};
+  return {
+    pr,
+    branch,
+    number: Number.isInteger(number) && number > 0 ? number : null,
+    policy,
+    paths: verificationPaths(step, evidence),
+  };
+}
+
+async function verifyPendingMutation(missionId: string, step: any, result: any, auth: AuthContext) {
+  const evidence = await latestVerificationEvidence(missionId, String(step.id), result);
+  const pending = pendingVerificationResult(step, evidence);
+  if (!pending.number && !pending.branch) {
+    return {
+      status: "blocked" as const,
+      reason: "verification_evidence_missing",
+      details: {
+        kind: "verification_evidence_missing",
+        recoverable: true,
+        reason: "ARIA ejecutó el cambio, pero no conservó una referencia verificable del cambio para completar la comprobación.",
+        next_action: "replan: reconstruct verification evidence",
+        remediation: "Reconstruir la evidencia del cambio (rama/PR/commit) y volver a ejecutar la verificación gobernada.",
+        evidence: { step_id: String(step.id) },
+      },
+    };
+  }
+
+  let prData: any = null;
+  let prNumber = pending.number;
+  if (!prNumber && pending.branch) {
+    try {
+      const found = await githubExecute({
+        operation: "pr_find",
+        risk: "READ",
+        target: { connector_id: "github" },
+        input: { owner: "Robvg9", repo: String(step?.input?.repo || "aria-worker"), branch: pending.branch, base: "main", state: "all" },
+        authorization: { status: "approved", risk_class: "READ", evidence_ref: "mission:" + missionId },
+      }, null);
+      prNumber = Number(found?.data?.items?.find((x: any) => ["open", "closed"].includes(String(x?.state)))?.number || 0) || null;
+    } catch {}
+  }
+
+  if (!prNumber) {
+    return {
+      status: "blocked" as const,
+      reason: "verification_pr_not_found",
+      details: {
+        kind: "verification_pr_not_found",
+        recoverable: true,
+        reason: "ARIA hizo el cambio pero todavía no encuentra la PR gobernada que debe certificarlo.",
+        next_action: "replan: locate or recreate governed PR",
+        remediation: "Localizar o recrear la PR de reparación y reintentar la verificación automática.",
+        evidence: { branch: pending.branch || null, paths: pending.paths },
+      },
+    };
+  }
+
+  try {
+    prData = await githubExecute({
+      operation: "pr_read",
+      risk: "READ",
+      target: { connector_id: "github" },
+      input: { owner: "Robvg9", repo: String(step?.input?.repo || "aria-worker"), number: prNumber },
+      authorization: { status: "approved", risk_class: "READ", evidence_ref: "mission:" + missionId },
+    }, null);
+  } catch (e) {
+    return {
+      status: "waiting" as const,
+      reason: "verification_transport_unavailable",
+      details: {
+        kind: "verification_pending",
+        recoverable: true,
+        reason: "La referencia de cambio existe, pero el verificador GitHub no respondió todavía.",
+        next_action: "verification:retry_external_check",
+        remediation: "Esperar la próxima pasada automática del verificador; no repetir la modificación.",
+        evidence: { pr_number: prNumber, error: e instanceof Error ? e.message : String(e) },
+      },
+    };
+  }
+
+  const pr = prData?.data || {};
+  if (pr.merged === true) {
+    const mergeSha = String(pr.merge_commit_sha || "");
+    if (!mergeSha) {
+      return {
+        status: "waiting" as const,
+        reason: "verification_merge_commit_pending",
+        details: {
+          kind: "verification_pending",
+          recoverable: true,
+          reason: "La PR aparece fusionada, pero GitHub todavía no entregó el commit de merge necesario para validar main.",
+          next_action: "verification:retry_external_check",
+          remediation: "Repetir la verificación automática sin volver a ejecutar el cambio.",
+          evidence: { pr_number: prNumber, head_sha: pr.head_sha || null },
+        },
+      };
+    }
+    let mainRuns: any;
+    try {
+      mainRuns = await githubExecute({
+        operation: "main_workflow_runs",
+        risk: "READ",
+        target: { connector_id: "github" },
+        input: { owner: "Robvg9", repo: String(step?.input?.repo || "aria-worker"), commit_sha: mergeSha },
+        authorization: { status: "approved", risk_class: "READ", evidence_ref: "mission:" + missionId },
+      }, null);
+    } catch (e) {
+      return {
+        status: "waiting" as const,
+        reason: "verification_transport_unavailable",
+        details: {
+          kind: "verification_pending",
+          recoverable: true,
+          reason: "La PR ya está fusionada, pero falta comprobar los workflows del commit de main.",
+          next_action: "verification:retry_main_workflows",
+          remediation: "Esperar la siguiente comprobación automática del commit fusionado.",
+          evidence: { pr_number: prNumber, merge_sha: mergeSha, error: e instanceof Error ? e.message : String(e) },
+        },
+      };
+    }
+    const md = mainRuns?.data || {};
+    if (Number(md.failed || 0) > 0) {
+      return {
+        status: "replan" as const,
+        reason: "main_verification_failed",
+        details: {
+          kind: "verification_failed",
+          recoverable: true,
+          reason: "La PR se fusionó, pero la certificación del commit de main encontró workflows fallidos.",
+          next_action: "replan: repair failed main verification",
+          remediation: "Analizar los workflows fallidos y generar una estrategia nueva; no repetir automáticamente el mismo cambio.",
+          evidence: { pr_number: prNumber, merge_sha: mergeSha, failed: md.failed, runs: md.runs || [] },
+        },
+      };
+    }
+    if (Number(md.pending || 0) > 0 || Number(md.total || 0) === 0) {
+      return {
+        status: "waiting" as const,
+        reason: "main_verification_pending",
+        details: {
+          kind: "verification_pending",
+          recoverable: true,
+          reason: "La PR ya está fusionada; ARIA espera la certificación del commit de main.",
+          next_action: "verification:await_main_workflows",
+          remediation: "Esperar los workflows del commit fusionado y volver a verificar automáticamente.",
+          evidence: { pr_number: prNumber, merge_sha: mergeSha, pending: md.pending, total: md.total },
+        },
+      };
+    }
+    if (md.all_passed === true) {
+      const verifiedResult = {
+        ...(evidence || result || {}),
+        __aria_verified_by_runner: true,
+        __aria_verification_evidence: {
+          verified: true,
+          source: "github_pr_and_main_workflows",
+          pr_number: prNumber,
+          merge_sha: mergeSha,
+          checked_at: new Date().toISOString(),
+        },
+        repair: {
+          ...(evidence?.repair || result?.repair || {}),
+          verified: true,
+          verification_status: "verified",
+        },
+      };
+      return { status: "verified" as const, result: verifiedResult };
+    }
+  }
+
+  if (String(pr.state || "") === "closed" && pr.merged !== true) {
+    return {
+      status: "replan" as const,
+      reason: "verification_pr_closed_without_merge",
+      details: {
+        kind: "verification_failed",
+        recoverable: true,
+        reason: "La PR de reparación se cerró sin merge. La misma estrategia ya no debe repetirse.",
+        next_action: "replan: create a different repair strategy",
+        remediation: "Crear una nueva estrategia de reparación con la evidencia de esta tentativa.",
+        evidence: { pr_number: prNumber, head_sha: pr.head_sha || null, state: pr.state },
+      },
+    };
+  }
+
+  let checks: any;
+  try {
+    checks = await githubExecute({
+      operation: "pr_checks",
+      risk: "READ",
+      target: { connector_id: "github" },
+      input: { owner: "Robvg9", repo: String(step?.input?.repo || "aria-worker"), number: prNumber, paths: pending.paths },
+      authorization: { status: "approved", risk_class: "READ", evidence_ref: "mission:" + missionId },
+    }, null);
+  } catch (e) {
+    return {
+      status: "waiting" as const,
+      reason: "verification_transport_unavailable",
+      details: {
+        kind: "verification_pending",
+        recoverable: true,
+        reason: "La PR existe y está abierta; falta que el verificador pueda leer sus checks.",
+        next_action: "verification:retry_external_check",
+        remediation: "Esperar la siguiente pasada automática del verificador; no repetir la modificación.",
+        evidence: { pr_number: prNumber, error: e instanceof Error ? e.message : String(e) },
+      },
+    };
+  }
+
+  const checkData = checks?.data || {};
+  if (Number(checkData.failed || 0) > 0) {
+    return {
+      status: "replan" as const,
+      reason: "verification_checks_failed",
+      details: {
+        kind: "verification_failed",
+        recoverable: true,
+        reason: "La PR de reparación tiene verificaciones fallidas.",
+        next_action: "replan: repair or replace the failed strategy",
+        remediation: "Usar los checks fallidos como evidencia y generar una estrategia distinta; no repetir la misma operación sin cambios.",
+        evidence: { pr_number: prNumber, runs: checkData.runs || [], failed: checkData.failed },
+      },
+    };
+  }
+
+  if (Number(checkData.pending || 0) > 0 || Number(checkData.relevant_total || 0) === 0) {
+    return {
+      status: "waiting" as const,
+      reason: "verification_checks_pending",
+      details: {
+        kind: "verification_pending",
+        recoverable: true,
+        reason: "La PR existe pero sus verificaciones todavía no han terminado.",
+        next_action: "verification:await_ci_or_live_verification",
+        remediation: "Esperar la próxima pasada automática; no volver a ejecutar la modificación mientras la verificación está pendiente.",
+        evidence: { pr_number: prNumber, pending: checkData.pending, relevant_total: checkData.relevant_total, runs: checkData.runs || [] },
+      },
+    };
+  }
+
+  if (checkData.all_passed === true) {
+    const canAutoMerge =
+      pending.policy?.auto_merge_low_risk === true &&
+      String(step?.risk || "").toUpperCase() === "LOW_RISK_WRITE" &&
+      pending.policy?.production_merge_requires_human_gate !== true;
+    if (!canAutoMerge) {
+      return {
+        status: "waiting" as const,
+        reason: "verification_ready_for_governed_merge",
+        details: {
+          kind: "human_gate",
+          recoverable: true,
+          reason: "La PR ya tiene checks verdes, pero su política requiere la continuación gobernada antes del merge.",
+          next_action: "human_gate:confirm_merge",
+          remediation: "Aprobar el merge mediante el Human Gate correspondiente; no volver a ejecutar el cambio.",
+          evidence: { pr_number: prNumber, runs: checkData.runs || [] },
+        },
+      };
+    }
+    try {
+      const merged = await githubExecute({
+        operation: "pr_merge",
+        risk: "LOW_RISK_WRITE",
+        target: { connector_id: "github" },
+        input: {
+          owner: "Robvg9",
+          repo: String(step?.input?.repo || "aria-worker"),
+          number: prNumber,
+          branch: pending.branch || pr.head_ref || "",
+          base: "main",
+          risk_level: "LOW_RISK_WRITE",
+          auto_merge: true,
+          paths: pending.paths,
+          commit_title: "ARIA: verified governed repair",
+          commit_message: "Merged automatically after governed CI verification.",
+        },
+        authorization: { status: "approved", risk_class: "LOW_RISK_WRITE", evidence_ref: "mission:" + missionId },
+      }, null);
+      if (merged?.data?.merged === true) {
+        return await verifyPendingMutation(missionId, { ...step, policy: { ...(step.policy || {}), post_merge_verification_required: true } }, { ...(evidence || result || {}), repair: { ...(evidence?.repair || result?.repair || {}), pr: { ...(pending.pr || {}), number: prNumber, head_ref: pr.head_ref || pending.branch }, branch: pending.branch || pr.head_ref } }, auth);
+      }
+    } catch {}
+  }
+
+  return {
+    status: "waiting" as const,
+    reason: "verification_pending",
+    details: {
+      kind: "verification_pending",
+      recoverable: true,
+      reason: "El cambio existe y la verificación gobernada continúa; ARIA no volverá a ejecutar el mismo cambio mientras espera evidencia.",
+      next_action: "verification:retry_external_check",
+      remediation: "Esperar la siguiente pasada automática de verificación.",
+      evidence: { pr_number: prNumber, branch: pending.branch || pr.head_ref || null },
+    },
+  };
 }
 
 async function verifiedModelFallbackRoutes(original: any, operation: string) {
