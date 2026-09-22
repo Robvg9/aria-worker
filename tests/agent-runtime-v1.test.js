@@ -52,6 +52,10 @@ assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay
 assert.match(loopSource, /preferredProvider/);
 assert.match(loopSource, /preferredIsFreeOpenRouter/);
 assert.match(loopSource, /recoveryFreeOnly/);
+assert.match(loopSource, /recovery_openrouter_free_route_unavailable/);
+assert.match(loopSource, /recovery_google_route_forbidden/);
+assert.match(loopSource, /provider: candidate\?\.provider/);
+assert.match(loopSource, /recovery_free_only: isRecoveryFreeAgent/);
 assert.match(loopSource, /free_route/);
 
 assert.match(loopSource, /todavía no se ha producido ninguna escritura gobernada/);

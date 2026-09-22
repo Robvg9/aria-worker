@@ -22,6 +22,12 @@ async function recordDiagnostic(missionId: string, stepId: string, payload: Reco
 
 async function resolveToolRoutes(agent: any) {
   const preferred = String(agent?.model?.model_id ?? agent?.model_id ?? "").trim();
+  const recoveryAgentId = String(agent?.agent?.agent_id ?? agent?.agent_id ?? "");
+  const recoveryFreeOnly =
+    recoveryAgentId.includes("-openrouter-")
+    || agent?.agent?.metadata?.free_route === true
+    || agent?.agent_metadata?.free_route === true
+    || preferred.endsWith(":free");
   const routes:any[] = [];
   const seen=new Set<string>();
   const push=(provider:string,model:string)=>{
@@ -31,11 +37,6 @@ async function resolveToolRoutes(agent: any) {
 
   const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
   const preferredIsFreeOpenRouter = preferredProvider === "openrouter" && preferred.endsWith(":free");
-  const recoveryFreeOnly = preferredProvider === "openrouter" && (
-    agent?.agent?.metadata?.free_route === true
-    || agent?.agent_metadata?.free_route === true
-    || String(agent?.agent?.agent_id || agent?.agent_id || "").includes("-openrouter-")
-  );
   if (preferred.startsWith("openrouter/")) push("openrouter",preferred);
   else if (preferredIsFreeOpenRouter) push("openrouter",preferred);
 
@@ -210,7 +211,21 @@ export async function callModel(model:string,messages:any[],tools:any[],forceToo
   return provider==="google"?callGeminiModel(model,messages,tools,forceTool):callOpenRouterModel(model,messages,tools,forceTool);
 }
 export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
-  const toolRoutes = await resolveToolRoutes(agent);
+  const resolvedRoutes = await resolveToolRoutes(agent);
+  const isRecoveryFreeAgent =
+    String(agent?.agent?.agent_id ?? agent?.agent_id ?? "").includes("-openrouter-")
+    || agent?.agent?.metadata?.free_route === true
+    || agent?.agent_metadata?.free_route === true
+    || String(agent?.model?.model_id ?? agent?.model_id ?? "").endsWith(":free");
+
+  const toolRoutes = isRecoveryFreeAgent
+    ? resolvedRoutes.filter((route:any) => String(route?.provider) === "openrouter" && String(route?.model).endsWith(":free"))
+    : resolvedRoutes;
+
+  if (isRecoveryFreeAgent && toolRoutes.length === 0) {
+    throw new Error("recovery_openrouter_free_route_unavailable");
+  }
+
   let toolRoute = toolRoutes[0];
   const branch = `aria/repair/${missionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)}`;
   const tools = allowWrite ? [...readTools, patchTool, writeTool] : readTools;
@@ -247,6 +262,16 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
     let lastModelError:any=null;
     const candidates = (!sawToolCall && round === 0) ? toolRoutes : [toolRoute];
     for (const candidate of candidates) {
+      if (isRecoveryFreeAgent && String(candidate?.provider) !== "openrouter") {
+        throw new Error("recovery_google_route_forbidden");
+      }
+      await recordDiagnostic(missionId, stepId, {
+        status: "route_selected",
+        code: "agent_model_route_selected",
+        provider: candidate?.provider || null,
+        model: candidate?.model || null,
+        recovery_free_only: isRecoveryFreeAgent,
+      });
       try {
         message = await callModel(candidate.model, messages, tools, forceTool, candidate.provider);
         toolRoute = candidate;
