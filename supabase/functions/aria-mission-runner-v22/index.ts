@@ -151,8 +151,8 @@ function executorType(step: any) {
 
 const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
   "aria-agent-coding-v1": "aria-agent-coding-openrouter-v1",
-  "aria-agent-reviewer-v1": "aria-agent-coding-openrouter-v1",
-  "aria-agent-verifier-openrouter-v1": "aria-agent-coding-openrouter-v1",
+  "aria-agent-reviewer-v1": "aria-agent-verifier-gemini35-v1",
+  "aria-agent-verifier-openrouter-v1": "aria-agent-verifier-gemini35-v1",
   "aria-agent-verifier-gemini35-v1": "aria-agent-coding-openrouter-v1",
 };
 
