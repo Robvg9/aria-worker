@@ -960,7 +960,7 @@ function Chat({
                   ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div></div>)
                   : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
               </div>
-              {file && <div className='fileChip'>{file.name}<button onClick={() => setFile(null)}>×</button></div>}
+              {file && <div className='fileChip'>{file.name}<button aria-label='Quitar archivo adjunto' onClick={() => setFile(null)}>×</button></div>}
               {error && <div className='errorBox'>{error}</div>}
               <div className='composer'>
                 <input type='file' ref={fileRef} hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
@@ -971,7 +971,7 @@ function Chat({
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   placeholder='Habla con ARIA…'
                 />
-                <button className='send' disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
+                <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
               </div>
             </section>
           </section>
