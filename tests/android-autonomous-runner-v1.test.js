@@ -65,5 +65,31 @@ const { executeAutonomousAndroidMission } = require('../agents/termux/android-au
   assert.equal(calls[0].type, 'android');
   assert.equal(calls[1].type, 'decide');
   assert.equal(calls[2].type, 'android');
+
+  const passWithoutAction = await executeAutonomousAndroidMission({
+    api: async () => ({ ok: true, decision: 'pass', reason: 'No action performed' }),
+    executeAndroidAccessibilityJob: async ({ command }) => {
+      const payload = JSON.parse(command);
+      assert.equal(payload.operation, 'observe');
+      return {
+        status: 'succeeded',
+        payload: {
+          ok: true,
+          packageName: 'com.android.chrome',
+          root: { id: '0', role: 'text', children: [] },
+          evidence_hash: 'observe-only-hash'
+        }
+      };
+    },
+    goal: 'No-pass-without-action',
+    targetPackage: 'com.android.chrome',
+    allowAnyApp: false,
+    allowedHosts: ['aria.robvg9.workers.dev'],
+    maxSteps: 1
+  });
+
+  assert.equal(passWithoutAction.status, 'failed');
+  assert.equal(passWithoutAction.reason, 'android_autonomous_pass_without_verified_action');
+
   console.log('ANDROID AUTONOMOUS RUNNER: PASS');
 })().catch(error => { console.error(error); process.exit(1); });
