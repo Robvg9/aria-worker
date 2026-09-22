@@ -883,7 +883,7 @@ function Chat({
           <InstallButton />
           <button className='ghost' onClick={() => goScreen(0)}>Dashboard</button>
           <button className='ghost' onClick={() => goScreen(1)}>Chat</button>
-          <button className='ghost' onClick={onCapabilities}>Capacidades</button>
+          <button className='ghost' onClick={onProjects}>Proyectos</button><button className='ghost' onClick={onCapabilities}>Capacidades</button>
           <button className='ghost' onClick={onMeditation}>Meditación IA</button>
           <button className='ghost' onClick={() => setShowNewMission(true)}>Nueva misión</button>
           <button className='ghost' onClick={onSignOut}>Salir</button>
