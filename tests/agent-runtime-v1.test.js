@@ -50,6 +50,9 @@ assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missin
 assert.match(loopSource, /eq\("provider_id","openrouter"\)/, 'tool model resolution must use the OpenRouter provider registry');
 assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
 assert.match(loopSource, /preferredProvider/);
+assert.match(loopSource, /providerLock/);
+assert.match(loopSource, /recoveryOpenRouterOnly/);
+assert.match(loopSource, /if \(providerLock && preferredProvider === "google"\) return routes\.slice\(0,8\)/);
 assert.match(loopSource, /preferredIsFreeOpenRouter/);
 assert.match(loopSource, /recoveryFreeOnly/);
 assert.match(loopSource, /recovery_openrouter_free_route_unavailable/);
