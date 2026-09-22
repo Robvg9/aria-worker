@@ -9,6 +9,7 @@ const service = fs.readFileSync(require('node:path').join(root, 'android-ui-agen
 const agent = fs.readFileSync(require('node:path').join(root, 'agents/termux/aria-agent.js'), 'utf8');
 const transport = fs.readFileSync(require('node:path').join(root, 'computer-use/android-accessibility-v1.js'), 'utf8');
 const ipc = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/LocalIpcServer.kt'), 'utf8');
+const ipcAuth = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/IpcAuth.kt'), 'utf8');
 const serviceIpc = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/AriaAccessibilityService.kt'), 'utf8');
 
 for (const marker of ['TERMUX_PACKAGE', 'getApplicationInfo(TERMUX_PACKAGE', 'IPC_TOKEN', 'tokenValid', 'AriaAccessibilityService.instance', 'service.handle(payload)']) {
@@ -27,7 +28,8 @@ assert.ok(agent.includes('android-accessibility-v1'), 'Termux must use Accessibi
 assert.ok(transport.includes('http://127.0.0.1:45874/execute'), 'executor must use loopback IPC');
 assert.ok(transport.includes('authorization'), 'executor must authenticate loopback IPC');
 assert.ok(!transport.includes('/system/bin/am broadcast'), 'legacy broadcast transport must not be used');
-assert.ok(ipc.includes('127.0.0.1') && ipc.includes('/execute'), 'local IPC server must bind loopback execute endpoint');
+assert.ok(ipc.includes('127.0.0.1'), 'local IPC server must bind loopback');
+assert.ok(ipcAuth.includes('const val PATH = "/execute"'), 'IPC auth contract must expose execute endpoint');
 assert.ok(serviceIpc.includes('LocalIpcServer(this).also { it.start() }'), 'AccessibilityService must start local IPC');
 assert.ok(serviceIpc.includes('localIpcServer?.stop()'), 'AccessibilityService must stop local IPC');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
