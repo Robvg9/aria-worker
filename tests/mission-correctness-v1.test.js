@@ -24,5 +24,14 @@ assert.match(appApi, /order\("created_at",\{ascending:false\}\)\.limit\(5000\)/)
 assert.match(runner, /String\(result\?\.status \|\| ""\) === "succeeded" \? "verification_failed"/);
 assert.match(runner, /result_status: result\?\.status/);
 assert.match(runner, /verification_status: result\?\.repair\?\.verification_status/);
+assert.match(runner, /status: "waiting"/);
+assert.match(runner, /__aria_verified_by_runner/);
+assert.match(runner, /verifyPendingMutation/);
+assert.match(runner, /verification:await_ci_or_live_verification/);
+assert.match(appApi, /missionBlockDetails/);
+assert.match(appApi, /verification_pending/);
+assert.match(pwa, /BLOQUEADAS/);
+assert.match(pwa, /openMission\(b\.mission_id\)/);
+assert.match(pwa, /Cómo solucionarlo/);
 
 console.log("mission-correctness-v1: PASS");
