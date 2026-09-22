@@ -51,6 +51,9 @@ assert.match(loopSource, /eq\("provider_id","openrouter"\)/, 'tool model resolut
 assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
 assert.match(loopSource, /preferredProvider/);
 assert.match(loopSource, /providerLock/);
+assert.doesNotMatch(loopSource, /recoveryAgentId\.includes\("-openrouter-"\)/, "agent IDs must not force an OpenRouter route when the catalog provider is Google");
+assert.match(loopSource, /preferredProvider === "openrouter"/);
+
 assert.match(loopSource, /recoveryOpenRouterOnly/);
 assert.match(loopSource, /if \(providerLock && preferredProvider === "google"\) return routes\.slice\(0,8\)/);
 assert.match(loopSource, /preferredIsFreeOpenRouter/);
