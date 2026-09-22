@@ -265,7 +265,7 @@ function formatDate(value?: string) {
 }
 
 function renderInlineMarkdown(value: string) {
-  const token = /(\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\x60[^\x60\n]+\x60|\[[^\]\n]+\]\(https?:\/\/[^)]+\)|(\*[^*\n]+?\*)|(_[^_\n]+?_))/g;
+  const token = /(\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\x60[^\x60\n]+\x60|\[[^\]\n]+\]\(https?:\/\/[^)]+\)|\*[^*\n]+?\*|_[^_\n]+?_)/g;
   return value.split(token).filter(part => part !== '').map((part, index) => {
     const key = String(index);
     if (/^\*\*[\s\S]+\*\*$/.test(part) || /^__[\s\S]+__$/.test(part)) return <strong key={key}>{part.slice(2, -2)}</strong>;
