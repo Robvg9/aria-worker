@@ -49,6 +49,8 @@ assert.doesNotMatch(loopSource, /preferred\.startsWith\("google\/"/, 'exhausted 
 assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');
 assert.match(loopSource, /eq\("provider_id","openrouter"\)/, 'tool model resolution must use the OpenRouter provider registry');
 assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
+assert.match(loopSource, /preferredProvider/);
+assert.match(loopSource, /preferredIsFreeOpenRouter/);
 assert.match(loopSource, /code|coder|coding/, 'tool model resolution must prefer coding-capable model names when available');
 assert.doesNotMatch(loopSource, /\bmax_tokens:\s*3000/);
 
