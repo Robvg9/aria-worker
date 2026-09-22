@@ -1,4 +1,4 @@
-import { Component, StrictMode, type ReactNode } from 'react';
+import { Component, StrictMode, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
@@ -30,6 +30,13 @@ class BootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
   }
 }
 
+function BootReady({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    (window as any).__ariaBootReady?.();
+  }, []);
+  return children;
+}
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('ARIA root element is missing');
@@ -38,14 +45,13 @@ if (!rootElement) {
 try {
   createRoot(rootElement).render(
     <StrictMode>
-      <BootErrorBoundary>
-        <App />
-      </BootErrorBoundary>
+      <BootReady>
+        <BootErrorBoundary>
+          <App />
+        </BootErrorBoundary>
+      </BootReady>
     </StrictMode>
   );
-  window.requestAnimationFrame(() => {
-    (window as any).__ariaBootReady?.();
-  });
 } catch (error) {
   const boot = document.getElementById('aria-boot');
   if (boot) {
