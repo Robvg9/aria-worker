@@ -119,3 +119,110 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 
 .fileButton{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:11px;background:#171122;color:var(--text);padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer}
 .fileButton:hover{border-color:#7658df}
+
+
+/* RWHT 2026-09-22 — mobile-first viewport discipline */
+html,body,#root{height:100%;min-height:100%;}
+body{overflow:hidden;overscroll-behavior:none;}
+button,input,textarea{font:inherit;}
+button{touch-action:manipulation;}
+.appShell{height:100dvh;min-height:0;max-height:100dvh;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;overscroll-behavior:none;}
+.topBar{flex:0 0 auto;}
+.desktopOnly{display:inline-flex;}
+.screenViewport{flex:1 1 auto;min-height:0;overflow:hidden;}
+.screenTrack{height:100%;}
+.appScreen{height:100%;min-height:0;overflow:hidden;}
+.dashboardScreen{overflow:hidden;}
+.dashboardScreen .detailTimeline{max-height:150px;overflow:auto;}
+.chatScreen{overflow:hidden;}
+.chatPanel{height:100%;min-height:0;box-sizing:border-box;}
+.chatPanel .chatWindow{min-height:0;overflow:auto;overscroll-behavior:contain;}
+.composer{flex:0 0 auto;}
+.composer textarea{min-height:50px;max-height:120px;resize:none;}
+.attachmentButton{min-width:52px;height:50px;display:inline-flex;align-items:center;justify-content:center;gap:5px;}
+.bottomNav{display:none;}
+.pageBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 0 calc(12px + env(safe-area-inset-bottom));}
+.pageBodyViewport>.panel,.pageBodyViewport>.statePanel,.pageBodyViewport>.statsGrid,.pageBodyViewport>.errorBox{flex-shrink:0;}
+.capabilitiesViewport{padding-bottom:18px;}
+.meditationViewport{display:flex;flex-direction:column;gap:12px;}
+.technicalDetailsOpen{overflow:hidden;}
+.technicalDetailsTitle{padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:900;letter-spacing:1px;}
+.visualBoardPanel{max-width:100%;box-sizing:border-box;overflow:hidden;}
+.canvasWrap{overflow:hidden;max-width:100%;}
+.canvasWrap canvas{min-width:0 !important;width:100%;height:auto;max-width:100%;display:block;aspect-ratio:1100/650;}
+.visualInstruction{height:58px;min-height:58px;max-height:80px;resize:none;box-sizing:border-box;}
+.projectShell .topBar{flex:0 0 auto;}
+.projectShell{min-height:0;}
+.projectBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:calc(12px + env(safe-area-inset-bottom));}
+.projectTabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
+.projectTabs .tabButton{min-width:0;}
+.projectCard{min-width:0;min-height:64px;}
+.projectCard .projectIcon{flex:0 0 auto;}
+.modalBackdrop{padding:12px;box-sizing:border-box;}
+.detailModal{max-height:calc(100dvh - 24px);}
+.notificationLauncher{bottom:calc(78px + env(safe-area-inset-bottom));}
+.notificationPanel{max-height:calc(100dvh - 96px);}
+
+@media(max-width:700px){
+  .desktopOnly{display:none !important;}
+  .appShell{padding:10px 10px calc(74px + env(safe-area-inset-bottom));}
+  .pwaShell{padding-bottom:0;}
+  .topBar{gap:8px;}
+  .topBar h1{font-size:20px;}
+  .topBar .sub{font-size:10px;}
+  .topActions{gap:6px;}
+  .topActions .ghost,.topActions .primary{min-height:40px;padding:8px 10px;}
+  .heroPanel{padding:14px;gap:10px;border-radius:18px;}
+  .heroOrb{width:72px;height:72px;}
+  .heroLeft{flex-direction:row;gap:12px;}
+  .heroLeft p{font-size:11px;line-height:1.4;margin:4px 0 0;}
+  .statsGrid{gap:7px;}
+  .statCard{padding:10px;min-height:58px;}
+  .statValue{font-size:21px;}
+  .commandGrid{gap:8px;}
+  .panel{padding:12px;border-radius:18px;}
+  .panelHeading{gap:8px;}
+  .panelHeading h2{font-size:17px;}
+  .bottomNav{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));display:flex;z-index:70;gap:4px;padding:6px;border:1px solid var(--line);border-radius:20px;background:rgba(17,12,28,.96);backdrop-filter:blur(16px);box-shadow:0 14px 40px rgba(0,0,0,.4);}
+  .bottomNav button{flex:1;min-width:0;min-height:52px;border:0;background:transparent;color:var(--muted);border-radius:14px;display:grid;place-items:center;gap:2px;padding:5px 2px;}
+  .bottomNav button span{font-size:18px;line-height:1;}
+  .bottomNav button small{font-size:9px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+  .bottomNav button.active{color:#fff;background:rgba(93,69,209,.28);}
+  .bottomNav .bottomNavPrimary{background:#5d45d1;color:#fff;box-shadow:0 5px 16px rgba(93,69,209,.38);}
+  .bottomNav .bottomNavPrimary span{font-size:22px;}
+  .attachmentLabel{display:none;}
+  .attachmentButton{width:46px;min-width:46px;padding:0;}
+  .composer{gap:6px;}
+  .composer textarea{font-size:14px;}
+  .notificationLauncher{right:10px;bottom:calc(82px + env(safe-area-inset-bottom));padding:9px 12px;}
+  .notificationBackdrop{padding:10px 10px calc(86px + env(safe-area-inset-bottom));}
+  .notificationPanel{width:100%;max-height:calc(100dvh - 110px);}
+  .projectGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;}
+  .projectCard{padding:9px 7px;min-height:62px;border-radius:14px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;text-align:center;}
+  .projectIcon{font-size:22px;width:auto;}
+  .projectCard strong{font-size:10px;white-space:nowrap;}
+  .projectCard small{font-size:8px;margin:0;}
+  .projectHero{padding:12px;gap:8px;}
+  .projectHero .muted{font-size:10px;line-height:1.35;}
+  .projectTabs .tabButton{padding:8px 5px;font-size:10px;}
+  .projectBodyViewport{padding-top:4px;}
+  .missionCreateRow{position:sticky;top:0;z-index:5;background:#120e1d;padding-bottom:6px;}
+  .missionCreateRow textarea{min-height:54px;max-height:84px;resize:none;}
+  .drawToolbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;}
+  .drawToolbar label{min-width:0;overflow:hidden;}
+  .drawToolbar label.fileButton{grid-column:span 2;justify-content:center;}
+  .toolButton{min-width:0;padding:8px 4px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .drawToolbar input[type=range]{width:70px;max-width:100%;}
+  .drawToolbar input[type=color]{width:28px;height:28px;}
+  .modalActions{gap:6px;}
+  .modalActions button{flex:1;min-height:44px;}
+  .technicalDetailsTitle{font-size:10px;}
+}
+
+@media(max-width:380px){
+  .appShell{padding-left:8px;padding-right:8px;}
+  .bottomNav{left:7px;right:7px;}
+  .bottomNav button small{font-size:8px;}
+  .projectCard small{display:none;}
+  .projectCard{min-height:58px;}
+}
