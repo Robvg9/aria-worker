@@ -264,6 +264,58 @@ function formatDate(value?: string) {
   }
 }
 
+function renderInlineMarkdown(value: string) {
+  const token = /(\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\x60[^\x60\n]+\x60|\[[^\]\n]+\]\(https?:\/\/[^)]+\)|(\*[^*\n]+?\*)|(_[^_\n]+?_))/g;
+  return value.split(token).filter(part => part !== '').map((part, index) => {
+    const key = String(index);
+    if (/^\*\*[\s\S]+\*\*$/.test(part) || /^__[\s\S]+__$/.test(part)) return <strong key={key}>{part.slice(2, -2)}</strong>;
+    if (/^~~[\s\S]+~~$/.test(part)) return <del key={key}>{part.slice(2, -2)}</del>;
+    if (/^\x60[\s\S]+\x60$/.test(part)) return <code key={key} className='markdownInlineCode'>{part.slice(1, -1)}</code>;
+    const link = part.match(/^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)$/);
+    if (link) return <a key={key} href={link[2]} target='_blank' rel='noreferrer'>{renderInlineMarkdown(link[1])}</a>;
+    if (/^\*[\s\S]+\*$/.test(part) || /^_[\s\S]+_$/.test(part)) return <em key={key}>{part.slice(1, -1)}</em>;
+    return <span key={key}>{part}</span>;
+  });
+}
+
+function renderMarkdown(value: string) {
+  const text = String(value ?? '').replace(/\r/g, '');
+  const lines = text.split('\n');
+  const blocks: any[] = [];
+  let codeBuffer: string[] | null = null;
+
+  const flushCode = () => {
+    if (codeBuffer === null) return;
+    blocks.push(<pre key={'code-' + blocks.length}><code>{codeBuffer.join('\n')}</code></pre>);
+    codeBuffer = null;
+  };
+
+  lines.forEach((line, index) => {
+    if (line.trim().startsWith('```')) {
+      if (codeBuffer === null) codeBuffer = []; else flushCode();
+      return;
+    }
+    if (codeBuffer !== null) { codeBuffer.push(line); return; }
+    if (!line.trim()) { blocks.push(<div key={'blank-' + index} className='markdownSpacer' />); return; }
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) { blocks.push(<div key={'h-' + index} className={'markdownHeading markdownH' + heading[1].length}>{renderInlineMarkdown(heading[2])}</div>); return; }
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      const number = line.match(/^\s*(\d+)[.)]/)?.[1] ?? '';
+      blocks.push(<div key={'ol-' + index} className='markdownListItem'>{number}. {renderInlineMarkdown(ordered[1])}</div>);
+      return;
+    }
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    if (unordered) { blocks.push(<div key={'ul-' + index} className='markdownListItem'>• {renderInlineMarkdown(unordered[1])}</div>); return; }
+    const quote = line.match(/^\s*>\s?(.*)$/);
+    if (quote) { blocks.push(<blockquote key={'q-' + index}>{renderInlineMarkdown(quote[1])}</blockquote>); return; }
+    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) { blocks.push(<hr key={'hr-' + index} />); return; }
+    blocks.push(<p key={'p-' + index}>{renderInlineMarkdown(line)}</p>);
+  });
+
+  flushCode();
+  return blocks;
+}
 function useLiveSync(load: () => Promise<void>, token: string, intervalMs: number) {
   const loadRef = useRef(load);
   useEffect(() => { loadRef.current = load; }, [load]);
@@ -453,7 +505,7 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
             <div><strong>Qué mejora ahora</strong><p>{summary.improvement}</p></div>
             <div><strong>{summary.result ? 'Resultado obtenido' : 'Resultado esperado'}</strong><p>{summary.expected}</p></div>
           </div>
-          {summary.result ? <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><pre>{summary.result}</pre></div> : <div className='muted'>ARIA no registró todavía un texto de resultado.</div>}
+          {summary.result ? <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{renderMarkdown(summary.result)}</div></div> : <div className='muted'>ARIA no registró todavía un texto de resultado.</div>}
         </div>
         <details className='technicalDetails'>
           <summary>Ver detalles técnicos</summary>
@@ -920,7 +972,7 @@ function Chat({
               </div>
               <div className='chatWindow'>
                 {messages.length
-                  ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}>{m.text}</div>)
+                  ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div></div>)
                   : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
               </div>
               {file && <div className='fileChip'>{file.name}<button onClick={() => setFile(null)}>×</button></div>}
