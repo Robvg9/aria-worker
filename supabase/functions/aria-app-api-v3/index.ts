@@ -226,7 +226,7 @@ const weightOf = (step:any) => { const explicit=Number(step?.weight); if(Number.
 const reasonType = (m:any) => { const raw=[m?.next_action,m?.last_stderr,m?.checkpoint?.recovery?.status,m?.checkpoint?.human_gate?.original_risk].filter(Boolean).join(" ").toLowerCase(); if(/credential|token|secret|auth|login|api key/.test(raw))return"credential"; if(/payment|billing|subscription|plan/.test(raw))return"payment"; if(/human_gate|approval|approve|authorize|permission/.test(raw))return"approval"; if(/device|windows|offline|agent/.test(raw))return"device"; return"execution"; };
 const redactMissionDiagnostic = (value:any) => String(value ?? "")
   .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
-  .replace(/(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]");
+  .replace(/(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]");
 
 function missionBlockDetails(m:any) {
   const recovery = m?.checkpoint?.recovery && typeof m.checkpoint.recovery === "object" ? m.checkpoint.recovery : {};
