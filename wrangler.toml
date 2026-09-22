@@ -2,8 +2,5 @@ name = "aria"
 main = "worker.js"
 compatibility_date = "2026-09-05"
 
-[triggers]
-crons = ["* * * * *"]
-
 # OAuth proxy deployment sync checkpoint
 # OAuth HTML response hardening deployment trigger
