@@ -483,7 +483,7 @@ function CapabilityCenter({
   );
 }
 
-function MissionDetail\n      </div>({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
+function MissionDetail({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
@@ -744,21 +744,8 @@ function Chat({
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [screen, setScreen] = useState<0 | 1>(0);
-  const touchStartX = useRef<number | null>(null);
   const goScreen = (next: number) => setScreen(next <= 0 ? 0 : 1);
-  const onTouchStart = (event: React.TouchEvent<HTMLElement>) => {
-    touchStartX.current = event.touches[0]?.clientX ?? null;
-  };
-  const onTouchEnd = (event: React.TouchEvent<HTMLElement>) => {
-    const start = touchStartX.current;
-    const end = event.changedTouches[0]?.clientX ?? null;
-    touchStartX.current = null;
-    if (start == null || end == null) return;
-    const delta = end - start;
-    if (Math.abs(delta) < 55) return;
-    if (delta < 0) goScreen(1);
-    if (delta > 0) goScreen(0);
-  };
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
     system || caps || mission ? 'cached' : 'offline'
