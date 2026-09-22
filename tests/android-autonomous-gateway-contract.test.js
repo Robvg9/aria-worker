@@ -18,7 +18,7 @@ for (const marker of [
   "autonomousUiNodeMap"
 ]) assert.ok(source.includes(marker), 'missing Android autonomous gateway marker: ' + marker);
 
-assert.match(source, /provider_id','google/);
+assert.match(source, /\.in\(['"]provider_id['"],\s*\[\s*['"]google['"]/);
 assert.match(source, /status','verified/);
 assert.match(source, /allowedHosts/);
 assert.match(source, /destructive/);
