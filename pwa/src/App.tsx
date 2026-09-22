@@ -422,7 +422,7 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
-  const humanTitle = status === 'succeeded' ? 'Resumen humano' : status === 'failed' ? 'Qué falló' : 'Situación actual';
+  const humanTitle = status === 'succeeded' ? 'Resumen humano' : status === 'failed' ? 'Qué falló' : status === 'blocked' ? 'Diagnóstico del bloqueo' : status === 'waiting' ? 'Verificación en curso' : 'Situación actual';
   return (
     <div className='modalBackdrop' onClick={onClose}>
       <section className='detailModal' onClick={e => e.stopPropagation()}>
@@ -432,6 +432,18 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
           <StatCard value={terminal ? 'Final' : 'En curso'} label='Estado' />
           <StatCard value={formatDate(mission.finished_at)} label='Finalización' />
         </div>
+        {mission?.block_details && (status === 'blocked' || status === 'waiting' || mission.block_details.kind === 'replan_required') && (
+          <div className='detailResult'>
+            <div className='panelTitle'>{status === 'blocked' ? 'POR QUÉ QUEDÓ BLOQUEADA' : 'RECUPERACIÓN / VERIFICACIÓN'}</div>
+            <div className='humanSummaryGrid'>
+              <div><strong>Motivo</strong><p>{mission.block_details.reason || 'Sin motivo registrado.'}</p></div>
+              <div><strong>Qué está haciendo ARIA</strong><p>{mission.block_details.next_action || 'ARIA determinará la siguiente estrategia gobernada.'}</p></div>
+              <div><strong>Cómo solucionarlo</strong><p>{mission.block_details.remediation || 'Generar una estrategia alternativa con la evidencia disponible.'}</p></div>
+              <div><strong>¿Se puede recuperar?</strong><p>{mission.block_details.recoverable ? 'Sí. La misión conserva evidencia y puede continuar sin repetir innecesariamente el cambio.' : 'No con la estrategia actual. Requiere una nueva intervención gobernada.'}</p></div>
+            </div>
+            {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
+          </div>
+        )}
         <div className='detailResult'>
           <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
           <div className='humanSummaryGrid'>
@@ -752,7 +764,7 @@ function Chat({
         if (md?.mission) {
           setMission(md.mission);
           setEvents(ev.events ?? []);
-          if (['succeeded', 'failed', 'blocked', 'cancelled'].includes(String(md.mission.status))) {
+          if (['succeeded', 'failed', 'blocked', 'waiting', 'cancelled'].includes(String(md.mission.status))) {
             setShowMission(true);
             return;
           }
@@ -901,6 +913,8 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [missionDetail, setMissionDetail] = useState<any>(null);
+  const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
 
   async function load() {
     try {
@@ -919,6 +933,21 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
   }
 
   useLiveSync(load, session.accessToken, 10000);
+
+  async function openMission(missionId: string) {
+    try {
+      setError('');
+      const [missionResult, eventsResult] = await Promise.all([
+        api('/missions/' + encodeURIComponent(missionId), session.accessToken),
+        api('/missions/' + encodeURIComponent(missionId) + '/events', session.accessToken).catch(() => ({ events: [] }))
+      ]);
+      if (!missionResult?.mission) throw new Error('No se pudo recuperar la información de la misión.');
+      setMissionDetail(missionResult.mission);
+      setMissionEvents(eventsResult?.events ?? []);
+    } catch (x) {
+      setError(x instanceof Error ? x.message : 'No se pudo abrir la misión.');
+    }
+  }
 
   async function control(action: string) {
     setBusy(true); setError('');
@@ -940,8 +969,10 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
       <section className='statsGrid'><StatCard value={o?.counts?.missions ?? 0} label='Misiones visibles' /><StatCard value={o?.counts?.human_gates ?? 0} label='Human Gates' /><StatCard value={o?.counts?.blocked ?? 0} label='Bloqueadas' /><StatCard value={caps?.summary.executors ?? 0} label='Executors' /></section>
       <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
       <section className='panel'><div className='panelTitle'>HUMAN GATES</div>{(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}{!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}</section>
-      <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <div className='row' key={b.mission_id}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason}</small></div></div>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
-      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any) => <div className='row' key={r.mission_id}><span className={'dot ' + tone(String(r.status))} /><div><strong>{r.goal}</strong><small>{statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small></div></div>)}</section>
+      <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
+      <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
+      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{r.goal}</strong><small>{statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small></div><span>›</span></button>)}</section>
+      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
     </main>
   );
 }
