@@ -1,0 +1,43 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+
+const appPath = path.join(__dirname, '..', 'pwa', 'src', 'App.tsx');
+const projectPath = path.join(__dirname, '..', 'pwa', 'src', 'ProjectWorkspace.tsx');
+const app = fs.readFileSync(appPath, 'utf8');
+const project = fs.readFileSync(projectPath, 'utf8');
+
+assert.match(
+  app,
+  /if \/\^\\\*\[\\s\\S\]\+\\\*\$\/\.test\(part\) return <strong/,
+  'Single-asterisk markdown must render as bold.'
+);
+
+assert.match(
+  app,
+  /function MissionDetail\(\{ mission, events, onClose \}/,
+  'MissionDetail component must exist.'
+);
+
+assert.match(
+  app,
+  /mission\.block_details && \(status === 'blocked' \|\| status === 'waiting'/,
+  'Blocked mission details must remain visible in MissionDetail.'
+);
+
+assert.match(
+  app,
+  /BLOQUEADAS[\s\S]*openMission\(b\.mission_id\)/,
+  'Blocked missions must be directly openable from Meditation IA.'
+);
+
+assert.match(app, /<ProjectWorkspace/, 'App must integrate ProjectWorkspace.');
+assert.match(project, /function VisualBoard/, 'ARTIA VisualBoard must exist.');
+assert.match(project, /createMission/, 'ARTIA must support mission creation from the visual workspace.');
+assert.match(project, /project_id/, 'Project context must be attached to chat/mission operations.');
+assert.match(project, /annotation_summary/, 'Structured visual annotations must be persisted/forwarded.');
+assert.match(project, /<canvas/, 'ARTIA must render a real canvas surface.');
+
+console.log('pwa-rwht-surface-contract PASS');
