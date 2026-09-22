@@ -27,6 +27,10 @@ assert.ok(transport.includes('http://127.0.0.1:45874/execute'));
 assert.ok(transport.includes('http://127.0.0.1:45874/health'));
 assert.ok(transport.includes('android-local-http'));
 assert.ok(transport.includes('probeLocalIpcHealth'));
+assert.ok(transport.includes('REQUIRED_IPC_PROTOCOL'));
+assert.ok(transport.includes('android_local_ipc_profile_mismatch'));
+assert.ok(transport.includes('android_local_ipc_protocol_mismatch'));
+assert.ok(transport.includes('process.getuid'));
 assert.ok(transport.includes('attempt <= 3'));
 assert.ok(agent.includes('probeLocalIpcHealth'));
 assert.ok(agent.includes("if (androidUiHealth.ok) capabilities.push('computer.use.android')"));
@@ -41,9 +45,13 @@ assert.ok(receiver.includes('getApplicationInfo'));
 assert.ok(receiver.includes('IPC_TOKEN'));
 assert.ok(!receiver.includes('Process.SHELL_UID'));
 assert.ok(gradle.includes('applicationIdSuffix = ".debug"'));
-assert.ok(gradle.includes('versionCode = 22'));
-assert.ok(gradle.includes('versionName = "1.1.16"'));
+assert.ok(gradle.includes('versionCode = 23'));
+assert.ok(gradle.includes('versionName = "1.1.17"'));
 assert.ok(ipcAuth.includes('HEALTH_PATH = "/health"'));
+assert.ok(ipcAuth.includes('HEALTH_PROTOCOL = "aria-android-ui-agent-ipc-v2"'));
+assert.ok(ipc.includes('android.os.Process.myUid()'));
+assert.ok(ipc.includes('BuildConfig.VERSION_NAME'));
+assert.ok(ipc.includes('BuildConfig.VERSION_CODE'));
 assert.ok(ipc.includes('server.bind'));
 assert.ok(ipc.includes('fun isHealthy'));
 assert.ok(ipc.includes('IpcAuth.HEALTH_PATH'));
@@ -71,7 +79,48 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     const health = await probeLocalIpcHealth({ timeoutMs: 1000 });
     assert.equal(health.ok, true);
     assert.equal(health.payload.port, 45874);
+    assert.equal(health.payload.protocol, 'aria-android-ui-agent-ipc-v2');
     assert.equal(calls, 1);
+
+    calls = 0;
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        service: 'aria-accessibility',
+        port: 45874,
+        protocol: 'wrong-protocol',
+        uid: 10722,
+        user_id: 0,
+        version_name: 'old'
+      })
+    });
+    const badProtocol = await probeLocalIpcHealth({ timeoutMs: 1000 });
+    assert.equal(badProtocol.ok, false);
+    assert.equal(badProtocol.reason, 'android_local_ipc_protocol_mismatch');
+
+    calls = 0;
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        service: 'aria-accessibility',
+        port: 45874,
+        protocol: 'aria-android-ui-agent-ipc-v2',
+        uid: 15010722,
+        user_id: 150,
+        version_name: '1.1.17',
+        version_code: 23
+      })
+    });
+    const badProfile = await probeLocalIpcHealth({ timeoutMs: 1000 });
+    const expectedLocalUser = Math.floor(process.getuid() / 100000);
+    if (expectedLocalUser !== 150) {
+      assert.equal(badProfile.ok, false);
+      assert.equal(badProfile.reason, 'android_local_ipc_profile_mismatch');
+    }
 
     calls = 0;
     global.fetch = async (url) => {
