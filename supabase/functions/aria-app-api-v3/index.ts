@@ -96,7 +96,15 @@ async function execute(step: any, prompt: string, conversationId: string, visual
   if(visualContext?.image_path && target.provider_id==="google"){
     const signed=await serviceClient().storage.from(MEDIA_BUCKET).createSignedUrl(String(visualContext.image_path),600);
     if(signed.error||!signed.data?.signedUrl) throw new Error("visual_signed_url_failed");
-    payload={contents:[{role:"user",parts:[{text:prompt},{fileData:{mimeType:String(visualContext.mime_type||"image/png"),fileUri:signed.data.signedUrl}}]}],generationConfig:{maxOutputTokens:512,temperature:0.3}};
+    const imageResponse=await fetch(signed.data.signedUrl);
+    if(!imageResponse.ok) throw new Error("visual_download_failed_"+imageResponse.status);
+    const bytes=new Uint8Array(await imageResponse.arrayBuffer());
+    if(bytes.byteLength>4500000) throw new Error("visual_payload_too_large");
+    let binary="";
+    const chunk=32768;
+    for(let i=0;i<bytes.length;i+=chunk) binary+=String.fromCharCode(...bytes.subarray(i,Math.min(bytes.length,i+chunk)));
+    const base64=btoa(binary);
+    payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:512,temperature:0.3}};
     multimodal=true;
   }
   const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}});
