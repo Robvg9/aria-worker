@@ -17,7 +17,8 @@ assert.ok(workerPwa.includes('shellPath="/index-"+PWA_BUILD+".html"'),'PWA root 
 assert.ok(workerPwa.includes('if(shellPath==="/manifest.json"||oldManifest)shellPath="/manifest.json";'),'PWA manifest aliases must resolve to the stable manifest asset');
 assert.ok(workerPwa.includes('shellPath="/sw-"+PWA_BUILD+".js"'),'PWA legacy SW path must map to immutable service worker asset');
 assert.ok(workerPwa.includes('responseHeaders.set("cache-control","no-store, max-age=0")'),'PWA shell must disable browser/CDN cache');
-assert.ok(workerPwa.includes('cache:isShell?"no-store":"default"'),'PWA shell asset fetch must bypass Cloudflare asset cache');
+assert.ok(workerPwa.includes('...(isShell?{cache:"no-store"}:{})'),'PWA shell asset fetch must use a supported cache mode only for shell assets');
+assert.doesNotMatch(workerPwa,/cache:isShell\?"no-store":"default"/,'PWA asset fetch must not use unsupported cache mode "default"');
 assert.match(source,/remote_hashes/,'canonical deploy must compare migration content against remote history');
 assert.match(source,/MIGRATION_PENDING=/,'canonical deploy must report pending migrations');
 assert.match(source,/MIGRATION_ALREADY_APPLIED=/,'canonical deploy must skip already-applied migrations');
