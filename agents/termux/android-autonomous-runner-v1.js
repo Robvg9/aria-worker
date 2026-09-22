@@ -86,7 +86,19 @@ async function executeAutonomousAndroidMission({ api, executeAndroidAccessibilit
     const decision = await decide({ api, goal, observation, history, targetPackage, allowedHosts });
     const decisionRecord = { step: step + 1, decision: decision.decision, reason: sanitizeReason(decision.reason), action: summarizeAction(decision.action), expectation: decision.expectation || null, before_evidence_hash: observation.evidence_hash || null };
     history.push(decisionRecord);
-    if (decision.decision === 'pass') return { status: 'succeeded', reason: sanitizeReason(decision.reason || 'autonomous_test_passed'), steps: step, trace: history, evidence };
+    if (decision.decision === 'pass') {
+      const hasVerifiedAction = history.some(entry => entry.execution?.status === 'succeeded' && entry.execution.after_evidence_hash);
+      if (!hasVerifiedAction) {
+        return {
+          status: 'failed',
+          reason: 'android_autonomous_pass_without_verified_action',
+          steps: step + 1,
+          trace: history,
+          evidence
+        };
+      }
+      return { status: 'succeeded', reason: sanitizeReason(decision.reason || 'autonomous_test_passed'), steps: step, trace: history, evidence };
+    }
     if (decision.decision === 'fail' || decision.decision === 'blocked') return { status: 'failed', reason: sanitizeReason(decision.reason || 'autonomous_test_failed'), steps: step, trace: history, evidence };
     if (decision.decision !== 'act' || !decision.action || typeof decision.action !== 'object') return { status: 'failed', reason: 'android_autonomous_decision_not_actionable', steps: step + 1, trace: history, evidence };
     const bridge = await executeAndroidAccessibilityJob({ command: JSON.stringify({ operation: 'action', target_package: targetPackage || null, allow_any_app: allowAnyApp === true, allowed_hosts: allowedHosts, action: decision.action }), timeoutMs: Math.min(12_000, remaining()) });
