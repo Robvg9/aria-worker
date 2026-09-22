@@ -128,7 +128,15 @@ begin
              when m.status='paused' then 'resume: pending execution job'
              else m.next_action
            end,
-           checkpoint=aria_internal.aria_materialize_human_gate_approval(m.checkpoint)
+           checkpoint=aria_internal.aria_materialize_human_gate_approval(
+             case when m.status='failed'
+               then jsonb_set(
+                 jsonb_set(coalesce(m.checkpoint,'{}'::jsonb),'{recovery,previous_plan}',coalesce(m.checkpoint->'plan','[]'::jsonb),true),
+                 '{recovery,replan_required}','true'::jsonb,true
+               )-'plan'-'completed_steps'-'attempts'-'results'-'pending_jobs'
+               else m.checkpoint
+             end
+           )
       from candidates c
      where m.mission_id=c.mission_id
      returning m.*
