@@ -46,4 +46,22 @@ assert.doesNotMatch(
   'PWA must not reference removed undefined touch handlers.'
 );
 
+assert.match(
+  app,
+  /className='send' aria-label=\{sending \? 'Enviando mensaje' : 'Enviar mensaje'\}/,
+  'Chat send control must expose a clear accessible label.'
+);
+
+assert.match(
+  app,
+  /className='fileChip'>\{file\.name\}<button aria-label='Quitar archivo adjunto'/,
+  'Attachment removal control must expose a clear accessible label.'
+);
+
+assert.match(
+  fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'index.css'), 'utf8'),
+  /\.pwaShell\{padding-bottom:calc\(74px \+ env\(safe-area-inset-bottom\)\);\}/,
+  'Mobile PWA shell must reserve space for the fixed bottom navigation.'
+);
+
 console.log('pwa-rwht-surface-contract PASS');
