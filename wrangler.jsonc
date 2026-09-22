@@ -8,7 +8,4 @@
     "binding": "ARIA_PWA_ASSETS",
     "run_worker_first": true
   },
-  "triggers": {
-    "crons": ["* * * * *"]
-  }
 }
