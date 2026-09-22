@@ -9,5 +9,8 @@ const terminalFailure = source.match(/status:\s*"failed"[\s\S]{0,900}retry_exhau
 assert.ok(terminalFailure, 'v22 terminal failure path missing');
 assert.match(terminalFailure[0], /lease_owner:\s*null/);
 assert.match(terminalFailure[0], /lease_until:\s*null/);
+assert.match(source, /verificationWait/);
+assert.match(source, /status:\s*"waiting"/);
+assert.match(source, /verifyPendingMutation/);
 
 console.log('MISSION RUNNER V22 TERMINAL LEASE RELEASE: PASS');
