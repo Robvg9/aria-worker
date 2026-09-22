@@ -34,4 +34,4 @@ assert.ok(serviceIpc.includes('LocalIpcServer(this).also { it.start() }'), 'Acce
 assert.ok(serviceIpc.includes('localIpcServer?.stop()'), 'AccessibilityService must stop local IPC');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
 
-console.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
+// CI revalidation marker: exercise Android RWHT workflow on the current main toolchain.\nconsole.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
