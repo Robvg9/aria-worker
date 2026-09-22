@@ -28,5 +28,6 @@ console.log('SUPABASE CANONICAL DEPLOY CONTRACT: PASS');
 
 assert.ok(pwaDeploy.includes('cp dist/index.html "dist/index-${GITHUB_SHA}.html"'),'deploy must generate immutable index asset');
 assert.ok(pwaDeploy.includes('cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"'),'deploy must generate immutable manifest asset');
-assert.ok(pwaDeploy.includes('cp public/sw.js "dist/sw-${GITHUB_SHA}.js"'),'deploy must generate immutable service worker asset');
+assert.ok(pwaDeploy.includes('sed "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js > "dist/sw-${GITHUB_SHA}.js"'),'deploy must generate immutable service worker asset from the versioned source template');
+assert.ok(pwaDeploy.includes('grep -q "aria-pwa-${GITHUB_SHA}" "dist/sw-${GITHUB_SHA}.js"'),'deploy must verify the generated service worker cache key before publish');
 assert.ok(pwaDeploy.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js'),'deploy must inject current build into worker');
