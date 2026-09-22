@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ProjectWorkspace } from './ProjectWorkspace';
 import { getNotificationIdFromHash, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
@@ -708,12 +709,14 @@ function Chat({
   session,
   onSignOut,
   onMeditation,
-  onCapabilities
+  onCapabilities,
+  onProjects
 }: {
   session: Session;
   onSignOut: () => void;
   onMeditation: () => void;
   onCapabilities: () => void;
+  onProjects: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -1114,18 +1117,20 @@ export default function App() {
       return s && s.expiresAt > Date.now() + 60000 ? s : null;
     } catch { return null; }
   });
-  const [page, setPage] = useState<'aria' | 'meditation' | 'capabilities'>('aria');
+  const [page, setPage] = useState<'aria' | 'meditation' | 'capabilities' | 'projects'>('aria');
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => setPage('aria');
   return (
     <>
       <PwaNotificationCenter session={session} />
-      {page === 'meditation'
-        ? <Meditation session={session} onBack={() => setPage('aria')} onCapabilities={() => setPage('capabilities')} />
-        : page === 'capabilities'
-          ? <Capabilities session={session} onBack={() => setPage('aria')} onMeditation={() => setPage('meditation')} onMission={openMission} />
-          : <Chat session={session} onSignOut={signOut} onMeditation={() => setPage('meditation')} onCapabilities={() => setPage('capabilities')} />}
+      {page === 'projects'
+        ? <ProjectWorkspace session={session} onBack={() => setPage('aria')} />
+        : page === 'meditation'
+          ? <Meditation session={session} onBack={() => setPage('aria')} onCapabilities={() => setPage('capabilities')} />
+          : page === 'capabilities'
+            ? <Capabilities session={session} onBack={() => setPage('aria')} onMeditation={() => setPage('meditation')} onMission={openMission} />
+            : <Chat session={session} onSignOut={signOut} onMeditation={() => setPage('meditation')} onCapabilities={() => setPage('capabilities')} onProjects={() => setPage('projects')} />}
     </>
   );
 }
