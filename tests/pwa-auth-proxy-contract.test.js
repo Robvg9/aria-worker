@@ -28,7 +28,8 @@ if (!worker.includes('shellPath="/sw-"+PWA_BUILD+".js"')) throw new Error('immut
 
 if (!workflow.includes('cp dist/index.html "dist/index-${GITHUB_SHA}.html"')) throw new Error('immutable index build missing');
 if (!workflow.includes('cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"')) throw new Error('immutable manifest build missing');
-if (!workflow.includes('cp public/sw.js "dist/sw-${GITHUB_SHA}.js"')) throw new Error('immutable service worker build missing');
+if (!workflow.includes('sed "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js > "dist/sw-${GITHUB_SHA}.js"')) throw new Error('immutable service worker build missing');
+if (!workflow.includes('grep -q "aria-pwa-${GITHUB_SHA}" "dist/sw-${GITHUB_SHA}.js"')) throw new Error('versioned service worker cache verification missing');
 if (!workflow.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js')) throw new Error('worker build injection missing');
 
 console.log('PWA AUTH/NETWORK/IMMUTABLE SHELL CONTRACT: PASS');
