@@ -44,7 +44,11 @@ jobs:
         env:
           VITE_BUILD: ${{ github.sha }}
         run: |
+          export VITE_BUILD="$GITHUB_SHA"
           npm run build
+          grep -q "$GITHUB_SHA" dist/index.html
+          grep -q "sw-$GITHUB_SHA.js" dist/index.html
+          grep -R -q "$GITHUB_SHA" dist/assets
           cp dist/index.html "dist/index-${GITHUB_SHA}.html"
           cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"
           sed "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js > "dist/sw-${GITHUB_SHA}.js"
