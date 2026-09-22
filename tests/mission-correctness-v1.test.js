@@ -7,6 +7,7 @@ const planner = fs.readFileSync(path.join(root, "supabase/functions/aria-planner
 const appApi = fs.readFileSync(path.join(root, "supabase/functions/aria-app-api-v3/index.ts"), "utf8");
 const runner = fs.readFileSync(path.join(root, "supabase/functions/aria-mission-runner-v22/index.ts"), "utf8");
 const recoveryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20260922133000_mission_verification_recovery_v1.sql"), "utf8");
+const pwa = fs.readFileSync(path.join(root, "pwa/src/App.tsx"), "utf8");
 
 assert.match(planner, /SPANISH_OUTPUT_CONTRACT/);
 assert.match(planner, /spanish_output_required:true/);
