@@ -43,7 +43,7 @@ assert.doesNotMatch(app,/swipeNav/);
 assert.doesNotMatch(app,/dashboardWelcome/);
 assert.match(app,/conversationId/);
 assert.match(app,/pageBodyViewport/);
-assert.match(app,/onKeyDown=.*Enter/);
+assert.match(app,/e\.key === 'Enter'/);
 assert.match(project,/Lápiz/);
 assert.match(project,/Marcador/);
 assert.match(project,/Borrador/);
