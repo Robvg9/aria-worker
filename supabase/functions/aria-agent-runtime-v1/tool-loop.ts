@@ -219,11 +219,14 @@ export async function callModel(model:string,messages:any[],tools:any[],forceToo
 }
 export async function toolLoop(agent: any, missionId: string, stepId: string, prompt: string, allowWrite: boolean) {
   const resolvedRoutes = await resolveToolRoutes(agent);
+  const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
   const isRecoveryFreeAgent =
-    String(agent?.agent?.agent_id ?? agent?.agent_id ?? "").includes("-openrouter-")
-    || agent?.agent?.metadata?.free_route === true
-    || agent?.agent_metadata?.free_route === true
-    || String(agent?.model?.model_id ?? agent?.model_id ?? "").endsWith(":free");
+    preferredProvider === "openrouter"
+    && (
+      agent?.agent?.metadata?.free_route === true
+      || agent?.agent_metadata?.free_route === true
+      || String(agent?.model?.model_id ?? agent?.model_id ?? "").endsWith(":free")
+    );
 
   const toolRoutes = isRecoveryFreeAgent
     ? resolvedRoutes.filter((route:any) => String(route?.provider) === "openrouter" && String(route?.model).endsWith(":free"))
@@ -269,7 +272,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
     let lastModelError:any=null;
     const candidates = (!sawToolCall && round === 0) ? toolRoutes : [toolRoute];
     for (const candidate of candidates) {
-      if (isRecoveryFreeAgent && String(candidate?.provider) !== "openrouter") {
+      if (preferredProvider === "openrouter" && String(candidate?.provider) !== "openrouter") {
         throw new Error("recovery_google_route_forbidden");
       }
       await recordDiagnostic(missionId, stepId, {
