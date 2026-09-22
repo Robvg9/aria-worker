@@ -54,6 +54,8 @@ assert.doesNotMatch(loopSource, /recoveryAgentId\.includes\("-openrouter-"\)/, "
 assert.match(loopSource, /preferredProvider === "openrouter"/);
 
 assert.match(loopSource, /providerLock/);
+assert.doesNotMatch(loopSource, /String\(agent\?\.agent\?\.agent_id.*-openrouter-/);
+assert.match(loopSource, /preferredProvider === "openrouter"/);
 assert.match(loopSource, /recoveryOpenRouterOnly/);
 assert.match(loopSource, /if \(providerLock && preferredProvider === "google"\) return routes\.slice\(0,8\)/);
 assert.match(loopSource, /preferredIsFreeOpenRouter/);
