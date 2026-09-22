@@ -44,13 +44,12 @@ jobs:
         env:
           VITE_BUILD: ${{ github.sha }}
         run: |
-          sed -i "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js
           npm run build
           cp dist/index.html "dist/index-${GITHUB_SHA}.html"
           cp dist/manifest.json "dist/manifest-${GITHUB_SHA}.json"
-          cp public/sw.js "dist/sw-${GITHUB_SHA}.js"
-          sed -i "s/__BUILD__/${GITHUB_SHA}/g" "dist/sw-${GITHUB_SHA}.js"
-          rm -f public/sw.js dist/index.html
+          sed "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js > "dist/sw-${GITHUB_SHA}.js"
+          grep -q "aria-pwa-${GITHUB_SHA}" "dist/sw-${GITHUB_SHA}.js"
+          rm -f dist/index.html
 
 
       - name: Install Wrangler
@@ -93,6 +92,8 @@ jobs:
           sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/sw-${GITHUB_SHA}.js")"
           echo "$sw"
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
+          grep -q "position:fixed;inset:0;z-index:9999" <<<"$html"
+          grep -q "__ariaBootReady" <<<"$html"
           manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "https://aria.robvg9.workers.dev/manifest.json")"
           grep -q 'ARIA — Centro de Mando Cognitivo' <<<"$manifest"
           # Verify the actual browser entry assets, not only the HTML shell.
