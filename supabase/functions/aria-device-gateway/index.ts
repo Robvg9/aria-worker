@@ -144,7 +144,7 @@ async function androidAutonomousDecision(b:any,d:any){
       scrollable:Boolean(n.scrollable),
       enabled:Boolean(n.enabled)
     }))
-    .slice(0,40);
+    .slice(0,24);
 
   const compactObservation={
     packageName:typeof observation.packageName==='string'?observation.packageName:null,
@@ -154,7 +154,7 @@ async function androidAutonomousDecision(b:any,d:any){
     node_count:nodes.size,
     nodes:compactNodes
   };
-  const uiJson=JSON.stringify(compactObservation).slice(0,7000);
+  const uiJson=JSON.stringify(compactObservation).slice(0,4200);
 
   const prompt=[
     'ARIA ANDROID AUTONOMOUS UI PLANNER.',
@@ -173,6 +173,11 @@ async function androidAutonomousDecision(b:any,d:any){
   ].join('\n');
 
   const attempts=[];
+  // OpenRouter free routing is preferred because it has a verified physical Android E2E path.
+  const orderedRoutes=[...routes].sort((a:any,b:any)=>{
+    const ao=a.provider_id==='openrouter'?0:1, bo=b.provider_id==='openrouter'?0:1;
+    return ao-bo || preference(a.model_id)-preference(b.model_id);
+  });
   const parseLine=(raw:string)=>{
     const lines=String(raw||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
     const parseParts=(line:string)=>{
@@ -212,7 +217,7 @@ async function androidAutonomousDecision(b:any,d:any){
     return null;
   };
 
-  for(const route of routes.slice(0,3)){
+  for(const route of orderedRoutes.slice(0,2)){
     try{
       const isGoogle=route.provider_id==='google';
       const decisionPrompt=isGoogle
