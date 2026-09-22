@@ -71,7 +71,7 @@ if(op==="pr_find"){
 if(op==="pr_read"){
   const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
   const pr=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}`,{},t.token);
-  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number:pr.number,state:pr.state,merged:pr.merged===true,merged_at:pr.merged_at||null,mergeable:pr.mergeable,mergeable_state:pr.mergeable_state,draft:pr.draft,head_sha:pr.head?.sha||null,head_ref:pr.head?.ref||null,base_ref:pr.base?.ref||null,base_sha:pr.base?.sha||null,url:pr.html_url||null,title:pr.title||null},installation_id:installation.id,account:installation.account});
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number:pr.number,state:pr.state,merged:pr.merged===true,merged_at:pr.merged_at||null,mergeable:pr.mergeable,mergeable_state:pr.mergeable_state,draft:pr.draft,head_sha:pr.head?.sha||null,head_ref:pr.head?.ref||null,base_ref:pr.base?.ref||null,base_sha:pr.base?.sha||null,merge_commit_sha:pr.merge_commit_sha||null,url:pr.html_url||null,title:pr.title||null},installation_id:installation.id,account:installation.account});
 }
 if(op==="pr_files"){
   const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
