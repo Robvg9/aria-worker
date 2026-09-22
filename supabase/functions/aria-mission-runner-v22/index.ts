@@ -1013,8 +1013,8 @@ Deno.serve(async (request) => {
     try {
       const reopened = await rpc("aria_internal.aria_reopen_recoverable_hard_blocks", { p_limit: 20 });
       hardBlockRecovery = Number(reopened || 0);
-      if (hardBlockRecovery > 0) {
-        await emitEvent(String(requestedMissionId || "recovery-cycle"), "hard_blocks_reopened", {
+      if (hardBlockRecovery > 0 && requestedMissionId) {
+        await emitEvent(String(requestedMissionId), "hard_blocks_reopened", {
           reopened: hardBlockRecovery,
           recovery_epoch: "advanced",
           reason: "new governed recovery capability",
