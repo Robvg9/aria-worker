@@ -93,7 +93,21 @@ jobs:
           echo "$html"
           grep -q 'ARIA — Centro de Mando' <<<"$html"
           grep -q "${GITHUB_SHA}" <<<"$html"
-          sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/sw-${GITHUB_SHA}.js")"
+          sw=""
+          for attempt in $(seq 1 30); do
+            sw="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/sw-${GITHUB_SHA}.js?probe=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
+            if SW="$sw" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import os
+          if f"aria-pwa-{os.environ['GITHUB_SHA']}" in os.environ.get("SW",""):
+              raise SystemExit(0)
+          raise SystemExit(1)
+          PY
+            then
+              break
+            fi
+            test "$attempt" -lt 30 && sleep 2
+          done
+          test -n "$sw"
           echo "$sw"
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
           grep -q "position:fixed;inset:0;z-index:9999" <<<"$html"
