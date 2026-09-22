@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Session = { accessToken: string; userId: string };
-type Project = { id: string; name: string; description: string; icon: string; status: string; context: string };
+type Project = { id: string; name: string; description: string; icon: string; context: string };
 type Tool = 'pen'|'marker'|'line'|'rect'|'circle'|'arrow'|'text'|'eraser';
 type Point = { x:number; y:number };
 type DrawAction = { tool:Tool; color:string; size:number; points:Point[]; text?:string };
 
 const API = '/api';
 const PROJECTS: Project[] = [
-  { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', status:'Activo', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.' },
-  { id:'cuevacoin', name:'CuevaCoin', description:'Aplicación financiera/operativa vinculada al ecosistema de negocios.', icon:'🪙', status:'Activo', context:'CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.' },
-  { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', status:'Activo', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.' }
+  { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.' },
+  { id:'cuevacoin', name:'CuevaCoin', description:'Aplicación financiera/operativa vinculada al ecosistema de negocios.', icon:'🪙', context:'CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.' },
+  { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.' }
 ];
 
 async function api(path:string, token:string, init:RequestInit={}) {
@@ -98,7 +98,13 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   };
   const pointerDown = (e:React.PointerEvent) => {
     const p=pointFromEvent(e);if(!p)return;canvasRef.current?.setPointerCapture(e.pointerId);drawing.current=true;startPoint.current=p;
-    if(tool==='text'){const text=window.prompt('Texto para colocar en el diseño:');if(text?.trim())setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.trim()}]);drawing.current=false;return}
+    if(tool==='text'){
+      const text=instruction.trim();
+      if(text) setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.slice(0,120)}]);
+      else setNotice('Escribe primero el texto en el campo de instrucción.');
+      drawing.current=false;
+      return;
+    }
     setActions(a=>[...a,{tool,color,size,points:[p]}]);
   };
   const pointerMove = (e:React.PointerEvent) => {
@@ -131,10 +137,23 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   return <section className='panel visualBoardPanel'>
     <div className='panelHeading'><div><div className='panelTitle'>ARTIA · VISUAL WORKSPACE</div><h2>Dibuja sobre {project.name}</h2><div className='muted'>Pinta, encierra, señala y escribe. ARIA recibe la imagen y el mapa estructurado de las anotaciones.</div></div><span className='pill live'>1100×650</span></div>
     <div className='drawToolbar'>
-      <label className='fileButton'>Cargar captura/base <input type='file' accept='image/*' hidden onChange={e=>{const f=e.target.files?.[0];if(f)loadBackground(f);e.currentTarget.value=''}}/></label>
-      {(['pen','marker','line','rect','circle','arrow','text','eraser'] as Tool[]).map(x=><button key={x} className={'toolButton '+(tool===x?'selected':'')} onClick={()=>setTool(x)}>{x==='pen'?'✎':x==='marker'?'🖍':x==='line'?'╱':x==='rect'?'▭':x==='circle'?'◯':x==='arrow'?'➜':x==='text'?'T':'⌫'} {x}</button>)}
-      <label>Color <input type='color' value={color} onChange={e=>setColor(e.target.value)}/></label><label>Tamaño <input type='range' min='2' max='28' value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
-      <button className='ghost' onClick={()=>setActions(a=>a.slice(0,-1))}>Deshacer</button><button className='ghost' onClick={()=>setActions([])}>Limpiar</button>
+      <label className='fileButton'>📷 Cargar imagen <input type='file' accept='image/*' hidden onChange={e=>{const f=e.target.files?.[0];if(f)loadBackground(f);e.currentTarget.value=''}}/></label>
+      {(['pen','marker','line','rect','circle','arrow','text','eraser'] as Tool[]).map(x=>
+        <button
+          type='button'
+          key={x}
+          className={'toolButton '+(tool===x?'selected':'')}
+          onClick={()=>setTool(x)}
+          aria-label={x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}
+        >
+          {x==='pen'?'✎':x==='marker'?'🖍':x==='line'?'╱':x==='rect'?'▭':x==='circle'?'◯':x==='arrow'?'➜':x==='text'?'T':'⌫'}
+          <span>{x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}</span>
+        </button>
+      )}
+      <label>Color <input aria-label='Color del dibujo' type='color' value={color} onChange={e=>setColor(e.target.value)}/></label>
+      <label>Grosor <input aria-label='Grosor del trazo' type='range' min='2' max='28' value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
+      <button type='button' className='ghost' onClick={()=>setActions(a=>a.slice(0,-1))}>Deshacer</button>
+      <button type='button' className='ghost' onClick={()=>setActions([])}>Limpiar</button>
     </div>
     <div className='canvasWrap'><canvas ref={canvasRef} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}/></div>
     <textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Ejemplo: Donde marqué el círculo quiero el botón X. La flecha indica que debe ir debajo de Y.'/><div className='muted visualHint'>Trazos registrados: {actions.length} · El mapa estructurado permite a ARIA razonar sobre la posición aunque el modelo visual no esté disponible.</div>
@@ -165,14 +184,16 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   return <main className='appShell projectShell'>
     <header className='topBar'><div><div className='eyebrow'>ARIA / PROYECTOS</div><h1>Proyectos</h1><div className='sub'>Chats aislados por proyecto · misiones en la misma cola canónica · espacio visual ARTIA.</div></div><div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button></div></header>
-    <section className='projectGrid'>{PROJECTS.map(p=><button key={p.id} className={'projectCard '+(p.id===project.id?'selected':'')} onClick={()=>{setProject(p);setTab('overview')}}><span className='projectIcon'>{p.icon}</span><div><strong>{p.name}</strong><small>{p.description}</small></div><span className='pill good'>{p.status}</span></button>)}</section>
-    <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted'>{project.context}</p></div><div className='projectActions'><button className='primary' onClick={()=>setTab('chat')}>Abrir chat</button><button className='ghost' onClick={()=>setTab('missions')}>Misiones</button><button className='ghost' onClick={()=>setTab('visual')}>ARTIA visual</button></div></section>
-    <div className='capTabs'>{(['overview','chat','missions','visual'] as const).map(t=><button key={t} className={'tabButton '+(tab===t?'selected':'')} onClick={()=>setTab(t)}>{t==='overview'?'Resumen':t==='chat'?'Chat del proyecto':t==='missions'?'Misiones':'ARTIA visual'}</button>)}</div>
+    <section className='projectGrid' aria-label='Seleccionar proyecto'>{PROJECTS.map(p=><button type='button' key={p.id} className={'projectCard '+(p.id===project.id?'selected':'')} onClick={()=>{setProject(p);setTab('overview')}}><span className='projectIcon'>{p.icon}</span><div><strong>{p.name}</strong><small>{p.id==='battlecruiser'?'Operación':p.id==='cuevacoin'?'Finanzas':'Cerebro'}</small></div></button>)}</section>
+    <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted'>{project.context}</p></div></section>
+    <div className='capTabs projectTabs'>{(['overview','chat','missions','visual'] as const).map(t=><button type='button' key={t} className={'tabButton '+(tab===t?'selected':'')} onClick={()=>setTab(t)}>{t==='overview'?'Resumen':t==='chat'?'Chat':t==='missions'?'Misiones':'ARTIA'}</button>)}</div>
+    <div className='projectBodyViewport'>
     {error&&<div className='errorBox'>{error}</div>}
     {tab==='overview'&&<section className='panel'><div className='panelTitle'>COLA COMPARTIDA</div><h2>Una sola cola, tres espacios de trabajo</h2><p className='muted'>Todo entra en el mismo planner, executor, verification y evidence fabric de ARIA. El proyecto añade contexto y filtrado, no un runtime paralelo.</p><div className='statsGrid'><div className='statCard'><div className='statValue violet'>{missions.length}</div><div className='statLabel'>Misiones</div></div><div className='statCard'><div className='statValue cyan'>{missions.filter(m=>['running','queued','planning','waiting','paused'].includes(String(m.status))).length}</div><div className='statLabel'>Activas / en cola</div></div><div className='statCard'><div className='statValue green'>{missions.filter(m=>String(m.status)==='succeeded').length}</div><div className='statLabel'>Completadas verificadas</div></div><div className='statCard'><div className='statValue gold'>{missions.filter(m=>['blocked','failed'].includes(String(m.status))).length}</div><div className='statLabel'>Requieren atención</div></div></div></section>}
-    {tab==='chat'&&<section className='panel chatPanel'><div className='panelTitle'>CHAT EXCLUSIVO · {project.name.toUpperCase()}</div><div className='chatWindow projectChatWindow'>{messages.length?messages.map(m=><div key={m.id} className={'bubble '+m.role}><pre className='projectBubbleText'>{m.text}</pre></div>):<div className='emptyState'>Contexto activo: {project.name}. ARIA debe distinguir este proyecto de los demás y usar solo memoria autorizada.</div>}</div><div className='composer'><textarea value={text} onChange={e=>setText(e.target.value)} placeholder={'Habla con ARIA sobre '+project.name+'…'}/><button className='send' disabled={sending||!text.trim()} onClick={()=>void send()}>{sending?'…':'↑'}</button></div></section>}
-    {tab==='missions'&&<section className='panel'><div className='panelHeading'><div><div className='panelTitle'>MISIONES · {project.name.toUpperCase()}</div><h2>Cola y evidencia</h2></div></div><div className='missionCreateRow'><textarea value={goal} onChange={e=>setGoal(e.target.value)} placeholder={'Qué debe hacer ARIA en '+project.name+'…'}/><button className='primary' disabled={sending||!goal.trim()} onClick={()=>void createMission()}>{sending?'…':'Crear misión'}</button></div><div className='catalogList'>{missions.map(m=><button key={m.mission_id} className='projectMissionRow' onClick={()=>setSelectedMission(m)}><div><strong>{m.goal}</strong><small>{statusLabel(String(m.status))} · {m.completed_steps??0}/{m.total_steps??m.steps?.length??0} pasos</small></div><span className={'pill '+statusClass(String(m.status))}>{statusLabel(String(m.status))}</span></button>)}{!missions.length&&<div className='emptyState'>Todavía no hay misiones para este proyecto.</div>}</div></section>}
+    {tab==='chat'&&<section className='panel chatPanel'><div className='panelTitle'>CHAT EXCLUSIVO · {project.name.toUpperCase()}</div><div className='chatWindow projectChatWindow'>{messages.length?messages.map(m=><div key={m.id} className={'bubble '+m.role}><pre className='projectBubbleText'>{m.text}</pre></div>):<div className='emptyState'>Contexto activo: {project.name}. ARIA debe distinguir este proyecto de los demás y usar solo memoria autorizada.</div>}</div><div className='composer'><textarea value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void send()}}} placeholder={'Habla con ARIA sobre '+project.name+'…'}/><button className='send' disabled={sending||!text.trim()} onClick={()=>void send()}>{sending?'…':'↑'}</button></div></section>}
+    {tab==='missions'&&<section className='panel'><div className='panelHeading'><div><div className='panelTitle'>MISIONES · {project.name.toUpperCase()}</div><h2>Cola y evidencia</h2></div></div><div className='missionCreateRow'><textarea value={goal} onChange={e=>setGoal(e.target.value)} placeholder={'Describe la misión que ARIA debe realizar en '+project.name+'…'}/><button className='primary' disabled={sending||!goal.trim()} onClick={()=>void createMission()}>{sending?'…':'Crear misión'}</button></div><div className='catalogList'>{missions.map(m=><button key={m.mission_id} className='projectMissionRow' onClick={()=>setSelectedMission(m)}><div><strong>{m.goal}</strong><small>{statusLabel(String(m.status))} · {m.completed_steps??0}/{m.total_steps??m.steps?.length??0} pasos</small></div><span className={'pill '+statusClass(String(m.status))}>{statusLabel(String(m.status))}</span></button>)}{!missions.length&&<div className='emptyState'>Todavía no hay misiones para este proyecto.</div>}</div></section>}
     {tab==='visual'&&<VisualBoard session={session} project={project} conversationId={conversationId} onChat={m=>{setMessages(x=>[...x,{id:crypto.randomUUID(),role:'aria',text:m}]);setTab('chat')}} onMission={createMission}/>}
+    </div>
     {selectedMission&&<div className='modalBackdrop' onClick={()=>setSelectedMission(null)}><section className='detailModal' onClick={e=>e.stopPropagation()}><div className='detailTop'><div><div className='eyebrow'>MISIÓN · {project.name}</div><h2>{selectedMission.goal}</h2><span className={'pill '+statusClass(String(selectedMission.status))}>{statusLabel(String(selectedMission.status))}</span></div><button className='ghost' onClick={()=>setSelectedMission(null)}>Cerrar</button></div><div className='detailGrid'><div className='statCard'><div className='statValue'>{selectedMission.completed_steps??0}</div><div className='statLabel'>Pasos</div></div><div className='statCard'><div className='statValue'>{selectedMission.total_steps??selectedMission.steps?.length??0}</div><div className='statLabel'>Total</div></div><div className='statCard'><div className='statValue'>{selectedMission.finished_at?'Final':'En curso'}</div><div className='statLabel'>Estado</div></div></div><div className='detailResult'><div className='panelTitle'>RESULTADO</div><pre>{resultText(selectedMission)||'Aún no existe resultado textual final.'}</pre></div><div className='detailTimeline'><div className='panelTitle'>PASOS Y VERIFICACIÓN</div>{(selectedMission.steps||[]).map((s:any)=><div className='timelineRow' key={s.id}><span className='timelineDot'/><div><strong>Paso {s.index}: {s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type||'ejecución'} · {s.operation||'operación'} · verificación: {s?.result?.__aria_verification_evidence?.verified===true||s?.result?.verification_status==='verified'||s?.result?.repair?.verification_status==='verified'?'PASS':'pendiente/no expuesta'}</small></div></div>)}</div></section></div>}
   </main>;
 }

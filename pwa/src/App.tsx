@@ -387,7 +387,7 @@ function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <div className='eyebrow'>DIRECT ARIA · {BUILD}</div>
         <h1>Tu centro de mando cognitivo.</h1>
         <p>Conversación, misiones, modelos, agentes, dispositivos y Meditación IA en una sola interfaz.</p>
-        <input aria-label='Correo' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo' autoComplete='username' />
+        <input aria-label='Correo' type='email' inputMode='email' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo electrónico' autoComplete='username' />
         <input aria-label='Contraseña' type='password' value={password} onChange={e => setPassword(e.target.value)} placeholder='Contraseña' autoComplete='current-password' />
         {error && <div className='errorBox'>{error}</div>}
         <button className='primary wide' disabled={busy}>{busy ? 'ENTRANDO…' : 'ENTRAR EN ARIA'}</button>
@@ -443,6 +443,7 @@ function CapabilityCenter({
         <div><div className='eyebrow'>ARIA / UNIVERSO</div><h1>Centro de capacidades</h1><div className='sub'>Inventario real, estado operativo y rutas gobernadas. Sin secretos.</div></div>
         <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='primary' onClick={onMission}>Nueva misión</button></div>
       </header>
+      <div className='pageBodyViewport capabilitiesViewport'>
       <section className='panel'>
         <div className='capHero'>
           <div className='heroOrb smallOrb'>ARIA</div>
@@ -477,6 +478,7 @@ function CapabilityCenter({
           </>
         )}
       </section>
+      </div>
     </main>
   );
 }
@@ -518,13 +520,13 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
           </div>
           {summary.result ? <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{renderMarkdown(summary.result)}</div></div> : <div className='muted'>ARIA no registró todavía un texto de resultado.</div>}
         </div>
-        <details className='technicalDetails'>
-          <summary>Ver detalles técnicos</summary>
+        <section className='technicalDetails technicalDetailsOpen'>
+          <div className='technicalDetailsTitle'>EVIDENCIA TÉCNICA</div>
           <div className='detailTimeline'>
             <div className='panelTitle'>TIMELINE REAL</div>
             {events.length ? events.map((e: any, i) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small>{e.payload && <pre>{JSON.stringify(e.payload, null, 2)}</pre>}</div></div>) : <div className='muted'>No hay eventos adicionales disponibles.</div>}
           </div>
-        </details>
+        </section>
       </section>
     </div>
   );
@@ -742,21 +744,8 @@ function Chat({
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [screen, setScreen] = useState<0 | 1>(0);
-  const touchStartX = useRef<number | null>(null);
   const goScreen = (next: number) => setScreen(next <= 0 ? 0 : 1);
-  const onTouchStart = (event: React.TouchEvent<HTMLElement>) => {
-    touchStartX.current = event.touches[0]?.clientX ?? null;
-  };
-  const onTouchEnd = (event: React.TouchEvent<HTMLElement>) => {
-    const start = touchStartX.current;
-    const end = event.changedTouches[0]?.clientX ?? null;
-    touchStartX.current = null;
-    if (start == null || end == null) return;
-    const delta = end - start;
-    if (Math.abs(delta) < 55) return;
-    if (delta < 0) goScreen(1);
-    if (delta > 0) goScreen(0);
-  };
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
     system || caps || mission ? 'cached' : 'offline'
@@ -824,7 +813,9 @@ function Chat({
         parts.push({ type: 'file', fileId: path, path, mimeType: file.type || 'application/octet-stream', filename: file.name });
       }
       setFile(null);
-      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId: crypto.randomUUID(), conversationId: crypto.randomUUID() }) });
+      const activeConversationId = conversationId ?? crypto.randomUUID();
+      setConversationId(activeConversationId);
+      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId: crypto.randomUUID(), conversationId: activeConversationId }) });
       const p = d.parts?.find((x: any) => x.type === 'text');
       if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text }]);
       if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
@@ -891,24 +882,11 @@ function Chat({
         </div>
         <div className='topActions'>
           <InstallButton />
-          <button className='ghost' onClick={() => goScreen(0)}>Dashboard</button>
-          <button className='ghost' onClick={() => goScreen(1)}>Chat</button>
-          <button className='ghost' onClick={onProjects}>Proyectos</button><button className='ghost' onClick={onCapabilities}>Capacidades</button>
-          <button className='ghost' onClick={onMeditation}>Meditación IA</button>
-          <button className='ghost' onClick={() => setShowNewMission(true)}>Nueva misión</button>
+          <button className='ghost desktopOnly' onClick={onMeditation}>Meditación IA</button>
+          <button className='primary desktopOnly' onClick={() => setShowNewMission(true)}>Nueva misión</button>
           <button className='ghost' onClick={onSignOut}>Salir</button>
         </div>
       </header>
-
-      <div className='swipeNav' aria-label='Navegación entre pantallas'>
-        <button className={'swipeArrow ' + (screen === 0 ? 'disabled' : '')} onClick={() => goScreen(0)} aria-label='Ir al Dashboard'>←</button>
-        <div className='swipeTrack'>
-          <button className={'swipeDot ' + (screen === 0 ? 'active' : '')} onClick={() => goScreen(0)} aria-label='Pantalla 1: Dashboard'>1</button>
-          <span className='swipeLine'><i /></span>
-          <button className={'swipeDot ' + (screen === 1 ? 'active' : '')} onClick={() => goScreen(1)} aria-label='Pantalla 2: Chat'>2</button>
-        </div>
-        <button className={'swipeArrow ' + (screen === 1 ? 'disabled' : '')} onClick={() => goScreen(1)} aria-label='Ir al Chat'>→</button>
-      </div>
 
       <div className='screenViewport'>
         <div className={'screenTrack screen-' + screen}>
@@ -966,12 +944,6 @@ function Chat({
               </section>
             )}
 
-            <section className='panel dashboardWelcome'>
-              <div className='panelTitle'>NUEVA NAVEGACIÓN</div>
-              <h2>Dashboard primero · Chat después</h2>
-              <p className='muted'>Desliza de derecha a izquierda para ir al Chat y de izquierda a derecha para volver. El indicador muestra la pantalla actual y la dirección disponible.</p>
-              <div className='navigationPreview'><span className='navScreenCard active'>DASHBOARD</span><span className='navPreviewArrow'>→</span><span className='navScreenCard'>CHAT</span></div>
-            </section>
           </section>
 
           <section className='appScreen chatScreen'>
@@ -981,7 +953,7 @@ function Chat({
                   <div className='panelTitle'>SEGUNDA PANTALLA</div>
                   <h2>CONVERSACIÓN DIRECTA</h2>
                 </div>
-                <button className='ghost' onClick={() => goScreen(0)}>← Dashboard</button>
+
               </div>
               <div className='chatWindow'>
                 {messages.length
@@ -992,14 +964,28 @@ function Chat({
               {error && <div className='errorBox'>{error}</div>}
               <div className='composer'>
                 <input type='file' ref={fileRef} hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
-                <button className='tool' onClick={() => fileRef.current?.click()}>Adjunto</button>
-                <textarea value={text} onChange={e => setText(e.target.value)} placeholder='Habla con ARIA…' />
+                <button className='tool attachmentButton' aria-label='Adjuntar archivo' onClick={() => fileRef.current?.click()}>📎<span className='attachmentLabel'>Adjuntar</span></button>
+                <textarea
+                  value={text}
+                  onChange={e => setText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                  placeholder='Habla con ARIA…'
+                />
                 <button className='send' disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
               </div>
             </section>
           </section>
         </div>
       </div>
+
+      <nav className='bottomNav' aria-label='Navegación principal'>
+        <button className={screen === 0 ? 'active' : ''} onClick={() => goScreen(0)} aria-label='Inicio'><span>⌂</span><small>Inicio</small></button>
+        <button className={screen === 1 ? 'active' : ''} onClick={() => goScreen(1)} aria-label='Chat'><span>💬</span><small>Chat</small></button>
+        <button className='bottomNavPrimary' onClick={() => setShowNewMission(true)} aria-label='Nueva misión'><span>＋</span><small>Misión</small></button>
+        <button onClick={onProjects} aria-label='Proyectos'><span>◈</span><small>Proyectos</small></button>
+        <button onClick={onMeditation} aria-label='Meditación IA'><span>◌</span><small>Meditación</small></button>
+        <button onClick={onCapabilities} aria-label='Capacidades'><span>⚙</span><small>Capacidades</small></button>
+      </nav>
 
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
       {showMission && mission && <MissionDetail mission={mission} events={events} onClose={() => setShowMission(false)} />}
@@ -1078,6 +1064,7 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
         <div><div className='eyebrow'>ARIA / CONTINUIDAD</div><h1>MEDITACIÓN IA</h1><div className='sub'>Ejecución autónoma, verificación y Human Gates</div></div>
         <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='ghost' onClick={onCapabilities}>Capacidades</button></div>
       </header>
+      <div className='pageBodyViewport meditationViewport'>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{o?.mode ? statusLabel(String(o.mode)) : 'Sincronizando…'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy} onClick={() => control('stop')}>Detener</button></div></section>
       {error && <div className='errorBox'>{error}</div>}
       <section className='statsGrid'><StatCard value={o?.counts?.missions ?? 0} label='Misiones visibles' /><StatCard value={o?.counts?.human_gates ?? 0} label='Human Gates' /><StatCard value={o?.counts?.blocked ?? 0} label='Bloqueadas' /><StatCard value={caps?.summary.executors ?? 0} label='Executors' /></section>
@@ -1087,6 +1074,7 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
       <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
       <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{r.goal}</strong><small>{statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small></div><span>›</span></button>)}</section>
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
+      </div>
     </main>
   );
 }
