@@ -973,11 +973,30 @@ Deno.serve(async (request) => {
     await renewLease(missionId);
 
     const recalled = await recall(String(mission.goal || ""), token);
+    const previousRecovery = mission?.checkpoint?.recovery && typeof mission.checkpoint.recovery === "object"
+      ? mission.checkpoint.recovery
+      : null;
     const cognitiveContext = {
       version: "cognitive-loop-v2",
       available: recalled.available,
       recall_count: recalled.results.length,
       memory_ids: recalled.results.map((item: any) => item.memory_id || item.id).filter(Boolean),
+      recovery: previousRecovery?.replan_required === true ? {
+        replan_required: true,
+        replan_count: Number(previousRecovery?.replan_count || 0),
+        failure_reason: previousRecovery?.failure_reason || null,
+        failed_step_ids: Array.isArray(previousRecovery?.failed_step_ids) ? previousRecovery.failed_step_ids : [],
+        failed_step_details: previousRecovery?.block_details || null,
+        previous_plan_summary: Array.isArray(previousRecovery?.previous_plan)
+          ? previousRecovery.previous_plan.map((step: any) => ({
+              id: step?.id,
+              executor_type: step?.executor_type,
+              operation: step?.operation,
+              risk: step?.risk,
+              target: step?.target,
+            })).slice(0, 20)
+          : [],
+      } : null,
     };
     await emitEvent(missionId, "cognitive_recall_completed", cognitiveContext);
 
@@ -1282,16 +1301,86 @@ Deno.serve(async (request) => {
           continue;
         }
 
+        const replanCount = Number(mission?.checkpoint?.recovery?.replan_count || 0) + 1;
+        const failedStepIds = failures.map((item) => String(item.step.id));
+        const previousPlan = steps;
+        const previousResults = results;
+        const maxReplans = 5;
+        if (replanCount <= maxReplans) {
+          const recovery = {
+            status: "replan_required",
+            replan_required: true,
+            replan_count: replanCount,
+            failure_reason: "retry_exhausted",
+            failed_step_ids: failedStepIds,
+            block_details: {
+              kind: "retry_exhausted_strategy",
+              recoverable: true,
+              reason: "La estrategia actual agotó sus reintentos sin alcanzar una verificación válida.",
+              next_action: "replan: discard failed strategy and build an alternative",
+              remediation: "Conservar la evidencia de la estrategia fallida y generar un plan diferente. No repetir automáticamente los mismos pasos.",
+              evidence: {
+                failed_step_ids: failedStepIds,
+                attempts,
+              },
+            },
+            previous_plan: previousPlan,
+            previous_results: previousResults,
+          };
+          await updateMission(missionId, {
+            status: "queued",
+            current_step: 0,
+            completed_steps: 0,
+            next_action: "replan: discard failed strategy and build an alternative",
+            last_stderr: "retry_exhausted_replanned",
+            checkpoint: {
+              ...checkpoint,
+              plan: undefined,
+              completed_steps: [],
+              attempts: {},
+              results: {},
+              pending_jobs: {},
+              recovery,
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          await emitEvent(missionId, "mission_replanned", recovery);
+          return out({
+            ok: true,
+            status: "replanned",
+            mission_id: missionId,
+            runtime: V,
+            next_action: "replan: discard failed strategy and build an alternative",
+            recovery,
+          });
+        }
+
+        const hardBlock = {
+          status: "hard_block",
+          recoverable: false,
+          reason: "ARIA agotó las estrategias gobernadas disponibles para esta misión.",
+          next_action: "manual: inspect mission evidence and define a new governed capability or resource",
+          remediation: "Revisar todas las estrategias y evidencias previas, corregir la causa estructural o añadir una capacidad gobernada antes de volver a intentar.",
+          evidence: {
+            replan_count: replanCount,
+            failed_step_ids: failedStepIds,
+            previous_plan: previousPlan,
+            previous_results: previousResults,
+          },
+        };
         await updateMission(missionId, {
-          status: "failed",
+          status: "blocked",
           current_step: completed.size,
           completed_steps: completed.size,
-          next_action: "recovery: scheduler may resume from checkpoint",
-          checkpoint: { ...checkpoint, recovery: { status: "retry_exhausted", failed_step_ids: failures.map((item) => String(item.step.id)) } },
+          next_action: hardBlock.next_action,
+          last_stderr: "retry_exhausted_all_strategies",
+          checkpoint: { ...checkpoint, recovery: { status: "hard_block", replan_count: replanCount, failed_step_ids: failedStepIds, block_details: hardBlock } },
           lease_owner: null,
           lease_until: null,
         });
-        return out({ ok: false, status: "failed", mission_id: missionId, runtime: V, completed_steps: completed.size, failed_steps: failures.map((item) => String(item.step.id)) });
+        await emitEvent(missionId, "mission_hard_blocked", hardBlock);
+        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V, completed_steps: completed.size, failed_steps: failedStepIds, block_details: hardBlock });
       }
 
       await updateMission(missionId, {
