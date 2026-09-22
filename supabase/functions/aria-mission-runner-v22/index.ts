@@ -332,6 +332,12 @@ async function githubExecute(step: any, token: string | null) {
       message: input.message,
       title: input.title,
       body: input.body,
+      number: input.number,
+      commit_sha: input.commit_sha,
+      paths: input.paths,
+      auto_merge: input.auto_merge,
+      commit_title: input.commit_title,
+      commit_message: input.commit_message,
       risk_level: String(step.risk || "READ").toLowerCase().includes("low") ? "low" : "high",
     }),
   });
