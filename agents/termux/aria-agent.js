@@ -3,7 +3,7 @@
 const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
-const { executeAndroidAccessibilityJob } = require('../../computer-use/android-accessibility-v1');
+const { executeAndroidAccessibilityJob, probeLocalIpcHealth } = require('../../computer-use/android-accessibility-v1');
 const { executeAutonomousAndroidMission } = require('./android-autonomous-runner-v1');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
@@ -96,8 +96,23 @@ async function resolveSecret(jobId, secretRef) {
   return body.secret;
 }
 async function heartbeat() {
-  try { await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'android-termux',capabilities:['shell.execute','notifications.push','computer.use.android']})}); log(`ONLINE device=${DEVICE_ID}`); }
-  catch(error){ console.error(`[heartbeat] ${error.message}`); }
+  let androidUiHealth = { ok: false, reason: 'probe_not_run' };
+  try {
+    androidUiHealth = await probeLocalIpcHealth({ timeoutMs: 1500 });
+  } catch (error) {
+    androidUiHealth = { ok: false, reason: String(error?.message || error).slice(0, 180) };
+  }
+  const capabilities = ['shell.execute','notifications.push'];
+  if (androidUiHealth.ok) capabilities.push('computer.use.android');
+  try {
+    await api('/v1/devices/heartbeat',{
+      method:'POST',
+      body:JSON.stringify({device_id:DEVICE_ID,agent_type:'android-termux',capabilities})
+    });
+    log(`ONLINE device=${DEVICE_ID} computer.use.android=${androidUiHealth.ok ? 'READY' : 'UNAVAILABLE:' + androidUiHealth.reason}`);
+  } catch(error){
+    console.error(`[heartbeat] ${error.message}`);
+  }
 }
 async function claimAndExecute() {
   try {
