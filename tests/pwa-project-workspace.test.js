@@ -29,7 +29,7 @@ assert.match(runner,/__aria_verified_by_runner/);
 assert.match(css,/visualBoardPanel/);
 assert.match(project,/Cargar captura\/base/);
 assert.match(project,/conversationId/);
-assert.match(project,//projects\/.*conversation/);
+assert.match(project,/\/projects\/.*conversation/);
 assert.match(project,/Cargar captura\/base/);
 assert.match(api,/aria_app_ensure_conversation/);
 assert.match(api,/aria_app_save_message/);
