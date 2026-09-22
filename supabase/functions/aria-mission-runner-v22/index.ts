@@ -152,7 +152,19 @@ function executorType(step: any) {
 const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
   "aria-agent-coding-v1": "aria-agent-coding-openrouter-v1",
   "aria-agent-reviewer-v1": "aria-agent-verifier-openrouter-v1",
+  "aria-agent-coding-openrouter-v1": "aria-agent-android-coding-openrouter-v1",
 };
+
+function recoveryTargetsAndroid(recovery: any, step: any) {
+  const raw = JSON.stringify({
+    goal: recovery?.original_goal,
+    failure: recovery?.block_details,
+    previous: recovery?.previous_results,
+    plan: recovery?.previous_plan,
+    step,
+  }).toLowerCase();
+  return /android-ui-agent|mainactivity\.kt|build\.gradle|viewpager2|android-only|apk/.test(raw);
+}
 
 function applyRecoveryAgentFallbacks(steps: any[], recovery: any) {
   if (!recovery?.replan_required) return steps;
@@ -160,7 +172,11 @@ function applyRecoveryAgentFallbacks(steps: any[], recovery: any) {
   return steps.map((step: any) => {
     if (!failed.has(String(step?.id)) || executorType(step) !== "agent") return step;
     const current = String(step?.target?.agent_id || "");
-    const fallback = AGENT_RECOVERY_FALLBACKS[current];
+    const fallback = recoveryTargetsAndroid(recovery, step)
+      ? (current === "aria-agent-coding-v1" || current === "aria-agent-coding-openrouter-v1"
+        ? "aria-agent-android-coding-openrouter-v1"
+        : AGENT_RECOVERY_FALLBACKS[current])
+      : AGENT_RECOVERY_FALLBACKS[current];
     if (!fallback) return step;
     return {
       ...step,
