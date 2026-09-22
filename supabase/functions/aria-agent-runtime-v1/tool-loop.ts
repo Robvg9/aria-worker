@@ -29,7 +29,10 @@ async function resolveToolRoutes(agent: any) {
     if(model&& !seen.has(key)){seen.add(key);routes.push({provider,model});}
   };
 
+  const preferredProvider = String(agent?.provider?.provider_id ?? agent?.provider_id ?? "").trim().toLowerCase();
+  const preferredIsFreeOpenRouter = preferredProvider === "openrouter" && preferred.endsWith(":free");
   if (preferred.startsWith("openrouter/")) push("openrouter",preferred);
+  else if (preferredIsFreeOpenRouter) push("openrouter",preferred);
 
   const { data: googleModels } = await internal.from("model_registry")
     .select("model_id,status,enabled").eq("provider_id","google").eq("status","available").eq("enabled",true);
