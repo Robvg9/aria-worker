@@ -35,6 +35,10 @@ assert.ok(gradle.includes('versionCode = 21'));
 assert.ok(gradle.includes('versionName = "1.1.15"'));
 assert.ok(!transport.includes('127.0.0.1:43817'));
 assert.ok(!agent.includes('android-browser-bridge-v1'));
-assert.ok(manifest.includes('android.permission.INTERNET'));\nassert.ok(ipc.includes('127.0.0.1'));\nassert.ok(ipc.includes('/execute'));\nassert.ok(!transport.includes('/system/bin/am broadcast'));\nassert.ok(!manifest.includes('ARIA Browser Bridge'));
+assert.ok(manifest.includes('android.permission.INTERNET'));
+assert.ok(ipc.includes('127.0.0.1'));
+assert.ok(ipc.includes('/execute'));
+assert.ok(!transport.includes('/system/bin/am broadcast'));
+assert.ok(!manifest.includes('ARIA Browser Bridge'));
 
 console.log('android-accessibility-v1 PASS');
