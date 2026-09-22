@@ -51,7 +51,7 @@ assert.match(loopSource, /eq\("provider_id","openrouter"\)/, 'tool model resolut
 assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay on free verified models');
 assert.match(loopSource, /preferredProvider/);
 assert.match(loopSource, /preferredIsFreeOpenRouter/);
-assert.match(loopSource, /const maxRounds = allowWrite ? 12 : 8/);
+assert.match(loopSource, /maxRounds\\s*=\\s*allowWrite\\s*\\?\\s*12\\s*:\\s*8/);
 assert.match(loopSource, /todavía no se ha producido ninguna escritura gobernada/);
 assert.match(loopSource, /FINDINGS:/);
 assert.match(loopSource, /CONFIRMED: la mutación quedó registrada/);
