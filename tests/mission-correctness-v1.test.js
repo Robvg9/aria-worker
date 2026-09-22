@@ -43,6 +43,9 @@ assert.match(runner, /mission_replanned/);
 assert.match(runner, /AGENT_RECOVERY_FALLBACKS/);
 assert.match(runner, /aria-agent-coding-openrouter-v1/);
 assert.match(runner, /aria-agent-verifier-openrouter-v1/);
+assert.match(runner, /aria-agent-android-coding-openrouter-v1/);
+assert.match(runner, /recoveryTargetsAndroid/);
+assert.match(runner, /android-ui-agent/);
 
 assert.match(runner, /verification:await_ci_or_live_verification/);
 assert.match(appApi, /missionBlockDetails/);
