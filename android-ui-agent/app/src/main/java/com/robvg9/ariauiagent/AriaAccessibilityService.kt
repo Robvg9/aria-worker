@@ -440,7 +440,15 @@ class AriaAccessibilityService : AccessibilityService() {
                 if (!node.isEnabled || !node.isVisibleToUser) return error("click_target_not_actionable")
                 val beforeTree = serializeNode(root, "0", 0, NodeBudget())
                 val beforeHash = sha256(beforeTree.toString())
-                val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK) || gestureClick(node)
+                val browserTarget = targetPackage?.let { approvedBrowsers.contains(it) } == true
+                // Chrome/WebView accessibility nodes can block inside ACTION_CLICK. For approved
+                // browsers, use the bounded gesture path first; it waits for the real gesture
+                // completion callback and still falls back to ACTION_CLICK if needed.
+                val clicked = if (browserTarget) {
+                    gestureClick(node) || node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                } else {
+                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK) || gestureClick(node)
+                }
                 if (!clicked) return error("click_failed")
                 Thread.sleep(300)
                 val afterRoot = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("post_action_window_missing")
