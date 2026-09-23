@@ -5,4 +5,5 @@ object IpcAuth {
     const val PORT = 45874
     const val PATH = "/execute"
     const val HEALTH_PATH = "/health"
+    const val HEALTH_PROTOCOL = "aria-android-ui-agent-ipc-v2"
 }
