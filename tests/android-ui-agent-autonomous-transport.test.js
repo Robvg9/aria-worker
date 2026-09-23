@@ -35,7 +35,7 @@ assert.ok(!transport.includes('/system/bin/am broadcast'), 'legacy broadcast tra
 assert.ok(ipc.includes('127.0.0.1'), 'local IPC server must bind loopback');
 assert.ok(ipcAuth.includes('const val PATH = "/execute"'), 'IPC auth contract must expose execute endpoint');
 const gradle = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/build.gradle.kts'), 'utf8');
-assert.ok(gradle.includes('versionCode = 25'), 'APK version code must advance for the refreshed physical certification build');
+assert.ok(gradle.includes('versionCode = 26'), 'APK version code must advance for the refreshed physical certification build');
 assert.ok(gradle.includes('ARIA_BUILD_ID'), 'APK must embed exact build identity');
 assert.ok(ipc.includes('buildId') || ipc.includes('ARIA_BUILD_ID'), 'IPC health must expose exact APK build identity');
 assert.ok(transport.includes('build_id'), 'Termux health metadata must carry exact APK build identity');
@@ -44,6 +44,8 @@ assert.ok(serviceIpc.includes('LocalIpcServer(this).also { it.start() }'), 'Acce
 assert.ok(serviceIpc.includes('localIpcServer?.stop()'), 'AccessibilityService must stop local IPC');
 assert.ok(serviceIpc.includes('refreshAccessibilityRoot'), 'Accessibility evidence capture must refresh the browser root before serialization');
 assert.ok(serviceIpc.includes('root.refresh()'), 'Accessibility evidence capture must call AccessibilityNodeInfo.refresh()');
+assert.ok(service.includes('val browserTarget = targetPackage?.let { approvedBrowsers.contains(it) } == true'), 'browser clicks must use the bounded gesture path first');
+assert.ok(service.includes('gestureClick(node) || node.performAction(AccessibilityNodeInfo.ACTION_CLICK)'), 'browser click fallback must remain available');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
 assert.ok(gateway.includes('executionJobGatewayCall'), 'gateway must use the governed RPC job transport');
 assert.ok(gateway.includes("supabase.rpc('claim_execution_job_gateway'"), 'gateway claim must use governed RPC');
