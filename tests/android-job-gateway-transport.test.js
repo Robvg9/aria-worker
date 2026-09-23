@@ -19,4 +19,9 @@ assert.ok(!criticalPath.includes("transport:'postgres'"), 'critical job path mus
 assert.ok(!criticalPath.includes("transport:'postgrest-fallback'"), 'critical job path must not use transport fallback branching');
 assert.ok(criticalPath.includes("transport:'supabase-rpc'"), 'critical job path must identify the single RPC transport');
 
+const swipeMigration = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'migrations', '20260923170000_add_swipe_action_to_android_job_gateway.sql'), 'utf8');
+assert.match(swipeMigration, /'swipe'/, 'swipe action must be allowed by the canonical Android job validator');
+assert.match(swipeMigration, /'x1'.*'y1'.*'x2'.*'y2'.*'durationMs'/s, 'swipe coordinates/duration must be validated');
+assert.match(swipeMigration, /swipe distance too small/, 'swipe must reject zero-distance gestures');
+
 console.log('PASS android job gateway transport contract');
