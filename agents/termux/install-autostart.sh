@@ -33,9 +33,10 @@ chmod 700 "$AGENT_DIR" "$LOG_DIR" 2>/dev/null || true
 nohup "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
 SUPERVISOR_PID=$!
 
-cat <<'EOF'
+cat <<EOF
 [ARIA] Android autostart installed.
 [ARIA] Boot launcher: ~/.termux/boot/start-aria-agent
 [ARIA] Environment: ~/.aria-agent.env
-[ARIA] Next: reboot Android once and verify the device becomes ONLINE in ARIA.
+[ARIA] Supervisor launch requested now pid=$SUPERVISOR_PID
+[ARIA] Verify ONLINE and a governed job is claimed; reboot Android once to verify boot persistence.
 EOF
