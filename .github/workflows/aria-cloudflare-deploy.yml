@@ -183,14 +183,14 @@ jobs:
         run: |
           set -euo pipefail
           base="https://aria.robvg9.workers.dev/pwa/"
-          version="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}version.json")"
+          version="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}version.json?probe=${GITHUB_SHA}-recovery")"
           VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
           import json, os
           assert json.loads(os.environ['VERSION'])['build'] == os.environ['GITHUB_SHA']
           PY
-          stale="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}index-stale-test.html")"
+          stale="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}index-stale-test.html?probe=${GITHUB_SHA}-recovery")"
           grep -q "${GITHUB_SHA}" <<<"$stale"
-          stale_sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw-stale-test.js")"
+          stale_sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw-stale-test.js?probe=${GITHUB_SHA}-recovery")"
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$stale_sw"
       - name: Smoke test direct ARIA interface
         run: |
