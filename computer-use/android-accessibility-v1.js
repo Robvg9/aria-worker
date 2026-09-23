@@ -193,7 +193,7 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     if (!response.ok) {
       return {
         status: 'failed',
-        reason: payload?.reason || \`android_local_ipc_http_\${response.status}\`,
+        reason: payload?.reason || `android_local_ipc_http_${response.status}`,
         metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL }
       };
     }
