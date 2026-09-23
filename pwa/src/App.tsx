@@ -518,7 +518,15 @@ function CapabilityCenter({
   onBack: () => void;
   onMission: () => void;
 }) {
-  const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections'>('overview');
+  const CAP_TAB_KEY='aria_capabilities_tab_v2:'+session.userId;
+  const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections'>(() => {
+    try {
+      const saved = localStorage.getItem(CAP_TAB_KEY);
+      return (saved as any) || 'overview';
+    } catch {
+      return 'overview';
+    }
+  });
   const [filter, setFilter] = useState('');
   const source = tab === 'models' ? caps?.models ?? [] : tab === 'agents' ? caps?.agents ?? [] : tab === 'devices' ? caps?.devices ?? [] : tab === 'executors' ? caps?.executors ?? [] : tab === 'connections' ? caps?.connections ?? [] : [];
   const q = filter.trim().toLowerCase();
@@ -536,7 +544,7 @@ function CapabilityCenter({
           <div><div className='eyebrow'>INVENTARIO LIVE</div><div className='capHeroText'>{caps ? (caps.summary.models_available ?? 0) + ' modelos disponibles · ' + (caps.summary.agents_available ?? 0) + ' agentes disponibles · ' + (caps.summary.devices_online ?? 0) + ' dispositivos online' : 'Sincronizando inventario…'}</div><div className='muted'>{caps ? 'Actualizado ' + formatDate(caps.generated_at) : 'Esperando al núcleo'}</div></div>
         </div>
         <div className='capTabs'>
-          {(['overview','models','agents','devices','executors','connections'] as const).map(t => <button key={t} className={'tabButton ' + (tab === t ? 'selected' : '')} onClick={() => setTab(t)}>{t === 'overview' ? 'Resumen' : t === 'models' ? 'Modelos' : t === 'agents' ? 'Agentes' : t === 'devices' ? 'Dispositivos' : t === 'executors' ? 'Executors' : 'Conexiones'}</button>)}
+          {(['overview','models','agents','devices','executors','connections'] as const).map(t => <button key={t} className={'tabButton ' + (tab === t ? 'selected' : '')} onClick={() => { setTab(t); try { localStorage.setItem(CAP_TAB_KEY,t); } catch {} }}>{t === 'overview' ? 'Resumen' : t === 'models' ? 'Modelos' : t === 'agents' ? 'Agentes' : t === 'devices' ? 'Dispositivos' : t === 'executors' ? 'Executors' : 'Conexiones'}</button>)}
         </div>
         {tab === 'overview' ? (
           caps ? (
