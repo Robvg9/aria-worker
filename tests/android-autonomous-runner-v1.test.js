@@ -41,9 +41,10 @@ const { executeAutonomousAndroidMission } = require('../agents/termux/android-au
         ui: {
           ok: true,
           packageName: 'com.android.chrome',
-          root: { id: '0', role: 'text', children: [{ id: '0.0', role: 'button', text: 'Dashboard', enabled: true, visible: true, children: [] }] }
+          root: { id: '0', role: 'text', children: [{ id: '0.0', role: 'button', text: 'Dashboard', enabled: true, visible: true, children: [] }] },
+          evidence_hash: 'after-hash'
         },
-        evidence_hash: 'after-hash'
+        evidence_hash: 'after-response-hash'
       }
     };
   };
