@@ -42,7 +42,7 @@ BEGIN
 
   FOR v_key IN SELECT jsonb_object_keys(v_payload) LOOP
     IF v_key NOT IN (
-      'operation','action','target_package','allow_any_app','allowed_hosts','x1','y1','x2','y2','durationMs',
+      'operation','action','target_package','allow_any_app','allowed_hosts',
       'secret_ref','mode','goal','history','observation','mission_id','request_id',
       'start_url','start_app','max_steps'
     ) THEN
@@ -115,7 +115,7 @@ BEGIN
 
       v_action := v_payload->'action';
       FOR v_key IN SELECT jsonb_object_keys(v_action) LOOP
-        IF v_key NOT IN ('action','nodeId','text','keyCode','direction','url','ms') THEN
+        IF v_key NOT IN ('action','nodeId','text','keyCode','direction','url','ms','x1','y1','x2','y2','durationMs') THEN
           RAISE EXCEPTION 'computer.use.android action field unsupported';
         END IF;
       END LOOP;
