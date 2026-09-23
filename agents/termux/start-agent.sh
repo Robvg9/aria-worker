@@ -34,7 +34,7 @@ release_lock() {
   fi
 }
 
-acquire_lock()
+acquire_lock
 
 mkdir -p "$LOG_DIR"
 chmod 700 "$AGENT_DIR" "$LOG_DIR" 2>/dev/null || true
