@@ -8,11 +8,11 @@ LOG_DIR="$AGENT_DIR/logs"
 STOP_FILE="$HOME/.aria-agent.stop"
 RESTART_DELAY_SEC="${ARIA_AGENT_RESTART_DELAY_SEC:-5}"
 STOPPING=0
-LOCK_DIR="\${ARIA_AGENT_LOCK_DIR:-$HOME/.aria-agent.lock}"
+LOCK_DIR="${ARIA_AGENT_LOCK_DIR:-$HOME/.aria-agent.lock}"
 
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
-    printf '%s\n' "$" > "$LOCK_DIR/pid"
+    printf '%s\n' "$$" > "$LOCK_DIR/pid"
     return 0
   fi
   local existing_pid=''
@@ -25,11 +25,11 @@ acquire_lock() {
   fi
   rm -rf "$LOCK_DIR" 2>/dev/null || true
   mkdir "$LOCK_DIR" 2>/dev/null || { echo "[ARIA] could not acquire supervisor lock" >&2; exit 1; }
-  printf '%s\n' "$" > "$LOCK_DIR/pid"
+  printf '%s\n' "$$" > "$LOCK_DIR/pid"
 }
 
 release_lock() {
-  if [ -f "$LOCK_DIR/pid" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" = "$" ]; then
+  if [ -f "$LOCK_DIR/pid" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" = "$$" ]; then
     rm -rf "$LOCK_DIR" 2>/dev/null || true
   fi
 }
