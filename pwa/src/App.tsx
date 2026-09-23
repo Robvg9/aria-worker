@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
-import { getNotificationIdFromHash, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
+import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
 const CACHE_PREFIX = 'aria-runtime-cache-v2';
@@ -749,7 +749,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
                 <div className='panelTitle'>{selectedCopy.title.toUpperCase()}</div>
                 <p>{selectedCopy.body}</p>
                 {selected.message && selected.message !== selectedCopy.body && (
-                  <div className='muted'>Detalle registrado: {selected.message}</div>
+                  <div className='muted'>Detalle registrado: {humanizeMeditationDetail(selected)}</div>
                 )}
                 <div className='notificationMeta'>
                   <span>{formatDate(selected.created_at)}</span>
@@ -975,15 +975,34 @@ function Chat({
     setSending(true); setError('');
     try {
       const d = await api('/missions', session.accessToken, { method: 'POST', body: JSON.stringify({ goal: clean }) });
+      const missionId = d?.mission?.mission_id;
+      if (!missionId) throw new Error('ARIA no confirmó la creación de la misión.');
       setGoal(''); setShowNewMission(false);
       if (window.location.hash === '#mission') window.location.hash = '#home';
-      if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
+      void trackMission(missionId);
     } catch (x) {
       setError(x instanceof Error ? x.message : 'No se pudo iniciar la misión.');
     } finally {
       setSending(false);
     }
   }
+
+  const swipeStart = useRef<{x:number;y:number}|null>(null);
+  const onSwipeStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.target as Element | null;
+    if (target?.closest?.('button,input,textarea,a,[role="button"]')) return;
+    swipeStart.current = { x: e.clientX, y: e.clientY };
+  };
+  const onSwipeEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+    if (dx < 0 && screen === 0) window.location.hash = '#chat';
+    if (dx > 0 && screen === 1) window.location.hash = '#home';
+  };
 
   return (
     <main className='appShell pwaShell'>
@@ -1010,7 +1029,17 @@ function Chat({
         </div>
       </header>
 
-      <div className='screenViewport'>
+      <div
+        className='screenViewport'
+        onPointerDown={onSwipeStart}
+        onPointerUp={onSwipeEnd}
+        onPointerCancel={() => { swipeStart.current = null; }}
+      >
+        <div className='screenIndicator' aria-label='Navegación entre Dashboard y Chat'>
+          <span className={screen === 0 ? 'active' : ''}>1 · Dashboard</span>
+          <span className='screenIndicatorArrow'>↔</span>
+          <span className={screen === 1 ? 'active' : ''}>2 · Chat</span>
+        </div>
         <div className={'screenTrack screen-' + screen}>
           <section className='appScreen dashboardScreen'>
             <section className='heroPanel'>
@@ -1187,7 +1216,7 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
         <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='ghost' onClick={onCapabilities}>Capacidades</button></div>
       </header>
       <div className='pageBodyViewport meditationViewport'>
-      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{o?.mode ? statusLabel(String(o.mode)) : 'Sincronizando…'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy} onClick={() => control('stop')}>Detener</button></div></section>
+      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{o?.mode ? statusLabel(String(o.mode)) : 'Sincronizando…'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
       {error && <div className='errorBox'>{error}</div>}
       <section className='statsGrid'><StatCard value={o?.counts?.missions ?? 0} label='Misiones visibles' /><StatCard value={o?.counts?.human_gates ?? 0} label='Human Gates' /><StatCard value={o?.counts?.blocked ?? 0} label='Bloqueadas' /><StatCard value={caps?.summary.executors ?? 0} label='Executors' /></section>
       <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'} · {verificationLabel(s)}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
