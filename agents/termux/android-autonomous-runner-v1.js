@@ -2,7 +2,7 @@
 
 const DEFAULT_MAX_STEPS = 8;
 const DEFAULT_TIMEOUT_MS = 160_000;
-const DECISION_TIMEOUT_MS = 20_000;
+const DECISION_TIMEOUT_MS = 35_000;
 
 function delay(ms) { return new Promise(resolve => setTimeout(resolve, Math.max(0, ms))); }
 function sanitizeReason(value) { return String(value || '').replace(/[\r\n]+/g, ' ').slice(0, 700); }
