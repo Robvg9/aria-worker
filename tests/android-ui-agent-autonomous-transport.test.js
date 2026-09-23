@@ -42,6 +42,8 @@ assert.ok(serviceIpc.includes('localIpcServer?.stop()'), 'AccessibilityService m
 assert.ok(serviceIpc.includes('refreshAccessibilityRoot'), 'Accessibility evidence capture must refresh the browser root before serialization');
 assert.ok(serviceIpc.includes('root.refresh()'), 'Accessibility evidence capture must call AccessibilityNodeInfo.refresh()');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
-assert.ok(gateway.includes('set statement_timeout = 5000'), 'gateway DB job calls must have a bounded statement timeout');
+assert.ok(gateway.includes('executionJobGatewayCall'), 'gateway must use the governed RPC job transport');
+assert.ok(gateway.includes("supabase.rpc('claim_execution_job_gateway'"), 'gateway claim must use governed RPC');
+assert.ok(agent.includes("timeoutMs:8_000"), 'agent claim request must have a bounded transport timeout');
 
 // CI revalidation marker: exercise Android RWHT workflow on the current main toolchain.\nconsole.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
