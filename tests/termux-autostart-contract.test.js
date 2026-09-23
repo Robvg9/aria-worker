@@ -42,7 +42,11 @@ assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
 assert.ok(docs.includes('install-autostart.sh'));
 assert.ok(docs.includes('Android boot'));
 assert.ok(agent.includes("timeoutMs:8_000"));
-assert.ok(agent.includes('job_claim_watchdog_timeout'));
-assert.ok(agent.includes('Promise.race'));
+assert.ok(!agent.includes('job_claim_watchdog_timeout'), 'Android agent must not leave timed-out jobs executing in the background');
+assert.ok(!agent.includes('Promise.race([\n        claimAndExecute()'), 'Android agent must not overlap a previous job with a new claim');
+assert.ok(supervisor.includes('trap stop INT TERM'));
+assert.ok(supervisor.includes('STOPPING=1'));
+assert.ok(supervisor.includes('explicit stop mechanism remains the file $STOP_FILE'));
+assert.ok(!supervisor.includes('touch "$STOP_FILE"'), 'transient supervisor signals must never persist a stop marker');
 
 console.log('termux autostart contract tests passed');

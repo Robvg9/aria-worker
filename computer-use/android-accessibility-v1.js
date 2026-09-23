@@ -91,8 +91,11 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
 }
 
 async function probeAndroidCommandReceiver({ timeoutMs = 3000 } = {}) {
-  const result = await executeAndroidCommandReceiver({ request: { operation: '__aria_probe__' }, timeoutMs });
-  const serviceAlive = result.status === 'succeeded' || result.reason === 'operation_unsupported';
+  const result = await executeAndroidCommandReceiver({
+    request: { operation: 'action', action: { action: 'wait', ms: 0 } },
+    timeoutMs
+  });
+  const serviceAlive = result.status === 'succeeded';
   return {
     ok: serviceAlive,
     reason: serviceAlive ? 'android_command_receiver_ready' : (result.reason || 'android_command_receiver_unavailable'),
@@ -209,10 +212,13 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
       metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, request_id: request.request_id || null, evidence_hash: payload.evidence_hash || null }
     };
   } catch (error) {
-    if (error?.name === 'AbortError') {
-      return { status: 'timeout', reason: `android_local_ipc_timeout_${effectiveTimeout}ms`, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL } };
-    }
     const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
+    if (fallback.status === 'succeeded') {
+      return { ...fallback, metadata: { ...(fallback.metadata || {}), fallback_from: 'android-local-http', http_error: error?.name === 'AbortError' ? 'timeout' : 'unreachable' } };
+    }
+    if (error?.name === 'AbortError') {
+      return { status: 'timeout', reason: `android_local_ipc_timeout_${effectiveTimeout}ms`, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, fallback_transport: 'android-command-receiver', fallback_reason: fallback.reason || null } };
+    }
     if (fallback.status === 'succeeded') {
       return { ...fallback, metadata: { ...(fallback.metadata || {}), fallback_from: 'android-local-http' } };
     }

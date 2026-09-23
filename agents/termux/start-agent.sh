@@ -63,8 +63,10 @@ unlock() {
 }
 stop() {
   STOPPING=1
-  touch "$STOP_FILE"
 }
+# SIGTERM/SIGINT means “terminate this supervisor now”, not “persist a stop state”.
+# The explicit stop mechanism remains the file $STOP_FILE; transient signals must
+# never poison the next supervisor start and disable automatic recovery.
 trap stop INT TERM
 trap 'release_lock' EXIT
 trap unlock EXIT
