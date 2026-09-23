@@ -9,14 +9,12 @@ const migration = fs.readFileSync(
   'utf8'
 );
 
-assert.match(migration, /CREATE OR REPLACE FUNCTION public\.enqueue_execution_job_gateway/);
+assert.match(migration, /CREATE OR REPLACE FUNCTION aria_internal\.enqueue_android_ui_job/);
+assert.match(migration, /'start_url','start_app','max_steps'/);
+assert.match(migration, /coalesce\(v_payload->>'mode',''\) = 'autonomous_test'/);
+assert.match(migration, /IF p_operation = 'computer\.use\.android'/);
+assert.match(migration, /RETURN aria_internal\.enqueue_android_ui_job/);
 assert.match(migration, /RETURN aria_internal\.enqueue_execution_job/);
 assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.enqueue_execution_job_gateway/);
-
-const gateway = fs.readFileSync(
-  path.join(__dirname, '..', 'supabase/migrations/20260922191000_sync_enqueue_execution_job_full_contract.sql'),
-  'utf8'
-);
-assert.match(gateway, /'computer\.use\.android'/);
 
 console.log('ANDROID ENQUEUE GATEWAY WRAPPER CONTRACT: PASS');
