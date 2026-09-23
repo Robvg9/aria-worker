@@ -833,6 +833,7 @@ function Chat({
   const [screen, setScreen] = useState<0 | 1>(() => initialNavigation.screen);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
     system || caps || mission ? 'cached' : 'offline'
   );
@@ -944,6 +945,7 @@ function Chat({
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
     } finally {
       setSending(false);
+      window.setTimeout(() => chatInputRef.current?.focus(), 0);
     }
   }
 
@@ -1117,12 +1119,14 @@ function Chat({
                 <input type='file' ref={fileRef} hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
                 <button className='tool attachmentButton' aria-label='Adjuntar archivo' onClick={() => fileRef.current?.click()}>📎<span className='attachmentLabel'>Adjuntar</span></button>
                 <textarea
+                  ref={chatInputRef}
                   value={text}
                   onChange={e => setText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   placeholder='Habla con ARIA…'
                 />
                 <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
+                <div className='composerStatus' aria-live='polite'>{sending ? 'Enviando a ARIA…' : error ? 'Error · revisa el mensaje' : 'Listo para enviar'}</div>
               </div>
             </section>
           </section>

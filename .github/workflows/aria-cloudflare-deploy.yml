@@ -82,53 +82,49 @@ jobs:
         run: |
           set -euo pipefail
           base="https://aria.robvg9.workers.dev/pwa/"
-          for attempt in $(seq 1 30); do
-            version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}version.json?probe=${GITHUB_SHA}" 2>/dev/null || true)"
-            if VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
-          import json, os
-          try:
-              assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
-              raise SystemExit(0)
-          except Exception:
-              raise SystemExit(1)
-          PY
-            then
+          html=""
+          # Worker deployments propagate across edges. Wait for the actual browser shell.
+          for attempt in $(seq 1 60); do
+            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}?probe=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
+            if grep -q 'ARIA — Centro de Mando' <<<"$html" && grep -q "${GITHUB_SHA}" <<<"$html" && grep -q "sw-${GITHUB_SHA}.js" <<<"$html"; then
               break
             fi
-            test "$attempt" -lt 30 && sleep 2
+            test "$attempt" -lt 60 && sleep 2
           done
-          html="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "${base}?probe=${GITHUB_SHA}")"
+          test -n "$html"
           echo "$html"
           grep -q 'ARIA — Centro de Mando' <<<"$html"
           grep -q "${GITHUB_SHA}" <<<"$html"
-          sw=""
-          for attempt in $(seq 1 30); do
-            sw="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/sw-${GITHUB_SHA}.js?probe=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
-            if SW="$sw" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
-          import os
-          if f"aria-pwa-{os.environ['GITHUB_SHA']}" in os.environ.get("SW",""):
-              raise SystemExit(0)
-          raise SystemExit(1)
-          PY
-            then
-              break
-            fi
-            test "$attempt" -lt 30 && sleep 2
-          done
-          test -n "$sw"
-          echo "$sw"
-          grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
+          grep -q "sw-${GITHUB_SHA}.js" <<<"$html"
           grep -q "position:fixed;inset:0;z-index:9999" <<<"$html"
           grep -q "__ariaBootReady" <<<"$html"
-          manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "https://aria.robvg9.workers.dev/manifest.json")"
+
+          sw=""
+          for attempt in $(seq 1 60); do
+            sw="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/sw-${GITHUB_SHA}.js?probe=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
+            if grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"; then
+              break
+            fi
+            test "$attempt" -lt 60 && sleep 2
+          done
+          test -n "$sw"
+          grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
+
+          version="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "${base}version.json?probe=${GITHUB_SHA}-final")"
+          VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+          PY
+
+          manifest="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "https://aria.robvg9.workers.dev/manifest.json?probe=${GITHUB_SHA}")"
           grep -q 'ARIA — Centro de Mando Cognitivo' <<<"$manifest"
-          # Verify the actual browser entry assets, not only the HTML shell.
+
           js_asset="$(grep -oE 'assets/[^"]+\.js' <<<"$html" | head -n 1)"
           css_asset="$(grep -oE 'assets/[^"]+\.css' <<<"$html" | head -n 1)"
           test -n "$js_asset"
           test -n "$css_asset"
-          js_code="$(curl --silent --show-error --max-time 15 --retry 3 --retry-delay 1 -o /tmp/aria-pwa-js -w '%{http_code}' "https://aria.robvg9.workers.dev/pwa/${js_asset}")"
-          css_code="$(curl --silent --show-error --max-time 15 --retry 3 --retry-delay 1 -o /tmp/aria-pwa-css -w '%{http_code}' "https://aria.robvg9.workers.dev/pwa/${css_asset}")"
+          js_code="$(curl --silent --show-error --max-time 15 --retry 3 --retry-delay 1 -o /tmp/aria-pwa-js -w '%{http_code}' "https://aria.robvg9.workers.dev/pwa/${js_asset}?probe=${GITHUB_SHA}")"
+          css_code="$(curl --silent --show-error --max-time 15 --retry 3 --retry-delay 1 -o /tmp/aria-pwa-css -w '%{http_code}' "https://aria.robvg9.workers.dev/pwa/${css_asset}?probe=${GITHUB_SHA}")"
           echo "PWA_JS_STATUS=$js_code url=/pwa/$js_asset"
           echo "PWA_CSS_STATUS=$css_code url=/pwa/$css_asset"
           test "$js_code" = "200"

@@ -234,3 +234,7 @@ button{touch-action:manipulation;}
   .projectCard small{display:none;}
   .projectCard{min-height:58px;}
 }
+
+.composer{position:relative;}
+.composerStatus{font-size:10px;color:var(--muted);padding:4px 8px;white-space:nowrap;align-self:center;}
+@media (max-width:720px){.composer{flex-wrap:wrap}.composerStatus{width:100%;padding:2px 8px 0;}}
