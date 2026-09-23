@@ -823,13 +823,13 @@ function Chat({
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [mission, setMission] = useState<Mission | null>(() => readCached('active_mission', session.userId));
   const [events, setEvents] = useState<MissionEvent[]>([]);
+  const initialNavigation = navigationFromHash();
   const [showMission, setShowMission] = useState(false);
   const [showNewMission, setShowNewMission] = useState(() => initialNavigation.newMission);
   const [quickView, setQuickView] = useState<{ title: string; items: any[] } | null>(null);
   const [goal, setGoal] = useState('');
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const initialNavigation = navigationFromHash();
   const [screen, setScreen] = useState<0 | 1>(() => initialNavigation.screen);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
