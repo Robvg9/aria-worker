@@ -77,7 +77,6 @@ async function androidAutonomousDecision(b:any,d:any){
   if(candidatesRes.error)throw new Error(candidatesRes.error.message);
   if(capsRes.error)throw new Error(capsRes.error.message);
   if(acctRes.error)throw new Error(acctRes.error.message);
-  if(acctRes.error)throw new Error(acctRes.error.message);
   const verified=new Set((capsRes.data||[]).map((x:any)=>String(x.model_id)));
   const preferredModels=[
     'google/gemini-3.5-flash-lite-direct',
