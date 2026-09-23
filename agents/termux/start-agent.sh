@@ -12,7 +12,7 @@ LOCK_DIR="${ARIA_AGENT_LOCK_DIR:-$HOME/.aria-agent.lock}"
 
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
-    printf '%s\n' "$$" > "$LOCK_DIR/pid"
+    printf '%s\n' "${BASHPID:-$}" > "$LOCK_DIR/pid"
     return 0
   fi
   local existing_pid=''
@@ -29,7 +29,7 @@ acquire_lock() {
 }
 
 release_lock() {
-  if [ -f "$LOCK_DIR/pid" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" = "$$" ]; then
+  if [ -f "$LOCK_DIR/pid" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" = "${BASHPID:-$}" ]; then
     rm -rf "$LOCK_DIR" 2>/dev/null || true
   fi
 }
