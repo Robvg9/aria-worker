@@ -110,7 +110,24 @@ jobs:
           test -n "$sw"
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$sw"
 
-          version="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "${base}version.json?probe=${GITHUB_SHA}-final")"
+          version=""
+          for attempt in $(seq 1 60); do
+            version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}version.json?probe=${GITHUB_SHA}-final-${attempt}" 2>/dev/null || true)"
+            if VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              break
+            fi
+            test "$attempt" -lt 60 && sleep 2
+          done
+          test -n "$version"
+          echo "PWA_VERSION=$version"
           VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
           import json, os
           assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
