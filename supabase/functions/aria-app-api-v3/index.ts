@@ -450,7 +450,7 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/projects")) {
       return json({ ok: true, projects: PROJECTS, trace_id: trace });
     }
-    if (req.method === "GET" && path.endsWith("/conversation")) {
+    if (req.method === "GET" && path.endsWith("/conversation") && !path.includes("/projects/")) {
       const sb = serviceClient();
       const { data: rows, error: lookupError } = await sb.schema("aria_app").from("conversations")
         .select("conversation_id,metadata,updated_at,last_message_at")
