@@ -166,6 +166,7 @@ async function claimAndExecute() {
   }catch(error){console.error(`[job] ${error.message}`)}
 }
 let stopping=false;
+let heartbeatTimer=null;
 async function loop(){
   while(!stopping){
     let finished=false;
@@ -182,6 +183,23 @@ async function loop(){
     await new Promise(r=>setTimeout(r,POLL_MS));
   }
 }
-process.on('SIGTERM',()=>{stopping=true;log('STOP requested')});
-process.on('SIGINT',()=>{stopping=true;log('STOP requested')});
-(async()=>{log(`START device=${DEVICE_ID} platform=android-termux node=${process.version}`);await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);await loop();})().catch(error=>{console.error(error);process.exit(1)});
+function requestStop(signal){
+  if(stopping)return;
+  stopping=true;
+  log(`STOP requested signal=${signal}`);
+  if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}
+}
+process.on('SIGTERM',()=>requestStop('SIGTERM'));
+process.on('SIGINT',()=>requestStop('SIGINT'));
+(async()=>{
+  log(`START device=${DEVICE_ID} platform=android-termux node=${process.version}`);
+  await heartbeat();
+  heartbeatTimer=setInterval(heartbeat,HEARTBEAT_MS);
+  // The heartbeat is observability only; it must never keep a poisoned/stopped
+  // worker process alive after the execution loop exits.
+  heartbeatTimer.unref?.();
+  await loop();
+  if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}
+  log('AGENT LOOP EXIT — supervisor will restart process');
+  process.exit(0);
+})().catch(error=>{console.error(error);if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}process.exit(1)});
