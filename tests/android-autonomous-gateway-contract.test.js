@@ -32,3 +32,9 @@ assert.ok(source.includes("public.start_execution_job_gateway"));
 assert.ok(source.includes("public.complete_execution_job_gateway"));
 assert.ok(source.includes("connect_timeout:5"));
 assert.ok(source.includes("execution_job_db_url_unavailable"));
+
+assert.ok(source.includes("transport:'postgres'"));
+assert.ok(source.includes("transport:'postgrest-fallback'"));
+assert.ok(source.includes("claim_execution_job_gateway"));
+assert.ok(source.includes("start_execution_job_gateway"));
+assert.ok(source.includes("complete_execution_job_gateway"));
