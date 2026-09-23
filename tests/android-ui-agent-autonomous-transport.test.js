@@ -31,6 +31,12 @@ assert.ok(transport.includes('authorization'), 'executor must authenticate loopb
 assert.ok(!transport.includes('/system/bin/am broadcast'), 'legacy broadcast transport must not be used');
 assert.ok(ipc.includes('127.0.0.1'), 'local IPC server must bind loopback');
 assert.ok(ipcAuth.includes('const val PATH = "/execute"'), 'IPC auth contract must expose execute endpoint');
+const gradle = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/build.gradle.kts'), 'utf8');
+assert.ok(gradle.includes('versionCode = 24'), 'APK version code must advance for the refreshed physical certification build');
+assert.ok(gradle.includes('ARIA_BUILD_ID'), 'APK must embed exact build identity');
+assert.ok(ipc.includes('buildId') || ipc.includes('ARIA_BUILD_ID'), 'IPC health must expose exact APK build identity');
+assert.ok(transport.includes('build_id'), 'Termux health metadata must carry exact APK build identity');
+assert.ok(agent.includes('build_id'), 'device heartbeat must persist exact APK build identity');
 assert.ok(serviceIpc.includes('LocalIpcServer(this).also { it.start() }'), 'AccessibilityService must start local IPC');
 assert.ok(serviceIpc.includes('localIpcServer?.stop()'), 'AccessibilityService must stop local IPC');
 assert.ok(serviceIpc.includes('refreshAccessibilityRoot'), 'Accessibility evidence capture must refresh the browser root before serialization');
