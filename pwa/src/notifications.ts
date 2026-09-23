@@ -27,6 +27,29 @@ export type HumanNotificationCopy = {
   body: string;
 };
 
+const HISTORICAL_LABELS: Array<[RegExp,string]> = [
+  [/ARIA Verification Report/gi,'Informe de verificación de ARIA'],
+  [/Verification Report/gi,'Informe de verificación'],
+  [/FINDINGS/gi,'HALLAZGOS'],
+  [/What ARIA Found/gi,'Lo que encontró ARIA'],
+  [/ROOT CAUSE/gi,'CAUSA RAÍZ'],
+  [/NEXT STEPS/gi,'PRÓXIMOS PASOS'],
+  [/REMEDIATION/gi,'SOLUCIÓN'],
+  [/VERIFICATION/gi,'VERIFICACIÓN'],
+  [/Evidence/gi,'Evidencia'],
+  [/Blocked/gi,'Bloqueada'],
+  [/Succeeded/gi,'Completada'],
+  [/Failed/gi,'Fallida']
+];
+
+export function humanizeMeditationDetail(item: PwaNotificationItem): string {
+  const raw = String(item?.message ?? '').trim();
+  if (!raw) return 'ARIA tiene un detalle adicional registrado.';
+  let value = raw;
+  for (const [pattern,replacement] of HISTORICAL_LABELS) value = value.replace(pattern,replacement);
+  return value;
+}
+
 export function humanizeMeditationNotification(item: PwaNotificationItem): HumanNotificationCopy {
   const map: Record<string, HumanNotificationCopy> = {
     mission_completed_verified: {
