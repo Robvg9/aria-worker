@@ -30,7 +30,8 @@ rm -f "$HOME/.aria-agent.stop"
 LOG_DIR="$AGENT_DIR/logs"
 mkdir -p "$LOG_DIR"
 chmod 700 "$AGENT_DIR" "$LOG_DIR" 2>/dev/null || true
-nohup "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
+chmod 700 "$AGENT_DIR/agents/termux/start-agent.sh" "$AGENT_DIR/agents/termux/boot/start-aria-agent" 2>/dev/null || true
+nohup bash "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
 SUPERVISOR_PID=$!
 
 cat <<EOF
