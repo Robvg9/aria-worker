@@ -58,7 +58,8 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
           expected_protocol: REQUIRED_IPC_PROTOCOL,
           actual_protocol: payload.protocol || null,
           version_name: payload.version_name || null,
-          version_code: payload.version_code || null
+          version_code: payload.version_code || null,
+          build_id: payload.build_id || null
         }
       };
     }
@@ -75,7 +76,8 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
         remote_user_id: remoteUserId,
         cross_profile_loopback: localUserId !== null && remoteUserId !== null && localUserId !== remoteUserId,
         version_name: payload.version_name || null,
-        version_code: payload.version_code || null
+        version_code: payload.version_code || null,
+        build_id: payload.build_id || null
       }
     };
   } catch (error) {
