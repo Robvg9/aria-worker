@@ -12,7 +12,7 @@ for(const id of ['battlecruiser','cuevacoin','aria'])assert.match(project,new Re
 assert.match(app,/ProjectWorkspace/);
 assert.match(app,/onProjects/);
 assert.match(project,/CHAT EXCLUSIVO/);
-assert.match(project,/same queue|misma cola/i);
+assert.match(project,/same queue|misma cola|una sola cola/i);
 assert.match(project,/visual_context/);
 for(const tool of ['pen','marker','line','rect','circle','arrow','text','eraser'])assert.match(project,new RegExp("'"+tool+"'"));
 assert.match(project,/toBlob/);
