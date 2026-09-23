@@ -12,8 +12,8 @@ android {
         applicationId = "com.robvg9.ariauiagent"
         minSdk = 26
         targetSdk = runnerSdk
-        versionCode = 26
-        versionName = "1.1.20"
+        versionCode = 27
+        versionName = "1.1.21"
         val ariaBuildId = System.getenv("GITHUB_SHA") ?: "local"
         buildConfigField("String", "ARIA_BUILD_ID", "\"$ariaBuildId\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
