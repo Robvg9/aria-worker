@@ -28,7 +28,7 @@ assert.ok(transport.includes('http://127.0.0.1:45874/health'));
 assert.ok(transport.includes('android-local-http'));
 assert.ok(transport.includes('probeLocalIpcHealth'));
 assert.ok(transport.includes('REQUIRED_IPC_PROTOCOL'));
-assert.ok(transport.includes('android_local_ipc_profile_mismatch'));
+assert.ok(transport.includes('cross_profile_loopback'));
 assert.ok(transport.includes('android_local_ipc_protocol_mismatch'));
 assert.ok(transport.includes('process.getuid'));
 assert.ok(transport.includes('attempt <= 3'));
@@ -117,12 +117,9 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
         version_code: 23
       })
     });
-    const badProfile = await probeLocalIpcHealth({ timeoutMs: 1000 });
-    const expectedLocalUser = Math.floor(process.getuid() / 100000);
-    if (expectedLocalUser !== 150) {
-      assert.equal(badProfile.ok, false);
-      assert.equal(badProfile.reason, 'android_local_ipc_profile_mismatch');
-    }
+    const crossProfile = await probeLocalIpcHealth({ timeoutMs: 1000 });
+    assert.equal(crossProfile.ok, true);
+    assert.equal(crossProfile.metadata.cross_profile_loopback, Math.floor(process.getuid() / 100000) !== 150);
 
     calls = 0;
     global.fetch = async (url) => {
