@@ -29,7 +29,7 @@ Install and open the official Termux:Boot add-on once. Then run:
 bash ~/aria-agent/agents/termux/install-autostart.sh
 ```
 
-The installer creates `~/.termux/boot/` when needed, installs the ARIA launcher there, clears any stale stop marker, and starts the supervisor immediately through `nohup`. The boot launcher also clears the stale stop marker during a new Android boot. Termux:Boot is designed to start scripts at Android boot; a wake lock can be used to reduce device sleep-related worker interruption.
+The installer creates `~/.termux/boot/` when needed, installs the ARIA launcher there, clears any stale stop marker, and starts the supervisor immediately through a sourced background subshell. The boot launcher also clears the stale stop marker during a new Android boot. Termux:Boot is designed to start scripts at Android boot; a wake lock can be used to reduce device sleep-related worker interruption.
 
 Also exempt Termux from aggressive battery optimization on the device where Android exposes that control. These are device-level requirements and cannot be completed by the Cloudflare/Supabase runtime alone.
 
