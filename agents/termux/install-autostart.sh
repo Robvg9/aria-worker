@@ -31,11 +31,12 @@ LOG_DIR="$AGENT_DIR/logs"
 mkdir -p "$LOG_DIR"
 chmod 700 "$AGENT_DIR" "$LOG_DIR" 2>/dev/null || true
 chmod 700 "$AGENT_DIR/agents/termux/start-agent.sh" "$AGENT_DIR/agents/termux/boot/start-aria-agent" 2>/dev/null || true
-if command -v setsid >/dev/null 2>&1; then
-  setsid bash "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
-else
-  bash "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
-fi
+# Termux can deny execve() of helper binaries from this app data path in
+# some environments. Source the supervisor in a background subshell instead;
+# this keeps the parent installer independent without requiring a second exec.
+(
+  . "$AGENT_DIR/agents/termux/start-agent.sh"
+) >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
 SUPERVISOR_PID=$!
 
 cat <<EOF
