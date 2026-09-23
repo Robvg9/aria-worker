@@ -45,6 +45,8 @@ assert.match(app,/pageBodyViewport/);
 assert.match(app,/e\.key === 'Enter'/);
 assert.match(project,/Lápiz/);
 assert.match(project,/PROJECT PREVIEW/);
+assert.match(project,/invalid_or_expired_session/);
+assert.match(project,/La sesión de ARIA expiró/);
 assert.match(project,/previewPaused/);
 assert.match(project,/Pausa la vista previa antes de pintar/);
 assert.match(project,/project_preview:true/);
