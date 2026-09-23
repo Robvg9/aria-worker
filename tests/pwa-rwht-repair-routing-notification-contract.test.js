@@ -1,0 +1,20 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
+const notifications=fs.readFileSync(path.join(root,'pwa/src/notifications.ts'),'utf8');
+const api=fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
+
+assert.match(app,/humanizeMeditationDetail/);
+assert.match(app,/disabled=\{busy \|\| !m/);
+assert.match(app,/ARIA no confirmó la creación de la misión/);
+assert.match(notifications,/humanizeMeditationDetail/);
+assert.match(notifications,/What ARIA Found/);
+assert.match(notifications,/Lo que encontró ARIA/);
+assert.match(api,/REGLA PRINCIPAL: responde primero y exactamente a la última frase del usuario/);
+assert.match(api,/Mantén la conversación dentro de este proyecto/);
+assert.match(api,/const runtimeQuery =/);
+assert.match(api,/order\("updated_at"/);
+console.log('pwa-rwht-repair-routing-notification-contract PASS');

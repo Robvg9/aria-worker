@@ -261,7 +261,21 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
     delete request.secret_ref;
   }
 
-  return executeLocalIpcJob({ request, timeoutMs });
+  let lastResult = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const result = await executeLocalIpcJob({ request, timeoutMs });
+    lastResult = result;
+    if (result.status === 'succeeded') {
+      return { ...result, metadata: { ...(result.metadata || {}), attempt } };
+    }
+    const reason = String(result.reason || '');
+    const retryable = /android_local_ipc_(?:unreachable|timeout)/.test(reason);
+    if (!retryable || attempt === 3) {
+      return { ...result, metadata: { ...(result.metadata || {}), attempt } };
+    }
+    await sleep(100 * attempt);
+  }
+  return lastResult;
 }
 
 module.exports = Object.freeze({

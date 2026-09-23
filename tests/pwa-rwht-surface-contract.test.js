@@ -42,12 +42,16 @@ assert.match(project, /createMission/, 'ARTIA must support mission creation from
 assert.match(project, /project_id/, 'Project context must be attached to chat/mission operations.');
 assert.match(project, /annotation_summary/, 'Structured visual annotations must be persisted/forwarded.');
 assert.match(project, /<canvas/, 'ARTIA must render a real canvas surface.');
+assert.match(project, /previewPaused/,'Project ARTIA must support pausing the project preview before drawing.');
+assert.match(project, /project_preview:true/,'Project ARTIA must tag visual mission/chat context as project preview work.');
 
 assert.doesNotMatch(
   app,
   /onTouchStart=\{onTouchStart\}|onTouchEnd=\{onTouchEnd\}/,
   'PWA must not reference removed undefined touch handlers.'
 );
+assert.match(app,/onPointerDown=\{onSwipeStart\}/,'PWA must implement guarded horizontal pointer navigation.');
+assert.match(app,/screenIndicator/,'PWA must expose the two-screen navigation indicator.');
 
 assert.match(
   app,

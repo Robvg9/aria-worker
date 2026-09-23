@@ -81,6 +81,13 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .markdownListItem{margin:2px 0 2px 8px}.markdownSpacer{height:5px}.markdownBody hr{border:0;border-top:1px solid var(--line);margin:10px 0}.missionAnswer .markdownBody{margin-top:9px}
 
 
+
+.screenIndicator{position:absolute;top:4px;left:50%;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:rgba(17,12,28,.86);backdrop-filter:blur(10px);font-size:9px;font-weight:800;color:var(--muted);pointer-events:none;white-space:nowrap;}
+.screenIndicator .active{color:#fff;}
+.screenIndicatorArrow{opacity:.65;}
+.visualPreviewControls{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#120e1d;}
+.visualPreviewControls .ghost{min-height:40px;}
+
 /* ARIA Project Workspaces / ARTIA */
 .statButton{width:100%;text-align:left;cursor:pointer}
 .projectShell{max-width:1240px}
@@ -129,7 +136,7 @@ button{touch-action:manipulation;}
 .appShell{height:100dvh;min-height:0;max-height:100dvh;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;overscroll-behavior:none;}
 .topBar{flex:0 0 auto;}
 .desktopOnly{display:inline-flex;}
-.screenViewport{flex:1 1 auto;min-height:0;overflow:hidden;}
+.screenViewport{position:relative;flex:1 1 auto;min-height:0;overflow:hidden;}
 .screenTrack{height:100%;}
 .appScreen{height:100%;min-height:0;overflow:hidden;}
 .dashboardScreen{overflow:hidden;}
@@ -147,8 +154,8 @@ button{touch-action:manipulation;}
 .meditationViewport{display:flex;flex-direction:column;gap:12px;}
 .technicalDetailsOpen{overflow:hidden;}
 .technicalDetailsTitle{padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:900;letter-spacing:1px;}
-.visualBoardPanel{max-width:100%;box-sizing:border-box;overflow:hidden;}
-.canvasWrap{overflow:hidden;max-width:100%;}
+.visualBoardPanel{max-width:100%;box-sizing:border-box;overflow:visible;}
+.canvasWrap{overflow:auto;max-width:100%;}
 .canvasWrap canvas{min-width:0 !important;width:100%;height:auto;max-width:100%;display:block;aspect-ratio:1100/650;}
 .visualInstruction{height:58px;min-height:58px;max-height:80px;resize:none;box-sizing:border-box;}
 .projectShell .topBar{flex:0 0 auto;}
