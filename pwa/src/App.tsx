@@ -190,6 +190,74 @@ async function signInProxy(email: string, password: string) {
   }
 }
 
+async function refreshSessionDirect(refreshToken: string) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 7000);
+  try {
+    const r = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: ANON },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    return parseAuthResponse(r);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function refreshSessionProxy(refreshToken: string) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const r = await fetch('/auth/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: ANON },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    return parseAuthResponse(r);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function refreshSession(session: Session) {
+  let directError: unknown = null;
+  try {
+    const d: any = await refreshSessionDirect(session.refreshToken);
+    return {
+      ...session,
+      accessToken: d.access_token,
+      refreshToken: d.refresh_token || session.refreshToken,
+      expiresAt: Date.now() + Math.max(60, Number(d.expires_in ?? 3600)) * 1000,
+      email: d.user?.email || session.email
+    } satisfies Session;
+  } catch (error) {
+    directError = error;
+    const retryable = error instanceof DOMException && error.name === 'AbortError' || error instanceof TypeError;
+    if (!retryable) throw error;
+  }
+  try {
+    const d: any = await refreshSessionProxy(session.refreshToken);
+    return {
+      ...session,
+      accessToken: d.access_token,
+      refreshToken: d.refresh_token || session.refreshToken,
+      expiresAt: Date.now() + Math.max(60, Number(d.expires_in ?? 3600)) * 1000,
+      email: d.user?.email || session.email
+    } satisfies Session;
+  } catch (error) {
+    if ((error instanceof DOMException && error.name === 'AbortError') || error instanceof TypeError) {
+      throw new Error('ARIA no pudo renovar la sesión por ninguna de sus rutas.');
+    }
+    if (error instanceof Error && error.message) throw error;
+    throw directError instanceof Error ? directError : new Error('No se pudo renovar la sesión.');
+  }
+}
+
 async function signIn(email: string, password: string) {
   let directError: unknown = null;
   try {
@@ -1124,6 +1192,54 @@ export default function App() {
   const [page, setPage] = useState<'aria' | 'meditation' | 'capabilities' | 'projects'>('aria');
   const [openNewMissionSignal, setOpenNewMissionSignal] = useState(0);
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
+
+  useEffect(() => {
+    if (!session?.refreshToken) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const schedule = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      const refreshIn = Math.max(5_000, session.expiresAt - Date.now() - 60_000);
+      timer = window.setTimeout(async () => {
+        try {
+          const next = await refreshSession(session);
+          if (cancelled) return;
+          localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+          setSession(next);
+        } catch (error) {
+          if (cancelled) return;
+          // Keep the current session during transient network failures, then retry.
+          timer = window.setTimeout(schedule, 15_000);
+        }
+      }, refreshIn);
+    };
+
+    const refreshIfNeeded = () => {
+      if (Date.now() < session.expiresAt - 60_000) return;
+      void (async () => {
+        try {
+          const next = await refreshSession(session);
+          if (cancelled) return;
+          localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+          setSession(next);
+        } catch {}
+      })();
+    };
+
+    const onVisibility = () => { if (document.visibilityState === 'visible') refreshIfNeeded(); };
+    window.addEventListener('focus', refreshIfNeeded);
+    document.addEventListener('visibilitychange', onVisibility);
+    schedule();
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      window.removeEventListener('focus', refreshIfNeeded);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [session?.refreshToken, session?.expiresAt]);
+
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => setPage('aria');
   return (

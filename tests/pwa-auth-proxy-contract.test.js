@@ -6,6 +6,7 @@ const workflow = fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml',
 
 if (!worker.includes('if(url.pathname==="/auth/token")')) throw new Error('missing auth proxy route');
 if (!worker.includes('async function proxyPasswordSignIn')) throw new Error('missing auth proxy implementation');
+if (!worker.includes('["password","refresh_token"]')) throw new Error('auth proxy must support refresh_token grant');
 if (worker.includes('SUPABASE_PUBLISHABLE_KEY')) throw new Error('publishable key must not be embedded in worker');
 if (!worker.includes('request.headers.get("apikey")')) throw new Error('worker must accept browser publishable key');
 if (!worker.includes('controller.abort(),8000')) throw new Error('missing upstream auth timeout');
@@ -46,5 +47,10 @@ console.log('PWA UPDATE RESILIENCE CONTRACT: PASS');
 
 if (!app.includes('async function signInDirect')) throw new Error('direct auth path missing');
 if (!app.includes('async function signInProxy')) throw new Error('proxy auth fallback missing');
+if (!app.includes('async function refreshSessionDirect')) throw new Error('direct session refresh path missing');
+if (!app.includes('async function refreshSessionProxy')) throw new Error('proxy session refresh path missing');
+if (!app.includes("fetch('/auth/token?grant_type=refresh_token'")) throw new Error('PWA refresh path missing');
+if (!app.includes('session.expiresAt - Date.now() - 60_000')) throw new Error('session refresh scheduler missing');
+
 if (!app.includes('7000')) throw new Error('direct auth timeout missing');
 if (!app.includes('8000')) throw new Error('proxy auth timeout missing');
