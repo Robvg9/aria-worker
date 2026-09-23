@@ -18,7 +18,7 @@ assert.ok(supervisor.includes('termux-wake-lock'));
 assert.ok(supervisor.includes('git -C "$AGENT_DIR" pull --ff-only origin main'));
 assert.ok(supervisor.includes('node "$AGENT_SCRIPT"'));
 assert.ok(supervisor.includes('LOCK_DIR="${ARIA_AGENT_LOCK_DIR:-$HOME/.aria-agent.lock}"'));
-assert.equal((supervisor.match(/"\$\$"/g)||[]).length, 3, 'supervisor must persist and compare its own PID for the lock');
+assert.ok(supervisor.includes('BASHPID:-'), 'supervisor lock must use the actual subshell pid');
 assert.ok(!supervisor.includes('printf \'%s\\n\' "$"'));
 assert.ok(!supervisor.includes('= "$" ]'));
 
@@ -32,7 +32,11 @@ assert.ok(!installer.includes('nohup'), 'installer must not depend on nohup for 
 assert.ok(installer.includes('. "$AGENT_DIR/agents/termux/start-agent.sh"'));
 assert.ok(installer.includes('background subshell'));
 assert.ok(installer.includes('chmod 700 "$AGENT_DIR/agents/termux/start-agent.sh" "$AGENT_DIR/agents/termux/boot/start-aria-agent"'));
-assert.ok(boot.includes('exec bash "$SUPERVISOR"'));
+assert.ok(boot.includes('. "$SUPERVISOR"'));
+assert.ok(!boot.includes('exec bash "$SUPERVISOR"'));
+assert.ok(installer.includes('kill_descendants'));
+assert.ok(installer.includes('refusing to replace unrelated locked process'));
+assert.ok(installer.includes('replacing existing supervisor'));
 assert.ok(installer.includes('supervisor.log'));
 assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
 assert.ok(docs.includes('install-autostart.sh'));
