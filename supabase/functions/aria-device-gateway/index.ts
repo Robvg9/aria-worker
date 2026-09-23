@@ -64,17 +64,19 @@ async function androidAutonomousDecision(b:any,d:any){
   const isSafeNode=(n:any)=>Boolean(n&&n.visible!==false&&n.enabled!==false);
   const fallbackAction={action:'navigate',url:'https://aria.robvg9.workers.dev/pwa/'};
 
-  const candidatesRes=await supabase.schema('aria_internal').from('model_registry')
-    .select('model_id,provider_id,status,enabled,pricing,metadata,interface_type')
-    .in('provider_id',['google','openrouter'])
-    .eq('status','available').eq('enabled',true);
+  const [candidatesRes,capsRes,acctRes]=await Promise.all([
+    supabase.schema('aria_internal').from('model_registry')
+      .select('model_id,provider_id,status,enabled,pricing,metadata,interface_type')
+      .in('provider_id',['google','openrouter']).eq('status','available').eq('enabled',true),
+    supabase.schema('aria_internal').from('capability_matrix')
+      .select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified'),
+    supabase.schema('aria_internal').from('account_registry')
+      .select('account_id,provider_id,status,enabled,models')
+      .in('provider_id',['google','openrouter']).eq('status','available').eq('enabled',true)
+  ]);
   if(candidatesRes.error)throw new Error(candidatesRes.error.message);
-  const capsRes=await supabase.schema('aria_internal').from('capability_matrix')
-    .select('model_id,status,verified_at').eq('capability_id','text_generation').eq('status','verified');
   if(capsRes.error)throw new Error(capsRes.error.message);
-  const acctRes=await supabase.schema('aria_internal').from('account_registry')
-    .select('account_id,provider_id,status,enabled,models')
-    .in('provider_id',['google','openrouter']).eq('status','available').eq('enabled',true);
+  if(acctRes.error)throw new Error(acctRes.error.message);
   if(acctRes.error)throw new Error(acctRes.error.message);
   const verified=new Set((capsRes.data||[]).map((x:any)=>String(x.model_id)));
   const preferredModels=[
@@ -536,8 +538,17 @@ function m6Num(v:any){return Number.isFinite(Number(v))?Number(v):null}
 function m6FreeCost(p:any){const tier=String(p?.tier||p?.billing_tier||'').toLowerCase();if(tier==='free'||p?.cost==='$0'||p?.cost===0)return 1;const i=m6Num(p?.input_per_1m_tokens??p?.cost_per_1k_input_usd),o=m6Num(p?.output_per_1m_tokens??p?.cost_per_1k_output_usd);if(i===0&&o===0)return 1;if(i!==null||o!==null)return .5;return null}
 function m6ClassifyFallbackFailure(error:any){const status=Number(error?.provider_status??error?.status??0),code=String(error?.code||'');if(status===429||code==='rate_limit')return'rate_limit';if(code==='credential_unavailable'||code==='account_unavailable')return'account_unavailable';if(status>=500||code==='provider_unavailable')return'provider_unavailable';return'execution_failure'}
 function m6GovernFallback(primary:any,alternatives:any[],failureKind:string,policy:any={}){const visited=new Set(Array.isArray(policy?.visited)?policy.visited.map(String):[]);if(failureKind==='rate_limit'&&policy?.allow_rate_limit_fallback!==true)return[];return alternatives.filter((x:any)=>{const key=String(x?.provider_id||'')+'|'+String(x?.account_id||'')+'|'+String(x?.model_id||'');if(visited.has(key))return false;if(failureKind==='provider_unavailable'&&x?.provider_id===primary?.provider_id)return false;if(failureKind==='account_unavailable'&&x?.account_id===primary?.account_id)return false;return true})}
+let routerSnapshotCache:{expires_at:number,snapshot:any}|null=null;
+async function getRouterLiveSnapshot(){
+ const now=Date.now();
+ if(routerSnapshotCache&&routerSnapshotCache.expires_at>now)return routerSnapshotCache.snapshot;
+ const {data,error}=await supabase.schema('aria_internal').rpc('router_live_snapshot');
+ if(error)throw new Error(error.message);
+ routerSnapshotCache={expires_at:now+5000,snapshot:data};
+ return data;
+}
 async function intelligentRouterDecision(b:any){
- const {data:snapshot,error}=await supabase.schema('aria_internal').rpc('router_live_snapshot');if(error)throw new Error(error.message);
+ const snapshot=await getRouterLiveSnapshot();
  const candidates=Array.isArray(snapshot?.candidates)?snapshot.candidates:[];
  const tasks=Array.isArray(b?.tasks)?b.tasks:null;
  const choose=(input:any)=>{
