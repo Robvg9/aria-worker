@@ -16,6 +16,7 @@ assertContains(appApi,'SUPABASE_SERVICE_ROLE_KEY','service-role binding missing'
 assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verification missing');
 if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
+assertContains(appApi,'path.endsWith("/conversation") && !path.includes("/projects/")','generic conversation route must not catch project conversation requests');
 assertContains(appApi,'function looksLikeMissionRequest(input: string)','chat mission intent classifier missing');
 assertContains(appApi,'(?:haz|has)\\s+que\\b/i.test(value)','chat must classify direct "haz que..." and common "has que..." commands as missions');
 assertContains(appApi,'if (explicitTask) return true;','explicit "quiero que..." / "necesito que..." phrasing must bypass finite-verb matching');
