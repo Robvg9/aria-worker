@@ -12,9 +12,14 @@ android {
         applicationId = "com.robvg9.ariauiagent"
         minSdk = 26
         targetSdk = runnerSdk
-        versionCode = 23
-        versionName = "1.1.17"
+        versionCode = 24
+        versionName = "1.1.18"
+        buildConfigField("String", "ARIA_BUILD_ID", ""${System.getenv("GITHUB_SHA") ?: "local"}"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
