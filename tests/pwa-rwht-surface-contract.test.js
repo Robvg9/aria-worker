@@ -34,6 +34,8 @@ assert.match(
 );
 
 assert.match(app, /<ProjectWorkspace/, 'App must integrate ProjectWorkspace.');
+assert.match(app, /openNewMissionSignal/, 'Chat must accept the cross-page New Mission request signal.');
+assert.match(app, /onMission=\{\(\) => \{ setPage\('aria'\); setOpenNewMissionSignal/, 'Capabilities New Mission control must actually request the New Mission modal.');
 assert.match(project, /function VisualBoard/, 'ARTIA VisualBoard must exist.');
 assert.match(project, /createMission/, 'ARTIA must support mission creation from the visual workspace.');
 assert.match(project, /project_id/, 'Project context must be attached to chat/mission operations.');
