@@ -308,6 +308,8 @@ async function executionJobDbCall(kind:string,args:any){
   let sql:any=null;
   try{
     sql=postgres(dbUrl,{max:1,idle_timeout:5,connect_timeout:5});
+    // Never allow a stuck Postgres call to freeze the device agent's claim/start/complete loop.
+    await sql`set statement_timeout = 5000`;
     if(kind==='claim'){
       const rows=await sql`select public.claim_execution_job_gateway(${String(args.deviceId)}) as job`;
       return rows?.[0]?.job??null;
