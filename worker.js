@@ -50,7 +50,8 @@ async function proxyAppApi(request,url){
 }
 async function proxyPasswordSignIn(request, url){
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);
-  if(url.searchParams.get("grant_type")!=="password")return json({error:"unsupported_grant_type"},400);
+  const grantType=url.searchParams.get("grant_type")||"";
+  if(!["password","refresh_token"].includes(grantType))return json({error:"unsupported_grant_type"},400);
   const apiKey=request.headers.get("apikey");
   if(!apiKey)return json({error:"missing_apikey"},400);
   const body=await request.text();
@@ -58,7 +59,7 @@ async function proxyPasswordSignIn(request, url){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),8000);
   try{
-    const upstream=await fetch(SUPABASE_AUTH+"/auth/v1/token?grant_type=password",{
+    const upstream=await fetch(SUPABASE_AUTH+"/auth/v1/token?grant_type="+encodeURIComponent(grantType),{
       method:"POST",
       headers:{"content-type":"application/json","apikey":apiKey,"accept":"application/json"},
       body,
