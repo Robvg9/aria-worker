@@ -1101,12 +1101,12 @@ function Chat({
       </div>
 
       <nav className='bottomNav' aria-label='Navegación principal'>
-        <a href='#home' className={screen === 0 ? 'active' : ''} aria-label='Inicio'><span>⌂</span><small>Inicio</small></a>
-        <a href='#chat' className={screen === 1 ? 'active' : ''} aria-label='Chat'><span>💬</span><small>Chat</small></a>
-        <a href='#mission' className='bottomNavPrimary' aria-label='Nueva misión'><span>＋</span><small>Misión</small></a>
-        <a href='#projects' aria-label='Proyectos'><span>◈</span><small>Proyectos</small></a>
-        <a href='#meditation' aria-label='Meditación IA'><span>◌</span><small>Meditación</small></a>
-        <a href='#capabilities' aria-label='Capacidades'><span>⚙</span><small>Capacidades</small></a>
+        <button type='button' className={screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => { window.location.hash = '#home'; }}><span>⌂</span><small>Inicio</small></button>
+        <button type='button' className={screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => { window.location.hash = '#chat'; }}><span>💬</span><small>Chat</small></button>
+        <button type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => { window.location.hash = '#mission'; }}><span>＋</span><small>Misión</small></button>
+        <button type='button' aria-label='Proyectos' onClick={onProjects}><span>◈</span><small>Proyectos</small></button>
+        <button type='button' aria-label='Meditación IA' onClick={onMeditation}><span>◌</span><small>Meditación</small></button>
+        <button type='button' aria-label='Capacidades' onClick={onCapabilities}><span>⚙</span><small>Capacidades</small></button>
       </nav>
 
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
