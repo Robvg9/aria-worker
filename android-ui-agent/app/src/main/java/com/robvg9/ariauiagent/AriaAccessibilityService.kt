@@ -28,7 +28,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AriaAccessibilityService : AccessibilityService() {
     companion object {
@@ -432,9 +435,26 @@ class AriaAccessibilityService : AccessibilityService() {
         return when (action.optString("action")) {
             "click" -> {
                 val root = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("no_active_application_window")
+                refreshAccessibilityRoot(root)
                 val node = nodeByPath(root, action.optString("nodeId")) ?: return error("node_not_found")
-                val clicked = node.isEnabled && (gestureClick(node) || node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-                ok(clicked, if (clicked) null else "click_failed")
+                if (!node.isEnabled || !node.isVisibleToUser) return error("click_target_not_actionable")
+                val beforeTree = serializeNode(root, "0", 0, NodeBudget())
+                val beforeHash = sha256(beforeTree.toString())
+                val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK) || gestureClick(node)
+                if (!clicked) return error("click_failed")
+                Thread.sleep(300)
+                val afterRoot = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("post_action_window_missing")
+                refreshAccessibilityRoot(afterRoot)
+                val afterTree = serializeNode(afterRoot, "0", 0, NodeBudget())
+                val afterHash = sha256(afterTree.toString())
+                if (beforeHash == afterHash) {
+                    return error("android_action_no_visible_state_change")
+                        .put("before_hash", beforeHash)
+                        .put("after_hash", afterHash)
+                }
+                ok(true)
+                    .put("before_hash", beforeHash)
+                    .put("after_hash", afterHash)
             }
             "type" -> {
                 val root = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("no_active_application_window")
@@ -796,7 +816,24 @@ class AriaAccessibilityService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0L, 80L))
             .build()
-        return dispatchGesture(gesture, null, null)
+        val completed = CountDownLatch(1)
+        val succeeded = AtomicBoolean(false)
+        val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) {
+                succeeded.set(true)
+                completed.countDown()
+            }
+            override fun onCancelled(gestureDescription: GestureDescription) {
+                completed.countDown()
+            }
+        }, null)
+        if (!accepted) return false
+        return try {
+            completed.await(1500L, TimeUnit.MILLISECONDS) && succeeded.get()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
     }
 
     private fun roleFor(node: AccessibilityNodeInfo): String {
