@@ -108,7 +108,6 @@ async function heartbeat() {
       lastAndroidUiHealth = androidUiHealth;
     }
   }
-  }
   const capabilities = ['shell.execute','notifications.push'];
   if (androidUiHealth.ok) capabilities.push('computer.use.android');
   try {
@@ -171,7 +170,11 @@ async function claimAndExecute() {
     if(safeStderr)log(`STDERR ${JSON.stringify(safeStderr)}`);
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})});
     log(`JOB ACK id=${job.job_id} status=${result.status}`);
-  }catch(error){console.error(`[job] ${error.message}`)}
+    if (job.operation === 'computer.use.android') computerUseInFlight = false;
+  }catch(error){
+    computerUseInFlight = false;
+    console.error(`[job] ${error.message}`)
+  }
 }
 let stopping=false;
 let heartbeatTimer=null;
