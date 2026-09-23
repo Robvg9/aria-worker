@@ -107,10 +107,47 @@ async function executeAutonomousAndroidMission({ api, executeAndroidAccessibilit
       return { status: 'failed', reason: sanitizeReason(bridge && (bridge.reason || bridge.stderr || 'android_action_failed')), steps: step + 1, trace: history, evidence };
     }
     const after = bridge.payload.ui;
-    const afterHash = bridge.payload.evidence_hash || (after && after.evidence_hash) || null;
-    history[history.length - 1].execution = { status: 'succeeded', after_evidence_hash: afterHash };
-    evidence.push({ phase: 'observe_after', step: step + 1, evidence_hash: afterHash, package_name: after && after.packageName || null });
-    if (!after || after.ok !== true) return { status: 'failed', reason: 'android_post_action_observation_missing', steps: step + 1, trace: history, evidence };
+    if (!after || after.ok !== true) {
+      history[history.length - 1].execution = { status: 'failed', reason: 'android_post_action_observation_missing', response_evidence_hash: bridge.payload.evidence_hash || null };
+      return { status: 'failed', reason: 'android_post_action_observation_missing', steps: step + 1, trace: history, evidence };
+    }
+    // The outer response evidence hash covers transport/response metadata and can change
+    // even when the visible UI did not. The autonomous verifier must compare the actual
+    // post-action UI evidence hash with the pre-action UI evidence hash.
+    const beforeUiHash = observation && observation.evidence_hash || null;
+    const afterUiHash = after.evidence_hash || null;
+    const responseEvidenceHash = bridge.payload.evidence_hash || null;
+    const unchangedUi = beforeUiHash && afterUiHash && beforeUiHash === afterUiHash;
+    const actionKind = String(decision.action?.action || '');
+    if (unchangedUi && actionKind !== 'wait') {
+      history[history.length - 1].execution = {
+        status: 'failed',
+        reason: 'android_action_no_visible_state_change',
+        before_evidence_hash: beforeUiHash,
+        after_evidence_hash: afterUiHash,
+        response_evidence_hash: responseEvidenceHash
+      };
+      evidence.push({
+        phase: 'observe_after_no_change',
+        step: step + 1,
+        evidence_hash: afterUiHash,
+        response_evidence_hash: responseEvidenceHash,
+        package_name: after.packageName || null
+      });
+      return {
+        status: 'failed',
+        reason: 'android_action_no_visible_state_change',
+        steps: step + 1,
+        trace: history,
+        evidence
+      };
+    }
+    history[history.length - 1].execution = {
+      status: 'succeeded',
+      after_evidence_hash: afterUiHash,
+      response_evidence_hash: responseEvidenceHash
+    };
+    evidence.push({ phase: 'observe_after', step: step + 1, evidence_hash: afterUiHash, response_evidence_hash: responseEvidenceHash, package_name: after.packageName || null });
     observation = after;
     await delay(100);
   }
