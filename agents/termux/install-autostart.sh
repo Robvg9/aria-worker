@@ -31,7 +31,11 @@ LOG_DIR="$AGENT_DIR/logs"
 mkdir -p "$LOG_DIR"
 chmod 700 "$AGENT_DIR" "$LOG_DIR" 2>/dev/null || true
 chmod 700 "$AGENT_DIR/agents/termux/start-agent.sh" "$AGENT_DIR/agents/termux/boot/start-aria-agent" 2>/dev/null || true
-nohup bash "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
+if command -v setsid >/dev/null 2>&1; then
+  setsid bash "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
+else
+  bash "$AGENT_DIR/agents/termux/start-agent.sh" >>"$LOG_DIR/supervisor.log" 2>&1 < /dev/null &
+fi
 SUPERVISOR_PID=$!
 
 cat <<EOF
