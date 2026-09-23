@@ -609,7 +609,7 @@ Deno.serve(async (req) => {
       const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
       const runtimeQuery = /\b(estado|misi[oó]n|misiones|ejecuci[oó]n|bloquead|completad|online|capacidad|capacidades|dispositivo|meditaci[oó]n|verificaci[oó]n|runtime|aria)\b/i.test(text);
       const live = runtimeQuery ? await liveAssistantContext(user.id).catch(() => null) : null;
-      const liveText = live ? "Estado LIVE del sistema ARIA (fuente operativa y secundaria al mensaje del usuario):\n" + JSON.stringify(live) : "";
+      const liveText = live ? "Estado LIVE del sistema ARIA (fuente operativa):\n" + JSON.stringify(live) : "";
       const prompt = [
         "Eres ARIA, la IA operativa del sistema.",
         "REGLA PRINCIPAL: responde primero y exactamente a la última frase del usuario. No conviertas el contexto técnico o el historial del sistema en la pregunta del usuario.",
