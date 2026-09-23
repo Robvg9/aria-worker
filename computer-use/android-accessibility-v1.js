@@ -30,7 +30,7 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
     const child = spawn('am', [
       'broadcast', '--user', '0',
       '-a', 'com.robvg9.ariauiagent.ACTION_EXECUTE',
-      '-n', \`\${PACKAGE}/.CommandReceiver\`,
+      '-n', `${PACKAGE}/.CommandReceiver`,
       '--es', 'payload_b64', encoded,
       '--es', 'ipc_token', IPC_TOKEN
     ], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
@@ -47,7 +47,7 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
       child.kill('SIGTERM');
       finish({
         status: 'timeout',
-        reason: \`android_command_receiver_timeout_\${Math.max(1000, Number(timeoutMs) || 8000)}ms\`,
+        reason: `android_command_receiver_timeout_${Math.max(1000, Number(timeoutMs) || 8000)}ms`,
         metadata: { transport: 'android-command-receiver' }
       });
     }, Math.max(1000, Number(timeoutMs) || 8000));
@@ -55,7 +55,7 @@ function executeAndroidCommandReceiver({ request, timeoutMs = 8000 } = {}) {
     child.stderr.on('data', chunk => { stderr += chunk.toString(); });
     child.on('error', error => finish({
       status: 'failed',
-      reason: \`android_command_receiver_unreachable:\${String(error?.message || error).slice(0, 180)}\`,
+      reason: `android_command_receiver_unreachable:${String(error?.message || error).slice(0, 180)}`,
       metadata: { transport: 'android-command-receiver', duration_ms: Date.now() - started }
     }));
     child.on('close', code => {
@@ -181,7 +181,7 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: \`Bearer \${IPC_TOKEN}\`,
+        authorization: `Bearer ${IPC_TOKEN}`,
         connection: 'close'
       },
       body: JSON.stringify(request),
@@ -210,7 +210,7 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     };
   } catch (error) {
     if (error?.name === 'AbortError') {
-      return { status: 'timeout', reason: \`android_local_ipc_timeout_\${effectiveTimeout}ms\`, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL } };
+      return { status: 'timeout', reason: `android_local_ipc_timeout_${effectiveTimeout}ms`, metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL } };
     }
     const fallback = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(effectiveTimeout, 8000) });
     if (fallback.status === 'succeeded') {
@@ -218,7 +218,7 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
     }
     return {
       status: 'failed',
-      reason: \`android_local_ipc_unreachable:\${String(error?.message || error).slice(0, 180)}\`,
+      reason: `android_local_ipc_unreachable:${String(error?.message || error).slice(0, 180)}`,
       metadata: { transport: 'android-local-http', url: LOCAL_IPC_URL, fallback_transport: 'android-command-receiver', fallback_reason: fallback.reason || null }
     };
   } finally {
