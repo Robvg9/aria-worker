@@ -107,7 +107,7 @@ async function heartbeat() {
   try {
     await api('/v1/devices/heartbeat',{
       method:'POST',
-      body:JSON.stringify({device_id:DEVICE_ID,agent_type:'android-termux',capabilities})
+      body:JSON.stringify({device_id:DEVICE_ID,agent_type:'android-termux',capabilities,android_ui_health:{ok:Boolean(androidUiHealth.ok),reason:androidUiHealth.reason||null,protocol:androidUiHealth.payload?.protocol||null,version_name:androidUiHealth.metadata?.version_name||null,version_code:androidUiHealth.metadata?.version_code||null}})
     });
     log(`ONLINE device=${DEVICE_ID} computer.use.android=${androidUiHealth.ok ? 'READY' : 'UNAVAILABLE:' + androidUiHealth.reason}`);
   } catch(error){
