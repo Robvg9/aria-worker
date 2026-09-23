@@ -507,7 +507,7 @@ Deno.serve(async (req) => {
       const sb = serviceClient();
       const { data, error } = await sb.schema("aria_internal").from("mission_state")
         .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
-        .order("created_at", { ascending: false }).limit(1000);
+        .order("updated_at", { ascending: false }).limit(1000);
       if (error) return json({ error: "project_missions_failed", detail: error.message, trace_id: trace }, 502);
       const owned = (data ?? []).filter((m:any) => {
         const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
@@ -607,19 +607,22 @@ Deno.serve(async (req) => {
         }
       }
       const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
-      const live = await liveAssistantContext(user.id).catch(() => null);
-      const liveText = live ? "Estado LIVE del sistema ARIA (fuente operativa):\n" + JSON.stringify(live) : "";
+      const runtimeQuery = /\b(estado|misi[oó]n|misiones|ejecuci[oó]n|bloquead|completad|online|capacidad|capacidades|dispositivo|meditaci[oó]n|verificaci[oó]n|runtime|aria)\b/i.test(text);
+      const live = runtimeQuery ? await liveAssistantContext(user.id).catch(() => null) : null;
+      const liveText = live ? "Estado LIVE del sistema ARIA (fuente operativa y secundaria al mensaje del usuario):\n" + JSON.stringify(live) : "";
       const prompt = [
         "Eres ARIA, la IA operativa del sistema.",
-        "Conoces el estado actual de tu runtime y debes responder sobre lo que está ocurriendo realmente.",
-        "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto LIVE demuestra lo contrario.",
+        "REGLA PRINCIPAL: responde primero y exactamente a la última frase del usuario. No conviertas el contexto técnico o el historial del sistema en la pregunta del usuario.",
+        "El estado LIVE, memoria y contexto visual son fuentes auxiliares. Solo úsalos cuando ayuden a contestar la petición real.",
+        "Para una conversación casual, saludo, confirmación o pregunta simple, responde de forma directa y natural; no hables de misiones o Meditación IA salvo que el usuario lo haya pedido.",
+        "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto demuestra lo contrario.",
         "No inventes acciones ejecutadas. Distingue siempre entre en cola, ejecutando, bloqueada, completada o fallida.",
+        project ? "PROYECTO ACTIVO: " + JSON.stringify(project) + ". Mantén la conversación dentro de este proyecto y no la desvíes al estado global de ARIA salvo que el usuario lo pida." : "",
+        visual_context ? "DISEÑO VISUAL Y ANOTACIONES: " + JSON.stringify(visual_context) : "",
+        attachments.length ? "ADJUNTOS DE ESTA CONVERSACIÓN: " + JSON.stringify(attachments) : "",
         liveText,
-        project ? "Proyecto activo: " + JSON.stringify(project) : "",
-        visual_context ? "Diseño visual y anotaciones: " + JSON.stringify(visual_context) : "",
-        attachments.length ? "Adjuntos de esta conversación: " + JSON.stringify(attachments) : "",
-        context ? "Memoria contextual autorizada:\n" + context : "",
-        "Usuario: " + text
+        context ? "MEMORIA CONTEXTUAL AUTORIZADA:\n" + context : "",
+        "MENSAJE DEL USUARIO — RESPONDE A ESTO DIRECTAMENTE:\n" + text
       ].filter(Boolean).join("\n\n");
       try {
         const execution = await executeConversationWithFallback(step, prompt, conversationId, visual_context);
