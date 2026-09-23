@@ -385,6 +385,7 @@ class AriaAccessibilityService : AccessibilityService() {
             resolveTargetWithRetries(targetPackage, allowAnyApp, 12, 200L, true, "observe")
         }
         if (root == null) return error("no_active_application_window").put("diagnostic", lastDiag)
+        refreshAccessibilityRoot(root)
         val tree = serializeNode(root, "0", 0, NodeBudget())
         return JSONObject()
             .put("ok", true)
@@ -410,6 +411,7 @@ class AriaAccessibilityService : AccessibilityService() {
             resolveTargetWithRetries(targetPackage, allowAnyApp, 12, 200L, true, "post_action")
         }
         if (observed == null) return error("post_action_window_missing").put("diagnostic", diag)
+        refreshAccessibilityRoot(observed)
         val ui = serializeNode(observed, "0", 0, NodeBudget())
         return result
             .put("ui", JSONObject()
@@ -728,6 +730,10 @@ class AriaAccessibilityService : AccessibilityService() {
         diag.put("applicationWindowCount", appWindows)
         diag.put("applicationWindowsWithRoot", appWindowsWithRoot)
         diag.put("windows", windowRows)
+    }
+
+    private fun refreshAccessibilityRoot(root: AccessibilityNodeInfo) {
+        runCatching { root.refresh() }
     }
 
     private data class NodeBudget(var count: Int = 0, val maxCount: Int = 700)
