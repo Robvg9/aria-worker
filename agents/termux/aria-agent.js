@@ -98,7 +98,7 @@ async function resolveSecret(jobId, secretRef) {
 async function heartbeat() {
   let androidUiHealth = { ok: false, reason: 'probe_not_run' };
   try {
-    androidUiHealth = await probeLocalIpcHealth({ timeoutMs: 1500 });
+    androidUiHealth = await probeLocalIpcHealth({ timeoutMs: 2500 });
   } catch (error) {
     androidUiHealth = { ok: false, reason: String(error?.message || error).slice(0, 180) };
   }
