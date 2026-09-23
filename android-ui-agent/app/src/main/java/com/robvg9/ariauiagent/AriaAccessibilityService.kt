@@ -502,6 +502,13 @@ class AriaAccessibilityService : AccessibilityService() {
             }
             "navigate" -> navigate(action.optString("url"), allowedHosts)
             "launch_app" -> launchApp(targetPackage)
+            "swipe" -> gestureSwipe(
+                action.optDouble("x1"),
+                action.optDouble("y1"),
+                action.optDouble("x2"),
+                action.optDouble("y2"),
+                action.optLong("durationMs", 500L)
+            )
             "wait" -> {
                 Thread.sleep(action.optLong("ms", 500L).coerceIn(0L, 5000L))
                 ok(true)
@@ -814,6 +821,49 @@ class AriaAccessibilityService : AccessibilityService() {
             current = current.getChild(index) ?: return null
         }
         return current
+    }
+
+    private fun gestureSwipe(x1: Double, y1: Double, x2: Double, y2: Double, durationMs: Long): JSONObject {
+        val values = listOf(x1, y1, x2, y2)
+        if (values.any { it.isNaN() || it.isInfinite() }) return error("swipe_coordinates_required")
+        if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) return error("swipe_coordinates_invalid")
+        val duration = durationMs.coerceIn(80L, 3000L)
+        if (kotlin.math.abs(x2 - x1) < 8 && kotlin.math.abs(y2 - y1) < 8) return error("swipe_distance_too_small")
+        val path = Path().apply {
+            moveTo(x1.toFloat(), y1.toFloat())
+            lineTo(x2.toFloat(), y2.toFloat())
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0L, duration))
+            .build()
+        val completed = CountDownLatch(1)
+        val succeeded = AtomicBoolean(false)
+        val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) {
+                succeeded.set(true)
+                completed.countDown()
+            }
+            override fun onCancelled(gestureDescription: GestureDescription) {
+                completed.countDown()
+            }
+        }, null)
+        if (!accepted) return error("swipe_dispatch_rejected")
+        return try {
+            if (completed.await((duration + 1500L).coerceAtMost(5000L), TimeUnit.MILLISECONDS) && succeeded.get()) {
+                ok(true)
+                    .put("gesture", "swipe")
+                    .put("x1", x1)
+                    .put("y1", y1)
+                    .put("x2", x2)
+                    .put("y2", y2)
+                    .put("durationMs", duration)
+            } else {
+                error("swipe_failed")
+            }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            error("swipe_interrupted")
+        }
     }
 
     private fun gestureClick(node: AccessibilityNodeInfo): Boolean {
