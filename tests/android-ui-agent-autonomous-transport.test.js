@@ -26,6 +26,9 @@ assert.ok(!receiver.includes('broadcast_path_disabled'), 'legacy disabled receiv
 assert.ok(receiver.includes('getSentFromUid()'), 'UID sender identity should still be checked when Android exposes it');
 assert.ok(receiver.includes('ipc_token'), 'explicit IPC token fallback must remain');
 assert.ok(agent.includes('android-accessibility-v1'), 'Termux must use Accessibility executor');
+assert.ok(agent.includes('heartbeatTimer.unref?.()'), 'heartbeat must not keep a stopped worker alive');
+assert.ok(agent.includes("log('AGENT LOOP EXIT — supervisor will restart process')"), 'worker loop exit must hand control back to supervisor');
+assert.ok(agent.includes("process.on('SIGTERM',()=>requestStop('SIGTERM'))"), 'SIGTERM must trigger controlled supervisor restart');
 assert.ok(transport.includes('http://127.0.0.1:45874/execute'), 'executor must use loopback IPC');
 assert.ok(transport.includes('authorization'), 'executor must authenticate loopback IPC');
 assert.ok(!transport.includes('/system/bin/am broadcast'), 'legacy broadcast transport must not be used');
