@@ -28,6 +28,24 @@ type CapabilityCatalog = {
 };
 type Mission = any;
 type MissionEvent = any;
+type AppPage = 'aria' | 'meditation' | 'capabilities' | 'projects';
+
+type NavigationState = {
+  page: AppPage;
+  screen: 0 | 1;
+  newMission: boolean;
+};
+
+function navigationFromHash(hash = window.location.hash): NavigationState {
+  switch (hash) {
+    case '#chat': return { page: 'aria', screen: 1, newMission: false };
+    case '#mission': return { page: 'aria', screen: 0, newMission: true };
+    case '#projects': return { page: 'projects', screen: 0, newMission: false };
+    case '#meditation': return { page: 'meditation', screen: 0, newMission: false };
+    case '#capabilities': return { page: 'capabilities', screen: 0, newMission: false };
+    default: return { page: 'aria', screen: 0, newMission: false };
+  }
+}
 
 function missionResultText(mission: any): string {
   const direct = [mission?.last_stdout, mission?.last_stderr]
@@ -790,15 +808,13 @@ function Chat({
   onSignOut,
   onMeditation,
   onCapabilities,
-  onProjects,
-  openNewMissionSignal
+  onProjects
 }: {
   session: Session;
   onSignOut: () => void;
   onMeditation: () => void;
   onCapabilities: () => void;
   onProjects: () => void;
-  openNewMissionSignal: number;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -808,13 +824,13 @@ function Chat({
   const [mission, setMission] = useState<Mission | null>(() => readCached('active_mission', session.userId));
   const [events, setEvents] = useState<MissionEvent[]>([]);
   const [showMission, setShowMission] = useState(false);
-  const [showNewMission, setShowNewMission] = useState(false);
+  const [showNewMission, setShowNewMission] = useState(() => initialNavigation.newMission);
   const [quickView, setQuickView] = useState<{ title: string; items: any[] } | null>(null);
   const [goal, setGoal] = useState('');
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [screen, setScreen] = useState<0 | 1>(0);
-  const goScreen = (next: number) => setScreen(next <= 0 ? 0 : 1);
+  const initialNavigation = navigationFromHash();
+  const [screen, setScreen] = useState<0 | 1>(() => initialNavigation.screen);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
@@ -857,8 +873,15 @@ function Chat({
   };
 
   useEffect(() => {
-    if (openNewMissionSignal > 0) setShowNewMission(true);
-  }, [openNewMissionSignal]);
+    const syncNavigation = () => {
+      const nav = navigationFromHash();
+      if (nav.page !== 'aria') return;
+      setScreen(nav.screen);
+      setShowNewMission(nav.newMission);
+    };
+    window.addEventListener('hashchange', syncNavigation);
+    return () => window.removeEventListener('hashchange', syncNavigation);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -953,6 +976,7 @@ function Chat({
     try {
       const d = await api('/missions', session.accessToken, { method: 'POST', body: JSON.stringify({ goal: clean }) });
       setGoal(''); setShowNewMission(false);
+      if (window.location.hash === '#mission') window.location.hash = '#home';
       if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
     } catch (x) {
       setError(x instanceof Error ? x.message : 'No se pudo iniciar la misión.');
@@ -1077,12 +1101,12 @@ function Chat({
       </div>
 
       <nav className='bottomNav' aria-label='Navegación principal'>
-        <button className={screen === 0 ? 'active' : ''} onClick={() => goScreen(0)} aria-label='Inicio'><span>⌂</span><small>Inicio</small></button>
-        <button className={screen === 1 ? 'active' : ''} onClick={() => goScreen(1)} aria-label='Chat'><span>💬</span><small>Chat</small></button>
-        <button className='bottomNavPrimary' onClick={() => setShowNewMission(true)} aria-label='Nueva misión'><span>＋</span><small>Misión</small></button>
-        <button onClick={onProjects} aria-label='Proyectos'><span>◈</span><small>Proyectos</small></button>
-        <button onClick={onMeditation} aria-label='Meditación IA'><span>◌</span><small>Meditación</small></button>
-        <button onClick={onCapabilities} aria-label='Capacidades'><span>⚙</span><small>Capacidades</small></button>
+        <a href='#home' className={screen === 0 ? 'active' : ''} aria-label='Inicio'><span>⌂</span><small>Inicio</small></a>
+        <a href='#chat' className={screen === 1 ? 'active' : ''} aria-label='Chat'><span>💬</span><small>Chat</small></a>
+        <a href='#mission' className='bottomNavPrimary' aria-label='Nueva misión'><span>＋</span><small>Misión</small></a>
+        <a href='#projects' aria-label='Proyectos'><span>◈</span><small>Proyectos</small></a>
+        <a href='#meditation' aria-label='Meditación IA'><span>◌</span><small>Meditación</small></a>
+        <a href='#capabilities' aria-label='Capacidades'><span>⚙</span><small>Capacidades</small></a>
       </nav>
 
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
@@ -1213,9 +1237,15 @@ export default function App() {
       return s && s.expiresAt > Date.now() + 60000 ? s : null;
     } catch { return null; }
   });
-  const [page, setPage] = useState<'aria' | 'meditation' | 'capabilities' | 'projects'>('aria');
-  const [openNewMissionSignal, setOpenNewMissionSignal] = useState(0);
+  const initialNavigation = navigationFromHash();
+  const [page, setPage] = useState<AppPage>(() => initialNavigation.page);
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
+
+  useEffect(() => {
+    const syncNavigation = () => setPage(navigationFromHash().page);
+    window.addEventListener('hashchange', syncNavigation);
+    return () => window.removeEventListener('hashchange', syncNavigation);
+  }, []);;
 
   useEffect(() => {
     if (!session?.refreshToken) return;
@@ -1265,17 +1295,35 @@ export default function App() {
   }, [session?.refreshToken, session?.expiresAt]);
 
   if (!session) return <Auth onSignedIn={setSession} />;
-  const openMission = () => setPage('aria');
+  const openMission = () => {
+    window.location.hash = '#home';
+    setPage('aria');
+  };
   return (
     <>
       <PwaNotificationCenter session={session} />
       {page === 'projects'
-        ? <ProjectWorkspace session={session} onBack={() => setPage('aria')} />
+        ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; setPage('aria'); }} />
         : page === 'meditation'
-          ? <Meditation session={session} onBack={() => setPage('aria')} onCapabilities={() => setPage('capabilities')} />
+          ? <Meditation
+              session={session}
+              onBack={() => { window.location.hash = '#home'; setPage('aria'); }}
+              onCapabilities={() => { window.location.hash = '#capabilities'; setPage('capabilities'); }}
+            />
           : page === 'capabilities'
-            ? <Capabilities session={session} onBack={() => setPage('aria')} onMeditation={() => setPage('meditation')} onMission={openMission} />
-            : <Chat session={session} onSignOut={signOut} onMeditation={() => setPage('meditation')} onCapabilities={() => setPage('capabilities')} onProjects={() => setPage('projects')} openNewMissionSignal={openNewMissionSignal} />}
+            ? <Capabilities
+                session={session}
+                onBack={() => { window.location.hash = '#home'; setPage('aria'); }}
+                onMeditation={() => { window.location.hash = '#meditation'; setPage('meditation'); }}
+                onMission={openMission}
+              />
+            : <Chat
+                session={session}
+                onSignOut={signOut}
+                onMeditation={() => { window.location.hash = '#meditation'; setPage('meditation'); }}
+                onCapabilities={() => { window.location.hash = '#capabilities'; setPage('capabilities'); }}
+                onProjects={() => { window.location.hash = '#projects'; setPage('projects'); }}
+              />}
     </>
   );
 }
