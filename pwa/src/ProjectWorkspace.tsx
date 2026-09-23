@@ -7,6 +7,12 @@ type Point = { x:number; y:number };
 type DrawAction = { tool:Tool; color:string; size:number; points:Point[]; text?:string };
 
 const API = '/api';
+const HUMAN_API_ERRORS: Record<string,string> = {
+  app_api_unreachable:'No pude conectar con ARIA. Revisa la conexión e inténtalo de nuevo.',
+  conversation_model_execution_failed:'El modelo que tomó la solicitud no pudo completar la respuesta. Puedes reintentarlo.',
+  conversation_planner_failed:'El planificador de ARIA no respondió. Puedes reintentarlo.',
+  invalid_or_expired_session:'La sesión de ARIA expiró. Vuelve a entrar para continuar.'
+};
 const PROJECTS: Project[] = [
   { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.' },
   { id:'cuevacoin', name:'CuevaCoin', description:'Aplicación financiera/operativa vinculada al ecosistema de negocios.', icon:'🪙', context:'CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.' },
@@ -21,7 +27,10 @@ async function api(path:string, token:string, init:RequestInit={}) {
   const raw = await response.text();
   let data:any = null;
   try { data = raw ? JSON.parse(raw) : null; } catch {}
-  if (!response.ok) throw new Error(data?.error_description || data?.error || 'ARIA API error');
+  if (!response.ok) {
+    const code=String(data?.error_description || data?.error || 'aria_api_error');
+    throw new Error(HUMAN_API_ERRORS[code] ?? code);
+  }
   return data;
 }
 
