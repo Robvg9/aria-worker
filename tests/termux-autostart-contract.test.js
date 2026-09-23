@@ -16,6 +16,11 @@ assert.ok(supervisor.includes('ARIA_DEVICE_ID'));
 assert.ok(supervisor.includes('termux-wake-lock'));
 assert.ok(supervisor.includes('git -C "$AGENT_DIR" pull --ff-only origin main'));
 assert.ok(supervisor.includes('node "$AGENT_SCRIPT"'));
+assert.ok(supervisor.includes('LOCK_DIR="${ARIA_AGENT_LOCK_DIR:-$HOME/.aria-agent.lock}"'));
+assert.equal((supervisor.match(/"\$\$"/g)||[]).length, 3, 'supervisor must persist and compare its own PID for the lock');
+assert.ok(!supervisor.includes('printf \'%s\\n\' "$"'));
+assert.ok(!supervisor.includes('= "$" ]'));
+
 assert.ok(!supervisor.includes('ARIA_DEVICE_TOKEN='));
 assert.ok(boot.includes('$HOME/aria-agent/agents/termux/start-agent.sh'));
 assert.ok(installer.startsWith('#!/data/data/com.termux/files/usr/bin/bash'));
