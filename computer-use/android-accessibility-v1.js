@@ -64,22 +64,6 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
     }
     const localUserId = localAndroidUserId();
     const remoteUserId = Number.isInteger(Number(payload.user_id)) ? Number(payload.user_id) : null;
-    if (localUserId !== null && remoteUserId !== null && localUserId !== remoteUserId) {
-      return {
-        ok: false,
-        reason: 'android_local_ipc_profile_mismatch',
-        status: response.status,
-        metadata: {
-          transport: 'android-local-http',
-          url: LOCAL_IPC_HEALTH_URL,
-          local_user_id: localUserId,
-          remote_user_id: remoteUserId,
-          remote_uid: Number.isInteger(Number(payload.uid)) ? Number(payload.uid) : null,
-          version_name: payload.version_name || null,
-          version_code: payload.version_code || null
-        }
-      };
-    }
     return {
       ok: true,
       status: response.status,
@@ -89,6 +73,7 @@ async function probeLocalIpcHealth({ timeoutMs = 1500 } = {}) {
         url: LOCAL_IPC_HEALTH_URL,
         local_user_id: localUserId,
         remote_user_id: remoteUserId,
+        cross_profile_loopback: localUserId !== null && remoteUserId !== null && localUserId !== remoteUserId,
         version_name: payload.version_name || null,
         version_code: payload.version_code || null
       }
