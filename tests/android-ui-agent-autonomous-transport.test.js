@@ -11,6 +11,7 @@ const transport = fs.readFileSync(require('node:path').join(root, 'computer-use/
 const ipc = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/LocalIpcServer.kt'), 'utf8');
 const ipcAuth = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/IpcAuth.kt'), 'utf8');
 const serviceIpc = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/src/main/java/com/robvg9/ariauiagent/AriaAccessibilityService.kt'), 'utf8');
+const gateway = fs.readFileSync(require('node:path').join(root, 'supabase/functions/aria-device-gateway/index.ts'), 'utf8');
 
 for (const marker of ['TERMUX_PACKAGE', 'getApplicationInfo(TERMUX_PACKAGE', 'IPC_TOKEN', 'tokenValid', 'AriaAccessibilityService.instance', 'service.handle(payload)']) {
   assert.ok(receiver.includes(marker), 'missing receiver transport marker: ' + marker);
@@ -33,5 +34,6 @@ assert.ok(ipcAuth.includes('const val PATH = "/execute"'), 'IPC auth contract mu
 assert.ok(serviceIpc.includes('LocalIpcServer(this).also { it.start() }'), 'AccessibilityService must start local IPC');
 assert.ok(serviceIpc.includes('localIpcServer?.stop()'), 'AccessibilityService must stop local IPC');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
+assert.ok(gateway.includes('set statement_timeout = 5000'), 'gateway DB job calls must have a bounded statement timeout');
 
 // CI revalidation marker: exercise Android RWHT workflow on the current main toolchain.\nconsole.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
