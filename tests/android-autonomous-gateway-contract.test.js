@@ -24,3 +24,11 @@ assert.match(source, /allowedHosts/);
 assert.match(source, /destructive/);
 
 console.log('ANDROID AUTONOMOUS GATEWAY CONTRACT: PASS');
+
+assert.ok(source.includes('executionJobDbCall'));
+assert.ok(source.includes('SUPABASE_DB_URL'));
+assert.ok(source.includes("public.claim_execution_job_gateway"));
+assert.ok(source.includes("public.start_execution_job_gateway"));
+assert.ok(source.includes("public.complete_execution_job_gateway"));
+assert.ok(source.includes("connect_timeout:5"));
+assert.ok(source.includes("execution_job_db_url_unavailable"));
