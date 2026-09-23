@@ -41,9 +41,10 @@ const { executeAutonomousAndroidMission } = require('../agents/termux/android-au
         ui: {
           ok: true,
           packageName: 'com.android.chrome',
-          root: { id: '0', role: 'text', children: [{ id: '0.0', role: 'button', text: 'Dashboard', enabled: true, visible: true, children: [] }] }
+          root: { id: '0', role: 'text', children: [{ id: '0.0', role: 'button', text: 'Dashboard', enabled: true, visible: true, children: [] }] },
+          evidence_hash: 'after-hash'
         },
-        evidence_hash: 'after-hash'
+        evidence_hash: 'after-response-hash'
       }
     };
   };
@@ -90,6 +91,55 @@ const { executeAutonomousAndroidMission } = require('../agents/termux/android-au
 
   assert.equal(passWithoutAction.status, 'failed');
   assert.equal(passWithoutAction.reason, 'android_autonomous_pass_without_verified_action');
+
+
+  const noVisibleChange = await executeAutonomousAndroidMission({
+    api: async () => ({
+      ok: true,
+      decision: 'act',
+      reason: 'Click should visibly change the UI',
+      action: { action: 'click', nodeId: '0.0' }
+    }),
+    executeAndroidAccessibilityJob: async ({ command }) => {
+      const payload = JSON.parse(command);
+      if (payload.operation === 'observe') {
+        return {
+          status: 'succeeded',
+          payload: {
+            ok: true,
+            packageName: 'com.android.chrome',
+            root: { id: '0', role: 'text', children: [{ id: '0.0', role: 'button', text: 'Chat', enabled: true, visible: true, children: [] }] },
+            evidence_hash: 'same-ui-hash'
+          }
+        };
+      }
+      return {
+        status: 'succeeded',
+        payload: {
+          ok: true,
+          ui: {
+            ok: true,
+            packageName: 'com.android.chrome',
+            root: { id: '0', role: 'text', children: [{ id: '0.0', role: 'button', text: 'Chat', enabled: true, visible: true, children: [] }] },
+            evidence_hash: 'same-ui-hash'
+          },
+          // Deliberately different transport/response hash: this must NOT count as a UI change.
+          evidence_hash: 'different-response-hash'
+        }
+      };
+    },
+    goal: 'Detect no visible UI change',
+    targetPackage: 'com.android.chrome',
+    allowAnyApp: false,
+    allowedHosts: ['aria.robvg9.workers.dev'],
+    maxSteps: 2
+  });
+
+  assert.equal(noVisibleChange.status, 'failed');
+  assert.equal(noVisibleChange.reason, 'android_action_no_visible_state_change');
+  assert.equal(noVisibleChange.trace[0].execution.status, 'failed');
+  assert.equal(noVisibleChange.trace[0].execution.after_evidence_hash, 'same-ui-hash');
+  assert.equal(noVisibleChange.trace[0].execution.response_evidence_hash, 'different-response-hash');
 
   console.log('ANDROID AUTONOMOUS RUNNER: PASS');
 })().catch(error => { console.error(error); process.exit(1); });
