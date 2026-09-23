@@ -28,6 +28,8 @@ assert.ok(installer.startsWith('#!/data/data/com.termux/files/usr/bin/bash'));
 assert.ok(installer.includes('mkdir -p "$BOOT_DIR"'));
 assert.ok(installer.includes('cp "$BOOT_SRC" "$BOOT_DST"'));
 assert.ok(installer.includes('rm -f "$HOME/.aria-agent.stop"'));
+assert.ok(installer.includes('nohup "$AGENT_DIR/agents/termux/start-agent.sh"'));
+assert.ok(installer.includes('supervisor.log'));
 assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
 assert.ok(docs.includes('install-autostart.sh'));
 assert.ok(docs.includes('Android boot'));
