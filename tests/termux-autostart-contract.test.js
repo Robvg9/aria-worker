@@ -8,6 +8,7 @@ const supervisor = fs.readFileSync(path.join(__dirname, '../agents/termux/start-
 const boot = fs.readFileSync(path.join(__dirname, '../agents/termux/boot/start-aria-agent'), 'utf8');
 const installer = fs.readFileSync(path.join(__dirname, '../agents/termux/install-autostart.sh'), 'utf8');
 const docs = fs.readFileSync(path.join(__dirname, '../agents/termux/README.md'), 'utf8');
+const agent = fs.readFileSync(path.join(__dirname, '../agents/termux/aria-agent.js'), 'utf8');
 
 assert.ok(supervisor.startsWith('#!/data/data/com.termux/files/usr/bin/bash'));
 assert.ok(supervisor.includes('ARIA_DEVICE_GATEWAY_URL'));
@@ -30,5 +31,8 @@ assert.ok(installer.includes('rm -f "$HOME/.aria-agent.stop"'));
 assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
 assert.ok(docs.includes('install-autostart.sh'));
 assert.ok(docs.includes('Android boot'));
+assert.ok(agent.includes("timeoutMs:8_000"));
+assert.ok(agent.includes('job_claim_watchdog_timeout'));
+assert.ok(agent.includes('Promise.race'));
 
 console.log('termux autostart contract tests passed');

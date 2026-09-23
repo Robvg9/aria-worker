@@ -116,7 +116,7 @@ async function heartbeat() {
 }
 async function claimAndExecute() {
   try {
-    const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
+    const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID}),timeoutMs:8_000});
     if(!body?.job)return;
     const job=body.job;
     if(job.device_id!==DEVICE_ID)throw new Error('gateway returned job for another device');
@@ -166,7 +166,22 @@ async function claimAndExecute() {
   }catch(error){console.error(`[job] ${error.message}`)}
 }
 let stopping=false;
-async function loop(){while(!stopping){await claimAndExecute();await new Promise(r=>setTimeout(r,POLL_MS));}}
+async function loop(){
+  while(!stopping){
+    let finished=false;
+    try{
+      await Promise.race([
+        claimAndExecute(),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error('job_claim_watchdog_timeout')),12_000))
+      ]);
+      finished=true;
+    }catch(error){
+      console.error('[claim-watchdog] ' + String(error?.message || error));
+    }
+    if(!finished && stopping) break;
+    await new Promise(r=>setTimeout(r,POLL_MS));
+  }
+}
 process.on('SIGTERM',()=>{stopping=true;log('STOP requested')});
 process.on('SIGINT',()=>{stopping=true;log('STOP requested')});
 (async()=>{log(`START device=${DEVICE_ID} platform=android-termux node=${process.version}`);await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);await loop();})().catch(error=>{console.error(error);process.exit(1)});
