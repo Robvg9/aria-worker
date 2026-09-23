@@ -13,6 +13,8 @@ const HEARTBEAT_MS = Math.max(10_000, Number(process.env.ARIA_HEARTBEAT_MS || 30
 const POLL_MS = Math.max(1_000, Number(process.env.ARIA_POLL_MS || 3_000));
 const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
+let computerUseInFlight = false;
+let lastAndroidUiHealth = { ok: false, reason: 'probe_not_run' };
 
 function log(message) { console.log(`[ARIA] ${new Date().toISOString()} ${message}`); }
 function redact(text) {
@@ -96,11 +98,16 @@ async function resolveSecret(jobId, secretRef) {
   return body.secret;
 }
 async function heartbeat() {
-  let androidUiHealth = { ok: false, reason: 'probe_not_run' };
-  try {
-    androidUiHealth = await probeLocalIpcHealth({ timeoutMs: 2500 });
-  } catch (error) {
-    androidUiHealth = { ok: false, reason: String(error?.message || error).slice(0, 180) };
+  let androidUiHealth = lastAndroidUiHealth;
+  if (!computerUseInFlight) {
+    try {
+      androidUiHealth = await probeLocalIpcHealth({ timeoutMs: 2500 });
+      lastAndroidUiHealth = androidUiHealth;
+    } catch (error) {
+      androidUiHealth = { ok: false, reason: String(error?.message || error).slice(0, 180) };
+      lastAndroidUiHealth = androidUiHealth;
+    }
+  }
   }
   const capabilities = ['shell.execute','notifications.push'];
   if (androidUiHealth.ok) capabilities.push('computer.use.android');
@@ -128,6 +135,7 @@ async function claimAndExecute() {
     if (job.operation === 'android.notification') {
       result=await runAndroidNotification(parseAndroidNotificationPayload(job.command));
     } else if (job.operation === 'computer.use.android') {
+      computerUseInFlight = true;
       let commandPayload = {};
       try { commandPayload = JSON.parse(String(job.command || '{}')); } catch (_) { commandPayload = {}; }
       if (commandPayload.mode === 'autonomous_test') {
@@ -169,17 +177,14 @@ let stopping=false;
 let heartbeatTimer=null;
 async function loop(){
   while(!stopping){
-    let finished=false;
     try{
-      await Promise.race([
-        claimAndExecute(),
-        new Promise((_,reject)=>setTimeout(()=>reject(new Error('job_claim_watchdog_timeout')),12_000))
-      ]);
-      finished=true;
+      // Do not start another claim while a previous job is still executing.
+      // A watchdog that leaves the old promise alive can overlap Android IPC
+      // requests and destabilize the physical UI service.
+      await claimAndExecute();
     }catch(error){
-      console.error('[claim-watchdog] ' + String(error?.message || error));
+      console.error('[claim-loop] ' + String(error?.message || error));
     }
-    if(!finished && stopping) break;
     await new Promise(r=>setTimeout(r,POLL_MS));
   }
 }
