@@ -14,7 +14,8 @@ android {
         targetSdk = runnerSdk
         versionCode = 24
         versionName = "1.1.18"
-        buildConfigField("String", "ARIA_BUILD_ID", ""${System.getenv("GITHUB_SHA") ?: "local"}"")
+        val ariaBuildId = System.getenv("GITHUB_SHA") ?: "local"
+        buildConfigField("String", "ARIA_BUILD_ID", "\"$ariaBuildId\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
