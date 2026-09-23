@@ -792,6 +792,30 @@ function Chat({
     if (openNewMissionSignal > 0) setShowNewMission(true);
   }, [openNewMissionSignal]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const d = await api('/conversation', session.accessToken);
+        const restored = Array.isArray(d?.conversation?.messages)
+          ? d.conversation.messages
+              .map((m: any) => ({
+                id: String(m.message_id ?? crypto.randomUUID()),
+                role: m.role === 'assistant' ? 'aria' : 'user',
+                text: String(m.content ?? '')
+              }))
+              .filter((m: any) => m.text.trim())
+          : [];
+        if (cancelled) return;
+        setConversationId(typeof d?.conversation_id === 'string' ? d.conversation_id : null);
+        setMessages(restored);
+      } catch {
+        // Chat remains usable even when history restoration is temporarily unavailable.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session.accessToken, session.userId]);
+
   useLiveSync(syncSystemAndMission, session.accessToken, 8000);
   useLiveSync(syncCapabilities, session.accessToken, 60000);
 
