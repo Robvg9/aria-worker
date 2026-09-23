@@ -722,13 +722,15 @@ function Chat({
   onSignOut,
   onMeditation,
   onCapabilities,
-  onProjects
+  onProjects,
+  openNewMissionSignal
 }: {
   session: Session;
   onSignOut: () => void;
   onMeditation: () => void;
   onCapabilities: () => void;
   onProjects: () => void;
+  openNewMissionSignal: number;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -785,6 +787,10 @@ function Chat({
       setSyncState('live');
     }
   };
+
+  useEffect(() => {
+    if (openNewMissionSignal > 0) setShowNewMission(true);
+  }, [openNewMissionSignal]);
 
   useLiveSync(syncSystemAndMission, session.accessToken, 8000);
   useLiveSync(syncCapabilities, session.accessToken, 60000);
@@ -1116,6 +1122,7 @@ export default function App() {
     } catch { return null; }
   });
   const [page, setPage] = useState<'aria' | 'meditation' | 'capabilities' | 'projects'>('aria');
+  const [openNewMissionSignal, setOpenNewMissionSignal] = useState(0);
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => setPage('aria');
@@ -1128,7 +1135,7 @@ export default function App() {
           ? <Meditation session={session} onBack={() => setPage('aria')} onCapabilities={() => setPage('capabilities')} />
           : page === 'capabilities'
             ? <Capabilities session={session} onBack={() => setPage('aria')} onMeditation={() => setPage('meditation')} onMission={openMission} />
-            : <Chat session={session} onSignOut={signOut} onMeditation={() => setPage('meditation')} onCapabilities={() => setPage('capabilities')} onProjects={() => setPage('projects')} />}
+            : <Chat session={session} onSignOut={signOut} onMeditation={() => setPage('meditation')} onCapabilities={() => setPage('capabilities')} onProjects={() => setPage('projects')} openNewMissionSignal={openNewMissionSignal} />}
     </>
   );
 }
