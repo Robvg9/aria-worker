@@ -450,6 +450,34 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/projects")) {
       return json({ ok: true, projects: PROJECTS, trace_id: trace });
     }
+    if (req.method === "GET" && path.endsWith("/conversation")) {
+      const sb = serviceClient();
+      const { data: rows, error: lookupError } = await sb.schema("aria_app").from("conversations")
+        .select("conversation_id,metadata,updated_at,last_message_at")
+        .eq("owner_user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(50);
+      if (lookupError) return json({ error: "conversation_lookup_failed", trace_id: trace }, 502);
+      const row = (rows ?? []).find((x:any) => {
+        const md = x?.metadata && typeof x.metadata === "object" ? x.metadata : {};
+        return !md.project_id;
+      });
+      let conversationId = row?.conversation_id ? String(row.conversation_id) : crypto.randomUUID();
+      if (!row) {
+        const ensured = await sb.rpc("aria_app_ensure_conversation", {
+          p_user_id: user.id,
+          p_conversation_id: conversationId,
+          p_title: "ARIA · Chat"
+        });
+        if (ensured.error) return json({ error: "conversation_create_failed", trace_id: trace }, 502);
+      }
+      const payload = await sb.rpc("aria_app_get_conversation", {
+        p_user_id: user.id,
+        p_conversation_id: conversationId
+      });
+      if (payload.error) return json({ error: "conversation_read_failed", trace_id: trace }, 502);
+      return json({ ok: true, conversation_id: conversationId, conversation: payload.data, trace_id: trace });
+    }
     if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/conversation")) {
       const projectId=decodeURIComponent(path.split("/projects/")[1].replace(/\/conversation$/,"")).toLowerCase();
       const project=getProject(projectId);
