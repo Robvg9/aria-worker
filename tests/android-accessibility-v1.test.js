@@ -45,7 +45,7 @@ assert.ok(receiver.includes('getApplicationInfo'));
 assert.ok(receiver.includes('IPC_TOKEN'));
 assert.ok(!receiver.includes('Process.SHELL_UID'));
 assert.ok(gradle.includes('applicationIdSuffix = ".debug"'));
-assert.ok(gradle.includes('versionCode = 23'));
+assert.ok(gradle.includes('versionCode = 24'));
 assert.ok(gradle.includes('versionName = "1.1.17"'));
 assert.ok(ipcAuth.includes('HEALTH_PATH = "/health"'));
 assert.ok(ipcAuth.includes('HEALTH_PROTOCOL = "aria-android-ui-agent-ipc-v2"'));
