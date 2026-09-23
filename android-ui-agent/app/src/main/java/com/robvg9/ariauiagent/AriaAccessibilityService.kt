@@ -433,7 +433,7 @@ class AriaAccessibilityService : AccessibilityService() {
             "click" -> {
                 val root = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("no_active_application_window")
                 val node = nodeByPath(root, action.optString("nodeId")) ?: return error("node_not_found")
-                val clicked = node.isEnabled && (node.performAction(AccessibilityNodeInfo.ACTION_CLICK) || gestureClick(node))
+                val clicked = node.isEnabled && (gestureClick(node) || node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 ok(clicked, if (clicked) null else "click_failed")
             }
             "type" -> {
