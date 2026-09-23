@@ -36,7 +36,9 @@ class LocalIpcServer(private val service: AriaAccessibilityService) {
             running = true
             lastError = null
             acceptExecutor = Executors.newSingleThreadExecutor()
-            clientExecutor = Executors.newSingleThreadExecutor()
+            // Each local client gets its own worker so a long UI action cannot block
+            // the health endpoint (or another governed request) behind a single queue.
+            clientExecutor = Executors.newCachedThreadPool()
             acceptExecutor?.execute {
                 try {
                     while (running && !server.isClosed) {
