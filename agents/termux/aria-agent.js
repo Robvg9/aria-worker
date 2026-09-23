@@ -3,7 +3,7 @@
 const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
-const { executeAndroidAccessibilityJob, probeLocalIpcHealth } = require('../../computer-use/android-accessibility-v1');
+const { executeAndroidAccessibilityJob, probeLocalIpcHealth, probeAndroidCommandReceiver } = require('../../computer-use/android-accessibility-v1');
 const { executeAutonomousAndroidMission } = require('./android-autonomous-runner-v1');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
@@ -102,9 +102,31 @@ async function heartbeat() {
   if (!computerUseInFlight) {
     try {
       androidUiHealth = await probeLocalIpcHealth({ timeoutMs: 2500 });
+      if (!androidUiHealth.ok) {
+        const fallback = await probeAndroidCommandReceiver({ timeoutMs: 2500 });
+        if (fallback.ok) {
+          androidUiHealth = {
+            ok: true,
+            reason: 'android_command_receiver_ready',
+            payload: { protocol: 'aria-android-ui-command-receiver-v1' },
+            metadata: { transport: 'android-command-receiver' }
+          };
+        }
+      }
       lastAndroidUiHealth = androidUiHealth;
     } catch (error) {
       androidUiHealth = { ok: false, reason: String(error?.message || error).slice(0, 180) };
+      try {
+        const fallback = await probeAndroidCommandReceiver({ timeoutMs: 2500 });
+        if (fallback.ok) {
+          androidUiHealth = {
+            ok: true,
+            reason: 'android_command_receiver_ready',
+            payload: { protocol: 'aria-android-ui-command-receiver-v1' },
+            metadata: { transport: 'android-command-receiver' }
+          };
+        }
+      } catch (_) {}
       lastAndroidUiHealth = androidUiHealth;
     }
   }
