@@ -8,4 +8,7 @@ assert.match(runner,/battlecruiser_file_write_must_use_sandbox/);
 assert.match(runner,/battlecruiser_pr_must_promote_sandbox_to_main/);
 assert.match(runner,/battlecruiser_auto_merge_forbidden/);
 assert.match(runner,/executeStep\(missionId, step, auth, mission\)/);
+assert.match(runner,/aria-smart-verifier-v1/);
+assert.match(runner,/independentVerify\(mission, step, result\)/);
+assert.match(runner,/independent_verification/);
 console.log('BATTLECRUISER RUNTIME GOVERNANCE: PASS — project metadata → sandbox branch → PR promotion guard');
