@@ -1359,6 +1359,13 @@ function Meditation({ session }: { session: Session }) {
     if (overview) {
       setO(overview);
       writeCached('meditation_overview', session.userId, overview);
+      const activeId = overview?.active_mission?.mission_id;
+      if (activeId) {
+        const eventResult = await api('/missions/' + encodeURIComponent(activeId) + '/events', session.accessToken).catch(() => ({ events: [] }));
+        setMissionEvents(eventResult?.events ?? []);
+      } else {
+        setMissionEvents([]);
+      }
       successes++;
     }
     if (capability?.capabilities) {
@@ -1409,6 +1416,7 @@ function Meditation({ session }: { session: Session }) {
       
       <div className='pageBodyViewport meditationViewport'>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
+      <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => m ? void openMission(String(m.mission_id)) : undefined} />
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
       <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
       <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'} · {verificationLabel(s)}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
@@ -1419,6 +1427,142 @@ function Meditation({ session }: { session: Session }) {
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onRetry={() => retryMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
       </div>
     </main>
+  );
+}
+
+function executionEventTitle(event: any): string {
+  const type = String(event?.event_type ?? 'evento').toLowerCase();
+  const map: Record<string, string> = {
+    step_started: 'ARIA comenzó este paso',
+    step_succeeded: 'Paso completado y verificado',
+    step_failed: 'El paso encontró un fallo',
+    checkpoint_saved: 'ARIA guardó evidencia de ejecución',
+    mission_replanned: 'ARIA replanteó la estrategia',
+    mission_verified: 'ARIA verificó el resultado',
+    mission_completed: 'Misión completada',
+    mission_started: 'Misión iniciada',
+    human_gate_requested: 'ARIA necesita una decisión humana'
+  };
+  if (map[type]) return map[type];
+  return type.replaceAll('_', ' ').replace(/^./, x => x.toUpperCase());
+}
+
+function executionEventDetail(event: any): string {
+  const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
+  const message = String(payload?.message ?? payload?.detail ?? payload?.reason ?? payload?.error?.message ?? '').trim();
+  if (message) return message.length > 180 ? message.slice(0, 179).trimEnd() + '…' : message;
+  const parts = [
+    payload?.operation ? 'Operación: ' + String(payload.operation) : '',
+    payload?.executor_type ? 'Ejecutor: ' + String(payload.executor_type) : '',
+    payload?.model_id ? 'Modelo: ' + String(payload.model_id) : '',
+    payload?.step_id ? 'Paso: ' + String(payload.step_id) : ''
+  ].filter(Boolean);
+  return parts.join(' · ') || 'El runtime registró actividad real para esta misión.';
+}
+
+function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen }: {
+  mission: any;
+  events: MissionEvent[];
+  lastSyncAt: number | null;
+  syncing: boolean;
+  onOpen: () => void;
+}) {
+  if (!mission) {
+    return (
+      <section className='executionHero executionHeroEmpty'>
+        <div className='executionHeroTop'>
+          <div>
+            <div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div>
+            <div className='executionHeroTitle'>La cola está lista</div>
+            <div className='muted'>Cuando ARIA tome una misión, aquí verás el paso exacto, qué está haciendo y la evidencia más reciente.</div>
+          </div>
+          <span className='pill neutral'>SIN MISIÓN ACTIVA</span>
+        </div>
+        <div className='executionEmptyHint'>No uses “esperar” como señal de progreso: esta vista solo mostrará actividad cuando exista actividad real del runtime.</div>
+      </section>
+    );
+  }
+
+  const status = String(mission.status ?? 'unknown');
+  const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
+  const currentStep =
+    (mission.steps ?? []).find((s: any) => String(s.status) === 'running') ??
+    (mission.steps ?? []).find((s: any) => Number(s.index) === Number(mission.current_step) + 1) ??
+    (mission.steps ?? []).find((s: any) => !['succeeded', 'skipped'].includes(String(s.status))) ??
+    null;
+  const latest = events.length ? events[events.length - 1] : null;
+  const progress = Number(mission.progress_percent ?? 0);
+  const completed = Number(mission.completed_steps ?? 0);
+  const total = Number(mission.total_steps ?? mission.step_count ?? 0);
+
+  return (
+    <section className={'executionHero ' + (terminal ? 'executionHeroTerminal ' + tone(status) : 'executionHeroRunning')}>
+      <div className='executionHeroTop'>
+        <div className='executionIdentity'>
+          <span className='executionPulse' aria-hidden='true' />
+          <div>
+            <div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div>
+            <div className='executionHeroTitle'>{statusLabel(status)}</div>
+            <div className='executionGoal'>{mission.goal}</div>
+          </div>
+        </div>
+        <div className='executionHeroActions'>
+          <span className={'pill ' + tone(status)}>{syncing ? 'SINCRONIZANDO…' : 'LIVE'}</span>
+          <button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>
+        </div>
+      </div>
+
+      <div className='executionProgressRow'>
+        <div className='executionProgressMeta'><strong>{progress.toFixed(1)}%</strong><span>{completed}/{total || '—'} pasos</span></div>
+        <div className='progressBar executionProgressBar'><span style={{ width: progress + '%' }} /></div>
+      </div>
+
+      <div className='executionNowGrid'>
+        <div className='executionNowCard executionNowMain'>
+          <div className='executionLabel'>AHORA MISMO</div>
+          {currentStep ? <>
+            <strong>{currentStep.title}</strong>
+            <small>{statusLabel(String(currentStep.status))} · {currentStep.executor_type || 'ejecución'} · {currentStep.operation || 'operación'}</small>
+            <small>{verificationLabel(currentStep)}</small>
+          </> : <strong>ARIA está preparando el siguiente movimiento.</strong>}
+        </div>
+        <div className='executionNowCard'>
+          <div className='executionLabel'>QUÉ ESTÁ HACIENDO</div>
+          <strong>{currentStep?.operation || mission.next_action || 'Procesando la estrategia actual…'}</strong>
+          <small>{currentStep?.executor_type ? 'Usando ' + currentStep.executor_type + ' para este paso.' : 'El runtime está resolviendo la siguiente acción.'}</small>
+        </div>
+        <div className='executionNowCard'>
+          <div className='executionLabel'>PRÓXIMO MOVIMIENTO</div>
+          <strong>{mission.next_action || (terminal ? 'Misión finalizada' : 'Continuar con la misión')}</strong>
+          <small>{mission.eta?.eta_seconds != null ? 'ETA estimada: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'ETA calculándose con el historial disponible.'}</small>
+        </div>
+      </div>
+
+      <div className='executionEvidence'>
+        <div className='executionEvidenceHeader'>
+          <div>
+            <div className='executionLabel'>ÚLTIMA ACTIVIDAD REAL</div>
+            <strong>{latest ? executionEventTitle(latest) : 'Esperando el primer evento del runtime…'}</strong>
+          </div>
+          <span>{latest ? formatDate(latest.created_at) : lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString('es') : '—'}</span>
+        </div>
+        <div className='executionEvidenceDetail'>{latest ? executionEventDetail(latest) : 'La pantalla se sincronizará automáticamente y mostrará aquí el primer evento que ARIA registre.'}</div>
+      </div>
+
+      <div className='executionStepRail'>
+        {(mission.steps ?? []).slice(0, 8).map((step: any) => (
+          <div className={'executionStepNode ' + String(step.status)} key={step.id}>
+            <span>{step.index}</span>
+            <small>{step.title}</small>
+          </div>
+        ))}
+      </div>
+
+      <div className='executionFooter'>
+        <span>{lastSyncAt ? 'Estado consultado a las ' + new Date(lastSyncAt).toLocaleTimeString('es') : 'Sincronizando estado…'}</span>
+        <span>{events.length ? events.length + ' eventos registrados' : 'Sin eventos todavía'}</span>
+      </div>
+    </section>
   );
 }
 
