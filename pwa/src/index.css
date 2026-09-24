@@ -218,7 +218,8 @@ button{touch-action:manipulation;}
   .notificationLauncher{right:10px;bottom:calc(82px + env(safe-area-inset-bottom));padding:9px 12px;}
   .notificationBackdrop{padding:10px 10px calc(86px + env(safe-area-inset-bottom));}
   .notificationPanel{width:100%;max-height:calc(100dvh - 110px);}
-  .projectGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;}\n  .projectShell .projectGrid{flex:0 0 auto}
+  .projectGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;}
+  .projectShell .projectGrid{flex:0 0 auto}
   .projectCard{padding:9px 7px;min-height:62px;border-radius:14px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;text-align:center;}
   .projectIcon{font-size:22px;width:auto;}
   .projectCard strong{font-size:10px;white-space:nowrap;}
