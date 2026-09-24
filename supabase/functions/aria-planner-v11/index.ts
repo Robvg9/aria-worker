@@ -29,12 +29,12 @@ async function battlecruiserGithubRwhtPlan(goal:string,context:any){
   const githubWork=/github|rama|branch|archivo|\\.md|pull request|\\bpr\\b|\\bmain\\b|merge/i.test(gl);
   if(!isBattleCruiser || !githubWork)return null;
 
-  const branchMatch=g.match(/aria\\/sandbox\\/[A-Za-z0-9._\\/-]+/i);
+  const branchMatch=g.match(/aria\/sandbox\/[A-Za-z0-9._\/-]+/i);
   const branch=branchMatch?branchMatch[0]:"aria/sandbox/rwht-battlecruiser";
-  const pathMatch=g.match(/(?:archivo\\s+)?([A-Za-z0-9_./-]+\\.md)\\b/i);
+  const pathMatch=g.match(/(?:archivo\s+)?([A-Za-z0-9_./-]+\.md)\b/i);
   const path=pathMatch?pathMatch[1]:"RWHT_ARIA_PROBE.md";
-  const noMerge=/no\\s+(?:hagas\\s+)?merge|sin\\s+merge|do not merge/i.test(g);
-  const wantsPr=/pull request|\\bpr\\b/i.test(gl);
+  const noMerge=/no\s+(?:hagas\s+)?merge|sin\s+merge|do not merge/i.test(g);
+  const wantsPr=/pull request|\bpr\b/i.test(gl);
   const authorization={status:"approved",authorization_id:"github:battlecruiser-sandbox-rwht"};
   const policy={tool_use:true,non_main_branch_required:true,mutating_operation_required:true,do_not_claim_text_only_success:true,spanish_output_required:true};
   const content="RWHT ARIA ↔ BattleCruiser — prueba de integración controlada.\\n\\nCreado por la ruta gobernada de ARIA para validar rama, escritura, lectura y PR sin fusionar.";
