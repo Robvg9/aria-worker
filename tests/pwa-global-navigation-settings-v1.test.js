@@ -78,7 +78,8 @@ assert.match(app,/Math\.abs\(dx\) < 32/);
 assert.match(app,/Math\.abs\(dx\) < 42/);
 assert.match(app,/meditationQueueItems/);
 assert.match(app,/\/meditation\/queue\/reorder/);
-assert.doesNotMatch(app,/Cancelar ejecución/);\nassert.match(app,/Cancelar misión/);
+assert.doesNotMatch(app,/Cancelar ejecución/);
+assert.match(app,/Cancelar misión/);
 assert.match(app,/live_events/);
 
 assert.match(css,/\.chatPanel \.chatWindow[^\n]*touch-action:pan-y/);
