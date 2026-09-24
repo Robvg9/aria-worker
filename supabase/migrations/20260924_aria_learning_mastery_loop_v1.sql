@@ -356,7 +356,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = pg_catalog, aria_internal, aria_memory
-as $
+as $$
 declare
   v_required jsonb := '[]'::jsonb;
   v_verified jsonb := '[]'::jsonb;
@@ -434,7 +434,7 @@ begin
     'has_successful_execution_evidence',v_has_success
   );
 end;
-$;
+$$;
 
 revoke all on function aria_internal.verify_learning_application(text,jsonb,jsonb,jsonb) from public,anon,authenticated;
 grant execute on function aria_internal.verify_learning_application(text,jsonb,jsonb,jsonb) to service_role;
