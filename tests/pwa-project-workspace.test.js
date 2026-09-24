@@ -41,7 +41,7 @@ assert.match(app,/bottomNav/);
 assert.match(app,/handleGlobalPointerDown/);
 assert.match(app,/handleGlobalPointerUp/);
 assert.match(app,/SWIPE_PAGES/);
-assert.match(app,/screenIndicator/);
+assert.doesNotMatch(app,/screenIndicator/);
 assert.match(app,/conversationId/);
 assert.match(app,/pageBodyViewport/);
 assert.match(app,/e\.key === 'Enter'/);
