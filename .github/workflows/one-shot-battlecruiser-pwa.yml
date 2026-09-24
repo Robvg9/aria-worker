@@ -1,0 +1,56 @@
+name: One-shot Deploy BattleCruiser PWA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout ARIA
+        uses: actions/checkout@v4
+      - name: Checkout BattleCruiser
+        uses: actions/checkout@v4
+        with:
+          repository: Robvg9/battlecruiser
+          path: battlecruiser
+      - name: Install Wrangler
+        run: npm install --global wrangler@latest
+      - name: Verify BattleCruiser PWA source
+        working-directory: battlecruiser
+        run: |
+          test -f public/index.html
+          test -f public/app.js
+          grep -q '<html' public/index.html
+      - name: Create static Worker config
+        working-directory: battlecruiser
+        run: |
+          cat > wrangler.toml <<'EOF'
+          name = "battlecruiser"
+          compatibility_date = "2026-09-24"
+          [assets]
+          directory = "./public"
+          EOF
+      - name: Deploy BattleCruiser PWA
+        working-directory: battlecruiser
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy --config wrangler.toml
+      - name: Smoke test BattleCruiser PWA
+        run: |
+          set -euo pipefail
+          html=""
+          for attempt in $(seq 1 30); do
+            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 'https://battlecruiser.robvg9.workers.dev/' 2>/dev/null || true)"
+            if grep -qi '<html' <<<"$html" && grep -qi 'BattleCruiser' <<<"$html"; then break; fi
+            test "$attempt" -lt 30 && sleep 2
+          done
+          test -n "$html"
+          grep -qi '<html' <<<"$html"
+          grep -qi 'BattleCruiser' <<<"$html"
+          echo BATTLECRUISER_PWA_LIVE=PASS
