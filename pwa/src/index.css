@@ -388,5 +388,5 @@ button{touch-action:manipulation;}
 }
 .artiaFullscreenExit:hover{background:rgba(28,20,42,.94);border-color:#7658df}
 
-/* Visible Dashboard/Chat gesture hint */
+/* Swipe is gesture-only; no visual instruction is rendered. */
 
