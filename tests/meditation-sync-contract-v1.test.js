@@ -16,3 +16,11 @@ assert.match(api,/limit\(200\)/);
 assert.match(api,/fastMissions/);
 assert.match(api,/slice\(0,20\)/);
 console.log('MEDITATION SYNC PERFORMANCE CONTRACT: PASS');
+
+assert.match(app,/MeditationLiveExecution/);
+assert.match(app,/EJECUCIÓN EN TIEMPO REAL/);
+assert.match(app,/AHORA MISMO/);
+assert.match(app,/ÚLTIMA ACTIVIDAD REAL/);
+assert.match(app,/api\('\/missions\/' \+ encodeURIComponent\(activeId\) \+ '\/events'/);
+assert.match(app,/useLiveSync\(load, session\.accessToken, 8000\)/);
+console.log('MEDITATION LIVE EXECUTION CENTER CONTRACT: PASS');
