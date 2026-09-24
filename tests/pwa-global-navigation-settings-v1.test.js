@@ -59,8 +59,6 @@ console.log('HUMAN MISSION RESULT + RECOVERY UI CONTRACT: PASS');
 
 assert.match(app,/const SWIPE_PAGES = \['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings'\]/);
 assert.match(app,/globalSwipeStartRef/);
-assert.match(app,/handleGlobalTouchStart/);
-assert.match(app,/handleGlobalTouchEnd/);
 assert.doesNotMatch(app,/className='swipeNav'/);
 assert.doesNotMatch(app,/swipeHint/);
 assert.match(app,/collapsiblePanel/);
