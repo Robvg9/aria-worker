@@ -97,7 +97,7 @@ for (const fragment of [
   "Qué hizo ARIA",
   "Qué cambió",
   "Qué mejora ahora",
-  "EVIDENCIA TÉCNICA",
+  "Ver evidencia técnica",
 ]) {
   // PWA assertions are mirrored here so the main npm contract gate covers
   // conversational/mission concurrency without requiring a browser runner.
