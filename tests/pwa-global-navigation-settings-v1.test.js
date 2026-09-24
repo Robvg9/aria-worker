@@ -47,3 +47,11 @@ assert.match(css,/\.settingsOption/);
 console.log('MISSION PRESENTATION + COLLAPSIBLE EVIDENCE CONTRACT: PASS');
 
 console.log('GLOBAL NAV CURRENT BRANCH CONTRACT: PASS');
+
+assert.match(app,/preferredKeys = \['summary_1', 'crosscheck_1', 'facts_1'\]/);
+assert.match(app,/retryexhaustedreplanned/);
+assert.match(app,/Reintentar misión/);
+assert.match(app,/Cómo solucionarlo/);
+assert.match(app,/recoveryPanel/);
+assert.match(app,/Abrir recurso relacionado/);
+console.log('HUMAN MISSION RESULT + RECOVERY UI CONTRACT: PASS');
