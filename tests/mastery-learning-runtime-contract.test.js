@@ -6,7 +6,7 @@ const fs = require('node:fs');
 
 const planner = fs.readFileSync('supabase/functions/aria-planner-v11/index.ts','utf8');
 const runner = fs.readFileSync('supabase/functions/aria-mission-runner-v22/index.ts','utf8');
-const migration = fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_loop_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_candidate_application_fix_v1.sql','utf8');
+const migration = fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_loop_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_candidate_application_fix_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_event_type_fix_v1.sql','utf8');
 
 test('planner consults persistent mastery learning before route selection', () => {
   assert.match(planner, /aria_memory_learning_context_for_goal/);
@@ -31,6 +31,8 @@ test('production migration contains recurrence, candidate, promotion and regress
   assert.match(migration, /promote_failure_learning/);
   assert.match(migration, /verify_learning_application/);
   assert.match(migration, /candidate.*execution|candidate.*evidence/s);
+  assert.equal(migration.includes("'failure_candidate_created'"), false);
+  assert.equal(migration.includes("'failure_recurred'"), false);
   const verifierStart = migration.indexOf('create or replace function aria_internal.verify_learning_application');
   assert.ok(verifierStart >= 0);
   const verifierHeader = migration.slice(verifierStart, verifierStart + 400);
