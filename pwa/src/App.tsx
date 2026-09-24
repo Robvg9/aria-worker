@@ -802,7 +802,6 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
             <div className='recoveryActions'>
               {mission.block_details.link && <a className='ghost recoveryLink' href={mission.block_details.link} target='_blank' rel='noreferrer'>{mission.block_details.link_label || 'Abrir recurso relacionado'}</a>}
               {onRetry && mission.block_details.retry_ready !== false && <button className='primary' disabled={retrying || cancelling} onClick={async () => { setRetrying(true); setRetryError(''); try { await onRetry(); } catch (e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); } }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>}
-              {onCancel && !terminal && <button className='ghost dangerAction' disabled={retrying || cancelling} onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; setCancelling(true); setCancelError(''); try { await onCancel(); } catch (e) { setCancelError(e instanceof Error ? e.message : 'No se pudo cancelar la misión.'); } finally { setCancelling(false); } }}>{cancelling ? 'Cancelando…' : 'Cancelar misión'}</button>}
             </div>
             {retryError && <div className='errorBox'>{retryError}</div>}
             {cancelError && <div className='errorBox'>{cancelError}</div>}
