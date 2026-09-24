@@ -23,7 +23,7 @@ function readUiPrefs(): UiPrefs {
   try {
     const parsed = JSON.parse(localStorage.getItem(UI_PREFS_KEY) || 'null');
     return {
-      swipeNavigation: parsed?.swipeNavigation !== false,
+      swipeNavigation: true,
       animations: parsed?.animations !== false
     };
   } catch {
@@ -1959,7 +1959,6 @@ function Settings({ session, onSignOut }: { session: Session; onSignOut: () => v
 
         <section className='panel'>
           <div className='panelTitle'>INTERFAZ</div>
-          <div className='settingsOption'><div><strong>Navegación por gestos</strong><small>Desliza izquierda o derecha para cambiar entre todas las pantallas.</small></div><button className={'toggleButton '+(prefs.swipeNavigation?'on':'')} onClick={() => togglePref('swipeNavigation')} aria-pressed={prefs.swipeNavigation}>{prefs.swipeNavigation?'Activada':'Desactivada'}</button></div>
           <div className='settingsOption'><div><strong>Animaciones</strong><small>Controla las transiciones suaves de la interfaz.</small></div><button className={'toggleButton '+(prefs.animations?'on':'')} onClick={() => togglePref('animations')} aria-pressed={prefs.animations}>{prefs.animations?'Activadas':'Desactivadas'}</button></div>
         </section>
 
