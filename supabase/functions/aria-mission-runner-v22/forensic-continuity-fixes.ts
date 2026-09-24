@@ -61,7 +61,10 @@ export function buildDeviceEnqueuePayload(
     payload.command = String(step.input?.command || "echo ARIA_UO_LIVE");
     payload.cwd = typeof step.input?.cwd === "string" ? step.input.cwd : null;
   } else if (operation === "computer.use" || operation === "computer.use.autonomous" || operation === "computer.use.android") {
-    payload.input = step.input && typeof step.input === "object" ? step.input : {};
+    // The runtime gateway persists device payloads in execution_jobs.command.
+    // Keep the full Computer Use input there; sending it only as an extra field
+    // is silently discarded by the gateway contract.
+    payload.command = JSON.stringify(step.input && typeof step.input === "object" ? step.input : {});
   }
   return payload;
 }
