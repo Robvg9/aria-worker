@@ -47,3 +47,34 @@ test('learning persists a promoted prevention skill and regression', async () =>
 });
 
 console.log('FAILURE PREVENTION LEARNING V1: PASS');
+
+
+test('ordinary failed episode automatically derives a prevention candidate and regression contract', async () => {
+  const saved = { lessons: [], skills: [], regressions: [] };
+  const engine = createLearningEngine({
+    persistLesson: async x => saved.lessons.push(x),
+    persistSkill: async x => saved.skills.push(x),
+    persistRegression: async x => saved.regressions.push(x),
+  });
+  const result = await engine.learn({
+    episode: {
+      goal: 'Deploy Supabase Edge Function',
+      operation: 'deploy',
+      executor_type: 'connector',
+      result: { status: 'failed', error: 'deno.json import_map configuration rejected the deployment' },
+      failure_mode: 'import_map_configuration',
+      failure_detail: 'deno.json import_map configuration rejected the deployment',
+      next_action: 'verify deno.json and import_map before retrying',
+      evidence_refs: ['mission:failure-candidate-001'],
+    },
+    verifier: { version: 'smart-verifier-v1', passed: false, failed_checks: ['deploy:configuration'] },
+  });
+  assert.equal(result.lesson.category, 'failure_prevention_candidate');
+  assert.equal(result.lesson.prevention_candidate, true);
+  assert.ok(result.lesson.procedure.some((step) => /deno\.json/i.test(step)));
+  assert.equal(result.promotion.promoted, false);
+  assert.equal(saved.skills.length, 0);
+  assert.equal(saved.regressions.length, 1);
+  assert.equal(saved.regressions[0].failure_prevention, true);
+  assert.equal(saved.regressions[0].status, 'candidate');
+});
