@@ -1845,6 +1845,12 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
 
   const latestStepIndex = latest?.step_index != null ? Number(latest.step_index) : null;
   const currentStepIndex = step?.index != null ? Number(step.index) : null;
+  const totalSteps = Number(mission?.total_steps ?? mission?.step_count ?? (Array.isArray(mission?.steps) ? mission.steps.length : 0)) || null;
+  const attemptNumber = Number(step?.attempt ?? payload?.attempt ?? 0) || null;
+  const processLabel = currentStepIndex != null
+    ? (totalSteps ? 'paso ' + currentStepIndex + ' de ' + totalSteps : 'paso ' + currentStepIndex)
+    : 'paso actual';
+
   const latestBelongsToCurrentStep =
     latest &&
     (
@@ -1853,80 +1859,87 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
       (latestStepIndex != null && currentStepIndex != null && latestStepIndex === currentStepIndex)
     );
 
-  // A completed event can belong to the previous step while the mission is
-  // already executing the next one. Never present that historical event as
-  // if it described the current step.
   if (eventType === 'step_succeeded' && latestBelongsToCurrentStep) {
     return {
       headline: 'ARIA acaba de completar este paso',
       subject: resource ? opHuman + ' · ' + resource : opHuman,
-      evidence: 'El runtime registró éxito y la misión conserva la evidencia del paso.',
-      next: mission?.next_action || 'Continuar con el siguiente paso.'
+      evidence: 'El runtime registró el éxito y la misión conserva la evidencia verificada del paso.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (eventType === 'step_failed' || status === 'failed') {
     return {
-      headline: 'ARIA encontró un fallo y lo está procesando',
+      headline: 'ARIA encontró un fallo y ya está siguiendo la recuperación gobernada',
       subject: resource ? opHuman + ' · ' + resource : opHuman,
       evidence: executionEventDetail(latest),
-      next: mission?.next_action || 'Analizar la causa y seleccionar una estrategia gobernada.'
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (eventType === 'mission_replanned') {
     return {
-      headline: 'ARIA cambió de estrategia',
+      headline: 'ARIA detectó que la estrategia anterior no bastaba y la cambió',
       subject: executionEventDetail(latest),
-      evidence: 'La misión conserva el plan anterior y la evidencia que provocó el replanteamiento.',
-      next: mission?.next_action || 'Ejecutar la nueva estrategia.'
+      evidence: 'La misión conserva la evidencia que provocó el replanteamiento para evitar repetir el mismo camino sin cambios.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (eventType === 'checkpoint_saved') {
     return {
-      headline: 'ARIA guardó un checkpoint real',
+      headline: 'ARIA guardó un punto real de avance',
       subject: executionEventDetail(latest),
-      evidence: 'El estado quedó persistido; el siguiente ciclo puede continuar desde esta evidencia.',
-      next: mission?.next_action || 'Continuar con el siguiente movimiento.'
+      evidence: 'El estado quedó persistido y puede usarse como base para continuar sin perder lo ya comprobado.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (status === 'queued') {
     return {
-      headline: 'ARIA tiene esta misión en cola',
-      subject: 'El runner todavía no la ha tomado para ejecución.',
-      evidence: 'No se fabricará progreso: todavía no existe una ejecución activa ni eventos de runtime para este intento.',
-      next: mission?.next_action || 'Tomar la misión y comenzar el primer paso.'
+      headline: 'ARIA tiene esta misión preparada para ejecución',
+      subject: 'El runner todavía no la ha tomado; no se inventará actividad.',
+      evidence: 'Todavía no existe una ejecución activa ni eventos de runtime para este intento.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (status === 'planning') {
     return {
-      headline: 'ARIA está construyendo el plan',
-      subject: 'Separando el objetivo en pasos gobernados.',
-      evidence: 'El plan aparecerá en cuanto quede persistido en el checkpoint.',
-      next: mission?.next_action || 'Preparar el primer paso.'
+      headline: 'ARIA está preparando cómo resolver la misión',
+      subject: 'Está separando el objetivo en pasos gobernados.',
+      evidence: latest ? executionEventDetail(latest) : 'El plan aparecerá cuando quede persistido.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (status === 'waiting') {
     return {
-      headline: 'ARIA está esperando una condición externa',
+      headline: 'ARIA llegó a una espera verificable antes de continuar',
       subject: executionEventDetail(latest),
-      evidence: 'La misión permanece persistida; no se marca como completada hasta verificar la condición.',
-      next: mission?.next_action || 'Reanudar cuando la condición esté disponible.'
+      evidence: 'La misión permanece persistida y no se marcará como terminada hasta comprobar la condición pendiente.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
+  const attemptText = attemptNumber ? 'Intento ' + attemptNumber : '';
+  const subjectParts = [opHuman, resource ? String(resource) : '', attemptText].filter(Boolean);
+
   return {
-    headline: status === 'succeeded' ? 'ARIA terminó esta misión' : 'ARIA está trabajando en esta misión',
-    subject: resource ? opHuman + ' · ' + resource : opHuman,
-    evidence: latest ? executionEventDetail(latest) : 'El runtime está procesando la misión; aún no hay un evento reciente que mostrar.',
-    next: mission?.next_action || (status === 'succeeded' ? 'Sin pasos pendientes.' : 'Continuar con el siguiente movimiento.')
+    headline: status === 'succeeded'
+      ? 'ARIA terminó esta misión'
+      : status === 'running'
+        ? 'ARIA está ejecutando el ' + processLabel
+        : 'ARIA está trabajando en esta misión',
+    subject: subjectParts.join(' · '),
+    evidence: latest
+      ? executionEventDetail(latest)
+      : status === 'running'
+        ? 'El runtime mantiene este paso activo; ARIA espera la siguiente evidencia real antes de avanzar.'
+        : 'No hay un evento reciente que permita describir una actividad nueva.',
+    next: humanNextAction(mission?.next_action, status)
   };
 }
-
 function elapsedFrom(timestamp: any): string {
   const value = new Date(String(timestamp || '')).getTime();
   if (!Number.isFinite(value)) return '—';
