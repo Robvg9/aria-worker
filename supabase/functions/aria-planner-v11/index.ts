@@ -130,7 +130,7 @@ async function battlecruiserGithubRwhtPlan(goal:string,context:any){
 async function windowsPcRwhtPlan(goal:string,context:any){
   const g=String(goal||"");
   const gl=g.toLowerCase();
-  const isRwht=/(\\brwht\\b|real world human test|prueba real|auditar.*interfaz|auditar.*ui|bot[oó]n.*bot[oó]n|button.*button)/i.test(g);
+  const isRwht=/(\brwht\b|real world human test|prueba real|auditar.*interfaz|auditar.*ui|bot[oó]n.*bot[oó]n|button.*button)/i.test(g);
   const isPc=/(pc|windows|computadora|ordenador|escritorio|desktop|navegador|browser|battlecruiser)/i.test(g);
   if(!isRwht || !isPc)return null;
 
