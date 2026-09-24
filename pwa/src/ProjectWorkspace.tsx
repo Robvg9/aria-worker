@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Session = { accessToken: string; userId: string };
-type Project = { id: string; name: string; description: string; icon: string; context: string };
+type Project = { id: string; name: string; description: string; icon: string; context: string; previewUrl?: string };
 type Tool = 'pen'|'marker'|'line'|'rect'|'circle'|'arrow'|'text'|'eraser';
 type Point = { x:number; y:number };
 type DrawAction = { tool:Tool; color:string; size:number; points:Point[]; text?:string };
@@ -14,7 +14,7 @@ const HUMAN_API_ERRORS: Record<string,string> = {
   invalid_or_expired_session:'La sesión de ARIA expiró. Vuelve a entrar para continuar.'
 };
 const PROJECTS: Project[] = [
-  { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.' },
+  { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.', previewUrl:'https://battlecruiser.robvg9.workers.dev/' },
   { id:'cuevacoin', name:'CuevaCoin', description:'Aplicación financiera/operativa vinculada al ecosistema de negocios.', icon:'🪙', context:'CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.' },
   { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.' }
 ];
@@ -117,6 +117,7 @@ function drawProjectPreview(ctx:CanvasRenderingContext2D, project:Project, frame
 }
 
 function VisualBoard({session,project,conversationId,onChat,onMission}:{session:Session;project:Project;conversationId:string|null;onChat:(message:string,conversationId?:string)=>void;onMission:(payload:any)=>Promise<any>}) {
+  const livePreviewUrl = project.previewUrl || null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [tool,setTool] = useState<Tool>('pen');
   const [color,setColor] = useState('#9f7cff');
@@ -150,7 +151,9 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const redraw = () => {
     const c=canvasRef.current; if(!c)return; const d=window.devicePixelRatio||1; const ctx=c.getContext('2d'); if(!ctx)return;
     ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,1100,650);
-    if(backgroundImage.current?.complete&&backgroundImage.current.naturalWidth){
+    if(livePreviewUrl){
+      ctx.clearRect(0,0,1100,650);
+    } else if(backgroundImage.current?.complete&&backgroundImage.current.naturalWidth){
       const img=backgroundImage.current;const scale=Math.min(1100/img.naturalWidth,650/img.naturalHeight);const w=img.naturalWidth*scale,h=img.naturalHeight*scale;
       ctx.fillStyle='#0e0b17';ctx.fillRect(0,0,1100,650);ctx.drawImage(img,(1100-w)/2,(650-h)/2,w,h);
     } else {
@@ -165,7 +168,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   };
 
   useEffect(()=>{const c=canvasRef.current;if(!c)return;const d=window.devicePixelRatio||1;c.width=1100*d;c.height=650*d;redraw();const f=()=>{const dpr=window.devicePixelRatio||1;c.width=1100*dpr;c.height=650*dpr;redraw()};window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f)},[]);
-  useEffect(()=>redraw(),[actions,backgroundDataUrl,previewPaused,previewFrame,project.id]);
+  useEffect(()=>redraw(),[actions,backgroundDataUrl,previewPaused,previewFrame,project.id,livePreviewUrl]);
   useEffect(()=>{if(previewPaused)return;const timer=window.setInterval(()=>setPreviewFrame(v=>(v+1)%4),1200);return()=>window.clearInterval(timer)},[previewPaused]);
 
   function loadBackground(file:File){
@@ -193,11 +196,10 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
     try{
       const c=canvasRef.current;if(!c)throw new Error('Lienzo no disponible.');
       const blob=await new Promise<Blob>((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(new Error('No se pudo exportar el diseño.')),'image/png'));
-      const up=await api('/media/upload-url',session.accessToken,{method:'POST',body:JSON.stringify({fileName:project.id+'-visual.png',contentType:'image/png'})});
-      const signed=up.signedUrl??up.upload?.signed_url;const path=up.path??up.upload?.path;
-      const put=await fetch(signed,{method:'PUT',headers:{'content-type':'image/png'},body:blob});if(!put.ok)throw new Error('No se pudo guardar el diseño.');
-      const visualContext={project_preview:true,preview_paused:true,instruction:instruction.trim(),annotation_summary:'Proyecto='+project.name+'. Vista previa pausada. Lienzo 1100x650. Anotaciones: '+annotationSummary+'.',image_path:path,mime_type:'image/png'};
-      const text='TRABAJO VISUAL DE PROYECTO. Proyecto: '+project.name+'. El usuario pausó la vista previa y realizó estas anotaciones: '+annotationSummary+'. INSTRUCCIÓN DEL USUARIO: '+(instruction.trim()||'Interpreta las anotaciones como instrucciones exactas y pregunta solo si algo es realmente ambiguo.')+'\\n\\nVISUAL_CONTEXT:\\n'+visualContext.annotation_summary;
+      const up=livePreviewUrl?null:await api('/media/upload-url',session.accessToken,{method:'POST',body:JSON.stringify({fileName:project.id+'-visual.png',contentType:'image/png'})});
+      const signed=up?.signedUrl??up?.upload?.signed_url;const path=up?.path??up?.upload?.path; if(!livePreviewUrl){ const put=await fetch(signed,{method:'PUT',headers:{'content-type':'image/png'},body:blob});if(!put.ok)throw new Error('No se pudo guardar el diseño.'); }
+      const visualContext={project_preview:true,preview_paused:true,preview_url:livePreviewUrl,instruction:instruction.trim(),annotation_summary:'Proyecto='+project.name+'. Vista previa LIVE pausada. Lienzo 1100x650. Anotaciones: '+annotationSummary+'.',image_path:livePreviewUrl?null:path,mime_type:livePreviewUrl?null:'image/png'};
+      const text='TRABAJO VISUAL DE PROYECTO. Proyecto: '+project.name+'. PWA LIVE: '+(livePreviewUrl||'no configurada')+'. El usuario pausó la vista previa real y realizó estas anotaciones: '+annotationSummary+'. INSTRUCCIÓN DEL USUARIO: '+(instruction.trim()||'Interpreta las anotaciones como instrucciones exactas y pregunta solo si algo es realmente ambiguo.')+'\\n\\nVISUAL_CONTEXT:\\n'+visualContext.annotation_summary;
       const activeConversationId=conversationId||crypto.randomUUID();
       if(createMission){await onMission({goal:text,visual_context:visualContext});setNotice('Misión confirmada por ARIA con el diseño y las anotaciones.')}
       else{const response=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts:[{type:'text',text},{type:'file',fileId:path,path,mimeType:'image/png',filename:project.id+'-visual.png'}],clientMessageId:crypto.randomUUID(),conversationId:activeConversationId,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});const reply=response.parts?.find((p:any)=>p.type==='text')?.text||'Diseño visual enviado a ARIA.';onChat(reply,activeConversationId);setNotice('Diseño enviado a ARIA en el chat exclusivo del proyecto.')}
@@ -215,7 +217,11 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       <button type='button' className='ghost' disabled={!previewPaused||!actions.length||busy} onClick={()=>setActions(a=>a.slice(0,-1))}>Deshacer</button>
       <button type='button' className='ghost' disabled={!previewPaused||!actions.length||busy} onClick={()=>setActions([])}>Limpiar</button>
     </div>
-    <div className='canvasWrap'><canvas ref={canvasRef} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} aria-label={'Vista previa visual de '+project.name}/></div>
+    <div className='canvasWrap' style={{position:'relative',width:'100%',aspectRatio:'1100 / 650',overflow:'hidden'}}>
+      {livePreviewUrl ? <iframe title={'PWA LIVE de '+project.name} src={livePreviewUrl} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0,background:'#0e0b17',pointerEvents:previewPaused?'none':'auto'}} /> : null}
+      <canvas ref={canvasRef} style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:previewPaused?'auto':'none'}} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} aria-label={'Capa de anotaciones visuales de '+project.name}/>
+      {!livePreviewUrl && <div className='muted' style={{position:'absolute',inset:0,display:'grid',placeItems:'center',padding:24,textAlign:'center'}}>No hay una PWA LIVE configurada para este proyecto. La capa visual de referencia no sustituye una previsualización real.</div>}
+    </div>
     <textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Describe qué debe cambiar. Lo escrito + lo pintado se convierten en contexto de ARIA y pueden saltar directamente como misión.'/><div className='muted visualHint'>Anotaciones: {actions.length} · {previewPaused?'La vista está pausada; las anotaciones quedan sobre la referencia.':'Pausa la vista para habilitar el lienzo.'}</div>
     {notice&&<div className='notice'>{notice}</div>}
     <div className='modalActions'><button className='ghost' disabled={busy||!previewPaused} onClick={()=>void send(false)}>Enviar a chat</button><button className='primary' disabled={busy||!previewPaused||(!instruction.trim()&&!actions.length)} onClick={()=>void send(true)}>Crear misión con este diseño</button></div>
