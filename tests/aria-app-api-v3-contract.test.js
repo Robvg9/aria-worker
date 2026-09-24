@@ -27,6 +27,10 @@ assertContains(appApi,'const mission = direct.b?.mission ?? direct.b?.result ?? 
 assertContains(appApi,'visualState: "mission_queued"','chat mission queued UI state missing');
 
 assertContains(appApi,'path.endsWith("/missions")','mission route missing');
+assertContains(appApi,'path.endsWith("/cancel")','mission cancellation route missing');
+assertContains(appApi,'mission_cancelled','mission cancellation evidence event missing');
+assertContains(appApi,'cancelled_by_user','mission cancellation must record the requesting user');
+
 assertContains(appApi,'path.endsWith("/memory/search")','memory search route missing');
 assertContains(appApi,'path.endsWith("/media/upload-url")','media upload preparation route missing');
 assertContains(appApi,'path.endsWith("/capabilities")','capability catalog route missing');
