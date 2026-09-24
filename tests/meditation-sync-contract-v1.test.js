@@ -24,3 +24,11 @@ assert.match(app,/ÚLTIMA ACTIVIDAD REAL/);
 assert.match(app,/api\('\/missions\/' \+ encodeURIComponent\(activeId\) \+ '\/events'/);
 assert.match(app,/useLiveSync\(load, session\.accessToken, 8000\)/);
 console.log('MEDITATION LIVE EXECUTION CENTER CONTRACT: PASS');
+
+assert.match(app,/executionNarrative/);
+assert.match(app,/QUÉ ESTÁ PASANDO/);
+assert.match(app,/EVIDENCIA/);
+assert.match(app,/DESPUÉS/);
+assert.match(app,/function executionResource/);
+assert.match(app,/function executionNarrative/);
+console.log('MEDITATION LIVE EXECUTION NARRATIVE CONTRACT: PASS');
