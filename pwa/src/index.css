@@ -499,3 +499,17 @@ button{touch-action:manipulation;}
   .executionPlanItem { grid-template-columns: 24px 24px minmax(0,1fr); padding: .65rem; }
   .executionPlanIndex { width: 24px; height: 24px; }
 }
+
+
+/* Resultado de misión: distinguir pasos verificados de objetivo demostrado. */
+.objectiveStatusBanner {
+  display: grid;
+  gap: .25rem;
+  margin: .75rem 0 1rem;
+  padding: .8rem .9rem;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  background: rgba(255,255,255,.025);
+}
+.objectiveStatusBanner strong { font-size: .95rem; }
+.objectiveStatusBanner span { opacity: .78; line-height: 1.4; }
