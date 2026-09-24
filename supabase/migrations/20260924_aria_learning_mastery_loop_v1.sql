@@ -361,6 +361,11 @@ declare
   v_hash text;
   v_id uuid;
   v_procedure jsonb;
+  v_previous_id uuid;
+  v_previous_status text;
+  v_occurrence integer := 0;
+  v_state text := 'incident';
+  v_recurred_after_promotion boolean := false;
 begin
   if new.status <> 'failed' or (tg_op='UPDATE' and old.status='failed') then
     return new;
@@ -390,6 +395,60 @@ begin
     'Ejecutar una verificación real del resultado y persistir la evidencia.'
   );
 
+  select m.memory_id,m.status,
+         greatest(1,coalesce((m.metadata->>'occurrence_count')::integer,1))
+    into v_previous_id,v_previous_status,v_occurrence
+  from aria_memory.memory_items m
+  where coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+    and m.metadata->>'failure_signature'=v_signature
+    and m.memory_type='skill'
+  order by case when m.status='active' then 0 else 1 end, m.updated_at desc
+  limit 1;
+
+  if v_previous_id is null then
+    v_occurrence := 1;
+  else
+    v_occurrence := v_occurrence + 1;
+    v_recurred_after_promotion := v_previous_status='active';
+  end if;
+
+  v_state := case
+    when v_recurred_after_promotion then 'root_cause_required'
+    when v_occurrence >= 5 then 'root_cause_required'
+    when v_occurrence >= 4 then 'pattern_confirmed'
+    when v_occurrence >= 3 then 'pattern_candidate'
+    when v_occurrence >= 2 then 'recurrent'
+    else 'incident'
+  end;
+
+  if v_previous_id is not null then
+    update aria_memory.memory_items
+    set
+      updated_at=now(),
+      metadata = metadata
+        || jsonb_build_object(
+          'occurrence_count',v_occurrence,
+          'pattern_state',v_state,
+          'recurrence_after_promotion',v_recurred_after_promotion,
+          'last_seen_mission',new.mission_id,
+          'last_seen_at',clock_timestamp()
+        ),
+      confidence = greatest(confidence,case when v_state='root_cause_required' then .94 else .88 end)
+    where memory_id=v_previous_id;
+
+    insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
+    values(
+      v_previous_id,
+      'failure_recurred',
+      new.mission_id,
+      jsonb_build_object(
+        'occurrence_count',v_occurrence,
+        'pattern_state',v_state,
+        'recurrence_after_promotion',v_recurred_after_promotion
+      )
+    );
+  end if;
+
   v_content := 'Failure-prevention candidate. Goal='||v_goal||
     '. Failure detail='||left(v_detail,1800)||
     '. Prevention procedure='||v_procedure::text;
@@ -412,13 +471,16 @@ begin
     jsonb_build_object('engine','failure-mastery-v1','mission_id',new.mission_id,'failure_signature',v_signature),
     jsonb_build_object(
       'learning_kind','failure_prevention',
-      'activation_status','candidate',
+      'activation_status',case when v_previous_id is null then 'candidate' else coalesce((select metadata->>'activation_status' from aria_memory.memory_items where memory_id=v_previous_id),'candidate') end,
       'source_mission_id',new.mission_id,
       'failure_signature',v_signature,
       'scope',v_goal,
       'procedure',v_procedure,
       'preflight_required',false,
-      'preflight_requirements',jsonb_build_object('mode','contains_all','terms',v_terms)
+      'preflight_requirements',jsonb_build_object('mode','contains_all','terms',v_terms),
+      'occurrence_count',v_occurrence,
+      'pattern_state',v_state,
+      'recurrence_after_promotion',v_recurred_after_promotion
     )
   )
   on conflict(content_hash) do update
@@ -428,7 +490,7 @@ begin
   insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
   values(
     v_id,'failure_candidate_created',new.mission_id,
-    jsonb_build_object('failure_signature',v_signature,'terms',v_terms,'procedure',v_procedure)
+    jsonb_build_object('failure_signature',v_signature,'terms',v_terms,'procedure',v_procedure,'occurrence_count',v_occurrence,'pattern_state',v_state,'recurrence_after_promotion',v_recurred_after_promotion)
   );
 
   return new;
