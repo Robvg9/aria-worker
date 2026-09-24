@@ -14,7 +14,7 @@ assert.match(app,/CATÁLOGO DE PRUEBAS/);
 assert.match(app,/Cómo funciona/);
 assert.match(app,/Qué capacidad comprueba/);
 assert.match(app,/Incluidos en npm test/);
-assert.doesNotMatch(app,/>Nueva misión<\/button>/);
+assert.doesNotMatch(app,/function CapabilityCenter\([\s\S]*?Nueva misión/);
 assert.match(catalog,/export const TEST_CATALOG/);
 assert.match(catalog,/"file": "tests\//);
 assert.match(catalog,/includedInNpmTest/);
