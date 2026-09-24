@@ -29,7 +29,7 @@ type CapabilityCatalog = {
 };
 type Mission = any;
 type MissionEvent = any;
-type AppPage = 'aria' | 'meditation' | 'capabilities' | 'projects';
+type AppPage = 'aria' | 'meditation' | 'capabilities' | 'projects' | 'settings';
 
 type NavigationState = {
   page: AppPage;
@@ -44,6 +44,7 @@ function navigationFromHash(hash = window.location.hash): NavigationState {
     case '#projects': return { page: 'projects', screen: 0, newMission: false };
     case '#meditation': return { page: 'meditation', screen: 0, newMission: false };
     case '#capabilities': return { page: 'capabilities', screen: 0, newMission: false };
+    case '#settings': return { page: 'settings', screen: 0, newMission: false };
     default: return { page: 'aria', screen: 0, newMission: false };
   }
 }
@@ -458,6 +459,26 @@ function useLiveSync(load: () => Promise<void>, token: string, intervalMs: numbe
       document.removeEventListener('visibilitychange', wake);
     };
   }, [token, intervalMs]);
+}
+
+function GlobalBottomNav({ navigation, onProjects, onMeditation, onCapabilities }: {
+  navigation: NavigationState;
+  onProjects: () => void;
+  onMeditation: () => void;
+  onCapabilities: () => void;
+}) {
+  const go = (hash:string) => { window.location.hash = hash; };
+  return (
+    <nav className='bottomNav' aria-label='Navegación principal'>
+      <button type='button' className={navigation.page === 'aria' && navigation.screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => go('#home')}><span>⌂</span><small>Inicio</small></button>
+      <button type='button' className={navigation.page === 'aria' && navigation.screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => go('#chat')}><span>💬</span><small>Chat</small></button>
+      <button type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => go('#mission')}><span>＋</span><small>Misión</small></button>
+      <button type='button' className={navigation.page === 'projects' ? 'active' : ''} aria-label='Proyectos' onClick={onProjects}><span>◈</span><small>Proyectos</small></button>
+      <button type='button' className={navigation.page === 'meditation' ? 'active' : ''} aria-label='Meditación IA' onClick={onMeditation}><span>◌</span><small>Meditación</small></button>
+      <button type='button' className={navigation.page === 'capabilities' ? 'active' : ''} aria-label='Capacidades' onClick={onCapabilities}><span>⚙</span><small>Capacidades</small></button>
+      <button type='button' className={navigation.page === 'settings' ? 'active' : ''} aria-label='Configuración' onClick={() => go('#settings')}><span>☰</span><small>Config.</small></button>
+    </nav>
+  );
 }
 
 function InstallButton() {
@@ -1195,15 +1216,6 @@ function Chat({
         </div>
       </div>
 
-      <nav className='bottomNav' aria-label='Navegación principal'>
-        <button type='button' className={screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => { window.location.hash = '#home'; }}><span>⌂</span><small>Inicio</small></button>
-        <button type='button' className={screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => { window.location.hash = '#chat'; }}><span>💬</span><small>Chat</small></button>
-        <button type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => { window.location.hash = '#mission'; }}><span>＋</span><small>Misión</small></button>
-        <button type='button' aria-label='Proyectos' onClick={onProjects}><span>◈</span><small>Proyectos</small></button>
-        <button type='button' aria-label='Meditación IA' onClick={onMeditation}><span>◌</span><small>Meditación</small></button>
-        <button type='button' aria-label='Capacidades' onClick={onCapabilities}><span>⚙</span><small>Capacidades</small></button>
-      </nav>
-
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
       {showMission && mission && <MissionDetail mission={mission} events={events} onClose={() => setShowMission(false)} />}
 
@@ -1308,6 +1320,88 @@ function Capabilities({ session, onBack, onMeditation, onMission }: { session: S
   return <CapabilityCenter caps={caps} onBack={onBack} onMission={onMission} />;
 }
 
+function Settings({ session, onBack, onSignOut }: { session: Session; onBack: () => void; onSignOut: () => void }) {
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function checkForUpdate(force = false) {
+    setBusy(true);
+    setStatus('Comprobando versión LIVE…');
+    try {
+      const response = await fetch('/pwa/version.json?settings=' + Date.now(), { cache: 'no-store' });
+      if (!response.ok) throw new Error('No se pudo consultar la versión LIVE.');
+      const live = await response.json();
+      if (live?.build && live.build !== BUILD && BUILD !== 'dev') {
+        setStatus('Hay una actualización disponible. Recargando…');
+        window.location.replace('/pwa/?update=' + String(live.build) + '-' + Date.now());
+        return;
+      }
+      if (force) {
+        setStatus('Forzando actualización del PWA…');
+        window.location.replace('/pwa/?update=manual-' + Date.now());
+        return;
+      }
+      setStatus('Ya tienes la versión LIVE más reciente.');
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'No se pudo comprobar la actualización.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearCache() {
+    setBusy(true);
+    setStatus('Borrando caché local…');
+    try {
+      const sessionSnapshot = localStorage.getItem(SESSION_KEY);
+      Object.keys(localStorage)
+        .filter(key => key.startsWith(CACHE_PREFIX) || key.startsWith('aria_project_') || key.startsWith('aria_project_tab_'))
+        .forEach(key => localStorage.removeItem(key));
+      if (sessionSnapshot) localStorage.setItem(SESSION_KEY, sessionSnapshot);
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(key => caches.delete(key)));
+      }
+      setStatus('Caché borrada. Recargando ARIA…');
+      window.setTimeout(() => window.location.reload(), 400);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'No se pudo borrar toda la caché local.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className='appShell'>
+      <header className='topBar'>
+        <div><div className='eyebrow'>ARIA / CONFIGURACIÓN</div><h1>Configuración</h1><div className='sub'>Mantenimiento local y control de versión de la PWA.</div></div>
+        <div className='topActions'><button className='ghost navBack' onClick={onBack}>← Centro</button></div>
+      </header>
+      <div className='pageBodyViewport settingsViewport'>
+        <section className='panel settingsHero'>
+          <div className='panelTitle'>VERSIÓN</div>
+          <h2>Build actual: {BUILD}</h2>
+          <p className='muted'>Cuenta activa: {session.email || session.userId}</p>
+          <div className='actions'>
+            <button className='primary' disabled={busy} onClick={() => void checkForUpdate(false)}>Buscar actualización</button>
+            <button className='ghost' disabled={busy} onClick={() => void checkForUpdate(true)}>Actualizar app</button>
+          </div>
+          {status && <div className='notice'>{status}</div>}
+        </section>
+        <section className='panel'>
+          <div className='panelTitle'>DATOS LOCALES</div>
+          <h2>Limpiar caché</h2>
+          <p className='muted'>Borra cachés y preferencias locales de ARIA sin cerrar tu sesión. Úsalo ante pantallas viejas, recursos atascados o comportamientos extraños después de una actualización.</p>
+          <button className='ghost' disabled={busy} onClick={() => void clearCache()}>Borrar caché y recargar</button>
+        </section>
+        <section className='panel'>
+          <div className='panelTitle'>SESIÓN</div>
+          <button className='ghost' onClick={onSignOut}>Cerrar sesión</button>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   useEffect(() => {
     let cancelled = false;
@@ -1333,14 +1427,16 @@ export default function App() {
     } catch { return null; }
   });
   const initialNavigation = navigationFromHash();
-  const [page, setPage] = useState<AppPage>(() => initialNavigation.page);
+  const [navigation, setNavigation] = useState<NavigationState>(() => initialNavigation);
+  const page = navigation.page;
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
 
   useEffect(() => {
-    const syncNavigation = () => setPage(navigationFromHash().page);
+    const syncNavigation = () => setNavigation(navigationFromHash());
     window.addEventListener('hashchange', syncNavigation);
+    syncNavigation();
     return () => window.removeEventListener('hashchange', syncNavigation);
-  }, []);;
+  }, []);
 
   useEffect(() => {
     if (!session?.refreshToken) return;
@@ -1392,33 +1488,45 @@ export default function App() {
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => {
     window.location.hash = '#home';
-    setPage('aria');
+    setNavigation(navigationFromHash());
   };
   return (
     <>
       <PwaNotificationCenter session={session} />
       {page === 'projects'
-        ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; setPage('aria'); }} />
+        ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
           ? <Meditation
               session={session}
-              onBack={() => { window.location.hash = '#home'; setPage('aria'); }}
-              onCapabilities={() => { window.location.hash = '#capabilities'; setPage('capabilities'); }}
+              onBack={() => { window.location.hash = '#home'; }}
+              onCapabilities={() => { window.location.hash = '#capabilities'; }}
             />
           : page === 'capabilities'
             ? <Capabilities
                 session={session}
-                onBack={() => { window.location.hash = '#home'; setPage('aria'); }}
-                onMeditation={() => { window.location.hash = '#meditation'; setPage('meditation'); }}
-                onMission={openMission}
+                onBack={() => { window.location.hash = '#home'; }}
+                onMeditation={() => { window.location.hash = '#meditation'; }}
+                onMission={() => { window.location.hash = '#mission'; }}
               />
-            : <Chat
-                session={session}
-                onSignOut={signOut}
-                onMeditation={() => { window.location.hash = '#meditation'; setPage('meditation'); }}
-                onCapabilities={() => { window.location.hash = '#capabilities'; setPage('capabilities'); }}
-                onProjects={() => { window.location.hash = '#projects'; setPage('projects'); }}
-              />}
+            : page === 'settings'
+              ? <Settings
+                  session={session}
+                  onBack={() => { window.location.hash = '#home'; }}
+                  onSignOut={signOut}
+                />
+              : <Chat
+                  session={session}
+                  onSignOut={signOut}
+                  onMeditation={() => { window.location.hash = '#meditation'; }}
+                  onCapabilities={() => { window.location.hash = '#capabilities'; }}
+                  onProjects={() => { window.location.hash = '#projects'; }}
+                />}
+      <GlobalBottomNav
+        navigation={navigation}
+        onProjects={() => { window.location.hash = '#projects'; }}
+        onMeditation={() => { window.location.hash = '#meditation'; }}
+        onCapabilities={() => { window.location.hash = '#capabilities'; }}
+      />
     </>
   );
 }
