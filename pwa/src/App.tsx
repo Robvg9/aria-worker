@@ -1460,6 +1460,103 @@ function executionEventDetail(event: any): string {
   return parts.join(' · ') || 'El runtime registró actividad real para esta misión.';
 }
 
+function executionResource(event: any, step: any): string {
+  const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
+  const target = step?.target ?? payload?.target ?? {};
+  const candidate = [
+    target?.path,
+    target?.file_path,
+    target?.repository_path,
+    target?.repo_path,
+    payload?.path,
+    payload?.file_path,
+    payload?.repository_path,
+    payload?.resource,
+    payload?.url
+  ].find((value: any) => typeof value === 'string' && value.trim());
+  return candidate ? String(candidate).trim() : '';
+}
+
+function executionNarrative(mission: any, step: any, latest: any): { headline: string; subject: string; evidence: string; next: string } {
+  const status = String(mission?.status ?? '').toLowerCase();
+  const payload = latest?.payload && typeof latest.payload === 'object' ? latest.payload : {};
+  const op = String(step?.operation ?? payload?.operation ?? '').trim();
+  const executor = String(step?.executor_type ?? payload?.executor_type ?? '').trim();
+  const eventType = String(latest?.event_type ?? '').toLowerCase();
+  const resource = executionResource(latest, step);
+  const opHuman = humanOperation(op, executor);
+
+  if (eventType === 'step_succeeded') {
+    return {
+      headline: 'ARIA acaba de completar este paso',
+      subject: resource ? opHuman + ' · ' + resource : opHuman,
+      evidence: 'El runtime registró éxito y la misión conserva la evidencia del paso.',
+      next: mission?.next_action || 'Continuar con el siguiente paso.'
+    };
+  }
+
+  if (eventType === 'step_failed' || status === 'failed') {
+    return {
+      headline: 'ARIA encontró un fallo y lo está procesando',
+      subject: resource ? opHuman + ' · ' + resource : opHuman,
+      evidence: executionEventDetail(latest),
+      next: mission?.next_action || 'Analizar la causa y seleccionar una estrategia gobernada.'
+    };
+  }
+
+  if (eventType === 'mission_replanned') {
+    return {
+      headline: 'ARIA cambió de estrategia',
+      subject: executionEventDetail(latest),
+      evidence: 'La misión conserva el plan anterior y la evidencia que provocó el replanteamiento.',
+      next: mission?.next_action || 'Ejecutar la nueva estrategia.'
+    };
+  }
+
+  if (eventType === 'checkpoint_saved') {
+    return {
+      headline: 'ARIA guardó un checkpoint real',
+      subject: executionEventDetail(latest),
+      evidence: 'El estado quedó persistido; el siguiente ciclo puede continuar desde esta evidencia.',
+      next: mission?.next_action || 'Continuar con el siguiente movimiento.'
+    };
+  }
+
+  if (status === 'queued') {
+    return {
+      headline: 'ARIA tiene esta misión lista para ejecutar',
+      subject: 'La misión está esperando su próximo ciclo del runner.',
+      evidence: 'Todavía no hay una ejecución activa registrada.',
+      next: mission?.next_action || 'Tomar la misión y comenzar el plan.'
+    };
+  }
+
+  if (status === 'planning') {
+    return {
+      headline: 'ARIA está construyendo el plan',
+      subject: 'Separando el objetivo en pasos gobernados.',
+      evidence: 'El plan aparecerá en cuanto quede persistido en el checkpoint.',
+      next: mission?.next_action || 'Preparar el primer paso.'
+    };
+  }
+
+  if (status === 'waiting') {
+    return {
+      headline: 'ARIA está esperando una condición externa',
+      subject: executionEventDetail(latest),
+      evidence: 'La misión permanece persistida; no se marca como completada hasta verificar la condición.',
+      next: mission?.next_action || 'Reanudar cuando la condición esté disponible.'
+    };
+  }
+
+  return {
+    headline: status === 'succeeded' ? 'ARIA terminó esta misión' : 'ARIA está trabajando en esta misión',
+    subject: resource ? opHuman + ' · ' + resource : opHuman,
+    evidence: latest ? executionEventDetail(latest) : 'El runtime está procesando la misión; aún no hay un evento reciente que mostrar.',
+    next: mission?.next_action || (status === 'succeeded' ? 'Sin pasos pendientes.' : 'Continuar con el siguiente movimiento.')
+  };
+}
+
 function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen }: {
   mission: any;
   events: MissionEvent[];
@@ -1515,6 +1612,16 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen 
       <div className='executionProgressRow'>
         <div className='executionProgressMeta'><strong>{progress.toFixed(1)}%</strong><span>{completed}/{total || '—'} pasos</span></div>
         <div className='progressBar executionProgressBar'><span style={{ width: progress + '%' }} /></div>
+      </div>
+
+      <div className='executionNarrative'>
+        <div className='executionLabel'>QUÉ ESTÁ PASANDO</div>
+        <strong>{executionNarrative(mission, currentStep, latest).headline}</strong>
+        <div className='executionNarrativeSubject'>{executionNarrative(mission, currentStep, latest).subject}</div>
+        <div className='executionNarrativeGrid'>
+          <div><span>EVIDENCIA</span><small>{executionNarrative(mission, currentStep, latest).evidence}</small></div>
+          <div><span>DESPUÉS</span><small>{executionNarrative(mission, currentStep, latest).next}</small></div>
+        </div>
       </div>
 
       <div className='executionNowGrid'>
