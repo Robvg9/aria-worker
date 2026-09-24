@@ -468,8 +468,17 @@ begin
   v_detail := lower(left(coalesce(new.last_stderr,'') || ' ' || coalesce(new.next_action,'') || ' ' || coalesce(new.checkpoint->'recovery'->>'failure_reason',''),3000));
   v_signature := encode(extensions.digest(
     lower(v_goal) || '|' ||
-    regexp_replace(v_detail,'[^a-z0-9_ .:-]','','g') || '|' ||
-    coalesce(new.checkpoint->'recovery'->>'failure_reason',''),
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(
+          regexp_replace(v_detail,'mission[_-][0-9a-f-]+','<mission>','gi'),
+          '[0-9a-f]{8}-[0-9a-f-]{20,}','<uuid>','gi'
+        ),
+        '[0-9]+','<n>','g'
+      ),
+      '\\s+',' ','g'
+    ) || '|' ||
+    regexp_replace(coalesce(new.checkpoint->'recovery'->>'failure_reason',''), '[0-9]+','<n>','g'),
     'sha256'
   ),'hex');
 
