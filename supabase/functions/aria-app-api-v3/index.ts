@@ -693,9 +693,60 @@ Deno.serve(async (req) => {
       if (initialPersistenceMs === null) initialPersistenceMs = Date.now() - initialPersistStartedAt;
 
       let assistantPersistenceMs: number | null = null;
-      if (looksLikeMissionRequest(text)) {
+      const missionAction = String(body?.mission_action ?? '').trim().toLowerCase();
+      const confirmedMissionGoal = missionAction === "confirm_mission" && typeof body?.mission_goal === "string"
+        ? body.mission_goal.trim()
+        : "";
+      const missionCandidate = looksLikeMissionRequest(text);
+
+      if (missionCandidate && !confirmedMissionGoal) {
+        const confirmationText = `Entiendo esto como una solicitud para que ARIA realice trabajo. ¿Quieres que comience una misión para: «${text}»? Si solo querías preguntar o conversar, no iniciaré ninguna misión.`;
+        const assistantPersistStartedAt = Date.now();
+        try {
+          await persistConversationMessage(
+            user.id,
+            conversationId,
+            "assistant",
+            confirmationText,
+            [{type:"text",text:confirmationText}],
+            trace,
+            "mission_confirmation_required",
+            null,
+            null,
+            project?.name ? project.name+" · Chat" : "ARIA · Chat",
+            project
+          );
+          assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
+        } catch(e) {
+          persistenceWarning = persistenceWarning || String((e as any)?.message ?? e);
+          assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
+        }
+        return json({
+          ok: true,
+          conversationId,
+          visualState: "mission_confirmation_required",
+          mission_confirmation_required: true,
+          pending_mission: { goal: text, conversationId },
+          parts: [{ type: "text", text: confirmationText }],
+          cognitive: {
+            recall_count: 0,
+            provider_id: null,
+            model_id: null,
+            fallback_count: 0,
+            routed_to_mission: false,
+            confirmation_required: true,
+            processing_ms: Date.now() - requestStartedAt,
+            input_persistence_ms: initialPersistenceMs,
+            assistant_persistence_ms: assistantPersistenceMs ?? null,
+            persistence_warning: persistenceWarning
+          },
+          trace_id: trace
+        });
+      }
+
+      if (confirmedMissionGoal) {
         const direct = await internal(DIRECT, {
-          goal: text,
+          goal: confirmedMissionGoal,
           mission_id: undefined,
           metadata: {
             source_application: "aria-pwa-chat",
@@ -707,6 +758,7 @@ Deno.serve(async (req) => {
             attachments,
             goal_source: "chat",
             execution_requested: true,
+            mission_confirmation: true,
             conversation_id: conversationId,
             chat_handoff: "canonical-direct-v1",
           },
@@ -730,7 +782,7 @@ Deno.serve(async (req) => {
             trace_id: trace
           }, 502);
         }
-        const ackText="Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación.";
+        const ackText="Confirmado. La misión entró en la cola de Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación.";
         const assistantPersistStartedAt = Date.now();
         try {
           await persistConversationMessage(user.id,conversationId,"assistant",ackText,[{type:"text",text:ackText}],trace,"mission_queued",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
@@ -744,10 +796,7 @@ Deno.serve(async (req) => {
           conversationId,
           visualState: "mission_queued",
           mission,
-          parts: [{
-            type: "text",
-            text: ackText
-          }],
+          parts: [{ type: "text", text: ackText }],
           cognitive: {
             recall_count: 0,
             provider_id: null,
@@ -755,6 +804,7 @@ Deno.serve(async (req) => {
             fallback_count: 0,
             routed_to_mission: true,
             canonical_intake: true,
+            confirmation_used: true,
             processing_ms: Date.now() - requestStartedAt,
             input_persistence_ms: initialPersistenceMs,
             assistant_persistence_ms: assistantPersistenceMs ?? null,
