@@ -160,6 +160,22 @@ async function validateLearningGate(goal: string, steps: any[]) {
   }
 }
 
+async function verifyLearningApplication(goal: string, steps: any[], results: Record<string, unknown>, appliedMemoryIds: unknown) {
+  try {
+    const result = await rpc("verify_learning_application", {
+      p_goal: goal,
+      p_steps: steps,
+      p_results: results,
+      p_applied_memory_ids: Array.isArray(appliedMemoryIds) ? appliedMemoryIds : [],
+    });
+    return result && typeof result === "object"
+      ? result
+      : { version: "mastery-learning-loop-v1", passed: true, required_memory_ids: [], verified_memory_ids: [], missing_memory_ids: [] };
+  } catch (error) {
+    throw new Error(`learning_application_verification_unavailable:${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function executorType(step: any) {
   return String(step?.executor_type || step?.target?.type || "");
 }
@@ -1618,6 +1634,103 @@ Deno.serve(async (request) => {
       });
     }
 
+    const learningApplication = await verifyLearningApplication(
+      String(mission.goal || ""),
+      steps,
+      results,
+      learningGate?.applied_memory_ids || []
+    );
+
+    if (learningApplication.passed !== true) {
+      const currentLearningReplans = Number(mission?.checkpoint?.learning_gate?.application_replan_attempts || 0);
+      const nextLearningReplans = currentLearningReplans + 1;
+      const applicationBlock = {
+        kind: "learned_application_evidence_missing",
+        reason: "ARIA completed the plan but could not prove that the learned knowledge was actually applied in execution evidence.",
+        verification: learningApplication,
+        application_replan_attempts: nextLearningReplans,
+        next_action: nextLearningReplans >= 2
+          ? "manual: learned knowledge application could not be evidenced"
+          : "replan: add executable verification for the required learned knowledge before success",
+        remediation: "Create explicit preflight/read/verification steps whose successful results contain the learned prerequisites, then re-run the governed plan."
+      };
+      await emitEvent(missionId, "learning_application_verification_failed", applicationBlock);
+
+      if (nextLearningReplans >= 2) {
+        await updateMission(missionId, {
+          status: "blocked",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: applicationBlock.next_action,
+          last_stderr: "learning_application_evidence_missing",
+          checkpoint: {
+            ...(mission.checkpoint || {}),
+            learning_gate: {
+              ...learningGate,
+              application_verified: false,
+              application_replan_attempts: nextLearningReplans,
+              application_verification: learningApplication,
+            },
+            plan: steps,
+            completed_steps: [...completed],
+            attempts,
+            results,
+            pending_jobs: pendingJobs,
+            recovery: {
+              status: "learning_application_evidence_missing",
+              block_details: applicationBlock,
+            },
+          },
+          lease_owner: null,
+          lease_until: null,
+        });
+        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V, block_details: applicationBlock });
+      }
+
+      await updateMission(missionId, {
+        status: "queued",
+        current_step: 0,
+        completed_steps: 0,
+        next_action: applicationBlock.next_action,
+        last_stderr: "learning_application_evidence_missing",
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          learning_gate: {
+            ...learningGate,
+            application_verified: false,
+            application_replan_attempts: nextLearningReplans,
+            application_verification: learningApplication,
+          },
+          plan: undefined,
+          completed_steps: [],
+          attempts: {},
+          results: {},
+          pending_jobs: {},
+          recovery: {
+            status: "replan_learning_application",
+            replan_required: true,
+            block_details: applicationBlock,
+          },
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      return out({ ok: true, status: "replanned_learning_application", mission_id: missionId, runtime: V, block_details: applicationBlock });
+    }
+
+    await emitEvent(missionId, "learning_application_verified", {
+      version: "mastery-learning-loop-v1",
+      applied_memory_ids: learningGate?.applied_memory_ids || [],
+      verified_memory_ids: learningApplication?.verified_memory_ids || [],
+    });
+
+    const verifiedLearningGate = {
+      ...(learningGate || {}),
+      application_verified: true,
+      application_verification: learningApplication,
+      verified_at: new Date().toISOString(),
+    };
+
     const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
     if (!finalVerified) throw new Error("final_verification_failed");
 
@@ -1639,6 +1752,7 @@ Deno.serve(async (request) => {
         next_action: "human_gate:confirm",
         checkpoint: {
           ...(mission.checkpoint || {}),
+          learning_gate: verifiedLearningGate,
           plan: steps,
           completed_steps: [...completed],
           attempts,
