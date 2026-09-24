@@ -352,7 +352,7 @@ async function deviceExecute(missionId: string, step: any) {
   return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: status };
 }
 
-async function githubExecute(step: any, token: string | null) {
+async function githubExecute(step: any, token: string | null, mission: any = null) {
   const operation = String(step.operation || "");
   const input = step.input && typeof step.input === "object" ? step.input : {};
   const readOps = new Set(["repo_read", "file_read", "pr_find", "pr_read", "pr_checks", "main_workflow_runs"]);
@@ -364,6 +364,17 @@ async function githubExecute(step: any, token: string | null) {
     if (String(step.risk || "READ").toUpperCase() !== "LOW_RISK_WRITE") throw new Error("github_write_risk_not_allowed");
     if (step.authorization?.status !== "approved") throw new Error("github_write_authorization_required");
   }
+  const projectId = String(mission?.metadata?.project_id || step?.target?.project_id || step?.input?.project_id || '').toLowerCase();
+  const repo = String(input.repo || step.target?.repo || 'battlecruiser');
+  if (projectId === 'battlecruiser' && repo.toLowerCase() === 'battlecruiser') {
+    if (writeOps.has(operation)) {
+      const branch = String(input.branch || step.target?.branch || '');
+      if (operation === 'create_branch' && !branch.startsWith('aria/sandbox/')) throw new Error('battlecruiser_sandbox_branch_required');
+      if (operation === 'file_write' && !branch.startsWith('aria/sandbox/')) throw new Error('battlecruiser_file_write_must_use_sandbox');
+      if (operation === 'open_pr' && (!branch.startsWith('aria/sandbox/') || String(input.base || 'main') !== 'main')) throw new Error('battlecruiser_pr_must_promote_sandbox_to_main');
+      if (operation === 'pr_merge') throw new Error('battlecruiser_auto_merge_forbidden');
+    }
+  }
   if (!token && !SECRET) throw new Error("github_runtime_auth_unavailable");
   const response = await fetch(GITHUB_APP, {
     method: "POST",
@@ -371,7 +382,7 @@ async function githubExecute(step: any, token: string | null) {
     body: JSON.stringify({
       operation,
       owner: input.owner || step.target?.owner || "Robvg9",
-      repo: input.repo || step.target?.repo || "battlecruiser",
+      repo,
       branch: input.branch || step.target?.branch || "main",
       base: input.base || "main",
       path: input.path,
@@ -393,7 +404,7 @@ async function githubExecute(step: any, token: string | null) {
   return { status: "succeeded", executor_type: "connector", connector_id: "github", operation, data: result.data };
 }
 
-async function connectorExecute(missionId: string, step: any, token: string | null) {
+async function connectorExecute(missionId: string, step: any, token: string | null, mission: any = null) {
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
   if (connector === "supabase" && operation === "health") {
@@ -406,7 +417,7 @@ async function connectorExecute(missionId: string, step: any, token: string | nu
     return cloudflareConnectorExecute(V, SECRET, operation);
   }
   if (connector === "bitrise") return bitriseExecute(rpc, step);
-  if (connector === "github") return githubExecute(step, token);
+  if (connector === "github") return githubExecute(step, token, mission);
   throw new Error(`connector_operation_not_allowed:${connector}:${operation}`);
 }
 
@@ -965,10 +976,10 @@ async function easExecute(step: any) {
   throw new Error("eas_operation_not_supported:" + operation);
 }
 
-async function executeStep(missionId: string, step: any, auth: AuthContext) {
+async function executeStep(missionId: string, step: any, auth: AuthContext, mission: any = null) {
   validateStep(step);
   const type = executorType(step);
-  if (type === "connector") return connectorExecute(missionId, step, auth.token);
+  if (type === "connector") return connectorExecute(missionId, step, auth.token, mission);
   if (type === "device") return deviceExecute(missionId, step);
   if (type === "model") return modelExecute(missionId, step, auth);
   if (type === "agent") return agentExecute(missionId, step, auth);
@@ -1289,7 +1300,7 @@ Deno.serve(async (request) => {
 
         let result: any;
         try {
-          result = await executeStep(missionId, step, auth);
+          result = await executeStep(missionId, step, auth, mission);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
