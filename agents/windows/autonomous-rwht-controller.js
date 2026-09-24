@@ -1,26 +1,570 @@
 'use strict';
+
 const crypto = require('node:crypto');
 const { executeWindowsDesktop } = require('./windows-desktop-adapter');
-const VERSION='aria-windows-autonomous-rwht-v1.0.0';
-const OLLAMA_URL='http://127.0.0.1:11434';
-const OLLAMA_MODEL='qwen3:4b';
-const ROLES=new Set(['button','hyperlink','tab','menuitem','checkbox','radiobutton','combobox','edit','listitem','treeitem','splitbutton']);
-const BLOCKED=/(delete|remove|destroy|reset|revoke|logout|log\s*out|sign\s*out|clear\s+all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s+sesion|cerrar\s+sesión|salir|vaciar)/i;
-const SECRET=/(password|passwd|token|secret|api[_ -]?key|private\s+key|bearer|credential|contraseña|contrasena)/i;
-function nodeLabel(n){return String(n&& (n.name||n.label||n.text)||'').trim()}
-function interactive(n){return !!n&&n.visible!==false&&n.enabled!==false&&ROLES.has(String(n.role||'').toLowerCase())}
-function hash(v){return crypto.createHash('sha256').update(JSON.stringify(v)).digest('hex')}
-function sanitize(raw){const ui=raw&&raw.ui&&typeof raw.ui==='object'?raw.ui:raw;const nodes=Array.isArray(ui&&ui.nodes)?ui.nodes:[];return {surface:String(ui&&ui.surface||'windows-desktop'),title:ui&&ui.title==null?null:String(ui.title),url:ui&&ui.url==null?null:String(ui.url),focused_id:ui&&ui.focused_id==null?null:String(ui.focused_id),nodes:nodes.slice(0,350).map(n=>({id:String(n.id||''),role:String(n.role||''),name:n.name==null?null:String(n.name),text:n.text==null?null:String(n.text),label:n.label==null?null:String(n.label),enabled:n.enabled!==false,visible:n.visible!==false,attributes:n.attributes&&typeof n.attributes==='object'?{x:Number(n.attributes.x),y:Number(n.attributes.y),width:Number(n.attributes.width),height:Number(n.attributes.height)}:{}})),metadata:{source:ui&&ui.metadata&&ui.metadata.source||'windows-uia',node_count:nodes.length}}}
-function compact(ui){return {title:ui.title,url:ui.url,nodes:ui.nodes.filter(interactive).slice(0,120).map(n=>({id:n.id,role:n.role,label:nodeLabel(n),enabled:n.enabled,x:n.attributes.x,y:n.attributes.y,w:n.attributes.width,h:n.attributes.height}))}}
-function parseJson(s){if(typeof s!=='string')return null;const t=s.replace(/<think>[\s\S]*?<\/think>/gi,'').replace(/```json/gi,'').replace(/```/g,'').trim();const a=t.indexOf('{'),b=t.lastIndexOf('}');if(a<0||b<=a)return null;try{return JSON.parse(t.slice(a,b+1))}catch{return null}}
-async function qwen(prompt,timeout_ms=120000){const c=new AbortController(),timer=setTimeout(()=>c.abort(),Math.max(1000,timeout_ms));try{const r=await fetch(OLLAMA_URL+'/api/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:OLLAMA_MODEL,prompt,stream:false}),signal:c.signal});const b=await r.json().catch(()=>null);if(!r.ok||typeof b?.response!=='string')throw new Error('ollama_'+(r.status||'invalid'));return b.response.replace(/<think>[\s\S]*?<\/think>/gi,'').trim().slice(0,18000)}finally{clearTimeout(timer)}}
-function capabilityProfile(device_id){return {version:'capability-awareness-v1',device_id,capabilities:[{id:'computer.use',operation:'computer.use',actions:['observe','screenshot','click','double_click','type','keypress','hotkey','scroll','focus','wait']},{id:'ollama.qwen3',operation:'ollama.qwen3',model:OLLAMA_MODEL,purpose:'UI reasoning'},{id:'computer.use.autonomous',operation:'computer.use.autonomous',requires:['computer.use','ollama.qwen3'],loop:'observe->decide->act->verify->adapt'}],constraints:['no secrets','destructive controls blocked','verify after every action']}}
-function center(n){const a=n&&n.attributes||{},x=Number(a.x),y=Number(a.y),w=Number(a.width),h=Number(a.height);return Number.isFinite(x)&&Number.isFinite(y)?{x:Math.round(x+(Number.isFinite(w)?w:1)/2),y:Math.round(y+(Number.isFinite(h)?h:1)/2)}:null}
-function find(ui,id){return ui.nodes.find(n=>n.id===String(id))||null}
-function promptFor(goal,ui,cap,history,covered){const screenHash=hash(compact(ui));const available=ui.nodes.filter(interactive).filter(n=>!covered.has(hash([screenHash,n.id]))).slice(0,60);return 'ARIA WINDOWS RWHT CONTROLLER.\nGOAL: '+goal+'\nCAPABILITIES: '+JSON.stringify(cap)+'\nRULES: use only real node ids; do not use destructive controls; do not enter secrets; exercise visible controls; after each action observe again. Respond ONLY valid JSON. Allowed actions: click,double_click,type,scroll,back,wait,screenshot,finish. Schema: {"action":"click","node_id":"ID","reason":"..."}. For type use text ARIA_RWHT_TEST.\nCURRENT: '+JSON.stringify(compact(ui))+'\nNEW CONTROLS: '+JSON.stringify(available.map(n=>({id:n.id,role:n.role,label:nodeLabel(n)})))+'\nHISTORY: '+JSON.stringify(history.slice(-6))+'\nChoose the next real action.'}
-function validateDecision(d,ui){if(!d||!['click','double_click','type','scroll','back','wait','screenshot','finish'].includes(d.action))return {ok:false,reason:'invalid_action'};if(['click','double_click','type'].includes(d.action)){const n=find(ui,d.node_id);if(!n)return {ok:false,reason:'target_not_found'};if(!interactive(n))return {ok:false,reason:'target_not_interactive'};if(BLOCKED.test(nodeLabel(n)))return {ok:false,reason:'high_risk_control_blocked',node:n};if(d.action==='type'&&(SECRET.test(nodeLabel(n))||SECRET.test(d.text||'')))return {ok:false,reason:'secret_input_blocked',node:n}}if(d.action==='scroll'&&Math.abs(Number(d.delta||650))>2500)return {ok:false,reason:'scroll_too_large'};if(d.action==='wait'&&(d.ms<0||d.ms>10000))return {ok:false,reason:'wait_invalid'};return {ok:true}}
-async function executeDecision(adapter,d,ui){if(d.action==='finish')return {status:'finished'};if(d.action==='back')return adapter({action:'hotkey',keys:['ALT','LEFT']});if(d.action==='scroll')return adapter({action:'scroll',delta:Number(d.delta||650)});if(d.action==='wait')return adapter({action:'wait',ms:Number(d.ms||1000)});if(d.action==='screenshot')return adapter({action:'screenshot'});const n=find(ui,d.node_id);if(d.action==='type')return adapter({action:'type',text:d.text||'ARIA_RWHT_TEST'});const c=center(n);if(!c)return {status:'failed',error:'target_bounds_missing'};return adapter({action:d.action,x:c.x,y:c.y})}
-async function navigate(adapter,url){if(!url)return {status:'skipped'};const steps=[{action:'focus',process:'chrome'},{action:'hotkey',keys:['CTRL','L']},{action:'type',text:url},{action:'keypress',key:'ENTER'},{action:'wait',ms:1500}],out=[];for(const s of steps){const r=await adapter(s);out.push({action:s.action,status:r?.status||'unknown',error:r?.error||null});if(r?.status!=='succeeded')break}return {status:out.every(x=>x.status==='succeeded')?'succeeded':'failed',steps:out}}
-async function runAutonomousRwht(o={}){const mission_id=o.mission_id||('rwht-'+Date.now()),goal=o.goal||'Ejecutar RWHT autónomo desde PC.',device_id=o.device_id||null,start_url=o.start_url||null,max_actions=Math.max(5,Math.min(250,Number(o.max_actions)||120)),max_runtime_ms=Math.max(30000,Math.min(900000,Number(o.max_runtime_ms)||600000)),adapter=o.adapter||executeWindowsDesktop,model=o.model||qwen,capture_screenshots=o.capture_screenshots!==false,started=Date.now(),cap=capabilityProfile(device_id),history=[],evidence=[],seen=new Set(),covered=new Set(),blocked=[];const nav=await navigate(adapter,start_url).catch(e=>({status:'failed',error:String(e)}));let current=await (async()=>{const r=await adapter({action:'observe'});if(r?.status!=='succeeded')throw new Error(r?.error||'observe_failed');return sanitize(r.ui||r)})();let previous=null,finish='runtime_limit';if(nav.status!=='skipped')evidence.push({kind:'start_navigation',result:nav,verified:nav.status==='succeeded'});for(let step=1;step<=max_actions&&Date.now()-started<max_runtime_ms;step++){const sh=hash(compact(current));seen.add(sh);let d=null,source='qwen3';try{d=parseJson(await model(promptFor(goal,current,cap,history,covered)))}catch(e){source='fallback';history.push({step,event:'model_error',error:String(e?.message||e)})}if(!d){source='fallback';const n=current.nodes.find(n=>interactive(n)&&!covered.has(hash([sh,n.id]))&&!BLOCKED.test(nodeLabel(n)));d=n?{action:'click',node_id:n.id,reason:'fallback coverage'}:((step>2&&!history.slice(-2).some(h=>h.event==='back'))?{action:'back',reason:'no unseen control'}:{action:'scroll',delta:650,reason:'discover controls'})}const nd={action:String(d.action||'').toLowerCase(),node_id:d.node_id==null?null:String(d.node_id),text:d.text==null?'ARIA_RWHT_TEST':String(d.text),delta:Number(d.delta)||650,ms:Number(d.ms)||1000,reason:String(d.reason||'').slice(0,300)};const safe=validateDecision(nd,current);if(!safe.ok){blocked.push({step,...safe,action:nd.action,node_id:nd.node_id,label:nodeLabel(safe.node)});if(nd.node_id)covered.add(hash([sh,nd.node_id]));previous={decision:nd,safety:safe};continue}if(nd.action==='finish'){finish=nd.reason||'controller_finished';break}const beforeHash=sh,target=nd.node_id?find(current,nd.node_id):null;const result=await executeDecision(adapter,nd,current);const after=await (async()=>{try{const r=await adapter({action:'observe'});return r?.status==='succeeded'?sanitize(r.ui||r):null}catch{return null}})();const afterHash=after?hash(compact(after)):null;const verified=result?.status==='succeeded'&&(nd.action==='screenshot'||nd.action==='wait'||nd.action==='scroll'||nd.action==='back'||afterHash!==beforeHash);const key=hash([beforeHash,nd.node_id||nd.action]);covered.add(key);const item={step,action:nd.action,node_id:nd.node_id,label:nodeLabel(target),reason:nd.reason,decision_source:source,result_status:result?.status||'unknown',before_screen:beforeHash,after_screen:afterHash,verified,error:result?.error||null,timestamp:new Date().toISOString()};evidence.push(item);history.push(item);previous=item;current=after||current;if(capture_screenshots&&(step===1||step%10===0)){try{const s=await adapter({action:'screenshot'});evidence.push({step,kind:'screenshot',screenshot_hash:s?.screenshot_base64?crypto.createHash('sha256').update(s.screenshot_base64).digest('hex'):null,verified:s?.status==='succeeded'})}catch{}}}
-const verifiedActions=evidence.filter(x=>x.step&&x.verified===true);const status=verifiedActions.length?'succeeded':'failed';const summary={version:VERSION,status,mission_id,goal,device_id,start_url,finished_reason:finish,duration_ms:Date.now()-started,actions_attempted:evidence.filter(x=>x.step&&x.action).length,actions_verified:verifiedActions.length,screens_seen:seen.size,controls_exercised:covered.size,blocked_controls:blocked.length,evidence_count:evidence.length};return {...summary,verified:status==='succeeded',verification_status:status==='succeeded'?'verified':'failed',capability_awareness:cap,coverage:{screen_count:seen.size,control_action_count:covered.size,blocked:blocked.slice(0,100)},evidence:evidence.slice(-250),response:{content:JSON.stringify(summary),human_summary:'RWHT PC completado con '+summary.actions_verified+' acciones verificadas y '+summary.screens_seen+' pantallas observadas.'},stdout:JSON.stringify(summary)}}
-module.exports=Object.freeze({VERSION,capabilityProfile,parseJson,isHighRiskLabel:value=>BLOCKED.test(String(value||'')),runAutonomousRwht});
+
+const VERSION = 'aria-windows-autonomous-rwht-v1.1.0';
+const OLLAMA_URL = 'http://127.0.0.1:11434';
+const OLLAMA_MODEL = 'qwen3:4b';
+
+const INTERACTIVE_ROLES = new Set([
+  'button', 'hyperlink', 'tab', 'menuitem', 'checkbox', 'radiobutton',
+  'combobox', 'edit', 'listitem', 'treeitem', 'splitbutton'
+]);
+
+const BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log\s*out|sign\s*out|clear\s+all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s+sesión|cerrar\s+sesion|salir|vaciar)/i;
+const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s+key|bearer|credential|contraseña|contrasena)/i;
+
+function nodeLabel(node) {
+  return String((node && (node.name || node.label || node.text)) || '').trim();
+}
+
+function isInteractive(node) {
+  return Boolean(
+    node &&
+    node.visible !== false &&
+    node.enabled !== false &&
+    INTERACTIVE_ROLES.has(String(node.role || '').toLowerCase())
+  );
+}
+
+function hash(value) {
+  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function controlKey(screenHash, nodeId) {
+  return hash([screenHash, String(nodeId)]);
+}
+
+function sanitize(raw) {
+  const ui = raw && raw.ui && typeof raw.ui === 'object' ? raw.ui : raw;
+  const nodes = Array.isArray(ui && ui.nodes) ? ui.nodes : [];
+  return {
+    surface: String((ui && ui.surface) || 'windows-desktop'),
+    title: ui && ui.title == null ? null : String(ui.title),
+    url: ui && ui.url == null ? null : String(ui.url),
+    nodes: nodes.slice(0, 350).map((node) => ({
+      id: String(node.id || ''),
+      role: String(node.role || ''),
+      name: node.name == null ? null : String(node.name),
+      text: node.text == null ? null : String(node.text),
+      label: node.label == null ? null : String(node.label),
+      enabled: node.enabled !== false,
+      visible: node.visible !== false,
+      attributes: node.attributes && typeof node.attributes === 'object'
+        ? {
+            x: Number(node.attributes.x),
+            y: Number(node.attributes.y),
+            width: Number(node.attributes.width),
+            height: Number(node.attributes.height),
+          }
+        : {},
+    })),
+    metadata: {
+      source: ui && ui.metadata && ui.metadata.source || 'windows-uia',
+      node_count: nodes.length,
+    },
+  };
+}
+
+function compact(ui) {
+  return {
+    title: ui.title,
+    url: ui.url,
+    nodes: ui.nodes.filter(isInteractive).slice(0, 120).map((node) => ({
+      id: node.id,
+      role: node.role,
+      label: nodeLabel(node),
+      enabled: node.enabled,
+      x: node.attributes.x,
+      y: node.attributes.y,
+      w: node.attributes.width,
+      h: node.attributes.height,
+    })),
+  };
+}
+
+function safeNodes(ui) {
+  return ui.nodes.filter((node) => isInteractive(node) && !BLOCKED.test(nodeLabel(node)));
+}
+
+function find(ui, id) {
+  return ui.nodes.find((node) => node.id === String(id)) || null;
+}
+
+function center(node) {
+  const a = node && node.attributes || {};
+  const x = Number(a.x);
+  const y = Number(a.y);
+  const w = Number(a.width);
+  const h = Number(a.height);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {
+    x: Math.round(x + Math.max(1, Number.isFinite(w) ? w : 1) / 2),
+    y: Math.round(y + Math.max(1, Number.isFinite(h) ? h : 1) / 2),
+  };
+}
+
+function parseJson(text) {
+  if (typeof text !== 'string') return null;
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+async function qwen(prompt, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs || 120000));
+  try {
+    const response = await fetch(OLLAMA_URL + '/api/generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false }),
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || typeof (body && body.response) !== 'string') {
+      throw new Error('ollama_' + String(response.status || 'invalid'));
+    }
+    return body.response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim().slice(0, 18000);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function capabilityProfile(deviceId) {
+  return {
+    version: 'capability-awareness-v1',
+    device_id: deviceId,
+    capabilities: [
+      {
+        id: 'computer.use',
+        operation: 'computer.use',
+        purpose: 'control real Windows desktop UI',
+        actions: ['observe', 'screenshot', 'click', 'double_click', 'type', 'keypress', 'hotkey', 'scroll', 'focus', 'wait'],
+        verification: 'observe after action',
+      },
+      {
+        id: 'ollama.qwen3',
+        operation: 'ollama.qwen3',
+        model: OLLAMA_MODEL,
+        purpose: 'structured UI reasoning',
+      },
+      {
+        id: 'computer.use.autonomous',
+        operation: 'computer.use.autonomous',
+        purpose: 'observe -> decide -> act -> verify -> adapt',
+        requires: ['computer.use', 'ollama.qwen3'],
+      },
+    ],
+    constraints: [
+      'destructive controls blocked by default',
+      'secret-like input blocked',
+      'every action followed by observation',
+      'mission is not successful until coverage-complete',
+    ],
+  };
+}
+
+function promptFor(goal, ui, capabilities, history, screenHash, exercised) {
+  const available = safeNodes(ui)
+    .filter((node) => !exercised.has(controlKey(screenHash, node.id)))
+    .slice(0, 80);
+
+  return [
+    'ARIA WINDOWS RWHT CONTROLLER.',
+    'OBJETIVO: ' + goal,
+    'CAPACIDADES REALES: ' + JSON.stringify(capabilities),
+    'REGLAS: usa solo nodos observados; prioriza cobertura real; no destructivos; no secretos; observa después de cada acción; NO finalices mientras existan controles seguros sin ejercitar.',
+    'ACCIONES: click,double_click,type,scroll,back,wait,screenshot,finish.',
+    'RESPUESTA: solo JSON válido. Ejemplo click: {"action":"click","node_id":"ID","reason":"..."}',
+    'Ejemplo type: {"action":"type","node_id":"ID","text":"ARIA_RWHT_TEST","reason":"..."}',
+    'CONTROLES SEGUROS PENDIENTES: ' + JSON.stringify(available.map((node) => ({
+      id: node.id,
+      role: node.role,
+      label: nodeLabel(node),
+    }))),
+    'OBSERVACIÓN ACTUAL: ' + JSON.stringify(compact(ui)),
+    'HISTORIAL: ' + JSON.stringify(history.slice(-8)),
+  ].join('\n');
+}
+
+function normalizeDecision(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const action = String(raw.action || '').trim().toLowerCase();
+  if (!['click', 'double_click', 'type', 'scroll', 'back', 'wait', 'screenshot', 'finish'].includes(action)) return null;
+  return {
+    action,
+    node_id: raw.node_id == null ? null : String(raw.node_id),
+    text: raw.text == null ? 'ARIA_RWHT_TEST' : String(raw.text),
+    delta: Number.isFinite(Number(raw.delta)) ? Number(raw.delta) : 650,
+    ms: Number.isFinite(Number(raw.ms)) ? Number(raw.ms) : 1000,
+    reason: String(raw.reason || '').slice(0, 500),
+  };
+}
+
+function validateDecision(decision, ui) {
+  if (!decision) return { ok: false, reason: 'decision_invalid' };
+
+  if (['click', 'double_click', 'type'].includes(decision.action)) {
+    const node = find(ui, decision.node_id);
+    if (!node) return { ok: false, reason: 'target_not_found' };
+    if (!isInteractive(node)) return { ok: false, reason: 'target_not_interactive', node };
+    if (BLOCKED.test(nodeLabel(node))) {
+      return { ok: false, reason: 'high_risk_control_blocked', node };
+    }
+    if (decision.action === 'type' && (SECRET.test(nodeLabel(node)) || SECRET.test(decision.text))) {
+      return { ok: false, reason: 'secret_input_blocked', node };
+    }
+  }
+
+  if (decision.action === 'scroll' && Math.abs(decision.delta) > 2500) {
+    return { ok: false, reason: 'scroll_delta_too_large' };
+  }
+
+  if (decision.action === 'wait' && (decision.ms < 0 || decision.ms > 10000)) {
+    return { ok: false, reason: 'wait_invalid' };
+  }
+
+  return { ok: true };
+}
+
+async function executeDecision(adapter, decision, ui) {
+  if (decision.action === 'finish') return { status: 'finished' };
+  if (decision.action === 'back') return adapter({ action: 'hotkey', keys: ['ALT', 'LEFT'] });
+  if (decision.action === 'scroll') return adapter({ action: 'scroll', delta: decision.delta });
+  if (decision.action === 'wait') return adapter({ action: 'wait', ms: decision.ms });
+  if (decision.action === 'screenshot') return adapter({ action: 'screenshot' });
+
+  const node = find(ui, decision.node_id);
+  const bounds = center(node);
+  if (!bounds) return { status: 'failed', error: 'target_bounds_missing' };
+
+  if (decision.action === 'type') {
+    const focus = await adapter({ action: 'click', x: bounds.x, y: bounds.y });
+    if (focus && focus.status !== 'succeeded') {
+      return { status: 'failed', error: focus.error || 'type_target_focus_failed' };
+    }
+    const typed = await adapter({ action: 'type', text: decision.text });
+    return {
+      status: typed && typed.status || 'failed',
+      error: typed && typed.error || null,
+    };
+  }
+
+  return adapter({ action: decision.action, x: bounds.x, y: bounds.y });
+}
+
+async function navigate(adapter, url) {
+  if (!url) return { status: 'skipped' };
+
+  const steps = [
+    { action: 'focus', process: 'chrome' },
+    { action: 'hotkey', keys: ['CTRL', 'L'] },
+    { action: 'type', text: url },
+    { action: 'keypress', key: 'ENTER' },
+    { action: 'wait', ms: 1500 },
+  ];
+
+  const results = [];
+  for (const step of steps) {
+    const result = await adapter(step);
+    results.push({
+      action: step.action,
+      status: result && result.status || 'unknown',
+      error: result && result.error || null,
+    });
+    if (!result || result.status !== 'succeeded') break;
+  }
+
+  return {
+    status: results.every((item) => item.status === 'succeeded') ? 'succeeded' : 'failed',
+    results,
+  };
+}
+
+async function runAutonomousRwht(options) {
+  const o = options || {};
+  const missionId = o.mission_id || ('rwht-' + Date.now());
+  const goal = o.goal || 'Ejecutar RWHT autónomo desde PC.';
+  const deviceId = o.device_id || null;
+  const startUrl = o.start_url || null;
+  const maxActions = Math.max(5, Math.min(250, Number(o.max_actions) || 120));
+  const maxRuntimeMs = Math.max(30000, Math.min(900000, Number(o.max_runtime_ms) || 600000));
+  const adapter = o.adapter || executeWindowsDesktop;
+  const model = o.model || qwen;
+  const captureScreenshots = o.capture_screenshots !== false;
+  const started = Date.now();
+
+  const capabilities = capabilityProfile(deviceId);
+  const history = [];
+  const evidence = [];
+  const blocked = [];
+  const screensSeen = new Set();
+  const discoveredControls = new Set();
+  const exercisedControls = new Set();
+  const blockedControls = new Set();
+  const lastDecisions = new Set();
+
+  const navigation = await navigate(adapter, startUrl).catch((error) => ({
+    status: 'failed',
+    error: String(error && error.message || error),
+  }));
+
+  const observe = async () => {
+    const result = await adapter({ action: 'observe' }, { timeout_ms: 30000 });
+    if (!result || result.status !== 'succeeded') {
+      throw new Error(result && result.error || 'observe_failed');
+    }
+    return sanitize(result.ui || result);
+  };
+
+  let current = await observe();
+  let finishReason = 'runtime_limit';
+  let noProgressStreak = 0;
+
+  if (navigation.status !== 'skipped') {
+    evidence.push({
+      kind: 'start_navigation',
+      result: navigation,
+      verified: navigation.status === 'succeeded',
+    });
+  }
+
+  for (let step = 1; step <= maxActions && Date.now() - started < maxRuntimeMs; step += 1) {
+    const screenHash = hash(compact(current));
+    screensSeen.add(screenHash);
+
+    const safe = safeNodes(current);
+    safe.forEach((node) => discoveredControls.add(controlKey(screenHash, node.id)));
+
+    const pending = safe.filter((node) => {
+      const key = controlKey(screenHash, node.id);
+      return !exercisedControls.has(key) && !blockedControls.has(key);
+    });
+
+    let decision = null;
+    let decisionSource = 'qwen3';
+    let modelError = null;
+
+    try {
+      decision = normalizeDecision(await model(
+        promptFor(goal, current, capabilities, history, screenHash, exercisedControls),
+        120000
+      ));
+    } catch (error) {
+      decisionSource = 'fallback';
+      modelError = String(error && error.message || error);
+    }
+
+    if (!decision) {
+      decisionSource = 'fallback';
+      if (pending.length) {
+        decision = {
+          action: 'click',
+          node_id: pending[0].id,
+          reason: 'fallback coverage of safe unexercised control',
+        };
+      } else if (noProgressStreak < 2) {
+        decision = {
+          action: 'scroll',
+          delta: 650,
+          reason: 'discover additional interface controls',
+        };
+      } else {
+        decision = {
+          action: 'back',
+          reason: 'search another application section',
+        };
+      }
+    }
+
+    if (decision.action === 'finish') {
+      if (pending.length === 0 && noProgressStreak >= 2 && screensSeen.size > 1) {
+        finishReason = 'coverage_complete';
+        break;
+      }
+      if (pending.length) {
+        decision = {
+          action: 'click',
+          node_id: pending[0].id,
+          reason: 'finish rejected because safe controls remain',
+        };
+        decisionSource = 'governance_override';
+      } else {
+        decision = {
+          action: 'scroll',
+          delta: 650,
+          reason: 'finish rejected until another section is checked',
+        };
+        decisionSource = 'governance_override';
+      }
+    }
+
+    const safety = validateDecision(decision, current);
+
+    if (!safety.ok) {
+      const blockedKey = decision.node_id
+        ? controlKey(screenHash, decision.node_id)
+        : hash([screenHash, decision.action, safety.reason]);
+
+      if (decision.node_id) blockedControls.add(blockedKey);
+      blocked.push({
+        step,
+        action: decision.action,
+        node_id: decision.node_id,
+        reason: safety.reason,
+        label: nodeLabel(safety.node),
+      });
+      history.push({
+        step,
+        event: 'blocked',
+        reason: safety.reason,
+        node_id: decision.node_id,
+        model_error: modelError,
+      });
+      noProgressStreak += 1;
+      continue;
+    }
+
+    const beforeHash = screenHash;
+    const target = decision.node_id ? find(current, decision.node_id) : null;
+
+    const result = await executeDecision(adapter, decision, current);
+    const after = await observe().catch(() => null);
+    const afterHash = after ? hash(compact(after)) : null;
+
+    const executionVerified = Boolean(result && result.status === 'succeeded' && after);
+    const effectObserved = Boolean(afterHash && afterHash !== beforeHash);
+
+    if (decision.node_id) {
+      exercisedControls.add(controlKey(beforeHash, decision.node_id));
+    }
+
+    const decisionKey = JSON.stringify([beforeHash, decision.action, decision.node_id || null]);
+    if (lastDecisions.has(decisionKey)) {
+      noProgressStreak += 1;
+    } else {
+      lastDecisions.add(decisionKey);
+      noProgressStreak = executionVerified && effectObserved ? 0 : noProgressStreak + 1;
+    }
+
+    const item = {
+      step,
+      action: decision.action,
+      node_id: decision.node_id,
+      label: nodeLabel(target),
+      reason: decision.reason,
+      decision_source: decisionSource,
+      result_status: result && result.status || 'unknown',
+      verified: executionVerified,
+      effect_observed: effectObserved,
+      before_screen: beforeHash,
+      after_screen: afterHash,
+      error: result && result.error || null,
+      model_error: modelError,
+      timestamp: new Date().toISOString(),
+    };
+
+    evidence.push(item);
+    history.push(item);
+    current = after || current;
+
+    if (captureScreenshots && (step === 1 || step % 10 === 0)) {
+      try {
+        const shot = await adapter({ action: 'screenshot' }, { timeout_ms: 30000 });
+        evidence.push({
+          step,
+          kind: 'screenshot',
+          screenshot_hash: shot && shot.screenshot_base64
+            ? crypto.createHash('sha256').update(shot.screenshot_base64).digest('hex')
+            : null,
+          verified: shot && shot.status === 'succeeded',
+        });
+      } catch (error) {
+        evidence.push({
+          step,
+          kind: 'screenshot',
+          verified: false,
+          error: String(error && error.message || error),
+        });
+      }
+    }
+
+    if (executionVerified && safeNodes(current).every((node) =>
+      exercisedControls.has(controlKey(afterHash || beforeHash, node.id)) ||
+      blockedControls.has(controlKey(afterHash || beforeHash, node.id))
+    ) && noProgressStreak >= 2 && screensSeen.size > 1) {
+      finishReason = 'coverage_complete';
+      break;
+    }
+  }
+
+  if (finishReason === 'runtime_limit' && exercisedControls.size > 0) {
+    finishReason = 'bounded_run_exhausted';
+  }
+
+  const verifiedActions = evidence.filter((item) => item.step && item.verified === true);
+  const coverageRatio = discoveredControls.size
+    ? Number((exercisedControls.size / discoveredControls.size).toFixed(3))
+    : 0;
+  const complete = finishReason === 'coverage_complete';
+  const status = complete ? 'succeeded' : (verifiedActions.length ? 'partial' : 'failed');
+
+  const summary = {
+    version: VERSION,
+    status,
+    mission_id: missionId,
+    goal,
+    device_id: deviceId,
+    start_url: startUrl,
+    finished_reason: finishReason,
+    duration_ms: Date.now() - started,
+    actions_attempted: evidence.filter((item) => item.step && item.action).length,
+    actions_verified: verifiedActions.length,
+    screens_seen: screensSeen.size,
+    controls_discovered: discoveredControls.size,
+    controls_exercised: exercisedControls.size,
+    blocked_controls: blocked.length,
+    coverage_ratio: coverageRatio,
+    evidence_count: evidence.length,
+  };
+
+  return {
+    ...summary,
+    verified: complete,
+    verification_status: complete ? 'verified' : status,
+    capability_awareness: capabilities,
+    coverage: {
+      screens_seen: screensSeen.size,
+      controls_discovered: discoveredControls.size,
+      controls_exercised: exercisedControls.size,
+      blocked: blocked.slice(0, 100),
+      ratio: coverageRatio,
+    },
+    evidence: evidence.slice(-250),
+    response: {
+      content: JSON.stringify(summary),
+      human_summary: complete
+        ? 'RWHT PC finalizado con ' + summary.actions_verified + ' acciones verificadas, ' + summary.screens_seen + ' pantallas y ' + Math.round(summary.coverage_ratio * 100) + '% de cobertura registrada.'
+        : 'RWHT PC ejecutado parcialmente: ' + summary.actions_verified + ' acciones verificadas, ' + summary.screens_seen + ' pantallas y ' + Math.round(summary.coverage_ratio * 100) + '% de cobertura registrada.',
+    },
+    stdout: JSON.stringify(summary),
+  };
+}
+
+module.exports = Object.freeze({
+  VERSION,
+  capabilityProfile,
+  parseJson,
+  isHighRiskLabel: function (value) {
+    return BLOCKED.test(String(value || ''));
+  },
+  runAutonomousRwht,
+});
