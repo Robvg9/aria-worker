@@ -19,7 +19,7 @@ assert.match(api,/const hasLiveLease=.*lease_owner.*lease_until/s);
 assert.match(api,/activeRank=.*running.*60.*waiting.*45.*planning.*30.*paused.*20.*queued.*10/s);
 assert.match(api,/sort\(\(a:any,b:any\)=>activeRank\(b\)-activeRank\(a\)/);
 console.log('MEDITATION ACTIVE MISSION PRIORITY CONTRACT: PASS');
-assert.match(api,/path.endsWith("\/cancel")/);
+assert.match(api,/path\\.endsWith\\(["']\\/cancel["']\\)/);
 assert.match(api,/status: "cancelled"/);
 console.log('MEDITATION MISSION CANCELLATION CONTRACT: PASS');
 
