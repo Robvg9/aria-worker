@@ -17,3 +17,16 @@ assert.ok(migrationFiles.some(name => name.includes('memory_2_0_recall_maintenan
 assert.ok(migrationFiles.some(name => name.includes('memory_2_0_semantic_scheduler')), 'memory scheduler migration not versioned');
 
 console.log('memory-v2-contract: PASS');
+
+
+'use strict';
+const assert=require('assert');
+const fs=require('fs');
+const source=fs.readFileSync('supabase/functions/aria-memory-v2/index.ts','utf8');
+assert(source.includes('SEARCH_CACHE_TTL_MS=15000'));
+assert(source.includes('SEARCH_CACHE_MAX=128'));
+assert(source.includes('searchInflight'));
+assert(source.includes('cacheKey(ownerUserId,body)'));
+assert(source.includes('cacheClear();'));
+assert(source.includes('cached:true'));
+console.log('memory hot cache contract: PASS');
