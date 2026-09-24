@@ -45,3 +45,5 @@ assert.match(presentation,/Diagnóstico de acceso y credenciales/);
 assert.match(css,/\.technicalToggle/);
 assert.match(css,/\.settingsOption/);
 console.log('MISSION PRESENTATION + COLLAPSIBLE EVIDENCE CONTRACT: PASS');
+
+console.log('GLOBAL NAV CURRENT BRANCH CONTRACT: PASS');
