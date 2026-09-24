@@ -510,24 +510,17 @@ Deno.serve(async (req) => {
       const project=getProject(projectId);
       if(!project)return json({error:"project_not_found",trace_id:trace},404);
       const sb=serviceClient();
-      const {data:projectConversationRows,error}=await sb.schema("aria_app").from("conversations").select("conversation_id,metadata,updated_at,last_message_at").eq("owner_user_id",user.id).order("updated_at",{ascending:false}).limit(100);
-      if(error) return json({error:"project_conversation_lookup_failed",detail:error.message,trace_id:trace},502);
-      const rowMatch=(projectConversationRows??[]).find((x:any)=>{
-        const md=x?.metadata&&typeof x.metadata==="object"?x.metadata:{};
-        return String(md?.project_id||"").toLowerCase()===project.id;
+      const {data:projectConversation,error:lookupError}=await sb.rpc("aria_app_get_or_create_project_conversation",{
+        p_user_id:user.id,
+        p_project_id:project.id,
+        p_project_name:project.name
       });
-      let row=rowMatch??null;
-      if(!row){
-        const id=crypto.randomUUID();
-        const ensured=await sb.rpc("aria_app_ensure_conversation",{p_user_id:user.id,p_conversation_id:id,p_title:project.name+" · Chat"});
-        if(ensured.error)return json({error:"project_conversation_create_failed",trace_id:trace},502);
-        const {error:metaError}=await sb.schema("aria_app").from("conversations").update({metadata:{project_id:project.id,project_name:project.name,project_icon:project.icon,project_context:project.context}}).eq("conversation_id",id).eq("owner_user_id",user.id);
-        if(metaError)return json({error:"project_conversation_metadata_failed",trace_id:trace},502);
-        row={conversation_id:id,metadata:{project_id:project.id,project_name:project.name},updated_at:null,last_message_at:null};
-      }
-      const payload=await sb.rpc("aria_app_get_conversation",{p_user_id:user.id,p_conversation_id:row.conversation_id});
+      if(lookupError) return json({error:"project_conversation_lookup_failed",detail:lookupError.message,trace_id:trace},502);
+      if(!projectConversation?.conversation_id) return json({error:"project_conversation_lookup_failed",detail:"rpc_returned_no_conversation",trace_id:trace},502);
+      const conversationId=String(projectConversation.conversation_id);
+      const payload=await sb.rpc("aria_app_get_conversation",{p_user_id:user.id,p_conversation_id:conversationId});
       if(payload.error)return json({error:"project_conversation_read_failed",trace_id:trace},502);
-      return json({ok:true,project,conversation_id:row.conversation_id,conversation:payload.data,trace_id:trace});
+      return json({ok:true,project,conversation_id:conversationId,conversation:payload.data,trace_id:trace});
     }
     if (req.method === "GET" && path.includes("/projects/") && path.endsWith("/missions")) {
       const partsPath = path.split("/projects/")[1].replace(/\/missions$/, "");
