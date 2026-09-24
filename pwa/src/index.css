@@ -67,6 +67,12 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .notificationRowText small{font-size:13px;line-height:1.4;color:rgba(255,255,255,.68)}
 .notificationArrow{font-size:26px;line-height:1;color:rgba(255,255,255,.46)}
 @media(max-width:700px){
+  .testCenterStats{grid-template-columns:1fr 1fr}
+  .testCenterStats .statCard:last-child{grid-column:1/-1}
+  .testCatalogHeader{align-items:flex-start}
+  .testCatalogMain small{max-width:68vw}
+}
+@media(max-width:700px){
   .settingsOption{align-items:flex-start}
   .settingsOption>div{flex:1}
   .toggleButton{min-width:88px}
@@ -102,6 +108,22 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .screenIndicatorArrow{opacity:.65;}
 .visualPreviewControls{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#120e1d;}
 .visualPreviewControls .ghost{min-height:40px;}
+
+/* Capability test center */
+.testCenter{display:grid;gap:14px}
+.testCenterStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.testCatalogHeader{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.testCategoryBar{display:flex;gap:7px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:none}
+.testCategoryBar::-webkit-scrollbar{display:none}
+.testCatalogList{display:grid;gap:7px}
+.testCatalogRow{width:100%;border:1px solid var(--line);background:rgba(255,255,255,.025);border-radius:12px;color:var(--text);padding:11px 12px;display:flex;justify-content:space-between;gap:12px;align-items:center;text-align:left;cursor:pointer}
+.testCatalogRow:hover{background:rgba(255,255,255,.05)}
+.testCatalogMain{min-width:0;display:grid;gap:6px}
+.testCatalogMain strong{font-size:12px;line-height:1.35}
+.testCatalogMain small{display:block;color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.testCatalogMeta{display:flex;gap:6px;flex-wrap:wrap}
+.testCatalogMeta .pill{font-size:9px}
+.testDetailModal{max-height:min(80dvh,760px);overflow:auto}
 
 /* Global PWA navigation + human mission presentation */
 .globalPageFrame{min-height:100dvh;width:100%}

@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
-import { missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
+import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
+import { TEST_CATALOG, TEST_CATALOG_VERSION } from './testCatalog';
 import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
 const CACHE_PREFIX = 'aria-runtime-cache-v3';
-const CACHE_TTL_MS: Record<string, number> = { system: 15000, capabilities: 60000, active_mission: 10000, meditation_overview: 10000 };
+const CACHE_TTL_MS: Record<string, number> = { system: 15000, capabilities: 21600000, active_mission: 10000, meditation_overview: 21600000 };
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const UI_PREFS_KEY = 'aria_ui_preferences_v1';
 const BUILD = import.meta.env.VITE_BUILD ?? '2026.09.19-pwa-v9';
+function shortBuild(build: string) {
+  const value = String(build || '');
+  return value.length > 10 ? value.slice(0, 8) + '…' : value;
+}
 
 type UiPrefs = { swipeNavigation: boolean; animations: boolean };
 
@@ -542,8 +547,7 @@ function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
       <div className='authGlow' />
       <form className='authCard' onSubmit={submit}>
         <div className='brandMark'>A</div>
-        <div className='eyebrow'>DIRECT ARIA · {BUILD}</div>
-        <h1>Tu centro de mando cognitivo.</h1>
+                <h1>Tu centro de mando cognitivo.</h1>
         <p>Conversación, misiones, modelos, agentes, dispositivos y Meditación IA en una sola interfaz.</p>
         <input aria-label='Correo' type='email' inputMode='email' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo electrónico' autoComplete='username' />
         <input aria-label='Contraseña' type='password' value={password} onChange={e => setPassword(e.target.value)} placeholder='Contraseña' autoComplete='current-password' />
@@ -583,15 +587,13 @@ function QuickCatalogModal({ title, items, onClose }: { title: string; items: an
 
 function CapabilityCenter({
   caps,
-  userId,
-  onMission
+  userId
 }: {
   caps: CapabilityCatalog | null;
   userId: string;
-  onMission: () => void;
 }) {
-  const CAP_TAB_KEY='aria_capabilities_tab_v2:'+userId;
-  const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections'>(() => {
+  const CAP_TAB_KEY='aria_capabilities_tab_v3:'+userId;
+  const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections' | 'tests'>(() => {
     try {
       const saved = localStorage.getItem(CAP_TAB_KEY);
       return (saved as any) || 'overview';
@@ -600,54 +602,119 @@ function CapabilityCenter({
     }
   });
   const [filter, setFilter] = useState('');
+  const [testCategory, setTestCategory] = useState('Todas');
+  const [selectedTest, setSelectedTest] = useState<(typeof TEST_CATALOG)[number] | null>(null);
+
   const source = tab === 'models' ? caps?.models ?? [] : tab === 'agents' ? caps?.agents ?? [] : tab === 'devices' ? caps?.devices ?? [] : tab === 'executors' ? caps?.executors ?? [] : tab === 'connections' ? caps?.connections ?? [] : [];
   const q = filter.trim().toLowerCase();
   const filtered = q ? source.filter((item: any) => JSON.stringify(item).toLowerCase().includes(q)) : source;
+
+  const testCategories = ['Todas', ...Array.from(new Set(TEST_CATALOG.map(test => test.category)))];
+  const filteredTests = TEST_CATALOG.filter(test => {
+    const categoryOk = testCategory === 'Todas' || test.category === testCategory;
+    const queryOk = !q || JSON.stringify(test).toLowerCase().includes(q);
+    return categoryOk && queryOk;
+  });
+
+  function saveTab(next: typeof tab) {
+    setTab(next);
+    setFilter('');
+    if (next !== 'tests') setTestCategory('Todas');
+    try { localStorage.setItem(CAP_TAB_KEY,next); } catch {}
+  }
+
   return (
     <main className='appShell'>
       <header className='topBar'>
-        <div><div className='eyebrow'>ARIA / UNIVERSO</div><h1>Centro de capacidades</h1><div className='sub'>Inventario real, estado operativo y rutas gobernadas. Sin secretos.</div></div>
-        <div className='topActions'><button className='primary' onClick={onMission}>Nueva misión</button></div>
+        <div><div className='eyebrow'>ARIA / UNIVERSO</div><h1>Centro de capacidades</h1><div className='sub'>Inventario real, pruebas, cobertura y rutas gobernadas.</div></div>
       </header>
       <div className='pageBodyViewport capabilitiesViewport'>
-      <section className='panel'>
-        <div className='capHero'>
-          <div className='heroOrb smallOrb'>ARIA</div>
-          <div><div className='eyebrow'>INVENTARIO LIVE</div><div className='capHeroText'>{caps ? (caps.summary.models_available ?? 0) + ' modelos disponibles · ' + (caps.summary.agents_available ?? 0) + ' agentes disponibles · ' + (caps.summary.devices_online ?? 0) + ' dispositivos online' : 'Sincronizando inventario…'}</div><div className='muted'>{caps ? 'Actualizado ' + formatDate(caps.generated_at) : 'Esperando al núcleo'}</div></div>
-        </div>
-        <div className='capTabs'>
-          {(['overview','models','agents','devices','executors','connections'] as const).map(t => <button key={t} className={'tabButton ' + (tab === t ? 'selected' : '')} onClick={() => { setTab(t); try { localStorage.setItem(CAP_TAB_KEY,t); } catch {} }}>{t === 'overview' ? 'Resumen' : t === 'models' ? 'Modelos' : t === 'agents' ? 'Agentes' : t === 'devices' ? 'Dispositivos' : t === 'executors' ? 'Executors' : 'Conexiones'}</button>)}
-        </div>
-        {tab === 'overview' ? (
-          caps ? (
-            <div className='capGrid'>
-              <button className='capTile' onClick={() => setTab('models')}><span>MODELOS</span><strong>{caps.summary.models ?? 0}</strong><small>{caps.summary.models_available ?? 0} disponibles</small></button>
-              <button className='capTile' onClick={() => setTab('agents')}><span>AGENTES</span><strong>{caps.summary.agents ?? 0}</strong><small>{caps.summary.agents_available ?? 0} disponibles</small></button>
-              <button className='capTile' onClick={() => setTab('devices')}><span>DISPOSITIVOS</span><strong>{caps.summary.devices ?? 0}</strong><small>{caps.summary.devices_online ?? 0} online</small></button>
-              <button className='capTile' onClick={() => setTab('executors')}><span>EXECUTORS</span><strong>{caps.summary.executors ?? 0}</strong><small>rutas gobernadas</small></button>
-              <button className='capTile' onClick={() => setTab('connections')}><span>CONEXIONES</span><strong>{caps.summary.connections ?? 0}</strong><small>estado no sensible</small></button>
+        <section className='panel'>
+          <div className='capHero'>
+            <div className='heroOrb smallOrb'>ARIA</div>
+            <div><div className='eyebrow'>INVENTARIO LIVE</div><div className='capHeroText'>{caps ? (caps.summary.models_available ?? 0) + ' modelos disponibles · ' + (caps.summary.agents_available ?? 0) + ' agentes disponibles · ' + (caps.summary.devices_online ?? 0) + ' dispositivos online' : 'Sincronizando inventario…'}</div><div className='muted'>{caps ? 'Actualizado ' + formatDate(caps.generated_at) : 'Esperando al núcleo'}</div></div>
+          </div>
+
+          <div className='capTabs'>
+            {(['overview','models','agents','devices','executors','connections','tests'] as const).map(t =>
+              <button key={t} className={'tabButton ' + (tab === t ? 'selected' : '')} onClick={() => saveTab(t)}>
+                {t === 'overview' ? 'Resumen' : t === 'models' ? 'Modelos' : t === 'agents' ? 'Agentes' : t === 'devices' ? 'Dispositivos' : t === 'executors' ? 'Executors' : t === 'connections' ? 'Conexiones' : 'Pruebas'}
+              </button>
+            )}
+          </div>
+
+          {tab === 'overview' ? (
+            caps ? (
+              <div className='capGrid'>
+                <button className='capTile' onClick={() => saveTab('models')}><span>MODELOS</span><strong>{caps.summary.models ?? 0}</strong><small>{caps.summary.models_available ?? 0} disponibles</small></button>
+                <button className='capTile' onClick={() => saveTab('agents')}><span>AGENTES</span><strong>{caps.summary.agents ?? 0}</strong><small>{caps.summary.agents_available ?? 0} disponibles</small></button>
+                <button className='capTile' onClick={() => saveTab('devices')}><span>DISPOSITIVOS</span><strong>{caps.summary.devices ?? 0}</strong><small>{caps.summary.devices_online ?? 0} online</small></button>
+                <button className='capTile' onClick={() => saveTab('executors')}><span>EXECUTORS</span><strong>{caps.summary.executors ?? 0}</strong><small>rutas gobernadas</small></button>
+                <button className='capTile' onClick={() => saveTab('connections')}><span>CONEXIONES</span><strong>{caps.summary.connections ?? 0}</strong><small>estado no sensible</small></button>
+                <button className='capTile' onClick={() => saveTab('tests')}><span>PRUEBAS</span><strong>{TEST_CATALOG.length}</strong><small>{TEST_CATALOG.filter(test => test.includedInNpmTest).length} en npm test</small></button>
+              </div>
+            ) : <div className='emptyState'>No se pudo cargar el inventario.</div>
+          ) : tab === 'tests' ? (
+            <div className='testCenter'>
+              <div className='testCenterStats'>
+                <div className='statCard'><div className='statValue'>{TEST_CATALOG.length}</div><div className='statLabel'>Tests catalogados</div></div>
+                <div className='statCard'><div className='statValue'>{TEST_CATALOG.filter(test => test.includedInNpmTest).length}</div><div className='statLabel'>Incluidos en npm test</div></div>
+                <div className='statCard'><div className='statValue'>{testCategories.length - 1}</div><div className='statLabel'>Áreas de prueba</div></div>
+              </div>
+              <div className='testCatalogHeader'>
+                <div><div className='panelTitle'>CATÁLOGO DE PRUEBAS · v{TEST_CATALOG_VERSION}</div><div className='muted'>Cada entrada muestra qué comprueba, para qué sirve y dónde vive el test.</div></div>
+                <span className='pill positive'>{filteredTests.length} visibles</span>
+              </div>
+              <div className='testCategoryBar'>
+                {testCategories.map(category => <button key={category} className={'tabButton ' + (testCategory === category ? 'selected' : '')} onClick={() => setTestCategory(category)}>{category}</button>)}
+              </div>
+              <div className='searchRow'><input value={filter} onChange={e => setFilter(e.target.value)} placeholder='Buscar por test, área o capacidad…' /><span>{filteredTests.length} resultados</span></div>
+              <div className='testCatalogList'>
+                {filteredTests.map(test => (
+                  <button type='button' className='testCatalogRow' key={test.id} onClick={() => setSelectedTest(test)}>
+                    <div className='testCatalogMain'>
+                      <div><strong>{test.title}</strong><small>{test.file}</small></div>
+                      <div className='testCatalogMeta'><span className='pill'>{test.category}</span><span className={'pill ' + (test.includedInNpmTest ? 'positive' : '')}>{test.includedInNpmTest ? 'CI · npm test' : 'Catálogo'}</span></div>
+                    </div>
+                    <span>›</span>
+                  </button>
+                ))}
+              </div>
+              {selectedTest && <div className='modalBackdrop' onClick={() => setSelectedTest(null)}>
+                <section className='detailModal testDetailModal' onClick={e => e.stopPropagation()}>
+                  <div className='detailTop'>
+                    <div><div className='eyebrow'>{selectedTest.category}</div><h2>{selectedTest.title}</h2><div className='muted'>{selectedTest.file}</div></div>
+                    <button className='ghost' onClick={() => setSelectedTest(null)}>Cerrar</button>
+                  </div>
+                  <div className='humanSummaryGrid'>
+                    <div><strong>Cómo funciona</strong><p>{selectedTest.how}</p></div>
+                    <div><strong>Qué capacidad comprueba</strong><p>{selectedTest.capabilities}</p></div>
+                    <div><strong>Ejecución</strong><p>{selectedTest.includedInNpmTest ? 'Forma parte de la batería npm test.' : 'Está catalogado en el repositorio pero no forma parte de npm test.'}</p></div>
+                  </div>
+                </section>
+              </div>}
             </div>
-          ) : <div className='emptyState'>No se pudo cargar el inventario.</div>
-        ) : (
-          <>
-            <div className='searchRow'><input value={filter} onChange={e => setFilter(e.target.value)} placeholder='Filtrar capacidades…' /><span>{filtered.length} resultados</span></div>
-            <div className='catalogList'>
-              {filtered.slice(0, 80).map((item: any, index: number) => {
-                const id = item.model_id ?? item.agent_id ?? item.device_id ?? item.id ?? item.provider_id ?? index;
-                const title = item.display_name ?? item.agent_id ?? item.name ?? item.provider_id ?? item.id ?? 'Elemento';
-                const sub = item.model_id ?? item.role ?? item.type ?? item.agent_type ?? item.purpose ?? '';
-                const st = item.status ?? item.integration_status ?? 'available';
-                return <div className='catalogRow' key={id}><div><strong>{title}</strong><small>{sub}</small></div><span className={'pill ' + tone(st)}>{statusLabel(st)}</span></div>;
-              })}
-              {!filtered.length && <div className='emptyState'>No hay coincidencias.</div>}
-            </div>
-          </>
-        )}
-      </section>
+          ) : (
+            <>
+              <div className='searchRow'><input value={filter} onChange={e => setFilter(e.target.value)} placeholder='Filtrar capacidades…' /><span>{filtered.length} resultados</span></div>
+              <div className='catalogList'>
+                {filtered.slice(0, 80).map((item: any, index: number) => {
+                  const id = item.model_id ?? item.agent_id ?? item.device_id ?? item.id ?? item.provider_id ?? index;
+                  const title = item.display_name ?? item.agent_id ?? item.name ?? item.provider_id ?? item.id ?? 'Elemento';
+                  const sub = item.model_id ?? item.role ?? item.type ?? item.agent_type ?? item.purpose ?? '';
+                  const st = item.status ?? item.integration_status ?? 'available';
+                  return <div className='catalogRow' key={id}><div><strong>{title}</strong><small>{sub}</small></div><span className={'pill ' + tone(st)}>{statusLabel(st)}</span></div>;
+                })}
+                {!filtered.length && <div className='emptyState'>No hay coincidencias.</div>}
+              </div>
+            </>
+          )}
+        </section>
       </div>
     </main>
   );
 }
+
 
 function MissionDetail({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
   const [showTechnical, setShowTechnical] = useState(false);
@@ -659,7 +726,7 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
     <div className='modalBackdrop' onClick={onClose}>
       <section className='detailModal' onClick={e => e.stopPropagation()}>
         <div className='detailTop'><div><div className='eyebrow'>RESUMEN DE MISIÓN</div><h2>{missionHumanTitle(mission)}</h2>
-                  <div className='muted'>{missionGoalPreview(mission)}</div><span className={'pill ' + tone(status)}>{statusLabel(status)}</span></div><button className='ghost' onClick={onClose}>Cerrar</button></div>
+                  <div className='muted'>{missionGoalPreview(mission)}</div><div className='muted missionActivityHint'>{missionActivityLabel(mission)}</div><span className={'pill ' + tone(status)}>{statusLabel(status)}</span></div><button className='ghost' onClick={onClose}>Cerrar</button></div>
         <div className='detailGrid'>
           <StatCard value={mission.completed_steps ?? 0} label={'Pasos de ' + (mission.total_steps ?? mission.steps?.length ?? '—')} />
           <StatCard value={terminal ? 'Final' : 'En curso'} label='Estado' />
@@ -1104,10 +1171,10 @@ function Chat({
             <h1>{screen === 0 ? 'Dashboard' : 'Chat'}</h1>
             <div className='sub'>
               {syncState === 'live'
-                ? 'Núcleo conectado · sincronización LIVE'
+                ? 'Núcleo conectado'
                 : syncState === 'cached'
-                  ? 'Núcleo listo · datos locales disponibles'
-                  : 'Conectando con el núcleo…'} · build {BUILD}
+                  ? 'Núcleo listo'
+                  : 'Conectando con el núcleo…'}
             </div>
           </div>
         </div>
@@ -1273,8 +1340,6 @@ function Meditation({ session }: { session: Session }) {
     setSyncing(false);
   }
 
-  useLiveSync(load, session.accessToken, 10000);
-
   async function openMission(missionId: string) {
     try {
       setError('');
@@ -1310,14 +1375,14 @@ function Meditation({ session }: { session: Session }) {
       <section className='panel'><div className='panelTitle'>HUMAN GATES</div>{(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}{!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
-      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span>›</span></button>)}</section>
+      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span>›</span></button>)}</section>
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
       </div>
     </main>
   );
 }
 
-function Capabilities({ session, onMission }: { session: Session; onMission: () => void }) {
+function Capabilities({ session }: { session: Session }) {
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   useLiveSync(async () => {
     const d = await api('/capabilities', session.accessToken);
@@ -1326,8 +1391,21 @@ function Capabilities({ session, onMission }: { session: Session; onMission: () 
       writeCached('capabilities', session.userId, d.capabilities);
     }
   }, session.accessToken, 60000);
-  return <CapabilityCenter caps={caps} userId={session.userId} onMission={onMission} />;
+  return <CapabilityCenter caps={caps} userId={session.userId} />;
 }
+
+function MeditationBackgroundSync({ session }: { session: Session }) {
+  useLiveSync(async () => {
+    const [overview, capability] = await Promise.all([
+      api('/meditation/overview', session.accessToken).catch(() => null),
+      api('/capabilities', session.accessToken).catch(() => null),
+    ]);
+    if (overview) writeCached('meditation_overview', session.userId, overview);
+    if (capability?.capabilities) writeCached('capabilities', session.userId, capability.capabilities);
+  }, session.accessToken, 10000);
+  return null;
+}
+
 
 function Settings({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [status, setStatus] = useState('');
@@ -1399,7 +1477,7 @@ function Settings({ session, onSignOut }: { session: Session; onSignOut: () => v
       <div className='pageBodyViewport settingsViewport'>
         <section className='panel settingsHero'>
           <div className='panelTitle'>APLICACIÓN</div>
-          <h2>Build actual: {BUILD}</h2>
+          <h2>Build actual: {shortBuild(BUILD)}</h2>
           <p className='muted'>Cuenta activa: {session.email || session.userId}</p>
           <div className='actions'><button className='primary' disabled={busy} onClick={() => void updateApp()}>Actualizar app</button></div>
           {status && <div className='notice'>{status}</div>}
@@ -1555,6 +1633,7 @@ export default function App() {
       onPointerCancel={() => setGlobalSwipeStart(null)}
     >
       <PwaNotificationCenter session={session} />
+      <MeditationBackgroundSync session={session} />
       {page === 'projects'
         ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
@@ -1566,7 +1645,6 @@ export default function App() {
           : page === 'capabilities'
             ? <Capabilities
                 session={session}
-                onMission={() => { window.location.hash = '#mission'; }}
               />
             : page === 'settings'
               ? <Settings

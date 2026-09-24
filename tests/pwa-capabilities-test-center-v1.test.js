@@ -1,0 +1,28 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
+const catalog=fs.readFileSync(path.join(root,'pwa/src/testCatalog.ts'),'utf8');
+const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
+const presentation=fs.readFileSync(path.join(root,'pwa/src/missionPresentation.ts'),'utf8');
+
+assert.match(app,/TEST_CATALOG/);
+assert.match(app,/TEST_CATALOG_VERSION/);
+assert.match(app,/tests.*as const/);
+assert.match(app,/CATÁLOGO DE PRUEBAS/);
+assert.match(app,/Cómo funciona/);
+assert.match(app,/Qué capacidad comprueba/);
+assert.match(app,/Incluidos en npm test/);
+const capabilityBlock=app.slice(app.indexOf('function CapabilityCenter('),app.indexOf('function MissionDetail(',app.indexOf('function CapabilityCenter(')));
+assert.doesNotMatch(capabilityBlock,/Nueva misión/);
+assert.doesNotMatch(capabilityBlock,/onMission/);
+assert.match(catalog,/export const TEST_CATALOG/);
+assert.match(catalog,/"file": "tests\//);
+assert.match(catalog,/includedInNpmTest/);
+assert.ok((catalog.match(/"id": "/g)||[]).length >= 200,'test catalog should include the full repository test suite');
+assert.match(css,/\.testCatalogRow/);
+assert.match(css,/\.testDetailModal/);
+assert.match(presentation,/missionActivityLabel/);
+assert.match(app,/missionActivityLabel/);
+console.log('PWA CAPABILITIES TEST CENTER CONTRACT: PASS');

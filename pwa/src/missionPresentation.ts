@@ -42,3 +42,12 @@ export function missionGoalPreview(mission: any, max = 110): string {
   if (!goal) return 'Sin objetivo registrado.';
   return goal.length > max ? goal.slice(0, max - 1).trimEnd() + '…' : goal;
 }
+
+export function missionActivityLabel(mission: any): string {
+  const status = String(mission?.status || '').toLowerCase();
+  if (['blocked','cancelled','failed','succeeded'].includes(status)) {
+    return status === 'blocked' ? 'No se está ejecutando' : 'Sin ejecución activa';
+  }
+  if (['queued','running','waiting','paused'].includes(status)) return 'Puede continuar según su estado actual';
+  return 'Estado no determinado';
+}
