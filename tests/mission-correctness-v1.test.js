@@ -17,7 +17,7 @@ assert.match(planner, /"analysis_1"/);
 assert.match(planner, /"implementation_1"/);
 assert.match(planner, /"verification_1"/);
 assert.match(planner, /depends_on/);
-assert.match(planner, /planner-v11-safe-readonly-fallback-v3-multistep/);
+assert.match(planner, /planner-v11-safe-readonly-actionable-v4-multistep/);
 
 assert.match(appApi, /display_title/);
 assert.match(appApi, /Misión #/);
