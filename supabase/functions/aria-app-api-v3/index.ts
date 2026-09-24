@@ -208,7 +208,20 @@ async function enrichMission(m:any, sb:any, includeEta=true) {
   const progress=tw?Math.max(0,Math.min(100,Math.round(dw/tw*1000)/10)):(m.total_steps?Math.round((m.completed_steps||0)/m.total_steps*1000)/10:0);
   const eta=includeEta ? await etaFor(sb,steps) : {eta_seconds:null,basis:"overview_fast",samples:0};
   const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
-  return { ...m, project_id: md.project_id ?? null, project_name: md.project_name ?? null, progress_percent:progress, step_count:steps.length, steps, eta, terminal:terminal.has(String(m.status)), phase:missionPhase(m), block_details: missionBlockDetails(m) };
+  const queuePriority = Number(md.queue_priority);
+  return {
+    ...m,
+    project_id: md.project_id ?? null,
+    project_name: md.project_name ?? null,
+    queue_priority: Number.isFinite(queuePriority) ? queuePriority : 0,
+    progress_percent:progress,
+    step_count:steps.length,
+    steps,
+    eta,
+    terminal:terminal.has(String(m.status)),
+    phase:missionPhase(m),
+    block_details: missionBlockDetails(m)
+  };
 }
 
 async function missionForUser(missionId: string, userId: string) {
@@ -494,7 +507,20 @@ async function markMeditationNotificationsReadForUser(userId:string,body:any){
   if(error)throw new Error(error.message);
   return{ok:true,marked_read:Number(data?.length||0),notification_ids:(data||[]).map((x:any)=>String(x.notification_id))};
 }
-async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);if(controller?.owner_user_id&&controller.owner_user_id!==userId)return{version:"aria-meditation-dashboard-v1",mode:"stopped",controller:null,active_mission:null,missions:[],human_gates:[],blocked:[],counts:{missions:0,human_gates:0,blocked:0}};const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at").order("updated_at",{ascending:false}).limit(200);if(me)throw new Error(me.message);const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(controller?.session_id&&md.meditation_session_id===controller.session_id)});const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||`Misión #${owned.length-i}`),description:String(m?.goal||"")}));const fastMissions=await Promise.all(ranked.slice(0,20).map((m:any)=>enrichMission(m,sb,false)));const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;return s==="running"?50:s==="waiting"&&hasLiveLease(m)?45:s==="waiting"?40:s==="planning"?30:s==="paused"?20:s==="queued"?10:0;};const rawActive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;const active=rawActive?await enrichMission(rawActive,sb,true):null;const missions=fastMissions.map((m:any)=>m.mission_id===active?.mission_id?active:m);const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:[m.block_details?.remediation||"Revisa el motivo indicado.",m.block_details?.next_action||m.next_action||"Determina qué recurso o autorización falta.","ARIA intentará una estrategia alternativa cuando exista una ruta gobernada disponible."],updated_at:m.updated_at}));const verification_pending=missions.filter(m=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,...(m.block_details||{}),step:m.steps.find((s:any)=>String(s.id)===String(m?.checkpoint?.recovery?.failed_step_id||""))??null,updated_at:m.updated_at}));return{version:"aria-meditation-dashboard-v2",mode:String(controller?.desired_mode??"stopped"),controller,active_mission:active,missions,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:missions.length,human_gates:gates.length,blocked:blocked.length,verification_pending:verification_pending.length}};
+async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);if(controller?.owner_user_id&&controller.owner_user_id!==userId)return{version:"aria-meditation-dashboard-v1",mode:"stopped",controller:null,active_mission:null,missions:[],human_gates:[],blocked:[],counts:{missions:0,human_gates:0,blocked:0}};const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at").order("updated_at",{ascending:false}).limit(200);if(me)throw new Error(me.message);const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(controller?.session_id&&md.meditation_session_id===controller.session_id)});const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||`Misión #${owned.length-i}`),description:String(m?.goal||"")}));const fastMissions=await Promise.all(ranked.slice(0,20).map((m:any)=>enrichMission(m,sb,false)));const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;return s==="running"?50:s==="waiting"&&hasLiveLease(m)?45:s==="waiting"?40:s==="planning"?30:s==="paused"?20:s==="queued"?10:0;};const rawActive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;const active=rawActive?await enrichMission(rawActive,sb,true):null;const missions=fastMissions.map((m:any)=>m.mission_id===active?.mission_id?active:m);const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:[m.block_details?.remediation||"Revisa el motivo indicado.",m.block_details?.next_action||m.next_action||"Determina qué recurso o autorización falta.","ARIA intentará una estrategia alternativa cuando exista una ruta gobernada disponible."],updated_at:m.updated_at}));const verification_pending=missions.filter(m=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,...(m.block_details||{}),step:m.steps.find((s:any)=>String(s.id)===String(m?.checkpoint?.recovery?.failed_step_id||""))??null,updated_at:m.updated_at}));
+let liveEvents:any[]=[];
+if(active?.mission_id){
+  const {data:liveEventRows,error:liveEventError}=await sb.schema("aria_internal").from("mission_events")
+    .select("event_id,mission_id,step_index,event_type,payload,created_at")
+    .eq("mission_id",String(active.mission_id))
+    .order("created_at",{ascending:false})
+    .limit(30);
+  if(liveEventError) throw new Error(liveEventError.message);
+  liveEvents=(liveEventRows??[]).reverse();
+}
+const liveSyncAt=new Date().toISOString();
+const activeWithLive=active ? {...active,live_events:liveEvents,live_sync_at:liveSyncAt,live_event_count:liveEvents.length}:null;
+return{version:"aria-meditation-dashboard-v3",mode:String(controller?.desired_mode??"stopped"),controller,active_mission:activeWithLive,missions,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:missions.length,human_gates:gates.length,blocked:blocked.length,verification_pending:verification_pending.length}};
 }
 
 function looksLikeSimpleConversation(input:string) {
@@ -519,6 +545,35 @@ function looksLikeMissionRequest(input: string) {
   const action = /\b(misi[oó]n|ejecuta|ejecutar|haz|hacer|arregla|arreglar|arr[eé]glalo|corrige|corregir|crea|crear|implementa|implementar|modifica|modificar|actualiza|actualizar|despliega|desplegar|repara|reparar|soluciona|solucionar|construye|construir|prueba|probar|cambia|cambiar|mueve|mover|pon|poner|organiza|organizar|rediseña|rediseñar|ordena|ordenar|quita|quitar|elimina|eliminar|a[nñ]ade|a[nñ]adir|agrega|agregar|configura|configurar|ajusta|ajustar)\b/i.test(value);
   if (!action) return false;
   return !explanatory;
+}
+
+
+async function reorderMeditationQueue(userId:string, orderedMissionIds:string[]){
+  const ids=Array.from(new Set((orderedMissionIds??[]).map(String).filter(Boolean))).slice(0,100);
+  if(!ids.length) throw Object.assign(new Error("ordered_mission_ids_required"),{status:400});
+  const sb=serviceClient();
+  const {data:rows,error}=await sb.schema("aria_internal").from("mission_state")
+    .select("mission_id,status,metadata")
+    .in("mission_id",ids);
+  if(error) throw new Error(error.message);
+  if((rows??[]).length!==ids.length) throw Object.assign(new Error("queue_mission_not_found"),{status:404});
+  for(const row of rows??[]){
+    const md=row?.metadata&&typeof row.metadata==="object"&&!Array.isArray(row.metadata)?row.metadata:{};
+    const owner=md.user_id??md.owner_user_id;
+    if(owner!==userId) throw Object.assign(new Error("queue_mission_not_owned"),{status:403});
+    if(String(row.status)!=="queued") throw Object.assign(new Error("queue_only_accepts_queued_missions"),{status:409});
+  }
+  const priorityBase=ids.length*1000;
+  for(let i=0;i<ids.length;i++){
+    const missionId=ids[i];
+    const current=(rows??[]).find((x:any)=>String(x.mission_id)===missionId);
+    const md=current?.metadata&&typeof current.metadata==="object"&&!Array.isArray(current.metadata)?current.metadata:{};
+    const {error:updateError}=await sb.schema("aria_internal").from("mission_state")
+      .update({metadata:{...md,queue_priority:priorityBase-i},updated_at:new Date().toISOString()})
+      .eq("mission_id",missionId).eq("status","queued");
+    if(updateError) throw new Error(updateError.message);
+  }
+  return {ordered_mission_ids:ids,queue_priorities:Object.fromEntries(ids.map((id,i)=>[id,priorityBase-i]))};
 }
 
 Deno.serve(async (req) => {
@@ -602,6 +657,16 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/meditation/status")) return json({ ok: true, ...await meditationStatus(user.id), trace_id: trace });
     if (req.method === "POST" && path.endsWith("/meditation/control")) { const body = await req.json().catch(() => null); const controller = await meditationControl(user.id, String(body?.action || "").toLowerCase()); return json({ ok: true, controller, trace_id: trace }); }
     if (req.method === "GET" && path.endsWith("/meditation/overview")) return json({ ok: true, ...(await meditationOverview(user.id)), trace_id: trace });
+    if (req.method === "POST" && path.endsWith("/meditation/queue/reorder")) {
+      const body = await req.json().catch(() => null);
+      try {
+        const result = await reorderMeditationQueue(user.id, Array.isArray(body?.ordered_mission_ids) ? body.ordered_mission_ids : []);
+        return json({ ok:true, ...result, trace_id:trace });
+      } catch (e) {
+        const status=Number((e as any)?.status||500);
+        return json({error:String((e as any)?.message||e),trace_id:trace},status);
+      }
+    }
     if (req.method === "GET" && path.endsWith("/meditation/notifications")) { const url = new URL(req.url); const unreadOnly = url.searchParams.get("unread_only") === "true"; const limit = Number(url.searchParams.get("limit") || 50); return json({ ok: true, ...(await meditationNotificationsForUser(user.id, unreadOnly, limit)), trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/meditation/notifications/read")) { const body = await req.json().catch(() => null); return json({ ...await markMeditationNotificationsReadForUser(user.id, body), trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/media/upload-url")) { const body = await req.json().catch(() => null); const fileName = typeof body?.fileName === "string" && body.fileName.trim() ? body.fileName.trim().replace(/[^A-Za-z0-9._-]/g, "_") : "upload.bin"; const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`; const { data, error } = await serviceClient().storage.from(MEDIA_BUCKET).createSignedUploadUrl(objectPath); if (error || !data?.signedUrl) return json({ error: "media_upload_url_failed", stage: "media", trace_id: trace }, 502); return json({ ok: true, bucket: MEDIA_BUCKET, path: objectPath, signedUrl: data.signedUrl, trace_id: trace }); }
