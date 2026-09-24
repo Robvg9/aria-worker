@@ -29,6 +29,8 @@ test('production migration contains recurrence, candidate, promotion and regress
   assert.match(migration, /root_cause_required/);
   assert.match(migration, /promote_failure_learning/);
   assert.match(migration, /verify_learning_application/);
+  assert.match(migration, /verify_learning_application[\\s\\S]*as \\\$\\$/);
+  assert.doesNotMatch(migration, /verify_learning_application[\\s\\S]*as \\\n\\s*declare/);
   assert.match(migration, /application_verified/);
   assert.match(migration, /Regression contract/);
   assert.match(migration, /deno\.json.*import_map|import_map.*deno\.json/s);
