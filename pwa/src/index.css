@@ -82,6 +82,10 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .notificationRowText small{font-size:13px;line-height:1.4;color:rgba(255,255,255,.68)}
 .notificationArrow{font-size:26px;line-height:1;color:rgba(255,255,255,.46)}
 @media(max-width:700px){
+
+  .meditationViewport>.executionHero{flex:0 0 auto!important;min-width:0;visibility:visible;opacity:1;position:relative;z-index:2;}
+  .missionConfirmationActions{flex-direction:column-reverse}
+  .missionConfirmationActions button{width:100%}
   .testCenterStats{grid-template-columns:1fr 1fr}
   .testCenterStats .statCard:last-child{grid-column:1/-1}
   .testCatalogHeader{align-items:flex-start}
@@ -248,6 +252,8 @@ button{touch-action:manipulation;}
 .bottomNav{display:none;}
 .pageBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 0 calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
 .pageBodyViewport>.panel,.pageBodyViewport>.statePanel,.pageBodyViewport>.statsGrid,.pageBodyViewport>.errorBox{flex-shrink:0;}
+
+.pageBodyViewport>.executionHero{flex:0 0 auto;min-width:0;}
 .capabilitiesViewport{padding-bottom:18px;touch-action:pan-y;}
 .meditationViewport{display:flex;flex-direction:column;gap:12px;touch-action:pan-y;}
 .technicalDetailsOpen{overflow:hidden;}
@@ -336,6 +342,12 @@ button{touch-action:manipulation;}
   .projectCard{min-height:58px;}
 }
 
+.missionConfirmation{margin-top:10px;padding:13px 14px;border:1px solid rgba(159,124,255,.32);border-radius:17px;background:linear-gradient(145deg,rgba(37,28,58,.98),rgba(18,14,30,.98));box-shadow:0 10px 28px rgba(0,0,0,.18)}
+.missionConfirmation strong{display:block;margin-top:5px;font-size:14px;line-height:1.35}
+.missionConfirmation p{margin:7px 0 4px;color:#e2dced;line-height:1.45;overflow-wrap:anywhere}
+.missionConfirmation small{display:block;color:var(--muted);line-height:1.45}
+.missionConfirmationActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:11px}
+.missionConfirmationActions button{min-height:42px}
 .composer{position:relative;}
 .composerStatus{font-size:10px;color:var(--muted);padding:4px 8px;white-space:nowrap;align-self:center;}
 @media (max-width:720px){.composer{flex-wrap:wrap}.composerStatus{width:100%;padding:2px 8px 0;}}

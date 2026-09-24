@@ -186,6 +186,64 @@ function writeCached<T>(kind: string, userId: string, data: T) {
   } catch {}
 }
 
+const CHAT_HISTORY_KEY_PREFIX = 'aria-chat-history-v1';
+
+type CachedChatHistory = {
+  conversationId: string | null;
+  messages: Message[];
+  pendingMission: { goal: string; conversationId: string } | null;
+  savedAt: number;
+};
+
+function chatHistoryKey(userId: string) {
+  return CHAT_HISTORY_KEY_PREFIX + ':' + userId;
+}
+
+function readChatHistory(userId: string): CachedChatHistory | null {
+  try {
+    const raw = localStorage.getItem(chatHistoryKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.messages)) return null;
+    return {
+      conversationId: typeof parsed.conversationId === 'string' ? parsed.conversationId : null,
+      messages: parsed.messages
+        .filter((m: any) => m && (m.role === 'user' || m.role === 'aria') && typeof m.text === 'string')
+        .map((m: any) => ({
+          id: String(m.id || crypto.randomUUID()),
+          role: m.role,
+          text: String(m.text),
+          ...(Number.isFinite(Number(m.processingMs)) ? { processingMs: Number(m.processingMs) } : {})
+        })),
+      pendingMission: parsed?.pendingMission && typeof parsed.pendingMission.goal === 'string'
+        ? {
+            goal: String(parsed.pendingMission.goal),
+            conversationId: String(parsed.pendingMission.conversationId || parsed.conversationId || '')
+          }
+        : null,
+      savedAt: Number(parsed.savedAt) || Date.now()
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeChatHistory(
+  userId: string,
+  conversationId: string | null,
+  messages: Message[],
+  pendingMission: { goal: string; conversationId: string } | null
+) {
+  try {
+    localStorage.setItem(chatHistoryKey(userId), JSON.stringify({
+      conversationId,
+      messages: messages.slice(-120),
+      pendingMission,
+      savedAt: Date.now()
+    } satisfies CachedChatHistory));
+  } catch {}
+}
+
 const HUMAN_API_ERRORS: Record<string, string> = {
   app_api_unreachable: 'No pude conectar con ARIA. La red está inestable; los datos que ya estaban cargados se mantienen disponibles.',
   conversation_persist_failed: 'No se pudo guardar el mensaje del chat. ARIA intentará mantener la conversación disponible.',
@@ -1048,7 +1106,8 @@ function Chat({
   onCapabilities: () => void;
   onProjects: () => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const cachedChat = readChatHistory(session.userId);
+  const [messages, setMessages] = useState<Message[]>(cachedChat?.messages ?? []);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
@@ -1063,7 +1122,8 @@ function Chat({
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [screen, setScreen] = useState<0 | 1>(() => initialNavigation.screen);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(cachedChat?.conversationId ?? null);
+  const [pendingMissionConfirmation, setPendingMissionConfirmation] = useState<{ goal: string; conversationId: string } | null>(cachedChat?.pendingMission ?? null);
   const fileRef = useRef<HTMLInputElement>(null);
   const processingStartedAtRef = useRef<number | null>(null);
   const [processingElapsedMs, setProcessingElapsedMs] = useState(0);
@@ -1120,6 +1180,10 @@ function Chat({
   }, []);
 
   useEffect(() => {
+    writeChatHistory(session.userId, conversationId, messages, pendingMissionConfirmation);
+  }, [session.userId, conversationId, messages, pendingMissionConfirmation]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -1134,8 +1198,17 @@ function Chat({
               .filter((m: any) => m.text.trim())
           : [];
         if (cancelled) return;
-        setConversationId(typeof d?.conversation_id === 'string' ? d.conversation_id : null);
-        setMessages(restored);
+        const serverConversationId = typeof d?.conversation_id === 'string' ? d.conversation_id : null;
+        const localHistory = readChatHistory(session.userId);
+        if (restored.length || !localHistory?.messages?.length) {
+          setConversationId(serverConversationId ?? localHistory?.conversationId ?? null);
+          setMessages(restored);
+          if (restored.length) setPendingMissionConfirmation(null);
+        } else {
+          setConversationId(localHistory?.conversationId ?? serverConversationId);
+          setMessages(localHistory.messages);
+          if (localHistory.pendingMission) setPendingMissionConfirmation(localHistory.pendingMission);
+        }
       } catch {
         // Chat remains usable even when history restoration is temporarily unavailable.
       }
@@ -1194,13 +1267,60 @@ function Chat({
       if (Number.isFinite(serverProcessingMs) && serverProcessingMs >= 0) setLastProcessingMs(serverProcessingMs);
       else if (processingStartedAtRef.current) setLastProcessingMs(Date.now() - processingStartedAtRef.current);
       if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs: Number.isFinite(serverProcessingMs) ? serverProcessingMs : undefined }]);
-      if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
+      if (d?.mission_confirmation_required && d?.pending_mission?.goal) {
+        setPendingMissionConfirmation({
+          goal: String(d.pending_mission.goal),
+          conversationId: String(d.conversationId || activeConversationId)
+        });
+      } else {
+        setPendingMissionConfirmation(null);
+        if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
+      }
     } catch (x) {
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
     } finally {
       setSending(false);
       window.setTimeout(() => chatInputRef.current?.focus(), 0);
     }
+  }
+
+  async function confirmPendingMission() {
+    const pending = pendingMissionConfirmation;
+    if (!pending || sending) return;
+    setSending(true);
+    setError('');
+    const startedAt = Date.now();
+    processingStartedAtRef.current = startedAt;
+    setProcessingElapsedMs(0);
+    setMessages(m => [...m, { id: crypto.randomUUID(), role: 'user', text: 'Sí, comenzar la misión.' }]);
+    try {
+      const d = await api('/conversation', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          parts: [{ type: 'text', text: 'Sí, comenzar la misión.' }],
+          clientMessageId: crypto.randomUUID(),
+          conversationId: pending.conversationId || conversationId || undefined,
+          mission_action: 'confirm_mission',
+          mission_goal: pending.goal
+        })
+      });
+      const p = d.parts?.find((x: any) => x.type === 'text');
+      const processingMs = Date.now() - startedAt;
+      if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs }]);
+      setConversationId(typeof d?.conversationId === 'string' ? d.conversationId : pending.conversationId || conversationId);
+      setPendingMissionConfirmation(null);
+      if (d?.mission?.mission_id) void trackMission(String(d.mission.mission_id));
+    } catch (x) {
+      setError(x instanceof Error ? x.message : 'No se pudo confirmar la misión.');
+    } finally {
+      setSending(false);
+      window.setTimeout(() => chatInputRef.current?.focus(), 0);
+    }
+  }
+
+  function dismissPendingMission() {
+    setPendingMissionConfirmation(null);
+    setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: 'Entendido. No iniciaré una misión. Seguimos conversando normalmente.' }]);
   }
 
   async function trackMission(id: string) {
@@ -1341,6 +1461,20 @@ function Chat({
                   ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div>{m.role === 'aria' && m.processingMs != null && <small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>)
                   : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
               </div>
+              {pendingMissionConfirmation && (
+                <div className='missionConfirmation' role='dialog' aria-label='Confirmar inicio de misión'>
+                  <div>
+                    <div className='panelTitle'>CONFIRMAR MISIÓN</div>
+                    <strong>¿Quieres que comience una misión para esto?</strong>
+                    <p>{pendingMissionConfirmation.goal}</p>
+                    <small>La misión entrará en la cola de Meditación IA. Si solo querías preguntar o conversar, puedes cancelar.</small>
+                  </div>
+                  <div className='missionConfirmationActions'>
+                    <button className='ghost' disabled={sending} onClick={dismissPendingMission}>No, solo conversar</button>
+                    <button className='primary' disabled={sending} onClick={() => void confirmPendingMission()}>{sending ? 'Confirmando…' : 'Sí, comenzar misión'}</button>
+                  </div>
+                </div>
+              )}
               {sending && (
                 <div className='chatThinking' role='status' aria-live='polite'>
                   <span className='thinkingOrb' aria-hidden='true'>🧠</span>

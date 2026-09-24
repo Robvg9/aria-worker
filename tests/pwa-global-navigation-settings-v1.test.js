@@ -88,3 +88,17 @@ assert.match(css,/\.projectBodyViewport[^\n]*touch-action:pan-y/);
 assert.match(app,/document\.addEventListener\('pointerdown'/);
 assert.match(app,/document\.addEventListener\('pointermove'/);
 assert.match(app,/document\.addEventListener\('pointerup'/);
+
+assert.match(app,/CHAT_HISTORY_KEY_PREFIX = 'aria-chat-history-v1'/);
+assert.match(app,/function readChatHistory\(userId: string\)/);
+assert.match(app,/function writeChatHistory\(/);
+assert.match(app,/setPendingMissionConfirmation/);
+assert.match(app,/mission_confirmation_required/);
+assert.match(app,/confirmPendingMission/);
+assert.match(app,/No, solo conversar/);
+assert.match(app,/Sí, comenzar misión/);
+assert.match(css,/.pageBodyViewport>\.executionHero\{flex:0 0 auto/);
+assert.match(css,/.meditationViewport>\.executionHero\{flex:0 0 auto!important/);
+assert.match(css,/.missionConfirmation\{/);
+console.log('CHAT PERSISTENCE + MOBILE MEDITATION + MISSION CONFIRMATION CONTRACT: PASS');
+
