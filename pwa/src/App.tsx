@@ -219,7 +219,7 @@ function missionObjectivePresentation(mission: any, result: string) {
   };
 }
 
-function humanOperation(operation: any, executorType: any): string {function humanOperation(operation: any, executorType: any): string {
+function humanOperation(operation: any, executorType: any): string {
   const op = String(operation || '').trim().toLowerCase();
   const ex = String(executorType || '').trim().toLowerCase();
   const map: Record<string, string> = {
