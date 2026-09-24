@@ -774,10 +774,12 @@ function CapabilityCenter({
 }
 
 
-function MissionDetail({ mission, events, onClose, onRetry }: { mission: Mission; events: MissionEvent[]; onClose: () => void; onRetry?: () => Promise<void> }) {
+function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { mission: Mission; events: MissionEvent[]; onClose: () => void; onRetry?: () => Promise<void>; onCancel?: () => Promise<void> }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [retryError, setRetryError] = useState('');
+  const [cancelError, setCancelError] = useState('');
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
@@ -799,9 +801,11 @@ function MissionDetail({ mission, events, onClose, onRetry }: { mission: Mission
             <div className='recoverySteps'><strong>Cómo solucionarlo</strong>{(mission.block_details.steps?.length ? mission.block_details.steps : [mission.block_details.remediation || mission.block_details.next_action || 'Revisar el diagnóstico y corregir la causa.','Cuando quede resuelto, vuelve a ejecutar la misión.']).map((stepText: string, index: number) => <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>)}</div>
             <div className='recoveryActions'>
               {mission.block_details.link && <a className='ghost recoveryLink' href={mission.block_details.link} target='_blank' rel='noreferrer'>{mission.block_details.link_label || 'Abrir recurso relacionado'}</a>}
-              {onRetry && mission.block_details.retry_ready !== false && <button className='primary' disabled={retrying} onClick={async () => { setRetrying(true); setRetryError(''); try { await onRetry(); } catch (e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); } }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>}
+              {onRetry && mission.block_details.retry_ready !== false && <button className='primary' disabled={retrying || cancelling} onClick={async () => { setRetrying(true); setRetryError(''); try { await onRetry(); } catch (e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); } }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>}
+              {onCancel && !terminal && <button className='ghost dangerAction' disabled={retrying || cancelling} onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; setCancelling(true); setCancelError(''); try { await onCancel(); } catch (e) { setCancelError(e instanceof Error ? e.message : 'No se pudo cancelar la misión.'); } finally { setCancelling(false); } }}>{cancelling ? 'Cancelando…' : 'Cancelar misión'}</button>}
             </div>
             {retryError && <div className='errorBox'>{retryError}</div>}
+            {cancelError && <div className='errorBox'>{cancelError}</div>}
             {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
           </div>
         )}
@@ -828,6 +832,14 @@ function MissionDetail({ mission, events, onClose, onRetry }: { mission: Mission
           </div>
           <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{summary.result ? renderMarkdown(summary.result) : <p>{status === 'succeeded' ? 'La misión terminó, pero ARIA no generó un texto final presentable. La evidencia detallada sigue disponible abajo.' : 'ARIA todavía no tiene una respuesta final presentable. El diagnóstico y la evidencia siguen disponibles.'}</p>}</div></div>
         </div>
+        {!terminal && onCancel && (
+          <div className='detailResult missionCancelPanel'>
+            <div className='panelTitle'>CONTROL DE MISIÓN</div>
+            <p className='muted'>Puedes detener esta misión sin afectar las demás. ARIA guardará la cancelación en su timeline.</p>
+            <button className='ghost dangerAction' disabled={cancelling} onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; setCancelling(true); setCancelError(''); try { await onCancel(); } catch (e) { setCancelError(e instanceof Error ? e.message : 'No se pudo cancelar la misión.'); } finally { setCancelling(false); } }}>{cancelling ? 'Cancelando…' : 'Cancelar misión'}</button>
+            {cancelError && <div className='errorBox'>{cancelError}</div>}
+          </div>
+        )}
         <section className='technicalDetails'>
           <button type='button' className='technicalToggle' onClick={() => setShowTechnical(value => !value)} aria-expanded={showTechnical}>
             <span>{showTechnical ? 'Ocultar evidencia técnica' : 'Ver evidencia técnica'}</span><span>{showTechnical ? '⌃' : '⌄'}</span>
@@ -1455,6 +1467,14 @@ function Meditation({ session }: { session: Session }) {
     await openMission(String(newId));
   }
 
+  async function cancelMission(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/cancel', session.accessToken, { method: 'POST' });
+    if (!data?.mission?.mission_id || data?.cancelled !== true) throw new Error('ARIA no confirmó la cancelación de la misión.');
+    setMissionDetail(null);
+    setMissionEvents([]);
+    await load();
+  }
+
   async function control(action: string) {
     setBusy(true); setError('');
     try { await api('/meditation/control', session.accessToken, { method: 'POST', body: JSON.stringify({ action }) }); await load(); }
@@ -1469,7 +1489,7 @@ function Meditation({ session }: { session: Session }) {
       
       <div className='pageBodyViewport meditationViewport'>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
-      <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => m ? void openMission(String(m.mission_id)) : undefined} />
+      <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => m ? void openMission(String(m.mission_id)) : undefined} onCancel={() => m ? cancelMission(String(m.mission_id)) : Promise.resolve()} />
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
       <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
       <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'} · {verificationLabel(s)}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
@@ -1477,7 +1497,7 @@ function Meditation({ session }: { session: Session }) {
       <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row live' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
       <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}</section>
-      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onRetry={() => retryMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
+      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onRetry={() => retryMission(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
       </div>
     </main>
   );
@@ -1608,10 +1628,10 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
 
   if (status === 'queued') {
     return {
-      headline: 'ARIA tiene esta misión lista para ejecutar',
-      subject: 'La misión está esperando su próximo ciclo del runner.',
-      evidence: 'Todavía no hay una ejecución activa registrada.',
-      next: mission?.next_action || 'Tomar la misión y comenzar el plan.'
+      headline: 'ARIA tiene esta misión en cola',
+      subject: 'El runner todavía no la ha tomado para ejecución.',
+      evidence: 'No se fabricará progreso: todavía no existe una ejecución activa ni eventos de runtime para este intento.',
+      next: mission?.next_action || 'Tomar la misión y comenzar el primer paso.'
     };
   }
 
@@ -1641,12 +1661,13 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
   };
 }
 
-function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen }: {
+function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen, onCancel }: {
   mission: any;
   events: MissionEvent[];
   lastSyncAt: number | null;
   syncing: boolean;
   onOpen: () => void;
+  onCancel?: () => Promise<void>;
 }) {
   if (!mission) {
     return (
@@ -1694,8 +1715,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen 
           </div>
         </div>
         <div className='executionHeroActions'>
-          <span className={'pill ' + tone(status)}>{syncing ? 'SINCRONIZANDO…' : 'LIVE'}</span>
+          <span className={'pill ' + tone(status)}>{syncing ? 'SINCRONIZANDO…' : status === 'queued' ? 'EN COLA' : 'LIVE'}</span>
           <button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>
+          {!terminal && onCancel && <button className='ghost executionDetailsButton dangerAction' onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; try { await onCancel(); } catch {} }}>Cancelar misión</button>}
         </div>
       </div>
 
