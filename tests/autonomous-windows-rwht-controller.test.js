@@ -46,6 +46,7 @@ const { runAutonomousRwht, capabilityProfile } = require('../agents/windows/auto
     return { status: 'succeeded', action: request.action };
   };
 
+  const progress = [];
   let modelCalls = 0;
   const model = async () => {
     modelCalls += 1;
@@ -63,7 +64,8 @@ const { runAutonomousRwht, capabilityProfile } = require('../agents/windows/auto
     start_url: null,
     max_actions: 5,
     max_runtime_ms: 30000,
-    capture_screenshots: false
+    capture_screenshots: false,
+    on_progress: async (event) => { progress.push(event); }
   });
 
   assert.equal(result.status, 'succeeded');
@@ -73,6 +75,18 @@ const { runAutonomousRwht, capabilityProfile } = require('../agents/windows/auto
   assert.equal(calls.some((c) => c.action === 'click'), true);
   assert.equal(result.capability_awareness.capabilities.some((c) => c.operation === 'computer.use.autonomous'), true);
   assert.equal(capabilityProfile('windows-test').capabilities.some((c) => c.operation === 'ollama.qwen3'), true);
+  const progressTypes = new Set(progress.map((event) => event.event_type));
+  for (const type of [
+    'computer_use_capabilities_confirmed',
+    'computer_use_device_confirmed',
+    'computer_use_observation_started',
+    'computer_use_observation_completed',
+    'computer_use_decision_made',
+    'computer_use_action_started',
+    'computer_use_action_executed',
+    'computer_use_result_observed',
+    'computer_use_verification_completed'
+  ]) assert.equal(progressTypes.has(type), true, 'missing live progress event: ' + type);
 
   console.log('AUTONOMOUS WINDOWS RWHT CONTROLLER: PASS');
 })().catch((error) => {
