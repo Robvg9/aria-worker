@@ -24,21 +24,7 @@ const { runAutonomousRwht, capabilityProfile } = require('../agents/windows/auto
   const uiAfter = {
     ...uiInitial,
     title: 'BattleCruiser Dashboard',
-    nodes: [{
-      ...uiInitial.nodes[0],
-      name: 'Dashboard seleccionado',
-      label: 'Dashboard seleccionado',
-      text: 'Dashboard seleccionado'
-    }, {
-      id: 'btn-missions',
-      role: 'button',
-      name: 'Misiones',
-      label: 'Misiones',
-      text: 'Misiones',
-      enabled: true,
-      visible: true,
-      attributes: { x: 250, y: 100, width: 120, height: 40 }
-    }]
+    nodes: []
   };
 
   const adapter = async (request) => {
