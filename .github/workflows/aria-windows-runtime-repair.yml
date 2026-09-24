@@ -71,9 +71,9 @@ jobs:
           if($controllerChanged){Copy-Item -LiteralPath $srcController -Destination $dstController -Force}
           if($uiChanged){Copy-Item -LiteralPath $srcUi -Destination $dstUi -Force}
           if(-not($controllerChanged -or $uiChanged)){Write-Host 'MEDITATION_RUNTIME_SYNC=UNCHANGED'; exit 0}
-          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$pid=0
-          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pid)}
-          if($pid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "MEDITATION_AGENT_RELOAD_PID=$pid";Stop-Process -Id $pid -Force}}
+          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$agentPid=0
+          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$agentPid)}
+          if($agentPid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "MEDITATION_AGENT_RELOAD_PID=$pid";Stop-Process -Id $pid -Force}}
           Start-Sleep -Seconds 2
           $launcher='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
           if(-not(Test-Path $launcher)){throw 'Agent launcher missing after runtime sync'}
@@ -89,6 +89,53 @@ jobs:
           if(-not$ok){throw 'Meditation controller did not reload with v2 surface'}
           Write-Host 'MEDITATION_RUNTIME_SYNC=PASS'
           Write-Host 'MEDITATION_CONTROLLER_RELOAD=PASS'
+
+      - name: Sync Windows agent and autonomous RWHT runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          $srcAgent=Join-Path $env:GITHUB_WORKSPACE 'agents\windows\aria-agent.js'
+          $srcRwht=Join-Path $env:GITHUB_WORKSPACE 'agents\windows\autonomous-rwht-controller.js'
+          $dstAgent='D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
+          $dstRwht='D:\ARIA-Windows-Agent\Runtime\windows\autonomous-rwht-controller.js'
+          foreach($p in @($srcAgent,$srcRwht)){if(-not(Test-Path $p)){throw "Windows runtime source missing: $p"}}
+          New-Item -ItemType Directory -Force -Path (Split-Path $dstAgent),(Split-Path $dstRwht)|Out-Null
+          $agentChanged=$true;$rwhtChanged=$true
+          if(Test-Path $dstAgent){$agentChanged=((Get-FileHash $srcAgent -Algorithm SHA256).Hash -ne (Get-FileHash $dstAgent -Algorithm SHA256).Hash)}
+          if(Test-Path $dstRwht){$rwhtChanged=((Get-FileHash $srcRwht -Algorithm SHA256).Hash -ne (Get-FileHash $dstRwht -Algorithm SHA256).Hash)}
+          Write-Host "WINDOWS_AGENT_CHANGED=$agentChanged"
+          Write-Host "WINDOWS_RWHT_CONTROLLER_CHANGED=$rwhtChanged"
+          if($agentChanged){Copy-Item -LiteralPath $srcAgent -Destination $dstAgent -Force}
+          if($rwhtChanged){Copy-Item -LiteralPath $srcRwht -Destination $dstRwht -Force}
+          & node --check $dstAgent
+          if($LASTEXITCODE -ne 0){throw 'Windows agent syntax check failed'}
+          & node --check $dstRwht
+          if($LASTEXITCODE -ne 0){throw 'Autonomous RWHT controller syntax check failed'}
+          $needsReload=$agentChanged -or $rwhtChanged
+          if(-not $needsReload){Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=UNCHANGED';exit 0}
+          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$pid=0
+          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pid)}
+          if($pid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "WINDOWS_AGENT_RELOAD_PID=$agentPid";Stop-Process -Id $agentPid -Force}}
+          Start-Sleep -Seconds 2
+          $launcher='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
+          if(-not(Test-Path $launcher)){throw 'Agent launcher missing after autonomous RWHT sync'}
+          Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$launcher -WindowStyle Hidden
+          $ok=$false
+          for($i=0;$i-lt30;$i++){
+            Start-Sleep -Seconds 1
+            $pidNow=0
+            if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pidNow)}
+            if($pidNow -gt 0){
+              $procNow=Get-Process -Id $pidNow -ErrorAction SilentlyContinue
+              if($null -ne $procNow){$ok=$true;break}
+            }
+          }
+          if(-not $ok){throw 'Windows agent did not reload after autonomous RWHT sync'}
+          $agentSource=Get-Content -Raw $dstAgent
+          $rwhtSource=Get-Content -Raw $dstRwht
+          if($agentSource -notmatch 'computer\.use\.autonomous'){throw 'Reloaded Windows agent missing autonomous computer-use operation'}
+          if($rwhtSource -notmatch 'aria-windows-autonomous-rwht-v1\.1\.0'){throw 'Reloaded RWHT controller version marker missing'}
+          Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=PASS'
+          Write-Host "WINDOWS_AGENT_PID=$pidNow"
 
       - name: Enforce singleton Agent and singleton watchdog without restart
         run: |
