@@ -2011,6 +2011,7 @@ export default function App() {
   const [navigation, setNavigation] = useState<NavigationState>(() => initialNavigation);
   const [uiPrefs, setUiPrefs] = useState<UiPrefs>(() => readUiPrefs());
   const globalSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const globalSwipeTriggeredRef = useRef(false);
   const page = navigation.page;
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
 
@@ -2079,21 +2080,39 @@ export default function App() {
     const onTouchStart = (event: TouchEvent) => {
       const touch = event.touches[0];
       if (!touch) return;
+      globalSwipeTriggeredRef.current = false;
       beginGlobalSwipe(touch.clientX, touch.clientY, event.target);
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (globalSwipeTriggeredRef.current) return;
+      const start = globalSwipeStartRef.current;
+      const touch = event.touches[0];
+      if (!start || !touch) return;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (Math.abs(dx) < 44 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      globalSwipeTriggeredRef.current = true;
+      event.preventDefault();
+      finishGlobalSwipe(touch.clientX, touch.clientY);
     };
     const onTouchEnd = (event: TouchEvent) => {
       const touch = event.changedTouches[0];
       if (!touch) return;
-      finishGlobalSwipe(touch.clientX, touch.clientY);
+      if (!globalSwipeTriggeredRef.current) finishGlobalSwipe(touch.clientX, touch.clientY);
+      else globalSwipeStartRef.current = null;
+      globalSwipeTriggeredRef.current = false;
     };
     const onTouchCancel = () => {
       globalSwipeStartRef.current = null;
+      globalSwipeTriggeredRef.current = false;
     };
     document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
     document.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
     document.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
     return () => {
       document.removeEventListener('touchstart', onTouchStart, true);
+      document.removeEventListener('touchmove', onTouchMove, true);
       document.removeEventListener('touchend', onTouchEnd, true);
       document.removeEventListener('touchcancel', onTouchCancel, true);
     };
