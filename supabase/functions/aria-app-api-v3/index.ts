@@ -510,8 +510,13 @@ Deno.serve(async (req) => {
       const project=getProject(projectId);
       if(!project)return json({error:"project_not_found",trace_id:trace},404);
       const sb=serviceClient();
-      let {data:row,error}=await sb.schema("aria_app").from("conversations").select("conversation_id,metadata,updated_at,last_message_at").eq("owner_user_id",user.id).eq("metadata->>project_id",project.id).order("updated_at",{ascending:false}).limit(1).maybeSingle();
+      const {data:projectConversationRows,error}=await sb.schema("aria_app").from("conversations").select("conversation_id,metadata,updated_at,last_message_at").eq("owner_user_id",user.id).order("updated_at",{ascending:false}).limit(100);
       if(error) return json({error:"project_conversation_lookup_failed",detail:error.message,trace_id:trace},502);
+      const rowMatch=(projectConversationRows??[]).find((x:any)=>{
+        const md=x?.metadata&&typeof x.metadata==="object"?x.metadata:{};
+        return String(md?.project_id||"").toLowerCase()===project.id;
+      });
+      let row=rowMatch??null;
       if(!row){
         const id=crypto.randomUUID();
         const ensured=await sb.rpc("aria_app_ensure_conversation",{p_user_id:user.id,p_conversation_id:id,p_title:project.name+" · Chat"});
