@@ -98,20 +98,36 @@ function processingLabel(ms: number): string {
 }
 
 function missionResultText(mission: any): string {
+  const results = mission?.checkpoint?.results && typeof mission.checkpoint.results === 'object' ? mission.checkpoint.results : {};
+  const preferredKeys = ['summary_1', 'crosscheck_1', 'facts_1'];
+  for (const key of preferredKeys) {
+    const value = results[key];
+    const found = [value?.response?.content, value?.response?.text, value?.stdout, value?.output, value?.message, value?.result?.response?.content]
+      .find((v: any) => typeof v === 'string' && v.trim());
+    if (found) return String(found).trim();
+  }
+  const structured: string[] = [];
+  for (const value of Object.values(results) as any[]) {
+    const found = [value?.response?.content, value?.response?.text, value?.stdout, value?.output, value?.message, value?.result?.response?.content]
+      .find((v: any) => typeof v === 'string' && v.trim());
+    if (found) structured.push(String(found).trim());
+  }
+  if (structured.length) return structured[structured.length - 1];
   const direct = [mission?.last_stdout, mission?.last_stderr]
     .map((v: any) => typeof v === 'string' ? v.trim() : '')
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((v: string) => !/^(retry[_-]?exhausted|retryexhaustedreplanned|executor_error|verification_failed|device_enqueue_\d+|human_gate_required)$/i.test(v));
   if (direct.length) return direct.join('\n\n');
-  const results = mission?.checkpoint?.results && typeof mission.checkpoint.results === 'object' ? mission.checkpoint.results : {};
-  const texts: string[] = [];
-  for (const value of Object.values(results) as any[]) {
-    const candidates = [value?.response?.content, value?.response?.text, value?.stdout, value?.output, value?.message, value?.result?.response?.content];
-    const found = candidates.find((v: any) => typeof v === 'string' && v.trim());
-    if (found) texts.push(String(found).trim());
-  }
-  return texts.join('\n\n');
+  const internal = String(mission?.last_stderr || mission?.next_action || '').trim().toLowerCase();
+  const human: Record<string,string> = {
+    retryexhaustedreplanned: 'ARIA tuvo que descartar una estrategia que agotó sus reintentos, generó una alternativa y continuó con ella. El detalle verificable de la misión aparece en su respuesta y evidencia.',
+    retry_exhausted_replanned: 'ARIA tuvo que descartar una estrategia que agotó sus reintentos, generó una alternativa y continuó con ella. El detalle verificable de la misión aparece en su respuesta y evidencia.',
+    retry_exhausted_all_strategies: 'ARIA agotó las estrategias gobernadas disponibles para esta misión y necesita una nueva intervención antes de continuar.',
+    executor_error: 'Uno de los executors de ARIA no pudo completar su paso. La misión conserva la evidencia para diagnosticarlo.',
+    verification_failed: 'La comprobación del resultado no fue válida. La misión conserva la evidencia necesaria para corregir el problema.'
+  };
+  return human[internal] || '';
 }
-
 function humanOperation(operation: any, executorType: any): string {
   const op = String(operation || '');
   const ex = String(executorType || '');
@@ -716,8 +732,10 @@ function CapabilityCenter({
 }
 
 
-function MissionDetail({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
+function MissionDetail({ mission, events, onClose, onRetry }: { mission: Mission; events: MissionEvent[]; onClose: () => void; onRetry?: () => Promise<void> }) {
   const [showTechnical, setShowTechnical] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState('');
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
@@ -732,8 +750,20 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
           <StatCard value={terminal ? 'Final' : 'En curso'} label='Estado' />
           <StatCard value={formatDate(mission.finished_at)} label='Finalización' />
         </div>
-        {mission?.block_details && (status === 'blocked' || status === 'waiting' || mission.block_details.kind === 'replan_required') && (
-          <div className='detailResult'>
+        {mission?.block_details && (status === 'blocked' || status === 'waiting' || status === 'failed' || status === 'paused' || mission.block_details.kind === 'replan_required' || mission.block_details.kind === 'human_gate') && (
+          <div className='detailResult recoveryPanel'>
+            <div className='panelTitle'>{mission.block_details.kind === 'human_gate' ? 'HUMAN GATE · QUÉ FALTA' : 'BLOQUEO · QUÉ FALTA'}</div>
+            <div className='recoveryExplanation'><strong>{mission.block_details.explanation || mission.block_details.reason || 'La misión necesita una intervención antes de continuar.'}</strong><p>{mission.block_details.reason}</p></div>
+            <div className='recoverySteps'><strong>Cómo solucionarlo</strong>{(mission.block_details.steps?.length ? mission.block_details.steps : [mission.block_details.remediation || mission.block_details.next_action || 'Revisar el diagnóstico y corregir la causa.','Cuando quede resuelto, vuelve a ejecutar la misión.']).map((stepText: string, index: number) => <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>)}</div>
+            <div className='recoveryActions'>
+              {mission.block_details.link && <a className='ghost recoveryLink' href={mission.block_details.link} target='_blank' rel='noreferrer'>{mission.block_details.link_label || 'Abrir recurso relacionado'}</a>}
+              {onRetry && mission.block_details.retry_ready !== false && <button className='primary' disabled={retrying} onClick={async () => { setRetrying(true); setRetryError(''); try { await onRetry(); } catch (e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); } }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>}
+            </div>
+            {retryError && <div className='errorBox'>{retryError}</div>}
+            {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
+          </div>
+        )}
+        <div className='detailResult'>
             <div className='panelTitle'>{status === 'blocked' ? 'POR QUÉ QUEDÓ BLOQUEADA' : 'RECUPERACIÓN / VERIFICACIÓN'}</div>
             <div className='humanSummaryGrid'>
               <div><strong>Motivo</strong><p>{mission.block_details.reason || 'Sin motivo registrado.'}</p></div>
@@ -753,7 +783,7 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
             <div><strong>Qué mejora ahora</strong><p>{summary.improvement}</p></div>
             <div><strong>{summary.result ? 'Resultado obtenido' : 'Resultado esperado'}</strong><p>{summary.expected}</p></div>
           </div>
-          {summary.result ? <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{renderMarkdown(summary.result)}</div></div> : <div className='muted'>ARIA no registró todavía un texto de resultado.</div>}
+          <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{summary.result ? renderMarkdown(summary.result) : <p>{status === 'succeeded' ? 'La misión terminó, pero ARIA no generó un texto final presentable. La evidencia detallada sigue disponible abajo.' : 'ARIA todavía no tiene una respuesta final presentable. El diagnóstico y la evidencia siguen disponibles.'}</p>}</div></div>
         </div>
         <section className='technicalDetails'>
           <button type='button' className='technicalToggle' onClick={() => setShowTechnical(value => !value)} aria-expanded={showTechnical}>
@@ -1355,6 +1385,13 @@ function Meditation({ session }: { session: Session }) {
     }
   }
 
+  async function retryMission(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/retry', session.accessToken, { method: 'POST' });
+    const newId = data?.mission?.mission_id;
+    if (!newId) throw new Error('ARIA no confirmó el reintento de la misión.');
+    await openMission(String(newId));
+  }
+
   async function control(action: string) {
     setBusy(true); setError('');
     try { await api('/meditation/control', session.accessToken, { method: 'POST', body: JSON.stringify({ action }) }); await load(); }
@@ -1376,7 +1413,7 @@ function Meditation({ session }: { session: Session }) {
       <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
       <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span>›</span></button>)}</section>
-      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
+      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onRetry={() => retryMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
       </div>
     </main>
   );
