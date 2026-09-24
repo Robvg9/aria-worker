@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
+import { missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
@@ -7,7 +8,37 @@ const CACHE_PREFIX = 'aria-runtime-cache-v3';
 const CACHE_TTL_MS: Record<string, number> = { system: 15000, capabilities: 60000, active_mission: 10000, meditation_overview: 10000 };
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
+const UI_PREFS_KEY = 'aria_ui_preferences_v1';
 const BUILD = import.meta.env.VITE_BUILD ?? '2026.09.19-pwa-v9';
+
+type UiPrefs = { swipeNavigation: boolean; animations: boolean };
+
+function readUiPrefs(): UiPrefs {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(UI_PREFS_KEY) || 'null');
+    return {
+      swipeNavigation: parsed?.swipeNavigation !== false,
+      animations: parsed?.animations !== false
+    };
+  } catch {
+    return { swipeNavigation: true, animations: true };
+  }
+}
+
+function saveUiPrefs(next: UiPrefs) {
+  try { localStorage.setItem(UI_PREFS_KEY, JSON.stringify(next)); } catch {}
+  window.dispatchEvent(new Event('aria-ui-settings-changed'));
+}
+
+const SWIPE_PAGES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings'];
+
+function navigationSwipeIndex(nav: NavigationState): number {
+  if (nav.page === 'projects') return 2;
+  if (nav.page === 'meditation') return 3;
+  if (nav.page === 'capabilities') return 4;
+  if (nav.page === 'settings') return 5;
+  return nav.screen === 1 ? 1 : 0;
+}
 
 type Session = {
   accessToken: string;
@@ -552,14 +583,14 @@ function QuickCatalogModal({ title, items, onClose }: { title: string; items: an
 
 function CapabilityCenter({
   caps,
-  onBack,
+  userId,
   onMission
 }: {
   caps: CapabilityCatalog | null;
-  onBack: () => void;
+  userId: string;
   onMission: () => void;
 }) {
-  const CAP_TAB_KEY='aria_capabilities_tab_v2:'+session.userId;
+  const CAP_TAB_KEY='aria_capabilities_tab_v2:'+userId;
   const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections'>(() => {
     try {
       const saved = localStorage.getItem(CAP_TAB_KEY);
@@ -576,7 +607,7 @@ function CapabilityCenter({
     <main className='appShell'>
       <header className='topBar'>
         <div><div className='eyebrow'>ARIA / UNIVERSO</div><h1>Centro de capacidades</h1><div className='sub'>Inventario real, estado operativo y rutas gobernadas. Sin secretos.</div></div>
-        <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='primary' onClick={onMission}>Nueva misión</button></div>
+        <div className='topActions'><button className='primary' onClick={onMission}>Nueva misión</button></div>
       </header>
       <div className='pageBodyViewport capabilitiesViewport'>
       <section className='panel'>
@@ -619,6 +650,7 @@ function CapabilityCenter({
 }
 
 function MissionDetail({ mission, events, onClose }: { mission: Mission; events: MissionEvent[]; onClose: () => void }) {
+  const [showTechnical, setShowTechnical] = useState(false);
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
@@ -626,7 +658,8 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
   return (
     <div className='modalBackdrop' onClick={onClose}>
       <section className='detailModal' onClick={e => e.stopPropagation()}>
-        <div className='detailTop'><div><div className='eyebrow'>RESUMEN DE MISIÓN</div><h2>{mission.goal}</h2><span className={'pill ' + tone(status)}>{statusLabel(status)}</span></div><button className='ghost' onClick={onClose}>Cerrar</button></div>
+        <div className='detailTop'><div><div className='eyebrow'>RESUMEN DE MISIÓN</div><h2>{missionHumanTitle(mission)}</h2>
+                  <div className='muted'>{missionGoalPreview(mission)}</div><span className={'pill ' + tone(status)}>{statusLabel(status)}</span></div><button className='ghost' onClick={onClose}>Cerrar</button></div>
         <div className='detailGrid'>
           <StatCard value={mission.completed_steps ?? 0} label={'Pasos de ' + (mission.total_steps ?? mission.steps?.length ?? '—')} />
           <StatCard value={terminal ? 'Final' : 'En curso'} label='Estado' />
@@ -655,14 +688,15 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
           </div>
           {summary.result ? <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{renderMarkdown(summary.result)}</div></div> : <div className='muted'>ARIA no registró todavía un texto de resultado.</div>}
         </div>
-        <section className='technicalDetails technicalDetailsOpen'>
-          <div className='technicalDetailsTitle'>EVIDENCIA TÉCNICA</div>
-          <div className='detailTimeline'>
+        <section className='technicalDetails'>
+          <button type='button' className='technicalToggle' onClick={() => setShowTechnical(value => !value)} aria-expanded={showTechnical}>
+            <span>{showTechnical ? 'Ocultar evidencia técnica' : 'Ver evidencia técnica'}</span><span>{showTechnical ? '⌃' : '⌄'}</span>
+          </button>
+          {showTechnical && <div className='detailTimeline'>
             <div className='panelTitle'>TIMELINE REAL</div>
-            {events.length ? events.map((e: any, i) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small>{e.payload && <pre>{JSON.stringify(e.payload, null, 2)}</pre>}</div></div>) : <div className='muted'>No hay eventos adicionales disponibles.</div>}
-          </div>
-        </section>
-      </section>
+            {events.length ? events.map((e: any, i: number) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small>{e.payload && <pre>{JSON.stringify(e.payload, null, 2)}</pre>}</div></div>) : <div className='muted'>No hay eventos adicionales disponibles.</div>}
+          </div>}
+        </section>   </section>
     </div>
   );
 }
@@ -1303,14 +1337,14 @@ function Meditation({ session }: { session: Session }) {
       <section className='panel'><div className='panelTitle'>HUMAN GATES</div>{(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}{!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
-      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{r.goal}</strong><small>{statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small></div><span>›</span></button>)}</section>
+      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span>›</span></button>)}</section>
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
       </div>
     </main>
   );
 }
 
-function Capabilities({ session, onBack, onMeditation, onMission }: { session: Session; onBack: () => void; onMeditation: () => void; onMission: () => void }) {
+function Capabilities({ session, onMission }: { session: Session; onMission: () => void }) {
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   useLiveSync(async () => {
     const d = await api('/capabilities', session.accessToken);
@@ -1319,14 +1353,20 @@ function Capabilities({ session, onBack, onMeditation, onMission }: { session: S
       writeCached('capabilities', session.userId, d.capabilities);
     }
   }, session.accessToken, 60000);
-  return <CapabilityCenter caps={caps} onBack={onBack} onMission={onMission} />;
+  return <CapabilityCenter caps={caps} userId={session.userId} onMission={onMission} />;
 }
 
-function Settings({ session, onBack, onSignOut }: { session: Session; onBack: () => void; onSignOut: () => void }) {
+function Settings({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [prefs, setPrefs] = useState<UiPrefs>(() => readUiPrefs());
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>('unsupported');
 
-  async function checkForUpdate(force = false) {
+  useEffect(() => {
+    if ('Notification' in window) setNotificationPermission(Notification.permission);
+  }, []);
+
+  async function updateApp() {
     setBusy(true);
     setStatus('Comprobando versión LIVE…');
     try {
@@ -1334,16 +1374,11 @@ function Settings({ session, onBack, onSignOut }: { session: Session; onBack: ()
       if (!response.ok) throw new Error('No se pudo consultar la versión LIVE.');
       const live = await response.json();
       if (live?.build && live.build !== BUILD && BUILD !== 'dev') {
-        setStatus('Hay una actualización disponible. Recargando…');
+        setStatus('Actualización encontrada. Recargando…');
         window.location.replace('/pwa/?update=' + String(live.build) + '-' + Date.now());
         return;
       }
-      if (force) {
-        setStatus('Forzando actualización del PWA…');
-        window.location.replace('/pwa/?update=manual-' + Date.now());
-        return;
-      }
-      setStatus('Ya tienes la versión LIVE más reciente.');
+      setStatus('ARIA ya está en la versión LIVE actual.');
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'No se pudo comprobar la actualización.');
     } finally {
@@ -1372,38 +1407,58 @@ function Settings({ session, onBack, onSignOut }: { session: Session; onBack: ()
     }
   }
 
+  function togglePref(key: keyof UiPrefs) {
+    const next = { ...prefs, [key]: !prefs[key] };
+    setPrefs(next);
+    saveUiPrefs(next);
+  }
+
+  async function enableNotifications() {
+    if (!('Notification' in window)) return;
+    setNotificationPermission(await requestPwaNotificationPermission());
+  }
+
   return (
     <main className='appShell'>
       <header className='topBar'>
-        <div><div className='eyebrow'>ARIA / CONFIGURACIÓN</div><h1>Configuración</h1><div className='sub'>Mantenimiento local y control de versión de la PWA.</div></div>
-        <div className='topActions'><button className='ghost navBack' onClick={onBack}>← Centro</button></div>
+        <div><div className='eyebrow'>ARIA / CONFIGURACIÓN</div><h1>Configuración</h1><div className='sub'>Ajustes básicos, mantenimiento y control de la PWA.</div></div>
       </header>
       <div className='pageBodyViewport settingsViewport'>
         <section className='panel settingsHero'>
-          <div className='panelTitle'>VERSIÓN</div>
+          <div className='panelTitle'>APLICACIÓN</div>
           <h2>Build actual: {BUILD}</h2>
           <p className='muted'>Cuenta activa: {session.email || session.userId}</p>
-          <div className='actions'>
-            <button className='primary' disabled={busy} onClick={() => void checkForUpdate(false)}>Buscar actualización</button>
-            <button className='ghost' disabled={busy} onClick={() => void checkForUpdate(true)}>Actualizar app</button>
-          </div>
+          <div className='actions'><button className='primary' disabled={busy} onClick={() => void updateApp()}>Actualizar app</button></div>
           {status && <div className='notice'>{status}</div>}
         </section>
+
+        <section className='panel'>
+          <div className='panelTitle'>INTERFAZ</div>
+          <div className='settingsOption'><div><strong>Navegación por gestos</strong><small>Desliza izquierda o derecha para cambiar entre todas las pantallas.</small></div><button className={'toggleButton '+(prefs.swipeNavigation?'on':'')} onClick={() => togglePref('swipeNavigation')} aria-pressed={prefs.swipeNavigation}>{prefs.swipeNavigation?'Activada':'Desactivada'}</button></div>
+          <div className='settingsOption'><div><strong>Animaciones</strong><small>Controla las transiciones suaves de la interfaz.</small></div><button className={'toggleButton '+(prefs.animations?'on':'')} onClick={() => togglePref('animations')} aria-pressed={prefs.animations}>{prefs.animations?'Activadas':'Desactivadas'}</button></div>
+        </section>
+
+        <section className='panel'>
+          <div className='panelTitle'>AVISOS</div>
+          <div className='settingsOption'><div><strong>Notificaciones de ARIA</strong><small>{notificationPermission==='granted'?'Los avisos están permitidos.':notificationPermission==='unsupported'?'Este dispositivo no expone notificaciones web.':'Activa los avisos para recibir cambios de misiones.'}</small></div><button className='ghost' disabled={notificationPermission==='granted'||notificationPermission==='unsupported'} onClick={() => void enableNotifications()}>{notificationPermission==='granted'?'Activadas':'Activar avisos'}</button></div>
+        </section>
+
         <section className='panel'>
           <div className='panelTitle'>DATOS LOCALES</div>
           <h2>Limpiar caché</h2>
-          <p className='muted'>Borra cachés y preferencias locales de ARIA sin cerrar tu sesión. Úsalo ante pantallas viejas, recursos atascados o comportamientos extraños después de una actualización.</p>
+          <p className='muted'>Borra cachés y preferencias de proyecto sin cerrar tu sesión.</p>
           <button className='ghost' disabled={busy} onClick={() => void clearCache()}>Borrar caché y recargar</button>
         </section>
+
         <section className='panel'>
           <div className='panelTitle'>SESIÓN</div>
+          <p className='muted'>{session.email || session.userId}</p>
           <button className='ghost' onClick={onSignOut}>Cerrar sesión</button>
         </section>
       </div>
     </main>
   );
 }
-
 export default function App() {
   useEffect(() => {
     let cancelled = false;
