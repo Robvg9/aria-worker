@@ -449,13 +449,13 @@ async function signIn(email: string, password: string) {
 function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): number {
   const value = String(status ?? '').toLowerCase();
   const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
+  // La superficie "EJECUCIÓN EN TIEMPO REAL" representa trabajo que realmente
+  // está siendo ejecutado o esperando una condición externa de esa ejecución.
+  // Planning/queued/paused son estados de cola/control, no una ejecución viva.
   if (value === 'running' && leased) return 60;
   if (value === 'running') return 50;
   if (value === 'waiting' && leased) return 45;
   if (value === 'waiting') return 40;
-  if (value === 'planning') return 30;
-  if (value === 'paused') return 20;
-  if (value === 'queued') return 10;
   return 0;
 }
 
@@ -1604,6 +1604,9 @@ function Meditation({ session }: { session: Session }) {
         setMissionEvents(Array.isArray(liveEvents) ? liveEvents : []);
       } else {
         setMissionEvents([]);
+        // Nunca conservar un active_mission terminal/antiguo cuando ya no existe
+        // una misión realmente ejecutándose.
+        nextOverview = { ...nextOverview, active_mission: null, live_sync_at: new Date().toISOString(), live_event_count: 0 };
       }
       setO(nextOverview);
       writeCached('meditation_overview', session.userId, nextOverview);
@@ -1691,7 +1694,15 @@ function Meditation({ session }: { session: Session }) {
       
       <div className='pageBodyViewport meditationViewport'>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
-      <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => m ? void openMission(String(m.mission_id)) : undefined} onCancel={() => m ? cancelMission(String(m.mission_id)) : Promise.resolve()} />
+      {m
+        ? <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => void openMission(String(m.mission_id))} onCancel={() => cancelMission(String(m.mission_id))} />
+        : <section className='panel livePanel noActiveMissionPanel'>
+            <div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div>
+            <div className='emptyState'>
+              <strong>Ninguna misión se está ejecutando</strong>
+              <span>ARIA está disponible y la ejecución en tiempo real aparecerá aquí cuando una misión pase a ejecución.</span>
+            </div>
+          </section>}
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
       <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
       <details className='panel collapsiblePanel'>
