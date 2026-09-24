@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
-import { missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
+import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { TEST_CATALOG, TEST_CATALOG_VERSION } from './testCatalog';
 import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
@@ -726,7 +726,7 @@ function MissionDetail({ mission, events, onClose }: { mission: Mission; events:
     <div className='modalBackdrop' onClick={onClose}>
       <section className='detailModal' onClick={e => e.stopPropagation()}>
         <div className='detailTop'><div><div className='eyebrow'>RESUMEN DE MISIÓN</div><h2>{missionHumanTitle(mission)}</h2>
-                  <div className='muted'>{missionGoalPreview(mission)}</div><span className={'pill ' + tone(status)}>{statusLabel(status)}</span></div><button className='ghost' onClick={onClose}>Cerrar</button></div>
+                  <div className='muted'>{missionGoalPreview(mission)}</div><div className='muted missionActivityHint'>{missionActivityLabel(mission)}</div><span className={'pill ' + tone(status)}>{statusLabel(status)}</span></div><button className='ghost' onClick={onClose}>Cerrar</button></div>
         <div className='detailGrid'>
           <StatCard value={mission.completed_steps ?? 0} label={'Pasos de ' + (mission.total_steps ?? mission.steps?.length ?? '—')} />
           <StatCard value={terminal ? 'Final' : 'En curso'} label='Estado' />
@@ -1375,7 +1375,7 @@ function Meditation({ session }: { session: Session }) {
       <section className='panel'><div className='panelTitle'>HUMAN GATES</div>{(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}{!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
-      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span>›</span></button>)}</section>
+      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className='row' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span>›</span></button>)}</section>
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
       </div>
     </main>
