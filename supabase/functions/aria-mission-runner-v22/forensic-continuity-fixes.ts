@@ -5,7 +5,7 @@
  * - Cloudflare governed read ops
  */
 export const PLANNER_TIMEOUT_MS = 45_000;
-export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use"]);
+export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.android"]);
 
 export async function createPlanWithTimeout(
   plannerUrl: string,
@@ -60,7 +60,7 @@ export function buildDeviceEnqueuePayload(
   if (operation === "shell.execute") {
     payload.command = String(step.input?.command || "echo ARIA_UO_LIVE");
     payload.cwd = typeof step.input?.cwd === "string" ? step.input.cwd : null;
-  } else if (operation === "computer.use") {
+  } else if (operation === "computer.use" || operation === "computer.use.android") {
     payload.input = step.input && typeof step.input === "object" ? step.input : {};
   }
   return payload;
