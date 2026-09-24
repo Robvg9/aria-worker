@@ -381,6 +381,6 @@ $$;
 revoke all on function aria_internal.goal_requires_deployment_preflight(text) from public,anon,authenticated;
 grant execute on function aria_internal.goal_requires_deployment_preflight(text) to service_role;
 revoke all on function aria_internal.validate_learning_preflight(text,jsonb) from public,anon,authenticated;
-grant execute on function aria_internal.validate_learning_preflight(text,jsonb) from service_role;
+grant execute on function aria_internal.validate_learning_preflight(text,jsonb) to service_role;
 revoke all on function aria_internal.verify_learning_application(text,jsonb,jsonb,jsonb) from public,anon,authenticated;
 grant execute on function aria_internal.verify_learning_application(text,jsonb,jsonb,jsonb) to service_role;
