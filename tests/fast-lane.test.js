@@ -14,6 +14,6 @@ assert.equal(classifyConversation('').lane,'deep');
 
 const api=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-app-api-v3','index.ts'),'utf8');
 assert(api.includes('classifyConversation(text)'));
-assert(api.includes('lane.lane === "deep" ? await recall'));
+assert(api.includes('lane.lane === "deep" ? await Promise.all([recall(text,user.id), learnedContext(project)])'));
 assert(api.includes('fast_lane: lane.lane'));
 console.log('fast-lane contract: PASS');

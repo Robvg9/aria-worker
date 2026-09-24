@@ -3,7 +3,8 @@ import { ProjectWorkspace } from './ProjectWorkspace';
 import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
-const CACHE_PREFIX = 'aria-runtime-cache-v2';
+const CACHE_PREFIX = 'aria-runtime-cache-v3';
+const CACHE_TTL_MS: Record<string, number> = { system: 15000, capabilities: 60000, active_mission: 10000, meditation_overview: 10000 };
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const BUILD = import.meta.env.VITE_BUILD ?? '2026.09.19-pwa-v9';
@@ -102,6 +103,11 @@ function readCached<T>(kind: string, userId: string): T | null {
     const raw = localStorage.getItem(cacheKey(kind, userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
+    const ttl = CACHE_TTL_MS[kind] ?? 30000;
+    if (!Number.isFinite(parsed?.savedAt) || Date.now() - Number(parsed.savedAt) > ttl) {
+      localStorage.removeItem(cacheKey(kind, userId));
+      return null;
+    }
     return parsed?.data ?? null;
   } catch {
     return null;
@@ -958,6 +964,7 @@ function Chat({
   }
 
   async function trackMission(id: string) {
+    let delayMs = 1500;
     for (let i = 0; i < 600; i++) {
       try {
         const [md, ev] = await Promise.all([
@@ -975,7 +982,8 @@ function Chat({
       } catch {
         // Background mission tracking must never block the conversational channel.
       }
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, delayMs));
+      delayMs = Math.min(5000, Math.round(delayMs * 1.35));
     }
   }
 

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { classifyConversation } from "../_shared/fast-lane.ts";
+import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -70,6 +71,17 @@ async function persistConversationMessage(userId:string,conversationId:string,ro
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
 let conversationRouteCache:{expiresAt:number;routes:any[]}|null=null;
+let learnedContextCache:{expiresAt:number;key:string;value:any}|null=null;
+async function learnedContext(project:any){
+  const key=String(project?.id||'global'); const now=Date.now();
+  if(learnedContextCache&&learnedContextCache.key===key&&learnedContextCache.expiresAt>now)return learnedContextCache.value;
+  const sb=serviceClient(); const term=String(project?.name||'').replace(/[%_]/g,'');
+  const [skills,world]=await Promise.all([
+    sb.schema('aria_memory').from('memory_items').select('memory_id,title,content,confidence,metadata').eq('memory_type','skill').eq('status','active').gte('confidence',.9).or(term?'title.ilike.%'+term+'%,content.ilike.%'+term+'%':'memory_id.not.is.null').order('confidence',{ascending:false}).limit(8),
+    project?sb.schema('aria_memory').from('world_entities').select('entity_id,entity_type,canonical_name,status,attributes,confidence,source_ref').eq('entity_type','project').eq('canonical_name',project.name).maybeSingle():Promise.resolve({data:null,error:null})
+  ]);
+  const value={skills:skills.error?[]:(skills.data??[]),world_model:world.error?null:world.data}; learnedContextCache={key,expiresAt:now+30000,value}; return value;
+}
 
 async function conversationRoutes() {
   if(conversationRouteCache && conversationRouteCache.expiresAt>Date.now()) return conversationRouteCache.routes;
@@ -111,6 +123,20 @@ async function execute(step: any, prompt: string, conversationId: string, visual
   const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}});
   if(!x.r.ok||x.b?.status!=="succeeded") throw new Error("executor_http_"+x.r.status+"_"+(x.b?.error?.code??x.b?.reason??"execution_failed"));
   return x.b;
+}
+
+async function executeDebate(step:any,prompt:string,conversationId:string,visualContext:any=null){
+  const routes=await conversationRoutes();
+  const first=step?.target||routes[0];
+  const second=routes.find((route:any)=>String(route.model_id)!==String(first?.model_id)||String(route.provider_id)!==String(first?.provider_id));
+  if(!first||!second) return null;
+  const firstStep={...step,target:{...(step.target||{}),type:'model',provider_id:first.provider_id,account_id:first.account_id,model_id:first.model_id}};
+  const proposal=await execute(firstStep,prompt,conversationId,visualContext);
+  const proposalText=typeof proposal?.response?.content==='string'?proposal.response.content.trim():'';
+  if(!proposalText) return null;
+  const criticStep={...step,target:{type:'model',provider_id:second.provider_id,account_id:second.account_id,model_id:second.model_id}};
+  const critique=await execute(criticStep,debatePrompt(prompt,proposalText),conversationId,visualContext);
+  return {result:critique,proposal,first:{provider_id:first.provider_id,model_id:first.model_id},second:{provider_id:second.provider_id,model_id:second.model_id}};
 }
 
 function isTransientModelFailure(error:any){const value=String(error instanceof Error?error.message:error||"").toLowerCase();return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502/.test(value);}
@@ -595,7 +621,9 @@ Deno.serve(async (req) => {
       }
 
       const lane = classifyConversation(text);
-      const memory = lane.lane === "deep" ? await recall(text,user.id) : [];
+      const cognitiveSources = lane.lane === "deep" ? await Promise.all([recall(text,user.id), learnedContext(project)]) : [[], { skills: [], world_model: null }];
+      const memory = cognitiveSources[0] as any[];
+      const learned = cognitiveSources[1] as any;
       let step: any;
       if (lane.lane === "fast" || looksLikeSimpleConversation(text)) {
         const routes=await conversationRoutes();
@@ -603,7 +631,7 @@ Deno.serve(async (req) => {
       }
       if (!step?.target) {
         try {
-          step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, project, visual_context, attachments });
+          step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, learned_skills: learned.skills.slice(0, 6), world_model: learned.world_model, project, visual_context, attachments });
         } catch (e) {
           return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
         }
@@ -623,16 +651,23 @@ Deno.serve(async (req) => {
         visual_context ? "DISEÑO VISUAL Y ANOTACIONES: " + JSON.stringify(visual_context) : "",
         attachments.length ? "ADJUNTOS DE ESTA CONVERSACIÓN: " + JSON.stringify(attachments) : "",
         liveText,
+        learned.skills.length ? "HABILIDADES APRENDIDAS Y VERIFICADAS RELEVANTES:\n" + JSON.stringify(learned.skills.slice(0, 6)) : "",
+        learned.world_model ? "WORLD MODEL DEL PROYECTO:\n" + JSON.stringify(learned.world_model) : "",
         context ? "MEMORIA CONTEXTUAL AUTORIZADA:\n" + context : "",
         "MENSAJE DEL USUARIO — RESPONDE A ESTO DIRECTAMENTE:\n" + text
       ].filter(Boolean).join("\n\n");
       try {
-        const execution = await executeConversationWithFallback(step, prompt, conversationId, visual_context);
+        let execution:any;
+        let debate:any = null;
+        if (shouldDebate(text, lane.lane)) {
+          try { debate = await executeDebate(step, prompt, conversationId, visual_context); } catch { debate = null; }
+        }
+        execution = debate ? { result: debate.result, route: debate.second, fallback_count: 0, failures: [], debate: true } : await executeConversationWithFallback(step, prompt, conversationId, visual_context);
         const result=execution.result;
         const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
         if (!content) throw new Error("empty_conversation_response");
         await persistConversationMessage(user.id,conversationId,"assistant",content,[{type:"text",text:content}],trace,"success",execution.route.provider_id,execution.route.model_id,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
-        return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count, fast_lane: lane.lane, fast_lane_reason: lane.reason }, trace_id: trace });
+        return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count, fast_lane: lane.lane, fast_lane_reason: lane.reason, debate_used: Boolean(execution.debate), debate_models: execution.debate ? [execution.route?.model_id, debate?.first?.model_id] : [] }, trace_id: trace });
       } catch (e) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502);
       }

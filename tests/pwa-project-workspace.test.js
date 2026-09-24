@@ -68,3 +68,9 @@ assert.match(css,/\.screenIndicator/);
 assert.match(css,/\.visualPreviewControls/);
 assert.match(fs.readFileSync(path.join(root,'supabase/migrations/20260922171331_harden_meditation_notification_label_execute.sql'),'utf8'),/revoke execute/i);
 console.log('PWA PROJECTS + ARTIA VISUAL + SHARED QUEUE + VERIFICATION CONTRACT: PASS');
+
+assert(project.includes("previewUrl:'https://battlecruiser.robvg9.workers.dev/"));
+assert.match(project,/PWA LIVE de/);
+assert.match(project,/<iframe/);
+assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
+console.log('BATTLECRUISER LIVE PWA ARTIA CONTRACT: PASS');
