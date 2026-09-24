@@ -19,11 +19,6 @@ assert.match(app,/handleGlobalTouchStart/);
 assert.match(app,/handleGlobalTouchEnd/);
 assert.match(app,/onTouchEnd=\{handleGlobalTouchEnd\}/);
 assert.match(app,/SWIPE_PAGES/);
-assert.match(app,/className='swipeNav'/);
-assert.match(app,/Pantalla 1: Dashboard/);
-assert.match(app,/Pantalla 2: Chat/);
-assert.match(app,/desliza ← para abrir Chat/);
-assert.match(css,/\.swipeHint\{/);
 
 assert.doesNotMatch(app,/screenIndicator/);
 assert.doesNotMatch(app,/aria_capabilities_tab_v2:'\+session\.userId/);
@@ -64,3 +59,12 @@ assert.match(app,/Cómo solucionarlo/);
 assert.match(app,/recoveryPanel/);
 assert.match(app,/Abrir recurso relacionado/);
 console.log('HUMAN MISSION RESULT + RECOVERY UI CONTRACT: PASS');
+
+assert.match(app,/const SWIPE_PAGES = \['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings'\]/);
+assert.match(app,/globalSwipeStartRef/);
+assert.match(app,/handleGlobalTouchStart/);
+assert.match(app,/handleGlobalTouchEnd/);
+assert.doesNotMatch(app,/className='swipeNav'/);
+assert.doesNotMatch(app,/swipeHint/);
+assert.match(app,/collapsiblePanel/);
+assert.match(app,/executionTelemetryGrid/);
