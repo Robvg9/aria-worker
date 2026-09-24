@@ -763,7 +763,8 @@ function MissionDetail({ mission, events, onClose, onRetry }: { mission: Mission
             {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
           </div>
         )}
-        <div className='detailResult'>
+        {mission?.block_details && (
+          <div className='detailResult'>
             <div className='panelTitle'>{status === 'blocked' ? 'POR QUÉ QUEDÓ BLOQUEADA' : 'RECUPERACIÓN / VERIFICACIÓN'}</div>
             <div className='humanSummaryGrid'>
               <div><strong>Motivo</strong><p>{mission.block_details.reason || 'Sin motivo registrado.'}</p></div>
