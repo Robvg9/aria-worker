@@ -617,7 +617,6 @@ Deno.serve(async (req) => {
           }, 502);
         }
         const ackText="Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación.";
-        await persistConversationMessage(user.id,conversationId,"assistant",ackText,[{type:"text",text:ackText}],trace,"mission_queued",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
         const assistantPersistStartedAt = Date.now();
         try {
           await persistConversationMessage(user.id,conversationId,"assistant",ackText,[{type:"text",text:ackText}],trace,"mission_queued",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
