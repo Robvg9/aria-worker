@@ -1,7 +1,13 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { executeWindowsDesktop } = require('./windows-desktop-adapter');
+let executeWindowsDesktop;
+try {
+  ({ executeWindowsDesktop } = require('./windows-desktop-adapter'));
+} catch (error) {
+  if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+  ({ executeWindowsDesktop } = require('../../computer-use/windows-desktop-adapter'));
+}
 
 const VERSION = 'aria-windows-autonomous-rwht-v1.1.0';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
