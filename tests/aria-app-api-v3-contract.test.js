@@ -61,7 +61,7 @@ assertContains(appApi,'input:{payload}','conversation execution payload wrapper 
 assertContains(appApi,'prompt,max_tokens:512,temperature:0.3','conversation payload must include canonical prompt parameters');
 assertContains(appApi,'/v1/meditation/tick-service','Meditation activation must trigger the canonical cloud tick');
 assertContains(planner,'aria-planner-v11-runtime-probe-v1','runtime probe planner branch missing');
-assertContains(planner,'aria-planner-v11-safe-readonly-fallback-v3-multistep','generic mission planner must use the governed multi-step read-only fallback');
+assertContains(planner,'aria-planner-v11-safe-readonly-actionable-v4-multistep','generic mission planner must use the governed multi-step actionable read-only fallback');
 if(planner.includes('steps:[step(1,"file_read","README.md")')) throw new Error('planner must not fall back to unrelated README.md');
 
 assertContains(appApi,'fallback_count','conversation fallback evidence missing');

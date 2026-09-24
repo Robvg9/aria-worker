@@ -482,7 +482,10 @@ function humanNextAction(action: any, status: string): string {
   if (lower.startsWith('execute:')) return 'Ejecutar el siguiente paso de la misión.';
   if (lower.startsWith('verify:')) return 'Verificar el resultado del paso actual.';
   if (lower.startsWith('recovery:')) return 'Aplicar la recuperación registrada y volver a ejecutar la misión.';
+  if (lower.startsWith('resume:')) return 'Reanudar la misión cuando la condición pendiente esté lista.';
   if (lower.startsWith('manual:')) return 'Esperar una intervención humana para resolver el bloqueo.';
+  if (lower === 'next_ready_batch') return 'Preparar y ejecutar el siguiente paso de la misión.';
+  if (lower === 'verify_goal') return 'Comprobar el resultado final de la misión.';
   if (lower === 'none') return 'Sin pasos pendientes.';
   return value;
 }
@@ -515,7 +518,10 @@ function verificationLabel(step: any) {
   if (value === 'verified') return 'Verificación PASS';
   if (value.includes('pending') || value.includes('awaiting')) return 'Verificación pendiente';
   if (value === 'failed' || value === 'error' || value === 'unverified') return 'Verificación fallida';
-  return step?.status === 'succeeded' ? 'Verificación registrada' : 'Verificación aún no emitida';
+  if (step?.status === 'succeeded') return 'Verificación registrada';
+  if (['running', 'planning'].includes(String(step?.status))) return 'Se verificará al terminar el paso';
+  if (String(step?.status) === 'queued') return 'Pendiente de ejecución';
+  return 'Pendiente de verificación';
 }
 function tone(status: string) {
   if (['succeeded', 'available', 'connected', 'online', 'active'].includes(status)) return 'good';
@@ -1621,8 +1627,34 @@ function Meditation({ session }: { session: Session }) {
         api('/missions/' + encodeURIComponent(missionId) + '/events', session.accessToken).catch(() => ({ events: [] }))
       ]);
       if (!missionResult?.mission) throw new Error('No se pudo recuperar la información de la misión.');
-      setMissionDetail(missionResult.mission);
-      setMissionEvents(eventsResult?.events ?? []);
+
+      const freshMission = missionResult.mission;
+      const freshEvents = Array.isArray(eventsResult?.events) ? eventsResult.events : [];
+      setMissionDetail(freshMission);
+      setMissionEvents(freshEvents);
+
+      // El modal y el panel en vivo deben compartir inmediatamente la misma
+      // misión canónica para no mostrar "Completada" dentro y "Ejecutándose" detrás.
+      setO(prev => {
+        if (!prev) return prev;
+        const previousActiveId = String(prev?.active_mission?.mission_id ?? '');
+        const isCurrentActive = previousActiveId === String(missionId);
+        const missions = Array.isArray(prev?.missions)
+          ? prev.missions.map((item: any) =>
+              String(item?.mission_id) === String(missionId)
+                ? { ...item, ...freshMission, live_events: freshEvents }
+                : item
+            )
+          : prev.missions;
+        if (!isCurrentActive) return { ...prev, missions };
+        return {
+          ...prev,
+          missions,
+          active_mission: { ...freshMission, live_events: freshEvents },
+          live_sync_at: new Date().toISOString(),
+          live_event_count: freshEvents.length,
+        };
+      });
     } catch (x) {
       setError(x instanceof Error ? x.message : 'No se pudo abrir la misión.');
     }
@@ -1662,7 +1694,6 @@ function Meditation({ session }: { session: Session }) {
       <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => m ? void openMission(String(m.mission_id)) : undefined} onCancel={() => m ? cancelMission(String(m.mission_id)) : Promise.resolve()} />
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
       <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
-      <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'} · {verificationLabel(s)}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
       <details className='panel collapsiblePanel'>
         <summary><span>HUMAN GATES</span><b>{(o?.human_gates ?? []).length}</b></summary>
         {(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row live' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}
@@ -1814,6 +1845,12 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
 
   const latestStepIndex = latest?.step_index != null ? Number(latest.step_index) : null;
   const currentStepIndex = step?.index != null ? Number(step.index) : null;
+  const totalSteps = Number(mission?.total_steps ?? mission?.step_count ?? (Array.isArray(mission?.steps) ? mission.steps.length : 0)) || null;
+  const attemptNumber = Number(step?.attempt ?? payload?.attempt ?? 0) || null;
+  const processLabel = currentStepIndex != null
+    ? (totalSteps ? 'paso ' + currentStepIndex + ' de ' + totalSteps : 'paso ' + currentStepIndex)
+    : 'paso actual';
+
   const latestBelongsToCurrentStep =
     latest &&
     (
@@ -1822,80 +1859,87 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
       (latestStepIndex != null && currentStepIndex != null && latestStepIndex === currentStepIndex)
     );
 
-  // A completed event can belong to the previous step while the mission is
-  // already executing the next one. Never present that historical event as
-  // if it described the current step.
   if (eventType === 'step_succeeded' && latestBelongsToCurrentStep) {
     return {
       headline: 'ARIA acaba de completar este paso',
       subject: resource ? opHuman + ' · ' + resource : opHuman,
-      evidence: 'El runtime registró éxito y la misión conserva la evidencia del paso.',
-      next: mission?.next_action || 'Continuar con el siguiente paso.'
+      evidence: 'El runtime registró el éxito y la misión conserva la evidencia verificada del paso.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (eventType === 'step_failed' || status === 'failed') {
     return {
-      headline: 'ARIA encontró un fallo y lo está procesando',
+      headline: 'ARIA encontró un fallo y ya está siguiendo la recuperación gobernada',
       subject: resource ? opHuman + ' · ' + resource : opHuman,
       evidence: executionEventDetail(latest),
-      next: mission?.next_action || 'Analizar la causa y seleccionar una estrategia gobernada.'
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (eventType === 'mission_replanned') {
     return {
-      headline: 'ARIA cambió de estrategia',
+      headline: 'ARIA detectó que la estrategia anterior no bastaba y la cambió',
       subject: executionEventDetail(latest),
-      evidence: 'La misión conserva el plan anterior y la evidencia que provocó el replanteamiento.',
-      next: mission?.next_action || 'Ejecutar la nueva estrategia.'
+      evidence: 'La misión conserva la evidencia que provocó el replanteamiento para evitar repetir el mismo camino sin cambios.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (eventType === 'checkpoint_saved') {
     return {
-      headline: 'ARIA guardó un checkpoint real',
+      headline: 'ARIA guardó un punto real de avance',
       subject: executionEventDetail(latest),
-      evidence: 'El estado quedó persistido; el siguiente ciclo puede continuar desde esta evidencia.',
-      next: mission?.next_action || 'Continuar con el siguiente movimiento.'
+      evidence: 'El estado quedó persistido y puede usarse como base para continuar sin perder lo ya comprobado.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (status === 'queued') {
     return {
-      headline: 'ARIA tiene esta misión en cola',
-      subject: 'El runner todavía no la ha tomado para ejecución.',
-      evidence: 'No se fabricará progreso: todavía no existe una ejecución activa ni eventos de runtime para este intento.',
-      next: mission?.next_action || 'Tomar la misión y comenzar el primer paso.'
+      headline: 'ARIA tiene esta misión preparada para ejecución',
+      subject: 'El runner todavía no la ha tomado; no se inventará actividad.',
+      evidence: 'Todavía no existe una ejecución activa ni eventos de runtime para este intento.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (status === 'planning') {
     return {
-      headline: 'ARIA está construyendo el plan',
-      subject: 'Separando el objetivo en pasos gobernados.',
-      evidence: 'El plan aparecerá en cuanto quede persistido en el checkpoint.',
-      next: mission?.next_action || 'Preparar el primer paso.'
+      headline: 'ARIA está preparando cómo resolver la misión',
+      subject: 'Está separando el objetivo en pasos gobernados.',
+      evidence: latest ? executionEventDetail(latest) : 'El plan aparecerá cuando quede persistido.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
   if (status === 'waiting') {
     return {
-      headline: 'ARIA está esperando una condición externa',
+      headline: 'ARIA llegó a una espera verificable antes de continuar',
       subject: executionEventDetail(latest),
-      evidence: 'La misión permanece persistida; no se marca como completada hasta verificar la condición.',
-      next: mission?.next_action || 'Reanudar cuando la condición esté disponible.'
+      evidence: 'La misión permanece persistida y no se marcará como terminada hasta comprobar la condición pendiente.',
+      next: humanNextAction(mission?.next_action, status)
     };
   }
 
+  const attemptText = attemptNumber ? 'Intento ' + attemptNumber : '';
+  const subjectParts = [opHuman, resource ? String(resource) : '', attemptText].filter(Boolean);
+
   return {
-    headline: status === 'succeeded' ? 'ARIA terminó esta misión' : 'ARIA está trabajando en esta misión',
-    subject: resource ? opHuman + ' · ' + resource : opHuman,
-    evidence: latest ? executionEventDetail(latest) : 'El runtime está procesando la misión; aún no hay un evento reciente que mostrar.',
-    next: mission?.next_action || (status === 'succeeded' ? 'Sin pasos pendientes.' : 'Continuar con el siguiente movimiento.')
+    headline: status === 'succeeded'
+      ? 'ARIA terminó esta misión'
+      : status === 'running'
+        ? 'ARIA está ejecutando el ' + processLabel
+        : 'ARIA está trabajando en esta misión',
+    subject: subjectParts.join(' · '),
+    evidence: latest
+      ? executionEventDetail(latest)
+      : status === 'running'
+        ? 'El runtime mantiene este paso activo; ARIA espera la siguiente evidencia real antes de avanzar.'
+        : 'No hay un evento reciente que permita describir una actividad nueva.',
+    next: humanNextAction(mission?.next_action, status)
   };
 }
-
 function elapsedFrom(timestamp: any): string {
   const value = new Date(String(timestamp || '')).getTime();
   if (!Number.isFinite(value)) return '—';
@@ -1965,7 +2009,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
       : latestEventFresh
         ? executionEventDetail(latest)
         : 'No se inferirá actividad actual sin un evento reciente.';
-  const nextText = mission.next_action || (status === 'succeeded' ? 'Sin pasos pendientes.' : status === 'queued' ? 'Tomar la misión y comenzar el primer paso.' : 'Esperar el siguiente evento verificable.');
+  const nextText = humanNextAction(mission.next_action, status);
 
   return (
     <section className={'executionHero ' + (terminal ? 'executionHeroTerminal ' + tone(status) : 'executionHeroRunning')}>
@@ -1992,12 +2036,12 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
 
       <div className='executionTelemetryGrid' aria-label='Telemetría de ejecución'>
         <div className='executionTelemetryCard'>
-          <span>PASO ACTUAL</span>
+          <span>PASO EN CURSO</span>
           <strong>{currentStep ? ((Number(currentStep.index) || 1) + ' · ' + String(currentStep.title)) : 'Preparando…'}</strong>
           <small>{status === 'queued' ? 'El runner aún no la ha tomado.' : currentStep ? statusLabel(String(currentStep.status)) : 'Sin paso activo persistido'}</small>
         </div>
         <div className='executionTelemetryCard'>
-          <span>INTENTO</span>
+          <span>INTENTO ACTUAL</span>
           <strong>{Number(currentStep?.attempt ?? currentStep?.attempt_count ?? mission.attempt_count ?? 0) || 1}</strong>
           <small>{currentStep?.executor_type ? 'Executor: ' + String(currentStep.executor_type) : 'Executor aún no identificado'}</small>
         </div>

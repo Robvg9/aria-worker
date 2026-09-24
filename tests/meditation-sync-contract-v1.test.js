@@ -39,3 +39,25 @@ assert.match(app,/DESPUÉS/);
 assert.match(app,/function executionResource/);
 assert.match(app,/function executionNarrative/);
 console.log('MEDITATION LIVE EXECUTION NARRATIVE CONTRACT: PASS');
+
+const planner=fs.readFileSync(path.join(root,'supabase/functions/aria-planner-v11/index.ts'),'utf8');
+
+assert.match(app,/freshMission/);
+assert.match(app,/active_mission: \{ \.\.\.freshMission/);
+assert.doesNotMatch(app,/MISIÓN ACTUAL/);
+assert.match(app,/PASO EN CURSO/);
+assert.match(app,/INTENTO ACTUAL/);
+assert.match(app,/Se verificará al terminar el paso/);
+assert.match(app,/next_ready_batch/);
+assert.match(app,/Preparar y ejecutar el siguiente paso de la misión/);
+console.log('MEDITATION LIVE STATE CONSISTENCY CONTRACT: PASS');
+
+assert.match(planner,/const live=await liveOperationalContext\(goal\)/);
+assert.match(planner,/CONCLUSIÓN:/);
+assert.match(planner,/QUÉ PASA:/);
+assert.match(planner,/PROBLEMA:/);
+assert.match(planner,/EVIDENCIA:/);
+assert.match(planner,/SOLUCIÓN \/ SIGUIENTE PASO:/);
+assert.match(planner,/NO CONFIRMADO/);
+assert.match(planner,/actionable_output_required:true/);
+console.log('MEDITATION HUMAN ACTIONABLE RESULT CONTRACT: PASS');
