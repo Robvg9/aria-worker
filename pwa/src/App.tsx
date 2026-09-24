@@ -1392,6 +1392,29 @@ function Chat({
   );
 }
 
+function meditationQueueItems(overview: any, activeMission: any): any[] {
+  const all = Array.isArray(overview?.missions) ? overview.missions : [];
+  const active = activeMission && ['running','waiting','planning'].includes(String(activeMission.status))
+    ? activeMission
+    : null;
+  const queued = all
+    .filter((m: any) => String(m?.status) === 'queued')
+    .sort((a: any, b: any) =>
+      Number(b?.queue_priority ?? b?.metadata?.queue_priority ?? 0) - Number(a?.queue_priority ?? a?.metadata?.queue_priority ?? 0) ||
+      new Date(String(a?.created_at || 0)).getTime() - new Date(String(b?.created_at || 0)).getTime()
+    );
+  const result = active ? [active] : [];
+  for (const item of queued) {
+    if (!result.some((x: any) => String(x.mission_id) === String(item.mission_id))) result.push(item);
+  }
+  return result;
+}
+
+function queueLabel(item: any, index: number): string {
+  if (index === 0 && ['running','waiting','planning'].includes(String(item?.status))) return '1 · EJECUTÁNDOSE';
+  return (index + 1) + ' · PRIORIDAD';
+}
+
 function Meditation({ session }: { session: Session }) {
   const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
@@ -1422,9 +1445,23 @@ function Meditation({ session }: { session: Session }) {
           api('/missions/' + encodeURIComponent(activeId) + '/events?live=' + Date.now(), session.accessToken).catch(() => ({ events: [] }))
         ]);
         const liveMission = missionResult?.mission;
-        if (liveMission) nextOverview = { ...overview, active_mission: liveMission };
-        else if (liveCandidate) nextOverview = { ...overview, active_mission: liveCandidate };
-        setMissionEvents(Array.isArray(eventResult?.events) ? eventResult.events : []);
+        const embeddedEvents = liveMission?.live_events ?? liveCandidate?.live_events ?? [];
+        const liveEvents = Array.isArray(eventResult?.events) && eventResult.events.length
+          ? eventResult.events
+          : embeddedEvents;
+        if (liveMission) nextOverview = {
+          ...overview,
+          active_mission: liveMission,
+          live_sync_at: new Date().toISOString(),
+          live_event_count: liveEvents.length
+        };
+        else if (liveCandidate) nextOverview = {
+          ...overview,
+          active_mission: liveCandidate,
+          live_sync_at: new Date().toISOString(),
+          live_event_count: liveEvents.length
+        };
+        setMissionEvents(Array.isArray(liveEvents) ? liveEvents : []);
       } else {
         setMissionEvents([]);
       }
@@ -1510,11 +1547,52 @@ function Meditation({ session }: { session: Session }) {
         {!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}
       </details>
 
-      <details className='panel collapsiblePanel'>
-        <summary><span>EN COLA</span><b>{(o?.missions ?? []).filter((r: any) => String(r.status) === 'queued').length}</b></summary>
-        {(o?.missions ?? []).filter((r: any) => String(r.status) === 'queued').slice(0, 10).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
-        {!(o?.missions ?? []).some((r: any) => String(r.status) === 'queued') && <div className='muted'>No hay misiones en cola.</div>}
-      </details>
+      {(() => {
+        const queue = meditationQueueItems(o, m);
+        const reorderable = queue.filter((item: any, index: number) => index > 0 || !['running','waiting','planning'].includes(String(item?.status)));
+        const moveQueue = async (missionId: string, direction: -1 | 1) => {
+          const queued = queue.filter((item: any) => String(item?.status) === 'queued').map((item: any) => String(item.mission_id));
+          const index = queued.indexOf(String(missionId));
+          if (index < 0) return;
+          const nextIndex = Math.max(0, Math.min(queued.length - 1, index + direction));
+          if (nextIndex === index) return;
+          const next = queued.slice();
+          const [item] = next.splice(index, 1);
+          next.splice(nextIndex, 0, item);
+          setError('');
+          try {
+            await api('/meditation/queue/reorder', session.accessToken, {
+              method: 'POST',
+              body: JSON.stringify({ ordered_mission_ids: next })
+            });
+            await load();
+          } catch (x) {
+            setError(x instanceof Error ? x.message : 'No se pudo reorganizar la cola.');
+          }
+        };
+        return <details className='panel collapsiblePanel' open={false}>
+          <summary><span>EN COLA</span><b>{queue.length}</b></summary>
+          {queue.length ? queue.slice(0, 20).map((r: any, index: number) => (
+            <div className={'queueMissionRow ' + tone(String(r.status))} key={r.mission_id}>
+              <button className='queueMissionMain' onClick={() => void openMission(r.mission_id)} aria-label={'Abrir ' + queueLabel(r,index)}>
+                <span className={'dot ' + tone(String(r.status))} />
+                <div>
+                  <strong>{queueLabel(r, index)}</strong>
+                  <small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small>
+                  <small>{missionGoalPreview(r, 110)}</small>
+                </div>
+              </button>
+              {String(r.status) === 'queued' && (
+                <div className='queueMissionControls' aria-label='Reordenar prioridad'>
+                  <button className='queueMoveButton' disabled={index <= 1 || queue.filter((x: any) => String(x.status) === 'queued').length < 2} title='Subir prioridad' aria-label='Subir prioridad' onClick={() => void moveQueue(String(r.mission_id), -1)}>↑</button>
+                  <button className='queueMoveButton' disabled={index >= queue.length - 1} title='Bajar prioridad' aria-label='Bajar prioridad' onClick={() => void moveQueue(String(r.mission_id), 1)}>↓</button>
+                </div>
+              )}
+            </div>
+          )) : <div className='muted'>No hay misiones en cola.</div>}
+          {queue.length > 1 && <div className='muted queueHint'>La misión ejecutándose permanece en prioridad 1. Las demás prioridades se ejecutarán en el orden mostrado.</div>}
+        </details>;
+      })()}
 
       <details className='panel collapsiblePanel'>
         <summary><span>HISTORIAL</span><b>{(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).length}</b></summary>
@@ -1867,6 +1945,10 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         ))}
       </div>
 
+      <div className='executionLiveControl'>
+        {!terminal && onCancel && <button className='primary dangerAction' onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; try { await onCancel(); } catch {} }}>Cancelar ejecución</button>}
+        <span className='muted'>Sincronización automática cada 2,5 s</span>
+      </div>
       <div className='executionFooter'>
         <span>{lastSyncAt ? 'Estado consultado a las ' + new Date(lastSyncAt).toLocaleTimeString('es') : 'Sincronizando estado…'}</span>
         <span>{events.length ? events.length + ' eventos registrados' : 'Sin eventos todavía'}</span>
@@ -2107,7 +2189,7 @@ export default function App() {
       if (!start) return;
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
-      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      if (Math.abs(dx) < 32 || Math.abs(dx) < Math.abs(dy) * 1.08) return;
       globalSwipeTriggeredRef.current = true;
       event.preventDefault();
       finishGlobalSwipe(event.clientX, event.clientY);
@@ -2148,7 +2230,7 @@ export default function App() {
     if (!uiPrefs.swipeNavigation || !start) return;
     const dx = x - start.x;
     const dy = y - start.y;
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
+    if (Math.abs(dx) < 42 || Math.abs(dx) < Math.abs(dy) * 1.08) return;
     const index = navigationSwipeIndex(navigation);
     const nextIndex = dx < 0 ? Math.min(SWIPE_PAGES.length - 1, index + 1) : Math.max(0, index - 1);
     if (nextIndex !== index) {
