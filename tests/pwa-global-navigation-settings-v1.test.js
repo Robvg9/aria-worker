@@ -61,7 +61,7 @@ assert.match(app,/const SWIPE_PAGES = \['#home', '#chat', '#projects', '#meditat
 assert.match(app,/globalSwipeStartRef/);
 assert.doesNotMatch(app,/className='swipeNav'/);
 assert.doesNotMatch(app,/swipeHint/);
-assert.doesNotMatch(css,/Visible Dashboard\\/Chat gesture hint/);
+assert.doesNotMatch(css,/Visible Dashboard\/Chat gesture hint/);
 assert.match(app,/ACTIVIDAD REAL/);
 assert.match(app,/ESTADO PERSISTIDO/);
 assert.match(app,/latestEventFresh/);
