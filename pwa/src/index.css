@@ -241,15 +241,15 @@ button{touch-action:manipulation;}
 .dashboardScreen .detailTimeline{max-height:150px;overflow:auto;}
 .chatScreen{overflow:hidden;}
 .chatPanel{height:100%;min-height:0;box-sizing:border-box;}
-.chatPanel .chatWindow{min-height:0;overflow:auto;overscroll-behavior:contain;}
+.chatPanel .chatWindow{min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;}
 .composer{flex:0 0 auto;}
 .composer textarea{min-height:50px;max-height:120px;resize:none;}
 .attachmentButton{min-width:52px;height:50px;display:inline-flex;align-items:center;justify-content:center;gap:5px;}
 .bottomNav{display:none;}
-.pageBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 0 calc(12px + env(safe-area-inset-bottom));}
+.pageBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 0 calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
 .pageBodyViewport>.panel,.pageBodyViewport>.statePanel,.pageBodyViewport>.statsGrid,.pageBodyViewport>.errorBox{flex-shrink:0;}
-.capabilitiesViewport{padding-bottom:18px;}
-.meditationViewport{display:flex;flex-direction:column;gap:12px;}
+.capabilitiesViewport{padding-bottom:18px;touch-action:pan-y;}
+.meditationViewport{display:flex;flex-direction:column;gap:12px;touch-action:pan-y;}
 .technicalDetailsOpen{overflow:hidden;}
 .technicalDetailsTitle{padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:900;letter-spacing:1px;}
 .visualBoardPanel{max-width:100%;box-sizing:border-box;overflow:visible;}
@@ -258,7 +258,7 @@ button{touch-action:manipulation;}
 .visualInstruction{height:58px;min-height:58px;max-height:80px;resize:none;box-sizing:border-box;}
 .projectShell .topBar{flex:0 0 auto;}
 .projectShell{min-height:0;}
-.projectBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:calc(12px + env(safe-area-inset-bottom));}
+.projectBodyViewport{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:calc(12px + env(safe-area-inset-bottom));touch-action:pan-y;}
 .projectTabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
 .projectTabs .tabButton{min-width:0;}
 .projectCard{min-width:0;min-height:64px;}
