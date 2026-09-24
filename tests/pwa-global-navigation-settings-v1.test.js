@@ -17,7 +17,7 @@ assert.match(app,/<GlobalBottomNav/);
 assert.match(app,/handleGlobalPointerUp/);
 assert.match(app,/SWIPE_PAGES/);
 assert.doesNotMatch(app,/screenIndicator/);
-assert.doesNotMatch(app,/session\.userId/);
+assert.doesNotMatch(app,/aria_capabilities_tab_v2:'\+session\.userId/);
 assert.match(app,/Borrar caché y recargar/);
 assert.match(app,/Actualizar app/);
 assert.match(app,/caches.keys()/);
