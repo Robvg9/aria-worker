@@ -70,3 +70,7 @@ assert.match(app,/document\.addEventListener\('touchcancel'/);
 
 assert.match(app,/document\.addEventListener\('touchmove'/);
 assert.match(app,/globalSwipeTriggeredRef/);
+
+assert.match(css,/\.chatPanel \.chatWindow[^\n]*touch-action:pan-y/);
+assert.match(css,/\.pageBodyViewport[^\n]*touch-action:pan-y/);
+assert.match(css,/\.projectBodyViewport[^\n]*touch-action:pan-y/);
