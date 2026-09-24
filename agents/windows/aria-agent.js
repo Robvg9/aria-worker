@@ -20,6 +20,30 @@ function normalizeQwenResponse(value){return typeof value==='string'?value.repla
 if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID){console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');process.exit(2)}
 function endpoint(p){return`${GATEWAY_URL.replace(/\/$/,'')}${p}`} function headers(){return{'content-type':'application/json',authorization:`Bearer ${DEVICE_TOKEN}`,'x-aria-device-id':DEVICE_ID}}
 async function api(p,options={}){let lastError=null;for(let attempt=0;attempt<=GATEWAY_RETRIES;attempt++){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),GATEWAY_TIMEOUT_MS);try{const response=await fetch(endpoint(p),{...options,headers:{...headers(),...(options.headers||{})},signal:controller.signal});const text=await response.text();let body=null;try{body=text?JSON.parse(text):null}catch{body={raw:text}}if(response.ok)return body;const error=new Error(`gateway ${response.status}: ${body?.error||'request failed'}`);error.status=response.status;lastError=error;const retryable=response.status===401||response.status===408||response.status===429||response.status>=500;if(!retryable||attempt>=GATEWAY_RETRIES)throw error}catch(error){lastError=error;const retryable=error?.name==='AbortError'||!Number.isInteger(error?.status)||error.status===401||error.status===408||error.status===429||error.status>=500;if(!retryable||attempt>=GATEWAY_RETRIES)throw error}finally{clearTimeout(timer)}await sleep(Math.min(2_000,500*(attempt+1)))}throw lastError||new Error('gateway_request_failed')}
+function parseAutonomousRwhtPayload(job){
+  if(!job||job.device_id!==DEVICE_ID||job.operation!==AUTONOMOUS_COMPUTER_OPERATION)throw new Error('unsupported_job');
+  if(typeof job.command!=='string'||!job.command.trim())throw new Error('autonomous_rwht_payload_required');
+  let payload;
+  try{payload=JSON.parse(job.command)}catch{throw new Error('autonomous_rwht_payload_invalid_json')}
+  if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('autonomous_rwht_payload_invalid');
+  const keys=Object.keys(payload);
+  const allowed=['goal','mode','start_url','max_actions','max_runtime_ms','capture_screenshots'];
+  if(keys.some(key=>!allowed.includes(key)))throw new Error('autonomous_rwht_payload_field_rejected');
+  if(typeof payload.goal!=='string'||!payload.goal.trim())throw new Error('autonomous_rwht_goal_required');
+  if(payload.mode!==undefined&&payload.mode!=='rwht')throw new Error('autonomous_rwht_mode_rejected');
+  if(payload.start_url!==undefined&&payload.start_url!==null&&typeof payload.start_url!=='string')throw new Error('autonomous_rwht_start_url_rejected');
+  if(payload.max_actions!==undefined&&(!Number.isInteger(payload.max_actions)||payload.max_actions<1||payload.max_actions>500))throw new Error('autonomous_rwht_max_actions_rejected');
+  if(payload.max_runtime_ms!==undefined&&(!Number.isInteger(payload.max_runtime_ms)||payload.max_runtime_ms<10_000||payload.max_runtime_ms>900_000))throw new Error('autonomous_rwht_runtime_rejected');
+  if(payload.capture_screenshots!==undefined&&typeof payload.capture_screenshots!=='boolean')throw new Error('autonomous_rwht_capture_screenshots_rejected');
+  return{
+    goal:payload.goal.trim(),
+    mode:'rwht',
+    start_url:payload.start_url??null,
+    max_actions:payload.max_actions??120,
+    max_runtime_ms:payload.max_runtime_ms??600_000,
+    capture_screenshots:payload.capture_screenshots===true,
+  };
+}
 function parseQwenPayload(job){if(!job||job.device_id!==DEVICE_ID||job.operation!==OLLAMA_OPERATION)throw new Error('unsupported_job');if(typeof job.command!=='string'||!job.command.trim())throw new Error('ollama_payload_required');let payload;try{payload=JSON.parse(job.command)}catch{throw new Error('ollama_payload_invalid_json')}if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('ollama_payload_invalid');const keys=Object.keys(payload);if(keys.some(key=>!['prompt','model','timeout_ms'].includes(key)))throw new Error('ollama_payload_field_rejected');if(typeof payload.prompt!=='string'||!payload.prompt.trim())throw new Error('ollama_prompt_required');if(payload.model!==undefined&&payload.model!==OLLAMA_MODEL)throw new Error('ollama_model_rejected');if(payload.timeout_ms!==undefined&&(!Number.isInteger(payload.timeout_ms)||payload.timeout_ms<1000||payload.timeout_ms>3_600_000))throw new Error('ollama_timeout_rejected');return{prompt:payload.prompt,model:OLLAMA_MODEL,timeout_ms:payload.timeout_ms??job.timeout_ms??120_000}}
 async function callOllama({prompt,model,timeout_ms}){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(1000,timeout_ms)),started=Date.now();try{const response=await fetch(`${OLLAMA_URL}/api/generate`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model,prompt,stream:false}),signal:controller.signal});const text=await response.text();if(!response.ok)throw new Error(`ollama ${response.status}: ${text.slice(0,1024)}`);let body;try{body=JSON.parse(text)}catch{throw new Error('ollama_invalid_json')}if(typeof body.response!=='string')throw new Error('ollama_response_missing');return{status:'succeeded',exit_code:0,stdout:normalizeQwenResponse(body.response),stderr:'',duration_ms:Date.now()-started,metadata:{raw_response_available:true}}}catch(error){return{status:error?.name==='AbortError'?'timeout':'failed',exit_code:null,stdout:'',stderr:redact(String(error?.message||error).slice(0,4096)),duration_ms:Date.now()-started}}finally{clearTimeout(timer)}}
 async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
