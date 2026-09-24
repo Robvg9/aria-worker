@@ -6,7 +6,7 @@ const fs = require('node:fs');
 
 const planner = fs.readFileSync('supabase/functions/aria-planner-v11/index.ts','utf8');
 const runner = fs.readFileSync('supabase/functions/aria-mission-runner-v22/index.ts','utf8');
-const migration = fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_loop_v1.sql','utf8');
+const migration = fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_loop_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_candidate_application_fix_v1.sql','utf8');
 
 test('planner consults persistent mastery learning before route selection', () => {
   assert.match(planner, /aria_memory_learning_context_for_goal/);
