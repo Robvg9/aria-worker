@@ -71,9 +71,9 @@ jobs:
           if($controllerChanged){Copy-Item -LiteralPath $srcController -Destination $dstController -Force}
           if($uiChanged){Copy-Item -LiteralPath $srcUi -Destination $dstUi -Force}
           if(-not($controllerChanged -or $uiChanged)){Write-Host 'MEDITATION_RUNTIME_SYNC=UNCHANGED'; exit 0}
-          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$pid=0
-          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pid)}
-          if($pid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "MEDITATION_AGENT_RELOAD_PID=$pid";Stop-Process -Id $pid -Force}}
+          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$agentPid=0
+          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$agentPid)}
+          if($agentPid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "MEDITATION_AGENT_RELOAD_PID=$pid";Stop-Process -Id $pid -Force}}
           Start-Sleep -Seconds 2
           $launcher='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
           if(-not(Test-Path $launcher)){throw 'Agent launcher missing after runtime sync'}
@@ -114,7 +114,7 @@ jobs:
           if(-not $needsReload){Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=UNCHANGED';exit 0}
           $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$pid=0
           if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pid)}
-          if($pid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "WINDOWS_AGENT_RELOAD_PID=$pid";Stop-Process -Id $pid -Force}}
+          if($pid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "WINDOWS_AGENT_RELOAD_PID=$agentPid";Stop-Process -Id $agentPid -Force}}
           Start-Sleep -Seconds 2
           $launcher='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
           if(-not(Test-Path $launcher)){throw 'Agent launcher missing after autonomous RWHT sync'}
