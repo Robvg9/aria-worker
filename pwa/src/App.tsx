@@ -2077,6 +2077,33 @@ export default function App() {
 
   useEffect(() => {
     if (!uiPrefs.swipeNavigation) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      globalSwipeTriggeredRef.current = false;
+      beginGlobalSwipe(event.clientX, event.clientY, event.target);
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch' || globalSwipeTriggeredRef.current) return;
+      const start = globalSwipeStartRef.current;
+      if (!start) return;
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      if (Math.abs(dx) < 44 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      globalSwipeTriggeredRef.current = true;
+      event.preventDefault();
+      finishGlobalSwipe(event.clientX, event.clientY);
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      if (!globalSwipeTriggeredRef.current) finishGlobalSwipe(event.clientX, event.clientY);
+      else globalSwipeStartRef.current = null;
+      globalSwipeTriggeredRef.current = false;
+    };
+    const onPointerCancel = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      globalSwipeStartRef.current = null;
+      globalSwipeTriggeredRef.current = false;
+    };
     const onTouchStart = (event: TouchEvent) => {
       const touch = event.touches[0];
       if (!touch) return;
@@ -2106,11 +2133,19 @@ export default function App() {
       globalSwipeStartRef.current = null;
       globalSwipeTriggeredRef.current = false;
     };
+    document.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
+    document.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
+    document.addEventListener('pointerup', onPointerUp, { capture: true, passive: true });
+    document.addEventListener('pointercancel', onPointerCancel, { capture: true, passive: true });
     document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
     document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
     document.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
     document.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
     return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('pointermove', onPointerMove, true);
+      document.removeEventListener('pointerup', onPointerUp, true);
+      document.removeEventListener('pointercancel', onPointerCancel, true);
       document.removeEventListener('touchstart', onTouchStart, true);
       document.removeEventListener('touchmove', onTouchMove, true);
       document.removeEventListener('touchend', onTouchEnd, true);
