@@ -1039,6 +1039,25 @@ async function independentVerify(mission:any, step:any, result:any){
   return {passed:true,skipped:false,verification:body.verification};
 }
 
+function planStrategySignature(steps:any[]) {
+  const normalized = (Array.isArray(steps) ? steps : []).map((step:any) => ({
+    id: String(step?.id || ""),
+    executor_type: executorType(step),
+    operation: String(step?.operation || ""),
+    target: {
+      type: String(step?.target?.type || executorType(step) || ""),
+      connector_id: step?.target?.connector_id ?? null,
+      device_id: step?.target?.device_id ?? null,
+      agent_id: step?.target?.agent_id ?? null,
+      provider_id: step?.target?.provider_id ?? null,
+      account_id: step?.target?.account_id ?? null,
+      model_id: step?.target?.model_id ?? null,
+      project_id: step?.target?.project_id ?? null,
+    },
+  })).sort((a:any,b:any) => a.id.localeCompare(b.id));
+  return JSON.stringify(normalized);
+}
+
 function objectivePlanAlignment(goal:string, steps:any[]){
   const text=String(goal||'').toLowerCase();
   const ops=(steps||[]).map((s:any)=>String(s?.operation||'').toLowerCase());
@@ -1244,6 +1263,51 @@ Deno.serve(async (request) => {
     }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
+
+    const recoveryPreviousPlan = previousRecovery?.replan_required === true && Array.isArray(previousRecovery?.previous_plan)
+      ? previousRecovery.previous_plan
+      : [];
+    if (recoveryPreviousPlan.length && planStrategySignature(steps) === planStrategySignature(recoveryPreviousPlan)) {
+      const identicalRecovery = {
+        status: "hard_block",
+        recoverable: false,
+        kind: "identical_replan_strategy",
+        reason: "ARIA volvió a generar la misma estrategia que acaba de fallar; se detiene para evitar un bucle de reintentos.",
+        next_action: "manual: corregir la causa del ejecutor o elegir una ruta distinta antes de reanudar la misión",
+        remediation: "No repetir automáticamente la misma operación/executor/objetivo. La nueva ejecución debe cambiar la estrategia o la capacidad utilizada.",
+        evidence: {
+          replan_count: Number(previousRecovery?.replan_count || 0),
+          previous_plan_signature: planStrategySignature(recoveryPreviousPlan),
+          current_plan_signature: planStrategySignature(steps),
+          failed_step_ids: Array.isArray(previousRecovery?.failed_step_ids) ? previousRecovery.failed_step_ids : [],
+        },
+      };
+      await updateMission(missionId, {
+        status: "blocked",
+        current_step: 0,
+        completed_steps: 0,
+        next_action: identicalRecovery.next_action,
+        last_stderr: "identical_replan_strategy_blocked",
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          recovery: identicalRecovery,
+          plan: steps,
+          active_step: null,
+          pending_jobs: {},
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      await emitEvent(missionId, "mission_hard_blocked", identicalRecovery);
+      return out({
+        ok: false,
+        status: "blocked",
+        mission_id: missionId,
+        runtime: V,
+        completed_steps: 0,
+        block_details: identicalRecovery,
+      });
+    }
 
     const objectiveGuard = objectivePlanAlignment(String(mission.goal || ""), steps);
     const previousObjectiveReplans = Number(mission?.checkpoint?.objective_plan_guard?.replan_attempts || 0);
@@ -1696,7 +1760,7 @@ Deno.serve(async (request) => {
         const failedStepIds = failures.map((item) => String(item.step.id));
         const previousPlan = steps;
         const previousResults = results;
-        const maxReplans = 12;
+        const maxReplans = 2;
         if (replanCount <= maxReplans) {
           const recovery = {
             status: "replan_required",
