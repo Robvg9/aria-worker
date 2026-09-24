@@ -545,7 +545,7 @@ begin
     insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
     values(
       v_previous_id,
-      'failure_recurred',
+      'updated',
       new.mission_id,
       jsonb_build_object(
         'occurrence_count',v_occurrence,
@@ -595,7 +595,7 @@ begin
 
   insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
   values(
-    v_id,'failure_candidate_created',new.mission_id,
+    v_id,'created',new.mission_id,
     jsonb_build_object('failure_signature',v_signature,'terms',v_terms,'procedure',v_procedure,'occurrence_count',v_occurrence,'pattern_state',v_state,'recurrence_after_promotion',v_recurred_after_promotion)
   );
 
