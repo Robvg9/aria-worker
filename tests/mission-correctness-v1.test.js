@@ -18,7 +18,7 @@ assert.match(planner, /"implementation_1"/);
 assert.match(planner, /"verification_1"/);
 assert.match(planner, /depends_on/);
 assert.match(planner, /planner-v11-safe-readonly-actionable-v4-multistep/);
-assert.match(planner, /const isRwht=\/(\\\\brwht\\\\b\|real world human test/);
+assert.ok(planner.includes("const isRwht=/(\\brwht\\b|real world human test"), "RWHT detection must use token boundaries");
 assert.ok(
   planner.indexOf('const battlecruiserRwht=await battlecruiserGithubRwhtPlan') < planner.indexOf('const windowsPcRwht=await windowsPcRwhtPlan'),
   'BattleCruiser GitHub planner must run before generic Windows RWHT planner'
