@@ -15,7 +15,9 @@ assert.match(api,/overview_fast/);
 assert.match(api,/limit\(200\)/);
 assert.match(api,/fastMissions/);
 assert.match(api,/slice\(0,20\)/);
-console.log('MEDITATION SYNC PERFORMANCE CONTRACT: PASS');
+assert.match(api,/activeRank=.*running.*50.*waiting.*40.*planning.*30.*paused.*20.*queued.*10/s);
+assert.match(api,/sort\(\(a:any,b:any\)=>activeRank\(b\)-activeRank\(a\)/);
+console.log('MEDITATION ACTIVE MISSION PRIORITY CONTRACT: PASS');
 
 assert.match(app,/MeditationLiveExecution/);
 assert.match(app,/EJECUCIÓN EN TIEMPO REAL/);
