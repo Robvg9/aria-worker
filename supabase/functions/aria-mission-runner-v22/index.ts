@@ -1066,7 +1066,11 @@ function objectivePlanAlignment(goal:string, steps:any[]){
     /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|comprueba|check|revisa|revisar|averigua)/.test(text) &&
     /(windows|computer\.use|computer use|windows device)/.test(text)
   );
-  const isRwht=/(rwht|real world human|auditoría física|auditoria fisica|recorre.*interfaz|botón|botones)/.test(text);
+  // Only treat RWHT as an explicit human-facing test intent. Do not let
+  // identifiers such as "aria/sandbox/rwht-battlecruiser-..." trigger the RWHT path.
+  const explicitRwhtToken=/(^|[\\s:([\\],.;])rwht($|[\\s:([\\],.;])/i;
+  const isRwht=explicitRwhtToken.test(text)
+    || /(real world human|auditoría física|auditoria fisica|recorre.*interfaz|prueba física|prueba fisica|prueba de interfaz|botón|botones)/.test(text);
   const hasDevice=executors.includes('device');
   const hasAutonomous=ops.includes('computer.use.autonomous');
   const hasGithubWrite=ops.some((op:string)=>['create_branch','file_write','open_pr','pr_merge'].includes(op));
@@ -1741,7 +1745,15 @@ Deno.serve(async (request) => {
             current_step: completed.size,
             completed_steps: completed.size,
             next_action: `retry: ${retryStepId}`,
-            checkpoint: { ...checkpoint, recovery: { status: "retry_scheduled", failed_step_id: retryStepId }, active_step: null },
+            checkpoint: {
+              ...checkpoint,
+              recovery: {
+                ...(checkpoint?.recovery && typeof checkpoint.recovery === "object" ? checkpoint.recovery : {}),
+                status: "retry_scheduled",
+                failed_step_id: retryStepId,
+              },
+              active_step: null,
+            },
             lease_owner: null,
             lease_until: null,
           });
