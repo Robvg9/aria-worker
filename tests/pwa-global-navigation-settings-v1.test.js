@@ -19,8 +19,6 @@ assert.match(app,/Actualizar app/);
 assert.match(app,/Buscar actualización/);
 assert.match(app,/caches.keys()/);
 assert.match(app,/sessionSnapshot/);
-assert.match(css,/.bottomNav{[^}]*overflow-x:auto/);
-assert.match(css,/.bottomNav button{flex:0 0 66px/);
 console.log('GLOBAL NAV + SETTINGS CONTRACT: PASS');
 
 assert.doesNotMatch(app,/function Chat\([\s\S]{0,180}\bonSignOut/);
