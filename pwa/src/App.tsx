@@ -470,13 +470,13 @@ function GlobalBottomNav({ navigation, onProjects, onMeditation, onCapabilities 
   const go = (hash:string) => { window.location.hash = hash; };
   return (
     <nav className='bottomNav' aria-label='Navegación principal'>
-      <button type='button' className={navigation.page === 'aria' && navigation.screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => go('#home')}><span>⌂</span><small>Inicio</small></button>
-      <button type='button' className={navigation.page === 'aria' && navigation.screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => go('#chat')}><span>💬</span><small>Chat</small></button>
-      <button type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => go('#mission')}><span>＋</span><small>Misión</small></button>
-      <button type='button' className={navigation.page === 'projects' ? 'active' : ''} aria-label='Proyectos' onClick={onProjects}><span>◈</span><small>Proyectos</small></button>
-      <button type='button' className={navigation.page === 'meditation' ? 'active' : ''} aria-label='Meditación IA' onClick={onMeditation}><span>◌</span><small>Meditación</small></button>
-      <button type='button' className={navigation.page === 'capabilities' ? 'active' : ''} aria-label='Capacidades' onClick={onCapabilities}><span>⚙</span><small>Capacidades</small></button>
-      <button type='button' className={navigation.page === 'settings' ? 'active' : ''} aria-label='Configuración' onClick={() => go('#settings')}><span>☰</span><small>Config.</small></button>
+      <button title='Inicio' type='button' className={navigation.page === 'aria' && navigation.screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => go('#home')}><span>⌂</span><small>Inicio</small></button>
+      <button title='Chat' type='button' className={navigation.page === 'aria' && navigation.screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => go('#chat')}><span>💬</span><small>Chat</small></button>
+      <button title='Nueva misión' type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => go('#mission')}><span>＋</span><small>Misión</small></button>
+      <button title='Proyectos' type='button' className={navigation.page === 'projects' ? 'active' : ''} aria-label='Proyectos' onClick={onProjects}><span>◈</span><small>Proyectos</small></button>
+      <button title='Meditación IA' type='button' className={navigation.page === 'meditation' ? 'active' : ''} aria-label='Meditación IA' onClick={onMeditation}><span>◌</span><small>Medita</small></button>
+      <button title='Capacidades' type='button' className={navigation.page === 'capabilities' ? 'active' : ''} aria-label='Capacidades' onClick={onCapabilities}><span>⚙</span><small>Cap.</small></button>
+      <button title='Configuración' type='button' className={navigation.page === 'settings' ? 'active' : ''} aria-label='Configuración' onClick={() => go('#settings')}><span>☰</span><small>Config.</small></button>
     </nav>
   );
 }
@@ -854,13 +854,11 @@ function PwaNotificationCenter({ session }: { session: Session }) {
 
 function Chat({
   session,
-  onSignOut,
   onMeditation,
   onCapabilities,
   onProjects
 }: {
   session: Session;
-  onSignOut: () => void;
   onMeditation: () => void;
   onCapabilities: () => void;
   onProjects: () => void;
@@ -1100,7 +1098,6 @@ function Chat({
           <InstallButton />
           <button className='ghost desktopOnly' onClick={onMeditation}>Meditación IA</button>
           <button className='primary desktopOnly' onClick={() => setShowNewMission(true)}>Nueva misión</button>
-          <button className='ghost' onClick={onSignOut}>Salir</button>
         </div>
       </header>
 
@@ -1237,7 +1234,7 @@ function Chat({
   );
 }
 
-function Meditation({ session, onBack, onCapabilities }: { session: Session; onBack: () => void; onCapabilities: () => void }) {
+function Meditation({ session }: { session: Session }) {
   const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [error, setError] = useState('');
@@ -1297,10 +1294,7 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
 
   return (
     <main className='appShell'>
-      <header className='topBar'>
-        <div><div className='eyebrow'>ARIA / CONTINUIDAD</div><h1>MEDITACIÓN IA</h1><div className='sub'>Ejecución autónoma, verificación y Human Gates</div></div>
-        <div className='topActions'><button className='ghost navBack' onClick={onBack}>← Centro</button><button className='ghost desktopOnly' onClick={onCapabilities}>Capacidades</button></div>
-      </header>
+      
       <div className='pageBodyViewport meditationViewport'>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
@@ -1524,7 +1518,6 @@ export default function App() {
                 />
               : <Chat
                   session={session}
-                  onSignOut={signOut}
                   onMeditation={() => { window.location.hash = '#meditation'; }}
                   onCapabilities={() => { window.location.hash = '#capabilities'; }}
                   onProjects={() => { window.location.hash = '#projects'; }}
