@@ -11,6 +11,7 @@ const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const UI_PREFS_KEY = 'aria_ui_preferences_v1';
 const BUILD = import.meta.env.VITE_BUILD ?? '2026.09.19-pwa-v9';
+const MEDITATION_LIVE_POLL_MS = 2500;
 function shortBuild(build: string) {
   const value = String(build || '');
   return value.length > 10 ? value.slice(0, 8) + '…' : value;
@@ -1357,15 +1358,23 @@ function Meditation({ session }: { session: Session }) {
       api('/capabilities', session.accessToken).catch(() => null)
     ]);
     if (overview) {
-      setO(overview);
-      writeCached('meditation_overview', session.userId, overview);
+      let nextOverview = overview;
       const activeId = overview?.active_mission?.mission_id;
       if (activeId) {
-        const eventResult = await api('/missions/' + encodeURIComponent(activeId) + '/events', session.accessToken).catch(() => ({ events: [] }));
-        setMissionEvents(eventResult?.events ?? []);
+        // The overview is the queue snapshot; immediately refresh the active
+        // mission itself so the execution panel is driven by canonical state.
+        const [missionResult, eventResult] = await Promise.all([
+          api('/missions/' + encodeURIComponent(activeId), session.accessToken).catch(() => null),
+          api('/missions/' + encodeURIComponent(activeId) + '/events?live=' + Date.now(), session.accessToken).catch(() => ({ events: [] }))
+        ]);
+        const liveMission = missionResult?.mission;
+        if (liveMission) nextOverview = { ...overview, active_mission: liveMission };
+        setMissionEvents(Array.isArray(eventResult?.events) ? eventResult.events : []);
       } else {
         setMissionEvents([]);
       }
+      setO(nextOverview);
+      writeCached('meditation_overview', session.userId, nextOverview);
       successes++;
     }
     if (capability?.capabilities) {
@@ -1393,7 +1402,7 @@ function Meditation({ session }: { session: Session }) {
     }
   }
 
-  useLiveSync(load, session.accessToken, 8000);
+  useLiveSync(load, session.accessToken, MEDITATION_LIVE_POLL_MS);
 
   async function retryMission(missionId: string) {
     const data = await api('/missions/' + encodeURIComponent(missionId) + '/retry', session.accessToken, { method: 'POST' });
@@ -1486,7 +1495,19 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
   const resource = executionResource(latest, step);
   const opHuman = humanOperation(op, executor);
 
-  if (eventType === 'step_succeeded') {
+  const latestStepIndex = latest?.step_index != null ? Number(latest.step_index) : null;
+  const currentStepIndex = step?.index != null ? Number(step.index) : null;
+  const latestBelongsToCurrentStep =
+    latest &&
+    (
+      (latest?.step_id != null && step?.id != null && String(latest.step_id) === String(step.id)) ||
+      (latestStepIndex != null && currentStepIndex != null && latestStepIndex === currentStepIndex)
+    );
+
+  // A completed event can belong to the previous step while the mission is
+  // already executing the next one. Never present that historical event as
+  // if it described the current step.
+  if (eventType === 'step_succeeded' && latestBelongsToCurrentStep) {
     return {
       headline: 'ARIA acaba de completar este paso',
       subject: resource ? opHuman + ' · ' + resource : opHuman,
