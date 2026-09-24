@@ -149,7 +149,7 @@ export async function callOpenRouterModel(model:string,messages:any[],tools:any[
   const { data: secret, error } = await internal.rpc("credential_read_secret", { p_name: "aria_openrouter_primary" });
   if (error || typeof secret !== "string" || secret.length < 10) throw new Error("openrouter_credential_unavailable");
   const toolChoice = tools.length === 0 ? undefined : (forceTool ? "required" : "auto");
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages,temperature:0,max_completion_tokens:4000,service_tier:"flex",...(tools.length?{tools,tool_choice:toolChoice}:{})})});
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages,temperature:0,max_completion_tokens:2200,service_tier:"flex",...(tools.length?{tools,tool_choice:toolChoice}:{})}),signal:AbortSignal.timeout(20000)});
   const body:any=await response.json().catch(()=>null);
   if(!response.ok) throw new Error(`openrouter_http_${response.status}:${body?.error?.message??"provider_error"}`);
   return body?.choices?.[0]?.message??null;
@@ -207,7 +207,7 @@ function geminiMessage(json:any){
 export async function callGeminiModel(model:string,messages:any[],tools:any[],forceTool=false){
   const secret=String(Deno.env.get("GOOGLE_API_KEY")||"").trim(); if(!secret)throw new Error("google_credential_unavailable");
   const {systemInstruction,contents}=geminiContents(messages);
-  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:4000}};
+  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:2200}};
   if(systemInstruction)body.systemInstruction=systemInstruction;
   const declaredTools=geminiTools(tools); if(declaredTools){body.tools=declaredTools;if(forceTool)body.toolConfig={functionCallingConfig:{mode:"ANY"}};}
   const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":secret},body:JSON.stringify(body)});
@@ -259,15 +259,15 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
   let text = "";
   let branchCreated = false;
   let sawToolCall = false;
-  const maxRounds = allowWrite ? 12 : 8;
+  const maxRounds = allowWrite ? 6 : 5;
   for (let round = 0; round < maxRounds; round += 1) {
-    if (allowWrite && round === 8 && writes.length === 0) {
+    if (allowWrite && round === maxRounds - 1 && writes.length === 0) {
       messages.push({
         role: "user",
         content: "RECUPERACIÓN DE IMPLEMENTACIÓN: todavía no se ha producido ninguna escritura gobernada. No finalices la misión ni redactes un informe todavía. Debes usar ahora github_file_patch o github_file_write sobre la rama no-main y realizar al menos una mutación concreta que implemente la solicitud. Después verifica con lectura que el cambio quedó escrito.",
       });
     }
-    const forceTool = allowWrite && ((round === 0 && !sawToolCall) || (round >= 8 && writes.length === 0));
+    const forceTool = allowWrite && ((round === 0 && !sawToolCall) || (round === maxRounds - 1 && writes.length === 0));
     let message:any=null;
     let lastModelError:any=null;
     const candidates = (!sawToolCall && round === 0) ? toolRoutes : [toolRoute];
