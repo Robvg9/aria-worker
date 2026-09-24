@@ -1935,10 +1935,9 @@ function executionEventDetail(event: any): string {
       : 'ARIA completó la recuperación de contexto antes de continuar.';
   }
   if (type === 'step_failed') {
-    const step = String(payload?.step_id ?? '').trim();
     const attempt = Number(payload?.attempt ?? 0);
     const reason = humanizeTechnicalText(String(payload?.reason ?? 'fallo del ejecutor').trim());
-    return 'El paso ' + (step || 'actual') + ' falló' + (attempt ? ' en el intento ' + attempt : '') + '. Motivo: ' + reason + '.';
+    return 'El paso actual falló' + (attempt ? ' en el intento ' + attempt : '') + '. Motivo: ' + reason + '.';
   }
   const message = String(payload?.message ?? payload?.detail ?? payload?.error?.message ?? '').trim();
   if (message) {
@@ -1949,7 +1948,6 @@ function executionEventDetail(event: any): string {
     payload?.operation ? 'Acción: ' + humanOperation(payload.operation, payload?.executor_type) : '',
     payload?.executor_type ? 'Ejecutor: ' + humanExecutorLabel(payload.executor_type) : '',
     payload?.model_id ? 'Modelo: ' + humanizeTechnicalText(String(payload.model_id)) : '',
-    payload?.step_id ? 'Paso interno: ' + String(payload.step_id) : '',
     payload?.attempt != null ? 'Intento: ' + String(payload.attempt) : ''
   ].filter(Boolean);
   return parts.join(' · ') || 'ARIA registró actividad real para esta misión.';
@@ -2009,7 +2007,7 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
 
   if (eventType === 'step_failed' || status === 'failed') {
     return {
-      headline: 'ARIA encontró un fallo y ya está siguiendo la recuperación gobernada',
+      headline: 'ARIA encontró un fallo en este paso',
       subject: resource ? opHuman + ' · ' + resource : opHuman,
       evidence: executionEventDetail(latest),
       next: humanNextAction(mission?.next_action, status)
