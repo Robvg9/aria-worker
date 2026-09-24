@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { buildRegression } = require('../self-development/regression-builder-v2');
+const { failureSignature, deriveFailurePreventionProcedure } = require('./mastery-gate');
 
 function normalizeText(value, max = 4000) {
   return String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
@@ -46,16 +47,36 @@ function extractLesson({ episode = {}, verifier = {} } = {}) {
     evidence_refs: Array.isArray(episode.evidence_refs) ? episode.evidence_refs.slice(0, 20) : [],
     failure_mode: normalizeText(episode.failure_mode, 300) || null,
   };
-  const category = failurePreventionVerified ? 'failure_prevention' : (verifier.passed ? 'verified_procedure' : 'diagnostic');
+  const failureCandidate = result.status === 'failed' && !failurePreventionVerified;
+  const category = failurePreventionVerified ? 'failure_prevention' : (failureCandidate ? 'failure_prevention_candidate' : (verifier.passed ? 'verified_procedure' : 'diagnostic'));
   const confidence = deriveConfidence({
     verifier,
     outcome: result,
     evidenceCount: evidence.evidence_refs.length,
     failurePreventionVerified
   });
-  const reusable = failurePreventionVerified || (verifier.passed && result.status === 'succeeded' && procedure.length > 0);
-  const source = `${goal}|${JSON.stringify(procedure)}|${verifier.version || ''}|${evidence.learning_mode}|${evidence.failure_mode || ''}`;
-  return Object.freeze({ category, summary: normalizeText(summary), procedure, evidence, confidence, reusable, content_hash: hash(source) });
+  const derivedPrevention = failureCandidate
+    ? deriveFailurePreventionProcedure({
+        goal,
+        failureDetail: episode.failure_detail || result.error || evidence.failure_mode || '',
+        nextAction: episode.next_action || '',
+        previousPlan: episode.previous_plan || episode.procedure || []
+      })
+    : null;
+  const learnedProcedure = failureCandidate && derivedPrevention?.length ? derivedPrevention : procedure;
+  const reusable = failurePreventionVerified || (verifier.passed && result.status === 'succeeded' && learnedProcedure.length > 0);
+  const signature = failureSignature({ goal, failure_mode: evidence.failure_mode, operation: episode.operation, executor_type: episode.executor_type });
+  const source = `${goal}|${JSON.stringify(learnedProcedure)}|${verifier.version || ''}|${evidence.learning_mode}|${evidence.failure_mode || ''}|${signature}`;
+  return Object.freeze({
+    category,
+    summary: normalizeText(summary),
+    procedure: learnedProcedure,
+    evidence: { ...evidence, failure_signature: signature },
+    confidence,
+    reusable,
+    prevention_candidate: failureCandidate,
+    content_hash: hash(source)
+  });
 }
 
 function promoteToSkill(lesson, { minConfidence = 0.90, minEvidence = 1 } = {}) {
@@ -70,7 +91,15 @@ function createLearningEngine({ persistLesson = null, persistSkill = null, persi
     const lesson = extractLesson({ episode, verifier });
     const promotion = promoteToSkill(lesson, { minConfidence, minEvidence });
     let regression = null;
+    let preventionRegression = null;
     if (typeof persistLesson === 'function') await persistLesson(lesson, episode);
+    if (lesson.prevention_candidate) {
+      preventionRegression = typeof regressionBuilder === 'function'
+        ? regressionBuilder({ capability: episode?.capability_id || episode?.capability || episode?.goal, procedure: { steps: lesson.procedure }, evidence: lesson.evidence })
+        : null;
+      if (preventionRegression && typeof persistRegression === 'function') await persistRegression({ ...preventionRegression, status: 'candidate', failure_prevention: true }, episode);
+    }
+
     if (promotion.promoted && typeof persistSkill === 'function') {
       const skill = { ...lesson, promotion };
       regression = typeof regressionBuilder === 'function'
@@ -80,9 +109,9 @@ function createLearningEngine({ persistLesson = null, persistSkill = null, persi
       await persistSkill(skill, episode);
       if (regression && typeof persistRegression === 'function') await persistRegression(regression, episode);
     }
-    return Object.freeze({ version: 'skills-learning-v2', lesson, promotion, regression });
+    return Object.freeze({ version: 'skills-learning-v3-mastery', lesson, promotion, regression, preventionRegression });
   }
-  return Object.freeze({ version: 'skills-learning-v2', learn });
+  return Object.freeze({ version: 'skills-learning-v3-mastery', learn });
 }
 
 module.exports = Object.freeze({ extractLesson, promoteToSkill, createLearningEngine });
