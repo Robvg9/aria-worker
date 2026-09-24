@@ -4,11 +4,13 @@ const DEVICE_JOB_OPERATIONS = Object.freeze({
   SHELL_EXECUTE: 'shell.execute',
   OLLAMA_QWEN3: 'ollama.qwen3',
   COMPUTER_USE: 'computer.use',
+  AUTONOMOUS_COMPUTER_USE: 'computer.use.autonomous',
   ANDROID_BROWSER_BRIDGE: 'computer.use.android'
 });
 
 const OLLAMA_QWEN3_MODEL = 'qwen3:4b';
 const OLLAMA_QWEN3_ALLOWED_FIELDS = new Set(['prompt', 'model', 'timeout_ms']);
+const AUTONOMOUS_COMPUTER_USE_ALLOWED_FIELDS = new Set(['mode', 'goal', 'start_url', 'max_actions', 'max_runtime_ms', 'capture_screenshots']);
 const COMPUTER_USE_ACTIONS = new Set([
   'screenshot', 'observe', 'open', 'click', 'double_click', 'move', 'drag',
   'type', 'keypress', 'hotkey', 'scroll', 'focus', 'wait'
@@ -136,6 +138,22 @@ function validateDeviceJobOperation(operation, command) {
     return validateAndroidBrowserBridgePayload(command);
   }
 
+  if (operation === DEVICE_JOB_OPERATIONS.AUTONOMOUS_COMPUTER_USE) {
+    if (typeof command !== 'string' || command.trim().length === 0) return { ok: false, error: 'computer.use.autonomous payload required' };
+    let payload;
+    try { payload = JSON.parse(command); } catch { return { ok: false, error: 'computer.use.autonomous payload must be valid JSON' }; }
+    if (!isPlainObject(payload)) return { ok: false, error: 'computer.use.autonomous payload must be an object' };
+    const keys = Object.keys(payload);
+    if (keys.some(key => !AUTONOMOUS_COMPUTER_USE_ALLOWED_FIELDS.has(key))) return { ok: false, error: 'computer.use.autonomous payload contains unsupported fields' };
+    if (payload.mode !== 'rwht') return { ok: false, error: 'computer.use.autonomous mode must be rwht' };
+    if (typeof payload.goal !== 'string' || payload.goal.trim().length === 0 || payload.goal.length > 12000) return { ok: false, error: 'computer.use.autonomous goal required' };
+    if (payload.start_url !== undefined && (typeof payload.start_url !== 'string' || !/^https?:\/\//i.test(payload.start_url))) return { ok: false, error: 'computer.use.autonomous start_url invalid' };
+    if (payload.max_actions !== undefined && !validInteger(payload.max_actions, 5, 250)) return { ok: false, error: 'computer.use.autonomous max_actions invalid' };
+    if (payload.max_runtime_ms !== undefined && !validInteger(payload.max_runtime_ms, 30000, 900000)) return { ok: false, error: 'computer.use.autonomous max_runtime_ms invalid' };
+    if (payload.capture_screenshots !== undefined && typeof payload.capture_screenshots !== 'boolean') return { ok: false, error: 'computer.use.autonomous capture_screenshots invalid' };
+    return { ok: true, payload };
+  }
+
   if (operation === DEVICE_JOB_OPERATIONS.COMPUTER_USE) {
     if (typeof command !== 'string' || command.trim().length === 0) return { ok: false, error: 'computer.use payload required' };
     let payload;
@@ -186,6 +204,7 @@ module.exports = Object.freeze({
   DEVICE_JOB_OPERATIONS,
   OLLAMA_QWEN3_MODEL,
   COMPUTER_USE_ACTIONS,
+  AUTONOMOUS_COMPUTER_USE_ALLOWED_FIELDS,
   validateAndroidBrowserBridgePayload,
   validateDeviceJobOperation
 });
