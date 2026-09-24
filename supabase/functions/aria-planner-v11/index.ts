@@ -1,3 +1,4 @@
+// DEPLOYMENT CONTRACT: this function uses Deno configuration in deno.json; do NOT pass an import_map_path automatically.
 // RWHT Android runtime contract: governed conversation probe + safe read-only fallback.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";

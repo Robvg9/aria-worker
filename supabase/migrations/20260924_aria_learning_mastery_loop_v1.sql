@@ -356,7 +356,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = pg_catalog, aria_internal, aria_memory
-as $
+as $$
 declare
   v_required jsonb := '[]'::jsonb;
   v_verified jsonb := '[]'::jsonb;
@@ -434,7 +434,7 @@ begin
     'has_successful_execution_evidence',v_has_success
   );
 end;
-$;
+$$;
 
 revoke all on function aria_internal.verify_learning_application(text,jsonb,jsonb,jsonb) from public,anon,authenticated;
 grant execute on function aria_internal.verify_learning_application(text,jsonb,jsonb,jsonb) to service_role;
@@ -468,8 +468,17 @@ begin
   v_detail := lower(left(coalesce(new.last_stderr,'') || ' ' || coalesce(new.next_action,'') || ' ' || coalesce(new.checkpoint->'recovery'->>'failure_reason',''),3000));
   v_signature := encode(extensions.digest(
     lower(v_goal) || '|' ||
-    regexp_replace(v_detail,'[^a-z0-9_ .:-]','','g') || '|' ||
-    coalesce(new.checkpoint->'recovery'->>'failure_reason',''),
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(
+          regexp_replace(v_detail,'mission[_-][0-9a-f-]+','<mission>','gi'),
+          '[0-9a-f]{8}-[0-9a-f-]{20,}','<uuid>','gi'
+        ),
+        '[0-9]+','<n>','g'
+      ),
+      '\\s+',' ','g'
+    ) || '|' ||
+    regexp_replace(coalesce(new.checkpoint->'recovery'->>'failure_reason',''), '[0-9]+','<n>','g'),
     'sha256'
   ),'hex');
 
@@ -536,7 +545,7 @@ begin
     insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
     values(
       v_previous_id,
-      'failure_recurred',
+      'updated',
       new.mission_id,
       jsonb_build_object(
         'occurrence_count',v_occurrence,
@@ -586,7 +595,7 @@ begin
 
   insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
   values(
-    v_id,'failure_candidate_created',new.mission_id,
+    v_id,'created',new.mission_id,
     jsonb_build_object('failure_signature',v_signature,'terms',v_terms,'procedure',v_procedure,'occurrence_count',v_occurrence,'pattern_state',v_state,'recurrence_after_promotion',v_recurred_after_promotion)
   );
 
