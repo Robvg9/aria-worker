@@ -16,6 +16,89 @@ const governedWritePolicy={tool_use:true,mutating_operation_required:true,non_ma
 const repairStep=async(goal:string,context:any)=>{const contextText=JSON.stringify(context).slice(0,7000);return [agentStep("diagnosis_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Analiza primero la falla real de esta misión antes de modificar nada. Inspecciona la evidencia disponible y determina causa raíz, archivos/recursos afectados, riesgo y pruebas necesarias. No hagas cambios. Misión original: ${goal}. Contexto: ${contextText}`),{id:"repair_1",operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:"aria-agent-coding-v1"},capability:"coding",input:{goal:"Ejecutar reparación gobernada",prompt:esPrompt(`Esta es la fase de IMPLEMENTACIÓN de una reparación real. Usa el diagnóstico previo como guía, pero comprueba el estado actual por ti mismo. Trabaja en una rama gobernada que no sea main, corrige la causa raíz, ejecuta las pruebas focalizadas y devuelve evidencia concreta: cambios realizados, archivos afectados, pruebas ejecutadas y resultado. No declares éxito por texto solamente. Misión original: ${goal}. Contexto: ${contextText}`),max_tokens:3000},risk:"LOW_RISK_WRITE",timeout_ms:180000,policy:governedWritePolicy,depends_on:["diagnosis_1"],verify:{},selection:{review_role:"coder",write_route:"github_app_governed_or_agent_runtime"}},agentStep("verification_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Verifica la reparación real ya aplicada para esta misión. Inspecciona el estado actual del repositorio/PR, confirma que el cambio existe, revisa las pruebas/evidencias y determina si la causa raíz quedó resuelta. No hagas cambios. Misión original: ${goal}. Contexto: ${contextText}`,["repair_1"])]};
 const changeStep=async(goal:string,context:any)=>{const contextText=JSON.stringify(context).slice(0,7000);return [agentStep("analysis_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Antes de implementar, analiza la solicitud completa y localiza exactamente qué debe cambiar. Inspecciona el repositorio real, identifica archivos/componentes afectados, dependencias, riesgos y pruebas necesarias. No modifiques nada en esta fase. Solicitud original: ${goal}. Contexto: ${contextText}`),{id:"implementation_1",operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:"aria-agent-coding-v1"},capability:"coding",input:{goal:"Ejecutar implementación gobernada",prompt:esPrompt(`Esta es la fase de IMPLEMENTACIÓN de una solicitud real. Usa el análisis previo como guía y comprueba el estado actual por ti mismo. Trabaja únicamente en una rama gobernada que no sea main. Implementa exactamente la solicitud, añade o actualiza pruebas focalizadas y devuelve evidencia concreta de cambios y pruebas. No termines después del análisis y no declares éxito por texto solamente. Solicitud original: ${goal}. Contexto: ${contextText}`),max_tokens:3200},risk:"LOW_RISK_WRITE",timeout_ms:180000,policy:governedWritePolicy,depends_on:["analysis_1"],verify:{},selection:{review_role:"coder",write_route:"github_app_governed_or_agent_runtime"}},agentStep("verification_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Haz la VERIFICACIÓN FINAL de esta solicitud. Inspecciona el cambio real que acaba de producirse, confirma que satisface la solicitud original, revisa las pruebas y la evidencia disponible y señala cualquier contradicción, bloqueo o trabajo faltante. No modifiques nada. Solicitud original: ${goal}. Contexto: ${contextText}`,["implementation_1"])]};
 async function modelRoutes(){const [{data:m},{data:c},{data:a}]=await Promise.all([db.from("model_registry").select("model_id,provider_id,status,enabled"),db.from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),db.from("account_registry").select("account_id,provider_id,status,enabled")]);return (m||[]).filter((x:any)=>x.enabled&&x.status==="available").map((x:any)=>{const cap=(c||[]).find((z:any)=>z.model_id===x.model_id);const acc=(a||[]).find((z:any)=>z.provider_id===x.provider_id&&z.enabled&&["available","active"].includes(String(z.status)));return acc?{model_id:x.model_id,provider_id:x.provider_id,account_id:acc.account_id,capability_status:cap?.status||"unknown",evidence_type:cap?.evidence_type||"unknown",evidence_ref:cap?.evidence_ref||null,score:(cap?.status==="verified"?100:50)+(x.provider_id==="google"?10:0)}:null}).filter(Boolean).sort((x:any,y:any)=>y.score-x.score)}
+async function battlecruiserGithubRwhtPlan(goal:string,context:any){
+  const rawProject=String(
+    context?.project_id
+      ?? context?.metadata?.project_id
+      ?? context?.project?.id
+      ?? ""
+  ).toLowerCase();
+  const g=String(goal||"");
+  const gl=g.toLowerCase();
+  const isBattleCruiser=rawProject==="battlecruiser" || /battlecruiser/i.test(g);
+  const githubWork=/github|rama|branch|archivo|\\.md|pull request|\\bpr\\b|\\bmain\\b|merge/i.test(gl);
+  if(!isBattleCruiser || !githubWork)return null;
+
+  const branchMatch=g.match(/aria\\/sandbox\\/[A-Za-z0-9._\\/-]+/i);
+  const branch=branchMatch?branchMatch[0]:"aria/sandbox/rwht-battlecruiser";
+  const pathMatch=g.match(/(?:archivo\\s+)?([A-Za-z0-9_./-]+\\.md)\\b/i);
+  const path=pathMatch?pathMatch[1]:"RWHT_ARIA_PROBE.md";
+  const noMerge=/no\\s+(?:hagas\\s+)?merge|sin\\s+merge|do not merge/i.test(g);
+  const wantsPr=/pull request|\\bpr\\b/i.test(gl);
+  const authorization={status:"approved",authorization_id:"github:battlecruiser-sandbox-rwht"};
+  const policy={tool_use:true,non_main_branch_required:true,mutating_operation_required:true,do_not_claim_text_only_success:true,spanish_output_required:true};
+  const content="RWHT ARIA ↔ BattleCruiser — prueba de integración controlada.\\n\\nCreado por la ruta gobernada de ARIA para validar rama, escritura, lectura y PR sin fusionar.";
+  const steps:any[]=[
+    {
+      id:"github_create_branch",
+      operation:"create_branch",
+      executor_type:"connector",
+      target:{type:"connector",connector_id:"github",repo:"battlecruiser",owner:"Robvg9",branch},
+      input:{repo:"battlecruiser",owner:"Robvg9",branch,ref:"main"},
+      risk:"LOW_RISK_WRITE",
+      timeout_ms:60000,
+      authorization,
+      policy,
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"github_file_write",
+      operation:"file_write",
+      executor_type:"connector",
+      target:{type:"connector",connector_id:"github",repo:"battlecruiser",owner:"Robvg9",branch},
+      input:{repo:"battlecruiser",owner:"Robvg9",branch,path,content,message:"test: RWHT ARIA BattleCruiser integration probe"},
+      risk:"LOW_RISK_WRITE",
+      timeout_ms:60000,
+      authorization,
+      policy,
+      depends_on:["github_create_branch"],
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"github_file_verify",
+      operation:"file_read",
+      executor_type:"connector",
+      target:{type:"connector",connector_id:"github",repo:"battlecruiser",owner:"Robvg9",branch},
+      input:{repo:"battlecruiser",owner:"Robvg9",branch,path},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:{tool_use:true,verification_read:true,spanish_output_required:true},
+      depends_on:["github_file_write"],
+      verify:{response_content_nonempty:true}
+    }
+  ];
+  if(wantsPr){
+    steps.push({
+      id:"github_open_pr",
+      operation:"open_pr",
+      executor_type:"connector",
+      target:{type:"connector",connector_id:"github",repo:"battlecruiser",owner:"Robvg9",branch},
+      input:{
+        repo:"battlecruiser",owner:"Robvg9",branch,base:"main",
+        title:"test: RWHT ARIA ↔ BattleCruiser integration probe",
+        body:"Prueba controlada de integración ARIA ↔ BattleCruiser. Se verificó la escritura del archivo "+path+" en la rama "+branch+". "+(noMerge?"No realizar merge.":"No fusionar automáticamente.")
+      },
+      risk:"LOW_RISK_WRITE",
+      timeout_ms:60000,
+      authorization,
+      policy,
+      depends_on:["github_file_verify"],
+      verify:{response_content_nonempty:true}
+    });
+  }
+  return {goal,steps,planner_version:"aria-planner-v11-battlecruiser-github-rwht-v1",battlecruiser_github_rwht:true,project_id:"battlecruiser",branch,path,no_merge:noMerge};
+}
+
 async function androidAutonomousPlan(goal:string,context:any){
   const g=String(goal||'').toLowerCase();
   if(!/(android|tel[eé]fono|app|aplicaci[oó]n|pwa|web|bot[oó]n|interfaz|ui)/i.test(g))return null;
@@ -58,7 +141,7 @@ async function liveOperationalContext(goal:string){
 async function projectReviewPlan(goal:string,context:any){const live=await liveOperationalContext(goal);const agent={agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"};const liveText=JSON.stringify(live).slice(0,14000),ctxText=JSON.stringify(context).slice(0,5000);const steps=[agentStep("facts_1",agent,`Recopila hechos actuales y verificables sobre ARIA para la solicitud: ${goal}. Usa el contexto LIVE como fuente operativa, confirma qué está funcionando y qué está degradado, y separa CONFIRMADO de HIPÓTESIS y BLOQUEADO. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`),agentStep("crosscheck_1",agent,`Haz una segunda revisión independiente de la solicitud: ${goal}. Contrasta la evidencia actual con lo que realmente consume el runtime, busca contradicciones y evita repetir supuestos. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["facts_1"]),agentStep("summary_1",agent,`Redacta la respuesta final para el usuario sobre: ${goal}. Basa todo en la evidencia que puedas confirmar ahora. Explica qué ARIA encontró, qué funciona, qué está mal/degradado, qué evidencia lo demuestra y cuál es la siguiente acción concreta. Todo el texto humano debe estar en español. No uses JSON crudo y no afirmes que algo está completado sin evidencia.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["crosscheck_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-live-project-review-v2-multistep",live_project_review:true,live_operational_context:live}});}
 async function operationAuditPlan(goal:string,context:any){const match=goal.match(/(?:auditar operación ejecutora individual:|audit executor operation:|audit operation:)\s*([a-z0-9_.-]+)/i);if(!match)return null;const target=match[1];const agent={agent_id:"aria-agent-research-v1",role:"investigador",model_id:"google/gemini-3.5-flash-lite-direct"};const ctx=JSON.stringify(context).slice(0,6000);const steps=[agentStep("contract_1",agent,`Audita la operación exacta ${target}: contrato, disponibilidad, permisos, gobernanza y rutas reales. Solo lectura. Objetivo original: ${goal}. Contexto: ${ctx}`),agentStep("failure_modes_1",agent,`Audita la operación ${target} enfocándote en fallos, reintentos, verificación, observabilidad, seguridad y si el runtime realmente la consume. Separa CONFIRMADO de HIPÓTESIS. No modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["contract_1"]),agentStep("summary_1",agent,`Entrega una síntesis final en español sobre la auditoría de ${target}. Incluye evidencia concreta, problemas reales, bloqueos y conclusión sobre el estado actual. No inventes ni modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["failure_modes_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-operation-forensic-v2-multistep",asset_forensic:true,target_type:"operation",target}});}
 function selfAuditPlan(goal:string,context:any,routes:any,agents:any[]){const scope=`FINDINGS. Independent forensic review of ARIA. Scope: ${goal}. Context: ${JSON.stringify(context).slice(0,7000)}. Confirm facts from execution evidence; separate hypotheses; cover architecture, runtime, DB, memory, learning, planning, execution, models, agents, devices, tools, security, recovery.`;const steps:any[]=[];routes.slice(0,4).forEach((r:any,i:number)=>steps.push(modelStep(`review_model_${i+1}`,r,`${scope} Use model ${r.model_id}. Begin with FINDINGS and finish with VERDICT.`)));agents.slice(0,4).forEach((a:any,i:number)=>steps.push(agentStep(`review_agent_${i+1}`,a,`${scope} Independent specialist pass as ${a.role}. Begin with FINDINGS and finish with VERDICT.`)));return {goal,steps,planner_version:"aria-planner-v11-forensic-multi-route-v1",self_audit:true}}
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";const context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?b.context:{};if(!goal)return out({error:"goal_required"},400);try{const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";const context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?b.context:{};if(!goal)return out({error:"goal_required"},400);try{const battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context);if(battlecruiserRwht)return out({ok:true,plan:battlecruiserRwht});const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
 const runtimeProbe=/^(hola|test|prueba|esto\s+(?:esta|está)\s+funcionando|funcionando\??)$/i.test(g.trim());
 if(runtimeProbe){
   const routes=await modelRoutes();

@@ -402,7 +402,14 @@ async function githubExecute(step: any, token: string | null, mission: any = nul
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || result?.ok !== true) throw new Error(String(result?.error || `github_http_${response.status}`));
-  return { status: "succeeded", executor_type: "connector", connector_id: "github", operation, data: result.data };
+  return {
+    status: "succeeded",
+    executor_type: "connector",
+    connector_id: "github",
+    operation,
+    data: result.data,
+    response: { content: JSON.stringify(result.data ?? {}) },
+  };
 }
 
 async function connectorExecute(missionId: string, step: any, token: string | null, mission: any = null) {
