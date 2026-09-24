@@ -15,9 +15,6 @@ assert.match(app,/navigation.page === 'settings'/);
 assert.match(app,/page === 'settings'\s*\?/);
 assert.match(app,/<GlobalBottomNav/);
 assert.match(app,/handleGlobalPointerUp/);
-assert.match(app,/handleGlobalTouchStart/);
-assert.match(app,/handleGlobalTouchEnd/);
-assert.match(app,/onTouchEnd=\{handleGlobalTouchEnd\}/);
 assert.match(app,/SWIPE_PAGES/);
 
 assert.doesNotMatch(app,/screenIndicator/);
@@ -68,3 +65,7 @@ assert.doesNotMatch(app,/className='swipeNav'/);
 assert.doesNotMatch(app,/swipeHint/);
 assert.match(app,/collapsiblePanel/);
 assert.match(app,/executionTelemetryGrid/);
+
+assert.match(app,/document\.addEventListener\('touchstart'/);
+assert.match(app,/document\.addEventListener\('touchend'/);
+assert.match(app,/document\.addEventListener\('touchcancel'/);
