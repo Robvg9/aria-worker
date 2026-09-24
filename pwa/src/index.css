@@ -202,13 +202,11 @@ button{touch-action:manipulation;}
   .panel{padding:12px;border-radius:18px;}
   .panelHeading{gap:8px;}
   .panelHeading h2{font-size:17px;}
-  .bottomNav{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));display:flex;z-index:70;gap:4px;padding:6px;border:1px solid var(--line);border-radius:20px;background:rgba(17,12,28,.96);backdrop-filter:blur(16px);box-shadow:0 14px 40px rgba(0,0,0,.4);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
-  .bottomNav::-webkit-scrollbar{display:none}
-  .bottomNav button{flex:0 0 66px;min-width:66px;min-height:52px;border:0;background:transparent;color:var(--muted);border-radius:14px;display:grid;place-items:center;gap:2px;padding:5px 2px;text-decoration:none;appearance:none;-webkit-appearance:none;}
+  .bottomNav{position:fixed;left:7px;right:7px;bottom:calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(7,minmax(0,1fr));z-index:70;gap:2px;padding:5px;border:1px solid var(--line);border-radius:18px;background:rgba(17,12,28,.97);backdrop-filter:blur(16px);box-shadow:0 14px 40px rgba(0,0,0,.4);overflow:hidden;}
+  .bottomNav button{width:100%;min-width:0;min-height:52px;border:0;background:transparent;color:var(--muted);border-radius:13px;display:grid;place-items:center;gap:2px;padding:4px 1px;text-decoration:none;appearance:none;-webkit-appearance:none;}
   .bottomNav button span{font-size:18px;line-height:1;}
-  .bottomNav button small{font-size:9px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+  .bottomNav button small{font-size:8px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
   .bottomNav button.active{color:#fff;background:rgba(93,69,209,.28);}
-  .bottomNav .bottomNavPrimary{background:#5d45d1;color:#fff;box-shadow:0 5px 16px rgba(93,69,209,.38);}
   .bottomNav .bottomNavPrimary{color:#fff;background:#5d45d1;box-shadow:0 5px 16px rgba(93,69,209,.38);}
   .bottomNav .bottomNavPrimary span{font-size:22px;}
   .attachmentLabel{display:none;}
@@ -243,8 +241,9 @@ button{touch-action:manipulation;}
 
 @media(max-width:380px){
   .appShell{padding-left:8px;padding-right:8px;}
-  .bottomNav{left:7px;right:7px;}
-  .bottomNav button small{font-size:8px;}
+  .bottomNav{left:4px;right:4px;padding:4px;gap:1px;}
+  .bottomNav button{min-height:50px;border-radius:11px;}
+  .bottomNav button small{font-size:7.5px;}
   .projectCard small{display:none;}
   .projectCard{min-height:58px;}
 }

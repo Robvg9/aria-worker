@@ -19,6 +19,15 @@ assert.match(app,/Actualizar app/);
 assert.match(app,/Buscar actualización/);
 assert.match(app,/caches.keys()/);
 assert.match(app,/sessionSnapshot/);
-assert.match(css,/.bottomNav{[^}]*overflow-x:auto/);
-assert.match(css,/.bottomNav button{flex:0 0 66px/);
 console.log('GLOBAL NAV + SETTINGS CONTRACT: PASS');
+
+assert.doesNotMatch(app,/function Chat\([\s\S]{0,180}\bonSignOut/);
+assert.doesNotMatch(app,/function Chat\([\s\S]{0,7000}<button className='ghost' onClick=\{onSignOut\}>Salir<\/button>/);
+assert.doesNotMatch(app,/ARIA \/ CONTINUIDAD.*MEDITACIÓN IA.*Ejecución autónoma, verificación y Human Gates/);
+assert.match(app,/function Meditation\(\{ session \}: \{ session: Session \}\)/);
+assert.match(app,/<small>Medita<\/small>/);
+assert.match(app,/<small>Cap\.<\/small>/);
+assert.match(app,/<small>Config\.<\/small>/);
+assert.match(css,/grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
+assert.match(css,/\.bottomNav button\{width:100%;min-width:0;/);
+console.log('PWA UI CLEANUP CONTRACT: PASS');
