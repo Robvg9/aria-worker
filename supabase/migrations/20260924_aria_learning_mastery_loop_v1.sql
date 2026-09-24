@@ -52,7 +52,17 @@ as $$
       or position(q.goal in lower(coalesce(m.content,''))) > 0
       or position(q.goal in lower(coalesce(m.title,''))) > 0
       or lower(coalesce(m.metadata->>'scope','')) like '%supabase_edge_functions%'
-      or lower(coalesce(m.metadata->>'learning_kind',''))='failure_prevention'
+      or (
+        lower(coalesce(m.metadata->>'learning_kind',''))='failure_prevention'
+        and (
+          lower(coalesce(m.title,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+          or lower(coalesce(m.metadata->>'scope','')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+          or exists (
+            select 1 from regexp_split_to_table(lower(trim(coalesce(p_goal,''))),'\\s+') token
+            where length(token) >= 5 and position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+          )
+        )
+      )
     )
   order by
     case when m.status='active' then 0 else 1 end,
@@ -225,7 +235,17 @@ begin
       and m.confidence >= .90
       and (
         coalesce(m.metadata->>'preflight_required','false')='true'
-        or coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+        or (
+          coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+          and (
+            lower(coalesce(m.title,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+            or lower(coalesce(m.metadata->>'scope','')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+            or exists (
+              select 1 from regexp_split_to_table(lower(trim(coalesce(p_goal,''))),'\\s+') token
+              where length(token) >= 5 and position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+            )
+          )
+        )
       )
       and (
         lower(coalesce(m.title,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
@@ -362,6 +382,7 @@ begin
       'activation_status','candidate',
       'source_mission_id',new.mission_id,
       'failure_signature',v_signature,
+      'scope',v_goal,
       'procedure',v_procedure,
       'preflight_required',false,
       'preflight_requirements',jsonb_build_object('mode','contains_all','terms',v_terms)
