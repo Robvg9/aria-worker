@@ -68,7 +68,7 @@ jobs:
           base="https://aria.robvg9.workers.dev/pwa/"
           html=""
           for attempt in $(seq 1 30); do
-            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "\${base}?probe=$GITHUB_SHA-$attempt" 2>/dev/null || true)"
+            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}?probe=$GITHUB_SHA-$attempt" 2>/dev/null || true)"
             if grep -q 'ARIA — Centro de Mando' <<<"$html" && grep -q "$GITHUB_SHA" <<<"$html" && grep -q "sw-$GITHUB_SHA.js" <<<"$html"; then
               break
             fi
@@ -81,7 +81,7 @@ jobs:
           grep -q "__ariaBootReady" <<<"$html"
           version=""
           for attempt in $(seq 1 30); do
-            version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "\${base}version.json?probe=$GITHUB_SHA-$attempt" 2>/dev/null || true)"
+            version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}version.json?probe=$GITHUB_SHA-$attempt" 2>/dev/null || true)"
             if VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
           import json, os
           try:
