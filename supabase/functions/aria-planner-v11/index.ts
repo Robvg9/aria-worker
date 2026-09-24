@@ -26,7 +26,7 @@ async function battlecruiserGithubRwhtPlan(goal:string,context:any){
   const g=String(goal||"");
   const gl=g.toLowerCase();
   const isBattleCruiser=rawProject==="battlecruiser" || /battlecruiser/i.test(g);
-  const githubWork=/github|rama|branch|archivo|\\.md|pull request|\\bpr\\b|\\bmain\\b|merge/i.test(gl);
+  const githubWork=/github|rama|branch|archivo|pull request|pr|main|merge/i.test(gl) || gl.includes(".md");
   if(!isBattleCruiser || !githubWork)return null;
 
   const branchMatch=g.match(/aria\/sandbox\/[A-Za-z0-9._\/-]+/i);
