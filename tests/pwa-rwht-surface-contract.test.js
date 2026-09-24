@@ -84,6 +84,6 @@ assert.match(app,/function humanNextAction/,'Internal runtime actions must be tr
 assert.match(app,/executor_error: 'El executor no pudo completar el paso'/,'Executor failures must have a human-readable live label.');
 assert.match(app,//cancel'/,'PWA must call the governed mission cancellation endpoint.');
 assert.match(app,/Cancelar misión/,'PWA must expose a visible mission cancellation control.');
-assert.match(app,/mission_cancelled/,'PWA surface contract must include the cancellation evidence path.');
+assert.match(app,/onCancel={() => cancelMission(String(missionDetail.mission_id))}/,'MissionDetail must receive the live cancellation handler.');
 
 console.log('pwa-rwht-surface-contract PASS');
