@@ -10,7 +10,7 @@ const CACHE_TTL_MS: Record<string, number> = { system: 15000, capabilities: 2160
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const UI_PREFS_KEY = 'aria_ui_preferences_v1';
-const BUILD = import.meta.env.VITE_BUILD ?? '2026.09.19-pwa-v9';
+const BUILD = '2026.09.24-pwa-v10';
 const MEDITATION_LIVE_POLL_MS = 2500;
 function shortBuild(build: string) {
   const value = String(build || '');
