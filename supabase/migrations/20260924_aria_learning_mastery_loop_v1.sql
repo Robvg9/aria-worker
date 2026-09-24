@@ -220,8 +220,10 @@ declare
   v_plan_text text := lower(coalesce(p_plan,'[]'::jsonb)::text);
   v_required jsonb := '[]'::jsonb;
   v_applied jsonb := '[]'::jsonb;
+  v_candidate_applied jsonb := '[]'::jsonb;
   v_missing jsonb := '[]'::jsonb;
   v_skill record;
+  v_candidate record;
   v_req jsonb;
   v_terms jsonb;
   v_mode text;
@@ -300,11 +302,42 @@ begin
     end if;
   end loop;
 
+  for v_candidate in
+    select m.memory_id,m.title,m.metadata,m.confidence
+    from aria_memory.memory_items m
+    where m.status='candidate'
+      and m.memory_type='skill'
+      and coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+      and (
+        lower(coalesce(m.title,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or lower(coalesce(m.metadata->>'scope','')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or exists (
+          select 1 from regexp_split_to_table(lower(trim(coalesce(p_goal,''))),'\\s+') token
+          where length(token) >= 5 and position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+        )
+      )
+  loop
+    v_req := coalesce(v_candidate.metadata->'preflight_requirements','{}'::jsonb);
+    v_terms := coalesce(v_req->'terms','[]'::jsonb);
+    if jsonb_array_length(v_terms)=0 then
+      continue;
+    end if;
+    select not exists(
+      select 1 from jsonb_array_elements_text(v_terms) t
+      where position(lower(t) in v_plan_text)=0
+    ) and position('verify' in v_plan_text)>0 into v_ok;
+    if v_ok then
+      v_candidate_applied := v_candidate_applied || jsonb_build_array(v_candidate.memory_id::text);
+    end if;
+  end loop;
+
   return jsonb_build_object(
     'version','mastery-learning-loop-v1',
     'passed',jsonb_array_length(v_missing)=0,
     'required',v_required,
-    'applied_memory_ids',v_applied,
+    'applied_memory_ids',v_applied || v_candidate_applied,
+    'applied_active_memory_ids',v_applied,
+    'applied_candidate_memory_ids',v_candidate_applied,
     'missing',v_missing
   );
 end;
