@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const runner=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-mission-runner-v22','index.ts'),'utf8');
+assert.match(runner,/projectId = String\(mission\?\.metadata\?\.project_id/);
+assert.match(runner,/battlecruiser_sandbox_branch_required/);
+assert.match(runner,/battlecruiser_file_write_must_use_sandbox/);
+assert.match(runner,/battlecruiser_pr_must_promote_sandbox_to_main/);
+assert.match(runner,/battlecruiser_auto_merge_forbidden/);
+assert.match(runner,/executeStep\(missionId, step, auth, mission\)/);
+console.log('BATTLECRUISER RUNTIME GOVERNANCE: PASS — project metadata → sandbox branch → PR promotion guard');
