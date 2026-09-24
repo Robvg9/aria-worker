@@ -5,6 +5,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
 const EAS_PROJECT_ID="1b23b091-f7b6-4dc2-b328-c8e5ec07de57"; const db=ROOT.schema("aria_internal");
+const TOOL_UNIVERSE_V1={
+  version:"tool-universe-v1",
+  connectors:["github","supabase","cloudflare","bitrise","eas"],
+  executors:["model","agent","device","connector","eas"],
+  device_operations:["shell.execute","ollama.qwen3","computer.use","computer.use.autonomous","computer.use.android"],
+  ui_capabilities:["observe","screenshot","click","double_click","type","keypress","hotkey","scroll","focus","wait"],
+  governance:["READ","LOW_RISK_WRITE","HIGH_RISK_WRITE","DESTRUCTIVE","human_gate_for_high_risk"]
+};
+
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
 async function auth(r:Request){const h=r.headers.get("authorization")||"";const t=h.startsWith("Bearer ")?h.slice(7):"";if(SECRET&&t&&eq(t,SECRET))return true;const c=r.headers.get("x-aria-autonomy-token");if(!c)return false;const {data,error}=await db.rpc("aria_autonomy_cron_authorize",{p_token:c});return !error&&data===true}
@@ -118,6 +127,103 @@ async function battlecruiserGithubRwhtPlan(goal:string,context:any){
   return {goal,steps,planner_version:"aria-planner-v11-battlecruiser-github-rwht-v1",battlecruiser_github_rwht:true,project_id:"battlecruiser",branch,path,no_merge:noMerge,learning_context:context.learned_knowledge};
 }
 
+async function windowsPcRwhtPlan(goal:string,context:any){
+  const g=String(goal||"");
+  const gl=g.toLowerCase();
+  const isRwht=/(rwht|real world human test|prueba real|auditar.*interfaz|auditar.*ui|bot[oó]n.*bot[oó]n|button.*button)/i.test(g);
+  const isPc=/(pc|windows|computadora|ordenador|escritorio|desktop|navegador|browser|battlecruiser)/i.test(g);
+  if(!isRwht || !isPc)return null;
+
+  const {data:devices}=await db.from("device_registry")
+    .select("device_id,display_name,agent_type,status,last_seen_at,capabilities")
+    .eq("agent_type","windows-local")
+    .in("status",["online","active","available"])
+    .order("last_seen_at",{ascending:false})
+    .limit(8);
+
+  const candidates=(Array.isArray(devices)?devices:[]);
+  const device=candidates.find((d:any)=>{
+    const caps=Array.isArray(d?.capabilities)?d.capabilities.map(String):[];
+    return caps.includes("computer.use") && caps.includes("ollama.qwen3");
+  }) || null;
+
+  if(!device){
+    return out({
+      error:"windows_pc_executor_unavailable",
+      planner_version:"aria-planner-v11-capability-aware-windows-rwht-v1",
+      capability_gap:{
+        required:["computer.use","ollama.qwen3","computer.use.autonomous"],
+        online_windows_devices:candidates
+      }
+    },409);
+  }
+
+  const urlMatch=g.match(/https?:\/\/[^\s)]+/i);
+  const isBattleCruiser=/battlecruiser/i.test(g) || String(context?.project_id||"").toLowerCase()==="battlecruiser";
+  const startUrl=String(context?.start_url||"").trim()
+    || (urlMatch?urlMatch[0].replace(/[.,;]+$/,""):null)
+    || (isBattleCruiser?"https://battlecruiser.robvg9.workers.dev/":null);
+
+  const maxActions=Math.max(20,Math.min(180,Number(context?.max_actions||120)));
+  const maxRuntime=Math.max(120000,Math.min(900000,Number(context?.max_runtime_ms||600000)));
+  const capabilityAwareness={
+    version:"capability-awareness-v1",
+    selected_device:{
+      device_id:device.device_id,
+      display_name:device.display_name,
+      agent_type:device.agent_type,
+      status:device.status,
+      capabilities:device.capabilities
+    },
+    decision_stack:[
+      {operation:"computer.use.autonomous",purpose:"observe → decide → act → verify → adapt",requires:["computer.use","ollama.qwen3"]},
+      {operation:"computer.use",purpose:"real Windows UI actions",actions:["observe","screenshot","click","double_click","type","keypress","hotkey","scroll","focus","wait"]},
+      {operation:"ollama.qwen3",purpose:"local structured UI decision model",model:"qwen3:4b"}
+    ],
+    policy:{
+      destructive_controls_blocked:true,
+      secret_input_blocked:true,
+      verification_after_action:true,
+      fallback_replanning:true
+    }
+  };
+
+  return out({ok:true,plan:{
+    goal,
+    steps:[{
+      id:"windows_rwht_autonomous_1",
+      operation:"computer.use.autonomous",
+      executor_type:"device",
+      target:{type:"device",device_id:String(device.device_id)},
+      input:{
+        mode:"rwht",
+        goal:String(goal),
+        start_url:startUrl,
+        max_actions:maxActions,
+        max_runtime_ms:maxRuntime,
+        capture_screenshots:true
+      },
+      risk:"LOW_RISK_WRITE",
+      timeout_ms:maxRuntime+60000,
+      policy:{
+        tool_use:true,
+        capability_aware:true,
+        autonomous_ui_test:true,
+        adaptive_replanning:true,
+        mutating_operation_required:true,
+        destructive_actions_blocked:true,
+        secret_input_blocked:true,
+        physical_verification_required:false,
+        spanish_output_required:true
+      },
+      verify:{response_content_nonempty:true}
+    }],
+    planner_version:"aria-planner-v11-capability-aware-windows-rwht-v1",
+    capability_awareness:capabilityAwareness,
+    target:{project_id:isBattleCruiser?"battlecruiser":null,start_url:startUrl}
+  }});
+}
+
 async function androidAutonomousPlan(goal:string,context:any){
   const g=String(goal||'').toLowerCase();
   if(!/(android|tel[eé]fono|app|aplicaci[oó]n|pwa|web|bot[oó]n|interfaz|ui)/i.test(g))return null;
@@ -154,13 +260,13 @@ async function liveOperationalContext(goal:string){
     safe("agent_catalog","agent_id,role,status,max_risk,capabilities",20),
     safe("capability_matrix","capability_id,model_id,status,evidence_type,evidence_ref",50),
   ]);
-  return {version:"live-operational-context-v1",goal,missions,devices,models,accounts,agents,capabilities:caps,human_verification_policy:{android_rwht:"pending_until_explicit_persisted_human_evidence",online_device_never_equals_physical_rwht_certification:true},generated_at:new Date().toISOString()};
+  return {version:"live-operational-context-v1",goal,missions,devices,models,accounts,agents,capabilities:caps,tool_universe:TOOL_UNIVERSE_V1,human_verification_policy:{android_rwht:"pending_until_explicit_persisted_human_evidence",online_device_never_equals_physical_rwht_certification:true},generated_at:new Date().toISOString()};
 }
 
 async function projectReviewPlan(goal:string,context:any){const live=await liveOperationalContext(goal);const agent={agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"};const liveText=JSON.stringify(live).slice(0,14000),ctxText=JSON.stringify(context).slice(0,5000);const steps=[agentStep("facts_1",agent,`Recopila hechos actuales y verificables sobre ARIA para la solicitud: ${goal}. Usa el contexto LIVE como fuente operativa, confirma qué está funcionando y qué está degradado, y separa CONFIRMADO de HIPÓTESIS y BLOQUEADO. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`),agentStep("crosscheck_1",agent,`Haz una segunda revisión independiente de la solicitud: ${goal}. Contrasta la evidencia actual con lo que realmente consume el runtime, busca contradicciones y evita repetir supuestos. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["facts_1"]),agentStep("summary_1",agent,`Redacta la respuesta final para el usuario sobre: ${goal}. Basa todo en la evidencia que puedas confirmar ahora. Explica qué ARIA encontró, qué funciona, qué está mal/degradado, qué evidencia lo demuestra y cuál es la siguiente acción concreta. Todo el texto humano debe estar en español. No uses JSON crudo y no afirmes que algo está completado sin evidencia.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["crosscheck_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-live-project-review-v2-multistep",live_project_review:true,live_operational_context:live}});}
 async function operationAuditPlan(goal:string,context:any){const match=goal.match(/(?:auditar operación ejecutora individual:|audit executor operation:|audit operation:)\s*([a-z0-9_.-]+)/i);if(!match)return null;const target=match[1];const agent={agent_id:"aria-agent-research-v1",role:"investigador",model_id:"google/gemini-3.5-flash-lite-direct"};const ctx=JSON.stringify(context).slice(0,6000);const steps=[agentStep("contract_1",agent,`Audita la operación exacta ${target}: contrato, disponibilidad, permisos, gobernanza y rutas reales. Solo lectura. Objetivo original: ${goal}. Contexto: ${ctx}`),agentStep("failure_modes_1",agent,`Audita la operación ${target} enfocándote en fallos, reintentos, verificación, observabilidad, seguridad y si el runtime realmente la consume. Separa CONFIRMADO de HIPÓTESIS. No modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["contract_1"]),agentStep("summary_1",agent,`Entrega una síntesis final en español sobre la auditoría de ${target}. Incluye evidencia concreta, problemas reales, bloqueos y conclusión sobre el estado actual. No inventes ni modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["failure_modes_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-operation-forensic-v2-multistep",asset_forensic:true,target_type:"operation",target,learning_context:context.learned_knowledge}});}
 function selfAuditPlan(goal:string,context:any,routes:any,agents:any[]){const scope=`FINDINGS. Independent forensic review of ARIA. Scope: ${goal}. Context: ${JSON.stringify(context).slice(0,7000)}. Confirm facts from execution evidence; separate hypotheses; cover architecture, runtime, DB, memory, learning, planning, execution, models, agents, devices, tools, security, recovery.`;const steps:any[]=[];routes.slice(0,4).forEach((r:any,i:number)=>steps.push(modelStep(`review_model_${i+1}`,r,`${scope} Use model ${r.model_id}. Begin with FINDINGS and finish with VERDICT.`)));agents.slice(0,4).forEach((a:any,i:number)=>steps.push(agentStep(`review_agent_${i+1}`,a,`${scope} Independent specialist pass as ${a.role}. Begin with FINDINGS and finish with VERDICT.`)));return {goal,steps,planner_version:"aria-planner-v11-forensic-multi-route-v1",self_audit:true}}
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context);if(battlecruiserRwht)return out({ok:true,plan:battlecruiserRwht});const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const windowsPcRwht=await windowsPcRwhtPlan(goal,context);if(windowsPcRwht)return windowsPcRwht;const battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context);if(battlecruiserRwht)return out({ok:true,plan:battlecruiserRwht});const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
 const runtimeProbe=/^(hola|test|prueba|esto\s+(?:esta|está)\s+funcionando|funcionando\??)$/i.test(g.trim());
 if(runtimeProbe){
   const routes=await modelRoutes();

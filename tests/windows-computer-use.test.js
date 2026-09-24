@@ -12,6 +12,9 @@ for (const action of [
 ]) assert.equal(COMPUTER_USE_ACTIONS.has(action), true);
 
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'screenshot' })).ok, true);
+assert.equal(validateDeviceJobOperation('computer.use.autonomous', JSON.stringify({ mode: 'rwht', goal: 'auditar BattleCruiser desde PC' })).ok, true);
+assert.equal(validateDeviceJobOperation('computer.use.autonomous', JSON.stringify({ mode: 'task', goal: 'x' })).ok, false);
+
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'click', x: 10, y: 20 })).ok, true);
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'double_click', x: 10, y: 20 })).ok, true);
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'move', x: 10, y: 20 })).ok, true);
