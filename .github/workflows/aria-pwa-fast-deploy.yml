@@ -1,0 +1,112 @@
+name: Deploy ARIA PWA Fast Lane
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pwa/**"
+      - "worker.js"
+      - "wrangler.toml"
+      - ".github/workflows/aria-pwa-fast-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify Cloudflare deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+      - name: Install PWA dependencies
+        working-directory: pwa
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Build PWA
+        working-directory: pwa
+        env:
+          VITE_BUILD: ${{ github.sha }}
+        run: |
+          export VITE_BUILD="$GITHUB_SHA"
+          npm run build
+          grep -q "$GITHUB_SHA" dist/index.html
+          grep -q "sw-$GITHUB_SHA.js" dist/index.html
+          grep -R -q "$GITHUB_SHA" dist/assets
+          cp dist/index.html "dist/index-$GITHUB_SHA.html"
+          cp dist/manifest.json "dist/manifest-$GITHUB_SHA.json"
+          sed "s/__BUILD__/$GITHUB_SHA/g" public/sw.js > "dist/sw-$GITHUB_SHA.js"
+          grep -q "aria-pwa-$GITHUB_SHA" "dist/sw-$GITHUB_SHA.js"
+          rm -f dist/index.html
+      - name: Install Wrangler
+        run: npm install --global wrangler@latest
+      - name: Deploy ARIA Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          sed -i "s/__PWA_BUILD__/$GITHUB_SHA/g" worker.js
+          wrangler deploy worker.js --name aria
+      - name: Sync Cloudflare runtime secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: printf '%s' "$CLOUDFLARE_API_TOKEN" | wrangler secret put CLOUDFLARE_API_TOKEN --name aria
+      - name: Smoke test PWA version and assets
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev/pwa/"
+          html=""
+          for attempt in $(seq 1 30); do
+            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "\${base}?probe=$GITHUB_SHA-$attempt" 2>/dev/null || true)"
+            if grep -q 'ARIA — Centro de Mando' <<<"$html" && grep -q "$GITHUB_SHA" <<<"$html" && grep -q "sw-$GITHUB_SHA.js" <<<"$html"; then
+              break
+            fi
+            test "$attempt" -lt 30 && sleep 2
+          done
+          test -n "$html"
+          grep -q 'ARIA — Centro de Mando' <<<"$html"
+          grep -q "$GITHUB_SHA" <<<"$html"
+          grep -q "sw-$GITHUB_SHA.js" <<<"$html"
+          grep -q "__ariaBootReady" <<<"$html"
+          version=""
+          for attempt in $(seq 1 30); do
+            version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "\${base}version.json?probe=$GITHUB_SHA-$attempt" 2>/dev/null || true)"
+            if VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              break
+            fi
+            test "$attempt" -lt 30 && sleep 2
+          done
+          VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+          PY
+          manifest="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/manifest.json?probe=$GITHUB_SHA")"
+          grep -q "ARIA — Centro de Mando Cognitivo" <<<"$manifest"
+          js_asset="$(grep -oE 'assets/[^"]+\.js' <<<"$html" | head -n 1)"
+          css_asset="$(grep -oE 'assets/[^"]+\.css' <<<"$html" | head -n 1)"
+          test -n "$js_asset"
+          test -n "$css_asset"
+          curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/$js_asset?probe=$GITHUB_SHA" >/tmp/aria-pwa-js
+          curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/$css_asset?probe=$GITHUB_SHA" >/tmp/aria-pwa-css
+          test -s /tmp/aria-pwa-js
+          test -s /tmp/aria-pwa-css
+          echo "PWA_FAST_DEPLOY_OK build=$GITHUB_SHA js=$js_asset css=$css_asset"
