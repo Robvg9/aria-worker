@@ -71,4 +71,10 @@ assert.match(
   'Mobile PWA shell must reserve space for the fixed bottom navigation.'
 );
 
+
+assert.match(app,/MEDITATION_LIVE_POLL_MS = 2500/,'Meditation IA execution must refresh the live runtime state at a short polling interval.');
+assert.match(app,/api\('\/missions\/' \+ encodeURIComponent\(activeId\), session\.accessToken\)/,'Live execution must refresh the canonical active mission state, not only the overview snapshot.');
+assert.match(app,/events\?live=\' \+ Date\.now\(\)/,'Live execution event reads must bypass intermediary cached responses.');
+assert.match(app,/latestBelongsToCurrentStep/,'Execution narrative must distinguish the current step from the latest historical event.');
+
 console.log('pwa-rwht-surface-contract PASS');

@@ -21,8 +21,8 @@ assert.match(app,/MeditationLiveExecution/);
 assert.match(app,/EJECUCIÓN EN TIEMPO REAL/);
 assert.match(app,/AHORA MISMO/);
 assert.match(app,/ÚLTIMA ACTIVIDAD REAL/);
-assert.match(app,/api\('\/missions\/' \+ encodeURIComponent\(activeId\) \+ '\/events'/);
-assert.match(app,/useLiveSync\(load, session\.accessToken, 8000\)/);
+assert.match(app,/api\('\/missions\/' \+ encodeURIComponent\(activeId\) \+ '\/events\?live='/);
+assert.match(app,/MEDITATION_LIVE_POLL_MS = 2500/);\nassert.match(app,/useLiveSync\(load, session\.accessToken, MEDITATION_LIVE_POLL_MS\)/);
 console.log('MEDITATION LIVE EXECUTION CENTER CONTRACT: PASS');
 
 assert.match(app,/executionNarrative/);
