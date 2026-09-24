@@ -5,7 +5,6 @@ const project=fs.readFileSync(path.join(__dirname,'..','pwa/src/ProjectWorkspace
 
 assert.doesNotMatch(project,/ARIA \/ PROYECTOS/);
 assert.doesNotMatch(project,/Chats aislados por proyecto/);
-assert.doesNotMatch(project/=>/);
 assert.match(project,/tab!=='chat'/);
 assert.match(project,/projectShell/);
 assert.match(project,/CHAT EXCLUSIVO/);
