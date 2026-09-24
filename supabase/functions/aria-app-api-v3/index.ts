@@ -901,16 +901,17 @@ Deno.serve(async (req) => {
         },
         created_at: now
       });
+      const mission = await enrichMission(updated, sb, true);
       if (eventError) {
         return json({
-          error: "mission_cancelled_event_failed",
-          detail: eventError.message,
-          mission: updated,
+          ok: true,
+          mission,
+          cancelled: true,
+          evidence_warning: "La misión fue cancelada, pero ARIA no pudo persistir el evento de cancelación.",
+          evidence_error: eventError.message,
           trace_id: trace
-        }, 502);
+        });
       }
-
-      const mission = await enrichMission(updated, sb, true);
       return json({
         ok: true,
         mission,
