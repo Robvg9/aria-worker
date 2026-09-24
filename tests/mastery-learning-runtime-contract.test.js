@@ -22,7 +22,11 @@ test('mission runner enforces learned preflight before execution', () => {
   assert.match(runner, /verify_learning_application/);
   assert.match(runner, /schema\("aria_internal"\)\.rpc\("validate_learning_preflight"/);
   assert.match(runner, /schema\("aria_internal"\)\.rpc\("verify_learning_application"/);
-  assert.match(runner, /learning_application_verified/);
+  assert.match(runner, /checkpoint_saved/);
+  assert.match(runner, /kind: "learning_application_verified"/);
+  assert.match(runner, /kind: "learning_application_verification_failed"/);
+  assert.equal(runner.includes('emitEvent(missionId, "learning_application_verified"'), false);
+  assert.equal(runner.includes('emitEvent(missionId, "learning_application_verification_failed"'), false);
 });
 
 test('production migration contains recurrence, candidate, promotion and regression gates', () => {
