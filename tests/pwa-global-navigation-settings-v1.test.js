@@ -1,0 +1,24 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
+const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
+
+assert.match(app,/AppPage = 'aria'.*'settings'/);
+assert.match(app,/case '#settings'/);
+assert.match(app,/function GlobalBottomNav/);
+assert.match(app,/navigation.page === 'projects'/);
+assert.match(app,/navigation.page === 'meditation'/);
+assert.match(app,/navigation.page === 'capabilities'/);
+assert.match(app,/navigation.page === 'settings'/);
+assert.match(app,/page === 'settings's*?/);
+assert.match(app,/<GlobalBottomNav/);
+assert.match(app,/Borrar caché y recargar/);
+assert.match(app,/Actualizar app/);
+assert.match(app,/Buscar actualización/);
+assert.match(app,/caches.keys()/);
+assert.match(app,/sessionSnapshot/);
+assert.match(css,/.bottomNav{[^}]*overflow-x:auto/);
+assert.match(css,/.bottomNav button{flex:0 0 66px/);
+console.log('GLOBAL NAV + SETTINGS CONTRACT: PASS');
