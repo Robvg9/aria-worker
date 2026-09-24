@@ -1094,23 +1094,6 @@ function Chat({
     }
   }
 
-  const swipeStart = useRef<{x:number;y:number}|null>(null);
-  const onSwipeStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    const target = e.target as Element | null;
-    if (target?.closest?.('button,input,textarea,a,[role="button"]')) return;
-    swipeStart.current = { x: e.clientX, y: e.clientY };
-  };
-  const onSwipeEnd = (e: React.PointerEvent<HTMLDivElement>) => {
-    const start = swipeStart.current;
-    swipeStart.current = null;
-    if (!start) return;
-    const dx = e.clientX - start.x;
-    const dy = e.clientY - start.y;
-    if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
-    if (dx < 0 && screen === 0) window.location.hash = '#chat';
-    if (dx > 0 && screen === 1) window.location.hash = '#home';
-  };
-
   return (
     <main className='appShell pwaShell'>
       <header className='topBar'>
@@ -1135,17 +1118,7 @@ function Chat({
         </div>
       </header>
 
-      <div
-        className='screenViewport'
-        onPointerDown={onSwipeStart}
-        onPointerUp={onSwipeEnd}
-        onPointerCancel={() => { swipeStart.current = null; }}
-      >
-        <div className='screenIndicator' aria-label='Navegación entre Dashboard y Chat'>
-          <span className={screen === 0 ? 'active' : ''}>1 · Dashboard</span>
-          <span className='screenIndicatorArrow'>↔</span>
-          <span className={screen === 1 ? 'active' : ''}>2 · Chat</span>
-        </div>
+      <div className='screenViewport'>
         <div className={'screenTrack screen-' + screen}>
           <section className='appScreen dashboardScreen'>
             <section className='heroPanel'>
@@ -1485,14 +1458,22 @@ export default function App() {
   });
   const initialNavigation = navigationFromHash();
   const [navigation, setNavigation] = useState<NavigationState>(() => initialNavigation);
+  const [uiPrefs, setUiPrefs] = useState<UiPrefs>(() => readUiPrefs());
+  const [globalSwipeStart, setGlobalSwipeStart] = useState<{ x: number; y: number } | null>(null);
   const page = navigation.page;
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
 
   useEffect(() => {
     const syncNavigation = () => setNavigation(navigationFromHash());
+    const syncPrefs = () => setUiPrefs(readUiPrefs());
     window.addEventListener('hashchange', syncNavigation);
+    window.addEventListener('aria-ui-settings-changed', syncPrefs);
     syncNavigation();
-    return () => window.removeEventListener('hashchange', syncNavigation);
+    syncPrefs();
+    return () => {
+      window.removeEventListener('hashchange', syncNavigation);
+      window.removeEventListener('aria-ui-settings-changed', syncPrefs);
+    };
   }, []);
 
   useEffect(() => {
@@ -1542,13 +1523,37 @@ export default function App() {
     };
   }, [session?.refreshToken, session?.expiresAt]);
 
+  function handleGlobalPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!uiPrefs.swipeNavigation) return;
+    const target = e.target as Element | null;
+    if (target?.closest?.('button,input,textarea,a,[role="button"],canvas,.noSwipe')) return;
+    setGlobalSwipeStart({ x: e.clientX, y: e.clientY });
+  }
+
+  function handleGlobalPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const start = globalSwipeStart;
+    setGlobalSwipeStart(null);
+    if (!uiPrefs.swipeNavigation || !start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    const index = navigationSwipeIndex(navigation);
+    const nextIndex = dx < 0 ? Math.min(SWIPE_PAGES.length - 1, index + 1) : Math.max(0, index - 1);
+    if (nextIndex !== index) window.location.hash = SWIPE_PAGES[nextIndex];
+  }
+
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => {
     window.location.hash = '#home';
     setNavigation(navigationFromHash());
   };
   return (
-    <>
+    <div
+      className={'globalPageFrame ' + (uiPrefs.animations ? '' : 'animationsOff')}
+      onPointerDown={handleGlobalPointerDown}
+      onPointerUp={handleGlobalPointerUp}
+      onPointerCancel={() => setGlobalSwipeStart(null)}
+    >
       <PwaNotificationCenter session={session} />
       {page === 'projects'
         ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
@@ -1561,14 +1566,11 @@ export default function App() {
           : page === 'capabilities'
             ? <Capabilities
                 session={session}
-                onBack={() => { window.location.hash = '#home'; }}
-                onMeditation={() => { window.location.hash = '#meditation'; }}
                 onMission={() => { window.location.hash = '#mission'; }}
               />
             : page === 'settings'
               ? <Settings
                   session={session}
-                  onBack={() => { window.location.hash = '#home'; }}
                   onSignOut={signOut}
                 />
               : <Chat
@@ -1583,6 +1585,6 @@ export default function App() {
         onMeditation={() => { window.location.hash = '#meditation'; }}
         onCapabilities={() => { window.location.hash = '#capabilities'; }}
       />
-    </>
+    </div>
   );
 }
