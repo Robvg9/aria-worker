@@ -18,6 +18,11 @@ assert.match(planner, /"implementation_1"/);
 assert.match(planner, /"verification_1"/);
 assert.match(planner, /depends_on/);
 assert.match(planner, /planner-v11-safe-readonly-actionable-v4-multistep/);
+assert.match(planner, /const isRwht=\/(\\\\brwht\\\\b\|real world human test/);
+assert.ok(
+  planner.indexOf('const battlecruiserRwht=await battlecruiserGithubRwhtPlan') < planner.indexOf('const windowsPcRwht=await windowsPcRwhtPlan'),
+  'BattleCruiser GitHub planner must run before generic Windows RWHT planner'
+);
 
 assert.match(appApi, /display_title/);
 assert.match(appApi, /Misión #/);
@@ -39,7 +44,9 @@ assert.match(runner, /paths: input\.paths/);
 assert.match(runner, /verifyPendingMutation/);
 assert.match(runner, /retry_exhausted_strategy/);
 assert.match(runner, /replan_count/);
-assert.match(runner, /maxReplans = 12/);
+assert.match(runner, /maxReplans = 2/);
+assert.match(runner, /planStrategySignature/);
+assert.match(runner, /identical_replan_strategy/);
 assert.match(runner, /mission_replanned/);
 assert.match(runner, /AGENT_RECOVERY_FALLBACKS/);
 assert.match(runner, /aria-agent-coding-openrouter-v1/);
