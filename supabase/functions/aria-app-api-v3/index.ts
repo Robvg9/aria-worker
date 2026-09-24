@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { classifyConversation } from "../_shared/fast-lane.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -593,9 +594,10 @@ Deno.serve(async (req) => {
         });
       }
 
-      const memory = await recall(text,user.id);
+      const lane = classifyConversation(text);
+      const memory = lane.lane === "deep" ? await recall(text,user.id) : [];
       let step: any;
-      if (looksLikeSimpleConversation(text)) {
+      if (lane.lane === "fast" || looksLikeSimpleConversation(text)) {
         const routes=await conversationRoutes();
         if(routes[0]) step={target:{type:"model",provider_id:routes[0].provider_id,account_id:routes[0].account_id,model_id:routes[0].model_id}};
       }
@@ -630,7 +632,7 @@ Deno.serve(async (req) => {
         const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
         if (!content) throw new Error("empty_conversation_response");
         await persistConversationMessage(user.id,conversationId,"assistant",content,[{type:"text",text:content}],trace,"success",execution.route.provider_id,execution.route.model_id,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
-        return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count }, trace_id: trace });
+        return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count, fast_lane: lane.lane, fast_lane_reason: lane.reason }, trace_id: trace });
       } catch (e) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502);
       }
