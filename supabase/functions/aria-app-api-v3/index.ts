@@ -58,14 +58,24 @@ async function requireUser(token: string) {
 async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
 async function persistConversationMessage(userId:string,conversationId:string,role:"user"|"assistant"|"system",content:string,parts:any[],traceId:string,visualState:string|null,providerId:string|null,modelId:string|null,title:string,project:any){
   const sb=serviceClient();
-  const ensured=await sb.rpc("aria_app_ensure_conversation",{p_user_id:userId,p_conversation_id:conversationId,p_title:title});
-  if(ensured.error)throw new Error("conversation_persist_ensure_failed");
-  if(project){
-    const {error}=await sb.schema("aria_app").from("conversations").update({metadata:{project_id:project.id,project_name:project.name,project_icon:project.icon,project_context:project.context}}).eq("conversation_id",conversationId).eq("owner_user_id",userId);
-    if(error)throw new Error("conversation_project_metadata_failed");
-  }
-  const saved=await sb.rpc("aria_app_save_message",{p_user_id:userId,p_conversation_id:conversationId,p_role:role,p_content:content,p_parts:parts??[],p_trace_id:traceId,p_visual_state:visualState,p_provider_id:providerId,p_model_id:modelId});
-  if(saved.error)throw new Error("conversation_persist_message_failed");
+  const saved=await sb.rpc("aria_app_persist_message",{
+    p_user_id:userId,
+    p_conversation_id:conversationId,
+    p_role:role,
+    p_content:content,
+    p_parts:parts??[],
+    p_trace_id:traceId,
+    p_visual_state:visualState,
+    p_provider_id:providerId,
+    p_model_id:modelId,
+    p_title:title,
+    p_project_id:project?.id ?? null,
+    p_project_name:project?.name ?? null,
+    p_project_icon:project?.icon ?? null,
+    p_project_context:project?.context ?? null
+  });
+  if(saved.error)throw new Error("conversation_persist_rpc_failed:"+saved.error.message);
+  return saved.data;
 }
 
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
@@ -555,9 +565,21 @@ Deno.serve(async (req) => {
       const visual_context = normalizeVisualContext(body);
       const attachments = normalizeAttachments(parts);
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
-      const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
-      try { await persistConversationMessage(user.id,conversationId,"user",text,parts,trace,null,null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project); } catch(e) { return json({error:"conversation_persist_failed",stage:"persistence",detail:String((e as any)?.message??e),trace_id:trace},502); }
+      const requestStartedAt = Date.now();
+      let conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
+      let persistenceWarning: string | null = null;
+      let initialPersistenceMs: number | null = null;
+      const initialPersistStartedAt = Date.now();
+      try {
+        const persistedUserMessage = await persistConversationMessage(user.id,conversationId,"user",text,parts,trace,null,null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+        if (persistedUserMessage?.conversation_id) conversationId = String(persistedUserMessage.conversation_id);
+      } catch(e) {
+        initialPersistenceMs = Date.now() - initialPersistStartedAt;
+        persistenceWarning = String((e as any)?.message ?? e);
+      }
+      if (initialPersistenceMs === null) initialPersistenceMs = Date.now() - initialPersistStartedAt;
 
+      let assistantPersistenceMs: number | null = null;
       if (looksLikeMissionRequest(text)) {
         const direct = await internal(DIRECT, {
           goal: text,
@@ -596,7 +618,14 @@ Deno.serve(async (req) => {
           }, 502);
         }
         const ackText="Recibido. La solicitud entró por la entrada canónica de misiones de ARIA y quedó en cola para Meditación IA. ARIA ejecutará los pasos mediante sus executors autorizados y solo podrá cerrarla cuando exista evidencia real de ejecución y verificación.";
-        await persistConversationMessage(user.id,conversationId,"assistant",ackText,[{type:"text",text:ackText}],trace,"mission_queued",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+        const assistantPersistStartedAt = Date.now();
+        try {
+          await persistConversationMessage(user.id,conversationId,"assistant",ackText,[{type:"text",text:ackText}],trace,"mission_queued",null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+          assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
+        } catch(e) {
+          persistenceWarning = persistenceWarning || String((e as any)?.message ?? e);
+          assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
+        }
         return json({
           ok: true,
           conversationId,
@@ -612,7 +641,11 @@ Deno.serve(async (req) => {
             model_id: null,
             fallback_count: 0,
             routed_to_mission: true,
-            canonical_intake: true
+            canonical_intake: true,
+            processing_ms: Date.now() - requestStartedAt,
+            input_persistence_ms: initialPersistenceMs,
+            assistant_persistence_ms: assistantPersistenceMs ?? null,
+            persistence_warning: persistenceWarning
           },
           trace_id: trace
         });
@@ -631,7 +664,7 @@ Deno.serve(async (req) => {
         try {
           step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, learned_skills: learned.skills.slice(0, 6), world_model: learned.world_model, project, visual_context, attachments });
         } catch (e) {
-          return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
+          return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), processing_ms: Date.now() - requestStartedAt, input_persistence_ms: initialPersistenceMs, persistence_warning: persistenceWarning, trace_id: trace }, 503);
         }
       }
       const context = memory.slice(0, 6).map((m:any)=>String(m?.content??"").trim()).filter(Boolean).join("\n\n");
@@ -654,21 +687,52 @@ Deno.serve(async (req) => {
         context ? "MEMORIA CONTEXTUAL AUTORIZADA:\n" + context : "",
         "MENSAJE DEL USUARIO — RESPONDE A ESTO DIRECTAMENTE:\n" + text
       ].filter(Boolean).join("\n\n");
+      const modelStartedAt = Date.now();
+      let execution:any;
+      let debate:any = null;
       try {
-        let execution:any;
-        let debate:any = null;
         if (shouldDebate(text, lane.lane)) {
           try { debate = await executeDebate(step, prompt, conversationId, visual_context); } catch { debate = null; }
         }
         execution = debate ? { result: debate.result, route: debate.second, fallback_count: 0, failures: [], debate: true } : await executeConversationWithFallback(step, prompt, conversationId, visual_context);
-        const result=execution.result;
-        const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
-        if (!content) throw new Error("empty_conversation_response");
-        await persistConversationMessage(user.id,conversationId,"assistant",content,[{type:"text",text:content}],trace,"success",execution.route.provider_id,execution.route.model_id,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
-        return json({ ok: true, conversationId, visualState: "success", parts: [{ type: "text", text: content }], cognitive: { recall_count: memory.length, provider_id: execution.route.provider_id, model_id: execution.route.model_id, fallback_count: execution.fallback_count, fast_lane: lane.lane, fast_lane_reason: lane.reason, debate_used: Boolean(execution.debate), debate_models: execution.debate ? [execution.route?.model_id, debate?.first?.model_id] : [] }, trace_id: trace });
       } catch (e) {
-        return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], trace_id: trace }, 502);
+        return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], processing_ms: Date.now() - requestStartedAt, model_ms: Date.now() - modelStartedAt, input_persistence_ms: initialPersistenceMs, persistence_warning: persistenceWarning, trace_id: trace }, 502);
       }
+      const result=execution.result;
+      const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
+      if (!content) {
+        return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: "empty_conversation_response", processing_ms: Date.now() - requestStartedAt, model_ms: Date.now() - modelStartedAt, trace_id: trace }, 502);
+      }
+      const assistantPersistStartedAt = Date.now();
+      try {
+        await persistConversationMessage(user.id,conversationId,"assistant",content,[{type:"text",text:content}],trace,"success",execution.route.provider_id,execution.route.model_id,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+        assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
+      } catch(e) {
+        persistenceWarning = persistenceWarning || String((e as any)?.message ?? e);
+        assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
+      }
+      return json({
+        ok: true,
+        conversationId,
+        visualState: "success",
+        parts: [{ type: "text", text: content }],
+        cognitive: {
+          recall_count: memory.length,
+          provider_id: execution.route.provider_id,
+          model_id: execution.route.model_id,
+          fallback_count: execution.fallback_count,
+          fast_lane: lane.lane,
+          fast_lane_reason: lane.reason,
+          debate_used: Boolean(execution.debate),
+          debate_models: execution.debate ? [execution.route?.model_id, debate?.first?.model_id] : [],
+          processing_ms: Date.now() - requestStartedAt,
+          model_ms: Date.now() - modelStartedAt,
+          input_persistence_ms: initialPersistenceMs,
+          assistant_persistence_ms: assistantPersistenceMs,
+          persistence_warning: persistenceWarning
+        },
+        trace_id: trace
+      });
     }
     if (req.method === "POST" && path.endsWith("/missions")) {
       const body = await req.json().catch(() => null);

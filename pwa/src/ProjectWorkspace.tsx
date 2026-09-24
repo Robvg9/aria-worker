@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Session = { accessToken: string; userId: string };
+type ChatMessage = { id:string; role:'user'|'aria'; text:string; processingMs?:number };
 type Project = { id: string; name: string; description: string; icon: string; context: string; previewUrl?: string };
 type Tool = 'pen'|'marker'|'line'|'rect'|'circle'|'arrow'|'text'|'eraser';
 type Point = { x:number; y:number };
 type DrawAction = { tool:Tool; color:string; size:number; points:Point[]; text?:string };
 
 const API = '/api';
+function formatProcessingTime(ms:number):string{const value=Math.max(0,Number(ms)||0);if(value<1000)return value+' ms';return (value/1000).toFixed(value<10000?1:0)+' s';}
+function processingLabel(ms:number):string{if(ms<1500)return 'ARIA está analizando tu mensaje…';if(ms<4000)return 'ARIA está procesando el contexto…';if(ms<10000)return 'ARIA está razonando y preparando la respuesta…';return 'ARIA sigue procesando la respuesta…';}
 const HUMAN_API_ERRORS: Record<string,string> = {
   app_api_unreachable:'No pude conectar con ARIA. Revisa la conexión e inténtalo de nuevo.',
+  conversation_persist_failed:'No se pudo guardar el mensaje. ARIA puede seguir intentando responder y conservar la conversación.',
   conversation_model_execution_failed:'El modelo que tomó la solicitud no pudo completar la respuesta. Puedes reintentarlo.',
   conversation_planner_failed:'El planificador de ARIA no respondió. Puedes reintentarlo.',
   invalid_or_expired_session:'La sesión de ARIA expiró. Vuelve a entrar para continuar.'
@@ -23,15 +27,25 @@ async function api(path:string, token:string, init:RequestInit={}) {
   const headers = new Headers(init.headers);
   headers.set('authorization','Bearer '+token);
   if (init.body) headers.set('content-type','application/json');
-  const response = await fetch(API+path,{...init,headers,cache:'no-store'});
-  const raw = await response.text();
-  let data:any = null;
-  try { data = raw ? JSON.parse(raw) : null; } catch {}
-  if (!response.ok) {
-    const code=String(data?.error_description || data?.error || 'aria_api_error');
-    throw new Error(HUMAN_API_ERRORS[code] ?? code);
+  const method=String(init.method||'GET').toUpperCase();
+  const controller=new AbortController();
+  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?12000:60000);
+  try {
+    const response = await fetch(API+path,{...init,headers,cache:'no-store',signal:controller.signal});
+    const raw = await response.text();
+    let data:any = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch {}
+    if (!response.ok) {
+      const code=String(data?.error_description || data?.error || 'aria_api_error');
+      throw new Error(HUMAN_API_ERRORS[code] ?? code);
+    }
+    return data;
+  } catch (e) {
+    if (e instanceof DOMException && e.name==='AbortError') throw new Error(method==='GET'?'ARIA tardó demasiado en actualizar el chat.':'ARIA lleva demasiado tiempo procesando esta solicitud. Puedes reintentar sin perder el mensaje.');
+    throw e;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return data;
 }
 
 function statusLabel(status:string) {
@@ -252,7 +266,10 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const TAB_KEY=(projectId:string)=>'aria_project_tab_v2:'+session.userId+':'+projectId;
   const [project,setProject]=useState<Project>(()=>{try{const id=localStorage.getItem(PROJECT_KEY);return PROJECTS.find(p=>p.id===id)||PROJECTS[0]}catch{return PROJECTS[0]}});
   const [tab,setTab]=useState<'overview'|'chat'|'missions'|'visual'>(()=>{try{const saved=localStorage.getItem(TAB_KEY(PROJECTS[0].id));return (saved as any)||'overview'}catch{return 'overview'}});
-  const [messages,setMessages]=useState<{id:string;role:'user'|'aria';text:string}[]>([]);
+  const [messages,setMessages]=useState<ChatMessage[]>([]);
+  const processingStartedAtRef=useRef<number|null>(null);
+  const [processingElapsedMs,setProcessingElapsedMs]=useState(0);
+  const [lastProcessingMs,setLastProcessingMs]=useState<number|null>(null);
   const [conversationId,setConversationId]=useState<string|null>(null);
   const [text,setText]=useState('');
   const [goal,setGoal]=useState('');
@@ -267,6 +284,16 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   async function loadMissions(){try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=100',session.accessToken);setMissions(d.missions||[])}catch(e){setError(e instanceof Error?e.message:'No se pudieron cargar las misiones.')}}
 
   async function loadProjectChat(){try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/conversation',session.accessToken);setConversationId(d.conversation_id||null);const rows=Array.isArray(d.conversation?.messages)?d.conversation.messages:[];setMessages(rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim()))}catch(e){setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.')}}
+
+  useEffect(()=>{
+    if(!sending){setProcessingElapsedMs(0);return;}
+    const startedAt=processingStartedAtRef.current??Date.now();
+    processingStartedAtRef.current=startedAt;
+    const tick=()=>setProcessingElapsedMs(Date.now()-startedAt);
+    tick();
+    const timer=window.setInterval(tick,200);
+    return()=>window.clearInterval(timer);
+  },[sending]);
 
   useEffect(()=>{setSelectedMission(null);setError('');try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}void loadMissions();void loadProjectChat()},[project.id]);
 
@@ -288,11 +315,16 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   async function send(){
     const clean=text.trim();if(!clean||sending)return;
-    setSending(true);setError('');setMessages(m=>[...m,{id:crypto.randomUUID(),role:'user',text:clean}]);setText('');
+    setSending(true);setError('');processingStartedAtRef.current=Date.now();setProcessingElapsedMs(0);setLastProcessingMs(null);
+    setMessages(m=>[...m,{id:crypto.randomUUID(),role:'user',text:clean}]);setText('');
     try{
       const id=conversationId||crypto.randomUUID();setConversationId(id);
       const d=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts:[{type:'text',text:clean}],clientMessageId:crypto.randomUUID(),conversationId:id,project_id:project.id,project:{id:project.id,name:project.name,context:project.context}})});
-      const p=d.parts?.find((x:any)=>x.type==='text');if(p?.text)setMessages(m=>[...m,{id:crypto.randomUUID(),role:'aria',text:p.text}]);
+      const p=d.parts?.find((x:any)=>x.type==='text');
+      const serverProcessingMs=Number(d?.cognitive?.processing_ms);
+      if(Number.isFinite(serverProcessingMs)&&serverProcessingMs>=0)setLastProcessingMs(serverProcessingMs);
+      else if(processingStartedAtRef.current)setLastProcessingMs(Date.now()-processingStartedAtRef.current);
+      if(p?.text)setMessages(m=>[...m,{id:crypto.randomUUID(),role:'aria',text:p.text,processingMs:Number.isFinite(serverProcessingMs)?serverProcessingMs:undefined}]);
       if(d.mission?.mission_id)await loadMissions();
       await loadProjectChat();
     }catch(e){await loadProjectChat().catch(()=>{});setError(e instanceof Error?e.message:'No se pudo hablar con ARIA.')}finally{setSending(false)}
@@ -316,7 +348,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     <div className='projectBodyViewport'>
       {error&&<div className='errorBox'>{error}</div>}
       {tab==='overview'&&<section className='panel'><div className='panelTitle'>COLA COMPARTIDA</div><h2>Una sola cola, tres espacios de trabajo</h2><p className='muted'>Todo entra en el mismo planner, executor, verification y evidence fabric de ARIA. El proyecto añade contexto y filtrado, no un runtime paralelo.</p><div className='statsGrid'><div className='statCard'><div className='statValue violet'>{missions.length}</div><div className='statLabel'>Misiones</div></div><div className='statCard'><div className='statValue cyan'>{missions.filter(m=>['running','queued','planning','waiting','paused'].includes(String(m.status))).length}</div><div className='statLabel'>Activas / en cola</div></div><div className='statCard'><div className='statValue green'>{missions.filter(m=>String(m.status)==='succeeded').length}</div><div className='statLabel'>Completadas verificadas</div></div><div className='statCard'><div className='statValue gold'>{missions.filter(m=>['blocked','failed'].includes(String(m.status))).length}</div><div className='statLabel'>Requieren atención</div></div></div></section>}
-      {tab==='chat'&&<section className='panel chatPanel'><div className='panelTitle'>CHAT EXCLUSIVO · {project.name.toUpperCase()}</div><div className='chatWindow projectChatWindow'>{messages.length?messages.map(m=><div key={m.id} className={'bubble '+m.role}><div className='markdownBody'>{renderProjectMarkdown(m.text)}</div></div>):<div className='emptyState'>Contexto activo: {project.name}. ARIA debe distinguir este proyecto de los demás y usar solo memoria autorizada.</div>}</div><div className='composer'><textarea ref={projectChatRef} value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void send()}}} placeholder={'Habla con ARIA sobre '+project.name+'…'}/><button className='send' aria-label={sending?'Enviando mensaje':'Enviar mensaje'} disabled={sending||!text.trim()} onClick={()=>void send()}>{sending?'…':'↑'}</button><div className='composerStatus' aria-live='polite'>{sending?'Enviando a ARIA…':'Listo para enviar'}</div></div></section>}
+      {tab==='chat'&&<section className='panel chatPanel'><div className='panelTitle'>CHAT EXCLUSIVO · {project.name.toUpperCase()}</div><div className='chatWindow projectChatWindow'>{messages.length?messages.map(m=><div key={m.id} className={'bubble '+m.role}><div className='markdownBody'>{renderProjectMarkdown(m.text)}</div>{m.role==='aria'&&m.processingMs!=null&&<small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>):<div className='emptyState'>Contexto activo: {project.name}. ARIA debe distinguir este proyecto de los demás y usar solo memoria autorizada.</div>}</div>{sending&&<div className='chatThinking' role='status' aria-live='polite'><span className='thinkingOrb' aria-hidden='true'>🧠</span><div className='thinkingCopy'><strong>{processingLabel(processingElapsedMs)}</strong><small>Procesamiento en curso · {formatProcessingTime(processingElapsedMs)}</small></div><span className='thinkingDots' aria-hidden='true'>•••</span></div>}<div className='composer'><textarea ref={projectChatRef} value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void send()}}} placeholder={'Habla con ARIA sobre '+project.name+'…'}/><button className='send' aria-label={sending?'Procesando mensaje':'Enviar mensaje'} disabled={sending||!text.trim()} onClick={()=>void send()}>{sending?'…':'↑'}</button><div className='composerStatus' aria-live='polite'>{sending?('Procesando… '+formatProcessingTime(processingElapsedMs)):error?'Error · revisa el mensaje':lastProcessingMs!=null?('Último procesamiento · '+formatProcessingTime(lastProcessingMs)):'Listo para enviar'}</div></div></section>}
       {tab==='missions'&&<section className='panel'><div className='panelHeading'><div><div className='panelTitle'>MISIONES · {project.name.toUpperCase()}</div><h2>Cola y evidencia</h2></div><button className='ghost' onClick={()=>void loadMissions()}>Actualizar</button></div><div className='missionCreateRow'><textarea value={goal} onChange={e=>setGoal(e.target.value)} placeholder={'Describe la misión que ARIA debe realizar en '+project.name+'…'}/><button className='primary' disabled={sending||!goal.trim()} onClick={()=>void createMission()}>{sending?'…':'Crear misión'}</button></div><div className='catalogList'>{missions.map(m=><button key={m.mission_id} className='projectMissionRow' onClick={()=>void openMission(m.mission_id)}><div><strong>{m.goal}</strong><small>{statusLabel(String(m.status))} · {m.completed_steps??0}/{m.total_steps??m.steps?.length??0} pasos · {m.updated_at?new Date(m.updated_at).toLocaleTimeString('es'):''}</small></div><span className={'pill '+statusClass(String(m.status))}>{statusLabel(String(m.status))}</span></button>)}{!missions.length&&<div className='emptyState'>Todavía no hay misiones para este proyecto.</div>}</div></section>}
       {tab==='visual'&&<VisualBoard session={session} project={project} conversationId={conversationId} onChat={(m,cid)=>{if(cid)setConversationId(cid);setMessages(x=>[...x,{id:crypto.randomUUID(),role:'aria',text:m}]);selectTab('chat')}} onMission={createMission}/>}
     </div>

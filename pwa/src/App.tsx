@@ -17,7 +17,7 @@ type Session = {
   email?: string;
 };
 
-type Message = { id: string; role: 'user' | 'aria'; text: string };
+type Message = { id: string; role: 'user' | 'aria'; text: string; processingMs?: number };
 type CapabilityCatalog = {
   summary: Record<string, number>;
   executors: any[];
@@ -46,6 +46,18 @@ function navigationFromHash(hash = window.location.hash): NavigationState {
     case '#capabilities': return { page: 'capabilities', screen: 0, newMission: false };
     default: return { page: 'aria', screen: 0, newMission: false };
   }
+}
+
+function formatProcessingTime(ms: number): string {
+  const value = Math.max(0, Number(ms) || 0);
+  if (value < 1000) return value + ' ms';
+  return (value / 1000).toFixed(value < 10000 ? 1 : 0) + ' s';
+}
+function processingLabel(ms: number): string {
+  if (ms < 1500) return 'ARIA está analizando tu mensaje…';
+  if (ms < 4000) return 'ARIA está procesando el contexto…';
+  if (ms < 10000) return 'ARIA está razonando y preparando la respuesta…';
+  return 'ARIA sigue procesando la respuesta…';
 }
 
 function missionResultText(mission: any): string {
@@ -122,6 +134,7 @@ function writeCached<T>(kind: string, userId: string, data: T) {
 
 const HUMAN_API_ERRORS: Record<string, string> = {
   app_api_unreachable: 'No pude conectar con ARIA. La red está inestable; los datos que ya estaban cargados se mantienen disponibles.',
+  conversation_persist_failed: 'No se pudo guardar el mensaje del chat. ARIA intentará mantener la conversación disponible.',
   conversation_model_execution_failed: 'El modelo que tomó la solicitud no pudo completar la respuesta. ARIA agotó las rutas disponibles; inténtalo de nuevo.',
   conversation_planner_failed: 'El planificador de ARIA no respondió. La interfaz sigue disponible y puedes reintentar.',
   project_conversation_lookup_failed: 'No se pudo abrir el chat de este proyecto. ARIA está reparando la conexión del chat; vuelve a entrar en unos segundos.',
@@ -848,6 +861,9 @@ function Chat({
   const [screen, setScreen] = useState<0 | 1>(() => initialNavigation.screen);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const processingStartedAtRef = useRef<number | null>(null);
+  const [processingElapsedMs, setProcessingElapsedMs] = useState(0);
+  const [lastProcessingMs, setLastProcessingMs] = useState<number | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
     system || caps || mission ? 'cached' : 'offline'
@@ -927,6 +943,19 @@ function Chat({
   useLiveSync(syncCapabilities, session.accessToken, 60000);
 
   useEffect(() => {
+    if (!sending) {
+      setProcessingElapsedMs(0);
+      return;
+    }
+    const startedAt = processingStartedAtRef.current ?? Date.now();
+    processingStartedAtRef.current = startedAt;
+    const tick = () => setProcessingElapsedMs(Date.now() - startedAt);
+    tick();
+    const timer = window.setInterval(tick, 200);
+    return () => window.clearInterval(timer);
+  }, [sending]);
+
+  useEffect(() => {
     const onBefore = (e: Event) => e.preventDefault();
     window.addEventListener('beforeinstallprompt', onBefore);
     return () => window.removeEventListener('beforeinstallprompt', onBefore);
@@ -936,6 +965,9 @@ function Chat({
     const clean = text.trim();
     if ((!clean && !file) || sending) return;
     setSending(true); setError('');
+    processingStartedAtRef.current = Date.now();
+    setProcessingElapsedMs(0);
+    setLastProcessingMs(null);
     setMessages(m => [...m, { id: crypto.randomUUID(), role: 'user', text: clean + (file ? '\\n[' + file.name + ']' : '') }]);
     setText('');
     try {
@@ -954,7 +986,10 @@ function Chat({
       setConversationId(activeConversationId);
       const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId: crypto.randomUUID(), conversationId: activeConversationId }) });
       const p = d.parts?.find((x: any) => x.type === 'text');
-      if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text }]);
+      const serverProcessingMs = Number(d?.cognitive?.processing_ms);
+      if (Number.isFinite(serverProcessingMs) && serverProcessingMs >= 0) setLastProcessingMs(serverProcessingMs);
+      else if (processingStartedAtRef.current) setLastProcessingMs(Date.now() - processingStartedAtRef.current);
+      if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs: Number.isFinite(serverProcessingMs) ? serverProcessingMs : undefined }]);
       if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
     } catch (x) {
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');
@@ -1127,9 +1162,19 @@ function Chat({
               </div>
               <div className='chatWindow'>
                 {messages.length
-                  ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div></div>)
+                  ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div>{m.role === 'aria' && m.processingMs != null && <small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>)
                   : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
               </div>
+              {sending && (
+                <div className='chatThinking' role='status' aria-live='polite'>
+                  <span className='thinkingOrb' aria-hidden='true'>🧠</span>
+                  <div className='thinkingCopy'>
+                    <strong>{processingLabel(processingElapsedMs)}</strong>
+                    <small>Procesamiento en curso · {formatProcessingTime(processingElapsedMs)}</small>
+                  </div>
+                  <span className='thinkingDots' aria-hidden='true'>•••</span>
+                </div>
+              )}
               {file && <div className='fileChip'>{file.name}<button aria-label='Quitar archivo adjunto' onClick={() => setFile(null)}>×</button></div>}
               {error && <div className='errorBox'>{error}</div>}
               <div className='composer'>
@@ -1143,7 +1188,7 @@ function Chat({
                   placeholder='Habla con ARIA…'
                 />
                 <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
-                <div className='composerStatus' aria-live='polite'>{sending ? 'Enviando a ARIA…' : error ? 'Error · revisa el mensaje' : 'Listo para enviar'}</div>
+                <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
               </div>
             </section>
           </section>
