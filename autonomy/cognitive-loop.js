@@ -66,12 +66,14 @@ function createCognitiveLoop({
         status: outcome?.status || 'unknown',
         result: outcome
       };
-      const post = {};
-      if (typeof reflect === 'function') post.reflection = await reflect(episode);
-      if (typeof learn === 'function') post.learning = await learn(episode, post.reflection || null);
-      if (typeof worldModel === 'function') post.world_model = await worldModel(episode);
-      if (typeof confidence === 'function') post.confidence = await confidence(episode, post);
-      if (typeof skillCompiler === 'function') post.skill = await skillCompiler(episode, post);
+      const reflection = typeof reflect === 'function' ? await reflect(episode) : null;
+      const [learning, world_model, confidenceResult] = await Promise.all([
+        typeof learn === 'function' ? learn(episode, reflection) : Promise.resolve(undefined),
+        typeof worldModel === 'function' ? worldModel(episode) : Promise.resolve(undefined),
+        typeof confidence === 'function' ? confidence(episode, { reflection }) : Promise.resolve(undefined)
+      ]);
+      const post = { reflection, learning, world_model, confidence: confidenceResult };
+      post.skill = typeof skillCompiler === 'function' ? await skillCompiler(episode, post) : undefined;
       cognition = { ...cognition, postprocessed: true, post };
     }
 
