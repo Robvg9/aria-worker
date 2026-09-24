@@ -566,12 +566,13 @@ Deno.serve(async (req) => {
       const attachments = normalizeAttachments(parts);
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
       const requestStartedAt = Date.now();
-      const conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
+      let conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
       let persistenceWarning: string | null = null;
       let initialPersistenceMs: number | null = null;
       const initialPersistStartedAt = Date.now();
       try {
-        await persistConversationMessage(user.id,conversationId,"user",text,parts,trace,null,null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+        const persistedUserMessage = await persistConversationMessage(user.id,conversationId,"user",text,parts,trace,null,null,null,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
+        if (persistedUserMessage?.conversation_id) conversationId = String(persistedUserMessage.conversation_id);
       } catch(e) {
         initialPersistenceMs = Date.now() - initialPersistStartedAt;
         persistenceWarning = String((e as any)?.message ?? e);
