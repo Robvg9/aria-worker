@@ -306,7 +306,17 @@ async function runAutonomousRwht(options) {
   const adapter = o.adapter || executeWindowsDesktop;
   const model = o.model || qwen;
   const captureScreenshots = o.capture_screenshots !== false;
+  const onProgress = typeof o.on_progress === 'function' ? o.on_progress : null;
   const started = Date.now();
+
+  async function emitProgress(event_type, payload = {}, step_index = null) {
+    if (!onProgress) return;
+    try {
+      await onProgress({ event_type, step_index, payload: { ...payload, mission_id: missionId } });
+    } catch {
+      // Live telemetry must never break the physical RWHT execution path.
+    }
+  }
 
   const capabilities = capabilityProfile(deviceId);
   const history = [];
@@ -318,20 +328,49 @@ async function runAutonomousRwht(options) {
   const blockedControls = new Set();
   const lastDecisions = new Set();
 
+  await emitProgress('computer_use_capabilities_confirmed', {
+    capabilities: capabilities.capabilities.map((item) => ({
+      id: item.id,
+      operation: item.operation,
+      requires: item.requires || null,
+    })),
+  });
+  await emitProgress('computer_use_device_confirmed', {
+    device_id: deviceId,
+    surface: 'windows-desktop',
+    start_url: startUrl,
+  });
+
   const navigation = await navigate(adapter, startUrl).catch((error) => ({
     status: 'failed',
     error: String(error && error.message || error),
   }));
 
-  const observe = async () => {
+  const observe = async (reason = 'initial') => {
+    await emitProgress('computer_use_observation_started', {
+      reason,
+    });
     const result = await adapter({ action: 'observe' }, { timeout_ms: 30000 });
     if (!result || result.status !== 'succeeded') {
+      await emitProgress('computer_use_observation_completed', {
+        reason,
+        status: 'failed',
+        error: result && result.error ? String(result.error).slice(0, 500) : 'observe_failed',
+      });
       throw new Error(result && result.error || 'observe_failed');
     }
-    return sanitize(result.ui || result);
+    const sanitized = sanitize(result.ui || result);
+    await emitProgress('computer_use_observation_completed', {
+      reason,
+      status: 'succeeded',
+      title: sanitized.title,
+      surface: sanitized.surface,
+      control_count: sanitized.nodes.length,
+    });
+    return sanitized;
   };
 
-  let current = await observe();
+  let current = await observe('inicio');
   let finishReason = 'runtime_limit';
   let noProgressStreak = 0;
 
@@ -413,6 +452,15 @@ async function runAutonomousRwht(options) {
       }
     }
 
+    await emitProgress('computer_use_decision_made', {
+      step,
+      action: decision.action,
+      node_id: decision.node_id,
+      reason: decision.reason,
+      decision_source: decisionSource,
+      model_error: modelError,
+    }, step);
+
     const safety = validateDecision(decision, current);
 
     if (!safety.ok) {
@@ -428,6 +476,12 @@ async function runAutonomousRwht(options) {
         reason: safety.reason,
         label: nodeLabel(safety.node),
       });
+      await emitProgress('computer_use_action_blocked', {
+        step,
+        action: decision.action,
+        node_id: decision.node_id,
+        reason: safety.reason,
+      }, step);
       history.push({
         step,
         event: 'blocked',
@@ -442,16 +496,52 @@ async function runAutonomousRwht(options) {
     const beforeHash = screenHash;
     const target = decision.node_id ? find(current, decision.node_id) : null;
 
+    await emitProgress('computer_use_action_started', {
+      step,
+      action: decision.action,
+      node_id: decision.node_id,
+      label: target ? nodeLabel(target) : null,
+      reason: decision.reason,
+    }, step);
+
     const result = await executeDecision(adapter, decision, current);
-    const after = await observe().catch(() => null);
+    await emitProgress('computer_use_action_executed', {
+      step,
+      action: decision.action,
+      node_id: decision.node_id,
+      status: result && result.status || 'unknown',
+      error: result && result.error ? String(result.error).slice(0, 500) : null,
+    }, step);
+
+    const after = await observe('después de la acción').catch(() => null);
     const afterHash = after ? hash(compact(after)) : null;
 
     const executionVerified = Boolean(result && result.status === 'succeeded' && after);
     const effectObserved = Boolean(afterHash && afterHash !== beforeHash);
 
+    await emitProgress('computer_use_result_observed', {
+      step,
+      action: decision.action,
+      result_status: result && result.status || 'unknown',
+      effect_observed: effectObserved,
+      after_observation_available: Boolean(after),
+    }, step);
+
     if (decision.node_id) {
       exercisedControls.add(controlKey(beforeHash, decision.node_id));
     }
+
+    await emitProgress('computer_use_verification_completed', {
+      step,
+      action: decision.action,
+      verified: executionVerified,
+      effect_observed: effectObserved,
+      coverage_progress: {
+        discovered: discoveredControls.size,
+        exercised: exercisedControls.size,
+        blocked: blockedControls.size,
+      },
+    }, step);
 
     const decisionKey = JSON.stringify([beforeHash, decision.action, decision.node_id || null]);
     if (lastDecisions.has(decisionKey)) {
