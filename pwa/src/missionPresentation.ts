@@ -45,9 +45,19 @@ export function missionGoalPreview(mission: any, max = 110): string {
 
 export function missionActivityLabel(mission: any): string {
   const status = String(mission?.status || '').toLowerCase();
-  if (['blocked','cancelled','failed','succeeded'].includes(status)) {
-    return status === 'blocked' ? 'No se está ejecutando' : 'Sin ejecución activa';
+  const nextAction = String(mission?.next_action || '').toLowerCase();
+  if (status === 'blocked') return 'Bloqueada · diagnóstico disponible';
+  if (status === 'failed') return 'Falló · conserva evidencia para recuperación';
+  if (status === 'cancelled') return 'Cancelada · sin ejecución activa';
+  if (status === 'succeeded') return 'Completada · verificación registrada';
+  if (status === 'waiting') return 'Esperando verificación o recurso externo';
+  if (status === 'queued') return 'En cola · continuará en el próximo ciclo';
+  if (status === 'paused') return 'Pausada · puede reanudarse';
+  if (status === 'running') {
+    if (nextAction.startsWith('execute:')) return 'Ejecutando paso · ' + String(mission?.next_action).slice(8);
+    if (nextAction.startsWith('retry:')) return 'Reintentando paso · ' + String(mission?.next_action).slice(6);
+    if (nextAction === 'next_ready_batch') return 'Continuando con el siguiente paso';
+    return 'Ejecutando misión';
   }
-  if (['queued','running','waiting','paused'].includes(status)) return 'Puede continuar según su estado actual';
   return 'Estado no determinado';
 }
