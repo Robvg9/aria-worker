@@ -74,3 +74,11 @@ assert.match(project,/PWA LIVE de/);
 assert.match(project,/<iframe/);
 assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
 console.log('BATTLECRUISER LIVE PWA ARTIA CONTRACT: PASS');
+
+assert.match(project,/requestFullscreen/);
+assert.match(project,/fullscreenchange/);
+assert.match(project,/document\.exitFullscreen/);
+assert.match(project,/allow='fullscreen'/);
+assert.match(project,/artiaFullscreenExit/);
+assert.match(css,/\.artiaPreviewShell:fullscreen/);
+console.log('ARTIA FULLSCREEN LIVE PWA CONTRACT: PASS');
