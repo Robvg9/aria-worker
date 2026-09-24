@@ -16,12 +16,17 @@ assert.match(api,/if \(confirmedMissionGoal\)/);
 assert.match(api,/goal: confirmedMissionGoal/);
 assert.match(api,/mission_confirmation: true/);
 
-// The canonical mission enqueue must no longer be inside the raw
-// looksLikeMissionRequest branch; it must require the explicit confirmation path.
-const missionBranch=api.slice(api.indexOf('const missionCandidate'),api.indexOf('const lane = classifyConversation'));
-assert.doesNotMatch(missionBranch,/internal\(DIRECT/);
-assert.match(missionBranch,/missionCandidate && !confirmedMissionGoal/);
-assert.match(missionBranch,/routed_to_mission: false/);
+// The canonical mission enqueue must only occur after the explicit confirmation gate.
+const candidateIndex = api.indexOf('const missionCandidate');
+const confirmationIndex = api.indexOf('if (confirmedMissionGoal)', candidateIndex);
+const directIndex = api.indexOf('internal(DIRECT', candidateIndex);
+assert.ok(candidateIndex >= 0);
+assert.ok(confirmationIndex > candidateIndex);
+assert.ok(directIndex > confirmationIndex);
+const preConfirmation = api.slice(candidateIndex, confirmationIndex);
+assert.doesNotMatch(preConfirmation,/internal\(DIRECT/);
+assert.match(preConfirmation,/missionCandidate && !confirmedMissionGoal/);
+assert.match(preConfirmation,/routed_to_mission: false/);
 
 assert.match(app,/mission_confirmation_required/);
 assert.match(app,/mission_action: 'confirm_mission'/);
