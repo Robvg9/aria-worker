@@ -2062,16 +2062,36 @@ export default function App() {
     setGlobalSwipeStart({ x: e.clientX, y: e.clientY });
   }
 
-  function handleGlobalPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    const start = globalSwipeStart;
-    setGlobalSwipeStart(null);
-    if (!uiPrefs.swipeNavigation || !start) return;
-    const dx = e.clientX - start.x;
-    const dy = e.clientY - start.y;
+  function navigateFromSwipe(dx: number, dy: number) {
     if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
     const index = navigationSwipeIndex(navigation);
     const nextIndex = dx < 0 ? Math.min(SWIPE_PAGES.length - 1, index + 1) : Math.max(0, index - 1);
     if (nextIndex !== index) window.location.hash = SWIPE_PAGES[nextIndex];
+  }
+
+  function handleGlobalPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const start = globalSwipeStart;
+    setGlobalSwipeStart(null);
+    if (!uiPrefs.swipeNavigation || !start) return;
+    navigateFromSwipe(e.clientX - start.x, e.clientY - start.y);
+  }
+
+  function handleGlobalTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    if (!uiPrefs.swipeNavigation) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const target = e.target as Element | null;
+    if (target?.closest?.('button,input,textarea,a,[role="button"],canvas,.noSwipe')) return;
+    setGlobalSwipeStart({ x: touch.clientX, y: touch.clientY });
+  }
+
+  function handleGlobalTouchEnd(e: React.TouchEvent<HTMLDivElement>) {
+    const start = globalSwipeStart;
+    setGlobalSwipeStart(null);
+    if (!uiPrefs.swipeNavigation || !start) return;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    navigateFromSwipe(touch.clientX - start.x, touch.clientY - start.y);
   }
 
   if (!session) return <Auth onSignedIn={setSession} />;
@@ -2085,6 +2105,9 @@ export default function App() {
       onPointerDown={handleGlobalPointerDown}
       onPointerUp={handleGlobalPointerUp}
       onPointerCancel={() => setGlobalSwipeStart(null)}
+      onTouchStart={handleGlobalTouchStart}
+      onTouchEnd={handleGlobalTouchEnd}
+      onTouchCancel={() => setGlobalSwipeStart(null)}
     >
       <PwaNotificationCenter session={session} />
       <MeditationBackgroundSync session={session} />
