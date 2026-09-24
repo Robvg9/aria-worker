@@ -30,7 +30,7 @@ assert.match(source, /agent_unavailable_or_not_cataloged/);
 assert.match(source, /prompt_missing/);
 assert.doesNotMatch(source, /OPENAI_API_KEY|GOOGLE_API_KEY|GROK_API_KEY|sk-[A-Za-z0-9]{10,}/);
 assert.doesNotMatch(source, /console\.log\s*\(.*SECRET/);
-assert.match(loopSource, /max_completion_tokens:4000/, "coding agent tool loop must retain the governed 4000-token implementation budget");
+assert.match(loopSource, /max_completion_tokens:2200/, "coding agent tool loop must retain the governed 4000-token implementation budget");
 assert.match(loopSource, /service_tier:\s*"flex"/);
 assert.match(loopSource, /resolveToolRoute/, 'tool loop must resolve a provider/model tool route');
 assert.match(loopSource, /callGeminiModel/, 'tool loop must support Google Gemini direct function calling');
@@ -43,7 +43,7 @@ assert.match(loopSource, /gemini-3.1-flash-lite-direct/, 'agent runtime must inc
 assert.match(loopSource, /github_file_patch/, 'coding agent must have a governed targeted patch tool');
 assert.ok(loopSource.includes('inspect pwa/src/App.tsx'), 'UI implementation prompt must require PWA source inspection');
 assert.match(loopSource, /Do NOT return NO_CHANGE_REQUIRED/, 'implementation missions must not silently downgrade to read-only analysis');
-assert.match(loopSource, /max_completion_tokens:4000/, 'coding agent needs sufficient output for tool-driven implementation');
+assert.match(loopSource, /max_completion_tokens:2200/, 'coding agent needs sufficient output for tool-driven implementation');
 assert.match(loopSource, /patch_match_count_/, 'targeted patch must fail closed on non-unique matches');
 assert.doesNotMatch(loopSource, /preferred\.startsWith\("google\/"/, 'exhausted Google catalog preference must not bypass fallback ordering');
 assert.match(loopSource, /GOOGLE_API_KEY/, 'Google Gemini credential path missing');

@@ -1385,6 +1385,8 @@ function Meditation({ session }: { session: Session }) {
     }
   }
 
+  useLiveSync(load, session.accessToken, 8000);
+
   async function retryMission(missionId: string) {
     const data = await api('/missions/' + encodeURIComponent(missionId) + '/retry', session.accessToken, { method: 'POST' });
     const newId = data?.mission?.mission_id;
