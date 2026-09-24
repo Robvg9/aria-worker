@@ -29,8 +29,11 @@ test('production migration contains recurrence, candidate, promotion and regress
   assert.match(migration, /root_cause_required/);
   assert.match(migration, /promote_failure_learning/);
   assert.match(migration, /verify_learning_application/);
-  assert.match(migration, /verify_learning_application[\\s\\S]*as \\\$\\$/);
-  assert.doesNotMatch(migration, /verify_learning_application[\\s\\S]*as \\\n\\s*declare/);
+  const verifierStart = migration.indexOf('create or replace function aria_internal.verify_learning_application');
+  assert.ok(verifierStart >= 0);
+  const verifierHeader = migration.slice(verifierStart, verifierStart + 400);
+  assert.match(verifierHeader, /as \\\$\\$/);
+  assert.doesNotMatch(verifierHeader, /as \\\n/);
   assert.match(migration, /application_verified/);
   assert.match(migration, /Regression contract/);
   assert.match(migration, /deno\.json.*import_map|import_map.*deno\.json/s);
