@@ -75,6 +75,12 @@ assert.match(app,/document\.addEventListener\('touchcancel'/);
 
 assert.match(app,/document\.addEventListener\('touchmove'/);
 assert.match(app,/globalSwipeTriggeredRef/);
+assert.match(app,/Math\.abs\(dx\) < 32/);
+assert.match(app,/Math\.abs\(dx\) < 42/);
+assert.match(app,/meditationQueueItems/);
+assert.match(app,/\\/meditation\\/queue\\/reorder/);
+assert.match(app,/Cancelar ejecución/);
+assert.match(app,/live_events/);
 
 assert.match(css,/\.chatPanel \.chatWindow[^\n]*touch-action:pan-y/);
 assert.match(css,/\.pageBodyViewport[^\n]*touch-action:pan-y/);
