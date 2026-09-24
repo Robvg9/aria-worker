@@ -2075,6 +2075,31 @@ export default function App() {
     };
   }, [session?.refreshToken, session?.expiresAt]);
 
+  useEffect(() => {
+    if (!uiPrefs.swipeNavigation) return;
+    const onTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      beginGlobalSwipe(touch.clientX, touch.clientY, event.target);
+    };
+    const onTouchEnd = (event: TouchEvent) => {
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      finishGlobalSwipe(touch.clientX, touch.clientY);
+    };
+    const onTouchCancel = () => {
+      globalSwipeStartRef.current = null;
+    };
+    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    document.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+    document.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart, true);
+      document.removeEventListener('touchend', onTouchEnd, true);
+      document.removeEventListener('touchcancel', onTouchCancel, true);
+    };
+  }, [uiPrefs.swipeNavigation, navigation.page, navigation.screen]);
+
   function beginGlobalSwipe(x: number, y: number, target: EventTarget | null) {
     if (!uiPrefs.swipeNavigation) return;
     const element = target as Element | null;
@@ -2104,18 +2129,6 @@ export default function App() {
     finishGlobalSwipe(e.clientX, e.clientY);
   }
 
-  function handleGlobalTouchStart(e: React.TouchEvent<HTMLDivElement>) {
-    const touch = e.touches[0];
-    if (!touch) return;
-    beginGlobalSwipe(touch.clientX, touch.clientY, e.target);
-  }
-
-  function handleGlobalTouchEnd(e: React.TouchEvent<HTMLDivElement>) {
-    const touch = e.changedTouches[0];
-    if (!touch) return;
-    finishGlobalSwipe(touch.clientX, touch.clientY);
-  }
-
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => {
     window.location.hash = '#home';
@@ -2127,9 +2140,6 @@ export default function App() {
       onPointerDown={handleGlobalPointerDown}
       onPointerUp={handleGlobalPointerUp}
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}
-      onTouchStart={handleGlobalTouchStart}
-      onTouchEnd={handleGlobalTouchEnd}
-      onTouchCancel={() => { globalSwipeStartRef.current = null; }}
     >
       <PwaNotificationCenter session={session} />
       <MeditationBackgroundSync session={session} />
