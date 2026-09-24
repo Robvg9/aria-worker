@@ -70,6 +70,17 @@ async function persistConversationMessage(userId:string,conversationId:string,ro
 async function recall(text: string, userId: string) { try { const x = await internal(MEMORY, { action: "search", query: text, limit: 8, user_id: userId, "x-aria-user-id": userId }); return Array.isArray(x.b?.results) ? x.b.results : []; } catch { return []; } }
 async function plan(text: string, context: unknown) { const x = await internal(PLANNER, { goal: `IA conversacional: responde al usuario de forma natural y útil. ${text}`, context }); if (!x.r.ok || x.b?.ok !== true || !x.b?.plan?.steps?.[0]) throw new Error(`planner_http_${x.r.status}_${x.b?.error ?? "invalid_plan"}`); return x.b.plan.steps[0]; }
 let conversationRouteCache:{expiresAt:number;routes:any[]}|null=null;
+let learnedContextCache:{expiresAt:number;key:string;value:any}|null=null;
+async function learnedContext(project:any){
+  const key=String(project?.id||'global'); const now=Date.now();
+  if(learnedContextCache&&learnedContextCache.key===key&&learnedContextCache.expiresAt>now)return learnedContextCache.value;
+  const sb=serviceClient(); const term=String(project?.name||'').replace(/[%_]/g,'');
+  const [skills,world]=await Promise.all([
+    sb.schema('aria_memory').from('memory_items').select('memory_id,title,content,confidence,metadata').eq('memory_type','skill').eq('status','active').gte('confidence',.9).or(term?'title.ilike.%'+term+'%,content.ilike.%'+term+'%':'memory_id.not.is.null').order('confidence',{ascending:false}).limit(8),
+    project?sb.schema('aria_memory').from('world_entities').select('entity_id,entity_type,canonical_name,status,attributes,confidence,source_ref').eq('entity_type','project').eq('canonical_name',project.name).maybeSingle():Promise.resolve({data:null,error:null})
+  ]);
+  const value={skills:skills.error?[]:(skills.data??[]),world_model:world.error?null:world.data}; learnedContextCache={key,expiresAt:now+30000,value}; return value;
+}
 
 async function conversationRoutes() {
   if(conversationRouteCache && conversationRouteCache.expiresAt>Date.now()) return conversationRouteCache.routes;
@@ -595,7 +606,9 @@ Deno.serve(async (req) => {
       }
 
       const lane = classifyConversation(text);
-      const memory = lane.lane === "deep" ? await recall(text,user.id) : [];
+      const cognitiveSources = lane.lane === "deep" ? await Promise.all([recall(text,user.id), learnedContext(project)]) : [[], { skills: [], world_model: null }];
+      const memory = cognitiveSources[0] as any[];
+      const learned = cognitiveSources[1] as any;
       let step: any;
       if (lane.lane === "fast" || looksLikeSimpleConversation(text)) {
         const routes=await conversationRoutes();
@@ -603,7 +616,7 @@ Deno.serve(async (req) => {
       }
       if (!step?.target) {
         try {
-          step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, project, visual_context, attachments });
+          step = await plan(text, { version: "cognitive-loop-v2", user_id: user.id, memory: memory.slice(0, 6), memory_available: memory.length > 0, learned_skills: learned.skills.slice(0, 6), world_model: learned.world_model, project, visual_context, attachments });
         } catch (e) {
           return json({ error: "conversation_planner_failed", stage: "planner", detail: String((e as any)?.message ?? e), trace_id: trace }, 503);
         }
@@ -623,6 +636,8 @@ Deno.serve(async (req) => {
         visual_context ? "DISEÑO VISUAL Y ANOTACIONES: " + JSON.stringify(visual_context) : "",
         attachments.length ? "ADJUNTOS DE ESTA CONVERSACIÓN: " + JSON.stringify(attachments) : "",
         liveText,
+        learned.skills.length ? "HABILIDADES APRENDIDAS Y VERIFICADAS RELEVANTES:\n" + JSON.stringify(learned.skills.slice(0, 6)) : "",
+        learned.world_model ? "WORLD MODEL DEL PROYECTO:\n" + JSON.stringify(learned.world_model) : "",
         context ? "MEMORIA CONTEXTUAL AUTORIZADA:\n" + context : "",
         "MENSAJE DEL USUARIO — RESPONDE A ESTO DIRECTAMENTE:\n" + text
       ].filter(Boolean).join("\n\n");
