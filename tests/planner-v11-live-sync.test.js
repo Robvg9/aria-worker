@@ -30,3 +30,12 @@ for (const term of ['corregir','crear','implementar','modificar','actualizar','a
   assert.ok(mutation[0].includes(term), `Spanish mutation term missing: ${term}`);
 }
 console.log('PLANNER V11 LIVE SYNC + SPANISH INTENT CONTRACT: PASS');
+
+for (const marker of [
+  'windowsPcRwhtPlan',
+  'computer.use.autonomous',
+  'aria-planner-v11-capability-aware-windows-rwht-v1',
+  'capability-awareness-v1',
+  'tool-universe-v1',
+  'destructive_controls_blocked'
+]) assert.ok(source.includes(marker), 'capability-aware Windows RWHT marker missing: '+marker);
