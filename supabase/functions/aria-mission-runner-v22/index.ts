@@ -148,10 +148,11 @@ async function createPlan(goal: string, context: unknown, auth: AuthContext) {
 
 async function validateLearningGate(goal: string, steps: any[]) {
   try {
-    const result = await rpc("validate_learning_preflight", {
+    const { data: result, error } = await sb.schema("aria_internal").rpc("validate_learning_preflight", {
       p_goal: goal,
       p_plan: { steps },
     });
+    if (error) throw new Error(error.message);
     return result && typeof result === "object"
       ? result
       : { version: "mastery-learning-loop-v1", passed: true, required: [], applied_memory_ids: [], missing: [] };
@@ -162,12 +163,13 @@ async function validateLearningGate(goal: string, steps: any[]) {
 
 async function verifyLearningApplication(goal: string, steps: any[], results: Record<string, unknown>, appliedMemoryIds: unknown) {
   try {
-    const result = await rpc("verify_learning_application", {
+    const { data: result, error } = await sb.schema("aria_internal").rpc("verify_learning_application", {
       p_goal: goal,
       p_steps: steps,
       p_results: results,
       p_applied_memory_ids: Array.isArray(appliedMemoryIds) ? appliedMemoryIds : [],
     });
+    if (error) throw new Error(error.message);
     return result && typeof result === "object"
       ? result
       : { version: "mastery-learning-loop-v1", passed: true, required_memory_ids: [], verified_memory_ids: [], missing_memory_ids: [] };

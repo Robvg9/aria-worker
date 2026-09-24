@@ -20,6 +20,8 @@ test('mission runner enforces learned preflight before execution', () => {
   assert.match(runner, /applied_memory_ids/);
   assert.match(runner, /status: "replanned_learning"/);
   assert.match(runner, /verify_learning_application/);
+  assert.match(runner, /schema\("aria_internal"\)\.rpc\("validate_learning_preflight"/);
+  assert.match(runner, /schema\("aria_internal"\)\.rpc\("verify_learning_application"/);
   assert.match(runner, /learning_application_verified/);
 });
 
