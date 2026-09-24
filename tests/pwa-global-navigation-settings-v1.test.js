@@ -69,16 +69,15 @@ assert.match(app,/No se inferirá actividad actual sin un evento reciente/);
 assert.match(app,/collapsiblePanel/);
 assert.match(app,/executionTelemetryGrid/);
 
-assert.match(app,/document\.addEventListener\('touchstart'/);
-assert.match(app,/document\.addEventListener\('touchend'/);
-assert.match(app,/document\.addEventListener\('touchcancel'/);
-
-assert.match(app,/document\.addEventListener\('touchmove'/);
+assert.doesNotMatch(app,/document\.addEventListener\('touchstart'/);
+assert.doesNotMatch(app,/document\.addEventListener\('touchend'/);
+assert.doesNotMatch(app,/document\.addEventListener\('touchcancel'/);
+assert.doesNotMatch(app,/document\.addEventListener\('touchmove'/);
 assert.match(app,/globalSwipeTriggeredRef/);
 assert.match(app,/Math\.abs\(dx\) < 32/);
 assert.match(app,/Math\.abs\(dx\) < 42/);
 assert.match(app,/meditationQueueItems/);
-assert.match(app,/\\/meditation\\/queue\\/reorder/);
+assert.match(app,/\/meditation\/queue\/reorder/);
 assert.match(app,/Cancelar ejecución/);
 assert.match(app,/live_events/);
 
