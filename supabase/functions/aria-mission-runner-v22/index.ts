@@ -1039,6 +1039,41 @@ async function independentVerify(mission:any, step:any, result:any){
   return {passed:true,skipped:false,verification:body.verification};
 }
 
+function objectivePlanAlignment(goal:string, steps:any[]){
+  const text=String(goal||'').toLowerCase();
+  const ops=(steps||[]).map((s:any)=>String(s?.operation||'').toLowerCase());
+  const executors=(steps||[]).map((s:any)=>executorType(s));
+  const isComputerDiagnostic=(
+    /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|comprueba|check|revisa|revisar|averigua)/.test(text) &&
+    /(windows|computer\.use|computer use|windows device)/.test(text)
+  );
+  const isRwht=/(rwht|real world human|auditoría física|auditoria fisica|recorre.*interfaz|botón|botones)/.test(text);
+  const hasDevice=executors.includes('device');
+  const hasAutonomous=ops.includes('computer.use.autonomous');
+  const hasGithubWrite=ops.some((op:string)=>['create_branch','file_write','open_pr','pr_merge'].includes(op));
+  if(isRwht && !hasAutonomous){
+    return {
+      ok:false,
+      kind:'rwht_capability_mismatch',
+      reason:'El objetivo exige una prueba RWHT, pero el plan no contiene ejecución autónoma de Computer Use en un dispositivo.',
+      required:['executor_type=device','operation=computer.use.autonomous'],
+      forbidden:[],
+    };
+  }
+  if(isComputerDiagnostic && (!hasDevice || hasGithubWrite)){
+    return {
+      ok:false,
+      kind:'diagnostic_surface_mismatch',
+      reason: hasGithubWrite
+        ? 'El objetivo es un diagnóstico de Windows/Computer Use, pero el plan intenta modificar GitHub en lugar de inspeccionar el dispositivo.'
+        : 'El objetivo es un diagnóstico de Windows/Computer Use, pero el plan no contiene ningún paso sobre el dispositivo Windows.',
+      required:['executor_type=device','diagnóstico de solo lectura sobre Windows'],
+      forbidden:['create_branch','file_write','open_pr','pr_merge'],
+    };
+  }
+  return {ok:true};
+}
+
 async function executeStep(missionId: string, step: any, auth: AuthContext, mission: any = null) {
   validateStep(step);
   const type = executorType(step);
@@ -1209,6 +1244,89 @@ Deno.serve(async (request) => {
     }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
+
+    const objectiveGuard = objectivePlanAlignment(String(mission.goal || ""), steps);
+    const previousObjectiveReplans = Number(mission?.checkpoint?.objective_plan_guard?.replan_attempts || 0);
+    if (!objectiveGuard.ok) {
+      await emitEvent(missionId, "mission_replanned", {
+        reason: objectiveGuard.reason,
+        kind: objectiveGuard.kind,
+        required: objectiveGuard.required,
+        forbidden: objectiveGuard.forbidden,
+        replan_attempts: previousObjectiveReplans + 1,
+      });
+      if (previousObjectiveReplans < 1) {
+        const constrainedGoal = [
+          String(mission.goal || ""),
+          "",
+          "RESTRICCIÓN OBLIGATORIA DE EJECUCIÓN:",
+          objectiveGuard.required.join(" ; "),
+          objectiveGuard.forbidden.length ? "NO uses: " + objectiveGuard.forbidden.join(", ") + "." : "",
+          "El plan debe investigar directamente la superficie nombrada por el objetivo y no certificar el objetivo con evidencia de otra capa.",
+          "Si el objetivo es diagnóstico, prioriza lectura/inspección y no abras la aplicación objetivo salvo que sea necesario para comprobar la capacidad."
+        ].filter(Boolean).join("\n");
+        try {
+          steps = await createPlan(constrainedGoal, {
+            ...cognitiveContext,
+            objective_plan_guard: {
+              kind: objectiveGuard.kind,
+              required: objectiveGuard.required,
+              forbidden: objectiveGuard.forbidden,
+              previous_plan: steps.map((step:any)=>({id:step?.id,executor_type:step?.executor_type,operation:step?.operation,risk:step?.risk})),
+            },
+          }, token);
+        } catch (replanError) {
+          const reason = replanError instanceof Error ? replanError.message : String(replanError);
+          await updateMission(missionId, {
+            status:"blocked",
+            current_step:0,
+            completed_steps:0,
+            next_action:"manual: el planificador no pudo construir una estrategia alineada con el objetivo",
+            last_stderr:"objective_plan_replan_failed:"+reason,
+            checkpoint:{...(mission.checkpoint||{}),objective_plan_guard:{...objectiveGuard,replan_attempts:previousObjectiveReplans+1,replan_error:reason}},
+            lease_owner:null,
+            lease_until:null,
+          });
+          return out({ok:false,status:"blocked",mission_id:missionId,runtime:V,block_details:{kind:"objective_plan_replan_failed",reason:"El planificador no pudo generar una estrategia que investigue directamente la superficie solicitada.",remediation:"Revisar el diagnóstico y volver a ejecutar la misión con la ruta Windows/Computer Use disponible."}});
+        }
+        const secondGuard=objectivePlanAlignment(String(mission.goal || ""), steps);
+        if(!secondGuard.ok){
+          await updateMission(missionId,{
+            status:"blocked",
+            current_step:0,
+            completed_steps:0,
+            next_action:"manual: el planificador no generó un plan alineado con el objetivo",
+            last_stderr:"objective_plan_capability_mismatch",
+            checkpoint:{...(mission.checkpoint||{}),objective_plan_guard:{...secondGuard,replan_attempts:previousObjectiveReplans+1,previous_plan:steps}},
+            lease_owner:null,
+            lease_until:null,
+          });
+          return out({ok:false,status:"blocked",mission_id:missionId,runtime:V,block_details:{kind:secondGuard.kind,reason:secondGuard.reason,required:secondGuard.required,forbidden:secondGuard.forbidden,next_action:"Generar un plan que investigue directamente Windows/Computer Use antes de ejecutar cambios en otra capa.",remediation:"La misión no puede certificarse hasta que su plan corresponda con el objetivo."}});
+        }
+        await updateMission(missionId,{
+          status:"queued",
+          current_step:0,
+          completed_steps:0,
+          next_action:"next_ready_batch",
+          last_stderr:null,
+          checkpoint:{...(mission.checkpoint||{}),objective_plan_guard:{kind:objectiveGuard.kind,replan_attempts:previousObjectiveReplans+1,recovered:true},plan:steps,completed_steps:[],attempts:{},results:{},pending_jobs:{}},
+          lease_owner:null,
+          lease_until:null,
+        });
+        return out({ok:true,status:"replanned_objective_alignment",mission_id:missionId,runtime:V,objective_plan_guard:{kind:objectiveGuard.kind,replan_attempts:previousObjectiveReplans+1}});
+      }
+      await updateMission(missionId,{
+        status:"blocked",
+        current_step:0,
+        completed_steps:0,
+        next_action:"manual: plan desalineado con el objetivo después de un replanteamiento",
+        last_stderr:"objective_plan_capability_mismatch",
+        checkpoint:{...(mission.checkpoint||{}),objective_plan_guard:{...objectiveGuard,replan_attempts:previousObjectiveReplans}},
+        lease_owner:null,
+        lease_until:null,
+      });
+      return out({ok:false,status:"blocked",mission_id:missionId,runtime:V,block_details:{kind:objectiveGuard.kind,reason:objectiveGuard.reason,required:objectiveGuard.required,forbidden:objectiveGuard.forbidden,remediation:"El objetivo y el plan deben corresponder a la misma superficie antes de ejecutar."}});
+    }
 
     const learningGate = await validateLearningGate(String(mission.goal || ""), steps);
     const previousLearningAttempts = Number(mission?.checkpoint?.learning_gate?.replan_attempts || 0);

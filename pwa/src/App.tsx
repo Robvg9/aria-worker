@@ -98,6 +98,67 @@ function processingLabel(ms: number): string {
   return 'ARIA sigue procesando la respuesta…';
 }
 
+function tryParseJson(value: any): any | null {
+  if (value && typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text || !(text.startsWith('{') || text.startsWith('['))) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+function humanizeStructuredMissionResult(value: any, mission: any): string {
+  const parsed = tryParseJson(value);
+  if (!parsed) return String(value ?? '').trim();
+
+  if (Array.isArray(parsed)) {
+    return parsed.map((item: any) => humanizeStructuredMissionResult(item, mission)).filter(Boolean).slice(0, 8).join('\n\n');
+  }
+
+  const status = String(parsed?.status ?? parsed?.runtime_status ?? '').toLowerCase();
+  const goal = String(mission?.goal ?? '').toLowerCase();
+  const diagnosticsGoal = /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|computer\.use\.autonomous|windows device)/.test(goal);
+
+  if (diagnosticsGoal && (parsed?.ref || parsed?.recoveredexistingbranch || parsed?.existingbasemismatch) && !parsed?.root_cause && !parsed?.diagnosis) {
+    const details: string[] = [];
+    if (parsed?.ref) details.push('ARIA verificó una referencia de trabajo en GitHub: ' + String(parsed.ref) + '.');
+    if (parsed?.recoveredexistingbranch === true) details.push('La referencia ya existía; ARIA no demuestra que haya creado una nueva rama.');
+    if (parsed?.existingbasemismatch === true) details.push('La rama existente no coincidía con la base solicitada.');
+    return [
+      'ARIA NO DEMOSTRÓ EL DIAGNÓSTICO SOLICITADO.',
+      details.join(' '),
+      'Esta evidencia corresponde a la capa de GitHub y no demuestra heartbeat, capacidades, gateway, reclamación del trabajo ni disponibilidad real de Computer Use en Windows.',
+      'Objetivo no demostrado: la misión debe volver a ejecutarse con un plan que investigue directamente el dispositivo Windows y el ejecutor Computer Use.'
+    ].join('\n\n');
+  }
+
+  if (parsed?.finished_reason || parsed?.coverage_ratio != null || parsed?.actions_verified != null) {
+    const parts = [
+      parsed.verified === true || status === 'succeeded' ? 'ARIA terminó con verificación.' : 'ARIA terminó sin verificación completa.',
+      parsed.actions_verified != null ? 'Acciones verificadas: ' + Number(parsed.actions_verified) + '.' : '',
+      parsed.screens_seen != null ? 'Pantallas observadas: ' + Number(parsed.screens_seen) + '.' : '',
+      parsed.coverage_ratio != null ? 'Cobertura registrada: ' + Math.round(Number(parsed.coverage_ratio) * 100) + '%.' : '',
+      parsed.finished_reason ? 'Motivo de finalización: ' + humanizeTechnicalText(String(parsed.finished_reason)) + '.' : '',
+    ].filter(Boolean);
+    return parts.join(' ');
+  }
+
+  if (typeof parsed?.message === 'string' && parsed.message.trim()) return parsed.message.trim();
+  if (parsed?.response?.content || parsed?.response?.text || parsed?.output_text) {
+    return humanizeStructuredMissionResult(parsed.response?.content ?? parsed.response?.text ?? parsed.output_text, mission);
+  }
+  if (parsed?.data && typeof parsed.data === 'object') {
+    const nested = humanizeStructuredMissionResult(parsed.data, mission);
+    if (nested) return nested;
+  }
+  if (status === 'succeeded') {
+    const operation = parsed?.operation ? humanOperation(parsed.operation, parsed.executor_type) : '';
+    return operation
+      ? 'ARIA completó ' + operation + ', pero el resultado no contiene una explicación humana suficiente del objetivo.'
+      : 'ARIA completó el paso, pero el resultado no contiene una explicación humana suficiente del objetivo.';
+  }
+  return 'ARIA devolvió un resultado estructurado, pero no contiene información suficiente para explicar el objetivo en lenguaje humano.';
+}
+
 function missionResultText(mission: any): string {
   const results = mission?.checkpoint?.results && typeof mission.checkpoint.results === 'object' ? mission.checkpoint.results : {};
   const preferredKeys = ['summary_1', 'crosscheck_1', 'facts_1'];
@@ -105,43 +166,201 @@ function missionResultText(mission: any): string {
     const value = results[key];
     const found = [value?.response?.content, value?.response?.text, value?.stdout, value?.output, value?.message, value?.result?.response?.content]
       .find((v: any) => typeof v === 'string' && v.trim());
-    if (found) return String(found).trim();
+    if (found) return humanizeStructuredMissionResult(found, mission);
+    if (value && typeof value === 'object' && Object.keys(value).length) {
+      const human = humanizeStructuredMissionResult(value, mission);
+      if (human) return human;
+    }
   }
   const structured: string[] = [];
   for (const value of Object.values(results) as any[]) {
     const found = [value?.response?.content, value?.response?.text, value?.stdout, value?.output, value?.message, value?.result?.response?.content]
       .find((v: any) => typeof v === 'string' && v.trim());
-    if (found) structured.push(String(found).trim());
+    if (found) structured.push(humanizeStructuredMissionResult(found, mission));
+    else if (value && typeof value === 'object' && Object.keys(value).length) {
+      const human = humanizeStructuredMissionResult(value, mission);
+      if (human) structured.push(human);
+    }
   }
   if (structured.length) return structured[structured.length - 1];
+
   const direct = [mission?.last_stdout, mission?.last_stderr]
     .map((v: any) => typeof v === 'string' ? v.trim() : '')
     .filter(Boolean)
     .filter((v: string) => !/^(retry[_-]?exhausted|retryexhaustedreplanned|executor_error|verification_failed|device_enqueue_\d+|human_gate_required)$/i.test(v));
-  if (direct.length) return direct.join('\n\n');
+  if (direct.length) return humanizeStructuredMissionResult(direct[direct.length - 1], mission);
+
   const internal = String(mission?.last_stderr || mission?.next_action || '').trim().toLowerCase();
   const human: Record<string,string> = {
     retryexhaustedreplanned: 'ARIA tuvo que descartar una estrategia que agotó sus reintentos, generó una alternativa y continuó con ella. El detalle verificable de la misión aparece en su respuesta y evidencia.',
     retry_exhausted_replanned: 'ARIA tuvo que descartar una estrategia que agotó sus reintentos, generó una alternativa y continuó con ella. El detalle verificable de la misión aparece en su respuesta y evidencia.',
     retry_exhausted_all_strategies: 'ARIA agotó las estrategias gobernadas disponibles para esta misión y necesita una nueva intervención antes de continuar.',
-    executor_error: 'Uno de los executors de ARIA no pudo completar su paso. La misión conserva la evidencia para diagnosticarlo.',
+    executor_error: 'Uno de los ejecutores de ARIA no pudo completar su paso. La misión conserva la evidencia para diagnosticarlo.',
     verification_failed: 'La comprobación del resultado no fue válida. La misión conserva la evidencia necesaria para corregir el problema.'
   };
   return human[internal] || '';
 }
-function humanOperation(operation: any, executorType: any): string {
-  const op = String(operation || '');
-  const ex = String(executorType || '');
-  if (op === 'text_generation') return 'procesar y generar la respuesta con el motor de IA';
-  if (op === 'shell.execute') return 'ejecutar una instrucción controlada en el dispositivo';
-  if (op === 'file.read') return 'leer información de un archivo';
-  if (op === 'file.write') return 'escribir información en un archivo';
-  if (op === 'database.query') return 'consultar información de la base de datos';
-  if (op === 'database.write') return 'actualizar información en la base de datos';
-  if (op === 'cloud.deploy') return 'desplegar cambios en la nube';
-  if (ex === 'model') return 'procesar la misión con el motor de IA';
-  if (ex === 'device') return 'realizar una acción controlada en un dispositivo';
-  return op || ex || 'ejecutar un paso gobernado';
+
+function missionObjectivePresentation(mission: any, result: string) {
+  const text = String(result || '').toLowerCase();
+  const goal = String(mission?.goal || '').toLowerCase();
+  if (/(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|computer\.use\.autonomous|windows device)/.test(goal) &&
+      /(no demostró|objetivo no demostrado|no obtuvo el diagnóstico|no quedó determinado|no contiene.*objetivo)/.test(text)) {
+    return {
+      verified: false,
+      label: 'Objetivo no demostrado',
+      note: 'Los pasos de ejecución terminaron, pero la evidencia no demuestra que se haya resuelto el objetivo de la misión.'
+    };
+  }
+  return {
+    verified: true,
+    label: 'Objetivo con evidencia disponible',
+    note: 'La respuesta contiene evidencia utilizable; la verificación final depende de las reglas persistidas de la misión.'
+  };
+}
+
+function humanOperation(operation: any, executorType: any): string {function humanOperation(operation: any, executorType: any): string {
+  const op = String(operation || '').trim().toLowerCase();
+  const ex = String(executorType || '').trim().toLowerCase();
+  const map: Record<string, string> = {
+    'text_generation': 'analizar la información y generar una respuesta',
+    'shell.execute': 'ejecutar una instrucción controlada en Windows',
+    'file.read': 'leer información de un archivo',
+    'file.write': 'escribir información controlada en un archivo',
+    'file_read': 'leer información de un archivo',
+    'file_write': 'escribir información controlada en un archivo',
+    'database.query': 'consultar información de la base de datos',
+    'database.write': 'actualizar información de la base de datos',
+    'cloud.deploy': 'desplegar cambios en la nube',
+    'github.create_branch': 'preparar una rama de trabajo',
+    'create_branch': 'preparar una rama de trabajo',
+    'computer.use.autonomous': 'observar la interfaz, ejecutar una acción segura y comprobar el resultado',
+    'computer.use': 'observar la interfaz y ejecutar una acción controlada',
+  };
+  if (map[op]) return map[op];
+  if (ex === 'model') return 'analizar la misión con el motor de IA';
+  if (ex === 'device') return 'realizar una acción controlada en el dispositivo';
+  if (ex === 'connector') return 'usar un servicio conectado';
+  return humanizeTechnicalText(operation || executorType || 'ejecutar un paso gobernado');
+}
+
+function humanExecutorLabel(executorType: any): string {
+  const ex = String(executorType || '').trim().toLowerCase();
+  if (ex === 'device') return 'Dispositivo físico';
+  if (ex === 'connector') return 'Servicio conectado';
+  if (ex === 'model') return 'Motor de IA';
+  if (ex === 'agent') return 'Agente especializado';
+  return ex ? humanizeTechnicalText(ex) : 'Ejecutor aún no identificado';
+}
+
+function humanizeTechnicalText(value: any): string {
+  let text = String(value ?? '').trim();
+  if (!text) return '';
+  const replacements: Array<[string, string]> = [
+    ['computer.use.autonomous', 'control autónomo del dispositivo'],
+    ['computer.use', 'control del dispositivo'],
+    ['file_write', 'escritura de archivo'],
+    ['file_read', 'lectura de archivo'],
+    ['file.write', 'escritura de archivo'],
+    ['file.read', 'lectura de archivo'],
+    ['create_branch', 'preparación de rama de trabajo'],
+    ['github_create_branch', 'preparación de rama de trabajo'],
+    ['executor_error', 'error del ejecutor'],
+    ['retry_exhausted_replanned', 'reintentos agotados y estrategia replanteada'],
+    ['retry_exhausted', 'reintentos agotados'],
+    ['replan_required', 'replanteamiento requerido'],
+    ['connector', 'servicio conectado'],
+    ['executor', 'ejecutor'],
+    ['runner', 'motor de misiones'],
+    ['pending', 'pendiente'],
+    ['running', 'ejecutándose'],
+    ['succeeded', 'completado'],
+    ['failed', 'fallido'],
+    ['blocked', 'bloqueado'],
+  ];
+  for (const [from, to] of replacements) text = text.replaceAll(from, to);
+  return text;
+}
+
+function humanStepTitle(step: any, fallbackIndex = 1): string {
+  const raw = String(step?.title ?? step?.operation ?? '').trim();
+  const op = String(step?.operation ?? '').trim().toLowerCase();
+  if (op) return humanOperation(op, step?.executor_type);
+  if (!raw) return 'Paso ' + fallbackIndex + ' de la misión';
+  return humanizeTechnicalText(raw);
+}
+
+function executionPlanForMission(mission: any): string[] {
+  const goal = String(mission?.goal ?? '').toLowerCase();
+  if (/rwht|real world human|auditoría|auditoria|recorre.*interfaz|botón|botones/.test(goal)) {
+    return [
+      'Interpretar el objetivo y definir la cobertura que debe comprobarse.',
+      'Identificar las capacidades necesarias para realizar la revisión.',
+      'Seleccionar el dispositivo Windows disponible y comprobar que responde.',
+      'Abrir la aplicación objetivo y verificar que está lista para usarse.',
+      'Recorrer la interfaz sección por sección y observar cada elemento.',
+      'Ejecutar únicamente acciones seguras y comprobar cada resultado.',
+      'Registrar bugs, bloqueos y problemas de experiencia de usuario con evidencia.',
+      'Volver a comprobar los hallazgos importantes para evitar falsos positivos.',
+      'Guardar la evidencia real de lo observado y de cada acción ejecutada.',
+      'Generar un resultado final humano, claro y completamente en español.'
+    ];
+  }
+  if (/diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|computer\.use/.test(goal)) {
+    return [
+      'Interpretar el problema y convertirlo en una comprobación concreta.',
+      'Recuperar el contexto necesario antes de empezar.',
+      'Comprobar estado, capacidades y disponibilidad del recurso Windows.',
+      'Comprobar gateway, cola y reclamación del trabajo.',
+      'Probar la ruta de ejecución con una acción segura y verificable.',
+      'Comparar el resultado con lo esperado para aislar la causa raíz.',
+      'Guardar evidencia suficiente y explicar la solución o el bloqueo en español.'
+    ];
+  }
+  return [
+    'Interpretar el objetivo de la misión.',
+    'Preparar el plan y los recursos necesarios.',
+    'Seleccionar la mejor ruta y el ejecutor disponible.',
+    'Ejecutar el siguiente paso de forma controlada.',
+    'Comprobar el resultado antes de avanzar.',
+    'Guardar evidencia real de lo ocurrido.',
+    'Cerrar la misión con un resultado humano en español.'
+  ];
+}
+
+function executionPlanState(index: number, mission: any, events: any[]): 'done' | 'current' | 'pending' {
+  const types = new Set((events ?? []).map((e: any) => String(e?.event_type ?? '').toLowerCase()));
+  const steps = Array.isArray(mission?.steps) ? mission.steps : [];
+  const isComputerUse = Array.from(types).some((type) => type.startsWith('computer_use_'));
+  if (index === 0 && (types.has('cognitive_recall_completed') || types.has('cognitive_planning_context_used'))) return 'done';
+  if (index === 1 && (types.has('computer_use_capabilities_confirmed') || types.has('step_batch_started'))) return 'done';
+  if (index === 2 && types.has('computer_use_device_confirmed')) return 'done';
+  if (index === 3 && (types.has('computer_use_observation_completed') || events.some((e: any) => /computer\.use/i.test(String(e?.payload?.operation ?? '')) && String(e?.event_type ?? '').toLowerCase() === 'step_succeeded'))) return 'done';
+  if (index === 4 && types.has('computer_use_observation_completed')) return 'done';
+  if (index === 5 && types.has('computer_use_decision_made')) return 'done';
+  if (index === 6 && types.has('computer_use_action_executed')) return 'done';
+  if (index === 7 && types.has('computer_use_verification_completed')) return 'done';
+  if (index === 8 && (types.has('computer_use_action_executed') || types.has('computer_use_verification_completed')) && Number(steps.filter((s:any)=>String(s?.status)==='succeeded').length) > 0) return 'done';
+  if (index === 9 && (types.has('mission_verified') || String(mission?.status ?? '').toLowerCase() === 'succeeded')) return 'done';
+  if (index >= 4 && !isComputerUse && String(mission?.status ?? '').toLowerCase() === 'succeeded') return 'done';
+  const current = Number(mission?.current_step ?? 0);
+  if (index === Math.max(0, current)) return 'current';
+  if (isComputerUse && index === 4) return 'current';
+  return 'pending';
+}
+function directActionText(step: any, latest: any): string {
+  const op = String(step?.operation ?? latest?.payload?.operation ?? '').trim().toLowerCase();
+  const resource = executionResource(latest, step);
+  if (op.includes('file.read') || op === 'file_read') return resource ? 'Estoy leyendo ' + resource + ' para encontrar la información que necesitamos.' : 'Estoy leyendo los archivos necesarios para encontrar la causa.';
+  if (op.includes('file.write') || op === 'file_write') return resource ? 'Estoy registrando cambios en ' + resource + ' para preparar la comprobación.' : 'Estoy registrando la información necesaria para la comprobación.';
+  if (op.includes('create_branch') || op.includes('github.create_branch')) return 'Estoy preparando una rama de trabajo para aislar el diagnóstico sin mezclar cambios.';
+  if (op === 'shell.execute') return 'Estoy ejecutando una instrucción controlada en Windows y revisaré su respuesta.';
+  if (op.includes('computer.use')) return 'Estoy observando la interfaz, eligiendo la siguiente acción segura y comprobando el resultado.';
+  if (op === 'database.query') return 'Estoy consultando los datos necesarios para comprobar el estado real.';
+  if (op === 'database.write') return 'Estoy actualizando información controlada y después comprobaré que quedó correctamente guardada.';
+  if (op === 'text_generation') return 'Estoy analizando el contexto y preparando la respuesta de este paso.';
+  const fallback = humanOperation(op, step?.executor_type);
+  return fallback ? 'Estoy ' + (fallback.startsWith('analizar') ? fallback : fallback.replace(/^realizar /, 'realizando ')) + '.' : 'Estoy ejecutando el paso actual y comprobaré el resultado antes de continuar.';
 }
 
 function missionHumanSummary(mission: any) {
@@ -151,13 +370,18 @@ function missionHumanSummary(mission: any) {
   const uniqueOperations = Array.from(new Set(operations));
   const readOnly = steps.length > 0 && steps.every((step: any) => String(step?.risk || '').toUpperCase() === 'READ' && !/(write|create|update|delete|deploy)/i.test(String(step?.operation || '')));
   const result = missionResultText(mission);
+  const objective = missionObjectivePresentation(mission, result);
   const hasMemoryRecall = Boolean(mission?.checkpoint?.cognitive_loop?.recalled_before_planning);
-  const what = completed.length ? 'ARIA completó ' + completed.length + ' paso' + (completed.length === 1 ? '' : 's') + ' y los verificó correctamente.' : 'ARIA todavía no tiene pasos completados para resumir.';
+  const what = completed.length
+    ? 'ARIA verificó ' + completed.length + ' paso' + (completed.length === 1 ? '' : 's') + ', pero ' + (objective.verified ? 'la respuesta disponible contiene evidencia utilizable del objetivo.' : 'la evidencia no demuestra todavía el objetivo de la misión.')
+    : 'ARIA todavía no tiene pasos completados para resumir.';
   const how = [hasMemoryRecall ? 'Primero recuperó contexto de su memoria autorizada.' : '', uniqueOperations.length ? 'Después realizó: ' + uniqueOperations.join(', ') + '.' : '', 'Al terminar, comprobó el resultado según las reglas de verificación de la misión.'].filter(Boolean).join(' ');
   const changed = readOnly ? 'No realizó cambios en ARIA ni en sistemas externos; esta misión fue de lectura/análisis.' : 'La misión incluyó operaciones con capacidad de modificar información. Los cambios concretos deben describirse a partir del resultado real de cada paso, nunca suponerse.';
   const improvement = readOnly ? 'No se modificó el sistema. El valor de esta misión es la información o respuesta obtenida y verificada.' : 'La mejora esperada es la definida por el objetivo de la misión y solo se considera realizada cuando el resultado la demuestra.';
-  const expected = result ? 'Resultado obtenido:' : 'Resultado esperado: la misión debía producir un resultado verificable para el objetivo indicado.';
-  return { what, how, changed, improvement, expected, result };
+  const expected = result
+    ? (objective.verified ? 'Resultado obtenido:' : 'Resultado de pasos obtenido, pero objetivo no demostrado:')
+    : 'Resultado esperado: la misión debía producir un resultado verificable para el objetivo indicado.';
+  return { what, how, changed, improvement, expected, result, objective };
 }
 
 function cacheKey(kind: string, userId: string) {
@@ -886,6 +1110,10 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
         )}
         <div className='detailResult'>
           <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
+          <div className='objectiveStatusBanner'>
+            <strong>{summary.objective.label}</strong>
+            <span>{summary.objective.note}</span>
+          </div>
           <div className='humanSummaryGrid'>
             <div><strong>Qué hizo ARIA</strong><p>{summary.what}</p></div>
             <div><strong>Cómo lo hizo</strong><p>{summary.how}</p></div>
@@ -1792,17 +2020,68 @@ function executionEventTitle(event: any): string {
     mission_completed: 'Misión completada',
     mission_started: 'Misión iniciada',
     human_gate_requested: 'ARIA necesita una decisión humana',
-    executor_error: 'El executor no pudo completar el paso',
-    step_batch_started: 'ARIA inició el lote de ejecución',
-    cognitive_recall_completed: 'ARIA recuperó contexto antes de continuar'
+    executor_error: 'El dispositivo no pudo completar el paso',
+    step_batch_started: 'ARIA inició el conjunto de pasos',
+    cognitive_recall_completed: 'ARIA recuperó contexto antes de continuar',
+    cognitive_planning_context_used: 'ARIA utilizó el contexto recuperado para planificar',
+    computer_use_capabilities_confirmed: 'ARIA confirmó las capacidades necesarias',
+    computer_use_device_confirmed: 'ARIA seleccionó el Windows disponible',
+    computer_use_observation_started: 'ARIA está observando la interfaz',
+    computer_use_observation_completed: 'ARIA terminó de observar la interfaz',
+    computer_use_decision_made: 'ARIA decidió la siguiente acción',
+    computer_use_action_started: 'ARIA está ejecutando la acción',
+    computer_use_action_executed: 'ARIA ejecutó la acción',
+    computer_use_result_observed: 'ARIA observó el resultado',
+    computer_use_verification_completed: 'ARIA verificó el resultado',
+    computer_use_action_blocked: 'ARIA bloqueó una acción insegura',
+    mission_replanned: 'ARIA cambió de estrategia porque la anterior no funcionó'
   };
   if (map[type]) return map[type];
-  return type.replaceAll('_', ' ').replace(/^./, x => x.toUpperCase());
+  if (!type) return 'Actividad registrada';
+  return humanizeTechnicalText(type.replaceAll('_', ' ')).replace(/^./, x => x.toUpperCase());
 }
 
 function executionEventDetail(event: any): string {
   const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
   const type = String(event?.event_type ?? '').toLowerCase();
+  if (type === 'computer_use_capabilities_confirmed') {
+    const count = Array.isArray(payload?.capabilities) ? payload.capabilities.length : 0;
+    return count ? 'ARIA confirmó ' + count + ' capacidades antes de empezar a interactuar con Windows.' : 'ARIA confirmó las capacidades necesarias antes de empezar.';
+  }
+  if (type === 'computer_use_device_confirmed') {
+    return 'ARIA seleccionó el dispositivo Windows y dejó registrada la superficie que va a inspeccionar.';
+  }
+  if (type === 'computer_use_observation_started') {
+    return 'Estoy observando la interfaz para saber qué elementos existen antes de actuar.';
+  }
+  if (type === 'computer_use_observation_completed') {
+    const count = Number(payload?.control_count ?? 0);
+    return count ? 'Terminé de observar la interfaz y encontré ' + count + ' controles visibles para evaluar.' : 'Terminé de observar la interfaz y tengo la información necesaria para decidir.';
+  }
+  if (type === 'computer_use_decision_made') {
+    return 'Decidí la siguiente acción: ' + humanizeTechnicalText(String(payload?.action || 'continuar')) + (payload?.reason ? '. Motivo: ' + String(payload.reason) : '.');
+  }
+  if (type === 'computer_use_action_started') {
+    return 'Estoy ejecutando la acción segura seleccionada.';
+  }
+  if (type === 'computer_use_action_executed') {
+    return payload?.status === 'succeeded'
+      ? 'La acción terminó correctamente. Ahora voy a comprobar qué cambió.'
+      : 'La acción no terminó correctamente. ARIA conservará el fallo para decidir el siguiente paso.';
+  }
+  if (type === 'computer_use_result_observed') {
+    return payload?.effect_observed === true
+      ? 'Ya observé el resultado de la acción y la interfaz cambió.'
+      : 'Ya observé el resultado de la acción; no detecté un cambio visible todavía.';
+  }
+  if (type === 'computer_use_verification_completed') {
+    return payload?.verified === true
+      ? 'La acción quedó verificada con una nueva observación.'
+      : 'La comprobación no quedó verificada; ARIA debe adaptar la estrategia.';
+  }
+  if (type === 'computer_use_action_blocked') {
+    return 'ARIA bloqueó la acción porque no cumplía las reglas de seguridad. Motivo: ' + humanizeTechnicalText(String(payload?.reason || 'riesgo no permitido')) + '.';
+  }
   if (type === 'cognitive_recall_completed') {
     const count = Number(payload?.recall_count ?? 0);
     return count > 0
@@ -1810,21 +2089,22 @@ function executionEventDetail(event: any): string {
       : 'ARIA completó la recuperación de contexto antes de continuar.';
   }
   if (type === 'step_failed') {
-    const step = String(payload?.step_id ?? '').trim();
     const attempt = Number(payload?.attempt ?? 0);
-    const reason = String(payload?.reason ?? 'fallo del executor').trim();
-    return 'El paso ' + (step || 'actual') + ' falló' + (attempt ? ' en el intento ' + attempt : '') + '. Motivo: ' + reason + '.';
+    const reason = humanizeTechnicalText(String(payload?.reason ?? 'fallo del ejecutor').trim());
+    return 'El paso actual falló' + (attempt ? ' en el intento ' + attempt : '') + '. Motivo: ' + reason + '.';
   }
   const message = String(payload?.message ?? payload?.detail ?? payload?.error?.message ?? '').trim();
-  if (message) return message.length > 180 ? message.slice(0, 179).trimEnd() + '…' : message;
+  if (message) {
+    const human = humanizeTechnicalText(message);
+    return human.length > 220 ? human.slice(0, 219).trimEnd() + '…' : human;
+  }
   const parts = [
-    payload?.operation ? 'Operación: ' + String(payload.operation) : '',
-    payload?.executor_type ? 'Ejecutor: ' + String(payload.executor_type) : '',
-    payload?.model_id ? 'Modelo: ' + String(payload.model_id) : '',
-    payload?.step_id ? 'Paso: ' + String(payload.step_id) : '',
+    payload?.operation ? 'Acción: ' + humanOperation(payload.operation, payload?.executor_type) : '',
+    payload?.executor_type ? 'Ejecutor: ' + humanExecutorLabel(payload.executor_type) : '',
+    payload?.model_id ? 'Modelo: ' + humanizeTechnicalText(String(payload.model_id)) : '',
     payload?.attempt != null ? 'Intento: ' + String(payload.attempt) : ''
   ].filter(Boolean);
-  return parts.join(' · ') || 'El runtime registró actividad real para esta misión.';
+  return parts.join(' · ') || 'ARIA registró actividad real para esta misión.';
 }
 
 function executionResource(event: any, step: any): string {
@@ -1870,6 +2150,17 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
       (latestStepIndex != null && currentStepIndex != null && latestStepIndex === currentStepIndex)
     );
 
+  if (eventType.startsWith('computer_use_')) {
+    return {
+      headline: executionEventTitle(latest),
+      subject: executionEventDetail(latest),
+      evidence: executionEventDetail(latest),
+      next: eventType === 'computer_use_verification_completed' && payload?.verified === true
+        ? 'Buscar el siguiente control seguro y continuar la cobertura.'
+        : 'Observar la siguiente evidencia antes de decidir otra acción.'
+    };
+  }
+
   if (eventType === 'step_succeeded' && latestBelongsToCurrentStep) {
     return {
       headline: 'ARIA acaba de completar este paso',
@@ -1881,7 +2172,7 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
 
   if (eventType === 'step_failed' || status === 'failed') {
     return {
-      headline: 'ARIA encontró un fallo y ya está siguiendo la recuperación gobernada',
+      headline: 'ARIA encontró un fallo en este paso',
       subject: resource ? opHuman + ' · ' + resource : opHuman,
       evidence: executionEventDetail(latest),
       next: humanNextAction(mission?.next_action, status)
@@ -1993,7 +2284,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const latestEventFresh = latestEventAgeMs <= 7000;
   const latestType = String(latest?.event_type ?? '').toLowerCase();
   const liveEventStepId = String(latest?.payload?.step_id ?? '').trim();
-  const activeEventTypes = new Set(['step_started', 'step_batch_started', 'cognitive_recall_completed']);
+  const activeEventTypes = new Set(['step_started', 'step_batch_started', 'cognitive_recall_completed',
+    'computer_use_observation_started','computer_use_decision_made','computer_use_action_started',
+    'computer_use_action_executed','computer_use_result_observed','computer_use_verification_completed']);
   const currentStep =
     (mission.steps ?? []).find((s: any) => String(s.status) === 'running') ??
     (activeEventTypes.has(latestType) && liveEventStepId
@@ -2014,13 +2307,14 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         ? 'Procesando el siguiente movimiento'
         : 'Sin evento nuevo: estado persistido';
   const doingText = status === 'queued'
-    ? 'El runner todavía no ha tomado esta misión.'
+    ? 'El motor de misiones todavía no ha tomado esta misión.'
     : currentStep
-      ? humanOperation(currentStep.operation, currentStep.executor_type)
+      ? directActionText(currentStep, latest)
       : latestEventFresh
         ? executionEventDetail(latest)
-        : 'No se inferirá actividad actual sin un evento reciente.';
+        : 'No hay actividad nueva confirmada; ARIA no inventará una acción.';
   const nextText = humanNextAction(mission.next_action, status);
+  const executionPlan = executionPlanForMission(mission);
 
   return (
     <section className={'executionHero ' + (terminal ? 'executionHeroTerminal ' + tone(status) : 'executionHeroRunning')}>
@@ -2045,21 +2339,46 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         <div className='progressBar executionProgressBar'><span style={{ width: progress + '%' }} /></div>
       </div>
 
+      <div className='executionPlanPanel'>
+        <div className='executionPlanHeader'>
+          <div>
+            <div className='executionLabel'>PLAN DE TRABAJO</div>
+            <strong>Esto es lo que ARIA pretende hacer para completar esta misión</strong>
+          </div>
+          <span className='muted'>Solo se marca ✓ cuando existe evidencia relacionada.</span>
+        </div>
+        <div className='executionPlanList'>
+          {executionPlan.map((item, index) => {
+            const state = executionPlanState(index, mission, events);
+            return (
+              <div className={'executionPlanItem ' + state} key={item}>
+                <span className='executionPlanCheck' aria-hidden='true'>{state === 'done' ? '✓' : state === 'current' ? '➜' : '○'}</span>
+                <span className='executionPlanIndex'>{index + 1}</span>
+                <div>
+                  <strong>{item}</strong>
+                  <small>{state === 'done' ? 'Comprobado con evidencia real' : state === 'current' ? 'Punto en curso' : 'Pendiente'}</small>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className='executionTelemetryGrid' aria-label='Telemetría de ejecución'>
         <div className='executionTelemetryCard'>
           <span>PASO EN CURSO</span>
-          <strong>{currentStep ? ((Number(currentStep.index) || 1) + ' · ' + String(currentStep.title)) : 'Preparando…'}</strong>
-          <small>{status === 'queued' ? 'El runner aún no la ha tomado.' : currentStep ? statusLabel(String(currentStep.status)) : 'Sin paso activo persistido'}</small>
+          <strong>{currentStep ? ((Number(currentStep.index) || 1) + ' · ' + humanStepTitle(currentStep, Number(currentStep?.index) || 1)) : 'Preparando…'}</strong>
+          <small>{status === 'queued' ? 'El motor de misiones aún no la ha tomado.' : currentStep ? statusLabel(String(currentStep.status)) : 'Sin paso activo confirmado'}</small>
         </div>
         <div className='executionTelemetryCard'>
           <span>INTENTO ACTUAL</span>
           <strong>{Number(currentStep?.attempt ?? currentStep?.attempt_count ?? mission.attempt_count ?? 0) || 1}</strong>
-          <small>{currentStep?.executor_type ? 'Executor: ' + String(currentStep.executor_type) : 'Executor aún no identificado'}</small>
+          <small>{currentStep?.executor_type ? 'Ejecutor: ' + humanExecutorLabel(currentStep.executor_type) : 'Ejecutor aún no identificado'}</small>
         </div>
         <div className='executionTelemetryCard'>
-          <span>OPERACIÓN</span>
-          <strong>{currentStep?.operation || '—'}</strong>
-          <small>{currentStep?.model_id ? 'Modelo: ' + String(currentStep.model_id) : (currentStep?.executor_type ? 'Ejecutor activo' : 'Sin detalle de modelo')}</small>
+          <span>ACCIÓN ACTUAL</span>
+          <strong>{currentStep ? humanOperation(currentStep.operation, currentStep.executor_type) : '—'}</strong>
+          <small>{currentStep?.model_id ? 'Modelo: ' + humanizeTechnicalText(String(currentStep.model_id)) : (currentStep?.executor_type ? humanExecutorLabel(currentStep.executor_type) : 'Sin detalle adicional')}</small>
         </div>
         <div className='executionTelemetryCard'>
           <span>ÚLTIMA ACTIVIDAD</span>
@@ -2082,8 +2401,8 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         <div className='executionNowCard executionNowMain'>
           <div className='executionLabel'>AHORA MISMO</div>
           {currentStep ? <>
-            <strong>{currentStep.title}</strong>
-            <small>{statusLabel(String(currentStep.status))} · {currentStep.executor_type || 'ejecución'} · {currentStep.operation || 'operación'}</small>
+            <strong>{humanStepTitle(currentStep, Number(currentStep?.index) || 1)}</strong>
+            <small>{statusLabel(String(currentStep.status))} · {humanExecutorLabel(currentStep.executor_type)}</small>
             <small>{verificationLabel(currentStep)}</small>
           </> : <strong>ARIA está preparando el siguiente movimiento.</strong>}
         </div>
@@ -2095,7 +2414,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         <div className='executionNowCard'>
           <div className='executionLabel'>PRÓXIMO MOVIMIENTO</div>
           <strong>{status === 'queued' ? nextText : humanNextAction(mission.next_action, status)}</strong>
-          <small>{mission.eta?.eta_seconds != null ? 'ETA estimada: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'ETA calculándose con el historial disponible.'}</small>
+          <small>{mission.eta?.eta_seconds != null ? 'Tiempo estimado: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'Tiempo estimado calculándose con el historial disponible.'}</small>
         </div>
       </div>
 
@@ -2135,7 +2454,6 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
       </div>
 
       <div className='executionLiveControl'>
-        {!terminal && onCancel && <button className='primary dangerAction' onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; try { await onCancel(); } catch {} }}>Cancelar ejecución</button>}
         <span className='muted'>Sincronización automática cada 2,5 s</span>
       </div>
       <div className='executionFooter'>

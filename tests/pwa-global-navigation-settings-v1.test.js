@@ -65,7 +65,7 @@ assert.doesNotMatch(css,/Visible Dashboard\/Chat gesture hint/);
 assert.match(app,/ACTIVIDAD REAL/);
 assert.match(app,/ESTADO PERSISTIDO/);
 assert.match(app,/latestEventFresh/);
-assert.match(app,/No se inferirá actividad actual sin un evento reciente/);
+assert.match(app,/No hay actividad nueva confirmada; ARIA no inventará una acción/);
 assert.match(app,/collapsiblePanel/);
 assert.match(app,/executionTelemetryGrid/);
 
@@ -78,7 +78,8 @@ assert.match(app,/Math\.abs\(dx\) < 32/);
 assert.match(app,/Math\.abs\(dx\) < 42/);
 assert.match(app,/meditationQueueItems/);
 assert.match(app,/\/meditation\/queue\/reorder/);
-assert.match(app,/Cancelar ejecución/);
+assert.doesNotMatch(app,/Cancelar ejecución/);
+assert.match(app,/Cancelar misión/);
 assert.match(app,/live_events/);
 
 assert.match(css,/\.chatPanel \.chatWindow[^\n]*touch-action:pan-y/);
