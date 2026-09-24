@@ -330,29 +330,75 @@ const redactMissionDiagnostic = (value:any) => String(value ?? "")
 
 function missionBlockDetails(m:any) {
   const recovery = m?.checkpoint?.recovery && typeof m.checkpoint.recovery === "object" ? m.checkpoint.recovery : {};
+  const gate = m?.checkpoint?.human_gate && typeof m.checkpoint.human_gate === "object" ? m.checkpoint.human_gate : null;
   const steps = rows(m);
   const failedStepId = String(recovery?.failed_step_id || "");
   const step = steps.find((x:any) => x.id === failedStepId) ?? steps.find((x:any) => ["blocked","failed"].includes(String(x.status))) ?? null;
   const result = step?.result && typeof step.result === "object" ? step.result : {};
   const recoveryStatus = String(recovery?.status || "");
   const status = String(m?.status || "");
-  const verificationPending = recoveryStatus === "verification_pending";
+  const verificationPending = recoveryStatus === "verification_pending" || gate?.status === "pending";
   const replanRequired = recoveryStatus === "replan_required";
-  const recoverable = verificationPending || replanRequired || status === "waiting" || status === "paused";
-  const reason = redactMissionDiagnostic(recovery?.block_details?.reason || m?.last_stderr || m?.next_action || recoveryStatus || "La misión necesita recuperación.");
-  const evidence = { step_id: failedStepId || step?.id || null, executor_type: step?.executor_type || result?.executor_type || null, operation: step?.operation || result?.operation || null, result_status: result?.status || null, verification_status: recovery?.verification_status || result?.repair?.verification_status || result?.verification_status || null, pr_number: result?.repair?.pr?.number ?? result?.pr?.number ?? recovery?.block_details?.evidence?.pr_number ?? null, recovery_status: recoveryStatus || null, attempt_count: Number(m?.attempt_count || 0) };
+  const recoverable = verificationPending || replanRequired || status === "waiting" || status === "paused" || status === "blocked" || status === "failed";
+  const reason = redactMissionDiagnostic(gate?.reason || gate?.description || recovery?.block_details?.reason || m?.last_stderr || m?.next_action || recoveryStatus || "La misión necesita recuperación.");
+  const category = String(gate?.risk || gate?.kind || reasonType(m));
+  const explanation = redactMissionDiagnostic(
+    gate?.description ||
+    gate?.reason ||
+    recovery?.block_details?.reason ||
+    (category === "credential" ? "ARIA necesita que revises la credencial o la ruta de autenticación antes de poder verificar la misión." :
+      category === "approval" || gate ? "ARIA necesita una aprobación humana antes de continuar con este paso." :
+      "ARIA no pudo completar la estrategia actual. La causa está registrada en la evidencia de la misión.")
+  );
+  const remediation = redactMissionDiagnostic(
+    gate?.remediation ||
+    recovery?.block_details?.remediation ||
+    (category === "credential" ? "Corrige o actualiza la credencial en el sistema correspondiente y vuelve a ejecutar la misión." :
+      category === "approval" || gate ? "Completa la acción humana solicitada y luego vuelve a ejecutar la misión." :
+      "Corrige la causa indicada por ARIA y vuelve a ejecutar la misión con la nueva situación.")
+  );
+  const guideSteps = Array.isArray(gate?.steps) && gate.steps.length
+    ? gate.steps.map((x:any) => redactMissionDiagnostic(String(x)))
+    : [explanation, remediation, "Cuando quede resuelto, pulsa «Reintentar misión»."];
+
+  const evidence = {
+    step_id: failedStepId || step?.id || null,
+    executor_type: step?.executor_type || result?.executor_type || null,
+    operation: step?.operation || result?.operation || null,
+    result_status: result?.status || null,
+    verification_status: recovery?.verification_status || result?.repair?.verification_status || result?.verification_status || null,
+    pr_number: result?.repair?.pr?.number ?? result?.pr?.number ?? recovery?.block_details?.evidence?.pr_number ?? null,
+    recovery_status: recoveryStatus || null,
+    attempt_count: Number(m?.attempt_count || 0)
+  };
+
+  const directLink = gate?.url || gate?.link || gate?.resource_url ||
+    result?.repair?.pr?.html_url || result?.pr?.html_url ||
+    recovery?.block_details?.evidence?.url || null;
+  const goal = String(m?.goal || "");
+  let link = typeof directLink === "string" && /^https?:\/\//i.test(directLink) ? directLink : null;
+  let link_label = "Abrir recurso relacionado";
+  if (!link && /openrouter/i.test(goal + " " + reason)) { link = "https://openrouter.ai/keys"; link_label = "Abrir OpenRouter · Keys"; }
+  else if (!link && /battlecruiser/i.test(goal + " " + reason)) { link = "https://github.com/Robvg9/battlecruiser"; link_label = "Abrir BattleCruiser en GitHub"; }
+  else if (!link && /github/i.test(goal + " " + reason)) { link = "https://github.com/Robvg9"; link_label = "Abrir GitHub"; }
+
   return {
-    kind: verificationPending ? "verification_pending" : replanRequired ? "replan_required" : status === "blocked" ? "hard_block" : "recovery",
+    kind: verificationPending ? "human_gate" : replanRequired ? "replan_required" : status === "blocked" ? "hard_block" : "recovery",
     recoverable,
+    retry_ready: recoverable,
+    category,
     reason,
-    next_action: redactMissionDiagnostic(recovery?.block_details?.next_action || m?.next_action || "Revisar la misión y ejecutar la siguiente estrategia gobernada."),
-    remediation: redactMissionDiagnostic(recovery?.block_details?.remediation || (verificationPending ? "Esperar la verificación automática de la PR/CI/deploy. ARIA no debe repetir la modificación mientras espera." : replanRequired ? "ARIA debe construir una estrategia alternativa usando la evidencia de la tentativa anterior." : "Revisar la evidencia del paso y corregir la causa antes de volver a intentar.")),
+    explanation,
+    next_action: redactMissionDiagnostic(gate?.next_action || recovery?.block_details?.next_action || m?.next_action || "Revisar la misión y ejecutar la siguiente estrategia gobernada."),
+    remediation,
+    steps: guideSteps,
+    link,
+    link_label,
     verification_pending: verificationPending,
     evidence,
     updated_at: m?.updated_at || null,
   };
 }
-
 function rows(m:any){ const plan=Array.isArray(m?.checkpoint?.plan)?m.checkpoint.plan:[]; const done=new Set((Array.isArray(m?.checkpoint?.completed_steps)?m.checkpoint.completed_steps:[]).map(String)); const results=m?.checkpoint?.results&&typeof m.checkpoint.results==="object"?m.checkpoint.results:{}; const rec=m?.checkpoint?.recovery&&typeof m.checkpoint.recovery==="object"?m.checkpoint.recovery:{}; const failed=Array.isArray(rec.failed_step_ids)?rec.failed_step_ids.map(String):[]; return plan.map((s:any,i:number)=>{const id=String(s?.id??`step_${i+1}`);let st=done.has(id)?"succeeded":"pending"; if(!done.has(id)&&m?.status==="blocked"&&failed.includes(id))st="blocked"; if(!done.has(id)&&m?.status==="paused"&&rec.status==="waiting_for_async_executor")st=m?.checkpoint?.pending_jobs?.[id]?"waiting":"pending"; if(!done.has(id)&&m?.status==="running"&&Number(m?.current_step??0)===i)st="running"; if(!done.has(id)&&results[id]?.status==="failed")st="failed"; return {index:i+1,id,title:String(s?.title??s?.operation??`Paso ${i+1}`),status:st,risk:String(s?.risk??"READ"),executor_type:String(s?.executor_type||s?.target?.type||""),operation:String(s?.operation??""),depends_on:Array.isArray(s?.depends_on)?s.depends_on.map(String):[],weight:Number(weightOf(s).toFixed(3)),timeout_ms:Number.isFinite(Number(s?.timeout_ms))?Number(s.timeout_ms):null,result:results[id]??null};}); }
 async function etaFor(sb:any, steps:any[]){const rem=steps.filter(s=>!['succeeded','skipped'].includes(s.status));if(!rem.length)return{eta_seconds:0,basis:"complete",samples:0};const ops=[...new Set(rem.map(s=>s.operation).filter(Boolean))];let hist:number[]=[];if(ops.length){const {data}=await sb.schema("aria_internal").from("mission_steps").select("operation,started_at,completed_at").in("operation",ops).not("started_at","is",null).not("completed_at","is",null).order("completed_at",{ascending:false}).limit(120);hist=(data??[]).map((r:any)=>{const a=Date.parse(r.started_at),b=Date.parse(r.completed_at),d=(Number.isFinite(a)&&Number.isFinite(b))?(b-a)/1000:NaN;return Number.isFinite(d)&&d>0&&d<86400?d:NaN}).filter(Number.isFinite);}const med=hist.length?[...hist].sort((a,b)=>a-b)[Math.floor(hist.length/2)]:null;const estimate=(s:any)=>{const t=Number(s.timeout_ms);if(Number.isFinite(t)&&t>0)return Math.max(5,Math.min(900,t/1000*.35));return String(s.executor_type).toLowerCase()==="device"?30:12;};const sec=rem.reduce((sum,s)=>sum+(Number(med??estimate(s))*s.weight),0);return{eta_seconds:Math.max(0,Math.round(sec)),basis:hist.length?"historical_operation_median":"step_estimate",samples:hist.length};}
 async function capabilityCatalog(userId:string){
@@ -756,6 +802,50 @@ Deno.serve(async (req) => {
       });
       if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status);
       return json({ ok: true, ...direct.b, trace_id: trace });
+    }
+    if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/retry")) {
+      const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/retry$/,""));
+      const original = await missionForUser(missionId, user.id);
+      if (!original) return json({ error: "mission_not_found", trace_id: trace }, 404);
+      const status = String(original.status || "");
+      if (!["blocked","failed","waiting","paused","cancelled"].includes(status)) {
+        return json({ error: "mission_not_retryable", detail: "Solo se pueden reintentar misiones detenidas por bloqueo, Human Gate o fallo.", trace_id: trace }, 409);
+      }
+
+      const sb = serviceClient();
+      const { data: activeRetries, error: retryLookupError } = await sb.schema("aria_internal").from("mission_state")
+        .select("mission_id,status,metadata")
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      if (retryLookupError) return json({ error: "mission_retry_lookup_failed", detail: retryLookupError.message, trace_id: trace }, 502);
+
+      const activeRetry = (activeRetries ?? []).find((m:any) => {
+        const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
+        return md.user_id === user.id &&
+          md.retry_of === missionId &&
+          ["queued","planning","running","waiting","paused"].includes(String(m.status || ""));
+      });
+      if (activeRetry) return json({ error: "mission_retry_already_active", mission_id: activeRetry.mission_id, trace_id: trace }, 409);
+
+      const md = original.metadata && typeof original.metadata === "object" ? original.metadata : {};
+      const retryCount = Number(md.retry_count || 0) + 1;
+      const direct = await internal(DIRECT, {
+        goal: String(original.goal || ""),
+        metadata: {
+          ...md,
+          source_application: "aria-pwa-retry",
+          user_id: user.id,
+          retry_of: missionId,
+          retry_count: retryCount,
+          retry_source_status: status,
+          execution_requested: true,
+        },
+        "x-aria-user-id": user.id,
+      });
+      if (!direct.r.ok) return json({ error: "mission_retry_enqueue_failed", detail: String(direct.b?.error || "aria_direct_failed"), trace_id: trace }, direct.r.status >= 500 ? 503 : direct.r.status);
+      const mission = direct.b?.mission ?? direct.b?.result ?? null;
+      if (!mission?.mission_id) return json({ error: "mission_retry_enqueue_failed", detail: "canonical_direct_returned_no_mission_id", trace_id: trace }, 502);
+      return json({ ok: true, mission, retry_of: missionId, retry_count: retryCount, trace_id: trace });
     }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));

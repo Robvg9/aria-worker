@@ -103,3 +103,18 @@ for (const fragment of [
   // conversational/mission concurrency without requiring a browser runner.
   if (!pwa.includes(fragment)) throw new Error("PWA runtime contract missing: " + fragment);
 }
+
+const appApiMissionRetryAssertions=[
+  'path.endsWith("/retry")',
+  'mission_retry_already_active',
+  'mission_not_retryable',
+  'retry_of: missionId',
+  'retry_count: retryCount',
+  'aria-pwa-retry',
+  'missionBlockDetails',
+  'retry_ready',
+  'steps: guideSteps',
+  'link_label'
+];
+for (const fragment of appApiMissionRetryAssertions) assertContains(appApi,fragment,'mission recovery/retry contract missing: '+fragment);
+console.log('MISSION RECOVERY + RETRY API CONTRACT: PASS');

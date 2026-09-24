@@ -125,6 +125,17 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .testCatalogMeta .pill{font-size:9px}
 .testDetailModal{max-height:min(80dvh,760px);overflow:auto}
 
+.recoveryPanel{border-left:3px solid #7658df}
+.recoveryExplanation strong{display:block;font-size:13px;line-height:1.45}
+.recoveryExplanation p{margin:6px 0 0;color:var(--muted);line-height:1.5}
+.recoverySteps{margin-top:14px;display:grid;gap:8px}
+.recoverySteps>strong{font-size:12px}
+.recoveryStep{display:grid;grid-template-columns:26px 1fr;gap:8px;align-items:start}
+.recoveryStep span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:rgba(118,88,223,.2);font-size:11px;font-weight:900}
+.recoveryStep p{margin:2px 0 0;line-height:1.45;font-size:12px}
+.recoveryActions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.recoveryLink{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+
 /* Global PWA navigation + human mission presentation */
 .globalPageFrame{min-height:100dvh;width:100%}
 .globalPageFrame:not(.animationsOff) .appShell{animation:globalPageEnter .22s ease both}
