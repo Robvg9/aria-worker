@@ -377,3 +377,6 @@ button{touch-action:manipulation;}
   box-shadow:0 8px 24px rgba(0,0,0,.35);
 }
 .artiaFullscreenExit:hover{background:rgba(28,20,42,.94);border-color:#7658df}
+
+/* Visible Dashboard/Chat gesture hint */
+.swipeHint{text-align:center;color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.02em;padding:0 0 10px;min-height:18px}
