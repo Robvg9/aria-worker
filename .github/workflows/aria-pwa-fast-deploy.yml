@@ -1,4 +1,5 @@
 name: Deploy ARIA PWA Fast Lane
+# Swipe RWHT deployment trigger
 
 on:
   push:
