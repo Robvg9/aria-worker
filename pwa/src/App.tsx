@@ -516,7 +516,7 @@ function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <p>Conversación, misiones, modelos, agentes, dispositivos y Meditación IA en una sola interfaz.</p>
         <input aria-label='Correo' type='email' inputMode='email' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo electrónico' autoComplete='username' />
         <input aria-label='Contraseña' type='password' value={password} onChange={e => setPassword(e.target.value)} placeholder='Contraseña' autoComplete='current-password' />
-        {error && <div className='errorBox'>{error}</div>}
+        {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
         <button className='primary wide' disabled={busy}>{busy ? 'ENTRANDO…' : 'ENTRAR EN ARIA'}</button>
       </form>
     </main>
@@ -1241,24 +1241,32 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
   const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [error, setError] = useState('');
+  const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
 
   async function load() {
-    try {
-      const [overview, capability] = await Promise.all([
-        api('/meditation/overview', session.accessToken),
-        api('/capabilities', session.accessToken)
-      ]);
+    setSyncing(true);
+    let successes = 0;
+    const [overview, capability] = await Promise.all([
+      api('/meditation/overview', session.accessToken).catch(() => null),
+      api('/capabilities', session.accessToken).catch(() => null)
+    ]);
+    if (overview) {
       setO(overview);
-      setCaps(capability.capabilities);
       writeCached('meditation_overview', session.userId, overview);
-      writeCached('capabilities', session.userId, capability.capabilities);
-      setError('');
-    } catch (x) {
-      if (!o) setError(x instanceof Error ? x.message : 'No se pudo sincronizar Meditación IA.');
+      successes++;
     }
+    if (capability?.capabilities) {
+      setCaps(capability.capabilities);
+      writeCached('capabilities', session.userId, capability.capabilities);
+      successes++;
+    }
+    setLastSyncAt(successes ? Date.now() : null);
+    setError(successes === 2 ? '' : successes === 1 ? 'Parte de Meditación IA se sincronizó; el resto sigue reintentándose.' : 'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar.');
+    setSyncing(false);
   }
 
   useLiveSync(load, session.accessToken, 10000);
@@ -1291,12 +1299,12 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
     <main className='appShell'>
       <header className='topBar'>
         <div><div className='eyebrow'>ARIA / CONTINUIDAD</div><h1>MEDITACIÓN IA</h1><div className='sub'>Ejecución autónoma, verificación y Human Gates</div></div>
-        <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='ghost' onClick={onCapabilities}>Capacidades</button></div>
+        <div className='topActions'><button className='ghost navBack' onClick={onBack}>← Centro</button><button className='ghost desktopOnly' onClick={onCapabilities}>Capacidades</button></div>
       </header>
       <div className='pageBodyViewport meditationViewport'>
-      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{o?.mode ? statusLabel(String(o.mode)) : 'Sincronizando…'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
+      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
       {error && <div className='errorBox'>{error}</div>}
-      <section className='statsGrid'><StatCard value={o?.counts?.missions ?? 0} label='Misiones visibles' /><StatCard value={o?.counts?.human_gates ?? 0} label='Human Gates' /><StatCard value={o?.counts?.blocked ?? 0} label='Bloqueadas' /><StatCard value={caps?.summary.executors ?? 0} label='Executors' /></section>
+      <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
       <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'} · {verificationLabel(s)}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
       <section className='panel'><div className='panelTitle'>HUMAN GATES</div>{(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}{!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
