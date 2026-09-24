@@ -2249,7 +2249,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         <div className='executionNowCard'>
           <div className='executionLabel'>PRÓXIMO MOVIMIENTO</div>
           <strong>{status === 'queued' ? nextText : humanNextAction(mission.next_action, status)}</strong>
-          <small>{mission.eta?.eta_seconds != null ? 'ETA estimada: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'ETA calculándose con el historial disponible.'}</small>
+          <small>{mission.eta?.eta_seconds != null ? 'Tiempo estimado: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'Tiempo estimado calculándose con el historial disponible.'}</small>
         </div>
       </div>
 
