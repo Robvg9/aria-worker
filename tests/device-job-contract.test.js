@@ -13,6 +13,16 @@ const validQwen = JSON.stringify({
 });
 
 assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.SHELL_EXECUTE, 'echo ok').ok, true);
+const autonomousRwht = validateDeviceJobOperation(
+  DEVICE_JOB_OPERATIONS.AUTONOMOUS_COMPUTER_USE,
+  JSON.stringify({ mode: 'rwht', goal: 'RWHT BattleCruiser desde PC', max_actions: 20, max_runtime_ms: 120000 })
+);
+assert.strictEqual(autonomousRwht.ok, true);
+assert.strictEqual(autonomousRwht.payload.mode, 'rwht');
+assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.AUTONOMOUS_COMPUTER_USE, JSON.stringify({ mode: 'task', goal: 'x' })).ok, false);
+assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.AUTONOMOUS_COMPUTER_USE, JSON.stringify({ mode: 'rwht' })).ok, false);
+assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.AUTONOMOUS_COMPUTER_USE, JSON.stringify({ mode: 'rwht', goal: 'x', max_actions: 300 })).ok, false);
+
 assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.OLLAMA_QWEN3, validQwen).ok, true);
 assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.UNKNOWN || 'unknown.operation', '{}').ok, false);
 assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.OLLAMA_QWEN3, JSON.stringify({ model: OLLAMA_QWEN3_MODEL })).ok, false);
