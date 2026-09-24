@@ -976,6 +976,16 @@ async function easExecute(step: any) {
   throw new Error("eas_operation_not_supported:" + operation);
 }
 
+async function independentVerify(mission:any, step:any, result:any){
+  const project=String(mission?.metadata?.project_id||step?.target?.project_id||'').toLowerCase();
+  const risk=String(step?.risk||'READ').toUpperCase();
+  if(project!=='battlecruiser' && !['HIGH_RISK_WRITE','DESTRUCTIVE'].includes(risk)) return {passed:true,skipped:true,reason:'not_required'};
+  const response=await fetch(SMART_VERIFIER,{method:'POST',headers:internalHeaders(),body:JSON.stringify({goal:mission?.goal||'',plan:{steps:[step]},step,result})});
+  const body=await response.json().catch(()=>null);
+  if(!response.ok||body?.verification?.passed!==true) return {passed:false,skipped:false,reason:'independent_verification_failed',verification:body?.verification||null};
+  return {passed:true,skipped:false,verification:body.verification};
+}
+
 async function executeStep(missionId: string, step: any, auth: AuthContext, mission: any = null) {
   validateStep(step);
   const type = executorType(step);
@@ -1306,7 +1316,10 @@ Deno.serve(async (request) => {
           result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
         }
 
-        const passed = verifyStep(step, result);
+        let independent = { passed: true, skipped: true };
+        try { independent = await independentVerify(mission, step, result); } catch (error) { independent = { passed: false, skipped: false, reason: String(error instanceof Error ? error.message : error) }; }
+        const passed = independent.passed && verifyStep(step, result);
+        result.independent_verification = independent;
         if (passed) {
           results[id] = result;
           pendingJobs[id] = undefined;
