@@ -68,10 +68,14 @@ function createCognitiveLoop({
       };
       const post = {};
       if (typeof reflect === 'function') post.reflection = await reflect(episode);
-      if (typeof learn === 'function') post.learning = await learn(episode, post.reflection || null);
-      if (typeof worldModel === 'function') post.world_model = await worldModel(episode);
-      if (typeof confidence === 'function') post.confidence = await confidence(episode, post);
-      if (typeof skillCompiler === 'function') post.skill = await skillCompiler(episode, post);
+      const reflection = post.reflection || null;
+      const jobs = [];
+      if (typeof learn === 'function') jobs.push(['learning', () => learn(episode, reflection)]);
+      if (typeof worldModel === 'function') jobs.push(['world_model', () => worldModel(episode)]);
+      if (typeof confidence === 'function') jobs.push(['confidence', () => confidence(episode, { ...post, reflection })]);
+      if (typeof skillCompiler === 'function') jobs.push(['skill', () => skillCompiler(episode, { ...post, reflection })]);
+      const results = await Promise.all(jobs.map(async ([key, run]) => [key, await run()]));
+      for (const [key, value] of results) post[key] = value;
       cognition = { ...cognition, postprocessed: true, post };
     }
 
