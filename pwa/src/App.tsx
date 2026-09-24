@@ -1721,6 +1721,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const status = String(mission.status ?? 'unknown');
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const latest = events.length ? events[events.length - 1] : null;
+  const latestEventTime = latest ? new Date(String(latest.created_at || '')).getTime() : NaN;
+  const latestEventAgeMs = Number.isFinite(latestEventTime) ? Math.max(0, Date.now() - latestEventTime) : Number.POSITIVE_INFINITY;
+  const latestEventFresh = latestEventAgeMs <= 7000;
   const latestType = String(latest?.event_type ?? '').toLowerCase();
   const liveEventStepId = String(latest?.payload?.step_id ?? '').trim();
   const activeEventTypes = new Set(['step_started', 'step_batch_started', 'cognitive_recall_completed']);
@@ -1735,6 +1738,22 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const progress = Number(mission.progress_percent ?? 0);
   const completed = Number(mission.completed_steps ?? 0);
   const total = Number(mission.total_steps ?? mission.step_count ?? 0);
+  const narrativeEvent = latestEventFresh ? latest : null;
+  const nowText = status === 'queued'
+    ? 'Esperando que el runner tome la misión'
+    : currentStep
+      ? String(currentStep.title)
+      : latestEventFresh
+        ? 'Procesando el siguiente movimiento'
+        : 'Sin evento nuevo: estado persistido';
+  const doingText = status === 'queued'
+    ? 'El runner todavía no ha tomado esta misión.'
+    : currentStep
+      ? humanOperation(currentStep.operation, currentStep.executor_type)
+      : latestEventFresh
+        ? executionEventDetail(latest)
+        : 'No se inferirá actividad actual sin un evento reciente.';
+  const nextText = mission.next_action || (status === 'succeeded' ? 'Sin pasos pendientes.' : status === 'queued' ? 'Tomar la misión y comenzar el primer paso.' : 'Esperar el siguiente evento verificable.');
 
   return (
     <section className={'executionHero ' + (terminal ? 'executionHeroTerminal ' + tone(status) : 'executionHeroRunning')}>
@@ -1748,7 +1767,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
           </div>
         </div>
         <div className='executionHeroActions'>
-          <span className={'pill ' + tone(status)}>{syncing ? 'SINCRONIZANDO…' : status === 'queued' ? 'EN COLA' : 'LIVE'}</span>
+          <span className={'pill ' + tone(status)}>{syncing ? 'SINCRONIZANDO…' : status === 'queued' ? 'EN COLA' : terminal ? statusLabel(status) : latestEventFresh ? 'ACTIVIDAD REAL' : 'ESTADO PERSISTIDO'}</span>
           <button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>
           {!terminal && onCancel && <button className='ghost executionDetailsButton dangerAction' onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; try { await onCancel(); } catch {} }}>Cancelar misión</button>}
         </div>
@@ -1763,7 +1782,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         <div className='executionTelemetryCard'>
           <span>PASO ACTUAL</span>
           <strong>{currentStep ? ((Number(currentStep.index) || 1) + ' · ' + String(currentStep.title)) : 'Preparando…'}</strong>
-          <small>{currentStep ? statusLabel(String(currentStep.status)) : 'Sin paso activo persistido'}</small>
+          <small>{status === 'queued' ? 'El runner aún no la ha tomado.' : currentStep ? statusLabel(String(currentStep.status)) : 'Sin paso activo persistido'}</small>
         </div>
         <div className='executionTelemetryCard'>
           <span>INTENTO</span>
@@ -1778,17 +1797,17 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         <div className='executionTelemetryCard'>
           <span>ÚLTIMA ACTIVIDAD</span>
           <strong>{latest ? elapsedFrom(latest.created_at) : '—'}</strong>
-          <small>{latest ? executionEventTitle(latest) : 'Sin evento persistido todavía'}</small>
+          <small>{latest ? (latestEventFresh ? executionEventTitle(latest) : 'Último evento: ' + executionEventTitle(latest)) : 'Sin evento persistido todavía'}</small>
         </div>
       </div>
 
       <div className='executionNarrative'>
         <div className='executionLabel'>QUÉ ESTÁ PASANDO</div>
-        <strong>{executionNarrative(mission, currentStep, latest).headline}</strong>
-        <div className='executionNarrativeSubject'>{executionNarrative(mission, currentStep, latest).subject}</div>
+        <strong>{executionNarrative(mission, currentStep, narrativeEvent).headline}</strong>
+        <div className='executionNarrativeSubject'>{executionNarrative(mission, currentStep, narrativeEvent).subject}</div>
         <div className='executionNarrativeGrid'>
-          <div><span>EVIDENCIA</span><small>{executionNarrative(mission, currentStep, latest).evidence}</small></div>
-          <div><span>DESPUÉS</span><small>{executionNarrative(mission, currentStep, latest).next}</small></div>
+          <div><span>EVIDENCIA</span><small>{executionNarrative(mission, currentStep, narrativeEvent).evidence}</small></div>
+          <div><span>DESPUÉS</span><small>{executionNarrative(mission, currentStep, narrativeEvent).next}</small></div>
         </div>
       </div>
 
@@ -1803,12 +1822,12 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         </div>
         <div className='executionNowCard'>
           <div className='executionLabel'>QUÉ ESTÁ HACIENDO</div>
-          <strong>{currentStep ? humanOperation(currentStep.operation, currentStep.executor_type) : 'Procesando la estrategia actual…'}</strong>
-          <small>{currentStep?.executor_type ? 'Usando ' + currentStep.executor_type + ' para este paso.' : executionEventDetail(latest)}</small>
+          <strong>{doingText}</strong>
+          <small>{latestEventFresh && latest ? 'Evento ' + executionEventTitle(latest) + ' hace ' + elapsedFrom(latest.created_at) : status === 'queued' ? 'No se mostrará falsa actividad mientras permanezca en cola.' : 'Esperando un evento nuevo del runtime.'}</small>
         </div>
         <div className='executionNowCard'>
           <div className='executionLabel'>PRÓXIMO MOVIMIENTO</div>
-          <strong>{humanNextAction(mission.next_action, status)}</strong>
+          <strong>{status === 'queued' ? nextText : humanNextAction(mission.next_action, status)}</strong>
           <small>{mission.eta?.eta_seconds != null ? 'ETA estimada: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'ETA calculándose con el historial disponible.'}</small>
         </div>
       </div>
@@ -1817,9 +1836,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
         <div className='executionEvidenceHeader'>
           <div>
             <div className='executionLabel'>ÚLTIMA ACTIVIDAD REAL</div>
-            <strong>{latest ? executionEventTitle(latest) : 'Esperando el primer evento del runtime…'}</strong>
+            <strong>{latest ? (latestEventFresh ? executionEventTitle(latest) : 'Último evento persistido: ' + executionEventTitle(latest)) : 'Esperando el primer evento del runtime…'}</strong>
           </div>
-          <span>{latest ? formatDate(latest.created_at) : lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString('es') : '—'}</span>
+          <span>{latest ? formatDate(latest.created_at) + ' · hace ' + elapsedFrom(latest.created_at) : lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString('es') : '—'}</span>
         </div>
         <div className='executionEvidenceDetail'>{latest ? executionEventDetail(latest) : 'La pantalla se sincronizará automáticamente y mostrará aquí el primer evento que ARIA registre.'}</div>
       </div>
@@ -2088,7 +2107,7 @@ export default function App() {
       if (!start) return;
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
-      if (Math.abs(dx) < 44 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
       globalSwipeTriggeredRef.current = true;
       event.preventDefault();
       finishGlobalSwipe(event.clientX, event.clientY);
@@ -2104,52 +2123,15 @@ export default function App() {
       globalSwipeStartRef.current = null;
       globalSwipeTriggeredRef.current = false;
     };
-    const onTouchStart = (event: TouchEvent) => {
-      const touch = event.touches[0];
-      if (!touch) return;
-      globalSwipeTriggeredRef.current = false;
-      beginGlobalSwipe(touch.clientX, touch.clientY, event.target);
-    };
-    const onTouchMove = (event: TouchEvent) => {
-      if (globalSwipeTriggeredRef.current) return;
-      const start = globalSwipeStartRef.current;
-      const touch = event.touches[0];
-      if (!start || !touch) return;
-      const dx = touch.clientX - start.x;
-      const dy = touch.clientY - start.y;
-      if (Math.abs(dx) < 44 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
-      globalSwipeTriggeredRef.current = true;
-      event.preventDefault();
-      finishGlobalSwipe(touch.clientX, touch.clientY);
-    };
-    const onTouchEnd = (event: TouchEvent) => {
-      const touch = event.changedTouches[0];
-      if (!touch) return;
-      if (!globalSwipeTriggeredRef.current) finishGlobalSwipe(touch.clientX, touch.clientY);
-      else globalSwipeStartRef.current = null;
-      globalSwipeTriggeredRef.current = false;
-    };
-    const onTouchCancel = () => {
-      globalSwipeStartRef.current = null;
-      globalSwipeTriggeredRef.current = false;
-    };
     document.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
     document.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
     document.addEventListener('pointerup', onPointerUp, { capture: true, passive: true });
     document.addEventListener('pointercancel', onPointerCancel, { capture: true, passive: true });
-    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
-    document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
-    document.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
-    document.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('pointermove', onPointerMove, true);
       document.removeEventListener('pointerup', onPointerUp, true);
       document.removeEventListener('pointercancel', onPointerCancel, true);
-      document.removeEventListener('touchstart', onTouchStart, true);
-      document.removeEventListener('touchmove', onTouchMove, true);
-      document.removeEventListener('touchend', onTouchEnd, true);
-      document.removeEventListener('touchcancel', onTouchCancel, true);
     };
   }, [uiPrefs.swipeNavigation, navigation.page, navigation.screen]);
 
