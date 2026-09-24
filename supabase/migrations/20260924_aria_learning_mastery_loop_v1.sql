@@ -387,6 +387,9 @@ begin
   if position('rls' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('rls'); end if;
   if position('branch' in v_detail) > 0 or position('pull request' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('branch'); end if;
   if jsonb_array_length(v_terms)=0 then v_terms := jsonb_build_array('verify'); end if;
+  if v_state='root_cause_required' then
+    v_terms := v_terms || jsonb_build_array('root_cause','verify');
+  end if;
 
   v_procedure := jsonb_build_array(
     'Recuperar el fallo previo y su evidencia antes de elegir una estrategia.',
