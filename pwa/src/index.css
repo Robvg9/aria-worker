@@ -67,6 +67,11 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .notificationRowText small{font-size:13px;line-height:1.4;color:rgba(255,255,255,.68)}
 .notificationArrow{font-size:26px;line-height:1;color:rgba(255,255,255,.46)}
 @media(max-width:700px){
+  .settingsOption{align-items:flex-start}
+  .settingsOption>div{flex:1}
+  .toggleButton{min-width:88px}
+  .missionGoalLine{font-size:11px}
+
   .notificationLauncher{right:12px;bottom:12px}
   .notificationBackdrop{padding:10px}
   .notificationPanel{border-radius:20px;max-height:88vh}
@@ -97,6 +102,24 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .screenIndicatorArrow{opacity:.65;}
 .visualPreviewControls{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#120e1d;}
 .visualPreviewControls .ghost{min-height:40px;}
+
+/* Global PWA navigation + human mission presentation */
+.globalPageFrame{min-height:100dvh;width:100%}
+.globalPageFrame:not(.animationsOff) .appShell{animation:globalPageEnter .22s ease both}
+.globalPageFrame.animationsOff *,
+.globalPageFrame.animationsOff *::before,
+.globalPageFrame.animationsOff *::after{animation:none!important;transition:none!important}
+@keyframes globalPageEnter{from{opacity:.55;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
+.technicalToggle{width:100%;display:flex;justify-content:space-between;align-items:center;border:0;background:transparent;color:var(--text);padding:13px 14px;font-weight:900;font-size:11px;cursor:pointer}
+.technicalDetails{overflow:hidden}
+.missionGoalLine{margin:4px 0 8px;line-height:1.45}
+.settingsOption{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:13px 0;border-top:1px solid rgba(255,255,255,.06)}
+.settingsOption:first-of-type{border-top:0}
+.settingsOption>div{min-width:0}
+.settingsOption strong{display:block;font-size:13px}
+.settingsOption small{display:block;color:var(--muted);margin-top:4px;line-height:1.45}
+.toggleButton{min-width:92px;min-height:40px;border:1px solid var(--line);border-radius:999px;background:#171122;color:var(--muted);font-weight:900;font-size:11px;padding:0 12px}
+.toggleButton.on{background:#5d45d1;color:#fff;border-color:#7658df}
 
 /* ARIA Project Workspaces / ARTIA */
 .statButton{width:100%;text-align:left;cursor:pointer}
