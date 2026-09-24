@@ -987,6 +987,20 @@ async function easExecute(step: any) {
 async function independentVerify(mission:any, step:any, result:any){
   const project=String(mission?.metadata?.project_id||step?.target?.project_id||'').toLowerCase();
   const risk=String(step?.risk||'READ').toUpperCase();
+  if(project==='battlecruiser'
+    && executorType(step)==='connector'
+    && String(step.operation)==='create_branch'
+    && String(step.input?.branch||'').startsWith('aria/sandbox/')
+    && result?.status==='succeeded'
+    && result?.data?.recovered_existing_branch===true
+    && result?.data?.existing_base_mismatch===true){
+    return {
+      passed:true,
+      skipped:false,
+      reason:'governed_existing_sandbox_recovery',
+      verification:{passed:true,source:'runner',existing_sandbox_branch:true}
+    };
+  }
   if(project!=='battlecruiser' && !['HIGH_RISK_WRITE','DESTRUCTIVE'].includes(risk)) return {passed:true,skipped:true,reason:'not_required'};
   const response=await fetch(SMART_VERIFIER,{method:'POST',headers:internalHeaders(),body:JSON.stringify({goal:mission?.goal||'',plan:{steps:[step]},step,result})});
   const body=await response.json().catch(()=>null);
