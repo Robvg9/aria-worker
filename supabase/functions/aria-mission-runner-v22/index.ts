@@ -1656,7 +1656,7 @@ Deno.serve(async (request) => {
           : "replan: add executable verification for the required learned knowledge before success",
         remediation: "Create explicit preflight/read/verification steps whose successful results contain the learned prerequisites, then re-run the governed plan."
       };
-      await emitEvent(missionId, "learning_application_verification_failed", applicationBlock);
+      await emitEvent(missionId, "checkpoint_saved", { kind: "learning_application_verification_failed", ...applicationBlock });
 
       if (nextLearningReplans >= 2) {
         await updateMission(missionId, {
@@ -1720,7 +1720,8 @@ Deno.serve(async (request) => {
       return out({ ok: true, status: "replanned_learning_application", mission_id: missionId, runtime: V, block_details: applicationBlock });
     }
 
-    await emitEvent(missionId, "learning_application_verified", {
+    await emitEvent(missionId, "checkpoint_saved", {
+      kind: "learning_application_verified",
       version: "mastery-learning-loop-v1",
       applied_memory_ids: learningGate?.applied_memory_ids || [],
       verified_memory_ids: learningApplication?.verified_memory_ids || [],
