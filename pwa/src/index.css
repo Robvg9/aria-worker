@@ -179,6 +179,8 @@ button{touch-action:manipulation;}
 .detailModal{max-height:calc(100dvh - 24px);}
 .notificationLauncher{bottom:calc(78px + env(safe-area-inset-bottom));}
 .notificationPanel{max-height:calc(100dvh - 96px);}
+.settingsViewport{display:flex;flex-direction:column;gap:12px}.settingsHero{display:grid;gap:8px}.settingsViewport .actions{flex-wrap:wrap}
+.navBack{display:inline-flex}
 
 @media(max-width:700px){
   .desktopOnly{display:none !important;}
@@ -200,8 +202,9 @@ button{touch-action:manipulation;}
   .panel{padding:12px;border-radius:18px;}
   .panelHeading{gap:8px;}
   .panelHeading h2{font-size:17px;}
-  .bottomNav{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));display:flex;z-index:70;gap:4px;padding:6px;border:1px solid var(--line);border-radius:20px;background:rgba(17,12,28,.96);backdrop-filter:blur(16px);box-shadow:0 14px 40px rgba(0,0,0,.4);}
-  .bottomNav button{flex:1;min-width:0;min-height:52px;border:0;background:transparent;color:var(--muted);border-radius:14px;display:grid;place-items:center;gap:2px;padding:5px 2px;text-decoration:none;appearance:none;-webkit-appearance:none;}
+  .bottomNav{position:fixed;left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));display:flex;z-index:70;gap:4px;padding:6px;border:1px solid var(--line);border-radius:20px;background:rgba(17,12,28,.96);backdrop-filter:blur(16px);box-shadow:0 14px 40px rgba(0,0,0,.4);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+  .bottomNav::-webkit-scrollbar{display:none}
+  .bottomNav button{flex:0 0 66px;min-width:66px;min-height:52px;border:0;background:transparent;color:var(--muted);border-radius:14px;display:grid;place-items:center;gap:2px;padding:5px 2px;text-decoration:none;appearance:none;-webkit-appearance:none;}
   .bottomNav button span{font-size:18px;line-height:1;}
   .bottomNav button small{font-size:9px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
   .bottomNav button.active{color:#fff;background:rgba(93,69,209,.28);}
@@ -215,7 +218,7 @@ button{touch-action:manipulation;}
   .notificationLauncher{right:10px;bottom:calc(82px + env(safe-area-inset-bottom));padding:9px 12px;}
   .notificationBackdrop{padding:10px 10px calc(86px + env(safe-area-inset-bottom));}
   .notificationPanel{width:100%;max-height:calc(100dvh - 110px);}
-  .projectGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;}
+  .projectGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;}\n  .projectShell .projectGrid{flex:0 0 auto}
   .projectCard{padding:9px 7px;min-height:62px;border-radius:14px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;text-align:center;}
   .projectIcon{font-size:22px;width:auto;}
   .projectCard strong{font-size:10px;white-space:nowrap;}
