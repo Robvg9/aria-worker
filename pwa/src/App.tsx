@@ -1269,43 +1269,6 @@ function Chat({
         </div>
       </header>
 
-      <nav className='swipeNav' aria-label='Navegación entre Dashboard y Chat'>
-        <button
-          type='button'
-          className={'swipeArrow' + (screen === 0 ? ' disabled' : '')}
-          aria-label='Ir al Dashboard'
-          disabled={screen === 0}
-          onClick={() => { window.location.hash = '#home'; }}
-        >←</button>
-        <div className='swipeTrack' aria-label='Pantallas principales'>
-          <button
-            type='button'
-            className={'swipeDot' + (screen === 0 ? ' active' : '')}
-            aria-label='Pantalla 1: Dashboard'
-            aria-current={screen === 0 ? 'page' : undefined}
-            onClick={() => { window.location.hash = '#home'; }}
-          >1</button>
-          <span className='swipeLine' aria-hidden='true'><i /></span>
-          <button
-            type='button'
-            className={'swipeDot' + (screen === 1 ? ' active' : '')}
-            aria-label='Pantalla 2: Chat'
-            aria-current={screen === 1 ? 'page' : undefined}
-            onClick={() => { window.location.hash = '#chat'; }}
-          >2</button>
-        </div>
-        <button
-          type='button'
-          className={'swipeArrow' + (screen === 1 ? ' disabled' : '')}
-          aria-label='Ir al Chat'
-          disabled={screen === 1}
-          onClick={() => { window.location.hash = '#chat'; }}
-        >→</button>
-      </nav>
-      <div className='swipeHint' aria-live='polite'>
-        {screen === 0 ? 'Dashboard · desliza ← para abrir Chat' : 'Chat · desliza → para volver al Dashboard'}
-      </div>
-
       <div className='screenViewport'>
         <div className={'screenTrack screen-' + screen}>
           <section className='appScreen dashboardScreen'>
@@ -1529,10 +1492,34 @@ function Meditation({ session }: { session: Session }) {
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
       <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
       <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'} · {verificationLabel(s)}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
-      <section className='panel'><div className='panelTitle'>HUMAN GATES</div>{(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row live' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}{!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}</section>
-      <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row live' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
-      <section className='panel'><div className='panelTitle'>BLOQUEADAS</div>{(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}{!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}</section>
-      <section className='panel'><div className='panelTitle'>HISTORIAL</div>{(o?.missions ?? []).slice(0, 10).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}</section>
+      <details className='panel collapsiblePanel'>
+        <summary><span>HUMAN GATES</span><b>{(o?.human_gates ?? []).length}</b></summary>
+        {(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row live' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}
+        {!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}
+      </details>
+
+      <details className='panel collapsiblePanel'>
+        <summary><span>ESPERANDO VERIFICACIÓN</span><b>{(o?.verification_pending ?? []).length}</b></summary>
+        {(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row live' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
+        {!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}
+      </details>
+
+      <details className='panel collapsiblePanel'>
+        <summary><span>BLOQUEADAS</span><b>{(o?.blocked ?? []).length}</b></summary>
+        {(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
+        {!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}
+      </details>
+
+      <details className='panel collapsiblePanel'>
+        <summary><span>EN COLA</span><b>{(o?.missions ?? []).filter((r: any) => String(r.status) === 'queued').length}</b></summary>
+        {(o?.missions ?? []).filter((r: any) => String(r.status) === 'queued').slice(0, 10).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
+        {!(o?.missions ?? []).some((r: any) => String(r.status) === 'queued') && <div className='muted'>No hay misiones en cola.</div>}
+      </details>
+
+      <details className='panel collapsiblePanel'>
+        <summary><span>HISTORIAL</span><b>{(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).length}</b></summary>
+        {(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).slice(0, 12).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
+      </details>
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onRetry={() => retryMission(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
       </div>
     </main>
@@ -1697,6 +1684,16 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
   };
 }
 
+function elapsedFrom(timestamp: any): string {
+  const value = new Date(String(timestamp || '')).getTime();
+  if (!Number.isFinite(value)) return '—';
+  const seconds = Math.max(0, Math.round((Date.now() - value) / 1000));
+  if (seconds < 60) return seconds + ' s';
+  const minutes = Math.floor(seconds / 60);
+  const rem = seconds % 60;
+  return minutes + ' min ' + rem + ' s';
+}
+
 function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen, onCancel }: {
   mission: any;
   events: MissionEvent[];
@@ -1760,6 +1757,29 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
       <div className='executionProgressRow'>
         <div className='executionProgressMeta'><strong>{progress.toFixed(1)}%</strong><span>{completed}/{total || '—'} pasos</span></div>
         <div className='progressBar executionProgressBar'><span style={{ width: progress + '%' }} /></div>
+      </div>
+
+      <div className='executionTelemetryGrid' aria-label='Telemetría de ejecución'>
+        <div className='executionTelemetryCard'>
+          <span>PASO ACTUAL</span>
+          <strong>{currentStep ? ((Number(currentStep.index) || 1) + ' · ' + String(currentStep.title)) : 'Preparando…'}</strong>
+          <small>{currentStep ? statusLabel(String(currentStep.status)) : 'Sin paso activo persistido'}</small>
+        </div>
+        <div className='executionTelemetryCard'>
+          <span>INTENTO</span>
+          <strong>{Number(currentStep?.attempt ?? currentStep?.attempt_count ?? mission.attempt_count ?? 0) || 1}</strong>
+          <small>{currentStep?.executor_type ? 'Executor: ' + String(currentStep.executor_type) : 'Executor aún no identificado'}</small>
+        </div>
+        <div className='executionTelemetryCard'>
+          <span>OPERACIÓN</span>
+          <strong>{currentStep?.operation || '—'}</strong>
+          <small>{currentStep?.model_id ? 'Modelo: ' + String(currentStep.model_id) : (currentStep?.executor_type ? 'Ejecutor activo' : 'Sin detalle de modelo')}</small>
+        </div>
+        <div className='executionTelemetryCard'>
+          <span>ÚLTIMA ACTIVIDAD</span>
+          <strong>{latest ? elapsedFrom(latest.created_at) : '—'}</strong>
+          <small>{latest ? executionEventTitle(latest) : 'Sin evento persistido todavía'}</small>
+        </div>
       </div>
 
       <div className='executionNarrative'>
@@ -1991,7 +2011,7 @@ export default function App() {
   const initialNavigation = navigationFromHash();
   const [navigation, setNavigation] = useState<NavigationState>(() => initialNavigation);
   const [uiPrefs, setUiPrefs] = useState<UiPrefs>(() => readUiPrefs());
-  const [globalSwipeStart, setGlobalSwipeStart] = useState<{ x: number; y: number } | null>(null);
+  const globalSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const page = navigation.page;
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
 
@@ -2055,43 +2075,45 @@ export default function App() {
     };
   }, [session?.refreshToken, session?.expiresAt]);
 
-  function handleGlobalPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+  function beginGlobalSwipe(x: number, y: number, target: EventTarget | null) {
     if (!uiPrefs.swipeNavigation) return;
-    const target = e.target as Element | null;
-    if (target?.closest?.('button,input,textarea,a,[role="button"],canvas,.noSwipe')) return;
-    setGlobalSwipeStart({ x: e.clientX, y: e.clientY });
+    const element = target as Element | null;
+    if (element?.closest?.('input,textarea,[contenteditable="true"],canvas,.noSwipe')) return;
+    globalSwipeStartRef.current = { x, y };
   }
 
-  function navigateFromSwipe(dx: number, dy: number) {
-    if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+  function finishGlobalSwipe(x: number, y: number) {
+    const start = globalSwipeStartRef.current;
+    globalSwipeStartRef.current = null;
+    if (!uiPrefs.swipeNavigation || !start) return;
+    const dx = x - start.x;
+    const dy = y - start.y;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
     const index = navigationSwipeIndex(navigation);
     const nextIndex = dx < 0 ? Math.min(SWIPE_PAGES.length - 1, index + 1) : Math.max(0, index - 1);
-    if (nextIndex !== index) window.location.hash = SWIPE_PAGES[nextIndex];
+    if (nextIndex !== index) {
+      window.location.hash = SWIPE_PAGES[nextIndex];
+    }
+  }
+
+  function handleGlobalPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    beginGlobalSwipe(e.clientX, e.clientY, e.target);
   }
 
   function handleGlobalPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    const start = globalSwipeStart;
-    setGlobalSwipeStart(null);
-    if (!uiPrefs.swipeNavigation || !start) return;
-    navigateFromSwipe(e.clientX - start.x, e.clientY - start.y);
+    finishGlobalSwipe(e.clientX, e.clientY);
   }
 
   function handleGlobalTouchStart(e: React.TouchEvent<HTMLDivElement>) {
-    if (!uiPrefs.swipeNavigation) return;
     const touch = e.touches[0];
     if (!touch) return;
-    const target = e.target as Element | null;
-    if (target?.closest?.('button,input,textarea,a,[role="button"],canvas,.noSwipe')) return;
-    setGlobalSwipeStart({ x: touch.clientX, y: touch.clientY });
+    beginGlobalSwipe(touch.clientX, touch.clientY, e.target);
   }
 
   function handleGlobalTouchEnd(e: React.TouchEvent<HTMLDivElement>) {
-    const start = globalSwipeStart;
-    setGlobalSwipeStart(null);
-    if (!uiPrefs.swipeNavigation || !start) return;
     const touch = e.changedTouches[0];
     if (!touch) return;
-    navigateFromSwipe(touch.clientX - start.x, touch.clientY - start.y);
+    finishGlobalSwipe(touch.clientX, touch.clientY);
   }
 
   if (!session) return <Auth onSignedIn={setSession} />;
@@ -2104,10 +2126,10 @@ export default function App() {
       className={'globalPageFrame ' + (uiPrefs.animations ? '' : 'animationsOff')}
       onPointerDown={handleGlobalPointerDown}
       onPointerUp={handleGlobalPointerUp}
-      onPointerCancel={() => setGlobalSwipeStart(null)}
+      onPointerCancel={() => { globalSwipeStartRef.current = null; }}
       onTouchStart={handleGlobalTouchStart}
       onTouchEnd={handleGlobalTouchEnd}
-      onTouchCancel={() => setGlobalSwipeStart(null)}
+      onTouchCancel={() => { globalSwipeStartRef.current = null; }}
     >
       <PwaNotificationCenter session={session} />
       <MeditationBackgroundSync session={session} />
