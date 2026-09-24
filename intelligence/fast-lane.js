@@ -1,6 +1,6 @@
 'use strict';
 
-const COMPLEX_SIGNALS=/\b(implement|implementation|modify|change|fix|debug|refactor|deploy|migration|migrate|security|credential|token|password|audit|forensic|research|investigate|benchmark|verify|test|regression|github|supabase|android|windows|battlecruiser|mission|execute|run|build|code|sql|architecture)\b/i;
+const COMPLEX_SIGNALS=/\b(implement|implementation|implementa|modify|modifica|change|cambia|fix|corrige|arregla|debug|refactor|deploy|migration|migrate|security|credential|token|password|audit|forensic|research|investigate|benchmark|verify|test|regression|github|supabase|android|windows|battlecruiser|mission|execute|run|build|code|sql|architecture)\b/i;
 const CONTEXT_SIGNALS=/\b(remember|recuerda|antes|ayer|historial|contexto|mi proyecto|como hicimos|como lo dejamos|seg[uú]n|qué hicimos|que hicimos|estado actual|última vez|ultima vez)\b/i;
 const LOW_VALUE=/^(hola|hey|buenas|gracias|ok|okay|perfecto|dale|xd|jajaja|sí|si|no|listo|entendido|qué tal|que tal|cómo estás|como estas|bien)[!?.,\s]*$/i;
 
