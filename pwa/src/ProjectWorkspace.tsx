@@ -129,6 +129,8 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const [backgroundDataUrl,setBackgroundDataUrl] = useState<string|null>(null);
   const [previewPaused,setPreviewPaused] = useState(false);
   const [previewFrame,setPreviewFrame] = useState(0);
+  const [previewFullscreen,setPreviewFullscreen] = useState(false);
+  const previewShellRef = useRef<HTMLDivElement>(null);
   const backgroundImage = useRef<HTMLImageElement|null>(null);
   const drawing = useRef(false);
   const startPoint = useRef<Point|null>(null);
