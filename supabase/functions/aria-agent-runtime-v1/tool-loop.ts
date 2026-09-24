@@ -290,8 +290,17 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
         lastModelError = error;
         const reason = error instanceof Error ? error.message : String(error);
         const retryableQuota = /(^|[^0-9])429([^0-9]|$)|rate.?limit|quota|too many requests/i.test(reason);
-        if (!(round === 0 && !sawToolCall && retryableQuota)) throw error;
-        await recordDiagnostic(missionId, stepId, { status:"fallback", code:"agent_model_quota_fallback", failed_route:candidate, message:reason, next_route:toolRoutes[toolRoutes.indexOf(candidate)+1]??null });
+        const retryableProviderAvailability =
+          /(^|[^0-9])503([^0-9]|$)|high demand|temporarily unavailable|overloaded|service unavailable/i.test(reason);
+        const canFallback = round === 0 && !sawToolCall && (retryableQuota || retryableProviderAvailability);
+        if (!canFallback) throw error;
+        await recordDiagnostic(missionId, stepId, {
+          status:"fallback",
+          code: retryableProviderAvailability ? "agent_model_provider_unavailable_fallback" : "agent_model_quota_fallback",
+          failed_route:candidate,
+          message:reason,
+          next_route:toolRoutes[toolRoutes.indexOf(candidate)+1]??null
+        });
       }
     }
     if (!message) throw (lastModelError instanceof Error ? lastModelError : new Error("agent_model_empty"));
