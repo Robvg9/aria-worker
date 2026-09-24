@@ -2033,8 +2033,7 @@ function executionEventTitle(event: any): string {
     computer_use_action_executed: 'ARIA ejecutó la acción',
     computer_use_result_observed: 'ARIA observó el resultado',
     computer_use_verification_completed: 'ARIA verificó el resultado',
-    computer_use_action_blocked: 'ARIA bloqueó una acción insegura',
-    mission_replanned: 'ARIA cambió de estrategia porque la anterior no funcionó'
+    computer_use_action_blocked: 'ARIA bloqueó una acción insegura'
   };
   if (map[type]) return map[type];
   if (!type) return 'Actividad registrada';
