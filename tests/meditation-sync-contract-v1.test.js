@@ -15,7 +15,8 @@ assert.match(api,/overview_fast/);
 assert.match(api,/limit\(200\)/);
 assert.match(api,/fastMissions/);
 assert.match(api,/slice\(0,20\)/);
-assert.match(api,/activeRank=.*running.*50.*waiting.*40.*planning.*30.*paused.*20.*queued.*10/s);
+assert.match(api,/const hasLiveLease=.*lease_owner.*lease_until/s);
+assert.match(api,/activeRank=.*running.*60.*waiting.*45.*planning.*30.*paused.*20.*queued.*10/s);
 assert.match(api,/sort\(\(a:any,b:any\)=>activeRank\(b\)-activeRank\(a\)/);
 console.log('MEDITATION ACTIVE MISSION PRIORITY CONTRACT: PASS');
 
