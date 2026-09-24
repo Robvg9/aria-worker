@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { classifyConversation } from "../_shared/fast-lane.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -593,9 +594,10 @@ Deno.serve(async (req) => {
         });
       }
 
-      const memory = await recall(text,user.id);
+      const lane = classifyConversation(text);
+      const memory = lane.lane === "deep" ? await recall(text,user.id) : [];
       let step: any;
-      if (looksLikeSimpleConversation(text)) {
+      if (lane.lane === "fast" || looksLikeSimpleConversation(text)) {
         const routes=await conversationRoutes();
         if(routes[0]) step={target:{type:"model",provider_id:routes[0].provider_id,account_id:routes[0].account_id,model_id:routes[0].model_id}};
       }
