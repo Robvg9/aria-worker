@@ -238,3 +238,51 @@ button{touch-action:manipulation;}
 .composer{position:relative;}
 .composerStatus{font-size:10px;color:var(--muted);padding:4px 8px;white-space:nowrap;align-self:center;}
 @media (max-width:720px){.composer{flex-wrap:wrap}.composerStatus{width:100%;padding:2px 8px 0;}}
+
+
+/* ARTIA RWHT — real PWA inspection fullscreen */
+.visualPreviewControlGroup{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.artiaPreviewShell{position:relative;contain:layout paint;}
+.artiaPreviewShell:fullscreen,
+.artiaPreviewShell.isFullscreen{
+  position:fixed!important;
+  inset:0!important;
+  width:100vw!important;
+  height:100vh!important;
+  max-width:none!important;
+  max-height:none!important;
+  aspect-ratio:auto!important;
+  margin:0!important;
+  border-radius:0!important;
+  z-index:10000!important;
+  background:#07050b!important;
+  display:block!important;
+}
+.artiaPreviewShell:fullscreen iframe,
+.artiaPreviewShell:fullscreen canvas,
+.artiaPreviewShell.isFullscreen iframe,
+.artiaPreviewShell.isFullscreen canvas{
+  width:100%!important;
+  height:100%!important;
+  min-width:0!important;
+  min-height:0!important;
+}
+.artiaPreviewShell:fullscreen canvas,
+.artiaPreviewShell.isFullscreen canvas{cursor:crosshair}
+.artiaFullscreenExit{
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:8;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:999px;
+  padding:8px 12px;
+  background:rgba(12,9,18,.86);
+  color:#fff;
+  font-weight:800;
+  font-size:11px;
+  cursor:pointer;
+  backdrop-filter:blur(10px);
+  box-shadow:0 8px 24px rgba(0,0,0,.35);
+}
+.artiaFullscreenExit:hover{background:rgba(28,20,42,.94);border-color:#7658df}

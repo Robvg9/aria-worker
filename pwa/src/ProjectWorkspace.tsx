@@ -171,6 +171,22 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   useEffect(()=>redraw(),[actions,backgroundDataUrl,previewPaused,previewFrame,project.id,livePreviewUrl]);
   useEffect(()=>{if(previewPaused)return;const timer=window.setInterval(()=>setPreviewFrame(v=>(v+1)%4),1200);return()=>window.clearInterval(timer)},[previewPaused]);
 
+  useEffect(()=>{
+    const onFullscreenChange=()=>setPreviewFullscreen(document.fullscreenElement===previewShellRef.current);
+    document.addEventListener('fullscreenchange',onFullscreenChange);
+    return()=>document.removeEventListener('fullscreenchange',onFullscreenChange);
+  },[]);
+
+  async function togglePreviewFullscreen(){
+    try{
+      if(document.fullscreenElement===previewShellRef.current){await document.exitFullscreen();return;}
+      if(!previewShellRef.current)throw new Error('Vista previa no disponible.');
+      await previewShellRef.current.requestFullscreen();
+    }catch(e){
+      setNotice(e instanceof Error?e.message:'El navegador no permitió pantalla completa.');
+    }
+  }
+
   function loadBackground(file:File){
     if(!file.type.startsWith('image/')){setNotice('La base visual debe ser una imagen.');return;}
     const reader=new FileReader();
@@ -208,7 +224,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
 
   return <section className='panel visualBoardPanel'>
     <div className='panelHeading'><div><div className='panelTitle'>ARTIA · PROJECT PREVIEW</div><h2>Vista previa de {project.name}</h2><div className='muted'>Mira el proyecto, pausa la vista cuando quieras modificar algo y pinta directamente sobre esa referencia.</div></div><span className={'pill '+(previewPaused?'good':'live')}>{previewPaused?'Pausada · lista para pintar':'Reproduciendo'}</span></div>
-    <div className='visualPreviewControls'><button type='button' className='ghost' onClick={()=>{setPreviewPaused(v=>!v);if(!previewPaused)setNotice('Vista previa pausada. Ya puedes pintar.');else setNotice('Vista previa reanudada. Las nuevas anotaciones se conservan.')}}>{previewPaused?'▶ Reproducir vista':'⏸ Pausar para pintar'}</button><span className='muted'>{backgroundDataUrl?'Referencia cargada':'Referencia nativa del proyecto'}</span></div>
+    <div className='visualPreviewControls'><div className='visualPreviewControlGroup'><button type='button' className='ghost' onClick={()=>{setPreviewPaused(v=>!v);if(!previewPaused)setNotice('Vista previa pausada. Ya puedes pintar.');else setNotice('Vista previa reanudada. Las nuevas anotaciones se conservan.')}}>{previewPaused?'▶ Reproducir vista':'⏸ Pausar para pintar'}</button><button type='button' className='ghost' onClick={()=>void togglePreviewFullscreen()} aria-label={previewFullscreen?'Salir de pantalla completa':'Abrir vista previa en pantalla completa'}>{previewFullscreen?'↙ Salir':'⛶ Pantalla completa'}</button></div><span className='muted'>{backgroundDataUrl?'Referencia cargada':'Referencia nativa del proyecto'}</span></div>
     <div className='drawToolbar'>
       <label className='fileButton'>📷 Cargar captura de referencia <input type='file' accept='image/*' hidden onChange={e=>{const f=e.target.files?.[0];if(f)loadBackground(f);e.currentTarget.value=''}}/></label>
       {(['pen','marker','line','rect','circle','arrow','text','eraser'] as Tool[]).map(x=><button type='button' key={x} className={'toolButton '+(tool===x?'selected':'')} onClick={()=>setTool(x)} aria-label={x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}>{x==='pen'?'✎':x==='marker'?'🖍':x==='line'?'╱':x==='rect'?'▭':x==='circle'?'◯':x==='arrow'?'➜':x==='text'?'T':'⌫'}<span>{x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}</span></button>)}
@@ -217,10 +233,11 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       <button type='button' className='ghost' disabled={!previewPaused||!actions.length||busy} onClick={()=>setActions(a=>a.slice(0,-1))}>Deshacer</button>
       <button type='button' className='ghost' disabled={!previewPaused||!actions.length||busy} onClick={()=>setActions([])}>Limpiar</button>
     </div>
-    <div className='canvasWrap' style={{position:'relative',width:'100%',aspectRatio:'1100 / 650',overflow:'hidden'}}>
-      {livePreviewUrl ? <iframe title={'PWA LIVE de '+project.name} src={livePreviewUrl} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0,background:'#0e0b17',pointerEvents:previewPaused?'none':'auto'}} /> : null}
+    <div ref={previewShellRef} className={'canvasWrap artiaPreviewShell '+(previewFullscreen?'isFullscreen':'')} style={{position:'relative',width:'100%',aspectRatio:'1100 / 650',overflow:'hidden'}}>
+      {livePreviewUrl ? <iframe title={'PWA LIVE de '+project.name} src={livePreviewUrl} allow='fullscreen' style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0,background:'#0e0b17',pointerEvents:previewPaused?'none':'auto'}} /> : null}
       <canvas ref={canvasRef} style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:previewPaused?'auto':'none'}} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} aria-label={'Capa de anotaciones visuales de '+project.name}/>
       {!livePreviewUrl && <div className='muted' style={{position:'absolute',inset:0,display:'grid',placeItems:'center',padding:24,textAlign:'center'}}>No hay una PWA LIVE configurada para este proyecto. La capa visual de referencia no sustituye una previsualización real.</div>}
+      {previewFullscreen && <button type='button' className='artiaFullscreenExit' onClick={()=>void togglePreviewFullscreen()} aria-label='Salir de pantalla completa'>↙ Salir</button>}
     </div>
     <textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Describe qué debe cambiar. Lo escrito + lo pintado se convierten en contexto de ARIA y pueden saltar directamente como misión.'/><div className='muted visualHint'>Anotaciones: {actions.length} · {previewPaused?'La vista está pausada; las anotaciones quedan sobre la referencia.':'Pausa la vista para habilitar el lienzo.'}</div>
     {notice&&<div className='notice'>{notice}</div>}
