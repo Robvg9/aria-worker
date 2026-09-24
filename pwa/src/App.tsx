@@ -388,6 +388,44 @@ async function signIn(email: string, password: string) {
     throw directError instanceof Error ? directError : new Error('No se pudo iniciar sesión.');
   }
 }
+function activeMissionRank(status: any): number {
+  const value = String(status ?? '').toLowerCase();
+  if (value === 'running') return 50;
+  if (value === 'waiting') return 40;
+  if (value === 'planning') return 30;
+  if (value === 'paused') return 20;
+  if (value === 'queued') return 10;
+  return 0;
+}
+
+function selectLiveMission(overview: any): any | null {
+  const candidates = [
+    ...(Array.isArray(overview?.missions) ? overview.missions : []),
+    overview?.active_mission
+  ].filter(Boolean);
+  const unique = Array.from(new Map(candidates.map((m: any) => [String(m.mission_id), m])).values());
+  return unique
+    .filter((m: any) => activeMissionRank(m.status) > 0)
+    .sort((a: any, b: any) =>
+      activeMissionRank(b.status) - activeMissionRank(a.status) ||
+      new Date(String(b.updated_at || 0)).getTime() - new Date(String(a.updated_at || 0)).getTime()
+    )[0] ?? null;
+}
+
+function humanNextAction(action: any, status: string): string {
+  const value = String(action ?? '').trim();
+  if (!value) return status === 'succeeded' ? 'Misión finalizada.' : 'Continuar con la misión.';
+  const lower = value.toLowerCase();
+  if (lower.startsWith('replan:')) return 'Descartar la estrategia fallida y preparar una alternativa gobernada.';
+  if (lower.startsWith('retry:')) return 'Reintentar el paso con una ruta gobernada disponible.';
+  if (lower.startsWith('execute:')) return 'Ejecutar el siguiente paso de la misión.';
+  if (lower.startsWith('verify:')) return 'Verificar el resultado del paso actual.';
+  if (lower.startsWith('recovery:')) return 'Aplicar la recuperación registrada y volver a ejecutar la misión.';
+  if (lower.startsWith('manual:')) return 'Esperar una intervención humana para resolver el bloqueo.';
+  if (lower === 'none') return 'Sin pasos pendientes.';
+  return value;
+}
+
 function statusLabel(status: string) {
   const map: Record<string, string> = {
     succeeded: 'Completada',
@@ -1359,16 +1397,19 @@ function Meditation({ session }: { session: Session }) {
     ]);
     if (overview) {
       let nextOverview = overview;
-      const activeId = overview?.active_mission?.mission_id;
+      const liveCandidate = selectLiveMission(overview);
+      const activeId = liveCandidate?.mission_id;
       if (activeId) {
-        // The overview is the queue snapshot; immediately refresh the active
-        // mission itself so the execution panel is driven by canonical state.
+        // The overview is only a queue snapshot. Select the highest-priority
+        // executable mission (RUNNING before QUEUED), then refresh the
+        // canonical mission + real event stream for that mission.
         const [missionResult, eventResult] = await Promise.all([
           api('/missions/' + encodeURIComponent(activeId), session.accessToken).catch(() => null),
           api('/missions/' + encodeURIComponent(activeId) + '/events?live=' + Date.now(), session.accessToken).catch(() => ({ events: [] }))
         ]);
         const liveMission = missionResult?.mission;
         if (liveMission) nextOverview = { ...overview, active_mission: liveMission };
+        else if (liveCandidate) nextOverview = { ...overview, active_mission: liveCandidate };
         setMissionEvents(Array.isArray(eventResult?.events) ? eventResult.events : []);
       } else {
         setMissionEvents([]);
@@ -1450,7 +1491,10 @@ function executionEventTitle(event: any): string {
     mission_verified: 'ARIA verificó el resultado',
     mission_completed: 'Misión completada',
     mission_started: 'Misión iniciada',
-    human_gate_requested: 'ARIA necesita una decisión humana'
+    human_gate_requested: 'ARIA necesita una decisión humana',
+    executor_error: 'El executor no pudo completar el paso',
+    step_batch_started: 'ARIA inició el lote de ejecución',
+    cognitive_recall_completed: 'ARIA recuperó contexto antes de continuar'
   };
   if (map[type]) return map[type];
   return type.replaceAll('_', ' ').replace(/^./, x => x.toUpperCase());
@@ -1458,13 +1502,27 @@ function executionEventTitle(event: any): string {
 
 function executionEventDetail(event: any): string {
   const payload = event?.payload && typeof event.payload === 'object' ? event.payload : {};
-  const message = String(payload?.message ?? payload?.detail ?? payload?.reason ?? payload?.error?.message ?? '').trim();
+  const type = String(event?.event_type ?? '').toLowerCase();
+  if (type === 'cognitive_recall_completed') {
+    const count = Number(payload?.recall_count ?? 0);
+    return count > 0
+      ? 'ARIA recuperó ' + count + ' recuerdos autorizados antes de continuar con la estrategia.'
+      : 'ARIA completó la recuperación de contexto antes de continuar.';
+  }
+  if (type === 'step_failed') {
+    const step = String(payload?.step_id ?? '').trim();
+    const attempt = Number(payload?.attempt ?? 0);
+    const reason = String(payload?.reason ?? 'fallo del executor').trim();
+    return 'El paso ' + (step || 'actual') + ' falló' + (attempt ? ' en el intento ' + attempt : '') + '. Motivo: ' + reason + '.';
+  }
+  const message = String(payload?.message ?? payload?.detail ?? payload?.error?.message ?? '').trim();
   if (message) return message.length > 180 ? message.slice(0, 179).trimEnd() + '…' : message;
   const parts = [
     payload?.operation ? 'Operación: ' + String(payload.operation) : '',
     payload?.executor_type ? 'Ejecutor: ' + String(payload.executor_type) : '',
     payload?.model_id ? 'Modelo: ' + String(payload.model_id) : '',
-    payload?.step_id ? 'Paso: ' + String(payload.step_id) : ''
+    payload?.step_id ? 'Paso: ' + String(payload.step_id) : '',
+    payload?.attempt != null ? 'Intento: ' + String(payload.attempt) : ''
   ].filter(Boolean);
   return parts.join(' · ') || 'El runtime registró actividad real para esta misión.';
 }
@@ -1492,6 +1550,7 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
   const op = String(step?.operation ?? payload?.operation ?? '').trim();
   const executor = String(step?.executor_type ?? payload?.executor_type ?? '').trim();
   const eventType = String(latest?.event_type ?? '').toLowerCase();
+  const latestStepId = String(latest?.payload?.step_id ?? latest?.step_id ?? '').trim();
   const resource = executionResource(latest, step);
   const opHuman = humanOperation(op, executor);
 
@@ -1500,6 +1559,7 @@ function executionNarrative(mission: any, step: any, latest: any): { headline: s
   const latestBelongsToCurrentStep =
     latest &&
     (
+      (latestStepId && step?.id != null && latestStepId === String(step.id)) ||
       (latest?.step_id != null && step?.id != null && String(latest.step_id) === String(step.id)) ||
       (latestStepIndex != null && currentStepIndex != null && latestStepIndex === currentStepIndex)
     );
@@ -1603,12 +1663,18 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen 
 
   const status = String(mission.status ?? 'unknown');
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
+  const latest = events.length ? events[events.length - 1] : null;
+  const latestType = String(latest?.event_type ?? '').toLowerCase();
+  const liveEventStepId = String(latest?.payload?.step_id ?? '').trim();
+  const activeEventTypes = new Set(['step_started', 'step_batch_started', 'cognitive_recall_completed']);
   const currentStep =
     (mission.steps ?? []).find((s: any) => String(s.status) === 'running') ??
+    (activeEventTypes.has(latestType) && liveEventStepId
+      ? (mission.steps ?? []).find((s: any) => String(s.id) === liveEventStepId)
+      : null) ??
     (mission.steps ?? []).find((s: any) => Number(s.index) === Number(mission.current_step) + 1) ??
     (mission.steps ?? []).find((s: any) => !['succeeded', 'skipped'].includes(String(s.status))) ??
     null;
-  const latest = events.length ? events[events.length - 1] : null;
   const progress = Number(mission.progress_percent ?? 0);
   const completed = Number(mission.completed_steps ?? 0);
   const total = Number(mission.total_steps ?? mission.step_count ?? 0);
@@ -1656,12 +1722,12 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen 
         </div>
         <div className='executionNowCard'>
           <div className='executionLabel'>QUÉ ESTÁ HACIENDO</div>
-          <strong>{currentStep?.operation || mission.next_action || 'Procesando la estrategia actual…'}</strong>
-          <small>{currentStep?.executor_type ? 'Usando ' + currentStep.executor_type + ' para este paso.' : 'El runtime está resolviendo la siguiente acción.'}</small>
+          <strong>{currentStep ? humanOperation(currentStep.operation, currentStep.executor_type) : 'Procesando la estrategia actual…'}</strong>
+          <small>{currentStep?.executor_type ? 'Usando ' + currentStep.executor_type + ' para este paso.' : executionEventDetail(latest)}</small>
         </div>
         <div className='executionNowCard'>
           <div className='executionLabel'>PRÓXIMO MOVIMIENTO</div>
-          <strong>{mission.next_action || (terminal ? 'Misión finalizada' : 'Continuar con la misión')}</strong>
+          <strong>{humanNextAction(mission.next_action, status)}</strong>
           <small>{mission.eta?.eta_seconds != null ? 'ETA estimada: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'ETA calculándose con el historial disponible.'}</small>
         </div>
       </div>
@@ -1675,6 +1741,21 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen 
           <span>{latest ? formatDate(latest.created_at) : lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString('es') : '—'}</span>
         </div>
         <div className='executionEvidenceDetail'>{latest ? executionEventDetail(latest) : 'La pantalla se sincronizará automáticamente y mostrará aquí el primer evento que ARIA registre.'}</div>
+      </div>
+
+      <div className='executionTimeline'>
+        <div className='executionLabel'>SECUENCIA REAL RECIENTE</div>
+        {(events ?? []).slice(-5).reverse().map((event: any) => (
+          <div className='timelineRow' key={String(event.event_id)}>
+            <span className='timelineDot' aria-hidden='true' />
+            <div>
+              <strong>{executionEventTitle(event)}</strong>
+              <small>{formatDate(event.created_at)}</small>
+              <div className='executionEvidenceDetail'>{executionEventDetail(event)}</div>
+            </div>
+          </div>
+        ))}
+        {!events.length && <div className='muted'>Todavía no hay eventos persistidos para esta misión.</div>}
       </div>
 
       <div className='executionStepRail'>
