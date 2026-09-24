@@ -388,9 +388,12 @@ async function signIn(email: string, password: string) {
     throw directError instanceof Error ? directError : new Error('No se pudo iniciar sesión.');
   }
 }
-function activeMissionRank(status: any): number {
+function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): number {
   const value = String(status ?? '').toLowerCase();
+  const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
+  if (value === 'running' && leased) return 60;
   if (value === 'running') return 50;
+  if (value === 'waiting' && leased) return 45;
   if (value === 'waiting') return 40;
   if (value === 'planning') return 30;
   if (value === 'paused') return 20;
@@ -405,9 +408,9 @@ function selectLiveMission(overview: any): any | null {
   ].filter(Boolean);
   const unique = Array.from(new Map(candidates.map((m: any) => [String(m.mission_id), m])).values());
   return unique
-    .filter((m: any) => activeMissionRank(m.status) > 0)
+    .filter((m: any) => activeMissionRank(m.status, m.lease_owner, m.lease_until) > 0)
     .sort((a: any, b: any) =>
-      activeMissionRank(b.status) - activeMissionRank(a.status) ||
+      activeMissionRank(b.status, b.lease_owner, b.lease_until) - activeMissionRank(a.status, a.lease_owner, a.lease_until) ||
       new Date(String(b.updated_at || 0)).getTime() - new Date(String(a.updated_at || 0)).getTime()
     )[0] ?? null;
 }
