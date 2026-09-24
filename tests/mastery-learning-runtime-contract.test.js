@@ -19,6 +19,8 @@ test('mission runner enforces learned preflight before execution', () => {
   assert.match(runner, /learning_preflight_blocked/);
   assert.match(runner, /applied_memory_ids/);
   assert.match(runner, /status: "replanned_learning"/);
+  assert.match(runner, /verify_learning_application/);
+  assert.match(runner, /learning_application_verified/);
 });
 
 test('production migration contains recurrence, candidate, promotion and regression gates', () => {
@@ -26,6 +28,8 @@ test('production migration contains recurrence, candidate, promotion and regress
   assert.match(migration, /occurrence_count/);
   assert.match(migration, /root_cause_required/);
   assert.match(migration, /promote_failure_learning/);
+  assert.match(migration, /verify_learning_application/);
+  assert.match(migration, /application_verified/);
   assert.match(migration, /Regression contract/);
   assert.match(migration, /deno\.json.*import_map|import_map.*deno\.json/s);
 });
