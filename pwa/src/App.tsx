@@ -29,7 +29,7 @@ type CapabilityCatalog = {
 };
 type Mission = any;
 type MissionEvent = any;
-type AppPage = 'aria' | 'meditation' | 'capabilities' | 'projects';
+type AppPage = 'aria' | 'meditation' | 'capabilities' | 'projects' | 'settings';
 
 type NavigationState = {
   page: AppPage;
@@ -44,6 +44,7 @@ function navigationFromHash(hash = window.location.hash): NavigationState {
     case '#projects': return { page: 'projects', screen: 0, newMission: false };
     case '#meditation': return { page: 'meditation', screen: 0, newMission: false };
     case '#capabilities': return { page: 'capabilities', screen: 0, newMission: false };
+    case '#settings': return { page: 'settings', screen: 0, newMission: false };
     default: return { page: 'aria', screen: 0, newMission: false };
   }
 }
@@ -460,6 +461,26 @@ function useLiveSync(load: () => Promise<void>, token: string, intervalMs: numbe
   }, [token, intervalMs]);
 }
 
+function GlobalBottomNav({ navigation, onProjects, onMeditation, onCapabilities }: {
+  navigation: NavigationState;
+  onProjects: () => void;
+  onMeditation: () => void;
+  onCapabilities: () => void;
+}) {
+  const go = (hash:string) => { window.location.hash = hash; };
+  return (
+    <nav className='bottomNav' aria-label='Navegación principal'>
+      <button type='button' className={navigation.page === 'aria' && navigation.screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => go('#home')}><span>⌂</span><small>Inicio</small></button>
+      <button type='button' className={navigation.page === 'aria' && navigation.screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => go('#chat')}><span>💬</span><small>Chat</small></button>
+      <button type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => go('#mission')}><span>＋</span><small>Misión</small></button>
+      <button type='button' className={navigation.page === 'projects' ? 'active' : ''} aria-label='Proyectos' onClick={onProjects}><span>◈</span><small>Proyectos</small></button>
+      <button type='button' className={navigation.page === 'meditation' ? 'active' : ''} aria-label='Meditación IA' onClick={onMeditation}><span>◌</span><small>Meditación</small></button>
+      <button type='button' className={navigation.page === 'capabilities' ? 'active' : ''} aria-label='Capacidades' onClick={onCapabilities}><span>⚙</span><small>Capacidades</small></button>
+      <button type='button' className={navigation.page === 'settings' ? 'active' : ''} aria-label='Configuración' onClick={() => go('#settings')}><span>☰</span><small>Config.</small></button>
+    </nav>
+  );
+}
+
 function InstallButton() {
   const [event, setEvent] = useState<any>(null);
   useEffect(() => {
@@ -495,7 +516,7 @@ function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <p>Conversación, misiones, modelos, agentes, dispositivos y Meditación IA en una sola interfaz.</p>
         <input aria-label='Correo' type='email' inputMode='email' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo electrónico' autoComplete='username' />
         <input aria-label='Contraseña' type='password' value={password} onChange={e => setPassword(e.target.value)} placeholder='Contraseña' autoComplete='current-password' />
-        {error && <div className='errorBox'>{error}</div>}
+        {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
         <button className='primary wide' disabled={busy}>{busy ? 'ENTRANDO…' : 'ENTRAR EN ARIA'}</button>
       </form>
     </main>
@@ -1195,15 +1216,6 @@ function Chat({
         </div>
       </div>
 
-      <nav className='bottomNav' aria-label='Navegación principal'>
-        <button type='button' className={screen === 0 ? 'active' : ''} aria-label='Inicio' onClick={() => { window.location.hash = '#home'; }}><span>⌂</span><small>Inicio</small></button>
-        <button type='button' className={screen === 1 ? 'active' : ''} aria-label='Chat' onClick={() => { window.location.hash = '#chat'; }}><span>💬</span><small>Chat</small></button>
-        <button type='button' className='bottomNavPrimary' aria-label='Nueva misión' onClick={() => { window.location.hash = '#mission'; }}><span>＋</span><small>Misión</small></button>
-        <button type='button' aria-label='Proyectos' onClick={onProjects}><span>◈</span><small>Proyectos</small></button>
-        <button type='button' aria-label='Meditación IA' onClick={onMeditation}><span>◌</span><small>Meditación</small></button>
-        <button type='button' aria-label='Capacidades' onClick={onCapabilities}><span>⚙</span><small>Capacidades</small></button>
-      </nav>
-
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
       {showMission && mission && <MissionDetail mission={mission} events={events} onClose={() => setShowMission(false)} />}
 
@@ -1229,24 +1241,32 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
   const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [error, setError] = useState('');
+  const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
 
   async function load() {
-    try {
-      const [overview, capability] = await Promise.all([
-        api('/meditation/overview', session.accessToken),
-        api('/capabilities', session.accessToken)
-      ]);
+    setSyncing(true);
+    let successes = 0;
+    const [overview, capability] = await Promise.all([
+      api('/meditation/overview', session.accessToken).catch(() => null),
+      api('/capabilities', session.accessToken).catch(() => null)
+    ]);
+    if (overview) {
       setO(overview);
-      setCaps(capability.capabilities);
       writeCached('meditation_overview', session.userId, overview);
-      writeCached('capabilities', session.userId, capability.capabilities);
-      setError('');
-    } catch (x) {
-      if (!o) setError(x instanceof Error ? x.message : 'No se pudo sincronizar Meditación IA.');
+      successes++;
     }
+    if (capability?.capabilities) {
+      setCaps(capability.capabilities);
+      writeCached('capabilities', session.userId, capability.capabilities);
+      successes++;
+    }
+    setLastSyncAt(successes ? Date.now() : null);
+    setError(successes === 2 ? '' : successes === 1 ? 'Parte de Meditación IA se sincronizó; el resto sigue reintentándose.' : 'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar.');
+    setSyncing(false);
   }
 
   useLiveSync(load, session.accessToken, 10000);
@@ -1279,12 +1299,12 @@ function Meditation({ session, onBack, onCapabilities }: { session: Session; onB
     <main className='appShell'>
       <header className='topBar'>
         <div><div className='eyebrow'>ARIA / CONTINUIDAD</div><h1>MEDITACIÓN IA</h1><div className='sub'>Ejecución autónoma, verificación y Human Gates</div></div>
-        <div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button><button className='ghost' onClick={onCapabilities}>Capacidades</button></div>
+        <div className='topActions'><button className='ghost navBack' onClick={onBack}>← Centro</button><button className='ghost desktopOnly' onClick={onCapabilities}>Capacidades</button></div>
       </header>
       <div className='pageBodyViewport meditationViewport'>
-      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{o?.mode ? statusLabel(String(o.mode)) : 'Sincronizando…'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
-      {error && <div className='errorBox'>{error}</div>}
-      <section className='statsGrid'><StatCard value={o?.counts?.missions ?? 0} label='Misiones visibles' /><StatCard value={o?.counts?.human_gates ?? 0} label='Human Gates' /><StatCard value={o?.counts?.blocked ?? 0} label='Bloqueadas' /><StatCard value={caps?.summary.executors ?? 0} label='Executors' /></section>
+      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
+      {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
+      <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
       <section className='panel'><div className='panelTitle'>MISIÓN ACTUAL</div>{m ? <><h2>{m.goal}</h2><div className='progressBar'><span style={{ width: (Number(m.progress_percent ?? 0) + '%') }} /></div><div className='muted'>{Number(m.progress_percent ?? 0).toFixed(1)}% · ETA {m.eta?.eta_seconds ? String(Math.round(m.eta.eta_seconds)) + ' s' : '—'}</div>{(m.steps ?? []).map((s: any) => <div className='stepRow' key={s.id}><b>{s.index}</b><div><strong>{s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type || 'ejecución'} · {s.operation || 'operación'} · {verificationLabel(s)}</small></div></div>)}</> : <div className='emptyState'>Meditación IA está lista. Las misiones aparecerán aquí cuando el runtime las asigne.</div>}</section>
       <section className='panel'><div className='panelTitle'>HUMAN GATES</div>{(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}{!(o?.human_gates?.length) && <div className='muted'>No hay Human Gates pendientes.</div>}</section>
       <section className='panel'><div className='panelTitle'>ESPERANDO VERIFICACIÓN</div>{(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span>›</span></button>)}{!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}</section>
@@ -1306,6 +1326,88 @@ function Capabilities({ session, onBack, onMeditation, onMission }: { session: S
     }
   }, session.accessToken, 60000);
   return <CapabilityCenter caps={caps} onBack={onBack} onMission={onMission} />;
+}
+
+function Settings({ session, onBack, onSignOut }: { session: Session; onBack: () => void; onSignOut: () => void }) {
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function checkForUpdate(force = false) {
+    setBusy(true);
+    setStatus('Comprobando versión LIVE…');
+    try {
+      const response = await fetch('/pwa/version.json?settings=' + Date.now(), { cache: 'no-store' });
+      if (!response.ok) throw new Error('No se pudo consultar la versión LIVE.');
+      const live = await response.json();
+      if (live?.build && live.build !== BUILD && BUILD !== 'dev') {
+        setStatus('Hay una actualización disponible. Recargando…');
+        window.location.replace('/pwa/?update=' + String(live.build) + '-' + Date.now());
+        return;
+      }
+      if (force) {
+        setStatus('Forzando actualización del PWA…');
+        window.location.replace('/pwa/?update=manual-' + Date.now());
+        return;
+      }
+      setStatus('Ya tienes la versión LIVE más reciente.');
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'No se pudo comprobar la actualización.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearCache() {
+    setBusy(true);
+    setStatus('Borrando caché local…');
+    try {
+      const sessionSnapshot = localStorage.getItem(SESSION_KEY);
+      Object.keys(localStorage)
+        .filter(key => key.startsWith(CACHE_PREFIX) || key.startsWith('aria_project_') || key.startsWith('aria_project_tab_'))
+        .forEach(key => localStorage.removeItem(key));
+      if (sessionSnapshot) localStorage.setItem(SESSION_KEY, sessionSnapshot);
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(key => caches.delete(key)));
+      }
+      setStatus('Caché borrada. Recargando ARIA…');
+      window.setTimeout(() => window.location.reload(), 400);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'No se pudo borrar toda la caché local.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className='appShell'>
+      <header className='topBar'>
+        <div><div className='eyebrow'>ARIA / CONFIGURACIÓN</div><h1>Configuración</h1><div className='sub'>Mantenimiento local y control de versión de la PWA.</div></div>
+        <div className='topActions'><button className='ghost navBack' onClick={onBack}>← Centro</button></div>
+      </header>
+      <div className='pageBodyViewport settingsViewport'>
+        <section className='panel settingsHero'>
+          <div className='panelTitle'>VERSIÓN</div>
+          <h2>Build actual: {BUILD}</h2>
+          <p className='muted'>Cuenta activa: {session.email || session.userId}</p>
+          <div className='actions'>
+            <button className='primary' disabled={busy} onClick={() => void checkForUpdate(false)}>Buscar actualización</button>
+            <button className='ghost' disabled={busy} onClick={() => void checkForUpdate(true)}>Actualizar app</button>
+          </div>
+          {status && <div className='notice'>{status}</div>}
+        </section>
+        <section className='panel'>
+          <div className='panelTitle'>DATOS LOCALES</div>
+          <h2>Limpiar caché</h2>
+          <p className='muted'>Borra cachés y preferencias locales de ARIA sin cerrar tu sesión. Úsalo ante pantallas viejas, recursos atascados o comportamientos extraños después de una actualización.</p>
+          <button className='ghost' disabled={busy} onClick={() => void clearCache()}>Borrar caché y recargar</button>
+        </section>
+        <section className='panel'>
+          <div className='panelTitle'>SESIÓN</div>
+          <button className='ghost' onClick={onSignOut}>Cerrar sesión</button>
+        </section>
+      </div>
+    </main>
+  );
 }
 
 export default function App() {
@@ -1333,14 +1435,16 @@ export default function App() {
     } catch { return null; }
   });
   const initialNavigation = navigationFromHash();
-  const [page, setPage] = useState<AppPage>(() => initialNavigation.page);
+  const [navigation, setNavigation] = useState<NavigationState>(() => initialNavigation);
+  const page = navigation.page;
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
 
   useEffect(() => {
-    const syncNavigation = () => setPage(navigationFromHash().page);
+    const syncNavigation = () => setNavigation(navigationFromHash());
     window.addEventListener('hashchange', syncNavigation);
+    syncNavigation();
     return () => window.removeEventListener('hashchange', syncNavigation);
-  }, []);;
+  }, []);
 
   useEffect(() => {
     if (!session?.refreshToken) return;
@@ -1392,33 +1496,45 @@ export default function App() {
   if (!session) return <Auth onSignedIn={setSession} />;
   const openMission = () => {
     window.location.hash = '#home';
-    setPage('aria');
+    setNavigation(navigationFromHash());
   };
   return (
     <>
       <PwaNotificationCenter session={session} />
       {page === 'projects'
-        ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; setPage('aria'); }} />
+        ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
           ? <Meditation
               session={session}
-              onBack={() => { window.location.hash = '#home'; setPage('aria'); }}
-              onCapabilities={() => { window.location.hash = '#capabilities'; setPage('capabilities'); }}
+              onBack={() => { window.location.hash = '#home'; }}
+              onCapabilities={() => { window.location.hash = '#capabilities'; }}
             />
           : page === 'capabilities'
             ? <Capabilities
                 session={session}
-                onBack={() => { window.location.hash = '#home'; setPage('aria'); }}
-                onMeditation={() => { window.location.hash = '#meditation'; setPage('meditation'); }}
-                onMission={openMission}
+                onBack={() => { window.location.hash = '#home'; }}
+                onMeditation={() => { window.location.hash = '#meditation'; }}
+                onMission={() => { window.location.hash = '#mission'; }}
               />
-            : <Chat
-                session={session}
-                onSignOut={signOut}
-                onMeditation={() => { window.location.hash = '#meditation'; setPage('meditation'); }}
-                onCapabilities={() => { window.location.hash = '#capabilities'; setPage('capabilities'); }}
-                onProjects={() => { window.location.hash = '#projects'; setPage('projects'); }}
-              />}
+            : page === 'settings'
+              ? <Settings
+                  session={session}
+                  onBack={() => { window.location.hash = '#home'; }}
+                  onSignOut={signOut}
+                />
+              : <Chat
+                  session={session}
+                  onSignOut={signOut}
+                  onMeditation={() => { window.location.hash = '#meditation'; }}
+                  onCapabilities={() => { window.location.hash = '#capabilities'; }}
+                  onProjects={() => { window.location.hash = '#projects'; }}
+                />}
+      <GlobalBottomNav
+        navigation={navigation}
+        onProjects={() => { window.location.hash = '#projects'; }}
+        onMeditation={() => { window.location.hash = '#meditation'; }}
+        onCapabilities={() => { window.location.hash = '#capabilities'; }}
+      />
     </>
   );
 }

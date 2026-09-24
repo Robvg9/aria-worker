@@ -341,9 +341,8 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   }
 
   return <main className='appShell projectShell'>
-    <header className='topBar'><div><div className='eyebrow'>ARIA / PROYECTOS</div><h1>Proyectos</h1><div className='sub'>Chats aislados por proyecto · una sola cola canónica · vista previa ARTIA con anotaciones que pueden convertirse en misiones.</div></div><div className='topActions'><button className='ghost' onClick={onBack}>← Centro</button></div></header>
     <section className='projectGrid' aria-label='Seleccionar proyecto'>{PROJECTS.map(p=><button type='button' key={p.id} className={'projectCard '+(p.id===project.id?'selected':'')} onClick={()=>selectProject(p)}><span className='projectIcon'>{p.icon}</span><div><strong>{p.name}</strong><small>{p.id==='battlecruiser'?'Operación':p.id==='cuevacoin'?'Finanzas':'Cerebro'}</small></div></button>)}</section>
-    <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted'>{project.context}</p></div></section>
+    {tab!=='chat' && <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted'>{project.context}</p></div></section>}
     <div className='capTabs projectTabs' aria-label='Secciones del proyecto'>{(['overview','chat','missions','visual'] as const).map(t=><button type='button' key={t} className={'tabButton '+(tab===t?'selected':'')} onClick={()=>selectTab(t)}>{t==='overview'?'Resumen':t==='chat'?'Chat':t==='missions'?'Misiones':'ARTIA'}</button>)}</div>
     <div className='projectBodyViewport'>
       {error&&<div className='errorBox'>{error}</div>}
