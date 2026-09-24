@@ -1425,6 +1425,26 @@ Deno.serve(async (request) => {
         attempts[id] = nextAttempt;
         await renewLease(missionId);
         await emitEvent(missionId, "step_started", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt });
+        await updateMission(missionId, {
+          status: "running",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: `execute: ${id}`,
+          checkpoint: {
+            ...(mission.checkpoint || {}),
+            plan: steps,
+            completed_steps: [...completed],
+            attempts,
+            results,
+            active_step: {
+              step_id: id,
+              executor_type: executorType(step),
+              operation: String(step.operation || "unknown"),
+              started_at: new Date().toISOString(),
+              attempt: nextAttempt,
+            },
+          },
+        });
 
         let result: any;
         try {
@@ -1534,15 +1554,25 @@ Deno.serve(async (request) => {
 
         const retryableFailure = failures.find((item) => item.step.retryable !== false && RETRYABLE_STATUSES.has(String(item.result?.status || "failed")) && Number(attempts[String(item.step.id)]) < Math.min(3, Number(item.step.max_attempts || MAX_STEP_ATTEMPTS)));
         if (retryableFailure) {
+          const retryStepId = String(retryableFailure.step.id);
           await updateMission(missionId, {
             status: "running",
             current_step: completed.size,
             completed_steps: completed.size,
-            next_action: `retry: ${String(retryableFailure.step.id)}`,
-            checkpoint: { ...checkpoint, recovery: { status: "retry_scheduled", failed_step_id: String(retryableFailure.step.id) } },
+            next_action: `retry: ${retryStepId}`,
+            checkpoint: { ...checkpoint, recovery: { status: "retry_scheduled", failed_step_id: retryStepId }, active_step: null },
+            lease_owner: null,
+            lease_until: null,
           });
-          await emitEvent(missionId, "step_retrying", { step_id: String(retryableFailure.step.id), executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[String(retryableFailure.step.id)]) + 1 });
-          continue;
+          await emitEvent(missionId, "step_retrying", { step_id: retryStepId, executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[retryStepId]) + 1 });
+          return out({
+            ok: true,
+            status: "running",
+            mission_id: missionId,
+            runtime: V,
+            completed_steps: completed.size,
+            next_action: `retry: ${retryStepId}`,
+          });
         }
 
         const replanCount = Number(mission?.checkpoint?.recovery?.replan_count || 0) + 1;
@@ -1627,13 +1657,28 @@ Deno.serve(async (request) => {
         return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V, completed_steps: completed.size, failed_steps: failedStepIds, block_details: hardBlock });
       }
 
+      const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";
       await updateMission(missionId, {
         status: "running",
         current_step: completed.size,
         completed_steps: completed.size,
-        next_action: completed.size < steps.length ? "next_ready_batch" : "verify_goal",
-        checkpoint: { ...checkpoint, recovery: { status: "clear" } },
+        next_action: nextAction,
+        checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+        lease_owner: completed.size < steps.length ? null : undefined,
+        lease_until: completed.size < steps.length ? null : undefined,
       });
+
+      if (completed.size < steps.length) {
+        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+        });
+      }
     }
 
     const learningApplication = await verifyLearningApplication(
