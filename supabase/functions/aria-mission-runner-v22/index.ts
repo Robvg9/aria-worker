@@ -146,6 +146,20 @@ async function createPlan(goal: string, context: unknown, auth: AuthContext) {
   return createPlanWithTimeout(PLANNER, goal, context, downstreamHeaders(auth));
 }
 
+async function validateLearningGate(goal: string, steps: any[]) {
+  try {
+    const result = await rpc("validate_learning_preflight", {
+      p_goal: goal,
+      p_plan: { steps },
+    });
+    return result && typeof result === "object"
+      ? result
+      : { version: "mastery-learning-loop-v1", passed: true, required: [], applied_memory_ids: [], missing: [] };
+  } catch (error) {
+    throw new Error(`learning_gate_unavailable:${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function executorType(step: any) {
   return String(step?.executor_type || step?.target?.type || "");
 }
@@ -1178,6 +1192,66 @@ Deno.serve(async (request) => {
     }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
+
+    const learningGate = await validateLearningGate(String(mission.goal || ""), steps);
+    const previousLearningAttempts = Number(mission?.checkpoint?.learning_gate?.replan_attempts || 0);
+    if (learningGate.passed !== true) {
+      const nextAttempt = previousLearningAttempts + 1;
+      const blockDetails = {
+        kind: "learned_preflight_missing",
+        reason: "ARIA has active learned knowledge that the current plan does not apply.",
+        missing: learningGate.missing || [],
+        required: learningGate.required || [],
+        next_action: nextAttempt >= 2
+          ? "manual: planner failed to apply required learned knowledge twice"
+          : "replan: apply learned preflight requirements before execution",
+        remediation: "Re-read the learned skill/failure prevention contract, build the prerequisites into the plan, and verify them before acting.",
+        replan_attempts: nextAttempt,
+      };
+      await emitEvent(missionId, "learning_preflight_blocked", blockDetails);
+      if (nextAttempt >= 2) {
+        await updateMission(missionId, {
+          status: "blocked",
+          current_step: 0,
+          completed_steps: 0,
+          next_action: blockDetails.next_action,
+          last_stderr: "learning_preflight_rejected_repeatedly",
+          checkpoint: {
+            ...(mission.checkpoint || {}),
+            learning_gate: { version: "mastery-learning-loop-v1", passed: false, ...blockDetails },
+            plan: [],
+            completed_steps: [],
+            attempts: {},
+            results: {},
+            pending_jobs: {},
+          },
+          lease_owner: null,
+          lease_until: null,
+        });
+        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V, block_details: blockDetails });
+      }
+
+      await updateMission(missionId, {
+        status: "queued",
+        current_step: 0,
+        completed_steps: 0,
+        next_action: blockDetails.next_action,
+        last_stderr: "learning_preflight_missing",
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          learning_gate: { version: "mastery-learning-loop-v1", passed: false, ...blockDetails },
+          plan: [],
+          completed_steps: [],
+          attempts: {},
+          results: {},
+          pending_jobs: {},
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      return out({ ok: true, status: "replanned_learning", mission_id: missionId, runtime: V, block_details: blockDetails });
+    }
+
     for (const step of steps) validateStep(step);
 
     const completed = new Set<string>(Array.isArray(mission.checkpoint?.completed_steps) ? mission.checkpoint.completed_steps.map(String) : []);
@@ -1304,6 +1378,10 @@ Deno.serve(async (request) => {
         ...(mission.checkpoint || {}),
         cognitive_context: cognitiveContext,
         cognitive_loop: { version: "cognitive-loop-v2", recalled_before_planning: true },
+        learning_gate: {
+          ...learningGate,
+          applied_at: new Date().toISOString(),
+        },
         plan: steps,
         completed_steps: [...completed],
         attempts,
