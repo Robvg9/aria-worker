@@ -148,7 +148,7 @@ async function createPlan(goal: string, context: unknown, auth: AuthContext) {
 
 async function validateLearningGate(goal: string, steps: any[]) {
   try {
-    const { data: result, error } = await sb.schema("aria_internal").rpc("validate_learning_preflight", {
+    const { data: result, error } = await sb.rpc("aria_validate_learning_preflight", {
       p_goal: goal,
       p_plan: { steps },
     });
@@ -163,7 +163,7 @@ async function validateLearningGate(goal: string, steps: any[]) {
 
 async function verifyLearningApplication(goal: string, steps: any[], results: Record<string, unknown>, appliedMemoryIds: unknown) {
   try {
-    const { data: result, error } = await sb.schema("aria_internal").rpc("verify_learning_application", {
+    const { data: result, error } = await sb.rpc("aria_verify_learning_application", {
       p_goal: goal,
       p_steps: steps,
       p_results: results,
