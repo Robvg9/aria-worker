@@ -176,4 +176,20 @@ const readOnly=/\b(audit|review|investigate|measure|verify|inspect|diagnose|fore
 if((mutationIntent||uiImplementationIntent)&&!readOnly)return out({ok:true,plan:{goal,steps:await changeStep(goal,context),planner_version:"aria-planner-v11-governed-change-v3",change_intent:true,mutating_operation_required:true}});if(goal.startsWith("IA conversacional:")){const routes=await modelRoutes();const r=routes.find((x:any)=>x.provider_id==="openrouter") || routes[0];return out({ok:true,plan:{goal,steps:[modelStep("model_1",r,`Conversation task: ${goal.replace(/^IA conversacional:\s*/i,"")}\nDo not claim actions were executed.`)],planner_version:"aria-planner-v11-conversation-aware"}})}if(/gemini|modelo|openrouter/.test(g)){const routes=await modelRoutes();const r=routes[0];if(!r)return out({error:"no_available_text_model"},503);return out({ok:true,plan:{goal,steps:[modelStep("model_1",r,`ARIA verification task. Goal: ${goal}. Reply briefly with evidence and no secrets.`)],planner_version:"aria-planner-v11-model-aware"}})}const routes=await modelRoutes();
 const r=routes.find((x:any)=>x.provider_id==="openrouter") || routes[0];
 if(!r)return out({error:"no_available_text_model"},503);
-return out({ok:true,plan:{goal,steps:[modelStep("analysis_1",r,`Analiza de forma gobernada esta solicitud de ARIA: ${goal}. Usa únicamente el contexto suministrado. No inventes evidencia ni afirmes acciones externas. Identifica hechos, riesgos y lo que debe verificarse a continuación.`),modelStep("report_1",r,`Redacta la respuesta final para esta solicitud: ${goal}. Basa la respuesta únicamente en la evidencia/contexto disponible, no inventes acciones ejecutadas y termina con una conclusión clara en español.`,["analysis_1"])],planner_version:"aria-planner-v11-safe-readonly-fallback-v3-multistep",safe_readonly_fallback:true}})}catch(e){return out({error:"planner_internal_error",detail:e instanceof Error?e.message:String(e)},500)}});
+
+const live=await liveOperationalContext(goal);
+const liveText=JSON.stringify(live).slice(0,14000);
+const actionableContract=`
+RESPUESTA HUMANA OBLIGATORIA:
+CONCLUSIÓN: abre con una conclusión directa. Si la evidencia permite responder sí o no, dilo explícitamente. Si no alcanza para afirmarlo, escribe "NO CONFIRMADO" y explica exactamente qué falta comprobar.
+QUÉ PASA: explica en lenguaje sencillo qué está ocurriendo ahora mismo.
+PROBLEMA: identifica el problema concreto si existe. Si no hay problema confirmado, dilo claramente.
+EVIDENCIA: menciona solo señales presentes en el contexto LIVE o en la ejecución real.
+SOLUCIÓN / SIGUIENTE PASO: termina con una acción concreta que haga avanzar la misión.
+REGLAS: no redactes un informe académico, no repitas "riesgos" como sustituto de una conclusión y no dejes al usuario solo con incertidumbre. "NO CONFIRMADO" nunca puede ser el final: siempre debe ir acompañado del dato que falta y de la acción para obtenerlo.
+`;
+
+return out({ok:true,plan:{goal,steps:[
+  modelStep("analysis_1",r,`Recopila hechos actuales y verificables para responder esta solicitud de ARIA: ${goal}. Usa el contexto LIVE. Determina qué puede afirmarse ahora, qué contradicción existe y qué acción resolvería la incertidumbre. No inventes evidencia.\n\nLIVE:\n${liveText}`),
+  modelStep("report_1",r,`Redacta la respuesta final para el usuario sobre: ${goal}. Usa el contexto LIVE como fuente operativa y entrega una respuesta directa, comprensible y accionable. No inventes acciones realizadas.\n\n${actionableContract}\n\nLIVE:\n${liveText}`,["analysis_1"])
+],planner_version:"aria-planner-v11-safe-readonly-actionable-v4-multistep",safe_readonly_fallback:true,live_operational_context:live,actionable_output_required:true}})}catch(e){return out({error:"planner_internal_error",detail:e instanceof Error?e.message:String(e)},500)}});
