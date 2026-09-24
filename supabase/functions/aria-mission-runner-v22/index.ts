@@ -1068,8 +1068,10 @@ function objectivePlanAlignment(goal:string, steps:any[]){
   );
   // Only treat RWHT as an explicit human-facing test intent. Do not let
   // identifiers such as "aria/sandbox/rwht-battlecruiser-..." trigger the RWHT path.
-  const explicitRwhtToken=/(^|[\\s:([\\],.;])rwht($|[\\s:([\\],.;])/i;
-  const isRwht=explicitRwhtToken.test(text)
+  // RWHT must be a standalone intent token. Keep path/branch identifiers such as
+  // "aria/sandbox/rwht-battlecruiser-..." from activating the RWHT computer-use route.
+  const rwhtProbe=text.replace(/[()[\\]{}:;,!.?]/g,' ');
+  const isRwht=/(^|\\s)rwht(?=$|\\s)/i.test(rwhtProbe)
     || /(real world human|auditoría física|auditoria fisica|recorre.*interfaz|prueba física|prueba fisica|prueba de interfaz|botón|botones)/.test(text);
   const hasDevice=executors.includes('device');
   const hasAutonomous=ops.includes('computer.use.autonomous');
