@@ -849,6 +849,75 @@ Deno.serve(async (req) => {
       if (!mission?.mission_id) return json({ error: "mission_retry_enqueue_failed", detail: "canonical_direct_returned_no_mission_id", trace_id: trace }, 502);
       return json({ ok: true, mission, retry_of: missionId, retry_count: retryCount, trace_id: trace });
     }
+    if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/cancel")) {
+      const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/cancel$/,""));
+      const original = await missionForUser(missionId, user.id);
+      if (!original) return json({ error: "mission_not_found", trace_id: trace }, 404);
+      const status = String(original.status || "");
+      const terminalStatuses = new Set(["succeeded","failed","blocked","cancelled"]);
+      if (terminalStatuses.has(status)) {
+        return json({
+          error: status === "cancelled" ? "mission_already_cancelled" : "mission_not_cancellable",
+          detail: status === "cancelled" ? "La misión ya estaba cancelada." : "La misión ya terminó y no puede cancelarse.",
+          trace_id: trace
+        }, 409);
+      }
+
+      const sb = serviceClient();
+      const now = new Date().toISOString();
+      const { data: updated, error: updateError } = await sb.schema("aria_internal")
+        .from("mission_state")
+        .update({
+          status: "cancelled",
+          next_action: "cancelled_by_user",
+          finished_at: now,
+          lease_owner: null,
+          lease_until: null,
+          updated_at: now
+        })
+        .eq("mission_id", missionId)
+        .in("status", ["queued","planning","running","waiting","paused"])
+        .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,updated_at,metadata")
+        .maybeSingle();
+
+      if (updateError) {
+        return json({ error: "mission_cancel_failed", detail: updateError.message, trace_id: trace }, 502);
+      }
+      if (!updated) {
+        return json({
+          error: "mission_cancel_race",
+          detail: "La misión cambió de estado antes de poder cancelarse. Actualiza y vuelve a intentarlo.",
+          trace_id: trace
+        }, 409);
+      }
+
+      const { error: eventError } = await sb.schema("aria_internal").from("mission_events").insert({
+        mission_id: missionId,
+        event_type: "mission_cancelled",
+        payload: {
+          reason: "user_requested",
+          cancelled_by: user.id,
+          cancelled_at: now
+        },
+        created_at: now
+      });
+      if (eventError) {
+        return json({
+          error: "mission_cancelled_event_failed",
+          detail: eventError.message,
+          mission: updated,
+          trace_id: trace
+        }, 502);
+      }
+
+      const mission = await enrichMission(updated, sb, true);
+      return json({
+        ok: true,
+        mission,
+        cancelled: true,
+        trace_id: trace
+      });
+    }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
       const mission=await missionForUser(missionId,user.id);
