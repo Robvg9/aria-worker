@@ -12,7 +12,7 @@ assert.match(app,/navigation.page === 'projects'/);
 assert.match(app,/navigation.page === 'meditation'/);
 assert.match(app,/navigation.page === 'capabilities'/);
 assert.match(app,/navigation.page === 'settings'/);
-assert.match(app,/page === 'settings's*?/);
+assert.match(app,/page === 'settings'\s*\?/);
 assert.match(app,/<GlobalBottomNav/);
 assert.match(app,/Borrar caché y recargar/);
 assert.match(app,/Actualizar app/);
