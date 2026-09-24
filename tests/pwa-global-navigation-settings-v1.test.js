@@ -67,3 +67,6 @@ assert.match(app,/executionTelemetryGrid/);
 assert.match(app,/document\.addEventListener\('touchstart'/);
 assert.match(app,/document\.addEventListener\('touchend'/);
 assert.match(app,/document\.addEventListener\('touchcancel'/);
+
+assert.match(app,/document\.addEventListener\('touchmove'/);
+assert.match(app,/globalSwipeTriggeredRef/);
