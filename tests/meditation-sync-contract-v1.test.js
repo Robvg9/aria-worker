@@ -61,3 +61,12 @@ assert.match(planner,/SOLUCIÓN \/ SIGUIENTE PASO:/);
 assert.match(planner,/NO CONFIRMADO/);
 assert.match(planner,/actionable_output_required:true/);
 console.log('MEDITATION HUMAN ACTIONABLE RESULT CONTRACT: PASS');
+
+assert.match(app,/function activeMissionRank/);
+assert.match(app,/const value = String\(status \?\? ''\)\.toLowerCase\(\)/);
+assert.doesNotMatch(app,/if \(value === 'planning'\) return 30/);
+assert.doesNotMatch(app,/if \(value === 'queued'\) return 10/);
+assert.match(app,/active_mission: null/);
+assert.match(app,/Ninguna misión se está ejecutando/);
+assert.match(app,/ARIA está disponible y la ejecución en tiempo real aparecerá aquí/);
+console.log('MEDITATION NO ACTIVE MISSION SURFACE CONTRACT: PASS');
