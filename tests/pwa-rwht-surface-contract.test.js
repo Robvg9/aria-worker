@@ -81,6 +81,9 @@ assert.match(app,/function selectLiveMission/,'PWA must independently select the
 assert.match(app,/activeMissionRank\(b\.status, b\.lease_owner, b\.lease_until\)/,'PWA live mission selection must prefer an actively leased RUNNING mission.');
 assert.match(app,/SECUENCIA REAL RECIENTE/,'Live execution must expose a visible recent event sequence, not only one latest event.');\nassert.match(app,/PLAN DE TRABAJO/,'Live execution must expose a human-readable execution plan.');\nassert.match(app,/function directActionText/,'Live execution must describe the current action directly.');\nassert.match(app,/humanizeTechnicalText/,'Live execution must translate technical runtime text.');\nassert.doesNotMatch(app,/Cancelar ejecución/,'The realtime panel must not duplicate the mission cancellation control.');
 assert.match(app,/function humanNextAction/,'Internal runtime actions must be translated into human-readable next-movement text.');
+assert.match(app,/humanizeStructuredMissionResult/,'Mission results must be explained instead of dumping raw JSON.');
+assert.match(app,/PLAN DE TRABAJO/,'Live execution must expose a human-readable execution plan.');
+assert.match(app,/computer_use_verification_completed/,'Live execution must expose Computer Use verification events.');
 assert.match(app,/executor_error: 'El dispositivo no pudo completar el paso'/,'Executor failures must have a human-readable live label.');
 assert.match(app,/\/cancel'/,'PWA must call the governed mission cancellation endpoint.');
 assert.match(app,/Cancelar misión/,'PWA must expose a visible mission cancellation control.');
