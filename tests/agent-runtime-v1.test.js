@@ -52,6 +52,8 @@ assert.match(loopSource, /endsWith\(":free"\)/, 'tool model resolution must stay
 assert.match(loopSource, /preferredProvider/);
 assert.doesNotMatch(loopSource, /recoveryAgentId\.includes\("-openrouter-"\)/, "agent IDs must not force an OpenRouter route when the catalog provider is Google");
 assert.match(loopSource, /preferredProvider === "openrouter"/);
+assert.match(loopSource, /retryableProviderAvailability/);
+assert.match(loopSource, /agent_model_provider_unavailable_fallback/);
 
 assert.match(loopSource, /providerLock/);
 assert.doesNotMatch(loopSource, /String\(agent\?\.agent\?\.agent_id.*-openrouter-/);
