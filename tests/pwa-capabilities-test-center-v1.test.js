@@ -20,7 +20,7 @@ assert.doesNotMatch(capabilityBlock,/onMission/);
 assert.match(catalog,/export const TEST_CATALOG/);
 assert.match(catalog,/"file": "tests\//);
 assert.match(catalog,/includedInNpmTest/);
-assert.ok((catalog.match(/"file": "tests\\/g)||[]).length >= 200,'test catalog should include the full repository test suite');
+assert.ok((catalog.match(/"id": "/g)||[]).length >= 200,'test catalog should include the full repository test suite');
 assert.match(css,/\.testCatalogRow/);
 assert.match(css,/\.testDetailModal/);
 assert.match(presentation,/missionActivityLabel/);
