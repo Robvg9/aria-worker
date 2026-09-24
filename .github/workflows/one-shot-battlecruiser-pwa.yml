@@ -1,6 +1,10 @@
 name: One-shot Deploy BattleCruiser PWA
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-battlecruiser-pwa.yml'
   workflow_dispatch:
 
 permissions:
