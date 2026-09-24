@@ -13,6 +13,7 @@ const PLANNER = `${URL}/functions/v1/aria-planner-v11`;
 const EXEC = `${URL}/functions/v1/aria-execution-runtime-v1`;
 const RUNTIME = `${URL}/functions/v1/aria-runtime-gateway-v1`;
 const AGENT = `${URL}/functions/v1/aria-agent-runtime-v1`;
+const SMART_VERIFIER = `${URL}/functions/v1/aria-smart-verifier-v1`;
 const GITHUB_APP = `${URL}/functions/v1/aria-github-app-runtime-v1`;
 const EAS_API = 'https://api.expo.dev';
 const EAS_TOKEN = Deno.env.get('EXPO_TOKEN') ?? '';
