@@ -6,7 +6,7 @@ const fs = require('node:fs');
 
 const planner = fs.readFileSync('supabase/functions/aria-planner-v11/index.ts','utf8');
 const runner = fs.readFileSync('supabase/functions/aria-mission-runner-v22/index.ts','utf8');
-const migration = fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_loop_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_candidate_application_fix_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_event_type_fix_v1.sql','utf8');
+const migration = fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_loop_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_mastery_candidate_application_fix_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_event_type_fix_v1.sql','utf8') + '\n' + fs.readFileSync('supabase/migrations/20260924_aria_learning_generic_action_gate_v1.sql','utf8');
 
 test('planner consults persistent mastery learning before route selection', () => {
   assert.match(planner, /aria_memory_learning_context_for_goal/);
@@ -30,7 +30,8 @@ test('mission runner enforces learned preflight before execution', () => {
 });
 
 test('production migration contains recurrence, candidate, promotion and regression gates', () => {
-  assert.match(migration, /goal_requires_deployment_preflight/);
+  assert.match(migration, /learning_application_required/);
+  assert.match(migration, /generic-action/);
   assert.match(migration, /capture_failure_mastery/);
   assert.match(migration, /occurrence_count/);
   assert.match(migration, /root_cause_required/);
