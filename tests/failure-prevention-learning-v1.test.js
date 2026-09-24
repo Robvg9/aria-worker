@@ -24,10 +24,11 @@ test('verified prevention converts a real failure into reusable knowledge', () =
   assert.equal(promotion.promoted, true);
 });
 
-test('an unverified failure remains diagnostic', () => {
+test('an unverified failure becomes a prevention candidate, not an active skill', () => {
   const lesson = extractLesson({ episode: failedEpisode, verifier: { ...verifier, passed: false } });
-  assert.equal(lesson.category, 'diagnostic');
+  assert.equal(lesson.category, 'failure_prevention_candidate');
   assert.equal(lesson.reusable, false);
+  assert.equal(lesson.prevention_candidate, true);
   assert.equal(promoteToSkill(lesson).promoted, false);
 });
 
