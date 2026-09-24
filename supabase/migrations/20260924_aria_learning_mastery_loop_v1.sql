@@ -158,7 +158,7 @@ begin
     .95,.95,.95
   )
   on conflict(content_hash) do update
-    set updated_at=now(), metadata=excluded.metadata, confidence=.95, status='active';
+    set updated_at=now(), metadata=excluded.metadata, confidence=.95, status='active', content=excluded.content;
 
   insert into aria_memory.memory_relations(from_memory_id,to_memory_id,relation_type,strength,provenance)
   select
@@ -456,7 +456,7 @@ begin
     '. Failure detail='||left(v_detail,1800)||
     '. Prevention procedure='||v_procedure::text;
 
-  v_hash := encode(extensions.digest(v_content||'|'||v_signature,'sha256'),'hex');
+  v_hash := encode(extensions.digest('failure-prevention|'||v_signature,'sha256'),'hex');
 
   insert into aria_memory.memory_items(
     memory_type,title,content,content_hash,status,confidence,importance,salience,
@@ -487,7 +487,7 @@ begin
     )
   )
   on conflict(content_hash) do update
-    set updated_at=now(), metadata=excluded.metadata
+    set content=excluded.content, updated_at=now(), metadata=excluded.metadata, confidence=greatest(aria_memory.memory_items.confidence,excluded.confidence)
   returning memory_id into v_id;
 
   insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
