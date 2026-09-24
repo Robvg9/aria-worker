@@ -24,6 +24,7 @@ test('mission runner enforces learned preflight before execution', () => {
 });
 
 test('production migration contains recurrence, candidate, promotion and regression gates', () => {
+  assert.match(migration, /goal_requires_deployment_preflight/);
   assert.match(migration, /capture_failure_mastery/);
   assert.match(migration, /occurrence_count/);
   assert.match(migration, /root_cause_required/);
