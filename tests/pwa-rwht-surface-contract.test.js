@@ -76,5 +76,11 @@ assert.match(app,/MEDITATION_LIVE_POLL_MS = 2500/,'Meditation IA execution must 
 assert.match(app,/api\('\/missions\/' \+ encodeURIComponent\(activeId\), session\.accessToken\)/,'Live execution must refresh the canonical active mission state, not only the overview snapshot.');
 assert.match(app,/events\?live=\' \+ Date\.now\(\)/,'Live execution event reads must bypass intermediary cached responses.');
 assert.match(app,/latestBelongsToCurrentStep/,'Execution narrative must distinguish the current step from the latest historical event.');
+assert.match(app,/latest\?\.payload\?\.step_id/,'Live event step identity must be read from the real payload schema.');
+assert.match(app,/function selectLiveMission/,'PWA must independently select the highest-priority executable mission from the overview snapshot.');
+assert.match(app,/activeMissionRank\(b\.status\)-activeMissionRank\(a\.status\)/,'PWA live mission selection must prefer RUNNING over QUEUED.');
+assert.match(app,/SECUENCIA REAL RECIENTE/,'Live execution must expose a visible recent event sequence, not only one latest event.');
+assert.match(app,/function humanNextAction/,'Internal runtime actions must be translated into human-readable next-movement text.');
+assert.match(app,/executor_error: 'El executor no pudo completar el paso'/,'Executor failures must have a human-readable live label.');
 
 console.log('pwa-rwht-surface-contract PASS');
