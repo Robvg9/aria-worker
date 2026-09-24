@@ -28,6 +28,19 @@ begin
        or (m.status='waiting' and coalesce(m.checkpoint->'recovery'->>'status','')='verification_pending')
      )
        and aria_internal.aria_mission_claim_eligible(m.mission_id)
+       and (
+         m.status <> 'queued'
+         or not exists (
+           select 1
+             from aria_internal.mission_state running
+            where running.status='running'
+              and running.lease_owner is not null
+              and running.lease_until is not null
+              and running.lease_until>clock_timestamp()
+              and coalesce(running.metadata->>'owner_user_id', running.metadata->>'user_id','') =
+                  coalesce(m.metadata->>'owner_user_id', m.metadata->>'user_id','')
+         )
+       )
      order by
        case
          when m.status='queued' and coalesce(m.metadata->>'queue_priority','') ~ '^-?[0-9]+$'
