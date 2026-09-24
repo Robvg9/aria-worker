@@ -16,6 +16,12 @@ assert.match(app,/page === 'settings'\s*\?/);
 assert.match(app,/<GlobalBottomNav/);
 assert.match(app,/handleGlobalPointerUp/);
 assert.match(app,/SWIPE_PAGES/);
+assert.match(app,/className='swipeNav'/);
+assert.match(app,/Pantalla 1: Dashboard/);
+assert.match(app,/Pantalla 2: Chat/);
+assert.match(app,/desliza ← para abrir Chat/);
+assert.match(css,/\.swipeHint\{/);
+
 assert.doesNotMatch(app,/screenIndicator/);
 assert.doesNotMatch(app,/aria_capabilities_tab_v2:'\+session\.userId/);
 assert.match(app,/Borrar caché y recargar/);
