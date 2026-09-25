@@ -1,0 +1,135 @@
+name: E2E semantic capability intent
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Semantic capability-intent E2E
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          TS=$(date +%s)
+          FAIL=0
+
+          GOAL="Determina si el sistema está operativo y listo para una revisión técnica. Comprueba la disponibilidad de la infraestructura, realiza una evaluación técnica cuando aporte valor y genera una síntesis final validada del estado. Solo nube. Unique=$TS"
+          export G="$GOAL"
+          echo "GOAL=$GOAL"
+
+          echo "==== 1. PLANNER ===="
+          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/pl.json
+          PLAN=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/pl.json --max-time 120)
+          echo "$PLAN" > /tmp/plan_full.json
+          echo "PLAN_HEAD=$(echo "$PLAN" | head -c 1000)"
+
+          python3 << 'PY'
+          import json
+          p=json.load(open("/tmp/plan_full.json"))
+          plan=p.get("plan") or p
+          steps=plan.get("steps") or []
+          print("OK", p.get("ok"))
+          print("PLANNER_VERSION", plan.get("planner_version") or p.get("planner_version"))
+          print("CAPABILITY_INTENT_PLANNING", bool(p.get("capability_intent_planning") or plan.get("capability_intent_planning")))
+          print("VERIFIED_PATH_REUSE", bool(p.get("verified_path_reuse") or plan.get("verified_path_reuse")))
+          print("CAPABILITY_INTENT", json.dumps(plan.get("capability_intent") or {})[:600])
+          print("CAPABILITY_SELECTIONS", json.dumps(plan.get("capability_selections") or [])[:600])
+          print("STEP_COUNT", len(steps))
+          types=[]
+          for s in steps:
+            et=s.get("executor_type")
+            types.append(et)
+            print("STEP", s.get("id"), et, s.get("operation"), "deps=", s.get("depends_on"), "cap_intent=", (s.get("selection") or {}).get("capability_intent"))
+          print("UNIQUE_EXECUTORS", sorted(set(types)))
+          open("/tmp/vp_plan.json","w").write(json.dumps(steps))
+          open("/tmp/plan_meta.json","w").write(json.dumps({
+            "planner_version": plan.get("planner_version") or p.get("planner_version"),
+            "capability_intent_planning": bool(p.get("capability_intent_planning") or plan.get("capability_intent_planning")),
+            "verified_path_reuse": bool(p.get("verified_path_reuse") or plan.get("verified_path_reuse")),
+            "unique": sorted(set(types)),
+          }))
+          if not (p.get("capability_intent_planning") or plan.get("capability_intent_planning")):
+            raise SystemExit("FAIL: capability_intent_planning not set")
+          if p.get("verified_path_reuse") or plan.get("verified_path_reuse"):
+            raise SystemExit("FAIL: verified_path_reuse should be false")
+          if len(set(types)) < 2:
+            raise SystemExit("FAIL: expected multi-executor")
+          print("PLAN_ASSERT_PASS")
+          PY
+
+          MID="mission_semantic_cap_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":$(python3 -c 'import json,os; print(json.dumps(os.environ["G"]))'),\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"semantic_capability_intent\",\"cloud_only\":true}}" --max-time 60 >/dev/null || true
+
+          python3 -c "
+          import json
+          steps=json.load(open('/tmp/vp_plan.json'))
+          mid='$MID'
+          meta=json.load(open('/tmp/plan_meta.json'))
+          pj=json.dumps(steps).replace(chr(39),chr(39)+chr(39))
+          pv=str(meta.get('planner_version') or '')
+          open('/tmp/seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb,'planner_version','\"+pv+\"','capability_intent_planning',true,'verified_path_reuse',false), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\")
+          print('seeded', len(steps))
+          "
+          sql "$(cat /tmp/seed.sql)"
+
+          echo "==== 2. EXECUTE ===="
+          term=""
+          for i in $(seq 1 16); do
+            body=$(tick "$MID")
+            echo "TICK $i: $(echo "$body" | head -c 450)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked)
+              term=$st; break ;;
+            esac
+            if [ "$st" = "paused" ]; then
+              if echo "$body" | grep -q mission_lease; then
+                sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+                continue
+              fi
+              term=$st; break
+            fi
+            sleep 1
+          done
+          echo "TERMINAL=$term"
+
+          EX=$(sql "SELECT payload->>'step_id' AS step_id, payload->>'executor_type' AS executor_type FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          echo "SUCCEEDED=$EX"
+          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          echo "DB=$DB"
+
+          HAS_C=0; HAS_A=0; HAS_M=0
+          echo "$EX" | grep -qi connector && HAS_C=1 || true
+          echo "$EX" | grep -qi agent && HAS_A=1 || true
+          echo "$EX" | grep -qi model && HAS_M=1 || true
+          echo "HAS C=$HAS_C A=$HAS_A M=$HAS_M"
+
+          if [ "$term" = "succeeded" ] && [ "$HAS_C$HAS_A$HAS_M" = "111" ]; then
+            echo "SEMANTIC_AUTONOMOUS_PLANNING = VERIFIED E2E"
+            echo "PASS MID=$MID"
+          else
+            echo "FAIL term=$term HAS=$HAS_C$HAS_A$HAS_M"
+            FAIL=1
+          fi
+          echo "==== SUMMARY FAIL=$FAIL MID=$MID ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo ALL_PASS
