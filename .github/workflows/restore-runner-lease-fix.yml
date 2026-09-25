@@ -1,0 +1,104 @@
+name: Restore runner lease fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/restore-runner-lease-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
+      - name: Download known-good runner and patch
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/Robvg9/aria-worker/b935dae8641b5c69a355eedba188dcd3585f9242/supabase/functions/aria-mission-runner-v22/index.ts" \
+            -o supabase/functions/aria-mission-runner-v22/index.ts
+          wc -c supabase/functions/aria-mission-runner-v22/index.ts
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-mission-runner-v22/index.ts")
+          src = p.read_text()
+          assert len(src) > 50000
+          assert "FILE_TOO_LARGE" not in src
+          old = (
+          '      const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";\n'
+          '      await updateMission(missionId, {\n'
+          '        status: "running",\n'
+          '        current_step: completed.size,\n'
+          '        completed_steps: completed.size,\n'
+          '        next_action: nextAction,\n'
+          '        checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },\n'
+          '        lease_owner: completed.size < steps.length ? null : undefined,\n'
+          '        lease_until: completed.size < steps.length ? null : undefined,\n'
+          '      });\n'
+          '\n'
+          '      if (completed.size < steps.length) {\n'
+          '        return out({\n'
+          '          ok: true,\n'
+          '          status: "running",\n'
+          '          mission_id: missionId,\n'
+          '          runtime: V,\n'
+          '          completed_steps: completed.size,\n'
+          '          total_steps: steps.length,\n'
+          '          next_action: nextAction,\n'
+          '        });\n'
+          '      }'
+          )
+          new = (
+          '      const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";\n'
+          '      // Batch continuation: KEEP lease ownership across ticks.\n'
+          '      if (completed.size < steps.length) {\n'
+          '        await renewLease(missionId);\n'
+          '        await updateMission(missionId, {\n'
+          '          status: "running",\n'
+          '          current_step: completed.size,\n'
+          '          completed_steps: completed.size,\n'
+          '          next_action: nextAction,\n'
+          '          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },\n'
+          '        });\n'
+          '        return out({\n'
+          '          ok: true,\n'
+          '          status: "running",\n'
+          '          mission_id: missionId,\n'
+          '          runtime: V,\n'
+          '          completed_steps: completed.size,\n'
+          '          total_steps: steps.length,\n'
+          '          next_action: nextAction,\n'
+          '          lease_retained: true,\n'
+          '        });\n'
+          '      }\n'
+          '      await updateMission(missionId, {\n'
+          '        status: "running",\n'
+          '        current_step: completed.size,\n'
+          '        completed_steps: completed.size,\n'
+          '        next_action: nextAction,\n'
+          '        checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },\n'
+          '      });'
+          )
+          if "lease_retained: true" in src:
+              print("already_patched")
+          elif old not in src:
+              raise SystemExit("anchor not found")
+          else:
+              p.write_text(src.replace(old, new, 1))
+              print("patched_ok")
+          text = p.read_text()
+          assert "lease_retained: true" in text
+          assert "FILE_TOO_LARGE" not in text
+          assert "PLACEHOLDER" not in text
+          print("final_size", len(text))
+          PY
+          git config user.name "aria-supervisor"
+          git config user.email "aria@local"
+          git add supabase/functions/aria-mission-runner-v22/index.ts
+          git status
+          git commit -m "fix(runner-v22): restore full source + retain lease on next_ready_batch" || echo no_commit
+          git push origin HEAD:main || git push origin HEAD:main --force-with-lease
