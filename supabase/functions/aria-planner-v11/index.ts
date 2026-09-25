@@ -431,7 +431,7 @@ async function extractCapabilityIntent(goal:string):Promise<{capabilities:Array<
   const g=goal.toLowerCase();
   const rules:Array<{intent:string,required:boolean,patterns:RegExp[]}> = [
     {intent:"infrastructure_health",required:true,patterns:[/infraestructura/,/disponibilidad/,/operativ[oa]/,/sistema\s+(est[aá]|listo)/,/comprobaci[oó]n\s+de\s+(estado|disponibilidad)/,/listo\s+para/]},
-    {intent:"technical_review",required:false,patterns:[/revisi[oó]n\s+t[eé]cnica/,/evaluaci[oó]n\s+t[eé]cnica/,/revisi[oó]n\s+de\s+seguridad/,/evaluaci[oó]n\s+cuando/]},
+    {intent:"technical_review",required:true,patterns:[/revisi[oó]n\s+t[eé]cnica/,/evaluaci[oó]n\s+t[eé]cnica/,/revisi[oó]n\s+de\s+seguridad/,/evaluaci[oó]n\s+cuando/,/identifica\s+problemas/,/eval[uú]a\s+(sus\s+)?causas/,/problemas\s+relevantes/]},
     {intent:"synthesis",required:true,patterns:[/s[ií]ntesis/,/genera\s+(una\s+)?s[ií]ntesis/,/produce\s+(una\s+)?s[ií]ntesis/,/resumen\s+final/,/s[ií]ntesis\s+final/]},
     {intent:"verification",required:true,patterns:[/validada/,/validaci[oó]n\s+del\s+resultado/,/resultado\s+validado/,/con\s+validaci[oó]n/,/verificaci[oó]n\s+del\s+resultado/]},
   ];
@@ -472,7 +472,6 @@ function validateCapabilityPlan(steps:any[], intents:Array<{intent:string,requir
   for(const c of intents){
     if(c.required && !covered.has(c.intent)) return {ok:false,reason:"required_capability_uncovered:"+c.intent};
   }
-  // No step may target a non-required intent
   for(const s of steps){
     const intent=String(s.selection?.capability_intent||"");
     const meta=intents.find((c:any)=>c.intent===intent);
@@ -499,7 +498,6 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
     const selections:any[]=[];
     const requiredCaps=extracted.capabilities.filter((c:any)=>c.required===true);
     const optionalSkipped=extracted.capabilities.filter((c:any)=>c.required!==true).map((c:any)=>({intent:c.intent,required:false,signals:c.signals,selection_decision:"skipped_not_required"}));
-    // Deterministic rule: ONLY required capabilities produce executors.
     if(requiredCaps.length<2) return null;
     for(const cap of requiredCaps){
       const mapping=CAPABILITY_EXECUTOR_CATALOG[cap.intent];
@@ -525,7 +523,7 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
     return {
       goal,
       steps:built,
-      planner_version:"aria-planner-v11-capability-intent-v2",
+      planner_version:"aria-planner-v11-capability-intent-v3",
       capability_intent_planning:true,
       verified_path_reuse:false,
       capability_intent:extracted,
@@ -555,7 +553,7 @@ if(/^diagnose and resolve the verified failure from mission\b/i.test(goal))retur
 const uiImplementationIntent=/\b(dashboard|panel|pantalla|pantallas|interfaz|ui|ux|chat|pestaña|pestañas|navegación|navegacion|navegar|deslizar|deslices|desliza|swipe|layout|diseño|diseno|frontend|front-end|pwa|componente|componentes|vista|vistas|menú|menu|botón|botones)\b/.test(g)
   && /\b(haz|has|quiero|necesito|cambia|cambiar|convierte|convierta|mueve|mover|pon|poner|organiza|organizar|rediseña|rediseñar|añade|anade|agrega|agregar|quita|quitar|elimina|eliminar|crea|crear|implementa|implementar|modifica|modificar|actualiza|actualizar)\b/.test(g);
 const readOnly=/\b(audit|review|investigate|measure|verify|inspect|diagnose|forensic|assessment|assess|analy[sz]e|benchmark)\b/.test(g);
-if((mutationIntent||uiImplementationIntent)&&!readOnly)return out({ok:true,plan:{goal,steps:await changeStep(goal,context),planner_version:"aria-planner-v11-governed-change-v3",change_intent:true,mutating_operation_required:true}});if(goal.startsWith("IA conversacional:")){const routes=await modelRoutes();const r=routes.find((x:any)=>x.provider_id==="openrouter") || routes[0];return out({ok:true,plan:{goal,steps:[modelStep("model_1",r,`Conversation task: ${goal.replace(/^IA conversacional:\s*/i,"")}\nDo not claim actions were executed.`)],planner_version:"aria-planner-v11-conversation-aware"}})}if(/gemini|modelo|openrouter/.test(g)){const routes=await modelRoutes();const r=routes[0];if(!r)return out({error:"no_available_text_model"},503);return out({ok:true,plan:{goal,steps:[modelStep("model_1",r,`ARIA verification task. Goal: ${goal}. Reply briefly with evidence and no secrets.`)],planner_version:"aria-planner-v11-model-aware"}})}const capabilityIntentPlan=await tryCapabilityIntentPlan(goal,context);if(capabilityIntentPlan)return out({ok:true,plan:capabilityIntentPlan,planner_version:capabilityIntentPlan.planner_version||"aria-planner-v11-capability-intent-v2",capability_intent_planning:true,verified_path_reuse:false});
+if((mutationIntent||uiImplementationIntent)&&!readOnly)return out({ok:true,plan:{goal,steps:await changeStep(goal,context),planner_version:"aria-planner-v11-governed-change-v3",change_intent:true,mutating_operation_required:true}});if(goal.startsWith("IA conversacional:")){const routes=await modelRoutes();const r=routes.find((x:any)=>x.provider_id==="openrouter") || routes[0];return out({ok:true,plan:{goal,steps:[modelStep("model_1",r,`Conversation task: ${goal.replace(/^IA conversacional:\s*/i,"")}\nDo not claim actions were executed.`)],planner_version:"aria-planner-v11-conversation-aware"}})}if(/gemini|modelo|openrouter/.test(g)){const routes=await modelRoutes();const r=routes[0];if(!r)return out({error:"no_available_text_model"},503);return out({ok:true,plan:{goal,steps:[modelStep("model_1",r,`ARIA verification task. Goal: ${goal}. Reply briefly with evidence and no secrets.`)],planner_version:"aria-planner-v11-model-aware"}})}const capabilityIntentPlan=await tryCapabilityIntentPlan(goal,context);if(capabilityIntentPlan)return out({ok:true,plan:capabilityIntentPlan,planner_version:capabilityIntentPlan.planner_version||"aria-planner-v11-capability-intent-v3",capability_intent_planning:true,verified_path_reuse:false});
 const routes=await modelRoutes();
 const r=routes.find((x:any)=>x.provider_id==="openrouter") || routes[0];
 if(!r)return out({error:"no_available_text_model"},503);
