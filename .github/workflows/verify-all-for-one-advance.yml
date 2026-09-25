@@ -1,0 +1,34 @@
+name: Advance All For One LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advance:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Tick until reviewing or closed
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          AUTO="x-aria-autonomy-token: ${ARIA_RUNTIME_SHARED_SECRET}"
+          for i in $(seq 1 25); do
+            body=$(curl -s -X POST "$BASE/aria-device-gateway/v1/audit/all-for-one/tick" \
+              -H "$AUTH" -H "$AUTO" -H "content-type: application/json" -d '{}' --max-time 180)
+            echo "TICK $i: $body"
+            status=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo unknown)
+            if [ "$status" = "reviewing" ] || [ "$status" = "closed" ] || [ "$status" = "succeeded" ] || [ "$status" = "failed" ] || [ "$status" = "idle" ]; then
+              echo "TERMINAL_OR_PHASE=$status"
+              break
+            fi
+            sleep 2
+          done
+          echo "FINAL=$body"
