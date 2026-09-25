@@ -264,9 +264,88 @@ async function liveOperationalContext(goal:string){
 }
 
 async function projectReviewPlan(goal:string,context:any){const live=await liveOperationalContext(goal);const agent={agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"};const liveText=JSON.stringify(live).slice(0,14000),ctxText=JSON.stringify(context).slice(0,5000);const steps=[agentStep("facts_1",agent,`Recopila hechos actuales y verificables sobre ARIA para la solicitud: ${goal}. Usa el contexto LIVE como fuente operativa, confirma qué está funcionando y qué está degradado, y separa CONFIRMADO de HIPÓTESIS y BLOQUEADO. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`),agentStep("crosscheck_1",agent,`Haz una segunda revisión independiente de la solicitud: ${goal}. Contrasta la evidencia actual con lo que realmente consume el runtime, busca contradicciones y evita repetir supuestos. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["facts_1"]),agentStep("summary_1",agent,`Redacta la respuesta final para el usuario sobre: ${goal}. Basa todo en la evidencia que puedas confirmar ahora. Explica qué ARIA encontró, qué funciona, qué está mal/degradado, qué evidencia lo demuestra y cuál es la siguiente acción concreta. Todo el texto humano debe estar en español. No uses JSON crudo y no afirmes que algo está completado sin evidencia.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["crosscheck_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-live-project-review-v2-multistep",live_project_review:true,live_operational_context:live}});}
+async function allForOnePlan(goal:string,context:any){
+  const g=String(goal||'');
+  if(!/(?:all\\s*for\\s*one|todos?\\s+para\\s+uno|auditor[ií]a.*all\\s*for\\s*one|revision.*all\\s*for\\s*one|investigacion.*all\\s*for\\s*one)/i.test(g)) return null;
+
+  const routes=await modelRoutes();
+  const {data:catalogAgents}=await db.from("agent_catalog")
+    .select("agent_id,role,model_id,status,max_risk,capabilities")
+    .eq("status","available")
+    .order("agent_id");
+  const agents=Array.isArray(catalogAgents)?catalogAgents:[];
+  if(!routes.length && !agents.length) return out({error:"all_for_one_no_reviewers_available",planner_version:"aria-planner-v12-all-for-one-v1"},409);
+
+  const scopeAreas=[
+    ["architecture_runtime","arquitectura y runtime","arquitectura completa, edge functions, runtime canónico, contratos entre capas, despliegues y coherencia entre LIVE y código"],
+    ["data_memory_learning","datos, memoria y aprendizaje","Supabase, estado persistido, memoria, aprendizaje, recalls, contaminación de contexto, consistencia y trazabilidad"],
+    ["planning_reasoning","planificación y razonamiento","planner, selección de estrategia, alineación objetivo-plan, replanning, dependencias, deduplicación y calidad del razonamiento"],
+    ["execution_verification","ejecución y verificación","mission runner, jobs, leases, executors, verificación independiente, evidencia, falsos positivos y cierre"],
+    ["models_routing","modelos y routing","model registry, capability matrix, cuentas, rutas, fallback, selección de modelos y uso real de capacidades"],
+    ["agents_devices_tools","agentes, dispositivos y herramientas","agent catalog, Windows, Android, Computer Use, GitHub, Cloudflare, Bitrise, EAS y límites/contratos de cada capacidad"],
+    ["security_recovery","seguridad y recuperación","gates, permisos, secretos, riesgos, recovery, retries, bloqueos, bucles y capacidad de recuperación autónoma"],
+    ["productivity_ux","velocidad, productividad y UX","latencia, pasos innecesarios, observabilidad, PWA, claridad humana, redundancias y fricción operativa"]
+  ];
+
+  const fallbackAgent={agent_id:"aria-agent-research-v1",role:"investigador",model_id:"google/gemini-3.5-flash-lite-direct"};
+  const selectedAgents=scopeAreas.map((_,i)=>agents[i]||agents.find((a:any)=>String(a?.role||"").toLowerCase().includes("research"))||fallbackAgent);
+
+  const contextText=JSON.stringify(context).slice(0,9000);
+  const scopeStep={
+    id:"all_for_one_scope_1",
+    operation:"text_generation",
+    executor_type:"model",
+    target:{type:"model",provider_id:routes[0]?.provider_id||null,account_id:routes[0]?.account_id||null,model_id:routes[0]?.model_id||null},
+    capability:"text_generation",
+    input:{payload:{prompt:esPrompt(
+      "PROTOCOLO ALL FOR ONE — FASE 1. Define el mapa de auditoría forense profunda de ARIA para este objetivo. Debe cubrir arquitectura/runtime, datos/memoria/aprendizaje, planificación/razonamiento, ejecución/verificación, modelos/routing, agentes/dispositivos/herramientas, seguridad/recuperación y velocidad/productividad/UX. Identifica qué evidencia concreta debe obtener cada especialista. No modifiques nada. Objetivo: "+g+"\\nCONTEXTO: "+contextText
+    ),max_tokens:2200,temperature:0}},
+    risk:"READ",
+    timeout_ms:90000,
+    policy:{spanish_output_required:true,all_for_one:true,audit_only:true},
+    verify:{response_content_nonempty:true}
+  };
+
+  const specialistSteps=scopeAreas.map((area:any,i:number)=>{
+    const [id,label,scope]=area;
+    const a=selectedAgents[i];
+    return agentStep(
+      "all_for_one_"+id,
+      a,
+      "PROTOCOLO ALL FOR ONE — REVISIÓN ESPECIALIZADA "+(i+1)+"/8. Tu único objetivo es investigar profundamente "+label+" de ARIA. Inspecciona evidencia real del repositorio/runtime/datos/herramientas disponibles para ti. Busca BUGS, contradicciones, cuellos de botella, capacidades inexistentes o mal conectadas, riesgos, oportunidades de mejora y límites actuales. Separa CONFIRMADO de HIPÓTESIS. No modifiques nada. Debes proponer mejoras concretas y una siguiente prueba verificable. Superficie exacta: "+scope+". Objetivo original: "+g+"\\nCONTEXTO: "+contextText,
+      ["all_for_one_scope_1"]
+    );
+  });
+
+  const arbiterRoute=routes.find((r:any)=>r.provider_id==="openrouter")||routes[1]||routes[0];
+  if(!arbiterRoute) return out({error:"all_for_one_arbiter_unavailable",planner_version:"aria-planner-v12-all-for-one-v1"},409);
+  const arbiter= modelStep(
+    "all_for_one_arbiter_10",
+    arbiterRoute,
+    "PROTOCOLO ALL FOR ONE — ÁRBITRO FINAL. Integra los 8 informes especializados y el mapa de cobertura. No inventes hechos. Resuelve contradicciones comparando evidencia. Entrega en español: 1) hallazgos confirmados, 2) fallos críticos, 3) causas raíz, 4) capacidades faltantes o mal conectadas, 5) mejoras de arquitectura/routing/ejecución/velocidad/UX, 6) bugs que ARIA puede reparar de forma gobernada, 7) mejoras que requieren intervención humana, 8) prioridades de las siguientes pruebas. El resultado debe ser accionable y servir como backlog de misiones. No cierres diciendo solamente 'revisar más'. Objetivo: "+g+"\\nCONTEXTO: "+contextText,
+    specialistSteps.map((s:any)=>s.id)
+  );
+
+  return {
+    goal:g,
+    steps:[scopeStep,...specialistSteps,arbiter],
+    planner_version:"aria-planner-v12-all-for-one-v1",
+    all_for_one:true,
+    audit_protocol:{
+      version:"all-for-one-v1",
+      mode:"deep_cross_system_forensic_review",
+      specialist_count:8,
+      arbiter:true,
+      mutation_mode:"audit_only",
+      coverage:scopeAreas.map((x:any)=>x[1])
+    },
+    learning_context:context.learned_knowledge
+  };
+}
+
 async function operationAuditPlan(goal:string,context:any){const match=goal.match(/(?:auditar operación ejecutora individual:|audit executor operation:|audit operation:)\s*([a-z0-9_.-]+)/i);if(!match)return null;const target=match[1];const agent={agent_id:"aria-agent-research-v1",role:"investigador",model_id:"google/gemini-3.5-flash-lite-direct"};const ctx=JSON.stringify(context).slice(0,6000);const steps=[agentStep("contract_1",agent,`Audita la operación exacta ${target}: contrato, disponibilidad, permisos, gobernanza y rutas reales. Solo lectura. Objetivo original: ${goal}. Contexto: ${ctx}`),agentStep("failure_modes_1",agent,`Audita la operación ${target} enfocándote en fallos, reintentos, verificación, observabilidad, seguridad y si el runtime realmente la consume. Separa CONFIRMADO de HIPÓTESIS. No modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["contract_1"]),agentStep("summary_1",agent,`Entrega una síntesis final en español sobre la auditoría de ${target}. Incluye evidencia concreta, problemas reales, bloqueos y conclusión sobre el estado actual. No inventes ni modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["failure_modes_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-operation-forensic-v2-multistep",asset_forensic:true,target_type:"operation",target,learning_context:context.learned_knowledge}});}
 function selfAuditPlan(goal:string,context:any,routes:any,agents:any[]){const scope=`FINDINGS. Independent forensic review of ARIA. Scope: ${goal}. Context: ${JSON.stringify(context).slice(0,7000)}. Confirm facts from execution evidence; separate hypotheses; cover architecture, runtime, DB, memory, learning, planning, execution, models, agents, devices, tools, security, recovery.`;const steps:any[]=[];routes.slice(0,4).forEach((r:any,i:number)=>steps.push(modelStep(`review_model_${i+1}`,r,`${scope} Use model ${r.model_id}. Begin with FINDINGS and finish with VERDICT.`)));agents.slice(0,4).forEach((a:any,i:number)=>steps.push(agentStep(`review_agent_${i+1}`,a,`${scope} Independent specialist pass as ${a.role}. Begin with FINDINGS and finish with VERDICT.`)));return {goal,steps,planner_version:"aria-planner-v11-forensic-multi-route-v1",self_audit:true}}
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context);if(battlecruiserRwht)return out({ok:true,plan:battlecruiserRwht});const windowsPcRwht=await windowsPcRwhtPlan(goal,context);if(windowsPcRwht)return windowsPcRwht;const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const allForOne=await allForOnePlan(goal,context);\nif(allForOne)return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});\nconst battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context);if(battlecruiserRwht)return out({ok:true,plan:battlecruiserRwht});const windowsPcRwht=await windowsPcRwhtPlan(goal,context);if(windowsPcRwht)return windowsPcRwht;const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
 const runtimeProbe=/^(hola|test|prueba|esto\s+(?:esta|está)\s+funcionando|funcionando\??)$/i.test(g.trim());
 if(runtimeProbe){
   const routes=await modelRoutes();
