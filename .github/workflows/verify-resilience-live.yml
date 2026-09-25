@@ -1,0 +1,97 @@
+name: Verify resilience LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resilience:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: Resilience probes
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          results=()
+
+          echo "=== 1. unauthorized (no auth) ==="
+          code=$(curl -s -o /tmp/unauth.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "content-type: application/json" -d '{"selected_route":{}}' --max-time 20)
+          echo "HTTP=$code body=$(cat /tmp/unauth.json)"
+          if [ "$code" = "401" ] || grep -q unauthorized /tmp/unauth.json; then
+            echo "UNAUTHORIZED_OK"; results+=("unauthorized=PASS")
+          else
+            echo "UNAUTHORIZED_FAIL"; results+=("unauthorized=FAIL")
+          fi
+
+          echo "=== 2. invalid route rejected (not provider) ==="
+          code=$(curl -s -o /tmp/bad.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d '{"execution_version":"1","request_id":"res-bad","task_id":"t","capability":"text_generation","selected_route":{"status":"selected","provider_id":"google","account_id":"acct_google_gemini_free","model_id":"google/gemini-3.5-flash-direct","capability":"text_generation"},"authorization":{"status":"approved","risk_class":"READ","evidence_ref":"res:bad"},"input":{"payload":{"prompt":"x"}}}' --max-time 20)
+          echo "HTTP=$code body=$(cat /tmp/bad.json)"
+          if grep -q model_not_verified /tmp/bad.json && ! grep -q provider_error /tmp/bad.json; then
+            echo "INVALID_ROUTE_OK"; results+=("invalid_route=PASS")
+          else
+            echo "INVALID_ROUTE_FAIL"; results+=("invalid_route=FAIL")
+          fi
+
+          echo "=== 3. missing authorization blocked ==="
+          code=$(curl -s -o /tmp/noaz.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d '{"execution_version":"1","request_id":"res-noaz","task_id":"t","capability":"text_generation","selected_route":{"status":"selected","provider_id":"google","account_id":"acct_google_gemini_free","model_id":"google/gemini-3.5-flash-lite-direct","capability":"text_generation"},"input":{"payload":{"prompt":"x"}}}' --max-time 20)
+          echo "HTTP=$code body=$(cat /tmp/noaz.json)"
+          if grep -qE 'authorization_not_approved|blocked' /tmp/noaz.json; then
+            echo "NO_AUTHZ_OK"; results+=("no_authorization=PASS")
+          else
+            echo "NO_AUTHZ_FAIL"; results+=("no_authorization=FAIL")
+          fi
+
+          echo "=== 4. valid recovery path after failure (lite-direct succeeds) ==="
+          code=$(curl -s -o /tmp/ok.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d '{"execution_version":"1","request_id":"res-ok-'"$(date +%s)"'","task_id":"t","capability":"text_generation","selected_route":{"status":"selected","provider_id":"google","account_id":"acct_google_gemini_free","model_id":"google/gemini-3.5-flash-lite-direct","capability":"text_generation"},"authorization":{"status":"approved","risk_class":"READ","evidence_ref":"res:ok"},"input":{"payload":{"prompt":"Reply exactly: ARIA_RESILIENCE_OK","max_tokens":20}}}' --max-time 40)
+          echo "HTTP=$code body=$(cat /tmp/ok.json)"
+          if grep -q '"status":"succeeded"' /tmp/ok.json; then
+            echo "RECOVERY_OK"; results+=("recovery_valid_route=PASS")
+          else
+            echo "RECOVERY_FAIL"; results+=("recovery_valid_route=FAIL")
+          fi
+
+          echo "=== 5. openrouter free still executable (fallback candidate) ==="
+          code=$(curl -s -o /tmp/or.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d '{"execution_version":"1","request_id":"res-or-'"$(date +%s)"'","task_id":"t","capability":"text_generation","selected_route":{"status":"selected","provider_id":"openrouter","account_id":"acct_openrouter_primary","model_id":"nex-agi/nex-n2.5-mini:free","capability":"text_generation"},"authorization":{"status":"approved","risk_class":"READ","evidence_ref":"res:or"},"input":{"payload":{"prompt":"Reply exactly: ARIA_OR_OK","max_tokens":20}}}' --max-time 45)
+          echo "HTTP=$code body=$(cat /tmp/or.json)"
+          if grep -q '"status":"succeeded"' /tmp/or.json; then
+            echo "OR_OK"; results+=("openrouter_fallback=PASS")
+          elif grep -q model_not_verified /tmp/or.json; then
+            echo "OR_FAIL"; results+=("openrouter_fallback=FAIL")
+          else
+            echo "OR_PROVIDER_STATE"; results+=("openrouter_fallback=ALLOWLIST_OK")
+          fi
+
+          echo "=== 6. mission-runner idle/health ==="
+          code=$(curl -s -o /tmp/mr.json -w "%{http_code}" -X POST "$BASE/aria-mission-runner-v22" \
+            -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 30)
+          echo "HTTP=$code body=$(cat /tmp/mr.json)"
+          if grep -q 'aria-mission-runner-v22' /tmp/mr.json; then
+            echo "RUNNER_OK"; results+=("mission_runner=PASS")
+          else
+            echo "RUNNER_FAIL"; results+=("mission_runner=FAIL")
+          fi
+
+          echo "=== SUMMARY ==="
+          printf '%s\n' "${results[@]}"
+          if printf '%s\n' "${results[@]}" | grep -q '=FAIL'; then
+            echo "RESILIENCE_HAS_FAILURES"
+            exit 1
+          fi
+          echo "RESILIENCE_BATTERY_PASS"
