@@ -2,12 +2,18 @@ name: E2E operational learning L1+L2
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/e2e-operational-learning.yml
 
 permissions:
   contents: read
 
 jobs:
   e2e:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[RUN-OL-E2E]')
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 40
