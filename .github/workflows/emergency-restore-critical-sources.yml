@@ -1,0 +1,43 @@
+name: Emergency restore mission-runner + device-gateway
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Restore and patch critical sources
+        run: |
+          set -euo pipefail
+          GOOD=f0a56974992e8d967c06307d324d52a1fe148e83
+          git show "$GOOD:supabase/functions/aria-mission-runner-v22/index.ts" > supabase/functions/aria-mission-runner-v22/index.ts
+          git show "$GOOD:supabase/functions/aria-device-gateway/index.ts" > supabase/functions/aria-device-gateway/index.ts
+          python3 scripts/emergency-restore-patch.py
+          node tests/mission-runner-v22-model-fallback.test.js
+          if grep -nE 'gemini-3\.(5-flash-direct|[678]-flash)' supabase/functions/aria-mission-runner-v22/index.ts supabase/functions/aria-device-gateway/index.ts; then
+            echo BAD_MODEL_IDS_FOUND
+            exit 1
+          fi
+          if grep -n PLACEHOLDER supabase/functions/aria-mission-runner-v22/index.ts supabase/functions/aria-device-gateway/index.ts; then
+            echo PLACEHOLDER_FOUND
+            exit 1
+          fi
+          echo VERIFY_OK
+      - name: Commit restore
+        run: |
+          set -euo pipefail
+          git config user.name "ARIA Emergency Restore"
+          git config user.email "aria-restore@users.noreply.github.com"
+          git add supabase/functions/aria-mission-runner-v22/index.ts supabase/functions/aria-device-gateway/index.ts
+          git status
+          git diff --cached --stat
+          git commit -m "restore(critical): mission-runner-v22 + device-gateway (remove PLACEHOLDER, verified routes only)"
+          git push origin main
