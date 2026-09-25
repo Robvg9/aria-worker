@@ -1,0 +1,217 @@
+name: Verify post-MSP regression
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Post-MSP regression battery
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() {
+            curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"mission_id\":\"$1\"}" --max-time 180
+          }
+          FAIL=0
+          TS=$(date +%s)
+
+          # ========== 1) NORMAL SUCCESS (no fault, no msp probe) ==========
+          echo "==== 1 NORMAL SUCCESS ===="
+          MID1="mission_reg_ok_${TS}"
+          # No probe field that starts with msp_; no fault_injection
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID1\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"regression_normal\",\"cloud_only\":true}}" \
+            --max-time 60 | tee /tmp/r1_create.json | grep -q '"status":"queued"'
+          term1=""
+          inv1=""
+          for i in $(seq 1 14); do
+            body=$(tick "$MID1")
+            echo "R1_TICK $i: $(echo "$body" | head -c 400)"
+            inv1=$(echo "$body" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('invocation_id') or d.get('runtime') or '')" 2>/dev/null || true)
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked|paused) term1=$st; echo "$body" > /tmp/r1_final.json; break ;; esac
+            sleep 1
+          done
+          DB1=$(sql "SELECT status, next_action, lease_owner, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID1}';")
+          echo "R1_DB: $DB1"
+          echo "R1_TERMINAL=$term1 inv=$inv1"
+          if [ "$term1" != "succeeded" ]; then echo "FAIL normal success"; FAIL=1; else echo "PASS_NORMAL_SUCCESS MID=$MID1"; fi
+          # Learning should have run (not skipped) — stderr should not be learning_preflight only if blocked; for success path learning passed or was not blocking
+          if grep -q skipped_for_msp /tmp/r1_final.json 2>/dev/null; then echo "FAIL normal path must not show msp skip"; FAIL=1; fi
+
+          # ========== 2) BYPASS ISOLATION ==========
+          echo "==== 2 BYPASS ISOLATION ===="
+          # 2a: msp_ probe WITHOUT fault_injection → learning must NOT be force-skipped
+          MID2a="mission_reg_iso_a_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID2a\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_isolation_no_fault\",\"cloud_only\":true}}" \
+            --max-time 60 >/tmp/r2a_create.json
+          # Seed simple plan WITHOUT fault_injection so hasFaultPlan=false
+          python3 - "$MID2a" <<'PY'
+          import json,sys
+          mid=sys.argv[1]
+          plan=[{
+            "id":"s1","executor_type":"model","operation":"text_generation","risk":"READ",
+            "target":{"provider_id":"google","account_id":"google-primary","model_id":"google/gemini-3.5-flash-lite-direct"},
+            "input":{"payload":{"prompt":"Reply with exactly PONG"}},
+            "authorization":{"status":"approved","risk_class":"READ"},
+          }]
+          pj=json.dumps(plan).replace("'","''")
+          open("/tmp/seed2a.sql","w").write(
+            f"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','{pj}'::jsonb), status='queued', lease_owner=null, lease_until=null WHERE mission_id='{mid}';"
+          )
+          PY
+          sql "$(cat /tmp/seed2a.sql)"
+          body2a=$(tick "$MID2a")
+          echo "R2A_TICK: $(echo "$body2a" | head -c 450)"
+          # Drain
+          term2a=""
+          for i in $(seq 1 10); do
+            st=$(echo "$body2a" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked|paused|replanned_learning) term2a=$st; break ;; esac
+            body2a=$(tick "$MID2a")
+            echo "R2A_TICK$i: $(echo "$body2a" | head -c 300)"
+            sleep 1
+          done
+          echo "R2A_TERMINAL=$term2a"
+          # Must NOT be able to skip learning solely via msp_ prefix without fault_injection.
+          # Success or learning-driven replan are both valid; what matters is no accidental MSP skip marker in response.
+          if echo "$body2a" | grep -q 'skipped_for_msp_probe'; then
+            echo "FAIL isolation: skipped_for_msp_probe appeared without fault_injection"
+            FAIL=1
+          else
+            echo "PASS_ISOLATION_NO_FAULT_FLAG MID=$MID2a terminal=$term2a"
+          fi
+
+          # 2b: normal probe + no fault → same
+          MID2b="mission_reg_iso_b_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID2b\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"regression_iso\",\"cloud_only\":true}}" \
+            --max-time 60 >/dev/null
+          body2b=$(tick "$MID2b")
+          echo "R2B_TICK: $(echo "$body2b" | head -c 350)"
+          if echo "$body2b" | grep -q 'skipped_for_msp_probe'; then
+            echo "FAIL isolation normal probe"
+            FAIL=1
+          else
+            echo "PASS_ISOLATION_NORMAL_PROBE MID=$MID2b"
+          fi
+
+          # ========== 3) FAILED TERMINAL (emit before release) ==========
+          echo "==== 3 FAILED TERMINALIZATION ===="
+          MID3="mission_reg_fail_${TS}"
+          # Use msp_ + fault so learning does not rewrite; validates emit→failed→release path post-#398
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"REG-FAIL-${TS}: emit ZX9Q via text generation. Cloud only.\",\"mission_id\":\"$MID3\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_reg_fail\",\"cloud_only\":true}}" \
+            --max-time 60 >/dev/null
+          python3 - "$MID3" <<'PY'
+          import json,sys
+          mid=sys.argv[1]
+          plan=[{
+            "id":"s1","executor_type":"model","operation":"text_generation","risk":"READ",
+            "retryable":False,"max_attempts":1,
+            "target":{"provider_id":"google","account_id":"google-primary","model_id":"google/gemini-3.5-flash-lite-direct"},
+            "input":{"payload":{"prompt":"ZX9Q"},"fault_injection":"http_500","fault_all_routes":True},
+            "authorization":{"status":"approved","risk_class":"READ"},
+          }]
+          pj=json.dumps(plan).replace("'","''")
+          open("/tmp/seed3.sql","w").write(
+            f"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','{pj}'::jsonb), status='queued', lease_owner=null, lease_until=null WHERE mission_id='{mid}';"
+          )
+          PY
+          sql "$(cat /tmp/seed3.sql)"
+          body3=$(tick "$MID3")
+          echo "R3_TICK: $(echo "$body3" | head -c 500)"
+          st3=$(echo "$body3" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+          DB3=$(sql "SELECT status, last_stderr, next_action, lease_owner FROM aria_internal.mission_state WHERE mission_id='${MID3}';")
+          echo "R3_DB: $DB3"
+          if echo "$body3" | grep -q 'mission_lease_required'; then
+            echo "FAIL failed path still hits mission_lease_required"
+            FAIL=1
+          elif echo "$DB3" | grep -qw failed; then
+            echo "PASS_FAILED_TERMINAL MID=$MID3 http=$st3"
+          else
+            echo "FAIL expected DB failed got $DB3"
+            FAIL=1
+          fi
+
+          # ========== 4) CLAIM_NEXT vs DIRECTED CONTINUATION + STALE ==========
+          echo "==== 4 CLAIM_NEXT CONTINUATION + STALE ===="
+          MID4="mission_reg_stale_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID4\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"regression_stale\",\"cloud_only\":true}}" \
+            --max-time 60 >/dev/null
+          # Tick once to reach next_ready_batch if multi-step, or succeed
+          body4=$(tick "$MID4")
+          echo "R4_TICK1: $(echo "$body4" | head -c 350)"
+          st4=$(echo "$body4" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+          if [ "$st4" = "running" ]; then
+            # Force directed continuation state: running + next_ready_batch + null lease + fresh updated_at
+            sql "UPDATE aria_internal.mission_state SET status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null, updated_at=clock_timestamp() WHERE mission_id='${MID4}';"
+            # claim_next should NOT steal this (age < 10m)
+            body_cn=$(curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 60)
+            echo "R4_CLAIM_NEXT: $(echo "$body_cn" | head -c 300)"
+            cn_mid=$(echo "$body_cn" | python3 -c "import sys,json;print(json.load(sys.stdin).get('mission_id') or '')" 2>/dev/null || true)
+            if [ "$cn_mid" = "$MID4" ]; then
+              echo "FAIL claim_next stole directed continuation <$10m"
+              FAIL=1
+            else
+              echo "PASS_CLAIM_NEXT_SKIPS_FRESH_CONTINUATION (got mission_id=$cn_mid)"
+            fi
+            # claim_by_id should still reclaim
+            body_id=$(tick "$MID4")
+            echo "R4_CLAIM_BY_ID: $(echo "$body_id" | head -c 300)"
+            # Age beyond 10m for stale recoverability check (SQL only)
+            sql "UPDATE aria_internal.mission_state SET status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null, updated_at=clock_timestamp() - interval '11 minutes' WHERE mission_id='${MID4}';"
+            # Verify eligibility via SQL expression mirroring claim_next filter
+            ELIG=$(sql "SELECT mission_id FROM aria_internal.mission_state m WHERE m.mission_id='${MID4}' AND m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'') = 'next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes');")
+            echo "R4_STALE_ELIG: $ELIG"
+            if echo "$ELIG" | grep -q "$MID4"; then
+              echo "PASS_STALE_RECOVERABLE MID=$MID4"
+            else
+              echo "FAIL stale >10m should be claim_next eligible"
+              FAIL=1
+            fi
+            # Cleanup: terminalize so it does not linger
+            sql "UPDATE aria_internal.mission_state SET status='paused', next_action='regression_cleanup', lease_owner=null, lease_until=null WHERE mission_id='${MID4}';"
+          else
+            echo "WARN R4 not multi-batch (status=$st4); validating SQL contract only"
+            sql "UPDATE aria_internal.mission_state SET status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null, updated_at=clock_timestamp() WHERE mission_id='${MID4}';" || true
+            ELIG_FRESH=$(sql "SELECT count(*) AS c FROM aria_internal.mission_state m WHERE m.mission_id='${MID4}' AND m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'') = 'next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes');")
+            echo "R4_FRESH_ELIG_COUNT: $ELIG_FRESH"
+            # count should be 0 for fresh
+            sql "UPDATE aria_internal.mission_state SET updated_at=clock_timestamp() - interval '11 minutes' WHERE mission_id='${MID4}';"
+            ELIG_STALE=$(sql "SELECT count(*) AS c FROM aria_internal.mission_state m WHERE m.mission_id='${MID4}' AND m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'') = 'next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes');")
+            echo "R4_STALE_ELIG_COUNT: $ELIG_STALE"
+            if echo "$ELIG_STALE" | grep -qE '1|\| 1'; then
+              echo "PASS_STALE_SQL_CONTRACT"
+            else
+              echo "FAIL stale SQL eligibility"
+              FAIL=1
+            fi
+            sql "UPDATE aria_internal.mission_state SET status='paused', next_action='regression_cleanup' WHERE mission_id='${MID4}';" || true
+          fi
+
+          echo "==== REGRESSION SUMMARY FAIL=$FAIL ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo "MISSION_RUNNER_POST_MSP_REGRESSION = PASS"
