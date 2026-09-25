@@ -3,7 +3,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
 
-const V = "aria-mission-runner-v22-universal";
+const V_LOGICAL = "aria-mission-runner-v22-universal";
+// Per-invocation fence: unique lease owner per tick.
+// Prevents concurrent same-worker re-entry races.
+// Cross-tick reclaim: running + lease_owner IS NULL.
+const V = `${V_LOGICAL}:${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 const URL = Deno.env.get("SUPABASE_URL")!;
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
@@ -1241,7 +1245,7 @@ Deno.serve(async (request) => {
     const mission = requestedMissionId
       ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
       : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
-    if (!mission) return out({ ok: true, status: "idle", runtime: V, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });
+    if (!mission) return out({ ok: true, status: "idle", runtime: V_LOGICAL, invocation_id: V, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });
 
     const missionId = String(mission.mission_id);
     activeMissionId = missionId;
@@ -2044,23 +2048,26 @@ Deno.serve(async (request) => {
       const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";
       // Batch continuation: KEEP lease ownership across ticks.
       if (completed.size < steps.length) {
-        await renewLease(missionId);
+        // Release lease for next invocation reclaim (running + null owner).
         await updateMission(missionId, {
           status: "running",
           current_step: completed.size,
           completed_steps: completed.size,
           next_action: nextAction,
           checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+          lease_owner: null,
+          lease_until: null,
         });
         return out({
           ok: true,
           status: "running",
           mission_id: missionId,
-          runtime: V,
+          runtime: V_LOGICAL,
+          invocation_id: V,
           completed_steps: completed.size,
           total_steps: steps.length,
           next_action: nextAction,
-          lease_retained: true,
+          lease_released_for_reclaim: true,
         });
       }
       await updateMission(missionId, {
@@ -2255,7 +2262,7 @@ Deno.serve(async (request) => {
         // Chain execution succeeded; proof persistence is best-effort and never rewrites a terminal mission.
       }
     }
-    return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });
+    return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, executor_types: executorTypes, results: completed.size, chained });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     const failedMissionId = activeMissionId || requestedMissionId;
@@ -2274,6 +2281,6 @@ Deno.serve(async (request) => {
         recoveryUpdate = `failed:${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
       }
     }
-    return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V, error: reason, recovery_update: recoveryUpdate });
+    return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V_LOGICAL, invocation_id: V, error: reason, recovery_update: recoveryUpdate });
   }
 });
