@@ -1,0 +1,125 @@
+name: Apply lease fence
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-lease-fence.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
+      - name: Fetch base runner and apply fence patch
+        run: |
+          set -euo pipefail
+          # Base: c50faab (full source + next_ready_batch lease handling)
+          curl -fsSL "https://raw.githubusercontent.com/Robvg9/aria-worker/c50faab3868dd0370a109768b8f84a69964bea5e/supabase/functions/aria-mission-runner-v22/index.ts" \
+            -o supabase/functions/aria-mission-runner-v22/index.ts
+          wc -c supabase/functions/aria-mission-runner-v22/index.ts
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-mission-runner-v22/index.ts")
+          src = p.read_text()
+          assert len(src) > 50000
+          assert "FILE_TOO_LARGE" not in src
+
+          old_v = 'const V = "aria-mission-runner-v22-universal";'
+          new_v = (
+          'const V_LOGICAL = "aria-mission-runner-v22-universal";\n'
+          '// Per-invocation fence: same logical runner, unique lease owner per tick.\n'
+          '// Prevents concurrent same-worker re-entry races (claim\u2192renew\u2192append_event).\n'
+          '// Cross-tick reclaim uses running + lease_owner IS NULL (batch continuation contract).\n'
+          'const V = `${V_LOGICAL}:${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;'
+          )
+          if "V_LOGICAL" not in src:
+              if old_v not in src:
+                  raise SystemExit("V anchor missing")
+              src = src.replace(old_v, new_v, 1)
+
+          old_batch = '''      if (completed.size < steps.length) {
+        await renewLease(missionId);
+        await updateMission(missionId, {
+          status: "running",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: nextAction,
+          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+        });
+        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+          lease_retained: true,
+        });
+      }'''
+          new_batch = '''      if (completed.size < steps.length) {
+        // End of tick: release lease so the next invocation (new fence id) can reclaim
+        // via (status=running AND lease_owner IS NULL). Do NOT keep V-bound ownership
+        // across ticks \u2014 V is per-invocation. Single-owner still enforced within a tick.
+        await updateMission(missionId, {
+          status: "running",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: nextAction,
+          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+          lease_owner: null,
+          lease_until: null,
+        });
+        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V_LOGICAL,
+          invocation_id: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+          lease_released_for_reclaim: true,
+        });
+      }'''
+          if "lease_released_for_reclaim" not in src:
+              if old_batch not in src:
+                  raise SystemExit("batch anchor missing")
+              src = src.replace(old_batch, new_batch, 1)
+
+          src = src.replace(
+              'return out({ ok: true, status: "idle", runtime: V, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });',
+              'return out({ ok: true, status: "idle", runtime: V_LOGICAL, invocation_id: V, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });',
+              1,
+          )
+          src = src.replace(
+              'return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V, executor_types: executorTypes, results: completed.size, chained });',
+              'return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, executor_types: executorTypes, results: completed.size, chained });',
+              1,
+          )
+          src = src.replace(
+              'return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V, error: reason, recovery_update: recoveryUpdate });',
+              'return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V_LOGICAL, invocation_id: V, error: reason, recovery_update: recoveryUpdate });',
+              1,
+          )
+
+          p.write_text(src)
+          text = p.read_text()
+          assert "V_LOGICAL" in text
+          assert "lease_released_for_reclaim" in text
+          assert "FILE_TOO_LARGE" not in text and "PLACEHOLDER" not in text
+          assert len(text) > 50000
+          print("final_size", len(text))
+          PY
+          git config user.name "aria-supervisor"
+          git config user.email "aria@local"
+          git add supabase/functions/aria-mission-runner-v22/index.ts
+          git status
+          git commit -m "fix(runner-v22): per-invocation lease fence to stop concurrent re-entry races" || echo no_commit
+          git push origin HEAD:main
