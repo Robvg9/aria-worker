@@ -1,0 +1,165 @@
+name: Isolate agent verifier openrouter
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Isolate agent.delegate
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          AGENT_ID="aria-agent-verifier-openrouter-v1"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          FAIL=0
+          TS=$(date +%s)
+
+          echo "==== A. AGENT RUNTIME GET (catalog/resource) ===="
+          GET_RT=$(curl -s -X GET "$BASE/aria-agent-runtime-v1" -H "$AUTH" --max-time 30 || true)
+          echo "GET_RT=$(echo "$GET_RT" | head -c 1200)"
+          echo "$GET_RT" | python3 -c "
+          import sys,json
+          d=json.load(sys.stdin)
+          agents=d.get('available_agents') or []
+          ready=d.get('ready_resources') or []
+          blocked=d.get('blocked_resources') or []
+          target='$AGENT_ID'
+          a=[x for x in agents if x.get('agent_id')==target]
+          r=[x for x in ready if x.get('agent_id')==target or (isinstance(x,dict) and str(x).find(target)>=0)]
+          b=[x for x in blocked if (isinstance(x,dict) and (x.get('agent_id')==target or str(x).find(target)>=0))]
+          print('AVAILABLE_MATCH', a[:1])
+          print('READY_COUNT', len(ready), 'BLOCKED_COUNT', len(blocked))
+          print('TARGET_IN_AVAILABLE', bool(a))
+          # dump target from blocked/ready by scanning
+          for label,arr in [('ready',ready),('blocked',blocked)]:
+            for x in arr:
+              s=json.dumps(x)
+              if target in s:
+                print(label.upper()+'_HIT', s[:500])
+          " 2>/dev/null || true
+
+          echo "==== B. DIRECT POST agent-runtime (no mission-runner) ===="
+          DIRECT_BODY=$(python3 -c "import json; print(json.dumps({'mission_id':'mission_agent_iso_direct_$TS','step_id':'a_iso_1','agent_id':'$AGENT_ID','operation':'delegate','risk':'READ','policy':{},'input':{'goal':'Isolated agent probe','prompt':'Reply with exactly the marker AGENT_ISO_OK and one short factual sentence. Cloud only.','max_tokens':120}}))")
+          DIRECT=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$BASE/aria-agent-runtime-v1" -H "$AUTH" -H "content-type: application/json" -d "$DIRECT_BODY" --max-time 120 || true)
+          echo "DIRECT_RESP=$(echo "$DIRECT" | head -c 1500)"
+          DIRECT_STATUS=$(echo "$DIRECT" | sed -n 's/.*HTTP_STATUS://p')
+          DIRECT_OK=$(echo "$DIRECT" | python3 -c "import sys,json; t=sys.stdin.read().rsplit('HTTP_STATUS:',1)[0];
+          try:
+           d=json.loads(t); print(d.get('status') or d.get('ok') or d.get('error'))
+          except Exception as e:
+           print('parse_error',e)
+          " 2>/dev/null || echo parse_fail)
+          echo "DIRECT_HTTP=$DIRECT_STATUS DIRECT_STATUS=$DIRECT_OK"
+
+          echo "==== C. SINGLE-STEP MISSION via runner ===="
+          MID="mission_agent_iso_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Isolated agent.delegate probe Unique=$TS. Cloud only.\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_agent_isolate\",\"cloud_only\":true}}" --max-time 60 >/tmp/iso_create.json || true
+          echo "CREATE=$(head -c 400 /tmp/iso_create.json)"
+          python3 -c "
+          import json
+          mid='$MID'
+          plan=[{
+            'id':'a_iso_1',
+            'executor_type':'agent',
+            'operation':'delegate',
+            'risk':'READ',
+            'target':{'type':'agent','agent_id':'$AGENT_ID'},
+            'input':{'goal':'Isolated agent probe','prompt':'Reply with exactly the marker AGENT_ISO_OK and one short factual sentence. Cloud only.','max_tokens':120},
+            'authorization':{'status':'approved','risk_class':'READ'},
+            'timeout_ms':120000,
+            'policy':{},
+            'verify':{}
+          }]
+          pj=json.dumps(plan).replace(chr(39),chr(39)+chr(39))
+          open('/tmp/iso_seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb), status='queued', lease_owner=null, lease_until=null, next_action=null, completed_steps=0, total_steps=1 WHERE mission_id='\"+mid+\"';\")
+          print('seeded single agent step')
+          "
+          sql "$(cat /tmp/iso_seed.sql)"
+          PLAN_CHK=$(sql "SELECT checkpoint->'plan'->0->>'executor_type' AS et, checkpoint->'plan'->0->'target'->>'agent_id' AS aid FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          echo "PLAN_CHK=$PLAN_CHK"
+
+          term=""
+          for i in $(seq 1 12); do
+            body=$(tick "$MID")
+            echo "TICK $i: $(echo "$body" | head -c 600)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked)
+              term=$st; echo "$body" > /tmp/iso_final.json; break ;;
+            esac
+            if [ "$st" = "paused" ]; then
+              if echo "$body" | grep -q mission_lease; then
+                sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+                continue
+              fi
+              term=$st; echo "$body" > /tmp/iso_final.json; break
+            fi
+            sleep 1
+          done
+          echo "TERMINAL=$term"
+
+          echo "==== D. PERSISTED EVIDENCE ===="
+          EV=$(sql "SELECT created_at, event_type, payload->>'step_id' AS step_id, payload->>'executor_type' AS ex, payload->>'agent_id' AS agent_id, payload->>'status' AS pstatus, left(coalesce(payload->>'message', payload->'error'->>'message',''),200) AS msg FROM aria_internal.mission_events WHERE mission_id='${MID}' ORDER BY created_at;")
+          echo "EVENTS=$EV"
+          DIAG=$(sql "SELECT created_at, event_type, left(payload::text,400) FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='agent_executor_diagnostic' ORDER BY created_at;")
+          echo "DIAGNOSTICS=$DIAG"
+          # also diagnostics from direct call mission id
+          DIAG2=$(sql "SELECT created_at, left(payload::text,400) FROM aria_internal.mission_events WHERE mission_id='mission_agent_iso_direct_${TS}' AND event_type='agent_executor_diagnostic' ORDER BY created_at;")
+          echo "DIRECT_DIAG=$DIAG2"
+          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr, lease_owner FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          echo "DB=$DB"
+          SUCC=$(sql "SELECT payload->>'step_id', payload->>'executor_type', payload->>'agent_id' FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded';")
+          FAIL_EV=$(sql "SELECT payload->>'step_id', payload->>'executor_type', left(coalesce(payload->>'message',''),200) FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type IN ('step_failed','agent_executor_diagnostic');")
+          echo "STEP_SUCCEEDED=$SUCC"
+          echo "STEP_FAILED=$FAIL_EV"
+
+          echo "==== E. CLASSIFICATION ===="
+          python3 -c "
+          import os
+          direct_status='''$DIRECT_OK'''
+          term='''$term'''
+          print('DIRECT_AGENT_RUNTIME:', direct_status)
+          print('MISSION_TERMINAL:', term)
+          if 'succeeded' in str(direct_status).lower() or direct_status=='True':
+            print('CLASS_DIRECT=PASS')
+          else:
+            print('CLASS_DIRECT=FAIL')
+          if term=='succeeded':
+            print('CLASS_MISSION=PASS')
+          elif term in ('failed','blocked','paused'):
+            print('CLASS_MISSION=FAIL_TERMINAL')
+          else:
+            print('CLASS_MISSION=INCOMPLETE')
+          "
+
+          # Pass criteria: direct OR mission succeeded with step_succeeded agent
+          if echo "$SUCC" | grep -qi agent; then
+            echo "PASS_ISOLATED_AGENT_MISSION MID=$MID"
+          elif echo "$DIRECT_OK" | grep -qi succeeded; then
+            echo "PASS_ISOLATED_AGENT_DIRECT_ONLY (runtime ok, runner path needs review)"
+          else
+            echo "FAIL_ISOLATED_AGENT"
+            FAIL=1
+          fi
+          echo "==== SUMMARY FAIL=$FAIL MID=$MID AGENT=$AGENT_ID ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo ALL_PASS
