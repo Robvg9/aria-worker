@@ -274,7 +274,7 @@ async function allForOnePlan(goal:string,context:any){
     .eq("status","available")
     .order("agent_id");
   const agents=Array.isArray(catalogAgents)?catalogAgents:[];
-  if(!routes.length && !agents.length) return out({error:"all_for_one_no_reviewers_available",planner_version:"aria-planner-v12-all-for-one-v1"},409);
+  if(!routes.length || agents.length < 4) return {error:"all_for_one_review_capacity_insufficient",planner_version:"aria-planner-v12-all-for-one-v1",required:{models:1,agents:4},available:{models:routes.length,agents:agents.length}};
 
   const scopeAreas=[
     ["architecture_runtime","arquitectura y runtime","arquitectura completa, edge functions, runtime canónico, contratos entre capas, despliegues y coherencia entre LIVE y código"],
@@ -318,7 +318,7 @@ async function allForOnePlan(goal:string,context:any){
   });
 
   const arbiterRoute=routes.find((r:any)=>r.provider_id==="openrouter")||routes[1]||routes[0];
-  if(!arbiterRoute) return out({error:"all_for_one_arbiter_unavailable",planner_version:"aria-planner-v12-all-for-one-v1"},409);
+  if(!arbiterRoute) return {error:"all_for_one_arbiter_unavailable",planner_version:"aria-planner-v12-all-for-one-v1"};
   const arbiter= modelStep(
     "all_for_one_arbiter_10",
     arbiterRoute,
@@ -345,7 +345,11 @@ async function allForOnePlan(goal:string,context:any){
 
 async function operationAuditPlan(goal:string,context:any){const match=goal.match(/(?:auditar operación ejecutora individual:|audit executor operation:|audit operation:)\s*([a-z0-9_.-]+)/i);if(!match)return null;const target=match[1];const agent={agent_id:"aria-agent-research-v1",role:"investigador",model_id:"google/gemini-3.5-flash-lite-direct"};const ctx=JSON.stringify(context).slice(0,6000);const steps=[agentStep("contract_1",agent,`Audita la operación exacta ${target}: contrato, disponibilidad, permisos, gobernanza y rutas reales. Solo lectura. Objetivo original: ${goal}. Contexto: ${ctx}`),agentStep("failure_modes_1",agent,`Audita la operación ${target} enfocándote en fallos, reintentos, verificación, observabilidad, seguridad y si el runtime realmente la consume. Separa CONFIRMADO de HIPÓTESIS. No modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["contract_1"]),agentStep("summary_1",agent,`Entrega una síntesis final en español sobre la auditoría de ${target}. Incluye evidencia concreta, problemas reales, bloqueos y conclusión sobre el estado actual. No inventes ni modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["failure_modes_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-operation-forensic-v2-multistep",asset_forensic:true,target_type:"operation",target,learning_context:context.learned_knowledge}});}
 function selfAuditPlan(goal:string,context:any,routes:any,agents:any[]){const scope=`FINDINGS. Independent forensic review of ARIA. Scope: ${goal}. Context: ${JSON.stringify(context).slice(0,7000)}. Confirm facts from execution evidence; separate hypotheses; cover architecture, runtime, DB, memory, learning, planning, execution, models, agents, devices, tools, security, recovery.`;const steps:any[]=[];routes.slice(0,4).forEach((r:any,i:number)=>steps.push(modelStep(`review_model_${i+1}`,r,`${scope} Use model ${r.model_id}. Begin with FINDINGS and finish with VERDICT.`)));agents.slice(0,4).forEach((a:any,i:number)=>steps.push(agentStep(`review_agent_${i+1}`,a,`${scope} Independent specialist pass as ${a.role}. Begin with FINDINGS and finish with VERDICT.`)));return {goal,steps,planner_version:"aria-planner-v11-forensic-multi-route-v1",self_audit:true}}
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const allForOne=await allForOnePlan(goal,context);\nif(allForOne)return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});\nconst battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context);if(battlecruiserRwht)return out({ok:true,plan:battlecruiserRwht});const windowsPcRwht=await windowsPcRwhtPlan(goal,context);if(windowsPcRwht)return windowsPcRwht;const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const allForOne=await allForOnePlan(goal,context);
+if(allForOne){
+if(allForOne.error)return out(allForOne,409);
+return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
+}const battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context);if(battlecruiserRwht)return out({ok:true,plan:battlecruiserRwht});const windowsPcRwht=await windowsPcRwhtPlan(goal,context);if(windowsPcRwht)return windowsPcRwht;const asset=await assetPlan(goal);if(asset)return asset;const androidAuto=await androidAutonomousPlan(goal,context);if(androidAuto)return androidAuto;const eas=easPlan(goal,context);if(eas)return eas;const g=goal.toLowerCase();
 const runtimeProbe=/^(hola|test|prueba|esto\s+(?:esta|está)\s+funcionando|funcionando\??)$/i.test(g.trim());
 if(runtimeProbe){
   const routes=await modelRoutes();
