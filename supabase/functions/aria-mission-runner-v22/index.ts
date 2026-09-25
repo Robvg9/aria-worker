@@ -1236,7 +1236,12 @@ Deno.serve(async (request) => {
     await emitEvent(missionId, "cognitive_recall_completed", cognitiveContext);
 
     let steps: any[];
-    if (Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length) {
+    const recoveryState = mission?.checkpoint?.recovery && typeof mission.checkpoint.recovery === "object"
+      ? mission.checkpoint.recovery
+      : null;
+    const recoveryNeedsFreshPlan = recoveryState?.replan_required === true
+      && !["retry_scheduled", "replanned"].includes(String(recoveryState?.status || ""));
+    if (Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length && !recoveryNeedsFreshPlan) {
       steps = mission.checkpoint.plan;
     } else {
       try {
