@@ -1598,7 +1598,13 @@ Deno.serve(async (request) => {
       return out({ok:false,status:"blocked",mission_id:missionId,runtime:V,block_details:{kind:objectiveGuard.kind,reason:objectiveGuard.reason,required:objectiveGuard.required,forbidden:objectiveGuard.forbidden,remediation:"El objetivo y el plan deben corresponder a la misma superficie antes de ejecutar."}});
     }
 
-    const learningGate = await validateLearningGate(String(mission.goal || ""), steps);
+    // MSP probes with fault_injection plans must not be rewritten by learning preflight.
+    const probeId = String(mission?.metadata?.probe || "");
+    const isMspProbe = probeId.startsWith("msp_");
+    const hasFaultPlan = Array.isArray(steps) && steps.some((s: any) => typeof s?.input?.fault_injection === "string");
+    const learningGate = (isMspProbe && hasFaultPlan)
+      ? { version: "mastery-learning-loop-v1", passed: true, required: [], applied_memory_ids: [], missing: [], skipped_for_msp_probe: true }
+      : await validateLearningGate(String(mission.goal || ""), steps);
     const previousLearningAttempts = Number(mission?.checkpoint?.learning_gate?.replan_attempts || 0);
     if (learningGate.passed !== true) {
       const nextAttempt = previousLearningAttempts + 1;
