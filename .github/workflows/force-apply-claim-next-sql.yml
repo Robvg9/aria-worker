@@ -1,0 +1,45 @@
+name: Force apply claim_next SQL
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/force-apply-claim-next-sql.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Apply claim_next SQL directly
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          SQL_FILE=supabase/migrations/20260925144500_claim_next_skip_directed_continuation_v2.sql
+          test -f "$SQL_FILE"
+          # Prefer db query if available; fall back to psql via db url
+          if supabase db --help 2>/dev/null | grep -q query; then
+            supabase db query --linked < "$SQL_FILE"
+          elif supabase --help 2>/dev/null | grep -q 'sql'; then
+            supabase sql --linked -f "$SQL_FILE"
+          else
+            # Use management API style: push a unique migration name
+            TS=$(date -u +%Y%m%d%H%M%S)
+            DEST="supabase/migrations/${TS}_claim_next_directed_force.sql"
+            cp "$SQL_FILE" "$DEST"
+            echo "FORCE_MIGRATION=$DEST"
+            supabase db push --include-all --yes
+          fi
+          echo "CLAIM_NEXT_SQL_APPLIED"
