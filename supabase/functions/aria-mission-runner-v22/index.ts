@@ -1874,10 +1874,10 @@ Deno.serve(async (request) => {
       const batch = readyBatch(steps, completed);
       if (!batch.length) throw new Error("dependencies_unsatisfied");
 
-      const gatedCandidate = batch.find((step: any) => requiresHumanGate(step) && !(
-        String(currentHumanGate(mission, step)?.status || "") === "approved" &&
-        String(currentHumanGate(mission, step)?.action_hash || "")
-      ));
+      const gatedCandidate = batch.find((step: any) =>
+        requiresHumanGate(step) &&
+        String(currentHumanGate(mission, step)?.status || "") !== "approved"
+      );
       if (gatedCandidate) {
         const gateHash = await humanGateActionHash(gatedCandidate);
         const existingGate = currentHumanGate(mission, gatedCandidate);
