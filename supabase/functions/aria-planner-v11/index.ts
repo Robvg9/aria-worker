@@ -288,7 +288,28 @@ async function allForOnePlan(goal:string,context:any){
   ];
 
   const fallbackAgent={agent_id:"aria-agent-research-v1",role:"investigador",model_id:"google/gemini-3.5-flash-lite-direct"};
-  const selectedAgents=scopeAreas.map((_,i)=>agents[i]||agents.find((a:any)=>String(a?.role||"").toLowerCase().includes("research"))||fallbackAgent);
+  const rolePreference: Record<string,string[]> = {
+    architecture_runtime:["reviewer","researcher","planner"],
+    data_memory_learning:["memory","researcher","reviewer"],
+    planning_reasoning:["planner","reviewer","researcher"],
+    execution_verification:["verifier","reviewer","researcher"],
+    models_routing:["researcher","reviewer","planner"],
+    agents_devices_tools:["device","reviewer","researcher"],
+    security_recovery:["security","verifier","reviewer"],
+    productivity_ux:["reviewer","business","researcher"],
+  };
+  const pickAgent=(scopeId:string,used:Set<string>)=>{
+    const roles=rolePreference[scopeId]||["researcher","reviewer"];
+    for(const role of roles){
+      const found=agents.find((a:any)=>String(a?.role||"").toLowerCase()===role&&!used.has(String(a?.agent_id)));
+      if(found){used.add(String(found.agent_id));return found;}
+    }
+    const fallback=agents.find((a:any)=>!used.has(String(a?.agent_id)))||fallbackAgent;
+    if(fallback?.agent_id)used.add(String(fallback.agent_id));
+    return fallback;
+  };
+  const usedAgents=new Set<string>();
+  const selectedAgents=scopeAreas.map((area:any)=>pickAgent(String(area[0]),usedAgents));
 
   const contextText=JSON.stringify(context).slice(0,9000);
   const scopeStep={
