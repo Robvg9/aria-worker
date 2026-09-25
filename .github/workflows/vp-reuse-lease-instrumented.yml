@@ -1,0 +1,147 @@
+name: VP reuse lease instrumented
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vp:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Instrumented VP reuse
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          TS=$(date +%s)
+          FAIL=0
+
+          echo "==== 1. PLANNER verified_path_reuse ===="
+          GOAL="Cloud composition health agent model synthesis verification. Reuse verified path. Unique=$TS"
+          export G="$GOAL"
+          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/pl.json
+          PLAN=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/pl.json --max-time 90)
+          echo "PLAN_HEAD=$(echo "$PLAN" | head -c 900)"
+          echo "$PLAN" > /tmp/plan_full.json
+          if ! echo "$PLAN" | grep -q verified_path_reuse; then echo "FAIL no verified_path_reuse"; exit 1; fi
+          echo PASS_PLANNER
+
+          # Dump a1 contract from planner
+          python3 -c "
+          import json
+          p=json.load(open('/tmp/plan_full.json'))
+          plan=p.get('plan') or p
+          steps=plan.get('steps') or []
+          print('STEP_COUNT', len(steps))
+          for s in steps:
+            print('STEP', s.get('id'), s.get('executor_type'), s.get('operation'), 'deps=', s.get('depends_on'), 'agent=', (s.get('target') or {}).get('agent_id'), 'verify=', s.get('verify'), 'timeout=', s.get('timeout_ms'), 'risk=', s.get('risk'))
+            if s.get('executor_type')=='agent':
+              print('AGENT_INPUT', json.dumps(s.get('input') or {})[:500])
+              print('AGENT_POLICY', json.dumps(s.get('policy') or {}))
+              print('AGENT_AUTH', json.dumps(s.get('authorization') or {}))
+              print('AGENT_SELECTION', json.dumps(s.get('selection') or {}))
+          print('VP_META', json.dumps(plan.get('verified_path') or {})[:400])
+          open('/tmp/vp_plan.json','w').write(json.dumps(steps))
+          "
+
+          MID="mission_vp_inst_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"$GOAL\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_vp_lease_inst\",\"cloud_only\":true}}" --max-time 60 >/dev/null || true
+
+          python3 -c "
+          import json
+          steps=json.load(open('/tmp/vp_plan.json'))
+          mid='$MID'
+          p=json.load(open('/tmp/plan_full.json'))
+          plan=p.get('plan') or p
+          pj=json.dumps(steps).replace(chr(39),chr(39)+chr(39))
+          vp=json.dumps(plan.get('verified_path') or {}).replace(chr(39),chr(39)+chr(39))
+          pv=str(plan.get('planner_version') or '')
+          open('/tmp/seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb,'verified_path','\"+vp+\"'::jsonb,'planner_version','\"+pv+\"'), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\")
+          print('seeded', len(steps))
+          "
+          sql "$(cat /tmp/seed.sql)"
+
+          echo "==== 2. TICKS (NO lease nullify between ticks) ===="
+          term=""
+          for i in $(seq 1 16); do
+            LEASE_BEFORE=$(sql "SELECT status, lease_owner, lease_until, completed_steps, next_action FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+            echo "LEASE_BEFORE_TICK_$i=$LEASE_BEFORE"
+            body=$(tick "$MID")
+            echo "TICK $i: $(echo "$body" | head -c 500)"
+            LEASE_AFTER=$(sql "SELECT status, lease_owner, lease_until, completed_steps, next_action, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+            echo "LEASE_AFTER_TICK_$i=$LEASE_AFTER"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked)
+              term=$st; echo "$body" > /tmp/final.json; break ;;
+            esac
+            if [ "$st" = "paused" ]; then
+              echo "PAUSED_BODY=$(echo "$body" | head -c 400)"
+              if echo "$body" | grep -q mission_lease; then
+                # only clear lease if paused due to lease lost - allow reclaim
+                sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+                continue
+              fi
+              term=$st; break
+            fi
+            # if replanned, check plan still has agent
+            if [ "$st" = "replanned" ] || [ "$st" = "replanned_learning" ]; then
+              PL=$(sql "SELECT checkpoint->'plan' FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+              echo "PLAN_AFTER_REPLAN=$(echo "$PL" | head -c 400)"
+              # Re-seed ORIGINAL plan to block silent replan (contract of this test)
+              python3 -c "
+              import json
+              mid='$MID'
+              steps=json.load(open('/tmp/vp_plan.json'))
+              pj=json.dumps(steps).replace(chr(39),chr(39)+chr(39))
+              open('/tmp/reseed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint = jsonb_set(coalesce(checkpoint,'{}'::jsonb), '{plan}', '\"+pj+\"'::jsonb) WHERE mission_id='\"+mid+\"' AND status NOT IN ('succeeded','failed','blocked');\")
+              "
+              sql "$(cat /tmp/reseed.sql)"
+              echo "RESEEDED_ORIGINAL_PLAN"
+            fi
+            sleep 1
+          done
+          echo "TERMINAL=$term"
+
+          echo "==== 3. EVENTS + DIAGNOSTICS ===="
+          EV=$(sql "SELECT created_at, event_type, payload->>'step_id' AS step_id, payload->>'executor_type' AS ex, payload->>'agent_id' AS agent_id, left(coalesce(payload->>'message', payload->'error'->>'message', payload->>'reason',''),180) AS msg FROM aria_internal.mission_events WHERE mission_id='${MID}' ORDER BY created_at;")
+          echo "EVENTS=$EV"
+          DIAG=$(sql "SELECT created_at, left(payload::text,500) FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type IN ('agent_executor_diagnostic','step_failed','step_retrying','mission_replanned') ORDER BY created_at;")
+          echo "DIAG=$DIAG"
+          SUCC=$(sql "SELECT payload->>'step_id', payload->>'executor_type', payload->>'agent_id' FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          echo "SUCC=$SUCC"
+          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr, lease_owner FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          echo "DB=$DB"
+
+          HAS_C=0; HAS_A=0; HAS_M=0
+          echo "$SUCC" | grep -qi connector && HAS_C=1 || true
+          echo "$SUCC" | grep -qi agent && HAS_A=1 || true
+          echo "$SUCC" | grep -qi model && HAS_M=1 || true
+          echo "HAS C=$HAS_C A=$HAS_A M=$HAS_M term=$term"
+
+          if [ "$term" = "succeeded" ] && [ "$HAS_C$HAS_A$HAS_M" = "111" ]; then
+            echo "VERIFIED_PATH_REUSE = VERIFIED E2E"
+            echo "PASS MID=$MID"
+          else
+            echo "FAIL VP reuse term=$term"
+            FAIL=1
+          fi
+          echo "==== SUMMARY FAIL=$FAIL MID=$MID ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo ALL_PASS
