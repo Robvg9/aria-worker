@@ -11,6 +11,7 @@ const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), 
 const bearer = (request: Request) => { const h = request.headers.get("authorization") ?? ""; return h.startsWith("Bearer ") ? h.slice(7) : null; };
 const equal = (a: string, b: string) => { const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b); if (x.length !== y.length) return false; let d=0; for(let i=0;i<x.length;i++) d|=x[i]^y[i]; return d===0; };
 const sha256 = async (value:string) => { const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value)); return Array.from(new Uint8Array(bytes)).map(x=>x.toString(16).padStart(2,"0")).join(""); };
+function invalidateSearchCache(_ownerUserId:string|null=null){ /* search is RPC-backed; no process-local cache to clear */ }
 async function embedding(text:string){ const value=await model.run(text,{mean_pool:true,normalize:true}); return Array.from(value as number[]); }
 function userScope(request: Request, body: Record<string, unknown>) {
   const header = request.headers.get("x-aria-user-id") ?? "";
