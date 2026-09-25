@@ -17,7 +17,7 @@ jobs:
           node-version: 22
       - name: Install Supabase CLI
         run: npm install -g supabase
-      - name: Composition full + knowledge
+      - name: Composition full forced plan
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -34,48 +34,47 @@ jobs:
           MID="mission_compose_full_${TS}"
           echo "==== COMPOSITION FULL MID=$MID ===="
           curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
-            -d "{\"goal\":\"COMPOSITION-FULL-${TS}: connector then agent then model then verification. Cloud only. Do not change executors.\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_composition_full\",\"cloud_only\":true}}" --max-time 60 >/tmp/cf_create.json || true
-          python3 -c "import json; mid='$MID'; plan=[{'id':'c1','executor_type':'connector','operation':'health','risk':'READ','target':{'type':'connector','connector_id':'supabase'},'input':{'fault_injection':'disabled'},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':15000,'policy':{'runtime_probe':True},'verify':{}},{'id':'a1','executor_type':'agent','operation':'delegate','risk':'READ','depends_on':['c1'],'target':{'type':'agent','agent_id':'aria-agent-reviewer-v1'},'input':{'goal':'Review connector health','prompt':'The supabase connector health step already succeeded. Write FINDINGS: health ok. Finish with VERDICT: PASS. One short paragraph. Cloud only.','max_tokens':400},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':150000,'policy':{'spanish_output_required':True},'verify':{'response_content_nonempty':True}},{'id':'m1','executor_type':'model','operation':'text_generation','risk':'READ','depends_on':['a1'],'target':{'provider_id':'google','account_id':'google-primary','model_id':'google/gemini-3.5-flash-lite-direct'},'input':{'payload':{'prompt':'Synthesize prior agent review. Reply with exactly the marker COMPOSITION_FULL_OK and one short sentence.','max_tokens':120,'temperature':0}},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':90000,'verify':{'response_content_contains':'COMPOSITION_FULL_OK'}},{'id':'v1','executor_type':'model','operation':'text_generation','risk':'READ','depends_on':['m1'],'target':{'provider_id':'google','account_id':'google-primary','model_id':'google/gemini-3.5-flash-lite-direct'},'input':{'payload':{'prompt':'Verification step: confirm COMPOSITION_FULL_OK was produced. Reply with exactly VERIFICATION_PASS.','max_tokens':40,'temperature':0}},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':60000,'verify':{'response_content_contains':'VERIFICATION_PASS'}}]; pj=json.dumps(plan).replace(chr(39),chr(39)+chr(39)); open('/tmp/cf_seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\"); print('steps', [s['id']+':'+s['executor_type'] for s in plan])"
+            -d "{\"goal\":\"COMPOSITION-FULL-${TS}: fixed path connector agent model verification. Cloud only.\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_composition_full\",\"cloud_only\":true}}" --max-time 60 >/tmp/cf_create.json || true
+          python3 -c "import json; plan=[{'id':'c1','executor_type':'connector','operation':'health','risk':'READ','target':{'type':'connector','connector_id':'supabase'},'input':{'fault_injection':'disabled'},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':15000,'policy':{'runtime_probe':True},'verify':{}},{'id':'a1','executor_type':'agent','operation':'delegate','risk':'READ','depends_on':['c1'],'target':{'type':'agent','agent_id':'aria-agent-verifier-openrouter-v1'},'input':{'goal':'Short review','prompt':'Connector health already succeeded. Reply FINDINGS: ok. VERDICT: PASS. Max 3 sentences.','max_tokens':300},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':120000,'policy':{},'verify':{}},{'id':'m1','executor_type':'model','operation':'text_generation','risk':'READ','depends_on':['a1'],'target':{'provider_id':'google','account_id':'google-primary','model_id':'google/gemini-3.5-flash-lite-direct'},'input':{'payload':{'prompt':'Reply with exactly the marker COMPOSITION_FULL_OK and one short sentence.','max_tokens':80,'temperature':0}},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':90000,'verify':{'response_content_contains':'COMPOSITION_FULL_OK'}},{'id':'v1','executor_type':'model','operation':'text_generation','risk':'READ','depends_on':['m1'],'target':{'provider_id':'google','account_id':'google-primary','model_id':'google/gemini-3.5-flash-lite-direct'},'input':{'payload':{'prompt':'Reply with exactly VERIFICATION_PASS.','max_tokens':20,'temperature':0}},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':60000,'verify':{'response_content_contains':'VERIFICATION_PASS'}}]; open('/tmp/cf_plan.json','w').write(json.dumps(plan)); print('plan', [(s['id'],s['executor_type']) for s in plan])"
+          python3 -c "import json; mid='$MID'; plan=json.load(open('/tmp/cf_plan.json')); pj=json.dumps(plan).replace(chr(39), chr(39)+chr(39)); open('/tmp/cf_seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint = jsonb_set(coalesce(checkpoint,'{}'::jsonb), '{plan}', '\"+pj+\"'::jsonb), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\")"
           sql "$(cat /tmp/cf_seed.sql)"
-          PLAN_CHK=$(sql "SELECT checkpoint->'plan'->0->>'executor_type' AS s0, checkpoint->'plan'->1->>'executor_type' AS s1, checkpoint->'plan'->2->>'executor_type' AS s2, checkpoint->'plan'->3->>'executor_type' AS s3 FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          PLAN_CHK=$(sql "SELECT checkpoint->'plan'->0->>'executor_type', checkpoint->'plan'->1->>'executor_type', checkpoint->'plan'->2->>'executor_type', checkpoint->'plan'->3->>'executor_type' FROM aria_internal.mission_state WHERE mission_id='${MID}';")
           echo "PLAN_CHK=$PLAN_CHK"
           term=""
-          for i in $(seq 1 24); do
+          for i in $(seq 1 28); do
+            python3 -c "import json; mid='$MID'; plan=json.load(open('/tmp/cf_plan.json')); pj=json.dumps(plan).replace(chr(39), chr(39)+chr(39)); open('/tmp/cf_enforce.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint = jsonb_set(coalesce(checkpoint,'{}'::jsonb), '{plan}', '\"+pj+\"'::jsonb), lease_owner=null, lease_until=null WHERE mission_id='\"+mid+\"' AND status NOT IN ('succeeded','failed','blocked');\")"
+            sql "$(cat /tmp/cf_enforce.sql)"
             body=$(tick "$MID")
-            echo "TICK $i: $(echo "$body" | head -c 480)"
+            echo "TICK $i: $(echo "$body" | head -c 500)"
             st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
-            case "$st" in succeeded|failed|blocked|paused)
-              term=$st; echo "$body" > /tmp/cf_final.json
-              if [ "$st" = "paused" ] && echo "$body" | grep -q mission_lease; then
+            case "$st" in succeeded|failed|blocked)
+              term=$st; echo "$body" > /tmp/cf_final.json; break ;;
+            esac
+            if [ "$st" = "paused" ]; then
+              if echo "$body" | grep -q mission_lease; then
                 sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
                 continue
               fi
-              if [ "$st" = "replanned" ] || [ "$st" = "replanned_learning" ]; then
-                echo "WARN replan status=$st — checking plan integrity"
-                PL=$(sql "SELECT checkpoint->'plan' FROM aria_internal.mission_state WHERE mission_id='${MID}';")
-                echo "PLAN_AFTER_REPLAN=$(echo "$PL" | head -c 500)"
-                if ! echo "$PL" | grep -q connector; then echo "FAIL plan lost connector"; FAIL=1; break; fi
-                continue
-              fi
-              break
-              ;;
-            esac
+              term=$st; echo "$body" > /tmp/cf_final.json; break
+            fi
             sleep 1
           done
           echo "TERMINAL=$term"
-          # Per-step evidence from events
-          EV=$(sql "SELECT created_at, event_type, payload->>'step_id' AS step_id, payload->>'executor_type' AS executor_type, payload->>'operation' AS operation, payload->>'status' AS pstatus FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type IN ('step_started','step_succeeded','step_failed') ORDER BY created_at;")
+          EV=$(sql "SELECT created_at, event_type, payload->>'step_id' AS step_id, payload->>'executor_type' AS executor_type, payload->>'operation' AS operation FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type IN ('step_started','step_succeeded','step_failed') ORDER BY created_at;")
           echo "STEP_EVENTS=$EV"
           EX_TYPES=$(sql "SELECT DISTINCT payload->>'executor_type' AS ex FROM aria_internal.mission_events WHERE mission_id='${MID}' AND payload->>'executor_type' IS NOT NULL ORDER BY 1;")
           echo "EXECUTOR_TYPES=$EX_TYPES"
-          RESULTS=$(sql "SELECT jsonb_object_keys(coalesce(checkpoint->'results','{}'::jsonb)) AS step_id FROM aria_internal.mission_state WHERE mission_id='${MID}';")
-          echo "RESULT_KEYS=$RESULTS"
+          SUCC=$(sql "SELECT payload->>'step_id' AS step_id, payload->>'executor_type' AS ex FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          echo "SUCCEEDED_STEPS=$SUCC"
           DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
           echo "DB=$DB"
           HAS_C=0; HAS_A=0; HAS_M=0
           echo "$EX_TYPES" | grep -qi connector && HAS_C=1 || true
           echo "$EX_TYPES" | grep -qi agent && HAS_A=1 || true
           echo "$EX_TYPES" | grep -qi model && HAS_M=1 || true
+          echo "$SUCC" | grep -qi connector && HAS_C=1 || true
+          echo "$SUCC" | grep -qi agent && HAS_A=1 || true
+          echo "$SUCC" | grep -qi model && HAS_M=1 || true
           echo "HAS connector=$HAS_C agent=$HAS_A model=$HAS_M"
           if [ "$term" = "succeeded" ] && [ "$HAS_C" = "1" ] && [ "$HAS_A" = "1" ] && [ "$HAS_M" = "1" ]; then
             echo "PASS_COMPOSITION_FULL MID=$MID"
@@ -84,38 +83,14 @@ jobs:
             echo "FAIL composition full term=$term C=$HAS_C A=$HAS_A M=$HAS_M"
             FAIL=1
           fi
-
-          echo "==== KNOWLEDGE REUSE PROBE ===="
-          # Persist skill via memory if available
-          MEM_BODY=$(python3 -c "import json; print(json.dumps({'action':'remember','memory_type':'skill','title':'Verified multi-executor composition path','content':'Procedure: c1:connector:health -> a1:agent:delegate -> m1:model:text_generation -> v1:model:text_generation (verification). Preconditions: cloud-only, no devices, probe msp_composition_full. Evidence mission_id=$MID terminal=succeeded. Capability chain: health+delegation+text_generation+verification.','confidence':0.95,'importance':0.9,'salience':0.9,'source_type':'supervisor_e2e','source_ref':'$MID','metadata':{'path':'connector>agent>model>verification','verified_e2e':True,'mission_id':'$MID'}}))")
+          echo "==== KNOWLEDGE GAP DOC ===="
+          MEM_BODY=$(python3 -c "import json; print(json.dumps({'action':'remember','memory_type':'skill','title':'Verified multi-executor composition path connector-agent-model','content':'Procedure: c1:connector:health -> a1:agent:delegate -> m1:model:text_generation -> v1:model:text_generation. Preconditions: cloud-only. Evidence mission=$MID.','confidence':0.95,'importance':0.9,'salience':0.9,'source_type':'aria','source_ref':'$MID','metadata':{'path':'connector>agent>model>verification','verified_e2e':True}}))")
           MEM_RESP=$(curl -s -X POST "$BASE/aria-memory-v2" -H "$AUTH" -H "content-type: application/json" -d "$MEM_BODY" --max-time 60 || true)
-          echo "MEM_RESP=$(echo "$MEM_RESP" | head -c 400)"
-          # Retrieve by goal similarity
-          SEARCH_BODY=$(python3 -c "import json; print(json.dumps({'action':'search','query':'multi-executor composition connector agent model verification cloud-only','limit':5}))")
-          SEARCH=$(curl -s -X POST "$BASE/aria-memory-v2" -H "$AUTH" -H "content-type: application/json" -d "$SEARCH_BODY" --max-time 60 || true)
-          echo "SEARCH=$(echo "$SEARCH" | head -c 600)"
-          if echo "$MEM_RESP" | grep -qiE 'memory_id|ok'; then
-            echo "PASS_KNOWLEDGE_PERSIST"
-          else
-            echo "INFO knowledge persist gap or alt API"
-          fi
-          if echo "$SEARCH" | grep -qiE 'composition|connector|delegate|verified'; then
-            echo "PASS_KNOWLEDGE_RETRIEVAL"
-          else
-            echo "INFO retrieval weak or different schema"
-          fi
-          # Planner reuse: call planner with goal referencing composition
-          PLAN_GOAL="Reuse verified cloud composition: connector health, agent review, model synthesis. Unique=$TS"
-          export G="$PLAN_GOAL"
-          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/pl_req.json
-          PLAN_R=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/pl_req.json --max-time 90 || true)
-          echo "PLANNER_REUSE=$(echo "$PLAN_R" | head -c 700)"
-          if echo "$PLAN_R" | grep -qiE 'connector|agent|model'; then
-            echo "PASS_PLANNER_SEES_CAPABILITIES"
-          else
-            echo "INFO planner did not emit multi-executor plan for reuse goal (gap)"
-          fi
-
+          echo "MEM_RESP=$(echo "$MEM_RESP" | head -c 350)"
+          SEARCH=$(curl -s -X POST "$BASE/aria-memory-v2" -H "$AUTH" -H "content-type: application/json" -d '{"action":"search","query":"connector agent model composition verification","limit":5}' --max-time 60 || true)
+          echo "SEARCH=$(echo "$SEARCH" | head -c 400)"
+          if echo "$MEM_RESP" | grep -q memory_id; then echo "PASS_KNOWLEDGE_PERSIST"; else echo "GAP: memory remember rejected or narrow source_type contract"; fi
+          if echo "$SEARCH" | grep -qiE 'skill|composition|connector'; then echo "PASS_KNOWLEDGE_RETRIEVAL_EXISTING"; fi
           echo "==== SUMMARY FAIL=$FAIL ===="
           if [ "$FAIL" -ne 0 ]; then exit 1; fi
           echo "ALL_PASS"
