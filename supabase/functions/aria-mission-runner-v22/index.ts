@@ -879,7 +879,14 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
     ? step.authorization
     : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
 
+  const injectFault = typeof step?.input?.fault_injection === "string" ? String(step.input.fault_injection) : "";
+  const injectAll = step?.input?.fault_all_routes === true;
   for (const route of routes) {
+    const isPrimary = route.provider_id === primary.provider_id && route.account_id === primary.account_id && route.model_id === primary.model_id;
+    const doInject = injectFault && (injectAll || isPrimary);
+    const authForRoute = doInject
+      ? { ...authorization, evidence_ref: `live-resilience-inject:${missionId}:${step.id}` }
+      : authorization;
     const response = await fetch(EXEC, {
       method: "POST",
       headers: downstreamHeaders(auth),
@@ -889,10 +896,17 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
         task_id: step.id,
         capability: String(step.operation),
         selected_route: route,
-        authorization,
+        authorization: authForRoute,
         input: step.input || {},
         policy: step.policy || {},
-        metadata: { mission_id: missionId, step_id: step.id, executor_type: "model", runner: V, fallback_route: route.model_id !== primary.model_id },
+        metadata: {
+          mission_id: missionId,
+          step_id: step.id,
+          executor_type: "model",
+          runner: V,
+          fallback_route: route.model_id !== primary.model_id,
+          ...(doInject ? { fault_injection: injectFault } : {}),
+        },
       }),
     });
     const body = await response.json().catch(() => null);
