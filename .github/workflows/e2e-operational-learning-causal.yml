@@ -30,8 +30,8 @@ jobs:
           ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
         run: |
           set -euo pipefail
-          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
-          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          export BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          export AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
           supabase link --project-ref "$SUPABASE_PROJECT_REF"
           sql() { supabase db query --linked "$1" || true; }
           tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
