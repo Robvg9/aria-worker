@@ -959,9 +959,12 @@ async function agentExecute(missionId: string, step: any, auth: AuthContext) {
 
     const providerStatus = Number(body?.error?.provider_status ?? body?.provider_status ?? response.status);
     const message = String(body?.error?.message || body?.error || `agent_execution_${response.status}`);
-    const retryableQuota = providerStatus === 429 || /quota|rate.?limit|too many requests|resource exhausted/i.test(message);
+    const retryableProviderFailure =
+      providerStatus === 429
+      || providerStatus >= 500
+      || /quota|rate.?limit|too many requests|resource exhausted|timed out|timeout|network|fetch failed|connection reset|gateway/i.test(message);
 
-    if (!retryableQuota) throw new Error(message);
+    if (!retryableProviderFailure) throw new Error(message);
 
     const fallback = AGENT_RECOVERY_FALLBACKS[agentId];
     if (!fallback || attempted.has(fallback)) throw new Error(message);
