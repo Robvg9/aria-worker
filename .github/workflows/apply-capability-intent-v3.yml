@@ -1,0 +1,45 @@
+name: Apply capability intent v3 required-only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace capability-intent block
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-planner-v11/index.ts")
+          frag = Path("tools/patches/capability-intent-planner.fragment.ts").read_text()
+          t = p.read_text()
+          start = t.find("async function extractCapabilityIntent")
+          end = t.find("Deno.serve(async r=>{")
+          if start < 0 or end < 0:
+              raise SystemExit(f"markers missing start={start} end={end}")
+          t = t[:start] + frag + t[end:]
+          # ensure call site version string
+          t = t.replace("aria-planner-v11-capability-intent-v1", "aria-planner-v11-capability-intent-v2")
+          p.write_text(t)
+          code = p.read_text()
+          assert "required_only_v1" in code
+          assert "requiredCaps" in code
+          assert "optional_capabilities_skipped" in code
+          assert "selection_reason":"required_capability" in code or 'selection_reason:"required_capability"' in code
+          print("PATCHED_V3_OK")
+          PY
+      - name: Commit
+        run: |
+          git config user.name aria-ci
+          git config user.email aria-ci@users.noreply.github.com
+          git add supabase/functions/aria-planner-v11/index.ts tools/patches/capability-intent-planner.fragment.ts
+          if git diff --cached --quiet; then echo no_changes; exit 0; fi
+          git commit -m "fix(planner): required-only capability→executor selection v2"
+          git push origin HEAD:main
