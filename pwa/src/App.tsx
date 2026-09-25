@@ -291,30 +291,34 @@ function humanStepTitle(step: any, fallbackIndex = 1): string {
 }
 
 function executionPlanForMission(mission: any): string[] {
-  const goal = String(mission?.goal ?? '').toLowerCase();
-  if (/rwht|real world human|auditoría|auditoria|recorre.*interfaz|botón|botones/.test(goal)) {
-    return [
-      'Interpretar el objetivo y definir la cobertura que debe comprobarse.',
-      'Identificar las capacidades necesarias para realizar la revisión.',
-      'Seleccionar el dispositivo Windows disponible y comprobar que responde.',
-      'Abrir la aplicación objetivo y verificar que está lista para usarse.',
-      'Recorrer la interfaz sección por sección y observar cada elemento.',
-      'Ejecutar únicamente acciones seguras y comprobar cada resultado.',
-      'Registrar bugs, bloqueos y problemas de experiencia de usuario con evidencia.',
-      'Volver a comprobar los hallazgos importantes para evitar falsos positivos.',
-      'Guardar la evidencia real de lo observado y de cada acción ejecutada.',
-      'Generar un resultado final humano, claro y completamente en español.'
-    ];
+  const steps = Array.isArray(mission?.steps) && mission.steps.length
+    ? mission.steps
+    : Array.isArray(mission?.checkpoint?.plan) ? mission.checkpoint.plan : [];
+  if (steps.length) {
+    return steps.map((step: any, index: number) => {
+      const id = String(step?.id || '').toLowerCase();
+      const specialized: Record<string,string> = {
+        'all_for_one_scope_1': 'Definir la cobertura forense y la evidencia que debe obtenerse.',
+        'all_for_one_architecture_runtime': 'Auditar arquitectura y runtime.',
+        'all_for_one_data_memory_learning': 'Auditar datos, memoria y aprendizaje.',
+        'all_for_one_planning_reasoning': 'Auditar planificación y razonamiento.',
+        'all_for_one_execution_verification': 'Auditar ejecución, verificación y cierre.',
+        'all_for_one_models_routing': 'Auditar modelos, capacidades y routing.',
+        'all_for_one_agents_devices_tools': 'Auditar agentes, dispositivos y herramientas conectadas.',
+        'all_for_one_security_recovery': 'Auditar seguridad, recuperación y resiliencia.',
+        'all_for_one_productivity_ux': 'Auditar velocidad, productividad y experiencia de uso.',
+        'all_for_one_arbiter_10': 'Integrar los hallazgos y construir el plan de mejora priorizado.',
+      };
+      return specialized[id] || humanStepTitle(step, index + 1);
+    });
   }
-  if (/diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|computer\.use/.test(goal)) {
+  const goal = String(mission?.goal ?? '').toLowerCase();
+  if (/all\s*for\s*one|todos?\s+para\s+uno/.test(goal)) {
     return [
-      'Interpretar el problema y convertirlo en una comprobación concreta.',
-      'Recuperar el contexto necesario antes de empezar.',
-      'Comprobar estado, capacidades y disponibilidad del recurso Windows.',
-      'Comprobar gateway, cola y reclamación del trabajo.',
-      'Probar la ruta de ejecución con una acción segura y verificable.',
-      'Comparar el resultado con lo esperado para aislar la causa raíz.',
-      'Guardar evidencia suficiente y explicar la solución o el bloqueo en español.'
+      'Definir la cobertura forense y la evidencia que debe obtenerse.',
+      'Auditar arquitectura, ejecución y capacidades de ARIA.',
+      'Contrastar hallazgos con modelos y agentes especializados.',
+      'Integrar contradicciones, causas raíz y mejoras verificables.'
     ];
   }
   return [
@@ -329,25 +333,29 @@ function executionPlanForMission(mission: any): string[] {
 }
 
 function executionPlanState(index: number, mission: any, events: any[]): 'done' | 'current' | 'pending' {
+  const steps = Array.isArray(mission?.steps) && mission.steps.length
+    ? mission.steps
+    : Array.isArray(mission?.checkpoint?.plan) ? mission.checkpoint.plan : [];
+  if (steps.length) {
+    const step = steps[index];
+    const stepStatus = String(step?.status || '').toLowerCase();
+    if (['succeeded', 'skipped', 'completed'].includes(stepStatus)) return 'done';
+    if (['running', 'failed', 'blocked', 'waiting'].includes(stepStatus)) return 'current';
+    if (Number(mission?.current_step ?? -1) === index || Number(step?.index ?? -1) === index + 1) return 'current';
+    const current = Number(mission?.current_step ?? -1);
+    if (current === index) return 'current';
+    return 'pending';
+  }
+
   const types = new Set((events ?? []).map((e: any) => String(e?.event_type ?? '').toLowerCase()));
-  const steps = Array.isArray(mission?.steps) ? mission.steps : [];
-  const isComputerUse = Array.from(types).some((type) => type.startsWith('computer_use_'));
   if (index === 0 && (types.has('cognitive_recall_completed') || types.has('cognitive_planning_context_used'))) return 'done';
-  if (index === 1 && (types.has('computer_use_capabilities_confirmed') || types.has('step_batch_started'))) return 'done';
-  if (index === 2 && types.has('computer_use_device_confirmed')) return 'done';
-  if (index === 3 && (types.has('computer_use_observation_completed') || events.some((e: any) => /computer\.use/i.test(String(e?.payload?.operation ?? '')) && String(e?.event_type ?? '').toLowerCase() === 'step_succeeded'))) return 'done';
-  if (index === 4 && types.has('computer_use_observation_completed')) return 'done';
-  if (index === 5 && types.has('computer_use_decision_made')) return 'done';
-  if (index === 6 && types.has('computer_use_action_executed')) return 'done';
-  if (index === 7 && types.has('computer_use_verification_completed')) return 'done';
-  if (index === 8 && (types.has('computer_use_action_executed') || types.has('computer_use_verification_completed')) && Number(steps.filter((s:any)=>String(s?.status)==='succeeded').length) > 0) return 'done';
-  if (index === 9 && (types.has('mission_verified') || String(mission?.status ?? '').toLowerCase() === 'succeeded')) return 'done';
-  if (index >= 4 && !isComputerUse && String(mission?.status ?? '').toLowerCase() === 'succeeded') return 'done';
+  if (index === 1 && types.has('step_batch_started')) return 'done';
+  if (index === 2 && String(mission?.status ?? '').toLowerCase() === 'succeeded') return 'done';
   const current = Number(mission?.current_step ?? 0);
-  if (index === Math.max(0, current)) return 'current';
-  if (isComputerUse && index === 4) return 'current';
+  if (index === current) return 'current';
   return 'pending';
 }
+
 function directActionText(step: any, latest: any): string {
   const op = String(step?.operation ?? latest?.payload?.operation ?? '').trim().toLowerCase();
   const resource = executionResource(latest, step);
@@ -1085,15 +1093,15 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
         {mission?.block_details && (status === 'blocked' || status === 'waiting' || status === 'failed' || status === 'paused' || mission.block_details.kind === 'replan_required' || mission.block_details.kind === 'human_gate') && (
           <div className='detailResult recoveryPanel'>
             <div className='panelTitle'>{mission.block_details.kind === 'human_gate' ? 'HUMAN GATE · QUÉ FALTA' : 'BLOQUEO · QUÉ FALTA'}</div>
-            <div className='recoveryExplanation'><strong>{mission.block_details.explanation || mission.block_details.reason || 'La misión necesita una intervención antes de continuar.'}</strong><p>{mission.block_details.reason}</p></div>
-            <div className='recoverySteps'><strong>Cómo solucionarlo</strong>{(mission.block_details.steps?.length ? mission.block_details.steps : [mission.block_details.remediation || mission.block_details.next_action || 'Revisar el diagnóstico y corregir la causa.','Cuando quede resuelto, vuelve a ejecutar la misión.']).map((stepText: string, index: number) => <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>)}</div>
+            <div className='recoveryExplanation'><strong>{mission.block_details.explanation || mission.block_details.reason || 'La misión necesita una intervención antes de continuar.'}</strong></div>
+            <div className='recoverySteps'><strong>Cómo desbloquearla</strong>{(mission.block_details.steps?.length ? mission.block_details.steps : [mission.block_details.remediation || mission.block_details.next_action || 'Revisar el diagnóstico y corregir la causa.','Cuando quede resuelto, vuelve a ejecutar la misión.']).map((stepText: string, index: number) => <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>)}</div>
             <div className='recoveryActions'>
               {mission.block_details.link && <a className='ghost recoveryLink' href={mission.block_details.link} target='_blank' rel='noreferrer'>{mission.block_details.link_label || 'Abrir recurso relacionado'}</a>}
               {onRetry && mission.block_details.retry_ready !== false && <button className='primary' disabled={retrying || cancelling} onClick={async () => { setRetrying(true); setRetryError(''); try { await onRetry(); } catch (e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); } }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>}
             </div>
             {retryError && <div className='errorBox'>{retryError}</div>}
             {cancelError && <div className='errorBox'>{cancelError}</div>}
-            {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
+            <div className='muted recoveryMode'><strong>Recuperación:</strong> {mission.block_details.recoverable ? 'ARIA puede volver a intentar con una estrategia distinta.' : 'Necesita una capacidad o intervención nueva.'}</div>{mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
           </div>
         )}
         {mission?.block_details && (
@@ -1108,7 +1116,7 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
             {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
           </div>
         )}
-        <div className='detailResult'>
+        {status !== 'blocked' && <div className='detailResult'>
           <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
           <div className='objectiveStatusBanner'>
             <strong>{summary.objective.label}</strong>
@@ -1122,7 +1130,7 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
             <div><strong>{summary.result ? 'Resultado obtenido' : 'Resultado esperado'}</strong><p>{summary.expected}</p></div>
           </div>
           <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{summary.result ? renderMarkdown(summary.result) : <p>{status === 'succeeded' ? 'La misión terminó, pero ARIA no generó un texto final presentable. La evidencia detallada sigue disponible abajo.' : 'ARIA todavía no tiene una respuesta final presentable. El diagnóstico y la evidencia siguen disponibles.'}</p>}</div></div>
-        </div>
+        </div>}
         {!terminal && onCancel && (
           <div className='detailResult missionCancelPanel'>
             <div className='panelTitle'>CONTROL DE MISIÓN</div>
