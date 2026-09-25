@@ -1,0 +1,218 @@
+name: E2E operational learning causal influence
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/e2e-operational-learning-causal.yml
+
+permissions:
+  contents: read
+
+jobs:
+  causal:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[RUN-OL-CAUSAL]')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Controlled causal E2E
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+
+          run_planned_mission() {
+            local LABEL="$1"
+            local GOAL="$2"
+            local STEPS_FILE="$3"
+            MID="mission_ol_${LABEL}_$(date +%s%3N)"
+            export MID GOAL STEPS_FILE
+            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"goal\":$(python3 -c 'import json,os; print(json.dumps(os.environ["GOAL"]))'),\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"operational_learning_causal\",\"cloud_only\":true}}" --max-time 60 >/dev/null
+            python3 <<'PY'
+          import json, os
+          steps=json.load(open(os.environ["STEPS_FILE"]))
+          mid=os.environ["MID"]
+          pj=json.dumps(steps).replace("'", "''")
+          open("/tmp/seed.sql","w").write(
+            "UPDATE aria_internal.mission_state SET "
+            "checkpoint=jsonb_build_object('plan','"+pj+"'::jsonb),"
+            "status='queued',lease_owner=null,lease_until=null,next_action=null "
+            "WHERE mission_id='"+mid+"';"
+          )
+          PY
+            sql "$(cat /tmp/seed.sql)"
+            term=""
+            for i in $(seq 1 18); do
+              body=$(tick "$MID")
+              echo "TICK $LABEL $i: $(echo "$body" | head -c 350)"
+              st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+              case "$st" in succeeded|failed|blocked) term=$st; break ;; esac
+              if [ "$st" = "paused" ]; then
+                if echo "$body" | grep -q mission_lease; then
+                  sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+                  continue
+                fi
+                term=$st; break
+              fi
+              sleep 1
+            done
+            DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='$MID';")
+            echo "TERMINAL_$LABEL=$term"
+            echo "DB_$LABEL=$DB"
+            echo "$MID" > "/tmp/mid_$LABEL.txt"
+            if [ "$term" != "succeeded" ]; then echo "FAIL $LABEL terminal=$term"; exit 1; fi
+          }
+
+          GOAL="Verifica la disponibilidad de la infraestructura cloud y genera una síntesis final del estado con validación del resultado. Solo nube. Unique=$(date +%s%N)"
+
+          echo "==== BASELINE PLANNER + MISSION ===="
+          python3 - <<'PY'
+          import json, os, urllib.request
+          goal=os.environ["GOAL"]
+          url=os.environ["BASE"]+"/aria-planner-v11"
+          req=urllib.request.Request(url,data=json.dumps({"goal":goal}).encode(),headers={"Authorization":"Bearer "+os.environ["ARIA_RUNTIME_SHARED_SECRET"],"content-type":"application/json"},method="POST")
+          with urllib.request.urlopen(req,timeout=120) as r: p=json.load(r)
+          plan=p.get("plan") or p
+          steps=plan.get("steps") or []
+          order=[(s.get("selection") or {}).get("capability_intent") for s in steps]
+          print("BASELINE_PLANNER",plan.get("planner_version") or p.get("planner_version"))
+          print("BASELINE_ORDER",json.dumps(order))
+          if order != ["infrastructure_health","synthesis","verification"]:
+            raise SystemExit("FAIL unexpected baseline order: "+repr(order))
+          open("/tmp/steps_baseline.json","w").write(json.dumps(steps))
+          PY
+          run_planned_mission BASELINE "$GOAL" /tmp/steps_baseline.json
+
+          echo "==== CONTROLLED SUCCESS WITH DIFFERENT ORDER ===="
+          python3 - <<'PY'
+          import json
+          steps=json.load(open("/tmp/steps_baseline.json"))
+          by={s["id"]:s for s in steps}
+          m1=by["m1"]; c1=by["c1"]; v1=by["v1"]
+          m1.pop("depends_on",None)
+          c1["depends_on"]=["m1"]
+          v1["depends_on"]=["m1","c1"]
+          ordered=[m1,c1,v1]
+          caps=[(s.get("selection") or {}).get("capability_intent") for s in ordered]
+          if caps != ["synthesis","infrastructure_health","verification"]:
+            raise SystemExit("FAIL controlled order "+repr(caps))
+          open("/tmp/steps_controlled.json","w").write(json.dumps(ordered))
+          print("CONTROLLED_ORDER",json.dumps(caps))
+          PY
+          run_planned_mission CONTROLLED "$GOAL" /tmp/steps_controlled.json
+
+          echo "==== STORE LEARNING FROM REAL CONTROLLED SUCCESS ===="
+          export GOAL
+          python3 <<'PY'
+          import json, os, uuid, datetime, urllib.request
+          mid=open("/tmp/mid_CONTROLLED.txt").read().strip()
+          steps=json.load(open("/tmp/steps_controlled.json"))
+          caps=[(s.get("selection") or {}).get("capability_intent") for s in steps]
+          exs=[s.get("executor_type") for s in steps]
+          rec={
+            "schema":"OPERATIONAL_LEARNING_V1",
+            "learning_id":str(uuid.uuid4()),
+            "mission_id":mid,
+            "goal_context":"infrastructure availability + synthesis + verification",
+            "capability_context":caps,
+            "executor_context":exs,
+            "result":"succeeded",
+            "evidence_refs":[mid],
+            "lesson":"Controlled successful path proves synthesis then infrastructure health then verification can complete",
+            "failure_mode":None,
+            "successful_strategy":{"capability_order":caps,"executor_order":exs},
+            "applicability":"causal operational-learning test, cloud-only",
+            "confidence":0.99,
+            "reusable":True,
+            "created_at":datetime.datetime.utcnow().isoformat()+"Z"
+          }
+          payload={
+            "action":"remember","memory_type":"skill","source_type":"aria",
+            "title":"OPERATIONAL_LEARNING_V1 causal-order "+mid,
+            "content":"OPERATIONAL_LEARNING_V1:\n"+json.dumps(rec,ensure_ascii=False),
+            "source_ref":mid,"confidence":0.99,"importance":0.9,
+            "metadata":{"schema":"OPERATIONAL_LEARNING_V1","mission_id":mid,"reusable":True,"causal_test":True}
+          }
+          req=urllib.request.Request(
+            os.environ["BASE"]+"/aria-memory-v2",
+            data=json.dumps(payload).encode(),
+            headers={"Authorization":"Bearer "+os.environ["ARIA_RUNTIME_SHARED_SECRET"],"content-type":"application/json"},
+            method="POST"
+          )
+          with urllib.request.urlopen(req,timeout=60) as r: resp=json.load(r)
+          print("LEARNING_RESPONSE",json.dumps(resp)[:800])
+          mem=resp.get("memory_id")
+          if not mem: raise SystemExit("FAIL no memory_id")
+          open("/tmp/causal_memory_id.txt","w").write(mem)
+          open("/tmp/causal_learning.json","w").write(json.dumps(rec))
+          PY
+
+          echo "==== CAUSAL PLANNER REUSE ===="
+          export GOAL
+          python3 - <<'PY'
+          import json, os, urllib.request
+          goal=os.environ["GOAL"]
+          req=urllib.request.Request(
+            os.environ["BASE"]+"/aria-planner-v11",
+            data=json.dumps({"goal":goal}).encode(),
+            headers={"Authorization":"Bearer "+os.environ["ARIA_RUNTIME_SHARED_SECRET"],"content-type":"application/json"},
+            method="POST"
+          )
+          with urllib.request.urlopen(req,timeout=120) as r: p=json.load(r)
+          plan=p.get("plan") or p
+          applied=plan.get("operational_learning_applied") or []
+          retrieved=plan.get("operational_learning_retrieved") or []
+          steps=plan.get("steps") or []
+          order=[(s.get("selection") or {}).get("capability_intent") for s in steps]
+          reasons=[(s.get("selection") or {}).get("selection_reason") for s in steps]
+          mem=open("/tmp/causal_memory_id.txt").read().strip()
+          print("CAUSAL_PLANNER",plan.get("planner_version") or p.get("planner_version"))
+          print("CAUSAL_RETRIEVED",json.dumps(retrieved)[:1200])
+          print("CAUSAL_APPLIED",json.dumps(applied)[:1200])
+          print("CAUSAL_ORDER",json.dumps(order))
+          print("CAUSAL_REASONS",json.dumps(reasons))
+          if not applied: raise SystemExit("FAIL no operational_learning_applied")
+          if not any(str(a.get("memory_id"))==mem and a.get("applied") is True for a in applied):
+            raise SystemExit("FAIL causal memory was not the applied learning")
+          expected=["synthesis","infrastructure_health","verification"]
+          if order != expected:
+            raise SystemExit("FAIL learning did not change plan order: "+repr(order))
+          if all("+ol:" not in str(x) for x in reasons):
+            raise SystemExit("FAIL no OL influence marker in selection reasons")
+          baseline=["infrastructure_health","synthesis","verification"]
+          if order == baseline:
+            raise SystemExit("FAIL no observable causal difference from baseline")
+          open("/tmp/steps_causal.json","w").write(json.dumps(steps))
+          PY
+          run_planned_mission CAUSAL "$GOAL" /tmp/steps_causal.json
+
+          echo "==== FINAL DB ASSERTIONS ===="
+          python3 <<'PY'
+          import os, subprocess, json
+          for label in ("BASELINE","CONTROLLED","CAUSAL"):
+            mid=open(f"/tmp/mid_{label}.txt").read().strip()
+            q=f"SELECT mission_id,status,completed_steps,total_steps,last_stderr FROM aria_internal.mission_state WHERE mission_id='{mid}';"
+            out=subprocess.check_output(["bash","-lc",f"supabase db query --linked \"{q}\" || true"],text=True)
+            print("DB_"+label, out[:800])
+            if "succeeded" not in out or "3" not in out:
+              raise SystemExit("FAIL DB terminal assertion "+label)
+          print("CAUSAL_INFLUENCE_PASS")
+          print("OPERATIONAL_LEARNING = VERIFIED E2E")
+          PY
+          echo ALL_PASS
