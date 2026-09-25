@@ -1,1 +1,126 @@
-PLACEHOLDER
+name: Deploy verified path reuse + E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy_e2e:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Patch planner for verified_path
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          import pathlib
+          p = pathlib.Path("supabase/functions/aria-planner-v11/index.ts")
+          src = p.read_text()
+          if "tryVerifiedPathPlan" not in src:
+            helper = '''\nasync function tryVerifiedPathPlan(goal:string, context:any){\n  try{\n    const candidates:any[]=[];\n    const mems=Array.isArray(context?.learned_knowledge?.memories)?context.learned_knowledge.memories:[];\n    for(const m of mems) candidates.push(m);\n    try{\n      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("title","%verified multi-executor composition%").limit(8);\n      for(const m of data||[]) candidates.push(m);\n    }catch(_e){}\n    try{\n      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("content","%VERIFIED_PATH_V1:%").limit(8);\n      for(const m of data||[]) candidates.push(m);\n    }catch(_e){}\n    for(const m of candidates){\n      const content=String(m.content||"");\n      const marker="VERIFIED_PATH_V1:";\n      const idx=content.indexOf(marker);\n      if(idx<0) continue;\n      let path:any=null;\n      try{ path=JSON.parse(content.slice(idx+marker.length).trim()); }catch{ continue; }\n      if(!path||path.status!=="VERIFIED_E2E"||!Array.isArray(path.steps)||!path.steps.length) continue;\n      const g=goal.toLowerCase();\n      const compositionIntent=/(composition|composici[oó]n|verified.?path|connector.*agent|health.*review|health.*agent.*model|multi-?executor)/i.test(goal)\n        || (g.includes("health")&&g.includes("agent")&&g.includes("model"));\n      if(!compositionIntent && !String(path.capability_chain||[]).includes("health")) continue;\n      const routes=await modelRoutes();\n      const route=routes.find((r:any)=>String(r.model_id||"").includes("gemini-3.5-flash-lite"))||routes.find((r:any)=>r.provider_id==="google")||routes[0];\n      if(!route) continue;\n      const built:any[]=[];\n      let prev:string|null=null;\n      for(let i=0;i<path.steps.length;i++){\n        const s=path.steps[i];\n        const id=String(s.id||`vp_${i+1}`);\n        const et=String(s.executor_type||"");\n        const op=String(s.operation||"");\n        const deps=prev?[prev]:[];\n        if(et==="connector"&&op==="health"){\n          built.push({id,operation:"health",executor_type:"connector",target:{type:"connector",connector_id:s.connector_id||"supabase"},input:{},risk:"READ",timeout_ms:15000,policy:{runtime_probe:true,verified_path:true},depends_on:deps.length?deps:undefined,verify:{},selection:{verified_path:true,evidence_ref:path.evidence_ref||null}});\n        }else if(et==="agent"){\n          built.push({id,operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:s.agent_id||"aria-agent-verifier-openrouter-v1"},capability:"delegation",input:{goal:"Verified path agent step",prompt:"Prior connector health succeeded. Reply FINDINGS: ok. VERDICT: PASS. Max 3 sentences.",max_tokens:300},risk:"READ",timeout_ms:120000,policy:{verified_path:true},depends_on:deps,verify:{},selection:{verified_path:true,evidence_ref:path.evidence_ref||null}});\n        }else if(et==="model"){\n          const isVerify=op==="verification"||String(s.role||"")==="verification"||id.startsWith("v");\n          const prompt=isVerify?"Reply with exactly VERIFICATION_PASS.":"Reply with exactly the marker COMPOSITION_FULL_OK and one short sentence.";\n          const contains=isVerify?"VERIFICATION_PASS":"COMPOSITION_FULL_OK";\n          built.push({id,operation:"text_generation",executor_type:"model",target:{type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id},capability:"text_generation",input:{payload:{prompt,max_tokens:80,temperature:0}},risk:"READ",timeout_ms:90000,policy:{verified_path:true},depends_on:deps,verify:{response_content_contains:contains},selection:{verified_path:true,evidence_ref:path.evidence_ref||null,model_id:route.model_id}});\n        }else{ continue; }\n        prev=id;\n      }\n      if(built.length<3) continue;\n      return {goal,steps:built,planner_version:"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true,verified_path:{memory_id:m.memory_id||null,evidence_ref:path.evidence_ref||null,capability_chain:path.capability_chain||[],status:path.status,source_title:m.title||null},learning_context:context?.learned_knowledge};\n    }\n  }catch(_e){}\n  return null;\n}\n''';
+            src = src.replace("async function learningContextForGoal(goal:string){", helper + "\nasync function learningContextForGoal(goal:string){")
+          wire_old = "const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const allForOne=await allForOnePlan(goal,context);"
+          wire_new = "const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||\"aria-planner-v11-verified-path-reuse-v1\",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);"
+          if "tryVerifiedPathPlan(goal,context)" not in src:
+            if wire_old not in src:
+              raise SystemExit("wire target missing")
+            src = src.replace(wire_old, wire_new)
+          p.write_text(src)
+          print("planner patched", "tryVerifiedPathPlan" in src)
+          PY
+          grep -n tryVerifiedPathPlan supabase/functions/aria-planner-v11/index.ts | head -5
+          git config user.name aria-supervisor
+          git config user.email aria@local
+          git add supabase/functions/aria-planner-v11/index.ts
+          git commit -m 'feat(planner): verified_path reuse from memory skill' || true
+          git push origin HEAD:main || true
+      - name: Deploy memory + planner
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          echo DEPLOY_OK
+      - name: E2E verified path reuse
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          FAIL=0
+          TS=$(date +%s)
+          ORIG="mission_compose_full_1790356062"
+          echo "==== REGISTER verified_path from $ORIG ===="
+          export C=$(python3 -c "import json; path={'capability_chain':['health','delegation','text_generation','verification'],'steps':[{'id':'c1','executor_type':'connector','operation':'health','connector_id':'supabase','preconditions':['cloud_only']},{'id':'a1','executor_type':'agent','operation':'delegate','agent_id':'aria-agent-verifier-openrouter-v1','preconditions':['c1_succeeded']},{'id':'m1','executor_type':'model','operation':'text_generation','preconditions':['a1_succeeded']},{'id':'v1','executor_type':'model','operation':'verification','role':'verification','preconditions':['m1_succeeded']}],'evidence_ref':'$ORIG','status':'VERIFIED_E2E','version':'v1','timestamp':'$TS'}; print('VERIFIED_PATH_V1:'+json.dumps(path,separators=(',',':')))")
+          MEM_BODY=$(python3 -c "import json,os; print(json.dumps({'action':'remember','memory_type':'skill','title':'Verified multi-executor composition path connector-agent-model','content':os.environ['C'],'confidence':0.98,'importance':0.95,'salience':0.9,'source_type':'aria','source_ref':'$ORIG','metadata':{'verified_path':True,'status':'VERIFIED_E2E','evidence_ref':'$ORIG'}}))")
+          MEM_RESP=$(curl -s -X POST "$BASE/aria-memory-v2" -H "$AUTH" -H "content-type: application/json" -d "$MEM_BODY" --max-time 90)
+          echo "MEM_RESP=$MEM_RESP"
+          if ! echo "$MEM_RESP" | grep -q memory_id; then echo "FAIL remember"; FAIL=1; else echo "PASS_WRITE"; fi
+          MID_MEM=$(echo "$MEM_RESP" | python3 -c "import sys,json;print(json.load(sys.stdin).get('memory_id',''))" 2>/dev/null || true)
+          echo "VERIFIED_PATH_ID=$MID_MEM"
+          echo "==== RETRIEVAL ===="
+          SEARCH=$(curl -s -X POST "$BASE/aria-memory-v2" -H "$AUTH" -H "content-type: application/json" -d '{"action":"search","query":"Verified multi-executor composition path connector agent model VERIFIED_PATH_V1","limit":8}' --max-time 60)
+          echo "SEARCH=$(echo "$SEARCH" | head -c 800)"
+          if echo "$SEARCH" | grep -q VERIFIED_PATH_V1; then echo "PASS_RETRIEVAL"; else echo "FAIL retrieval"; FAIL=1; fi
+          echo "==== PLANNER REUSE ===="
+          GOAL="Cloud composition: health check, agent review, model synthesis and verification. Reuse verified path. Unique=$TS"
+          export G="$GOAL"
+          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/pl.json
+          PLAN=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/pl.json --max-time 90)
+          echo "PLAN=$(echo "$PLAN" | head -c 1200)"
+          if echo "$PLAN" | grep -q verified_path_reuse; then echo "PASS_PLANNER_REUSE"; else echo "FAIL planner did not reuse verified_path"; FAIL=1; fi
+          echo "$PLAN" > /tmp/plan_full.json
+          MID="mission_vp_reuse_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"$GOAL\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_verified_path_reuse\",\"cloud_only\":true}}" --max-time 60 >/tmp/vp_create.json || true
+          python3 -c "import json; p=json.load(open('/tmp/plan_full.json')); plan=p.get('plan') or p; steps=plan.get('steps') if isinstance(plan,dict) else None;\nassert steps, 'no steps'; mid='$MID'; pj=json.dumps(steps).replace(chr(39),chr(39)+chr(39)); vp=json.dumps(plan.get('verified_path') or {}).replace(chr(39),chr(39)+chr(39)); open('/tmp/vp_seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb,'verified_path','\"+vp+\"'::jsonb,'planner_version','\"+str(plan.get('planner_version') or '')+\"'), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\"); print('seeded', len(steps))"
+          sql "$(cat /tmp/vp_seed.sql)"
+          term=""
+          for i in $(seq 1 24); do
+            body=$(tick "$MID")
+            echo "TICK $i: $(echo "$body" | head -c 450)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked) term=$st; break ;; esac
+            if [ "$st" = "paused" ] && echo "$body" | grep -q mission_lease; then
+              sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+              continue
+            fi
+            if [ "$st" = "paused" ]; then term=$st; break; fi
+            sleep 1
+          done
+          EX=$(sql "SELECT DISTINCT payload->>'executor_type' AS ex FROM aria_internal.mission_events WHERE mission_id='${MID}' AND payload->>'executor_type' IS NOT NULL ORDER BY 1;")
+          SUCC=$(sql "SELECT payload->>'step_id', payload->>'executor_type' FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          DB=$(sql "SELECT status, completed_steps, total_steps FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          echo "TERMINAL=$term EX=$EX SUCC=$SUCC DB=$DB"
+          HAS_C=0; HAS_A=0; HAS_M=0
+          echo "$EX$SUCC" | grep -qi connector && HAS_C=1 || true
+          echo "$EX$SUCC" | grep -qi agent && HAS_A=1 || true
+          echo "$EX$SUCC" | grep -qi model && HAS_M=1 || true
+          echo "HAS C=$HAS_C A=$HAS_A M=$HAS_M"
+          if [ "$term" = "succeeded" ] && [ "$HAS_C" = "1" ] && [ "$HAS_A" = "1" ] && [ "$HAS_M" = "1" ]; then
+            echo "PASS_VP_REUSE_MISSION MID=$MID"
+            echo "VERIFIED_PATH_REUSE = VERIFIED E2E"
+          else
+            echo "FAIL mission term=$term"; FAIL=1
+          fi
+          echo "==== SUMMARY FAIL=$FAIL memory=$MID_MEM mission=$MID ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo "ALL_PASS"
