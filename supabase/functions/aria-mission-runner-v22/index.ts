@@ -1274,18 +1274,155 @@ Deno.serve(async (request) => {
       ? previousRecovery.previous_plan
       : [];
     if (recoveryPreviousPlan.length && planStrategySignature(steps) === planStrategySignature(recoveryPreviousPlan)) {
+      const failedStepIds = Array.isArray(previousRecovery?.failed_step_ids) ? previousRecovery.failed_step_ids.map(String) : [];
+      const failedStepId = failedStepIds[0] || null;
+      const previousResults = previousRecovery?.previous_results && typeof previousRecovery.previous_results === "object"
+        ? previousRecovery.previous_results
+        : {};
+      const failedEvidence = failedStepId && previousResults[failedStepId] ? previousResults[failedStepId] : null;
+      const failureError = failedEvidence?.error && typeof failedEvidence.error === "object"
+        ? failedEvidence.error
+        : null;
+      const failureCode = String(failureError?.code || failedEvidence?.error_code || "executor_error");
+      const failureMessage = String(failureError?.message || failedEvidence?.message || failureCode);
+      const originalGoal = String(mission.goal || "");
+
+      // One governed escape hatch: before declaring an identical strategy terminal,
+      // ask the planner for a materially different strategy using explicit failure
+      // evidence. This is especially important for protocol missions such as All For One.
+      const recoveryGoal = [
+        originalGoal,
+        "",
+        "RECUPERACIÓN OBLIGATORIA DE UNA ESTRATEGIA FALLIDA:",
+        "La estrategia anterior ya falló y el plan generado ahora es idéntico.",
+        "NO repitas el mismo executor_type + operation + target.",
+        "Debes cambiar la ruta de ejecución o dividir el trabajo en especialistas adecuados.",
+        `PASO FALLIDO: ${failedStepId || "desconocido"}`,
+        `ERROR CONFIRMADO: ${failureCode} — ${failureMessage}`,
+        "EVIDENCIA PREVIA: " + JSON.stringify({
+          failed_step: failedEvidence?.operation || null,
+          executor_type: failedEvidence?.executor_type || null,
+          target: failedEvidence?.target || null,
+          result: failedEvidence?.result || failedEvidence?.response || null,
+        }).slice(0,9000),
+        originalGoal.toLowerCase().includes("all for one")
+          ? "PROTOCOLO ALL FOR ONE: usa obligatoriamente una revisión forense multi-modelo + multi-agente, sin convertir la auditoría en una prueba física de interfaz."
+          : "Construye una alternativa gobernada que ataque directamente el objetivo original y cambie la capacidad utilizada."
+      ].join("\n");
+
+      try {
+        const alternateSteps = await createPlan(recoveryGoal, {
+          ...cognitiveContext,
+          recovery_strategy_required: true,
+          identical_strategy_detected: true,
+          failed_step: failedStepId,
+          failed_error: { code: failureCode, message: failureMessage },
+          previous_plan: recoveryPreviousPlan.map((step:any)=>({
+            id:step?.id,
+            executor_type:executorType(step),
+            operation:step?.operation,
+            target:step?.target,
+          })),
+          previous_results: previousResults,
+        }, token);
+
+        const recoveredSteps = applyRecoveryAgentFallbacks(alternateSteps, {
+          replan_required: true,
+          failed_step_ids: failedStepIds,
+          previous_plan: recoveryPreviousPlan,
+          block_details: { failure_code: failureCode, failure_message: failureMessage },
+        });
+        const changedStrategy = Array.isArray(recoveredSteps)
+          && recoveredSteps.length > 0
+          && planStrategySignature(recoveredSteps) !== planStrategySignature(recoveryPreviousPlan);
+
+        if (changedStrategy) {
+          const autoRecovery = {
+            status: "replanned",
+            kind: "automatic_strategy_recovery",
+            recoverable: true,
+            replan_count: Number(previousRecovery?.replan_count || 0) + 1,
+            reason: "ARIA detectó que el plan era idéntico al fallido y generó una estrategia diferente basada en la evidencia del fallo.",
+            next_action: "next_ready_batch",
+            remediation: "ARIA cambió automáticamente la ruta de ejecución antes de volver a intentarlo.",
+            evidence: {
+              failed_step_id: failedStepId,
+              failure_code: failureCode,
+              failure_message: failureMessage,
+              previous_plan_signature: planStrategySignature(recoveryPreviousPlan),
+              new_plan_signature: planStrategySignature(recoveredSteps),
+            },
+            previous_plan: recoveryPreviousPlan,
+            previous_results: previousResults,
+          };
+          await updateMission(missionId, {
+            status: "queued",
+            current_step: 0,
+            completed_steps: 0,
+            next_action: "next_ready_batch",
+            last_stderr: "automatic_strategy_recovery",
+            checkpoint: {
+              ...(mission.checkpoint || {}),
+              plan: recoveredSteps,
+              completed_steps: [],
+              attempts: {},
+              results: {},
+              pending_jobs: {},
+              recovery: autoRecovery,
+              recovery_history: [
+                ...((Array.isArray(mission.checkpoint?.recovery_history) ? mission.checkpoint.recovery_history : []).slice(-4)),
+                {
+                  failed_step_id: failedStepId,
+                  failure_code: failureCode,
+                  failure_message: failureMessage,
+                  previous_plan: recoveryPreviousPlan,
+                  previous_results: previousResults,
+                  recovered_at: new Date().toISOString(),
+                }
+              ],
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          await emitEvent(missionId, "mission_replanned", autoRecovery);
+          return out({
+            ok: true,
+            status: "replanned",
+            mission_id: missionId,
+            runtime: V,
+            next_action: "next_ready_batch",
+            recovery: autoRecovery,
+          });
+        }
+      } catch {
+        // Fall through to a precise human-readable block below.
+      }
+
       const identicalRecovery = {
         status: "hard_block",
-        recoverable: false,
+        recoverable: true,
+        retry_ready: true,
         kind: "identical_replan_strategy",
-        reason: "ARIA volvió a generar la misma estrategia que acaba de fallar; se detiene para evitar un bucle de reintentos.",
-        next_action: "manual: corregir la causa del ejecutor o elegir una ruta distinta antes de reanudar la misión",
-        remediation: "No repetir automáticamente la misma operación/executor/objetivo. La nueva ejecución debe cambiar la estrategia o la capacidad utilizada.",
+        reason: `La estrategia anterior falló en "${failedStepId || "un paso"}" con ${failureCode}: ${failureMessage}.`,
+        explanation: "ARIA detectó que el nuevo plan seguía usando exactamente la misma ruta que ya había fallado.",
+        next_action: "recovery: elegir una capacidad o ruta distinta",
+        remediation: "Desbloqueo: ejecutar una nueva estrategia que cambie el ejecutor, la operación o ambos. ARIA ya conserva la evidencia del fallo para evitar repetirlo.",
+        steps: [
+          `Causa real: ${failureCode} — ${failureMessage}.`,
+          "ARIA intentó una replanificación automática y no encontró una estrategia diferente demostrable.",
+          "Desbloqueo: aportar o habilitar una capacidad alternativa; al reintentar, ARIA debe usar una ruta distinta y conservar esta evidencia."
+        ],
         evidence: {
           replan_count: Number(previousRecovery?.replan_count || 0),
+          failed_step_ids: failedStepIds,
+          operation: failedEvidence?.operation || null,
+          executor_type: failedEvidence?.executor_type || null,
+          target: failedEvidence?.target || null,
+          result_status: failedEvidence?.status || null,
+          failure_code: failureCode,
+          failure_message: failureMessage,
           previous_plan_signature: planStrategySignature(recoveryPreviousPlan),
           current_plan_signature: planStrategySignature(steps),
-          failed_step_ids: Array.isArray(previousRecovery?.failed_step_ids) ? previousRecovery.failed_step_ids : [],
         },
       };
       await updateMission(missionId, {
