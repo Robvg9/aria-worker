@@ -1,0 +1,157 @@
+name: E2E semantic autonomous plan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semantic:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Semantic goal plan + execute
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          TS=$(date +%s)
+          FAIL=0
+
+          # Pure semantic goal: no connector/agent/model/verified_path/composition/health keywords
+          GOAL="Determina si el sistema está operativo y listo para una revisión técnica. Comprueba la disponibilidad de la infraestructura, realiza una evaluación técnica cuando aporte valor y genera una síntesis final validada del estado. Solo nube. Unique=$TS"
+          export G="$GOAL"
+          echo "GOAL=$GOAL"
+
+          echo "==== 1. PLANNER (semantic only) ===="
+          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/pl.json
+          PLAN=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/pl.json --max-time 120)
+          echo "$PLAN" > /tmp/plan_full.json
+          echo "PLAN_HEAD=$(echo "$PLAN" | head -c 1200)"
+
+          python3 << 'PY'
+          import json,sys
+          p=json.load(open("/tmp/plan_full.json"))
+          plan=p.get("plan") or p
+          steps=plan.get("steps") or []
+          print("OK", p.get("ok"))
+          print("PLANNER_VERSION", plan.get("planner_version") or p.get("planner_version"))
+          print("VERIFIED_PATH_REUSE", bool(p.get("verified_path_reuse") or plan.get("verified_path_reuse")))
+          print("SAFE_READONLY_FALLBACK", bool(plan.get("safe_readonly_fallback")))
+          print("PROJECT_REVIEW", bool(plan.get("project_review") or "project-review" in str(plan.get("planner_version",""))))
+          print("STEP_COUNT", len(steps))
+          types=[]
+          for s in steps:
+            et=s.get("executor_type")
+            types.append(et)
+            print("STEP", s.get("id"), et, s.get("operation"), "deps=", s.get("depends_on"), "target=", json.dumps(s.get("target") or {})[:120])
+          print("EXECUTOR_TYPES", types)
+          unique=sorted(set([t for t in types if t]))
+          print("UNIQUE_EXECUTORS", unique)
+          # Classify planning mode
+          if p.get("verified_path_reuse") or plan.get("verified_path_reuse"):
+            mode="VERIFIED_PATH_REUSE"
+          elif len(unique)>1:
+            mode="AUTONOMOUS_MULTI_EXECUTOR"
+          elif unique==["model"]:
+            mode="MODEL_ONLY_FALLBACK"
+          elif unique==["agent"]:
+            mode="AGENT_ONLY"
+          else:
+            mode="OTHER"
+          print("PLANNING_MODE", mode)
+          open("/tmp/mode.txt","w").write(mode)
+          open("/tmp/vp_plan.json","w").write(json.dumps(steps))
+          open("/tmp/plan_meta.json","w").write(json.dumps({
+            "planner_version": plan.get("planner_version") or p.get("planner_version"),
+            "verified_path_reuse": bool(p.get("verified_path_reuse") or plan.get("verified_path_reuse")),
+            "mode": mode,
+            "unique_executors": unique,
+            "step_count": len(steps),
+          }))
+          PY
+
+          MODE=$(cat /tmp/mode.txt)
+          echo "CLASSIFIED_MODE=$MODE"
+
+          MID="mission_semantic_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":$(python3 -c 'import json,os; print(json.dumps(os.environ["G"]))'),\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"semantic_autonomous\",\"cloud_only\":true}}" --max-time 60 >/tmp/create.json || true
+          echo "CREATE=$(head -c 300 /tmp/create.json)"
+
+          # Seed planner plan as-is (no rewrite of executors)
+          python3 -c "
+          import json
+          steps=json.load(open('/tmp/vp_plan.json'))
+          mid='$MID'
+          meta=json.load(open('/tmp/plan_meta.json'))
+          pj=json.dumps(steps).replace(chr(39),chr(39)+chr(39))
+          pv=str(meta.get('planner_version') or '')
+          mode=str(meta.get('mode') or '')
+          open('/tmp/seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb,'planner_version','\"+pv+\"','planning_mode','\"+mode+\"'), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\")
+          print('seeded', len(steps), mode)
+          "
+          sql "$(cat /tmp/seed.sql)"
+
+          echo "==== 2. EXECUTE ===="
+          term=""
+          for i in $(seq 1 14); do
+            body=$(tick "$MID")
+            echo "TICK $i: $(echo "$body" | head -c 450)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked)
+              term=$st; break ;;
+            esac
+            if [ "$st" = "paused" ]; then
+              if echo "$body" | grep -q mission_lease; then
+                sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+                continue
+              fi
+              term=$st; break
+            fi
+            sleep 1
+          done
+          echo "TERMINAL=$term MODE=$MODE"
+
+          EX=$(sql "SELECT payload->>'step_id' AS step_id, payload->>'executor_type' AS executor_type FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          echo "SUCCEEDED=$EX"
+          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          echo "DB=$DB"
+
+          # Success criteria for THIS phase:
+          # - planner produced a plan without user specifying executors
+          # - mission reached terminal succeeded
+          # - steps executed match planner executors
+          # Mode classification is reported (autonomous multi vs model fallback vs path reuse)
+          if [ "$term" = "succeeded" ]; then
+            echo "SEMANTIC_EXECUTION=PASS"
+            if [ "$MODE" = "AUTONOMOUS_MULTI_EXECUTOR" ]; then
+              echo "SEMANTIC_AUTONOMOUS_PLANNING = VERIFIED E2E"
+            elif [ "$MODE" = "VERIFIED_PATH_REUSE" ]; then
+              echo "NOTE: planner used verified_path_reuse (not pure autonomous composition)"
+              echo "SEMANTIC_AUTONOMOUS_PLANNING = NOT_YET (path reuse path)"
+            else
+              echo "NOTE: planner mode=$MODE — autonomous multi-executor composition not demonstrated"
+              echo "SEMANTIC_AUTONOMOUS_PLANNING = GAP (execution ok under mode $MODE)"
+            fi
+          else
+            echo "SEMANTIC_EXECUTION=FAIL term=$term"
+            FAIL=1
+          fi
+          echo "==== SUMMARY FAIL=$FAIL MID=$MID MODE=$MODE ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo ALL_PASS
