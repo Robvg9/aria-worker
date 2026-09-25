@@ -1977,8 +1977,65 @@ Deno.serve(async (request) => {
           });
         }
 
+        // Terminal failed: primary+fallback exhausted on non-retryable steps.
+        // Write status=failed WHILE still holding the lease, then release.
+        const failedStepIdsEarly = failures.map((item) => String(item.step.id));
+        const allNonRetryable = failures.every((item) => item.step.retryable === false);
+        const multiRouteExhausted = failures.some((item) => {
+          const mfs = item.result?.model_execution_failures;
+          const attempts = Number(item.result?.error?.attempts || 0);
+          return attempts >= 2 || (Array.isArray(mfs) && mfs.length >= 2);
+        });
+        if (allNonRetryable && multiRouteExhausted) {
+          const failEvidence = {
+            status: "failed",
+            reason: "all_model_routes_exhausted",
+            failed_step_ids: failedStepIdsEarly,
+            failures: failures.map((item: any) => ({
+              step_id: String(item.step.id),
+              status: item.result?.status ?? null,
+              error: item.result?.error ?? null,
+              model_execution_failures: item.result?.model_execution_failures ?? null,
+              provider_id: item.result?.provider_id ?? item.step?.target?.provider_id ?? null,
+              model_id: item.result?.model_id ?? item.step?.target?.model_id ?? null,
+            })),
+          };
+          await emitEvent(missionId, "mission_failed", failEvidence);
+          await updateMission(missionId, {
+            status: "failed",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: "terminal: all model routes exhausted",
+            last_stderr: "model_execution_failed_all_routes",
+            checkpoint: {
+              ...checkpoint,
+              results,
+              attempts,
+              recovery: {
+                status: "failed",
+                failed_step_ids: failedStepIdsEarly,
+                failure_reason: "all_model_routes_exhausted",
+                evidence: failEvidence,
+              },
+              active_step: null,
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          return out({
+            ok: false,
+            status: "failed",
+            mission_id: missionId,
+            runtime: V_LOGICAL,
+            invocation_id: V,
+            completed_steps: completed.size,
+            failed_steps: failedStepIdsEarly,
+            failure: failEvidence,
+          });
+        }
+
         const replanCount = Number(mission?.checkpoint?.recovery?.replan_count || 0) + 1;
-        const failedStepIds = failures.map((item) => String(item.step.id));
+        const failedStepIds = failedStepIdsEarly;
         const previousPlan = steps;
         const previousResults = results;
         const maxReplans = 2;
@@ -2003,6 +2060,7 @@ Deno.serve(async (request) => {
             previous_plan: previousPlan,
             previous_results: previousResults,
           };
+          await emitEvent(missionId, "mission_replanned", recovery);
           await updateMission(missionId, {
             status: "queued",
             current_step: 0,
@@ -2021,12 +2079,12 @@ Deno.serve(async (request) => {
             lease_owner: null,
             lease_until: null,
           });
-          await emitEvent(missionId, "mission_replanned", recovery);
           return out({
             ok: true,
             status: "replanned",
             mission_id: missionId,
-            runtime: V,
+            runtime: V_LOGICAL,
+            invocation_id: V,
             next_action: "replan: discard failed strategy and build an alternative",
             recovery,
           });
@@ -2045,6 +2103,7 @@ Deno.serve(async (request) => {
             previous_results: previousResults,
           },
         };
+        await emitEvent(missionId, "mission_hard_blocked", hardBlock);
         await updateMission(missionId, {
           status: "blocked",
           current_step: completed.size,
@@ -2055,8 +2114,7 @@ Deno.serve(async (request) => {
           lease_owner: null,
           lease_until: null,
         });
-        await emitEvent(missionId, "mission_hard_blocked", hardBlock);
-        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V, completed_steps: completed.size, failed_steps: failedStepIds, block_details: hardBlock });
+        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, completed_steps: completed.size, failed_steps: failedStepIds, block_details: hardBlock });
       }
 
       const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";
