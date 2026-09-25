@@ -1,0 +1,95 @@
+name: Verify mission state propagation LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  propagate:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: Mission state propagation battery
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          DIRECT="$BASE/aria-direct-v1"
+          RUNNER="$BASE/aria-mission-runner-v22"
+          TS=$(date +%s)
+          echo "TS=$TS"
+
+          create_mission() {
+            local mid="$1" goal="$2"
+            curl -s -X POST "$DIRECT" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"goal\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$goal"),\"mission_id\":\"$mid\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"state_propagation\",\"cloud_only\":true}}" --max-time 60
+          }
+
+          tick() {
+            local mid="$1"
+            curl -s -X POST "$RUNNER" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"mission_id\":\"$mid\"}" --max-time 180
+          }
+
+          drive_until_terminal() {
+            local mid="$1" max="$2"
+            local last="" status=""
+            for i in $(seq 1 "$max"); do
+              last=$(tick "$mid")
+              echo "TICK $i $mid: $last"
+              status=$(echo "$last" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo unknown)
+              case "$status" in
+                succeeded|failed|blocked|paused|idle) echo "TERMINAL status=$status"; echo "$last"; return 0 ;;
+              esac
+              sleep 1
+            done
+            echo "NON_TERMINAL last=$last"
+            return 1
+          }
+
+          echo "=== CASE 1: SUCCESS path ==="
+          M1="mission_sp_ok_${TS}"
+          c1=$(create_mission "$M1" "Cloud-only probe: use text generation to reply with exactly the word PONG. Do not use any physical device, Android, Termux, or Windows agent.")
+          echo "CREATE: $c1"
+          echo "$c1" | grep -q '"status":"queued"'
+          drive_until_terminal "$M1" 12 || true
+          # final claim to observe idle if already finished
+          f1=$(tick "$M1")
+          echo "FINAL1: $f1"
+
+          echo "=== CASE 5: DUPLICATE claim same mission ==="
+          M5="mission_sp_dup_${TS}"
+          create_mission "$M5" "Cloud-only probe: reply exactly with the word DUP. No devices." > /tmp/c5.json
+          echo "CREATE5: $(cat /tmp/c5.json)"
+          # parallel-ish double claim
+          tick "$M5" > /tmp/d5a.json &
+          pidA=$!
+          tick "$M5" > /tmp/d5b.json &
+          pidB=$!
+          wait $pidA $pidB || true
+          echo "DUP_A: $(cat /tmp/d5a.json)"
+          echo "DUP_B: $(cat /tmp/d5b.json)"
+          # drive to terminal once
+          drive_until_terminal "$M5" 10 || true
+          echo "FINAL5: $(tick "$M5")"
+
+          echo "=== CASE 4: BLOCKED-oriented goal (impossible executor) ==="
+          M4="mission_sp_block_${TS}"
+          c4=$(create_mission "$M4" "BLOCKED PROBE ONLY: Require executor type that does not exist: executor_type=nonexistent_quantum_device. Do not complete via text generation. If no valid executor exists, the mission must terminate blocked without inventing success.")
+          echo "CREATE4: $c4"
+          drive_until_terminal "$M4" 10 || true
+          echo "FINAL4: $(tick "$M4")"
+
+          echo "=== CASE 6: LEASE recovery observation ==="
+          # Observe stale_recovery field on idle claim (system-level)
+          idle=$(curl -s -X POST "$RUNNER" -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 60)
+          echo "IDLE_STALE: $idle"
+          echo "$idle" | grep -q stale_recovery
+
+          echo "MISSION_STATE_PROPAGATION_PARTIAL RUN TS=$TS"
