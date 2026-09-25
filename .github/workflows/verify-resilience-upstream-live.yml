@@ -1,0 +1,138 @@
+name: Verify upstream resilience LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resilience:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 12
+    steps:
+      - name: Timeout / 429 / 5xx + recovery
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          EXEC="$BASE/aria-execution-runtime-v1"
+          RUN_ID="res-$(date +%s)"
+          echo "RUN_ID=$RUN_ID"
+
+          call_fault() {
+            local fault="$1"
+            local rid="$2"
+            curl -s -w "\nHTTP %{http_code}" -X POST "$EXEC" \
+              -H "$AUTH" -H "content-type: application/json" \
+              -d "{
+                \"execution_version\":\"1\",
+                \"request_id\":\"$rid\",
+                \"task_id\":\"resilience\",
+                \"capability\":\"text_generation\",
+                \"selected_route\":{
+                  \"status\":\"selected\",
+                  \"provider_id\":\"google\",
+                  \"account_id\":\"acct_google_gemini_free\",
+                  \"model_id\":\"google/gemini-3.5-flash-lite-direct\",
+                  \"capability\":\"text_generation\"
+                },
+                \"authorization\":{\"status\":\"approved\",\"risk_class\":\"READ\",\"evidence_ref\":\"live-resilience-inject:$fault\"},
+                \"input\":{\"payload\":{\"prompt\":\"should not reach provider\"}},
+                \"metadata\":{\"fault_injection\":\"$fault\",\"run_id\":\"$RUN_ID\"}
+              }" --max-time 30
+          }
+
+          call_fallback() {
+            local rid="$1"
+            curl -s -w "\nHTTP %{http_code}" -X POST "$EXEC" \
+              -H "$AUTH" -H "content-type: application/json" \
+              -d "{
+                \"execution_version\":\"1\",
+                \"request_id\":\"$rid\",
+                \"task_id\":\"resilience-fallback\",
+                \"capability\":\"text_generation\",
+                \"selected_route\":{
+                  \"status\":\"selected\",
+                  \"provider_id\":\"openrouter\",
+                  \"account_id\":\"acct_openrouter_primary\",
+                  \"model_id\":\"nex-agi/nex-n2.5-mini:free\",
+                  \"capability\":\"text_generation\"
+                },
+                \"authorization\":{\"status\":\"approved\",\"risk_class\":\"READ\",\"evidence_ref\":\"live-resilience-recovery:$RUN_ID\"},
+                \"input\":{\"payload\":{\"prompt\":\"Reply exactly: ARIA_RECOVERY_OK\",\"max_tokens\":20}},
+                \"metadata\":{\"run_id\":\"$RUN_ID\",\"recovery\":true}
+              }" --max-time 45
+          }
+
+          assert_fault() {
+            local name="$1" expect_code="$2" expect_ps="$3" body="$4"
+            echo "--- ASSERT $name ---"
+            echo "$body"
+            echo "$body" | grep -q '"status":"failed"'
+            echo "$body" | grep -q "\"code\":\"$expect_code\""
+            if [ -n "$expect_ps" ]; then
+              echo "$body" | grep -q "\"provider_status\":$expect_ps"
+            fi
+            echo "$body" | grep -q '"injected":true'
+            echo "$name PASS"
+          }
+
+          echo "=== 1. TIMEOUT (injected) ==="
+          out=$(call_fault timeout "$RUN_ID-timeout")
+          assert_fault TIMEOUT transport_timeout "" "$out"
+          echo "RECOVERY after timeout:"
+          fb=$(call_fallback "$RUN_ID-timeout-fb")
+          echo "$fb"
+          echo "$fb" | grep -q '"status":"succeeded"'
+          echo "$fb" | grep -q 'ARIA_RECOVERY_OK'
+          echo "TIMEOUT_RECOVERY PASS (fallback openrouter real)"
+
+          echo "=== 2. HTTP 429 (injected) ==="
+          out=$(call_fault http_429 "$RUN_ID-429")
+          assert_fault HTTP_429 provider_error 429 "$out"
+          fb=$(call_fallback "$RUN_ID-429-fb")
+          echo "$fb"
+          echo "$fb" | grep -q '"status":"succeeded"'
+          echo "$fb" | grep -q 'ARIA_RECOVERY_OK'
+          echo "HTTP_429_RECOVERY PASS"
+
+          echo "=== 3. HTTP 503 (injected) ==="
+          out=$(call_fault http_503 "$RUN_ID-503")
+          assert_fault HTTP_503 provider_error 503 "$out"
+          fb=$(call_fallback "$RUN_ID-503-fb")
+          echo "$fb"
+          echo "$fb" | grep -q '"status":"succeeded"'
+          echo "$fb" | grep -q 'ARIA_RECOVERY_OK'
+          echo "HTTP_503_RECOVERY PASS"
+
+          echo "=== 4. HTTP 500 (injected) ==="
+          out=$(call_fault http_500 "$RUN_ID-500")
+          assert_fault HTTP_500 provider_error 500 "$out"
+          fb=$(call_fallback "$RUN_ID-500-fb")
+          echo "$fb"
+          echo "$fb" | grep -q '"status":"succeeded"'
+          echo "HTTP_500_RECOVERY PASS"
+
+          echo "=== 5. injection gate (must NOT fire without evidence_ref prefix) ==="
+          nogate=$(curl -s -X POST "$EXEC" -H "$AUTH" -H "content-type: application/json" -d "{
+            \"execution_version\":\"1\",
+            \"request_id\":\"$RUN_ID-nogate\",
+            \"task_id\":\"t\",
+            \"capability\":\"text_generation\",
+            \"selected_route\":{\"status\":\"selected\",\"provider_id\":\"google\",\"account_id\":\"acct_google_gemini_free\",\"model_id\":\"google/gemini-3.5-flash-lite-direct\",\"capability\":\"text_generation\"},
+            \"authorization\":{\"status\":\"approved\",\"risk_class\":\"READ\",\"evidence_ref\":\"normal:no-inject\"},
+            \"input\":{\"payload\":{\"prompt\":\"Reply exactly: ARIA_NO_INJECT\",\"max_tokens\":20}},
+            \"metadata\":{\"fault_injection\":\"timeout\"}
+          }" --max-time 40)
+          echo "$nogate"
+          # Without gate prefix, must succeed (real google) not injected failure
+          echo "$nogate" | grep -q '"status":"succeeded"'
+          echo "$nogate" | grep -q 'ARIA_NO_INJECT'
+          echo "GATE_OK"
+
+          echo "RESILIENCE_UPSTREAM_VERIFIED_E2E RUN_ID=$RUN_ID"
