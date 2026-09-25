@@ -1,0 +1,66 @@
+name: Apply capability intent v2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inject fragment into planner
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-planner-v11/index.ts")
+          frag = Path("tools/patches/capability-intent-planner.fragment.ts").read_text()
+          t = p.read_text()
+          if "tryCapabilityIntentPlan" in t and "capability_intent_planning" in t:
+              print("already_patched")
+          else:
+              marker = "Deno.serve(async r=>{"
+              if marker not in t:
+                  raise SystemExit("Deno.serve marker missing")
+              t = t.replace(marker, frag + marker, 1)
+              call_marker = 'const routes=await modelRoutes();\nconst r=routes.find((x:any)=>x.provider_id==="openrouter") || routes[0];\nif(!r)return out({error:"no_available_text_model"},503);\n\nconst live=await liveOperationalContext(goal);'
+              call_insert = 'const capabilityIntentPlan=await tryCapabilityIntentPlan(goal,context);if(capabilityIntentPlan)return out({ok:true,plan:capabilityIntentPlan,planner_version:capabilityIntentPlan.planner_version||"aria-planner-v11-capability-intent-v1",capability_intent_planning:true,verified_path_reuse:false});\n' + call_marker
+              if call_marker not in t:
+                  raise SystemExit("fallback marker missing")
+              t = t.replace(call_marker, call_insert, 1)
+              p.write_text(t)
+              print("patched_ok")
+          code = p.read_text()
+          assert "tryCapabilityIntentPlan" in code
+          assert "capability_intent_planning" in code
+          vi = code.find("tryVerifiedPathPlan")
+          ci = code.find("tryCapabilityIntentPlan(goal,context)")
+          assert vi >= 0 and ci > vi
+          print("UNIT_CHECKS_PASS")
+          PY
+      - name: Commit
+        run: |
+          git config user.name aria-ci
+          git config user.email aria-ci@users.noreply.github.com
+          git add supabase/functions/aria-planner-v11/index.ts
+          if git diff --cached --quiet; then echo no_changes; exit 0; fi
+          git commit -m "feat(planner): capability-intent multi-executor planning v1"
+          git push origin HEAD:main
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Deploy planner LIVE
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          echo DEPLOYED
