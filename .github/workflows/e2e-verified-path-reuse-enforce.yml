@@ -1,0 +1,77 @@
+name: E2E verified path reuse enforce
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: E2E with plan enforce
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          FAIL=0
+          TS=$(date +%s)
+          GOAL="Cloud composition health agent model synthesis verification. Reuse verified path. Unique=$TS"
+          export G="$GOAL"
+          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/pl.json
+          PLAN=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/pl.json --max-time 90)
+          echo "PLAN=$(echo "$PLAN" | head -c 800)"
+          echo "$PLAN" > /tmp/plan_full.json
+          if ! echo "$PLAN" | grep -q verified_path_reuse; then echo "FAIL no reuse"; exit 1; fi
+          echo PASS_PLANNER_REUSE
+          MID="mission_vp_reuse_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"$GOAL\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_verified_path_reuse\",\"cloud_only\":true}}" --max-time 60 >/dev/null || true
+          python3 -c "import json; p=json.load(open('/tmp/plan_full.json')); plan=p.get('plan') or p; steps=plan.get('steps'); assert steps; open('/tmp/vp_plan.json','w').write(json.dumps(steps)); mid='$MID'; pj=json.dumps(steps).replace(chr(39),chr(39)+chr(39)); vp=json.dumps(plan.get('verified_path') or {}).replace(chr(39),chr(39)+chr(39)); pv=str(plan.get('planner_version') or ''); open('/tmp/vp_seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb,'verified_path','\"+vp+\"'::jsonb,'planner_version','\"+pv+\"'), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\"); print('seeded', len(steps))"
+          sql "$(cat /tmp/vp_seed.sql)"
+          term=""
+          for i in $(seq 1 28); do
+            python3 -c "import json; mid='$MID'; plan=json.load(open('/tmp/vp_plan.json')); pj=json.dumps(plan).replace(chr(39),chr(39)+chr(39)); open('/tmp/en.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint = jsonb_set(coalesce(checkpoint,'{}'::jsonb), '{plan}', '\"+pj+\"'::jsonb), lease_owner=null, lease_until=null WHERE mission_id='\"+mid+\"' AND status NOT IN ('succeeded','failed','blocked');\")"
+            sql "$(cat /tmp/en.sql)"
+            body=$(tick "$MID")
+            echo "TICK $i: $(echo "$body" | head -c 420)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked) term=$st; break ;; esac
+            if [ "$st" = "paused" ] && echo "$body" | grep -q mission_lease; then
+              sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+              continue
+            fi
+            if [ "$st" = "paused" ]; then term=$st; break; fi
+            sleep 1
+          done
+          EX=$(sql "SELECT DISTINCT payload->>'executor_type' FROM aria_internal.mission_events WHERE mission_id='${MID}' AND payload->>'executor_type' IS NOT NULL ORDER BY 1;")
+          SUCC=$(sql "SELECT payload->>'step_id', payload->>'executor_type' FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+          echo "TERMINAL=$term EX=$EX SUCC=$SUCC DB=$DB"
+          HAS_C=0; HAS_A=0; HAS_M=0
+          echo "$EX$SUCC" | grep -qi connector && HAS_C=1 || true
+          echo "$EX$SUCC" | grep -qi agent && HAS_A=1 || true
+          echo "$EX$SUCC" | grep -qi model && HAS_M=1 || true
+          echo "HAS C=$HAS_C A=$HAS_A M=$HAS_M"
+          if [ "$term" = "succeeded" ] && [ "$HAS_C$HAS_A$HAS_M" = "111" ]; then
+            echo "VERIFIED_PATH_REUSE = VERIFIED E2E"
+            echo "PASS MID=$MID"
+          else
+            echo "FAIL term=$term"; exit 1
+          fi
+          echo ALL_PASS
