@@ -19,6 +19,10 @@ assert.match(planner, /"verification_1"/);
 assert.match(planner, /depends_on/);
 assert.match(planner, /planner-v11-safe-readonly-actionable-v4-multistep/);
 assert.ok(planner.includes("const isRwht=/(\\brwht\\b|real world human test"), "RWHT detection must use token boundaries");
+assert.match(planner, /allForOnePlan/);
+assert.match(planner, /aria-planner-v12-all-for-one-v1/);
+assert.match(planner, /all_for_one_scope_1/);
+assert.match(planner, /all_for_one_arbiter_10/);
 assert.ok(
   planner.indexOf('const battlecruiserRwht=await battlecruiserGithubRwhtPlan') < planner.indexOf('const windowsPcRwht=await windowsPcRwhtPlan'),
   'BattleCruiser GitHub planner must run before generic Windows RWHT planner'
@@ -65,6 +69,8 @@ assert.match(appApi, /verification_pending/);
 assert.match(pwa, /BLOQUEADAS/);
 assert.match(pwa, /openMission\(b\.mission_id\)/);
 assert.match(pwa, /Cómo solucionarlo/);
+assert.match(pwa, /Cómo desbloquearla/);
+assert.match(pwa, /all_for_one_scope_1/);
 assert.match(recoveryMigration, /status='waiting'/);
 assert.match(recoveryMigration, /verification_pending/);
 assert.match(recoveryMigration, /verification_pending_resumed/);
