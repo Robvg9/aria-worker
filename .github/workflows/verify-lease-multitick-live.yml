@@ -1,0 +1,70 @@
+name: Verify lease multi-tick LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  multitick:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Isolated multi-tick success
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          TS=$(date +%s)
+          MID="mission_lease_mt_${TS}"
+          echo "MID=$MID"
+
+          create=$(curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"lease_multitick\",\"cloud_only\":true}}" --max-time 60)
+          echo "CREATE: $create"
+          echo "$create" | grep -q '"status":"queued"'
+
+          saw_running=0
+          saw_lease_retained=0
+          terminal=""
+          for i in $(seq 1 14); do
+            body=$(curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"mission_id\":\"$MID\"}" --max-time 180)
+            echo "TICK $i: $body"
+            status=$(echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo unknown)
+            echo "$body" | grep -q '"status":"running"' && saw_running=1 || true
+            echo "$body" | grep -q 'lease_retained' && saw_lease_retained=1 || true
+            if echo "$body" | grep -q 'mission_lease_required\|mission_lease_lost'; then
+              echo "FAIL: lease error still present"
+              exit 1
+            fi
+            case "$status" in
+              succeeded)
+                echo "TERMINAL=succeeded"
+                terminal=succeeded
+                break
+                ;;
+              failed|blocked)
+                echo "TERMINAL=$status"
+                terminal=$status
+                break
+                ;;
+              paused)
+                echo "TERMINAL=paused body=$body"
+                terminal=paused
+                break
+                ;;
+            esac
+            sleep 1
+          done
+
+          if [ "$terminal" != "succeeded" ]; then
+            echo "FAIL: expected succeeded got $terminal"
+            exit 1
+          fi
+          echo "MULTI_TICK_SUCCESS MID=$MID saw_running=$saw_running lease_retained_flag=$saw_lease_retained"
