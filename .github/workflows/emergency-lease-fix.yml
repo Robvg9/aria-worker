@@ -1,0 +1,104 @@
+name: Emergency lease fix restore
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/emergency-lease-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore runner from known-good SHA and apply lease retention patch
+        run: |
+          set -euo pipefail
+          # Known good full runner before accidental short push
+          git show b935dae8641b5c69a355eedba188dcd3585f9242:supabase/functions/aria-mission-runner-v22/index.ts > supabase/functions/aria-mission-runner-v22/index.ts
+          wc -c supabase/functions/aria-mission-runner-v22/index.ts
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-mission-runner-v22/index.ts")
+          src = p.read_text()
+          assert "PLACEHOLDER" not in src and "FILE_TOO_LARGE" not in src
+          assert len(src) > 50000
+          old = '''      const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";
+      await updateMission(missionId, {
+        status: "running",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: nextAction,
+        checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+        lease_owner: completed.size < steps.length ? null : undefined,
+        lease_until: completed.size < steps.length ? null : undefined,
+      });
+
+      if (completed.size < steps.length) {
+        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+        });
+      }'''
+          new = '''      const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";
+      // Batch continuation: KEEP lease ownership. Clearing lease_owner+lease_until here
+      // caused next tick claim/reclaim races and append_event_lease mission_lease_required.
+      // Same-worker re-entry (claim_by_id) requires lease_owner=V with valid lease_until.
+      // Only terminal paths may clear the lease.
+      if (completed.size < steps.length) {
+        await renewLease(missionId);
+        await updateMission(missionId, {
+          status: "running",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: nextAction,
+          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+        });
+        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+          lease_retained: true,
+        });
+      }
+      await updateMission(missionId, {
+        status: "running",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: nextAction,
+        checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+      });'''
+          if "lease_retained: true" in src:
+              print("already_patched")
+          elif old not in src:
+              raise SystemExit("anchor not found in restored file")
+          else:
+              p.write_text(src.replace(old, new, 1))
+              print("patched_ok")
+          text = p.read_text()
+          assert "FILE_TOO_LARGE" not in text and "PLACEHOLDER" not in text
+          assert "lease_retained: true" in text
+          assert "lease_owner: completed.size < steps.length ? null" not in text
+          print("final_size", len(text))
+          PY
+          git config user.name "aria-supervisor"
+          git config user.email "aria@local"
+          git add supabase/functions/aria-mission-runner-v22/index.ts
+          git status
+          git commit -m "fix(runner-v22): restore full source + retain lease across next_ready_batch" || echo no_commit
+          git push origin HEAD:main
