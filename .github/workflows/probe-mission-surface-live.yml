@@ -1,0 +1,50 @@
+name: Probe mission surface LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Probe intake surfaces
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          MID="mission_stateprop_$(date +%s)"
+          echo "MID=$MID"
+
+          for path in aria-direct-v1 aria-mission-intake-v1 aria-canonical-runtime-v1 aria-mission-runner-v22 aria-planner-v12; do
+            echo "=== GET/POST $path ==="
+            code=$(curl -s -o /tmp/body.json -w "%{http_code}" -X POST "$BASE/$path" \
+              -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 25 || echo err)
+            echo "HTTP=$code body=$(head -c 400 /tmp/body.json)"
+          done
+
+          echo "=== DIRECT goal submit ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-direct-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only state propagation probe: reply with the single word PONG using text generation. Do not use devices.\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"state_propagation\",\"cloud_only\":true}}" --max-time 60 | tee /tmp/direct.json
+
+          echo "=== INTAKE direct ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-mission-intake-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only state propagation probe PONG\",\"mission_id\":\"${MID}_intake\",\"metadata\":{\"probe\":true},\"source\":\"supervisor_probe\"}" --max-time 60 | tee /tmp/intake.json
+
+          echo "=== RUNNER claim by id ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-mission-runner-v22" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"mission_id\":\"$MID\"}" --max-time 120 | tee /tmp/runner.json
+
+          echo "=== RUNNER claim next ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-mission-runner-v22" \
+            -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 120 | tee /tmp/runner2.json
