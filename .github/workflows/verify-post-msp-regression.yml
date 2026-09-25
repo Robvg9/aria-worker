@@ -61,7 +61,6 @@ jobs:
           body2a=$(tick "$MID2a")
           echo "R2A: $(echo "$body2a" | head -c 400)"
           if echo "$body2a" | grep -q 'skipped_for_msp_probe'; then echo "FAIL isolation"; FAIL=1; else echo "PASS_ISOLATION_MSP_WITHOUT_FAULT"; fi
-          # learning ran (replanned_learning proves gate was NOT force-skipped)
           if echo "$body2a" | grep -q 'replanned_learning\|learned_preflight'; then echo "PASS_LEARNING_GATE_ACTIVE_ON_MSP_NO_FAULT"; fi
 
           MID2b="mission_reg_iso_b_${TS}"
@@ -85,39 +84,21 @@ jobs:
           elif echo "$DB3" | grep -qw failed; then echo "PASS_FAILED_TERMINAL MID=$MID3"
           else echo "FAIL not failed"; FAIL=1; fi
 
-          echo "==== 4 CLAIM_NEXT + STALE (ordered) ===="
+          echo "==== 4 CLAIM_NEXT + STALE ===="
           MID4="mission_reg_stale_${TS}"
           curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
             -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID4\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"regression_stale\",\"cloud_only\":true}}" --max-time 60 >/dev/null
           body4=$(tick "$MID4")
           echo "R4_T1: $(echo "$body4" | head -c 300)"
-          st4=$(echo "$body4" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
-          # Force directed continuation fresh
           sql "UPDATE aria_internal.mission_state SET status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null, updated_at=clock_timestamp() WHERE mission_id='${MID4}';"
-          # Fresh must NOT be claim_next eligible
-          FRESH=$(sql "SELECT count(*)::text AS c FROM aria_internal.mission_state m WHERE m.mission_id='${MID4}' AND m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'')='next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes');")
-          echo "R4_FRESH_ELIG=$FRESH"
-          # claim_next should not return MID4
           body_cn=$(curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 90)
           cn_mid=$(echo "$body_cn" | python3 -c "import sys,json;print(json.load(sys.stdin).get('mission_id') or '')" 2>/dev/null || true)
           echo "R4_CLAIM_NEXT_MID=$cn_mid"
-          if [ "$cn_mid" = "$MID4" ]; then echo "FAIL claim_next stole fresh continuation"; FAIL=1; else echo "PASS_CLAIM_NEXT_SKIPS_FRESH"; fi
-          # Age > 10m → eligible for claim_next
+          if [ "$cn_mid" = "$MID4" ]; then echo "FAIL claim_next stole fresh"; FAIL=1; else echo "PASS_CLAIM_NEXT_SKIPS_FRESH"; fi
           sql "UPDATE aria_internal.mission_state SET status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null, updated_at=clock_timestamp() - interval '11 minutes' WHERE mission_id='${MID4}';"
-          STALE=$(sql "SELECT count(*)::text AS c FROM aria_internal.mission_state m WHERE m.mission_id='${MID4}' AND m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'')='next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes');")
-          echo "R4_STALE_ELIG=$STALE"
-          # Parse count from table output
-          if echo "$STALE" | tr -d ' │\n' | grep -qE 'c1|^1$|[|]1[|]'; then
-            echo "PASS_STALE_RECOVERABLE MID=$MID4"
-          elif echo "$STALE" | grep -qw 1; then
-            echo "PASS_STALE_RECOVERABLE MID=$MID4"
-          else
-            # Fallback: direct boolean query
-            BOOL=$(sql "SELECT (m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'')='next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes')) AS eligible FROM aria_internal.mission_state m WHERE m.mission_id='${MID4}';")
-            echo "R4_STALE_BOOL=$BOOL"
-            if echo "$BOOL" | grep -qi 't\|true'; then echo "PASS_STALE_RECOVERABLE MID=$MID4"; else echo "FAIL stale"; FAIL=1; fi
-          fi
-          # claim_by_id still works for directed reclaim
+          BOOL=$(sql "SELECT (m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'')='next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes')) AS eligible FROM aria_internal.mission_state m WHERE m.mission_id='${MID4}';")
+          echo "R4_STALE_BOOL=$BOOL"
+          if echo "$BOOL" | grep -qiE 't|true'; then echo "PASS_STALE_RECOVERABLE MID=$MID4"; else echo "FAIL stale"; FAIL=1; fi
           body_id=$(tick "$MID4")
           echo "R4_BY_ID: $(echo "$body_id" | head -c 300)"
           sql "UPDATE aria_internal.mission_state SET status='paused', next_action='regression_cleanup', lease_owner=null WHERE mission_id='${MID4}';" || true
