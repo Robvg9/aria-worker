@@ -33,11 +33,16 @@ async function tryVerifiedPathPlan(goal:string, context:any){
     const mems=Array.isArray(context?.learned_knowledge?.memories)?context.learned_knowledge.memories:[];
     for(const m of mems) candidates.push(m);
     try{
-      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("title","%verified multi-executor composition%").limit(8);
-      for(const m of data||[]) candidates.push(m);
+      const memResp=await fetch(`${URL}/functions/v1/aria-memory-v2`,{
+        method:"POST",
+        headers:{authorization:`Bearer ${SECRET}`,"content-type":"application/json"},
+        body:JSON.stringify({action:"search",query:"VERIFIED_PATH_V1 Verified multi-executor composition path connector-agent-model",limit:8})
+      });
+      const memJson=await memResp.json().catch(()=>({}));
+      for(const m of (memJson?.results||[])) candidates.push(m);
     }catch(_e){}
     try{
-      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("content","%VERIFIED_PATH_V1:%").limit(8);
+      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("title","%verified multi-executor composition%").limit(8);
       for(const m of data||[]) candidates.push(m);
     }catch(_e){}
     for(const m of candidates){
@@ -49,9 +54,9 @@ async function tryVerifiedPathPlan(goal:string, context:any){
       try{ path=JSON.parse(content.slice(idx+marker.length).trim()); }catch{ continue; }
       if(!path||path.status!=="VERIFIED_E2E"||!Array.isArray(path.steps)||!path.steps.length) continue;
       const g=goal.toLowerCase();
-      const compositionIntent=/(composition|composici[oó]n|verified.?path|connector.*agent|health.*review|health.*agent.*model|multi-?executor)/i.test(goal)
+      const compositionIntent=/(composition|composici[oó]n|verified.?path|connector.*agent|health.*agent.*model|multi-?executor|reuse verified path)/i.test(goal)
         || (g.includes("health")&&g.includes("agent")&&g.includes("model"));
-      if(!compositionIntent && !String(path.capability_chain||[]).includes("health")) continue;
+      if(!compositionIntent) continue;
       const routes=await modelRoutes();
       const route=routes.find((r:any)=>String(r.model_id||"").includes("gemini-3.5-flash-lite"))||routes.find((r:any)=>r.provider_id==="google")||routes[0];
       if(!route) continue;
