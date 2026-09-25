@@ -25,15 +25,15 @@ jobs:
           if start < 0 or end < 0:
               raise SystemExit(f"markers missing start={start} end={end}")
           t = t[:start] + frag + t[end:]
-          t = t.replace("aria-planner-v11-capability-intent-v1", "aria-planner-v11-capability-intent-v3")
-          t = t.replace("aria-planner-v11-capability-intent-v2", "aria-planner-v11-capability-intent-v3")
+          for old in ("aria-planner-v11-capability-intent-v1", "aria-planner-v11-capability-intent-v2", "aria-planner-v11-capability-intent-v3"):
+              t = t.replace(old, "aria-planner-v11-capability-intent-v4-ol")
           p.write_text(t)
           code = p.read_text()
-          assert "required_only_v1" in code
-          assert "requiredCaps" in code
-          assert "capability-intent-v3" in code
-          assert 'intent:"technical_review",required:true' in code or "intent:\"technical_review\",required:true" in code or '"technical_review",required:true' in code
-          print("PATCHED_V3_TECHNICAL_REVIEW_REQUIRED_OK")
+          assert "fetchOperationalLearning" in code
+          assert "applyOperationalLearning" in code
+          assert "operational_learning_applied" in code
+          assert "capability-intent-v4-ol" in code
+          print("PATCHED_V4_OL_OK")
           PY
       - name: Commit
         run: |
@@ -41,5 +41,5 @@ jobs:
           git config user.email aria-ci@users.noreply.github.com
           git add supabase/functions/aria-planner-v11/index.ts tools/patches/capability-intent-planner.fragment.ts
           if git diff --cached --quiet; then echo no_changes; exit 0; fi
-          git commit -m "feat(planner): technical_review required=true capability-intent-v3"
+          git commit -m "feat(planner): operational learning v4-ol in capability intent"
           git push origin HEAD:main
