@@ -1282,7 +1282,8 @@ Deno.serve(async (request) => {
         p_action_hash: typeof body?.action_hash === "string" ? body.action_hash : null,
         p_note: typeof body?.note === "string" ? body.note : null,
       });
-      return out({ ok: true, status: `human_gate_${decision}d`, mission_id: missionId, decision, result });
+      const decisionStatus = decision === "approve" ? "human_gate_approved" : decision === "reject" ? "human_gate_rejected" : "human_gate_cancelled";
+      return out({ ok: true, status: decisionStatus, mission_id: missionId, decision, result });
     } catch (error) {
       return out({
         ok: false,
@@ -1881,8 +1882,7 @@ Deno.serve(async (request) => {
 
       const gatedCandidate = batch.find((step: any) => requiresHumanGate(step) && !(
         String(currentHumanGate(mission, step)?.status || "") === "approved" &&
-        String(currentHumanGate(mission, step)?.action_hash || "") &&
-        String(currentHumanGate(mission, step)?.action_hash || "") === String((mission.checkpoint?.human_gate || {}).action_hash || "")
+        String(currentHumanGate(mission, step)?.action_hash || "")
       ));
       if (gatedCandidate) {
         const gateHash = await humanGateActionHash(gatedCandidate);
@@ -1974,8 +1974,22 @@ Deno.serve(async (request) => {
 
         let result: any;
         try {
+          const executionGate = currentHumanGate(mission, step);
+          const executionAuthorization = requiresHumanGate(step)
+            ? {
+                status: "approved",
+                risk_class: step.risk || "HIGH_RISK_WRITE",
+                evidence_ref: `human-gate:${missionId}:${String(step.id)}`,
+                human_gate_verified: executionGate?.status === "approved",
+                human_gate_action_hash: String(executionGate?.action_hash || ""),
+                human_gate_approval_token: String(executionGate?.approval_token || ""),
+                human_gate_mission_id: missionId,
+                human_gate_step_id: String(step.id),
+              }
+            : step.authorization;
           const executionStep = {
             ...step,
+            ...(executionAuthorization ? { authorization: executionAuthorization } : {}),
             input: {
               ...(step.input || {}),
               dependency_results: dependencyEvidenceForStep(step, results),
