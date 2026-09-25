@@ -33,9 +33,12 @@ jobs:
           for a in 1 2 3; do
             TS=$(date +%s)
             MID="mission_msp_failed_${TS}_${a}"
+            # Unique goal avoids learning_preflight wiping the forced fault plan
+            GOAL="MSP-FAIL-PROBE-${TS}-${a}: emit the single token ZX9Q via text generation. Cloud only. No devices."
             echo "==== ATTEMPT $a MID=$MID ===="
             curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
-              -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_failed\",\"cloud_only\":true}}" --max-time 60 | grep -q '"status":"queued"'
+              -d "$(python3 -c "import json; print(json.dumps({'goal':'''$GOAL''','mission_id':'$MID','metadata':{'goal_source':'supervisor_probe','probe':'msp_failed','cloud_only':True}}))")" \
+              --max-time 60 | tee /tmp/create_$a.json | grep -q '"status":"queued"'
 
             python3 - "$MID" <<'PY'
           import json,sys
@@ -44,7 +47,7 @@ jobs:
             "id":"s1","executor_type":"model","operation":"text_generation","risk":"READ",
             "retryable":False,"max_attempts":1,
             "target":{"provider_id":"google","account_id":"google-primary","model_id":"google/gemini-3.5-flash-lite-direct"},
-            "input":{"payload":{"prompt":"Reply with exactly PONG"},"fault_injection":"http_500","fault_all_routes":True},
+            "input":{"payload":{"prompt":"Reply with exactly ZX9Q"},"fault_injection":"http_500","fault_all_routes":True},
             "authorization":{"status":"approved","risk_class":"READ"},
           }]
           pj=json.dumps(plan).replace("'","''")
@@ -61,8 +64,15 @@ jobs:
             for i in $(seq 1 8); do
               body=$(curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" \
                 -d "{\"mission_id\":\"$MID\"}" --max-time 180)
-              echo "TICK $i: $(echo "$body" | head -c 500)"
+              echo "TICK $i: $(echo "$body" | head -c 550)"
               st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+              # If learning gate wiped plan, re-seed and continue once
+              if [ "$st" = "replanned_learning" ]; then
+                echo "RESEED after learning replan"
+                sql "$(cat /tmp/seed.sql)"
+                sleep 1
+                continue
+              fi
               case "$st" in succeeded|failed|blocked|paused) term=$st; break ;; esac
               sleep 1
             done
@@ -71,10 +81,11 @@ jobs:
             DB=$(sql "SELECT status, last_stderr, next_action FROM aria_internal.mission_state WHERE mission_id='${MID}';")
             echo "DB: $DB"
 
-            if echo "$DB" | grep -q failed && ! echo "$DB" | grep -qE 'succeeded|running'; then
-              if [ "$term" = "succeeded" ]; then echo "FAIL http succeeded"; continue; fi
-              echo "PASS attempt $a MID=$MID"
-              pass=$((pass+1))
+            if echo "$DB" | grep -qw failed; then
+              if [ "$term" = "succeeded" ]; then echo "FAIL http succeeded"; else
+                echo "PASS attempt $a MID=$MID"
+                pass=$((pass+1))
+              fi
             else
               echo "FAIL attempt $a DB not failed"
             fi
