@@ -1,0 +1,48 @@
+name: Patch planner assetPlan context
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch and deploy planner
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          F=supabase/functions/aria-planner-v11/index.ts
+          python3 - <<'PY'
+          from pathlib import Path
+          t=Path("supabase/functions/aria-planner-v11/index.ts").read_text()
+          old_sig="async function assetPlan(goal:string)"
+          new_sig="async function assetPlan(goal:string, context:any={})"
+          if old_sig not in t and new_sig in t:
+              print("already patched")
+          else:
+              assert old_sig in t, "sig missing"
+              t=t.replace(old_sig, new_sig, 1)
+          if "const asset=await assetPlan(goal,context);" not in t:
+              assert "const asset=await assetPlan(goal);" in t
+              t=t.replace("const asset=await assetPlan(goal);", "const asset=await assetPlan(goal,context);", 1)
+          t=t.replace("learning_context:context.learned_knowledge", "learning_context:context?.learned_knowledge")
+          Path("supabase/functions/aria-planner-v11/index.ts").write_text(t)
+          print("patched ok")
+          PY
+          git config user.name "aria-supervisor"
+          git config user.email "aria@local"
+          git add "$F"
+          git diff --cached --stat
+          git commit -m "fix(planner): pass context into assetPlan for agent individual" || echo "no commit"
+          git push origin HEAD:main || true
+          npm install -g supabase
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF"
+          echo "PLANNER_DEPLOYED"
