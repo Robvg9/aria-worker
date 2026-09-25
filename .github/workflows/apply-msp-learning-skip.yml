@@ -1,0 +1,26 @@
+name: Apply MSP learning skip
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-msp-learning-skip.yml'
+      - 'scripts/patch_msp_learning_skip.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch runner
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_msp_learning_skip.py
+          git config user.name aria-supervisor
+          git config user.email aria@local
+          git add supabase/functions/aria-mission-runner-v22/index.ts
+          git commit -m "fix(runner-v22): skip learning preflight for MSP fault probes" || echo no_commit
+          git push origin HEAD:main
