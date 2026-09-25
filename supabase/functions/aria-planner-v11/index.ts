@@ -343,7 +343,7 @@ async function allForOnePlan(goal:string,context:any){
   const arbiter= modelStep(
     "all_for_one_arbiter_10",
     arbiterRoute,
-    "PROTOCOLO ALL FOR ONE — ÁRBITRO FINAL. Integra los 8 informes especializados y el mapa de cobertura. No inventes hechos. Resuelve contradicciones comparando evidencia. Entrega en español: 1) hallazgos confirmados, 2) fallos críticos, 3) causas raíz, 4) capacidades faltantes o mal conectadas, 5) mejoras de arquitectura/routing/ejecución/velocidad/UX, 6) bugs que ARIA puede reparar de forma gobernada, 7) mejoras que requieren intervención humana, 8) prioridades de las siguientes pruebas. El resultado debe ser accionable y servir como backlog de misiones. No cierres diciendo solamente 'revisar más'. Objetivo: "+g+"\\nCONTEXTO: "+contextText,
+    "PROTOCOLO ALL FOR ONE — ÁRBITRO FINAL. Integra los 8 informes especializados y el mapa de cobertura. Los informes de los pasos dependientes estarán disponibles en los resultados de entrada bajo dependency_results; debes leerlos y cruzarlos antes de concluir. No inventes hechos. Resuelve contradicciones comparando evidencia. Entrega en español: 1) hallazgos confirmados, 2) fallos críticos, 3) causas raíz, 4) capacidades faltantes o mal conectadas, 5) mejoras de arquitectura/routing/ejecución/velocidad/UX, 6) bugs que ARIA puede reparar de forma gobernada, 7) mejoras que requieren intervención humana, 8) prioridades de las siguientes pruebas. El resultado debe ser accionable y servir como backlog de misiones. No cierres diciendo solamente 'revisar más'. Objetivo: "+g+"\\nCONTEXTO: "+contextText,
     specialistSteps.map((s:any)=>s.id)
   );
 
