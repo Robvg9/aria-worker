@@ -97,6 +97,7 @@ jobs:
           test -n "$SUPABASE_PROJECT_REF"
           node scripts/patch-eas-into-mission-runner-v22.js supabase/functions/aria-mission-runner-v22/index.ts
           supabase functions deploy aria-planner-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-autonomy-supervisor-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-autonomy-supervisor-v5 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           # aria-repair-supervisor-v1 is a retired slot-bound legacy function; the live repair path uses aria-autonomy-supervisor-v5/v10.
