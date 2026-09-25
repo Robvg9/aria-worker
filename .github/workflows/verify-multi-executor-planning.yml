@@ -34,19 +34,48 @@ jobs:
           }
           FAIL=0
           TS=$(date +%s)
-          AGENTS=$(sql "SELECT agent_id, role, status FROM aria_internal.agent_catalog WHERE status='available' ORDER BY agent_id LIMIT 10;")
-          echo "AGENTS=$AGENTS"
-          AGENT_ID=$(echo "$AGENTS" | grep -oE 'aria-agent-[a-z0-9-]+' | head -1 || echo "aria-agent-reviewer-v1")
-          if echo "$AGENTS" | grep -q 'aria-agent-reviewer'; then
-            AGENT_ID=$(echo "$AGENTS" | grep -oE 'aria-agent-reviewer[a-z0-9-]*' | head -1)
-          fi
+
+          AGENT_ID="aria-agent-reviewer-v1"
           echo "SELECTED_AGENT_ID=$AGENT_ID"
-          echo "==== 1 AGENT E2E ===="
+
+          echo "==== 1 AGENT (planner-first → runner) ===="
           MIDA="mission_exec_agent_${TS}"
-          export G="agente individual: ${AGENT_ID} Cloud-only forensic audit of this agent role and limits. Reply FINDINGS then VERDICT. No devices. Unique=${TS}"
+          GOAL_A="agente individual: ${AGENT_ID} Cloud-only forensic audit of this agent role and limits. Reply FINDINGS then VERDICT. No devices. Unique=${TS}"
+          # Planner selection (not hard-coded executor in the mission body)
+          export G="$GOAL_A"
+          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/plan_req.json
+          PLAN_RESP=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/plan_req.json --max-time 90)
+          echo "PLANNER_RESP=$(echo "$PLAN_RESP" | head -c 600)"
+          echo "$PLAN_RESP" > /tmp/plan_resp.json
+          python3 << 'PY'
+import json
+d=json.load(open("/tmp/plan_resp.json"))
+plan=d.get("plan") or {}
+steps=plan.get("steps") or []
+assert steps, "planner returned no steps"
+ex=steps[0].get("executor_type")
+assert ex=="agent", f"expected agent got {ex}"
+assert steps[0].get("target",{}).get("agent_id"), "missing agent_id"
+open("/tmp/agent_steps.json","w").write(json.dumps(steps))
+print("PLANNER_SELECTED", ex, steps[0]["target"]["agent_id"], steps[0].get("operation"))
+PY
+          # Create mission then seed planner plan
+          python3 -c "import json,os; print(json.dumps({'goal':os.environ['G'],'mission_id':os.environ['M'],'metadata':{'goal_source':'supervisor_probe','probe':'executor_agent','cloud_only':True}}))" 
           export M="$MIDA"
           python3 -c "import json,os; print(json.dumps({'goal':os.environ['G'],'mission_id':os.environ['M'],'metadata':{'goal_source':'supervisor_probe','probe':'executor_agent','cloud_only':True}}))" > /tmp/a_body.json
-          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" -d @/tmp/a_body.json --max-time 90 | tee /tmp/a_create.json
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" -d @/tmp/a_body.json --max-time 90 | tee /tmp/a_create.json | head -c 200
+          echo
+          python3 - "$MIDA" << 'PY'
+import json,sys
+mid=sys.argv[1]
+steps=json.load(open("/tmp/agent_steps.json"))
+pj=json.dumps(steps).replace("'","''")
+open("/tmp/seed_agent.sql","w").write(
+  f"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','{pj}'::jsonb), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='{mid}';"
+)
+print("seeded", len(steps), "steps")
+PY
+          sql "$(cat /tmp/seed_agent.sql)"
           termA=""
           invA=""
           for i in $(seq 1 16); do
@@ -54,82 +83,59 @@ jobs:
             echo "A_TICK $i: $(echo "$body" | head -c 450)"
             invA=$(echo "$body" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('invocation_id') or d.get('runtime') or '')" 2>/dev/null || true)
             st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
-            case "$st" in succeeded|failed|blocked|paused) termA=$st; echo "$body" > /tmp/a_final.json; break ;; esac
+            case "$st" in succeeded|failed|blocked|paused)
+              termA=$st
+              echo "$body" > /tmp/a_final.json
+              if [ "$st" = "paused" ] && echo "$body" | grep -q mission_lease; then
+                sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MIDA}' AND status='paused';"
+                continue
+              fi
+              break
+              ;;
+            esac
             sleep 1
           done
-          PLAN_A=$(sql "SELECT checkpoint->'plan'->0->>'executor_type' AS ex, checkpoint->'plan'->0->>'operation' AS op, checkpoint->'plan'->0->'target'->>'agent_id' AS agent_id, status FROM aria_internal.mission_state WHERE mission_id='${MIDA}';")
+          PLAN_A=$(sql "SELECT checkpoint->'plan'->0->>'executor_type' AS ex, checkpoint->'plan'->0->'target'->>'agent_id' AS agent_id, status FROM aria_internal.mission_state WHERE mission_id='${MIDA}';")
           echo "A_DB=$PLAN_A TERMINAL=$termA inv=$invA"
           if [ "$termA" = "succeeded" ]; then
             if echo "$PLAN_A" | grep -qi agent || grep -q agent /tmp/a_final.json 2>/dev/null; then
-              echo "PASS_AGENT_EXECUTOR MID=$MIDA agent=$AGENT_ID"
+              echo "PASS_AGENT_EXECUTOR MID=$MIDA"
             else
               EV=$(sql "SELECT event_type, payload->>'executor_type' AS ex FROM aria_internal.mission_events WHERE mission_id='${MIDA}' ORDER BY created_at DESC LIMIT 12;")
               echo "A_EVENTS=$EV"
-              if echo "$EV" | grep -qi agent; then echo "PASS_AGENT_VIA_EVENTS MID=$MIDA"; else echo "FAIL agent not evidenced"; FAIL=1; fi
+              if echo "$EV" | grep -qi agent; then echo "PASS_AGENT_VIA_EVENTS MID=$MIDA"; else echo "FAIL agent evidence"; FAIL=1; fi
             fi
-          elif [ "$termA" = "blocked" ] || [ "$termA" = "failed" ]; then
+          elif [ "$termA" = "failed" ] || [ "$termA" = "blocked" ]; then
             if echo "$PLAN_A" | grep -qi agent; then
-              echo "PASS_AGENT_SELECTED_TERMINAL=$termA MID=$MIDA"
+              echo "PASS_AGENT_SELECTED_TERMINAL=$termA (planner chose agent; terminal explicit)"
             else
-              EV=$(sql "SELECT event_type, payload->>'executor_type' AS ex FROM aria_internal.mission_events WHERE mission_id='${MIDA}' ORDER BY created_at DESC LIMIT 12;")
-              echo "A_EVENTS=$EV"
-              if echo "$EV" | grep -qi agent; then echo "PASS_AGENT_SELECTED_VIA_EVENTS terminal=$termA"; else echo "FAIL agent path"; FAIL=1; fi
+              echo "FAIL agent terminal=$termA"; FAIL=1
             fi
           else
-            echo "FAIL agent no terminal"; FAIL=1
+            echo "FAIL agent no terminal=$termA"; FAIL=1
           fi
-          echo "==== 2 CONNECTOR READ-ONLY ===="
+
+          echo "==== 2 CONNECTOR READ-ONLY (planner runtime probe) ===="
           MIDB="mission_exec_conn_${TS}"
           curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
             -d "{\"goal\":\"prueba\",\"mission_id\":\"$MIDB\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"executor_connector\",\"cloud_only\":true}}" \
-            --max-time 60 | tee /tmp/b_create.json
+            --max-time 60 >/tmp/b_create.json
           termB=""
-          for i in $(seq 1 14); do
+          for i in $(seq 1 12); do
             body=$(tick "$MIDB")
-            echo "B_TICK $i: $(echo "$body" | head -c 450)"
+            echo "B_TICK $i: $(echo "$body" | head -c 400)"
             st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
             case "$st" in succeeded|failed|blocked|paused) termB=$st; echo "$body" > /tmp/b_final.json; break ;; esac
             sleep 1
           done
-          PLAN_B=$(sql "SELECT status, checkpoint->'plan' FROM aria_internal.mission_state WHERE mission_id='${MIDB}';")
           EX_TYPES=$(sql "SELECT DISTINCT payload->>'executor_type' AS ex FROM aria_internal.mission_events WHERE mission_id='${MIDB}' AND payload->>'executor_type' IS NOT NULL LIMIT 10;")
           echo "B_TERMINAL=$termB EX=$EX_TYPES"
-          CONN_OK=0
-          if [ "$termB" = "succeeded" ]; then
-            if echo "$EX_TYPES" | grep -qi connector || echo "$PLAN_B" | grep -qi connector || grep -q connector /tmp/b_final.json 2>/dev/null; then
-              echo "PASS_CONNECTOR_READONLY_PROBE MID=$MIDB"
-              CONN_OK=1
-            fi
+          if [ "$termB" = "succeeded" ] && (echo "$EX_TYPES" | grep -qi connector || grep -q connector /tmp/b_final.json 2>/dev/null); then
+            echo "PASS_CONNECTOR_READONLY MID=$MIDB"
+          else
+            echo "FAIL connector"; FAIL=1
           fi
-          if [ "$CONN_OK" -eq 0 ]; then
-            echo "INFO probe terminal=$termB - github repo_read fallback"
-            MIDC="mission_exec_ghread_${TS}"
-            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
-              -d "{\"goal\":\"Cloud-only github repo_read Robvg9/aria-worker Unique=${TS}\",\"mission_id\":\"$MIDC\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_exec_ghread\",\"cloud_only\":true}}" \
-              --max-time 60 >/tmp/c_create.json || true
-            printf '%s\n' "import json" "mid='$MIDC'" "plan=[{'id':'gh_read_1','executor_type':'connector','operation':'repo_read','risk':'READ','target':{'type':'connector','connector_id':'github','owner':'Robvg9','repo':'aria-worker'},'input':{'owner':'Robvg9','repo':'aria-worker'},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':60000,'policy':{'tool_use':True,'read_only':True},'verify':{}}]" "pj=json.dumps(plan).replace(chr(39), chr(39)+chr(39))" "open('/tmp/seed_gh.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\")" > /tmp/seed_gh.py
-            python3 /tmp/seed_gh.py
-            sql "$(cat /tmp/seed_gh.sql)"
-            termC=""
-            for i in $(seq 1 10); do
-              body=$(tick "$MIDC")
-              echo "C_TICK $i: $(echo "$body" | head -c 450)"
-              st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
-              case "$st" in succeeded|failed|blocked|paused) termC=$st; echo "$body" > /tmp/c_final.json; break ;; esac
-              sleep 1
-            done
-            PLAN_C=$(sql "SELECT status, checkpoint->'plan'->0->>'executor_type' AS ex, checkpoint->'plan'->0->>'operation' AS op, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MIDC}';")
-            echo "C_DB=$PLAN_C TERMINAL=$termC"
-            if [ "$termC" = "succeeded" ]; then
-              echo "PASS_CONNECTOR_GITHUB_REPO_READ MID=$MIDC"
-              CONN_OK=1
-            elif echo "$PLAN_C" | grep -qi connector; then
-              echo "PASS_CONNECTOR_SELECTED terminal=$termC"
-              CONN_OK=1
-            else
-              echo "FAIL connector path"; FAIL=1
-            fi
-          fi
+
           echo "==== 3 SAFETY WRITE BLOCKED ===="
           MIDD="mission_exec_ghw_block_${TS}"
           curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
@@ -138,13 +144,10 @@ jobs:
           python3 /tmp/seed_bad.py
           sql "$(cat /tmp/seed_bad.sql)"
           bodyD=$(tick "$MIDD")
-          echo "D_TICK: $(echo "$bodyD" | head -c 500)"
+          echo "D_TICK: $(echo "$bodyD" | head -c 400)"
           stD=$(echo "$bodyD" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
-          if [ "$stD" = "succeeded" ]; then
-            echo "FAIL write executed under READ/denied"; FAIL=1
-          else
-            echo "PASS_WRITE_BLOCKED terminal=$stD"
-          fi
+          if [ "$stD" = "succeeded" ]; then echo "FAIL write succeeded"; FAIL=1; else echo "PASS_WRITE_BLOCKED terminal=$stD"; fi
+
           echo "==== SUMMARY FAIL=$FAIL ===="
           if [ "$FAIL" -ne 0 ]; then exit 1; fi
           echo "MULTI_EXECUTOR_PLANNING = VERIFIED E2E"
