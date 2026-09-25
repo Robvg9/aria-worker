@@ -42,7 +42,6 @@ jobs:
           if ! echo "$PLAN" | grep -q verified_path_reuse; then echo "FAIL no verified_path_reuse"; exit 1; fi
           echo PASS_PLANNER
 
-          # Dump a1 contract from planner
           python3 -c "
           import json
           p=json.load(open('/tmp/plan_full.json'))
@@ -50,12 +49,7 @@ jobs:
           steps=plan.get('steps') or []
           print('STEP_COUNT', len(steps))
           for s in steps:
-            print('STEP', s.get('id'), s.get('executor_type'), s.get('operation'), 'deps=', s.get('depends_on'), 'agent=', (s.get('target') or {}).get('agent_id'), 'verify=', s.get('verify'), 'timeout=', s.get('timeout_ms'), 'risk=', s.get('risk'))
-            if s.get('executor_type')=='agent':
-              print('AGENT_INPUT', json.dumps(s.get('input') or {})[:500])
-              print('AGENT_POLICY', json.dumps(s.get('policy') or {}))
-              print('AGENT_AUTH', json.dumps(s.get('authorization') or {}))
-              print('AGENT_SELECTION', json.dumps(s.get('selection') or {}))
+            print('STEP', s.get('id'), s.get('executor_type'), s.get('operation'), 'deps=', s.get('depends_on'), 'agent=', (s.get('target') or {}).get('agent_id'))
           print('VP_META', json.dumps(plan.get('verified_path') or {})[:400])
           open('/tmp/vp_plan.json','w').write(json.dumps(steps))
           "
@@ -81,11 +75,11 @@ jobs:
           echo "==== 2. TICKS (NO lease nullify between ticks) ===="
           term=""
           for i in $(seq 1 16); do
-            LEASE_BEFORE=$(sql "SELECT status, lease_owner, lease_until, completed_steps, next_action FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+            LEASE_BEFORE=$(sql "SELECT status, lease_owner, completed_steps, next_action FROM aria_internal.mission_state WHERE mission_id='${MID}';")
             echo "LEASE_BEFORE_TICK_$i=$LEASE_BEFORE"
             body=$(tick "$MID")
             echo "TICK $i: $(echo "$body" | head -c 500)"
-            LEASE_AFTER=$(sql "SELECT status, lease_owner, lease_until, completed_steps, next_action, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+            LEASE_AFTER=$(sql "SELECT status, lease_owner, completed_steps, next_action, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
             echo "LEASE_AFTER_TICK_$i=$LEASE_AFTER"
             st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
             case "$st" in succeeded|failed|blocked)
@@ -94,17 +88,12 @@ jobs:
             if [ "$st" = "paused" ]; then
               echo "PAUSED_BODY=$(echo "$body" | head -c 400)"
               if echo "$body" | grep -q mission_lease; then
-                # only clear lease if paused due to lease lost - allow reclaim
                 sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
                 continue
               fi
               term=$st; break
             fi
-            # if replanned, check plan still has agent
             if [ "$st" = "replanned" ] || [ "$st" = "replanned_learning" ]; then
-              PL=$(sql "SELECT checkpoint->'plan' FROM aria_internal.mission_state WHERE mission_id='${MID}';")
-              echo "PLAN_AFTER_REPLAN=$(echo "$PL" | head -c 400)"
-              # Re-seed ORIGINAL plan to block silent replan (contract of this test)
               python3 -c "
               import json
               mid='$MID'
@@ -119,27 +108,37 @@ jobs:
           done
           echo "TERMINAL=$term"
 
-          echo "==== 3. EVENTS + DIAGNOSTICS ===="
-          EV=$(sql "SELECT created_at, event_type, payload->>'step_id' AS step_id, payload->>'executor_type' AS ex, payload->>'agent_id' AS agent_id, left(coalesce(payload->>'message', payload->'error'->>'message', payload->>'reason',''),180) AS msg FROM aria_internal.mission_events WHERE mission_id='${MID}' ORDER BY created_at;")
+          echo "==== 3. EVENTS + ASSERTION (executor_type) ===="
+          EV=$(sql "SELECT created_at, event_type, payload->>'step_id' AS step_id, payload->>'executor_type' AS executor_type FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type IN ('step_started','step_succeeded','step_failed') ORDER BY created_at;")
           echo "EVENTS=$EV"
-          DIAG=$(sql "SELECT created_at, left(payload::text,500) FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type IN ('agent_executor_diagnostic','step_failed','step_retrying','mission_replanned') ORDER BY created_at;")
-          echo "DIAG=$DIAG"
-          SUCC=$(sql "SELECT payload->>'step_id', payload->>'executor_type', payload->>'agent_id' FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
-          echo "SUCC=$SUCC"
-          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr, lease_owner FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+
+          # Assert by executor_type only (connector/model have agent_id=NULL)
+          EX_TYPES=$(sql "SELECT payload->>'executor_type' AS executor_type FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          echo "EXECUTOR_TYPES_SUCCEEDED=$EX_TYPES"
+          STEP_IDS=$(sql "SELECT payload->>'step_id' AS step_id FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+          echo "STEP_IDS_SUCCEEDED=$STEP_IDS"
+
+          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
           echo "DB=$DB"
 
           HAS_C=0; HAS_A=0; HAS_M=0
-          echo "$SUCC" | grep -qi connector && HAS_C=1 || true
-          echo "$SUCC" | grep -qi agent && HAS_A=1 || true
-          echo "$SUCC" | grep -qi model && HAS_M=1 || true
-          echo "HAS C=$HAS_C A=$HAS_A M=$HAS_M term=$term"
+          echo "$EX_TYPES" | grep -qi connector && HAS_C=1 || true
+          echo "$EX_TYPES" | grep -qi agent && HAS_A=1 || true
+          echo "$EX_TYPES" | grep -qi model && HAS_M=1 || true
+          HAS_C1=0; HAS_A1=0; HAS_M1=0; HAS_V1=0
+          echo "$STEP_IDS" | grep -qw c1 && HAS_C1=1 || true
+          echo "$STEP_IDS" | grep -qw a1 && HAS_A1=1 || true
+          echo "$STEP_IDS" | grep -qw m1 && HAS_M1=1 || true
+          echo "$STEP_IDS" | grep -qw v1 && HAS_V1=1 || true
 
-          if [ "$term" = "succeeded" ] && [ "$HAS_C$HAS_A$HAS_M" = "111" ]; then
+          echo "HAS_EXECUTOR C=$HAS_C A=$HAS_A M=$HAS_M"
+          echo "HAS_STEP c1=$HAS_C1 a1=$HAS_A1 m1=$HAS_M1 v1=$HAS_V1 term=$term"
+
+          if [ "$term" = "succeeded" ] && [ "$HAS_C$HAS_A$HAS_M" = "111" ] && [ "$HAS_C1$HAS_A1$HAS_M1$HAS_V1" = "1111" ]; then
             echo "VERIFIED_PATH_REUSE = VERIFIED E2E"
             echo "PASS MID=$MID"
           else
-            echo "FAIL VP reuse term=$term"
+            echo "FAIL VP reuse term=$term HAS_EXEC=$HAS_C$HAS_A$HAS_M HAS_STEPS=$HAS_C1$HAS_A1$HAS_M1$HAS_V1"
             FAIL=1
           fi
           echo "==== SUMMARY FAIL=$FAIL MID=$MID ===="
