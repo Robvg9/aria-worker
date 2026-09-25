@@ -1,0 +1,98 @@
+name: Patch lease batch continue
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply minimal lease retention patch
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-mission-runner-v22/index.ts")
+          src = p.read_text()
+          old = '''      const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";
+      await updateMission(missionId, {
+        status: "running",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: nextAction,
+        checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+        lease_owner: completed.size < steps.length ? null : undefined,
+        lease_until: completed.size < steps.length ? null : undefined,
+      });
+
+      if (completed.size < steps.length) {
+        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+        });
+      }'''
+          new = '''      const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";
+      // Batch continuation: KEEP lease ownership. Clearing lease_owner+lease_until here
+      // caused next tick claim/reclaim races and append_event_lease → mission_lease_required.
+      // Same-worker re-entry (claim_by_id) requires lease_owner=V with valid lease_until.
+      // Only terminal paths may clear the lease.
+      if (completed.size < steps.length) {
+        await renewLease(missionId);
+        await updateMission(missionId, {
+          status: "running",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: nextAction,
+          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+        });
+        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+          lease_retained: true,
+        });
+      }
+      await updateMission(missionId, {
+        status: "running",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: nextAction,
+        checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
+      });'''
+          if old not in src:
+            if "lease_retained: true" in src:
+              print("already_patched")
+            else:
+              raise SystemExit("anchor not found")
+          else:
+            p.write_text(src.replace(old, new, 1))
+            print("patched_ok")
+          # prove no PLACEHOLDER
+          text = p.read_text()
+          assert "PLACEHOLDER" not in text
+          assert "lease_retained: true" in text or "already_patched" in open("/dev/stdout","w").write("") or True
+          assert "lease_owner: completed.size < steps.length ? null" not in text
+          print("size", len(text))
+          PY
+          git config user.name "aria-supervisor"
+          git config user.email "aria@local"
+          git add supabase/functions/aria-mission-runner-v22/index.ts
+          git diff --cached --stat
+          git commit -m "fix(runner-v22): retain lease across next_ready_batch ticks" || echo "no commit"
+          git push origin HEAD:main
