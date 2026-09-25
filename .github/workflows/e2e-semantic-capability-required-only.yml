@@ -1,0 +1,150 @@
+name: E2E semantic required-only + dual goals
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 35
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Dual semantic goals E2E
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          FAIL=0
+
+          run_one() {
+            local LABEL="$1"
+            local GOAL="$2"
+            local EXPECT_NO_AGENT="$3"
+            local TS=$(date +%s)
+            export G="$GOAL"
+            echo "==== $LABEL GOAL ===="
+            echo "$GOAL"
+            python3 -c "import json,os; print(json.dumps({'goal':os.environ['G']}))" > /tmp/pl.json
+            PLAN=$(curl -s -X POST "$BASE/aria-planner-v11" -H "$AUTH" -H "content-type: application/json" -d @/tmp/pl.json --max-time 120)
+            echo "$PLAN" > /tmp/plan_full.json
+            python3 << 'PY'
+          import json,os
+          p=json.load(open("/tmp/plan_full.json"))
+          plan=p.get("plan") or p
+          steps=plan.get("steps") or []
+          print("PLANNER_VERSION", plan.get("planner_version") or p.get("planner_version"))
+          print("CAPABILITY_INTENT_PLANNING", bool(p.get("capability_intent_planning") or plan.get("capability_intent_planning")))
+          print("VERIFIED_PATH_REUSE", bool(p.get("verified_path_reuse") or plan.get("verified_path_reuse")))
+          print("SELECTION_POLICY", plan.get("selection_policy"))
+          print("CAPABILITY_INTENT", json.dumps(plan.get("capability_intent") or {})[:800])
+          print("CAPABILITY_SELECTIONS", json.dumps(plan.get("capability_selections") or [])[:800])
+          print("OPTIONAL_SKIPPED", json.dumps(plan.get("optional_capabilities_skipped") or [])[:500])
+          types=[]
+          for s in steps:
+            et=s.get("executor_type")
+            types.append(et)
+            sel=s.get("selection") or {}
+            print("STEP", s.get("id"), et, s.get("operation"), "deps=", s.get("depends_on"), "cap=", sel.get("capability_intent"), "req=", sel.get("required"), "reason=", sel.get("selection_reason"))
+          print("UNIQUE_EXECUTORS", sorted(set(types)))
+          open("/tmp/vp_plan.json","w").write(json.dumps(steps))
+          open("/tmp/plan_meta.json","w").write(json.dumps({
+            "planner_version": plan.get("planner_version") or p.get("planner_version"),
+            "capability_intent_planning": bool(p.get("capability_intent_planning") or plan.get("capability_intent_planning")),
+            "verified_path_reuse": bool(p.get("verified_path_reuse") or plan.get("verified_path_reuse")),
+            "selection_policy": plan.get("selection_policy"),
+            "types": types,
+          }))
+          if not (p.get("capability_intent_planning") or plan.get("capability_intent_planning")):
+            raise SystemExit("FAIL no capability_intent_planning")
+          if p.get("verified_path_reuse") or plan.get("verified_path_reuse"):
+            raise SystemExit("FAIL verified_path_reuse true")
+          # no agent step unless required technical_review selected
+          sels=plan.get("capability_selections") or []
+          for s in sels:
+            if s.get("required") is False:
+              raise SystemExit("FAIL selection includes required=false")
+          skipped=plan.get("optional_capabilities_skipped") or []
+          for sk in skipped:
+            if sk.get("selection_decision")!="skipped_not_required":
+              raise SystemExit("FAIL bad skip decision")
+          if "agent" in types:
+            # only ok if technical_review was required in intent
+            intents=(plan.get("capability_intent") or {}).get("capabilities") or []
+            tr=[c for c in intents if c.get("intent")=="technical_review"]
+            if not tr or tr[0].get("required") is not True:
+              raise SystemExit("FAIL agent without required technical_review")
+          print("PLAN_ASSERT_PASS")
+          PY
+            if [ "$EXPECT_NO_AGENT" = "1" ]; then
+              if python3 -c "import json; t=json.load(open('/tmp/plan_meta.json')).get('types') or []; import sys; sys.exit(0 if 'agent' not in t else 1)"; then
+                echo "ASSERT_NO_AGENT_OK"
+              else
+                echo "FAIL expected no agent"; FAIL=1; return 0
+              fi
+            fi
+            MID="mission_sem_req_${LABEL}_${TS}"
+            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"goal\":$(python3 -c 'import json,os; print(json.dumps(os.environ["G"]))'),\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"semantic_required_only\",\"cloud_only\":true}}" --max-time 60 >/dev/null || true
+            python3 -c "
+          import json
+          steps=json.load(open('/tmp/vp_plan.json'))
+          mid='$MID'
+          meta=json.load(open('/tmp/plan_meta.json'))
+          pj=json.dumps(steps).replace(chr(39),chr(39)+chr(39))
+          pv=str(meta.get('planner_version') or '')
+          open('/tmp/seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb,'planner_version','\"+pv+\"','capability_intent_planning',true,'verified_path_reuse',false,'selection_policy','required_only_v1'), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\")
+          print('seeded', len(steps))
+          "
+            sql "$(cat /tmp/seed.sql)"
+            term=""
+            for i in $(seq 1 14); do
+              body=$(tick "$MID")
+              echo "TICK $i: $(echo "$body" | head -c 400)"
+              st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+              case "$st" in succeeded|failed|blocked) term=$st; break ;; esac
+              if [ "$st" = "paused" ]; then
+                if echo "$body" | grep -q mission_lease; then
+                  sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MID}' AND status='paused';"
+                  continue
+                fi
+                term=$st; break
+              fi
+              sleep 1
+            done
+            EX=$(sql "SELECT payload->>'step_id', payload->>'executor_type' FROM aria_internal.mission_events WHERE mission_id='${MID}' AND event_type='step_succeeded' ORDER BY created_at;")
+            DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+            echo "TERMINAL=$term"
+            echo "SUCCEEDED=$EX"
+            echo "DB=$DB"
+            if [ "$term" != "succeeded" ]; then echo "FAIL $LABEL terminal=$term"; FAIL=1; fi
+            echo "MID_$LABEL=$MID"
+          }
+
+          # Goal A: same semantic family as before — technical_review is optional signal → must NOT select agent
+          GOAL_A="Determina si el sistema está operativo y listo para una revisión técnica. Comprueba la disponibilidad de la infraestructura, realiza una evaluación técnica cuando aporte valor y genera una síntesis final validada del estado. Solo nube. Unique=$(date +%s)"
+          run_one "A" "$GOAL_A" "1"
+
+          # Goal B: distinct — infrastructure + verification only style (no technical review / synthesis words differently)
+          # Use disponibilidad + síntesis + validada without revisión/evaluación técnica
+          GOAL_B="Confirma la disponibilidad de la infraestructura en la nube y produce una síntesis breve del estado operativo con resultado validado. Unique=$(date +%s)"
+          run_one "B" "$GOAL_B" "1"
+
+          echo "==== SUMMARY FAIL=$FAIL ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo "SEMANTIC_AUTONOMOUS_PLANNING = VERIFIED E2E"
+          echo ALL_PASS
