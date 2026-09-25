@@ -332,6 +332,49 @@ function humanGateCompleted(mission: any) {
   return gate?.status === "completed" && gate?.verified === true;
 }
 
+function canonicalGateStep(step: any) {
+  const normalize = (value: any): any => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value && typeof value === "object") {
+      return Object.keys(value).sort().reduce((acc: any, key: string) => {
+        acc[key] = normalize(value[key]);
+        return acc;
+      }, {});
+    }
+    return value;
+  };
+  return normalize({
+    id: step?.id ?? null,
+    operation: step?.operation ?? null,
+    executor_type: executorType(step),
+    risk: step?.risk ?? "READ",
+    target: step?.target ?? null,
+    input: step?.input ?? null,
+    policy: step?.policy ?? null,
+    authorization: step?.authorization ?? null,
+  });
+}
+
+async function humanGateActionHash(step: any) {
+  const raw = JSON.stringify(canonicalGateStep(step));
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function requiresHumanGate(step: any) {
+  if (step?.policy?.human_gate_required === true) return true;
+  if (step?.authorization?.status === "human_required") return true;
+  const risk = String(step?.risk || "").toUpperCase();
+  return risk === "HIGH_RISK_WRITE" || risk === "DESTRUCTIVE";
+}
+
+function currentHumanGate(mission: any, step: any) {
+  const gate = mission?.checkpoint?.human_gate;
+  if (!gate || typeof gate !== "object") return null;
+  if (String(gate.step_id || "") !== String(step?.id || "")) return null;
+  return gate;
+}
+
 function jobIdFor(missionId: string, stepId: string) {
   const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 28);
   return `uo_${safe(missionId)}_${safe(stepId)}`;
@@ -1226,6 +1269,30 @@ Deno.serve(async (request) => {
   const auth = authContextOf(request);
   const token = auth.token;
 
+  if (typeof body?.action === "string" && body.action === "human_gate_decide") {
+    const missionId = typeof body?.mission_id === "string" ? body.mission_id : "";
+    const decision = String(body?.decision || "").toLowerCase();
+    if (!missionId) return out({ ok: false, error: "mission_id_required" }, 400);
+    if (!["approve", "reject", "cancel"].includes(decision)) return out({ ok: false, error: "invalid_human_gate_decision" }, 400);
+    try {
+      const result = await rpc("aria_internal.mission_human_gate_decide", {
+        p_mission_id: missionId,
+        p_decision: decision,
+        p_approver_id: String(body?.approver_id || "runtime_authenticated_human"),
+        p_action_hash: typeof body?.action_hash === "string" ? body.action_hash : null,
+        p_note: typeof body?.note === "string" ? body.note : null,
+      });
+      return out({ ok: true, status: `human_gate_${decision}d`, mission_id: missionId, decision, result });
+    } catch (error) {
+      return out({
+        ok: false,
+        status: "human_gate_decision_rejected",
+        mission_id: missionId,
+        error: error instanceof Error ? error.message : String(error),
+      }, 409);
+    }
+  }
+
   let activeMissionId: string | null = null;
 
   try {
@@ -1812,6 +1879,72 @@ Deno.serve(async (request) => {
         parallel: batch.length > 1,
       });
 
+      const gatedCandidate = batch.find((step: any) => requiresHumanGate(step) && !(
+        String(currentHumanGate(mission, step)?.status || "") === "approved" &&
+        String(currentHumanGate(mission, step)?.action_hash || "") &&
+        String(currentHumanGate(mission, step)?.action_hash || "") === String((mission.checkpoint?.human_gate || {}).action_hash || "")
+      ));
+      if (gatedCandidate) {
+        const gateHash = await humanGateActionHash(gatedCandidate);
+        const existingGate = currentHumanGate(mission, gatedCandidate);
+        const approved = existingGate?.status === "approved" && String(existingGate?.action_hash || "") === gateHash;
+        if (!approved) {
+          const gateRecord = {
+            required: true,
+            status: existingGate?.status === "pending" ? "pending" : "pending",
+            verified: false,
+            step_id: String(gatedCandidate.id),
+            executor_type: executorType(gatedCandidate),
+            operation: String(gatedCandidate.operation || "unknown"),
+            risk: String(gatedCandidate.risk || "READ"),
+            reason: String(gatedCandidate.policy?.human_gate_reason || "Esta acción requiere aprobación humana antes de ejecutarse."),
+            instructions: String(gatedCandidate.policy?.human_gate_instructions || "Revisa y aprueba exactamente esta acción."),
+            action_hash: gateHash,
+            requested_at: existingGate?.requested_at || new Date().toISOString(),
+            approval_version: 1,
+            approved_at: null,
+            approved_by: null,
+          };
+          await emitEvent(missionId, "human_gate_requested", {
+            required: true,
+            step_id: gateRecord.step_id,
+            executor_type: gateRecord.executor_type,
+            operation: gateRecord.operation,
+            risk: gateRecord.risk,
+            action_hash: gateHash,
+            reason: gateRecord.reason,
+          });
+          await updateMission(missionId, {
+            status: "paused",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: "human_gate:approve",
+            checkpoint: {
+              ...(mission.checkpoint || {}),
+              plan: steps,
+              completed_steps: [...completed],
+              attempts,
+              results,
+              human_gate: gateRecord,
+            },
+            lease_owner: null,
+            lease_until: null,
+          });
+          return out({
+            ok: true,
+            status: "human_required",
+            mission_id: missionId,
+            runtime: V,
+            blocked_step_id: String(gatedCandidate.id),
+            human_gate: gateRecord,
+          });
+        }
+        mission.checkpoint = {
+          ...(mission.checkpoint || {}),
+          human_gate: existingGate,
+        };
+      }
+
       const outcomes = await Promise.all(batch.map(async (step) => {
         const id = String(step.id);
         const nextAttempt = Number(attempts[id] || 0) + 1;
@@ -1879,6 +2012,28 @@ Deno.serve(async (request) => {
       for (const outcome of outcomes) {
         if (outcome.passed) completed.add(String(outcome.step.id));
         else results[String(outcome.step.id)] = outcome.result;
+      }
+
+      const lastProtected = outcomes.find((item: any) => item.passed && requiresHumanGate(item.step));
+      if (lastProtected) {
+        const approvedGate = currentHumanGate(mission, lastProtected.step);
+        if (approvedGate?.status === "approved") {
+          mission.checkpoint = {
+            ...(mission.checkpoint || {}),
+            human_gate: {
+              ...approvedGate,
+              status: "completed",
+              verified: true,
+              completed_step_id: String(lastProtected.step.id),
+              completed_at: new Date().toISOString(),
+            },
+          };
+          await emitEvent(missionId, "human_gate_consumed", {
+            step_id: String(lastProtected.step.id),
+            action_hash: approvedGate.action_hash,
+            verified: true,
+          });
+        }
       }
 
       const checkpoint = {
