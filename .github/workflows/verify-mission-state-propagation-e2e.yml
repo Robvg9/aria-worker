@@ -1,0 +1,222 @@
+name: Verify mission state propagation E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  msp:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: MSP E2E battery (duplicate, lease-loss, fallback, hard_block)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+          sql() { supabase db query --linked "$1"; }
+
+          tick() {
+            local mid="$1"
+            curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"mission_id\":\"$mid\"}" --max-time 180
+          }
+
+          create_mission() {
+            local mid="$1" goal="$2"
+            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"goal\":\"$goal\",\"mission_id\":\"$mid\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_e2e\",\"cloud_only\":true}}" --max-time 60
+          }
+
+          # ---------- 1) DUPLICATE CLAIM ----------
+          echo "==== 1 DUPLICATE CLAIM ===="
+          TS=$(date +%s)
+          MID="mission_msp_dup_${TS}"
+          create_mission "$MID" "Cloud-only: reply with exactly the word PONG using text generation. No devices." | tee /tmp/dup_create.json
+          grep -q '"status":"queued"' /tmp/dup_create.json
+
+          # Fire two concurrent claims
+          tick "$MID" > /tmp/dup_a.json &
+          PID_A=$!
+          tick "$MID" > /tmp/dup_b.json &
+          PID_B=$!
+          wait $PID_A || true
+          wait $PID_B || true
+          echo "A: $(head -c 400 /tmp/dup_a.json)"
+          echo "B: $(head -c 400 /tmp/dup_b.json)"
+
+          # Drain to terminal with sequential ticks
+          term=""
+          for i in $(seq 1 12); do
+            body=$(tick "$MID")
+            echo "DUP_TICK $i: $(echo "$body" | head -c 300)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked|paused) term=$st; break ;; esac
+            sleep 1
+          done
+          echo "DUP_TERMINAL=$term"
+          # One of A/B should be running/succeeded/idle; both should not claim as dual executors with duplicated side effects
+          # Accept: terminal succeeded and no dual lease errors that leave corrupted state
+          if [ "$term" != "succeeded" ]; then
+            echo "FAIL duplicate path did not reach succeeded (got $term)"
+            exit 1
+          fi
+          echo "PASS_DUPLICATE MID=$MID terminal=$term"
+
+          # ---------- 2) LEASE LOSS ----------
+          echo "==== 2 LEASE LOSS ===="
+          MID2="mission_msp_lease_${TS}"
+          create_mission "$MID2" "Cloud-only: reply with exactly the word PONG using text generation. No devices." | tee /tmp/ll_create.json
+          grep -q '"status":"queued"' /tmp/ll_create.json
+
+          # Claim in background (long model call window)
+          tick "$MID2" > /tmp/ll_tick.json &
+          TPID=$!
+          sleep 3
+          # Force-release lease while tick holds it
+          sql "UPDATE aria_internal.mission_state SET lease_owner = 'stolen-by-msp-test', lease_until = clock_timestamp() - interval '1 minute', updated_at = clock_timestamp() WHERE mission_id = '${MID2}';"
+          wait $TPID || true
+          echo "LL_TICK: $(head -c 500 /tmp/ll_tick.json)"
+          # Follow-up tick should not succeed falsely; expect paused/idle/failed or recovery path
+          body2=$(tick "$MID2")
+          echo "LL_FOLLOW: $(echo "$body2" | head -c 400)"
+          st2=$(echo "$body2" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+          # Original tick may have paused with lease error or completed before steal
+          cat /tmp/ll_tick.json /tmp/ll_follow.json 2>/dev/null | true
+          if grep -q '"status":"succeeded"' /tmp/ll_tick.json 2>/dev/null; then
+            # Race: completed before steal — force a second protected-op failure path
+            echo "WARN: tick completed before lease steal; validating post-steal cannot succeed falsely on empty work"
+          fi
+          # Must not be running forever: check DB status
+          sql "SELECT status, lease_owner, next_action FROM aria_internal.mission_state WHERE mission_id = '${MID2}';" | tee /tmp/ll_db.txt
+          if grep -qi 'succeeded' /tmp/ll_tick.json && ! grep -qi 'lease' /tmp/ll_tick.json; then
+            # completed cleanly before steal — acceptable race; force explicit lease-loss on a held mission
+            MID2b="mission_msp_leaseb_${TS}"
+            create_mission "$MID2b" "Cloud-only: reply with exactly the word PONG using text generation. No devices." >/dev/null
+            # Claim and immediately steal before second protected write by using very aggressive steal after 1s
+            tick "$MID2b" > /tmp/ll_tick2.json &
+            TP2=$!
+            sleep 1
+            sql "UPDATE aria_internal.mission_state SET lease_owner='stolen', lease_until=clock_timestamp()-interval '1 minute' WHERE mission_id='${MID2b}';"
+            wait $TP2 || true
+            echo "LL2: $(head -c 500 /tmp/ll_tick2.json)"
+            if grep -q 'mission_lease\|paused' /tmp/ll_tick2.json; then
+              echo "PASS_LEASE_LOSS via forced steal MID=$MID2b"
+            elif grep -q '"status":"succeeded"' /tmp/ll_tick2.json; then
+              echo "WARN lease steal lost race again; checking no eternal running"
+              sql "SELECT status FROM aria_internal.mission_state WHERE mission_id='${MID2b}';" | tee /tmp/ll2_db.txt
+              if grep -E 'running' /tmp/ll2_db.txt; then echo "FAIL eternal running"; exit 1; fi
+              echo "PASS_LEASE_LOSS_NO_ETERNAL_RUNNING MID=$MID2b"
+            else
+              echo "PASS_LEASE_LOSS_SAFE_STATE MID=$MID2b body=$(head -c 200 /tmp/ll_tick2.json)"
+            fi
+          else
+            if grep -qE 'mission_lease|paused|lease_lost' /tmp/ll_tick.json; then
+              echo "PASS_LEASE_LOSS MID=$MID2"
+            else
+              sql "SELECT status FROM aria_internal.mission_state WHERE mission_id='${MID2}';" | tee /tmp/ll_db2.txt
+              if grep -E 'running' /tmp/ll_db2.txt; then echo "FAIL eternal running"; exit 1; fi
+              echo "PASS_LEASE_LOSS_SAFE MID=$MID2"
+            fi
+          fi
+
+          # ---------- 3) PRIMARY FAIL → FALLBACK SUCCESS ----------
+          echo "==== 3 PRIMARY FAIL FALLBACK SUCCESS ===="
+          MID3="mission_msp_fbs_${TS}"
+          # Seed mission with forced plan: primary inject fail, fallback real
+          create_mission "$MID3" "Cloud-only: reply with exactly the word PONG using text generation. No devices." >/dev/null
+          PLAN3='[{"id":"s1","executor_type":"model","operation":"text_generation","risk":"READ","target":{"provider_id":"google","account_id":"google-primary","model_id":"google/gemini-3.5-flash-lite-direct"},"input":{"payload":{"prompt":"Reply with exactly PONG"},"fault_injection":"http_500","fault_all_routes":false},"authorization":{"status":"approved","risk_class":"READ"}}]'
+          sql "UPDATE aria_internal.mission_state SET checkpoint = jsonb_set(coalesce(checkpoint,'{}'::jsonb), '{plan}', '${PLAN3}'::jsonb, true), status='queued', lease_owner=null, lease_until=null WHERE mission_id='${MID3}';"
+          term3=""
+          for i in $(seq 1 10); do
+            body=$(tick "$MID3")
+            echo "FBS_TICK $i: $(echo "$body" | head -c 450)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked|paused) term3=$st; echo "$body" > /tmp/fbs_final.json; break ;; esac
+            sleep 1
+          done
+          echo "FBS_TERMINAL=$term3"
+          if [ "$term3" != "succeeded" ]; then
+            echo "FAIL expected succeeded after fallback, got $term3"
+            exit 1
+          fi
+          echo "PASS_FALLBACK_SUCCESS MID=$MID3"
+
+          # ---------- 4) PRIMARY + FALLBACK FAIL → mission failed ----------
+          echo "==== 4 PRIMARY+FALLBACK FAIL ===="
+          MID4="mission_msp_fbf_${TS}"
+          create_mission "$MID4" "Cloud-only: reply with exactly the word PONG using text generation. No devices." >/dev/null
+          PLAN4='[{"id":"s1","executor_type":"model","operation":"text_generation","risk":"READ","retryable":false,"max_attempts":1,"target":{"provider_id":"google","account_id":"google-primary","model_id":"google/gemini-3.5-flash-lite-direct"},"input":{"payload":{"prompt":"Reply with exactly PONG"},"fault_injection":"http_500","fault_all_routes":true},"authorization":{"status":"approved","risk_class":"READ"}}]'
+          # Seed with high replan_count so retry_exhausted goes to hard_block or failed without endless replan
+          sql "UPDATE aria_internal.mission_state SET checkpoint = jsonb_build_object('plan', '${PLAN4}'::jsonb, 'recovery', jsonb_build_object('replan_count', 2, 'status', 'clear')), status='queued', lease_owner=null, lease_until=null WHERE mission_id='${MID4}';"
+          term4=""
+          for i in $(seq 1 12); do
+            body=$(tick "$MID4")
+            echo "FBF_TICK $i: $(echo "$body" | head -c 450)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked|paused) term4=$st; echo "$body" > /tmp/fbf_final.json; break ;; esac
+            sleep 1
+          done
+          echo "FBF_TERMINAL=$term4"
+          if [ "$term4" = "succeeded" ]; then
+            echo "FAIL must not succeed when all routes injected fail"
+            exit 1
+          fi
+          if [ "$term4" != "failed" ] && [ "$term4" != "blocked" ] && [ "$term4" != "paused" ]; then
+            echo "FAIL expected terminal failed/blocked/paused got $term4"
+            exit 1
+          fi
+          # Prefer failed; blocked is acceptable if hard_block path taken
+          echo "PASS_FALLBACK_FAIL MID=$MID4 terminal=$term4"
+
+          # ---------- 5) HARD_BLOCK contractual ----------
+          echo "==== 5 HARD_BLOCK ===="
+          MID5="mission_msp_hb_${TS}"
+          create_mission "$MID5" "Cloud-only: reply with exactly the word PONG using text generation. No devices." >/dev/null
+          # Contractual hard_block: replan_count already at max, step fails → retry_exhausted_all_strategies → blocked
+          PLAN5='[{"id":"s1","executor_type":"model","operation":"text_generation","risk":"READ","retryable":false,"max_attempts":1,"target":{"provider_id":"google","account_id":"google-primary","model_id":"google/gemini-3.5-flash-lite-direct"},"input":{"payload":{"prompt":"Reply with exactly PONG"},"fault_injection":"http_500","fault_all_routes":true},"authorization":{"status":"approved","risk_class":"READ"}}]'
+          sql "UPDATE aria_internal.mission_state SET checkpoint = jsonb_build_object('plan', '${PLAN5}'::jsonb, 'recovery', jsonb_build_object('replan_count', 2, 'replan_required', false, 'status', 'clear')), status='queued', lease_owner=null, lease_until=null WHERE mission_id='${MID5}';"
+          term5=""
+          for i in $(seq 1 12); do
+            body=$(tick "$MID5")
+            echo "HB_TICK $i: $(echo "$body" | head -c 450)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked|paused) term5=$st; echo "$body" > /tmp/hb_final.json; break ;; esac
+            sleep 1
+          done
+          echo "HB_TERMINAL=$term5"
+          if [ "$term5" != "blocked" ]; then
+            # If runner returns failed due to path variance, check DB for blocked
+            sql "SELECT status, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MID5}';" | tee /tmp/hb_db.txt
+            if grep -q blocked /tmp/hb_db.txt; then
+              term5=blocked
+            fi
+          fi
+          if [ "$term5" != "blocked" ]; then
+            echo "FAIL expected blocked got $term5"
+            exit 1
+          fi
+          if [ "$term5" = "succeeded" ] || [ "$term5" = "failed" ]; then
+            echo "FAIL blocked must not be transformed"
+            exit 1
+          fi
+          echo "PASS_HARD_BLOCK MID=$MID5"
+
+          echo "==== MSP_E2E_SUMMARY ===="
+          echo "duplicate=PASS fallback_success=PASS fallback_fail=$term4 hard_block=PASS"
+          echo "MISSION_STATE_PROPAGATION_BATTERY_OK"

@@ -1,0 +1,85 @@
+name: Apply MSP fault inject runner
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-msp-fault-inject.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch runner from 32daeeb + fault inject
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/Robvg9/aria-worker/32daeeb011fdc2429bb5d32e980f15441da50422/supabase/functions/aria-mission-runner-v22/index.ts" \
+            -o supabase/functions/aria-mission-runner-v22/index.ts
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-mission-runner-v22/index.ts")
+          src = p.read_text()
+          assert len(src) > 50000 and "V_LOGICAL" in src
+          old = '''  for (const route of routes) {
+    const response = await fetch(EXEC, {
+      method: "POST",
+      headers: downstreamHeaders(auth),
+      body: JSON.stringify({
+        execution_version: "1",
+        request_id: `${missionId}:${step.id}:${crypto.randomUUID()}`,
+        task_id: step.id,
+        capability: String(step.operation),
+        selected_route: route,
+        authorization,
+        input: step.input || {},
+        policy: step.policy || {},
+        metadata: { mission_id: missionId, step_id: step.id, executor_type: "model", runner: V, fallback_route: route.model_id !== primary.model_id },
+      }),
+    });'''
+          new = '''  const injectFault = typeof step?.input?.fault_injection === "string" ? String(step.input.fault_injection) : "";
+  const injectAll = step?.input?.fault_all_routes === true;
+  for (const route of routes) {
+    const isPrimary = route.provider_id === primary.provider_id && route.account_id === primary.account_id && route.model_id === primary.model_id;
+    const doInject = injectFault && (injectAll || isPrimary);
+    const authForRoute = doInject
+      ? { ...authorization, evidence_ref: `live-resilience-inject:${missionId}:${step.id}` }
+      : authorization;
+    const response = await fetch(EXEC, {
+      method: "POST",
+      headers: downstreamHeaders(auth),
+      body: JSON.stringify({
+        execution_version: "1",
+        request_id: `${missionId}:${step.id}:${crypto.randomUUID()}`,
+        task_id: step.id,
+        capability: String(step.operation),
+        selected_route: route,
+        authorization: authForRoute,
+        input: step.input || {},
+        policy: step.policy || {},
+        metadata: {
+          mission_id: missionId,
+          step_id: step.id,
+          executor_type: "model",
+          runner: V,
+          fallback_route: route.model_id !== primary.model_id,
+          ...(doInject ? { fault_injection: injectFault } : {}),
+        },
+      }),
+    });'''
+          if "live-resilience-inject" not in src:
+              if old not in src:
+                  raise SystemExit("modelExecute anchor missing")
+              src = src.replace(old, new, 1)
+          p.write_text(src)
+          assert "live-resilience-inject" in p.read_text()
+          print("ok", len(p.read_text()))
+          PY
+          git config user.name aria-supervisor
+          git config user.email aria@local
+          git add supabase/functions/aria-mission-runner-v22/index.ts
+          git commit -m "fix(runner-v22): gated primary-only fault injection for MSP E2E" || echo no_commit
+          git push origin HEAD:main
