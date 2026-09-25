@@ -1,0 +1,102 @@
+-- Directed batch continuation: claim_next must not steal missions waiting for
+-- claim_by_id reclaim after next_ready_batch lease release.
+-- claim_by_id keeps full reclaim of running+null owner.
+-- After 10 minutes, claim_next may reclaim for crash/stale recovery.
+
+create or replace function aria_internal.aria_mission_claim_next_lease(
+  p_worker_id text,
+  p_lease_for interval default '00:02:00'::interval
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'pg_catalog', 'aria_internal'
+as $function$
+declare claimed jsonb;
+begin
+  if p_worker_id is null or btrim(p_worker_id)='' then
+    raise exception 'worker_id_required';
+  end if;
+
+  with candidates as (
+    select m.mission_id
+      from aria_internal.mission_state m
+     where (
+       m.status='queued'
+       or (m.status in ('planning','running','paused','failed') and m.lease_until is not null and m.lease_until<clock_timestamp())
+       or (
+         m.status='running' and m.lease_owner is null
+         and not (
+           coalesce(m.next_action,'') = 'next_ready_batch'
+           and m.updated_at > clock_timestamp() - interval '10 minutes'
+         )
+       )
+       or (
+         m.status='running' and m.lease_until is null
+         and not (
+           coalesce(m.next_action,'') = 'next_ready_batch'
+           and m.updated_at > clock_timestamp() - interval '10 minutes'
+         )
+       )
+       or (m.status='paused' and coalesce(m.checkpoint->'pending_jobs','{}'::jsonb)<>'{}'::jsonb)
+       or (m.status='waiting' and coalesce(m.checkpoint->'recovery'->>'status','')='verification_pending')
+     )
+       and aria_internal.aria_mission_claim_eligible(m.mission_id)
+     order by m.updated_at,m.created_at,m.mission_id
+     for update skip locked
+     limit 1
+  ), updated as (
+    update aria_internal.mission_state m
+       set status=case
+           when m.status in ('queued','failed') then 'planning'
+           when m.status='waiting' then 'running'
+           else 'running'
+         end,
+           lease_owner=p_worker_id,
+           lease_until=clock_timestamp()+p_lease_for,
+           updated_at=clock_timestamp(),
+           current_workspace=coalesce(m.current_workspace,p_worker_id),
+           recovery_count=case
+             when m.status='paused' then coalesce(m.recovery_count,0)+1
+             when m.status in ('planning','running','failed') and m.lease_until is not null and m.lease_until<clock_timestamp()
+               then coalesce(m.recovery_count,0)+1
+             else coalesce(m.recovery_count,0)
+           end,
+           last_recovery_reason=case
+             when m.status='failed' then 'failed_mission_replanned'
+             when m.status='waiting' then 'verification_pending_resumed'
+             when m.status='paused' then 'paused_pending_job_reclaimed'
+             when m.lease_until is not null and m.lease_until<clock_timestamp() then 'lease_expired_reclaimed'
+             else m.last_recovery_reason
+           end,
+           next_action=case
+             when m.status='failed' then 'replan: prior strategy failed'
+             when m.status='waiting' then 'verification:resume_pending_verification'
+             else m.next_action
+           end
+      from candidates c
+     where m.mission_id=c.mission_id
+     returning m.*
+  )
+  select to_jsonb(updated) into claimed from updated;
+  return claimed;
+end;
+$function$;
+
+create or replace function public.aria_mission_claim_next_lease(
+  p_worker_id text,
+  p_lease_for interval default '00:02:00'::interval
+)
+returns jsonb
+language sql
+security definer
+set search_path to 'pg_catalog'
+as $function$
+  select aria_internal.aria_mission_claim_next_lease(p_worker_id,p_lease_for);
+$function$;
+
+revoke all on function public.aria_mission_claim_next_lease(text,interval) from public,anon,authenticated;
+grant execute on function public.aria_mission_claim_next_lease(text,interval) to service_role;
+
+comment on function aria_internal.aria_mission_claim_next_lease(text,interval)
+is 'Claim next mission; skips directed next_ready_batch continuations for 10m so claim_by_id can reclaim.';

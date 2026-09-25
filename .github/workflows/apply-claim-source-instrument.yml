@@ -1,0 +1,97 @@
+name: Apply claim_source instrument
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-claim-source-instrument.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch runner claim_source from 32daeeb base
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/Robvg9/aria-worker/32daeeb011fdc2429bb5d32e980f15441da50422/supabase/functions/aria-mission-runner-v22/index.ts" \
+            -o supabase/functions/aria-mission-runner-v22/index.ts
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/aria-mission-runner-v22/index.ts")
+          src = p.read_text()
+          assert "V_LOGICAL" in src and len(src) > 50000
+          old = '''    const mission = requestedMissionId
+      ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
+      : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
+    if (!mission) return out({ ok: true, status: "idle", runtime: V_LOGICAL, invocation_id: V, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });
+
+    const missionId = String(mission.mission_id);
+    activeMissionId = missionId;
+    await renewLease(missionId);'''
+          new = '''    const claimSource = requestedMissionId ? "claim_by_id" : "claim_next";
+    const mission = requestedMissionId
+      ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
+      : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
+    if (!mission) return out({ ok: true, status: "idle", runtime: V_LOGICAL, invocation_id: V, claim_source: claimSource, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });
+
+    const missionId = String(mission.mission_id);
+    activeMissionId = missionId;
+    await renewLease(missionId);
+    const leaseMeta = {
+      claim_source: claimSource,
+      invocation_id: V,
+      worker_logical: V_LOGICAL,
+      lease_owner_claimed: V,
+      claimed_at: new Date().toISOString(),
+      previous_lease_owner: mission.lease_owner ?? null,
+      previous_lease_until: mission.lease_until ?? null,
+      next_action: mission.next_action ?? null,
+    };'''
+          if "leaseMeta" not in src:
+              if old not in src:
+                  raise SystemExit("claim block missing")
+              src = src.replace(old, new, 1)
+          old_rel = '''        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V_LOGICAL,
+          invocation_id: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+          lease_released_for_reclaim: true,
+        });'''
+          new_rel = '''        return out({
+          ok: true,
+          status: "running",
+          mission_id: missionId,
+          runtime: V_LOGICAL,
+          invocation_id: V,
+          completed_steps: completed.size,
+          total_steps: steps.length,
+          next_action: nextAction,
+          lease_released_for_reclaim: true,
+          claim_source: typeof leaseMeta !== "undefined" ? leaseMeta.claim_source : "claim_by_id",
+          lease_meta: typeof leaseMeta !== "undefined" ? { ...leaseMeta, phase: "batch_release" } : null,
+        });'''
+          if "lease_meta" not in src and old_rel in src:
+              src = src.replace(old_rel, new_rel, 1)
+          src = src.replace(
+              'return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, executor_types: executorTypes, results: completed.size, chained });',
+              'return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, claim_source: typeof leaseMeta !== "undefined" ? leaseMeta.claim_source : null, executor_types: executorTypes, results: completed.size, chained });',
+              1,
+          )
+          p.write_text(src)
+          assert "leaseMeta" in p.read_text()
+          print("ok", len(p.read_text()))
+          PY
+          git config user.name aria-supervisor
+          git config user.email aria@local
+          git add supabase/functions/aria-mission-runner-v22/index.ts
+          git commit -m "fix(runner-v22): claim_source lease instrumentation" || echo no_commit
+          git push origin HEAD:main
