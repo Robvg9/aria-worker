@@ -1,0 +1,127 @@
+name: Verify recovery-failure LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery_failure:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 12
+    steps:
+      - name: Recovery failure battery
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          EXEC="$BASE/aria-execution-runtime-v1"
+          RUN_ID="recfail-$(date +%s)"
+          echo "RUN_ID=$RUN_ID"
+
+          exec_call() {
+            local rid="$1" provider="$2" account="$3" model="$4" fault="$5" eref="$6"
+            local meta
+            if [ -n "$fault" ]; then
+              meta="\"metadata\":{\"fault_injection\":\"$fault\",\"run_id\":\"$RUN_ID\"}"
+            else
+              meta="\"metadata\":{\"run_id\":\"$RUN_ID\"}"
+            fi
+            curl -s -w "\nHTTP %{http_code}" -X POST "$EXEC" \
+              -H "$AUTH" -H "content-type: application/json" \
+              -d "{
+                \"execution_version\":\"1\",
+                \"request_id\":\"$rid\",
+                \"task_id\":\"recfail\",
+                \"capability\":\"text_generation\",
+                \"selected_route\":{
+                  \"status\":\"selected\",
+                  \"provider_id\":\"$provider\",
+                  \"account_id\":\"$account\",
+                  \"model_id\":\"$model\",
+                  \"capability\":\"text_generation\"
+                },
+                \"authorization\":{\"status\":\"approved\",\"risk_class\":\"READ\",\"evidence_ref\":\"$eref\"},
+                \"input\":{\"payload\":{\"prompt\":\"recfail probe\",\"max_tokens\":20}},
+                $meta
+              }" --max-time 40
+          }
+
+          not_succeeded() {
+            local body="$1"
+            if echo "$body" | grep -q '\"status\":\"succeeded\"'; then
+              echo "FAIL: false success detected"
+              echo "$body"
+              exit 1
+            fi
+          }
+
+          echo "=== 1. PRIMARY FAIL + FALLBACK FAIL (503 both) ==="
+          p1=$(exec_call "$RUN_ID-p1" google acct_google_gemini_free google/gemini-3.5-flash-lite-direct http_503 "live-resilience-inject:p1")
+          echo "PRIMARY: $p1"
+          not_succeeded "$p1"
+          echo "$p1" | grep -q '\"provider_status\":503'
+          f1=$(exec_call "$RUN_ID-f1" openrouter acct_openrouter_primary "nex-agi/nex-n2.5-mini:free" http_503 "live-resilience-inject:f1")
+          echo "FALLBACK: $f1"
+          not_succeeded "$f1"
+          echo "$f1" | grep -q '\"provider_status\":503'
+          echo "CASE1_TERMINAL=failed both routes explicit provider_error/503 PASS"
+
+          echo "=== 2. PRIMARY TIMEOUT + FALLBACK TIMEOUT ==="
+          p2=$(exec_call "$RUN_ID-p2" google acct_google_gemini_free google/gemini-3.5-flash-lite-direct timeout "live-resilience-inject:p2")
+          echo "PRIMARY: $p2"
+          not_succeeded "$p2"
+          echo "$p2" | grep -q transport_timeout
+          f2=$(exec_call "$RUN_ID-f2" openrouter acct_openrouter_primary "nex-agi/nex-n2.5-mini:free" timeout "live-resilience-inject:f2")
+          echo "FALLBACK: $f2"
+          not_succeeded "$f2"
+          echo "$f2" | grep -q transport_timeout
+          echo "CASE2_TERMINAL=failed both transport_timeout, no loop PASS"
+
+          echo "=== 3. ALL ROUTES UNAVAILABLE (unverified models) ==="
+          u1=$(exec_call "$RUN_ID-u1" google acct_google_gemini_free google/gemini-3.5-flash-direct "" "normal:unavailable")
+          echo "UNAVAILABLE_GOOGLE: $u1"
+          not_succeeded "$u1"
+          echo "$u1" | grep -q model_not_verified
+          u2=$(exec_call "$RUN_ID-u2" openrouter acct_openrouter_primary "not-a-real-model:free" "" "normal:unavailable")
+          echo "UNAVAILABLE_OR: $u2"
+          not_succeeded "$u2"
+          echo "$u2" | grep -q model_not_verified
+          u3=$(exec_call "$RUN_ID-u3" anthropic acct_none "claude-fake" "" "normal:unavailable")
+          echo "UNAVAILABLE_ADAPTER: $u3"
+          not_succeeded "$u3"
+          echo "$u3" | grep -qE 'adapter_unavailable|route_not_selectable|model_not_verified|blocked'
+          echo "CASE3_TERMINAL=blocked/model_not_verified explicit PASS"
+
+          echo "=== 4. MALFORMED / INVALID RESPONSE ==="
+          m1=$(exec_call "$RUN_ID-m1" google acct_google_gemini_free google/gemini-3.5-flash-lite-direct invalid_response "live-resilience-inject:m1")
+          echo "MALFORMED: $m1"
+          not_succeeded "$m1"
+          echo "$m1" | grep -q invalid_response
+          echo "CASE4_TERMINAL=failed invalid_response PASS"
+
+          echo "=== 5. PARTIAL EXECUTION (empty content) ==="
+          pe=$(exec_call "$RUN_ID-pe" google acct_google_gemini_free google/gemini-3.5-flash-lite-direct partial_empty "live-resilience-inject:pe")
+          echo "PARTIAL: $pe"
+          not_succeeded "$pe"
+          echo "$pe" | grep -q invalid_response
+          echo "CASE5_TERMINAL=failed no false success PASS"
+
+          echo "=== 6. IDEMPOTENCY / SAME request_id UNDER FAILURE ==="
+          RID="$RUN_ID-idem"
+          a=$(exec_call "$RID" google acct_google_gemini_free google/gemini-3.5-flash-lite-direct http_503 "live-resilience-inject:idem")
+          b=$(exec_call "$RID" google acct_google_gemini_free google/gemini-3.5-flash-lite-direct http_503 "live-resilience-inject:idem")
+          echo "FIRST: $a"
+          echo "SECOND: $b"
+          not_succeeded "$a"
+          not_succeeded "$b"
+          echo "$a" | grep -q '\"status\":\"failed\"'
+          echo "$b" | grep -q '\"status\":\"failed\"'
+          echo "CASE6_IDEMPOTENCY=repeat failure remains failed, no false success PASS"
+
+          echo "RECOVERY_FAILURE_BATTERY_VERIFIED RUN_ID=$RUN_ID"
