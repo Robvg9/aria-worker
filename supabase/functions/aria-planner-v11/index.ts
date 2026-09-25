@@ -315,7 +315,7 @@ async function windowsPcRwhtPlan(goal:string,context:any){
 
 async function androidAutonomousPlan(goal:string,context:any){
   const g=String(goal||'').toLowerCase();
-  if(!/(android|tel[eé]fono|app|aplicaci[oó]n|pwa|web|bot[oó]n|interfaz|ui)/i.test(g))return null;
+  if(!/(android|tel[eé]fono|\\bapp\\b|aplicaci[oó]n|pwa|\\bweb\\b|bot[oó]n|interfaz|\\bui\\b)/i.test(g))return null;
   if(!/(probar|prueba|test|verificar|auditar|comprobar|revisar|explorar)/i.test(g))return null;
   const explicitDevice=typeof context?.device_id==='string'?context.device_id:'';
   let device:any=null;
