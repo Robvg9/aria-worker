@@ -19,11 +19,10 @@ jobs:
       - name: Fetch base runner and apply fence patch
         run: |
           set -euo pipefail
-          # Base: c50faab (full source + next_ready_batch lease handling)
           curl -fsSL "https://raw.githubusercontent.com/Robvg9/aria-worker/c50faab3868dd0370a109768b8f84a69964bea5e/supabase/functions/aria-mission-runner-v22/index.ts" \
             -o supabase/functions/aria-mission-runner-v22/index.ts
           wc -c supabase/functions/aria-mission-runner-v22/index.ts
-          python3 - <<'PY'
+          python3 << 'PY'
           from pathlib import Path
           p = Path("supabase/functions/aria-mission-runner-v22/index.ts")
           src = p.read_text()
@@ -31,63 +30,66 @@ jobs:
           assert "FILE_TOO_LARGE" not in src
 
           old_v = 'const V = "aria-mission-runner-v22-universal";'
+          # Use string concat so GitHub Actions does not expand ${...}
           new_v = (
-          'const V_LOGICAL = "aria-mission-runner-v22-universal";\n'
-          '// Per-invocation fence: same logical runner, unique lease owner per tick.\n'
-          '// Prevents concurrent same-worker re-entry races (claim\u2192renew\u2192append_event).\n'
-          '// Cross-tick reclaim uses running + lease_owner IS NULL (batch continuation contract).\n'
-          'const V = `${V_LOGICAL}:${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;'
+              'const V_LOGICAL = "aria-mission-runner-v22-universal";\n'
+              '// Per-invocation fence: unique lease owner per tick.\n'
+              '// Prevents concurrent same-worker re-entry races.\n'
+              '// Cross-tick reclaim: running + lease_owner IS NULL.\n'
+              'const V = ' + '`' + '${V_LOGICAL}:' + '${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}' + '`;'
           )
           if "V_LOGICAL" not in src:
               if old_v not in src:
                   raise SystemExit("V anchor missing")
               src = src.replace(old_v, new_v, 1)
 
-          old_batch = '''      if (completed.size < steps.length) {
-        await renewLease(missionId);
-        await updateMission(missionId, {
-          status: "running",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: nextAction,
-          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
-        });
-        return out({
-          ok: true,
-          status: "running",
-          mission_id: missionId,
-          runtime: V,
-          completed_steps: completed.size,
-          total_steps: steps.length,
-          next_action: nextAction,
-          lease_retained: true,
-        });
-      }'''
-          new_batch = '''      if (completed.size < steps.length) {
-        // End of tick: release lease so the next invocation (new fence id) can reclaim
-        // via (status=running AND lease_owner IS NULL). Do NOT keep V-bound ownership
-        // across ticks \u2014 V is per-invocation. Single-owner still enforced within a tick.
-        await updateMission(missionId, {
-          status: "running",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: nextAction,
-          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },
-          lease_owner: null,
-          lease_until: null,
-        });
-        return out({
-          ok: true,
-          status: "running",
-          mission_id: missionId,
-          runtime: V_LOGICAL,
-          invocation_id: V,
-          completed_steps: completed.size,
-          total_steps: steps.length,
-          next_action: nextAction,
-          lease_released_for_reclaim: true,
-        });
-      }'''
+          old_batch = (
+              '      if (completed.size < steps.length) {\n'
+              '        await renewLease(missionId);\n'
+              '        await updateMission(missionId, {\n'
+              '          status: "running",\n'
+              '          current_step: completed.size,\n'
+              '          completed_steps: completed.size,\n'
+              '          next_action: nextAction,\n'
+              '          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },\n'
+              '        });\n'
+              '        return out({\n'
+              '          ok: true,\n'
+              '          status: "running",\n'
+              '          mission_id: missionId,\n'
+              '          runtime: V,\n'
+              '          completed_steps: completed.size,\n'
+              '          total_steps: steps.length,\n'
+              '          next_action: nextAction,\n'
+              '          lease_retained: true,\n'
+              '        });\n'
+              '      }'
+          )
+          new_batch = (
+              '      if (completed.size < steps.length) {\n'
+              '        // Release lease for next invocation reclaim (running + null owner).\n'
+              '        await updateMission(missionId, {\n'
+              '          status: "running",\n'
+              '          current_step: completed.size,\n'
+              '          completed_steps: completed.size,\n'
+              '          next_action: nextAction,\n'
+              '          checkpoint: { ...checkpoint, recovery: { status: "clear" }, active_step: null },\n'
+              '          lease_owner: null,\n'
+              '          lease_until: null,\n'
+              '        });\n'
+              '        return out({\n'
+              '          ok: true,\n'
+              '          status: "running",\n'
+              '          mission_id: missionId,\n'
+              '          runtime: V_LOGICAL,\n'
+              '          invocation_id: V,\n'
+              '          completed_steps: completed.size,\n'
+              '          total_steps: steps.length,\n'
+              '          next_action: nextAction,\n'
+              '          lease_released_for_reclaim: true,\n'
+              '        });\n'
+              '      }'
+          )
           if "lease_released_for_reclaim" not in src:
               if old_batch not in src:
                   raise SystemExit("batch anchor missing")
@@ -114,8 +116,10 @@ jobs:
           assert "V_LOGICAL" in text
           assert "lease_released_for_reclaim" in text
           assert "FILE_TOO_LARGE" not in text and "PLACEHOLDER" not in text
+          assert "crypto.randomUUID" in text
           assert len(text) > 50000
           print("final_size", len(text))
+          print("V_line", [ln for ln in text.splitlines() if ln.startswith("const V ")][:2])
           PY
           git config user.name "aria-supervisor"
           git config user.email "aria@local"
