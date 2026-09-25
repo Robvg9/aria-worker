@@ -1275,7 +1275,7 @@ Deno.serve(async (request) => {
     if (!missionId) return out({ ok: false, error: "mission_id_required" }, 400);
     if (!["approve", "reject", "cancel"].includes(decision)) return out({ ok: false, error: "invalid_human_gate_decision" }, 400);
     try {
-      const result = await rpc("aria_internal.mission_human_gate_decide", {
+      const result = await rpc("mission_human_gate_decide", {
         p_mission_id: missionId,
         p_decision: decision,
         p_approver_id: String(body?.approver_id || "runtime_authenticated_human"),
