@@ -1,0 +1,127 @@
+name: Verify model routing LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: LIVE routing probes
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_REF"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+
+          echo "=== A. Function presence (POST empty, expect auth ok path not 404) ==="
+          for fn in aria-mission-runner-v22 aria-device-gateway aria-execution-runtime-v1; do
+            code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST "$BASE/$fn" \
+              -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 20)
+            echo "$fn HTTP=$code body=$(head -c 180 /tmp/out.json)"
+            test "$code" != "404"
+          done
+
+          echo "=== B. Invalid model rejected before provider ==="
+          code=$(curl -s -o /tmp/invalid.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d "{
+              \"execution_version\":\"1\",
+              \"request_id\":\"live-probe-invalid-$(date +%s)\",
+              \"task_id\":\"probe_invalid\",
+              \"capability\":\"text_generation\",
+              \"selected_route\":{
+                \"status\":\"selected\",
+                \"provider_id\":\"google\",
+                \"account_id\":\"acct_google_gemini_free\",
+                \"model_id\":\"google/gemini-3.5-flash-direct\",
+                \"capability\":\"text_generation\"
+              },
+              \"authorization\":{\"status\":\"approved\",\"risk_class\":\"READ\",\"evidence_ref\":\"live-probe:invalid\"},
+              \"input\":{\"payload\":{\"prompt\":\"should not reach model\"}}
+            }" --max-time 25)
+          echo "HTTP=$code body=$(cat /tmp/invalid.json)"
+          if grep -q '\"status\":\"succeeded\"' /tmp/invalid.json; then
+            echo "FAIL: invalid model executed successfully"
+            exit 1
+          fi
+          if grep -qE 'provider_error|provider_status' /tmp/invalid.json; then
+            echo "FAIL: invalid model reached provider"
+            exit 1
+          fi
+          if ! grep -qE 'model_not_verified|blocked|route_not_selectable' /tmp/invalid.json; then
+            echo "FAIL: expected model_not_verified/blocked for invalid route"
+            exit 1
+          fi
+          echo "INVALID_ROUTE_OK"
+
+          echo "=== C. Valid model google/gemini-3.5-flash-lite-direct ==="
+          code=$(curl -s -o /tmp/valid.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d "{
+              \"execution_version\":\"1\",
+              \"request_id\":\"live-probe-valid-$(date +%s)\",
+              \"task_id\":\"probe_valid\",
+              \"capability\":\"text_generation\",
+              \"selected_route\":{
+                \"status\":\"selected\",
+                \"provider_id\":\"google\",
+                \"account_id\":\"acct_google_gemini_free\",
+                \"model_id\":\"google/gemini-3.5-flash-lite-direct\",
+                \"capability\":\"text_generation\"
+              },
+              \"authorization\":{\"status\":\"approved\",\"risk_class\":\"READ\",\"evidence_ref\":\"live-probe:valid\"},
+              \"input\":{\"payload\":{\"prompt\":\"Reply exactly: ARIA_LIVE_ROUTE_OK\",\"max_tokens\":20}}
+            }" --max-time 40)
+          echo "HTTP=$code body=$(cat /tmp/valid.json)"
+          if ! grep -q '\"status\":\"succeeded\"' /tmp/valid.json; then
+            echo "FAIL: valid lite-direct did not succeed"
+            exit 1
+          fi
+          if grep -q PLACEHOLDER /tmp/valid.json; then
+            echo "FAIL: PLACEHOLDER in response"
+            exit 1
+          fi
+          echo "VALID_ROUTE_OK"
+
+          echo "=== D. OpenRouter free allowlist candidate ==="
+          code=$(curl -s -o /tmp/or.json -w "%{http_code}" -X POST "$BASE/aria-execution-runtime-v1" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d "{
+              \"execution_version\":\"1\",
+              \"request_id\":\"live-probe-or-$(date +%s)\",
+              \"task_id\":\"probe_or\",
+              \"capability\":\"text_generation\",
+              \"selected_route\":{
+                \"status\":\"selected\",
+                \"provider_id\":\"openrouter\",
+                \"account_id\":\"acct_openrouter_primary\",
+                \"model_id\":\"nex-agi/nex-n2.5-mini:free\",
+                \"capability\":\"text_generation\"
+              },
+              \"authorization\":{\"status\":\"approved\",\"risk_class\":\"READ\",\"evidence_ref\":\"live-probe:or\"},
+              \"input\":{\"payload\":{\"prompt\":\"Reply exactly: ARIA_OR_FALLBACK_OK\",\"max_tokens\":20}}
+            }" --max-time 45)
+          echo "HTTP=$code body=$(cat /tmp/or.json)"
+          if grep -q 'model_not_verified' /tmp/or.json; then
+            echo "FAIL: free openrouter model not in runtime allowlist"
+            exit 1
+          fi
+          if grep -q '\"status\":\"succeeded\"' /tmp/or.json; then
+            echo "OPENROUTER_FALLBACK_EXECUTABLE_OK"
+          else
+            echo "OPENROUTER_ALLOWLIST_OK provider_state=$(head -c 200 /tmp/or.json)"
+          fi
+
+          echo "=== ALL LIVE ROUTING PROBES PASSED ==="
