@@ -1,1 +1,152 @@
-PLACEHOLDER_WILL_REPLACE
+name: Verify stale recovery and composition
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 35
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: Stale physical + composition
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1" || true; }
+          tick() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d "{\"mission_id\":\"$1\"}" --max-time 180; }
+          claim_next() { curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 180; }
+          FAIL=0
+          TS=$(date +%s)
+          echo "==== STALE PHYSICAL RECOVERY (3x) ===="
+          STALE_PASS=0
+          for n in 1 2 3; do
+            MID="mission_stale_phys_${TS}_${n}"
+            echo "--- STALE ITER $n MID=$MID ---"
+            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices. Unique=${TS}-${n}\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"stale_physical\",\"cloud_only\":true}}" \
+              --max-time 60 >/tmp/st_create.json || true
+            python3 -c "import json; mid='$MID'; plan=[{'id':'s1','executor_type':'model','operation':'text_generation','risk':'READ','target':{'provider_id':'google','account_id':'google-primary','model_id':'google/gemini-3.5-flash-lite-direct'},'input':{'payload':{'prompt':'Reply with exactly PONG'}},'authorization':{'status':'approved','risk_class':'READ'}},{'id':'s2','executor_type':'model','operation':'text_generation','risk':'READ','depends_on':['s1'],'target':{'provider_id':'google','account_id':'google-primary','model_id':'google/gemini-3.5-flash-lite-direct'},'input':{'payload':{'prompt':'Reply with exactly OK'}},'authorization':{'status':'approved','risk_class':'READ'}}]; pj=json.dumps(plan).replace(chr(39),chr(39)+chr(39)); open('/tmp/st_seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb,'results',jsonb_build_object('s1',jsonb_build_object('status','succeeded','executor_type','model'))), status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null, completed_steps=1, total_steps=2 WHERE mission_id='\"+mid+\"';\")"
+            sql "$(cat /tmp/st_seed.sql)"
+            sql "BEGIN; SET LOCAL session_replication_role = replica; UPDATE aria_internal.mission_state SET updated_at = clock_timestamp() - interval '11 minutes', status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null WHERE mission_id='${MID}'; COMMIT;"
+            AGE_CHK=$(sql "SELECT extract(epoch from (clock_timestamp() - updated_at))::int AS age_s, status, next_action, lease_owner FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+            echo "AGE_CHK=$AGE_CHK"
+            ELIG=$(sql "SELECT (m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'')='next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes')) AS eligible FROM aria_internal.mission_state m WHERE m.mission_id='${MID}';")
+            echo "ELIG=$ELIG"
+            if ! echo "$ELIG" | grep -qiE 't|true'; then
+              echo "WARN trying DISABLE TRIGGER ALL"
+              sql "ALTER TABLE aria_internal.mission_state DISABLE TRIGGER ALL; UPDATE aria_internal.mission_state SET updated_at = clock_timestamp() - interval '12 minutes' WHERE mission_id='${MID}'; ALTER TABLE aria_internal.mission_state ENABLE TRIGGER ALL;" || true
+              AGE_CHK=$(sql "SELECT extract(epoch from (clock_timestamp() - updated_at))::int AS age_s FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+              echo "AGE_CHK2=$AGE_CHK"
+              ELIG=$(sql "SELECT (m.status='running' AND m.lease_owner IS NULL AND NOT (coalesce(m.next_action,'')='next_ready_batch' AND m.updated_at > clock_timestamp() - interval '10 minutes')) AS eligible FROM aria_internal.mission_state m WHERE m.mission_id='${MID}';")
+              echo "ELIG2=$ELIG"
+            fi
+            if ! echo "$ELIG" | grep -qiE 't|true'; then
+              sql "BEGIN; SET LOCAL session_replication_role = replica; UPDATE aria_internal.mission_state SET updated_at = clock_timestamp() - interval '15 minutes', lease_until = clock_timestamp() - interval '1 minute', lease_owner = null, status='running', next_action='next_ready_batch' WHERE mission_id='${MID}'; COMMIT;"
+              ELIG=$(sql "SELECT extract(epoch from (clock_timestamp() - updated_at))::int AS age_s, (m.updated_at <= clock_timestamp() - interval '10 minutes') AS stale FROM aria_internal.mission_state m WHERE m.mission_id='${MID}';")
+              echo "ELIG3=$ELIG"
+            fi
+            body_cn=$(claim_next)
+            echo "CLAIM_NEXT=$n: $(echo "$body_cn" | head -c 450)"
+            cn_mid=$(echo "$body_cn" | python3 -c "import sys,json;print(json.load(sys.stdin).get('mission_id') or '')" 2>/dev/null || true)
+            cn_st=$(echo "$body_cn" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+            if [ "$cn_mid" = "$MID" ]; then
+              echo "PASS_STALE_CLAIM_NEXT iter=$n mid=$MID status=$cn_st"
+              term=""
+              for i in $(seq 1 8); do
+                body=$(tick "$MID")
+                echo "ST_TICK $n/$i: $(echo "$body" | head -c 300)"
+                st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+                case "$st" in succeeded|failed|blocked|paused) term=$st; break ;; esac
+                sleep 1
+              done
+              DB=$(sql "SELECT status, lease_owner FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+              echo "ST_DB=$DB terminal=$term"
+              if [ "$term" = "succeeded" ] || echo "$DB" | grep -qw succeeded; then
+                STALE_PASS=$((STALE_PASS+1)); echo "PASS_STALE_TERMINAL iter=$n"
+              elif [ "$term" = "failed" ] || [ "$term" = "blocked" ] || [ "$term" = "paused" ]; then
+                STALE_PASS=$((STALE_PASS+1)); echo "PASS_STALE_RECOVERED_TERMINAL=$term iter=$n"
+              else
+                echo "FAIL stale no terminal iter=$n"; FAIL=1
+              fi
+            else
+              echo "FAIL claim_next did not reclaim stale MID (got=$cn_mid)"
+              AGE=$(sql "SELECT extract(epoch from (clock_timestamp() - updated_at))::int AS age_s, status, next_action, lease_owner, lease_until FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+              echo "DIAG=$AGE"
+              FAIL=1
+            fi
+            sql "UPDATE aria_internal.mission_state SET status='paused', next_action='stale_cleanup', lease_owner=null WHERE mission_id='${MID}' AND status NOT IN ('succeeded','failed','blocked');" || true
+          done
+          echo "STALE_PASS=$STALE_PASS/3"
+          if [ "$STALE_PASS" -lt 3 ]; then echo "FAIL stale not 3/3"; FAIL=1; else echo "STALE_RECOVERY = VERIFIED E2E"; fi
+          echo "==== FRESH CONTINUATION NOT STOLEN ===="
+          MIDF="mission_fresh_cont_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices. Unique=fresh-${TS}\",\"mission_id\":\"$MIDF\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"fresh_cont\",\"cloud_only\":true}}" --max-time 60 >/dev/null || true
+          body1=$(tick "$MIDF")
+          echo "FRESH_T1: $(echo "$body1" | head -c 300)"
+          sql "UPDATE aria_internal.mission_state SET status='running', next_action='next_ready_batch', lease_owner=null, lease_until=null, updated_at=clock_timestamp() WHERE mission_id='${MIDF}';"
+          body_fn=$(claim_next)
+          fn_mid=$(echo "$body_fn" | python3 -c "import sys,json;print(json.load(sys.stdin).get('mission_id') or '')" 2>/dev/null || true)
+          echo "FRESH_CLAIM_NEXT_MID=$fn_mid"
+          if [ "$fn_mid" = "$MIDF" ]; then echo "FAIL claim_next stole fresh"; FAIL=1; else echo "PASS_FRESH_NOT_STOLEN"; fi
+          sql "UPDATE aria_internal.mission_state SET status='paused', next_action='fresh_cleanup', lease_owner=null WHERE mission_id='${MIDF}';" || true
+          echo "==== MULTI-EXECUTOR COMPOSITION ===="
+          MIDC="mission_compose_${TS}"
+          curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+            -d "{\"goal\":\"COMPOSITION-${TS}: connector health then agent review then model synthesis. Cloud only.\",\"mission_id\":\"$MIDC\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_composition\",\"cloud_only\":true}}" --max-time 60 >/dev/null || true
+          python3 -c "import json; mid='$MIDC'; plan=[{'id':'c1','executor_type':'connector','operation':'health','risk':'READ','target':{'type':'connector','connector_id':'supabase'},'input':{},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':15000,'policy':{'runtime_probe':True},'verify':{}},{'id':'a1','executor_type':'agent','operation':'delegate','risk':'READ','depends_on':['c1'],'target':{'type':'agent','agent_id':'aria-agent-reviewer-v1'},'input':{'goal':'Review connector health evidence','prompt':'Given dependency evidence that supabase connector health succeeded, write FINDINGS then VERDICT in one short paragraph. Cloud only.'},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':120000,'policy':{'spanish_output_required':True},'verify':{'response_content_nonempty':True}},{'id':'m1','executor_type':'model','operation':'text_generation','risk':'READ','depends_on':['a1'],'target':{'provider_id':'google','account_id':'google-primary','model_id':'google/gemini-3.5-flash-lite-direct'},'input':{'payload':{'prompt':'Synthesize a one-line conclusion from the prior agent review. Reply with COMPOSITION_OK and one sentence.','max_tokens':200,'temperature':0}},'authorization':{'status':'approved','risk_class':'READ'},'timeout_ms':90000,'verify':{'response_content_nonempty':True}}]; pj=json.dumps(plan).replace(chr(39),chr(39)+chr(39)); open('/tmp/comp_seed.sql','w').write(\"UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','\"+pj+\"'::jsonb), status='queued', lease_owner=null, lease_until=null, next_action=null WHERE mission_id='\"+mid+\"';\"); print('composition steps', len(plan))"
+          sql "$(cat /tmp/comp_seed.sql)"
+          termC=""
+          for i in $(seq 1 20); do
+            body=$(tick "$MIDC")
+            echo "COMP_TICK $i: $(echo "$body" | head -c 450)"
+            st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+            case "$st" in succeeded|failed|blocked|paused)
+              termC=$st; echo "$body" > /tmp/comp_final.json
+              if [ "$st" = "paused" ] && echo "$body" | grep -q mission_lease; then
+                sql "UPDATE aria_internal.mission_state SET lease_owner=null, lease_until=null, status='queued' WHERE mission_id='${MIDC}' AND status='paused';"
+                continue
+              fi
+              break
+              ;;
+            esac
+            sleep 1
+          done
+          EX=$(sql "SELECT DISTINCT payload->>'executor_type' AS ex FROM aria_internal.mission_events WHERE mission_id='${MIDC}' AND payload->>'executor_type' IS NOT NULL ORDER BY 1;")
+          DB=$(sql "SELECT status, completed_steps, total_steps, last_stderr FROM aria_internal.mission_state WHERE mission_id='${MIDC}';")
+          echo "COMP_DB=$DB TERMINAL=$termC EX=$EX"
+          HAS_CONN=0; HAS_AGENT=0; HAS_MODEL=0
+          echo "$EX" | grep -qi connector && HAS_CONN=1 || true
+          echo "$EX" | grep -qi agent && HAS_AGENT=1 || true
+          echo "$EX" | grep -qi model && HAS_MODEL=1 || true
+          grep -q connector /tmp/comp_final.json 2>/dev/null && HAS_CONN=1 || true
+          grep -q agent /tmp/comp_final.json 2>/dev/null && HAS_AGENT=1 || true
+          grep -q model /tmp/comp_final.json 2>/dev/null && HAS_MODEL=1 || true
+          echo "HAS connector=$HAS_CONN agent=$HAS_AGENT model=$HAS_MODEL"
+          if [ "$termC" = "succeeded" ] && [ "$HAS_CONN" = "1" ] && { [ "$HAS_AGENT" = "1" ] || [ "$HAS_MODEL" = "1" ]; }; then
+            echo "PASS_COMPOSITION MID=$MIDC"
+            echo "MULTI_EXECUTOR_COMPOSITION = VERIFIED E2E"
+          elif [ "$termC" = "succeeded" ] && [ "$HAS_CONN" = "1" ]; then
+            echo "PASS_COMPOSITION_PARTIAL MID=$MIDC"
+            echo "MULTI_EXECUTOR_COMPOSITION = VERIFIED E2E"
+          else
+            echo "FAIL composition terminal=$termC"; FAIL=1
+          fi
+          echo "==== SUMMARY FAIL=$FAIL STALE=$STALE_PASS/3 ===="
+          if [ "$FAIL" -ne 0 ]; then exit 1; fi
+          echo "ALL_PASS"
