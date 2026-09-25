@@ -1,0 +1,45 @@
+name: Verify All For One LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: All For One tick + mission status
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_REF"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          AUTO="x-aria-autonomy-token: ${ARIA_RUNTIME_SHARED_SECRET}"
+
+          echo "=== 1. all-for-one/tick ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-device-gateway/v1/audit/all-for-one/tick" \
+            -H "$AUTH" -H "$AUTO" -H "content-type: application/json" -d '{}' --max-time 120 | tee /tmp/afo_tick.json
+          echo
+
+          echo "=== 2. mission claim f10883d4 ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-mission-runner-v22" \
+            -H "$AUTH" -H "content-type: application/json" \
+            -d '{"mission_id":"mission_f10883d4-59ff-4018-a4a7-665b7aa3dbdc"}' --max-time 180 | tee /tmp/mission.json
+          echo
+
+          echo "=== 3. another all-for-one tick (progress) ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-device-gateway/v1/audit/all-for-one/tick" \
+            -H "$AUTH" -H "$AUTO" -H "content-type: application/json" -d '{}' --max-time 120 | tee /tmp/afo_tick2.json
+          echo
+
+          echo "=== SUMMARY ==="
+          head -c 500 /tmp/afo_tick.json; echo
+          head -c 500 /tmp/mission.json; echo
+          head -c 500 /tmp/afo_tick2.json; echo
