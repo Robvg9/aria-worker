@@ -1,0 +1,36 @@
+name: All For One single tick dump
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 6
+    steps:
+      - name: Single tick dump
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          AUTO="x-aria-autonomy-token: ${ARIA_RUNTIME_SHARED_SECRET}"
+          echo "=== TICK ==="
+          curl -s -w "\nHTTP %{http_code}\n" -X POST "$BASE/aria-device-gateway/v1/audit/all-for-one/tick" \
+            -H "$AUTH" -H "$AUTO" -H "content-type: application/json" -d '{}' --max-time 150 | tee /tmp/tick.json
+          echo
+          echo "=== PARSE ==="
+          python3 - <<'PY'
+import json
+d=json.load(open("/tmp/tick.json"))
+print("status=", d.get("status"))
+print("run_id=", d.get("run_id"))
+print("phase_fields=", {k:d.get(k) for k in ("coverage","first_pass","processed","summary","ok") if k in d})
+print("full=", json.dumps(d)[:2000])
+PY
