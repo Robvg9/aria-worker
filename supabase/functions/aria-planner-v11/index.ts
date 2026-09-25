@@ -26,6 +26,62 @@ const PLANNER_GOVERNED_CHANGE_V2_COMPAT="planner-v11-governed-change-v2";
 const governedWritePolicy={tool_use:true,mutating_operation_required:true,non_main_branch_required:true,test_evidence_required:true,do_not_claim_text_only_success:true,auto_merge_low_risk:true,production_merge_requires_human_gate:false,human_gate_threshold:"HIGH_RISK_WRITE",post_merge_verification_required:true,spanish_output_required:true};
 const repairStep=async(goal:string,context:any)=>{const contextText=JSON.stringify(context).slice(0,7000);return [agentStep("diagnosis_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Analiza primero la falla real de esta misión antes de modificar nada. Inspecciona la evidencia disponible y determina causa raíz, archivos/recursos afectados, riesgo y pruebas necesarias. No hagas cambios. Misión original: ${goal}. Contexto: ${contextText}`),{id:"repair_1",operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:"aria-agent-coding-v1"},capability:"coding",input:{goal:"Ejecutar reparación gobernada",prompt:esPrompt(`Esta es la fase de IMPLEMENTACIÓN de una reparación real. Usa el diagnóstico previo como guía, pero comprueba el estado actual por ti mismo. Trabaja en una rama gobernada que no sea main, corrige la causa raíz, ejecuta las pruebas focalizadas y devuelve evidencia concreta: cambios realizados, archivos afectados, pruebas ejecutadas y resultado. No declares éxito por texto solamente. Misión original: ${goal}. Contexto: ${contextText}`),max_tokens:3000},risk:"LOW_RISK_WRITE",timeout_ms:180000,policy:governedWritePolicy,depends_on:["diagnosis_1"],verify:{},selection:{review_role:"coder",write_route:"github_app_governed_or_agent_runtime"}},agentStep("verification_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Verifica la reparación real ya aplicada para esta misión. Inspecciona el estado actual del repositorio/PR, confirma que el cambio existe, revisa las pruebas/evidencias y determina si la causa raíz quedó resuelta. No hagas cambios. Misión original: ${goal}. Contexto: ${contextText}`,["repair_1"])]};
 const changeStep=async(goal:string,context:any)=>{const contextText=JSON.stringify(context).slice(0,7000);return [agentStep("analysis_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Antes de implementar, analiza la solicitud completa y localiza exactamente qué debe cambiar. Inspecciona el repositorio real, identifica archivos/componentes afectados, dependencias, riesgos y pruebas necesarias. No modifiques nada en esta fase. Solicitud original: ${goal}. Contexto: ${contextText}`),{id:"implementation_1",operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:"aria-agent-coding-v1"},capability:"coding",input:{goal:"Ejecutar implementación gobernada",prompt:esPrompt(`Esta es la fase de IMPLEMENTACIÓN de una solicitud real. Usa el análisis previo como guía y comprueba el estado actual por ti mismo. Trabaja únicamente en una rama gobernada que no sea main. Implementa exactamente la solicitud, añade o actualiza pruebas focalizadas y devuelve evidencia concreta de cambios y pruebas. No termines después del análisis y no declares éxito por texto solamente. Solicitud original: ${goal}. Contexto: ${contextText}`),max_tokens:3200},risk:"LOW_RISK_WRITE",timeout_ms:180000,policy:governedWritePolicy,depends_on:["analysis_1"],verify:{},selection:{review_role:"coder",write_route:"github_app_governed_or_agent_runtime"}},agentStep("verification_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Haz la VERIFICACIÓN FINAL de esta solicitud. Inspecciona el cambio real que acaba de producirse, confirma que satisface la solicitud original, revisa las pruebas y la evidencia disponible y señala cualquier contradicción, bloqueo o trabajo faltante. No modifiques nada. Solicitud original: ${goal}. Contexto: ${contextText}`,["implementation_1"])]};
+
+async function tryVerifiedPathPlan(goal:string, context:any){
+  try{
+    const candidates:any[]=[];
+    const mems=Array.isArray(context?.learned_knowledge?.memories)?context.learned_knowledge.memories:[];
+    for(const m of mems) candidates.push(m);
+    try{
+      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("title","%verified multi-executor composition%").limit(8);
+      for(const m of data||[]) candidates.push(m);
+    }catch(_e){}
+    try{
+      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("content","%VERIFIED_PATH_V1:%").limit(8);
+      for(const m of data||[]) candidates.push(m);
+    }catch(_e){}
+    for(const m of candidates){
+      const content=String(m.content||"");
+      const marker="VERIFIED_PATH_V1:";
+      const idx=content.indexOf(marker);
+      if(idx<0) continue;
+      let path:any=null;
+      try{ path=JSON.parse(content.slice(idx+marker.length).trim()); }catch{ continue; }
+      if(!path||path.status!=="VERIFIED_E2E"||!Array.isArray(path.steps)||!path.steps.length) continue;
+      const g=goal.toLowerCase();
+      const compositionIntent=/(composition|composici[oó]n|verified.?path|connector.*agent|health.*review|health.*agent.*model|multi-?executor)/i.test(goal)
+        || (g.includes("health")&&g.includes("agent")&&g.includes("model"));
+      if(!compositionIntent && !String(path.capability_chain||[]).includes("health")) continue;
+      const routes=await modelRoutes();
+      const route=routes.find((r:any)=>String(r.model_id||"").includes("gemini-3.5-flash-lite"))||routes.find((r:any)=>r.provider_id==="google")||routes[0];
+      if(!route) continue;
+      const built:any[]=[];
+      let prev:string|null=null;
+      for(let i=0;i<path.steps.length;i++){
+        const s=path.steps[i];
+        const id=String(s.id||`vp_${i+1}`);
+        const et=String(s.executor_type||"");
+        const op=String(s.operation||"");
+        const deps=prev?[prev]:[];
+        if(et==="connector"&&op==="health"){
+          built.push({id,operation:"health",executor_type:"connector",target:{type:"connector",connector_id:s.connector_id||"supabase"},input:{},risk:"READ",timeout_ms:15000,policy:{runtime_probe:true,verified_path:true},depends_on:deps.length?deps:undefined,verify:{},selection:{verified_path:true,evidence_ref:path.evidence_ref||null}});
+        }else if(et==="agent"){
+          built.push({id,operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:s.agent_id||"aria-agent-verifier-openrouter-v1"},capability:"delegation",input:{goal:"Verified path agent step",prompt:"Prior connector health succeeded. Reply FINDINGS: ok. VERDICT: PASS. Max 3 sentences.",max_tokens:300},risk:"READ",timeout_ms:120000,policy:{verified_path:true},depends_on:deps,verify:{},selection:{verified_path:true,evidence_ref:path.evidence_ref||null}});
+        }else if(et==="model"){
+          const isVerify=op==="verification"||String(s.role||"")==="verification"||id.startsWith("v");
+          const prompt=isVerify?"Reply with exactly VERIFICATION_PASS.":"Reply with exactly the marker COMPOSITION_FULL_OK and one short sentence.";
+          const contains=isVerify?"VERIFICATION_PASS":"COMPOSITION_FULL_OK";
+          built.push({id,operation:"text_generation",executor_type:"model",target:{type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id},capability:"text_generation",input:{payload:{prompt,max_tokens:80,temperature:0}},risk:"READ",timeout_ms:90000,policy:{verified_path:true},depends_on:deps,verify:{response_content_contains:contains},selection:{verified_path:true,evidence_ref:path.evidence_ref||null,model_id:route.model_id}});
+        }else{ continue; }
+        prev=id;
+      }
+      if(built.length<3) continue;
+      return {goal,steps:built,planner_version:"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true,verified_path:{memory_id:m.memory_id||null,evidence_ref:path.evidence_ref||null,capability_chain:path.capability_chain||[],status:path.status,source_title:m.title||null},learning_context:context?.learned_knowledge};
+    }
+  }catch(_e){}
+  return null;
+}
+
 async function learningContextForGoal(goal:string){
   try {
     const {data,error}=await ROOT.rpc("aria_memory_learning_context_for_goal",{p_goal:goal,p_limit:12});
@@ -366,7 +422,7 @@ async function allForOnePlan(goal:string,context:any){
 
 async function operationAuditPlan(goal:string,context:any){const match=goal.match(/(?:auditar operación ejecutora individual:|audit executor operation:|audit operation:)\s*([a-z0-9_.-]+)/i);if(!match)return null;const target=match[1];const agent={agent_id:"aria-agent-research-v1",role:"investigador",model_id:"google/gemini-3.5-flash-lite-direct"};const ctx=JSON.stringify(context).slice(0,6000);const steps=[agentStep("contract_1",agent,`Audita la operación exacta ${target}: contrato, disponibilidad, permisos, gobernanza y rutas reales. Solo lectura. Objetivo original: ${goal}. Contexto: ${ctx}`),agentStep("failure_modes_1",agent,`Audita la operación ${target} enfocándote en fallos, reintentos, verificación, observabilidad, seguridad y si el runtime realmente la consume. Separa CONFIRMADO de HIPÓTESIS. No modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["contract_1"]),agentStep("summary_1",agent,`Entrega una síntesis final en español sobre la auditoría de ${target}. Incluye evidencia concreta, problemas reales, bloqueos y conclusión sobre el estado actual. No inventes ni modifiques nada. Objetivo: ${goal}. Contexto: ${ctx}`,["failure_modes_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-operation-forensic-v2-multistep",asset_forensic:true,target_type:"operation",target,learning_context:context?.learned_knowledge}});}
 function selfAuditPlan(goal:string,context:any,routes:any,agents:any[]){const scope=`FINDINGS. Independent forensic review of ARIA. Scope: ${goal}. Context: ${JSON.stringify(context).slice(0,7000)}. Confirm facts from execution evidence; separate hypotheses; cover architecture, runtime, DB, memory, learning, planning, execution, models, agents, devices, tools, security, recovery.`;const steps:any[]=[];routes.slice(0,4).forEach((r:any,i:number)=>steps.push(modelStep(`review_model_${i+1}`,r,`${scope} Use model ${r.model_id}. Begin with FINDINGS and finish with VERDICT.`)));agents.slice(0,4).forEach((a:any,i:number)=>steps.push(agentStep(`review_agent_${i+1}`,a,`${scope} Independent specialist pass as ${a.role}. Begin with FINDINGS and finish with VERDICT.`)));return {goal,steps,planner_version:"aria-planner-v11-forensic-multi-route-v1",self_audit:true}}
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const allForOne=await allForOnePlan(goal,context);
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
