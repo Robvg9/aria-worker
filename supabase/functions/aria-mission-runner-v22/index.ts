@@ -1124,6 +1124,39 @@ function readyBatch(steps: any[], completed: Set<string>) {
   }
   return ready.slice(0, 1);
 }
+\nfunction dependencyEvidenceForStep(step: any, results: Record<string, unknown>) {
+  const ids = Array.isArray(step?.depends_on) ? step.depends_on.map(String) : [];
+  if (!ids.length) return [];
+  const maxEach = 9000;
+  const maxTotal = 70000;
+  const out:any[] = [];
+  let total = 0;
+  for (const id of ids) {
+    const raw = results[id];
+    if (raw === undefined) continue;
+    const compact = raw && typeof raw === "object"
+      ? {
+          status: (raw as any)?.status ?? null,
+          executor_type: (raw as any)?.executor_type ?? null,
+          operation: (raw as any)?.operation ?? null,
+          verified: (raw as any)?.verified ?? null,
+          response: (raw as any)?.response?.content ?? (raw as any)?.response?.output_text ?? null,
+          stdout: (raw as any)?.stdout ?? null,
+          result: (raw as any)?.result ?? null,
+          data: (raw as any)?.data ?? null,
+          error: (raw as any)?.error ?? null,
+        }
+      : raw;
+    const text=JSON.stringify(compact);
+    const remaining=Math.max(0,maxTotal-total);
+    const evidence=text.slice(0,Math.min(maxEach,remaining));
+    out.push({step_id:id,evidence});
+    total+=evidence.length;
+    if(total>=maxTotal)break;
+  }
+  return out;
+}
+
 
 async function chainNextMeditationMission(depth: number) {
   if (depth >= 8) return { status: "chain_limit_reached", depth };
@@ -1780,7 +1813,14 @@ Deno.serve(async (request) => {
 
         let result: any;
         try {
-          result = await executeStep(missionId, step, auth, mission);
+          const executionStep = {
+            ...step,
+            input: {
+              ...(step.input || {}),
+              dependency_results: dependencyEvidenceForStep(step, results),
+            },
+          };
+          result = await executeStep(missionId, executionStep, auth, mission);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
