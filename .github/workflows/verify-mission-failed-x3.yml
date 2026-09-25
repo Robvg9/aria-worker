@@ -1,0 +1,85 @@
+name: Verify mission failed x3 LIVE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  failedx3:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+      - name: primary+fallback fail → status=failed x3
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1"
+          AUTH="Authorization: Bearer ${ARIA_RUNTIME_SHARED_SECRET}"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          sql() { supabase db query --linked "$1"; }
+
+          pass=0
+          for a in 1 2 3; do
+            TS=$(date +%s)
+            MID="mission_msp_failed_${TS}_${a}"
+            echo "==== ATTEMPT $a MID=$MID ===="
+            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" \
+              -d "{\"goal\":\"Cloud-only: reply with exactly the word PONG using text generation. No devices.\",\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"msp_failed\",\"cloud_only\":true}}" --max-time 60 | grep -q '"status":"queued"'
+
+            python3 - "$MID" <<'PY'
+          import json,sys
+          mid=sys.argv[1]
+          plan=[{
+            "id":"s1","executor_type":"model","operation":"text_generation","risk":"READ",
+            "retryable":False,"max_attempts":1,
+            "target":{"provider_id":"google","account_id":"google-primary","model_id":"google/gemini-3.5-flash-lite-direct"},
+            "input":{"payload":{"prompt":"Reply with exactly PONG"},"fault_injection":"http_500","fault_all_routes":True},
+            "authorization":{"status":"approved","risk_class":"READ"},
+          }]
+          pj=json.dumps(plan).replace("'","''")
+          q=("UPDATE aria_internal.mission_state SET "
+             f"checkpoint=jsonb_build_object('plan','{pj}'::jsonb), "
+             "status='queued', lease_owner=null, lease_until=null "
+             f"WHERE mission_id='{mid}';")
+          open("/tmp/seed.sql","w").write(q)
+          PY
+            sql "$(cat /tmp/seed.sql)"
+
+            term=""
+            body=""
+            for i in $(seq 1 8); do
+              body=$(curl -s -X POST "$BASE/aria-mission-runner-v22" -H "$AUTH" -H "content-type: application/json" \
+                -d "{\"mission_id\":\"$MID\"}" --max-time 180)
+              echo "TICK $i: $(echo "$body" | head -c 500)"
+              st=$(echo "$body" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+              case "$st" in succeeded|failed|blocked|paused) term=$st; break ;; esac
+              sleep 1
+            done
+            echo "HTTP_TERMINAL=$term"
+
+            DB=$(sql "SELECT status, last_stderr, next_action FROM aria_internal.mission_state WHERE mission_id='${MID}';")
+            echo "DB: $DB"
+
+            if echo "$DB" | grep -q failed && ! echo "$DB" | grep -qE 'succeeded|running'; then
+              if [ "$term" = "succeeded" ]; then echo "FAIL http succeeded"; continue; fi
+              echo "PASS attempt $a MID=$MID"
+              pass=$((pass+1))
+            else
+              echo "FAIL attempt $a DB not failed"
+            fi
+            sleep 1
+          done
+          echo "STABILITY pass=$pass/3"
+          if [ "$pass" -lt 3 ]; then exit 1; fi
+          echo "MISSION_FAILED_X3_OK"
