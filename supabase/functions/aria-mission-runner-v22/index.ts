@@ -1874,12 +1874,6 @@ Deno.serve(async (request) => {
       const batch = readyBatch(steps, completed);
       if (!batch.length) throw new Error("dependencies_unsatisfied");
 
-      await emitEvent(missionId, "step_batch_started", {
-        step_ids: batch.map((step) => String(step.id)),
-        executor_types: batch.map(executorType),
-        parallel: batch.length > 1,
-      });
-
       const gatedCandidate = batch.find((step: any) => requiresHumanGate(step) && !(
         String(currentHumanGate(mission, step)?.status || "") === "approved" &&
         String(currentHumanGate(mission, step)?.action_hash || "")
@@ -1944,6 +1938,12 @@ Deno.serve(async (request) => {
           human_gate: existingGate,
         };
       }
+
+      await emitEvent(missionId, "step_batch_started", {
+        step_ids: batch.map((step) => String(step.id)),
+        executor_types: batch.map(executorType),
+        parallel: batch.length > 1,
+      });
 
       const outcomes = await Promise.all(batch.map(async (step) => {
         const id = String(step.id);
