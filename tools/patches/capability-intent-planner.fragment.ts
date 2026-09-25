@@ -2,7 +2,7 @@ async function extractCapabilityIntent(goal:string):Promise<{capabilities:Array<
   const g=goal.toLowerCase();
   const rules:Array<{intent:string,required:boolean,patterns:RegExp[]}> = [
     {intent:"infrastructure_health",required:true,patterns:[/infraestructura/,/disponibilidad/,/operativ[oa]/,/sistema\s+(est[aá]|listo)/,/comprobaci[oó]n\s+de\s+(estado|disponibilidad)/,/listo\s+para/]},
-    {intent:"technical_review",required:false,patterns:[/revisi[oó]n\s+t[eé]cnica/,/evaluaci[oó]n\s+t[eé]cnica/,/revisi[oó]n\s+de\s+seguridad/,/evaluaci[oó]n\s+cuando/]},
+    {intent:"technical_review",required:true,patterns:[/revisi[oó]n\s+t[eé]cnica/,/evaluaci[oó]n\s+t[eé]cnica/,/revisi[oó]n\s+de\s+seguridad/,/evaluaci[oó]n\s+cuando/,/identifica\s+problemas/,/eval[uú]a\s+(sus\s+)?causas/,/problemas\s+relevantes/]},
     {intent:"synthesis",required:true,patterns:[/s[ií]ntesis/,/genera\s+(una\s+)?s[ií]ntesis/,/produce\s+(una\s+)?s[ií]ntesis/,/resumen\s+final/,/s[ií]ntesis\s+final/]},
     {intent:"verification",required:true,patterns:[/validada/,/validaci[oó]n\s+del\s+resultado/,/resultado\s+validado/,/con\s+validaci[oó]n/,/verificaci[oó]n\s+del\s+resultado/]},
   ];
@@ -43,7 +43,6 @@ function validateCapabilityPlan(steps:any[], intents:Array<{intent:string,requir
   for(const c of intents){
     if(c.required && !covered.has(c.intent)) return {ok:false,reason:"required_capability_uncovered:"+c.intent};
   }
-  // No step may target a non-required intent
   for(const s of steps){
     const intent=String(s.selection?.capability_intent||"");
     const meta=intents.find((c:any)=>c.intent===intent);
@@ -70,7 +69,6 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
     const selections:any[]=[];
     const requiredCaps=extracted.capabilities.filter((c:any)=>c.required===true);
     const optionalSkipped=extracted.capabilities.filter((c:any)=>c.required!==true).map((c:any)=>({intent:c.intent,required:false,signals:c.signals,selection_decision:"skipped_not_required"}));
-    // Deterministic rule: ONLY required capabilities produce executors.
     if(requiredCaps.length<2) return null;
     for(const cap of requiredCaps){
       const mapping=CAPABILITY_EXECUTOR_CATALOG[cap.intent];
@@ -96,7 +94,7 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
     return {
       goal,
       steps:built,
-      planner_version:"aria-planner-v11-capability-intent-v2",
+      planner_version:"aria-planner-v11-capability-intent-v3",
       capability_intent_planning:true,
       verified_path_reuse:false,
       capability_intent:extracted,
