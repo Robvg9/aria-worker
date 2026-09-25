@@ -42,7 +42,7 @@ jobs:
             local STEPS_FILE="$3"
             MID="mission_ol_${LABEL}_$(date +%s%3N)"
             export MID GOAL STEPS_FILE
-            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" -d "{\"goal\":$(python3 -c 'import json,os; print(json.dumps(os.environ[\"GOAL\"]))'),\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"operational_learning_causal\",\"cloud_only\":true}}" --max-time 60 >/dev/null
+            curl -s -X POST "$BASE/aria-direct-v1" -H "$AUTH" -H "content-type: application/json" -d "{\"goal\":$(python3 -c 'import json,os; print(json.dumps(os.environ["GOAL"]))'),\"mission_id\":\"$MID\",\"metadata\":{\"goal_source\":\"supervisor_probe\",\"probe\":\"operational_learning_causal\",\"cloud_only\":true}}" --max-time 60 >/dev/null
             python3 <<'PY'
           import json, os
           steps=json.load(open(os.environ["STEPS_FILE"]))
