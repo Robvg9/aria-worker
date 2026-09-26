@@ -310,6 +310,18 @@ async function testControl(page, control, config) {
   }
 }
 
+async function verifyAuthState(page, config) {
+  if (!config.require_auth) return { required: false, verified: true, reason: 'auth_not_required' };
+  const passwordInputs = page.locator('input[type="password"]');
+  if (await passwordInputs.count()) return { required: true, verified: false, reason: 'login_form_visible' };
+  if (config.expected_auth_text) {
+    const pattern = new RegExp(config.expected_auth_text, 'i');
+    const matches = await page.getByText(pattern).count().catch(() => 0);
+    if (matches === 0) return { required: true, verified: false, reason: 'expected_authenticated_text_missing' };
+  }
+  return { required: true, verified: true, reason: 'authenticated_surface_detected' };
+}
+
 async function auditRoute(page, url, routeIndex, config) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
   await page.waitForTimeout(config.settle_ms);
@@ -322,6 +334,7 @@ async function auditRoute(page, url, routeIndex, config) {
 
   await page.waitForTimeout(config.settle_ms);
 
+  const auth = await verifyAuthState(page, config);
   const ux = await checkUx(page);
   const initialControls = await discoverInteractive(page);
   const screenKey = sha({
@@ -345,6 +358,7 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_failed: 0,
     ux,
     login,
+    auth,
     actions: []
   };
 
@@ -412,6 +426,8 @@ async function run() {
     login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
     max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
     allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
     capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
     artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
   };
@@ -465,6 +481,7 @@ async function run() {
         controls_failed: 1,
         ux: null,
         login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
         actions: [],
         fatal_error: String(error?.message || error).slice(0, 1000)
       });
@@ -504,6 +521,10 @@ async function run() {
     routes: routeResults
   };
 
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
   summary.coverage_ratio = summary.controls_discovered
     ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_discovered).toFixed(3))
     : 0;
@@ -512,7 +533,8 @@ async function run() {
     summary.routes_completed === summary.routes_requested &&
     summary.controls_failed === 0 &&
     summary.coverage_ratio >= 0.98 &&
-    summary.page_errors.length === 0;
+    summary.page_errors.length === 0 &&
+    summary.auth_verified === true;
 
   const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
   fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
