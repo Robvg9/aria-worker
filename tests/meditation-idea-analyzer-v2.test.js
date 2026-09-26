@@ -5,6 +5,9 @@ const path=require('node:path');
 const read=(p)=>fs.readFileSync(path.join(__dirname,'..',p),'utf8');
 const api=read('supabase/functions/aria-app-api-v3/index.ts');
 const migration=read('supabase/migrations/20260926100000_meditation_idea_analyzer_v2.sql');
+const apiEnginePath=path.join(__dirname,'..','supabase','functions','_shared','idea-to-mission.mjs');
+
+(async()=>{
 const engine=await import('../supabase/functions/aria-device-gateway/_shared/idea-to-mission.mjs');
 
 for(const fragment of [
@@ -38,3 +41,4 @@ assert.equal(p.summary.human_gate_required,true);
 assert.equal(engine.validateProposal(p).valid,true);
 
 console.log('MEDITATION_IDEA_ANALYZER_V2_CONTRACT=PASS');
+})().catch(error=>{console.error(error);process.exit(1)});
