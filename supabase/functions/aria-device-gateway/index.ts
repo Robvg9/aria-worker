@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { generateCandidates, selectDynamicGoal } from './_shared/dynamic-goal-engine.mjs';
-import { buildIdeaMissionProposal, validateProposal } from './_shared/idea-to-mission.mjs';
+import { buildIdeaMissionProposal, validateProposal } from '../_shared/idea-to-mission.mjs';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL')!;
 const supabase=createClient(SUPABASE_URL,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 const CANONICAL_RUNTIME=`${Deno.env.get('SUPABASE_URL')}/functions/v1/aria-canonical-runtime-v1`;
