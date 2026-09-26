@@ -9,6 +9,7 @@ on:
       - 'autonomy/**'
       - 'scripts/patch-eas-into-mission-runner-v22.js'
       - '.github/workflows/supabase-canonical-deploy.yml'
+      - 'tests/mission-runner-v22-executor-inference.test.js'
   workflow_dispatch:
 
 permissions:
