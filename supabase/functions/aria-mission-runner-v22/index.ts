@@ -1444,7 +1444,7 @@ Deno.serve(async (request) => {
       }))
       .filter((item: any) => item.executor_type);
     if (inferredExecutorSteps.length) {
-      await emitEvent(missionId, "plan_executor_normalized", {
+      await emitEvent(missionId, "executor_selected", {
         count: inferredExecutorSteps.length,
         steps: inferredExecutorSteps,
         reason: "execution contract normalization",
