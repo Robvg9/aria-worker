@@ -33,3 +33,7 @@ assert.doesNotMatch(runner, /console\.log\([^\n]*password/i);
 assert.equal(pkg.dependencies.playwright, '1.63.0');
 
 console.log('PC BROWSER RWHT CONTRACT: PASS');
+
+assert.match(runner, /RWHT_REQUIRE_AUTH/);
+assert.match(runner, /RWHT_EXPECTED_AUTH_TEXT/);
+assert.match(runner, /auth_verified/);
