@@ -51,13 +51,52 @@ jobs:
           if (-not (Test-Path (Join-Path $root 'windows-hotkey-runner.ps1'))) { throw 'hotkey runner missing after sync' }
           Write-Host 'ARIA_D_RUNTIME_SYNC=PASS'
 
-      - name: Start ARIA agent watchdog
+      - name: Ensure interactive ARIA agent is live
         run: |
           $ErrorActionPreference = 'Stop'
-          schtasks.exe /Run /TN "ARIA-Windows-Local-Agent" | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw 'failed to start ARIA-Windows-Local-Agent' }
-          Start-Sleep -Seconds 5
-          Write-Host 'ARIA_AGENT_START_REQUEST=PASS'
+          $deviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          $logDir = 'D:\ARIA-Windows-Agent\Logs'
+          $pidPath = Join-Path $logDir 'agent.pid'
+          $logPath = Join-Path $logDir 'watchdog.log'
+
+          function Find-InteractiveAriaAgent {
+            $cim = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' } |
+              ForEach-Object {
+                $proc = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+                if ($proc -and $proc.SessionId -ne 0) { $proc }
+              } |
+              Select-Object -First 1
+            return $cim
+          }
+
+          $agent = Find-InteractiveAriaAgent
+          if (-not $agent) {
+            # The self-hosted runner is NetworkService. It may not be allowed to
+            # invoke the interactive scheduled task directly. Try once, but do
+            # not mistake that service-session ACL as proof that the agent is down.
+            & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Host
+            Write-Host "SCHTASKS_RUN_EXIT=$LASTEXITCODE"
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 2
+              $agent = Find-InteractiveAriaAgent
+              if ($agent) { break }
+            }
+          }
+
+          if (-not $agent) {
+            if (Test-Path $logPath) {
+              Write-Host 'watchdog.log (last 40):'
+              Get-Content $logPath -Tail 40 -ErrorAction SilentlyContinue
+            }
+            throw 'ARIA interactive agent not detected'
+          }
+
+          try { Set-Content -Path $pidPath -Value $agent.Id -Encoding ASCII -Force } catch {}
+          Write-Host 'ARIA_INTERACTIVE_AGENT=PASS'
+          Write-Host "ARIA_AGENT_PID=$($agent.Id)"
+          Write-Host "ARIA_AGENT_SESSION_ID=$($agent.SessionId)"
+          Write-Host "ARIA_DEVICE_ID=$deviceId"
 
       - name: Physical 101 certification
         run: |
@@ -68,6 +107,8 @@ jobs:
 
       - name: Publish 101 proof
         if: always()
+        env:
+          GITHUB_JOB_STATUS: ${{ job.status }}
         run: |
           $ErrorActionPreference = 'Stop'
           $dir = Join-Path $env:GITHUB_WORKSPACE 'reports'
@@ -76,7 +117,7 @@ jobs:
           $payload = [ordered]@{
             commit = $env:GITHUB_SHA
             workflow = 'ARIA Windows 101 Force Certification'
-            outcome = if ($LASTEXITCODE -eq 0) { 'success' } else { 'failed' }
+            outcome = [string]$env:GITHUB_JOB_STATUS
             timestamp = (Get-Date -Format o)
             adapter = 'aria-windows-desktop-v1.9'
             physical_agent = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
@@ -85,5 +126,12 @@ jobs:
           git config user.name 'aria-runtime-proof'
           git config user.email 'aria-runtime-proof@users.noreply.github.com'
           git add reports/windows-desktop-101-proof.json
-          git commit -m "ci: publish Windows 101 certification proof" || Write-Host 'No proof commit needed'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'No proof changes to commit'
+          } else {
+            git commit -m "ci: publish Windows 101 certification proof"
+            if ($LASTEXITCODE -ne 0) { throw 'proof git commit failed' }
+          }
           git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw 'proof git push failed' }
