@@ -1,0 +1,45 @@
+name: ARIA Idea Analyzer Gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/idea-to-mission.mjs'
+      - 'supabase/functions/aria-device-gateway/_shared/idea-to-mission.mjs'
+      - 'supabase/functions/aria-device-gateway/index.ts'
+      - 'supabase/functions/aria-app-api-v3/index.ts'
+      - 'supabase/migrations/*idea_analyzer*.sql'
+      - 'supabase/migrations/*idea_to_mission*.sql'
+      - 'pwa/src/App.tsx'
+      - 'pwa/src/index.css'
+      - 'tests/idea-to-mission.test.js'
+      - 'tests/meditation-idea-to-mission-contract.test.js'
+      - 'tests/meditation-idea-to-mission-ui.test.js'
+      - 'tests/meditation-idea-analyzer-v2.test.js'
+      - 'tests/aria-app-api-v3-contract.test.js'
+      - '.github/workflows/aria-idea-analyzer-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Idea-to-mission deterministic engine
+        run: node tests/idea-to-mission.test.js
+      - name: Gateway contract
+        run: node tests/meditation-idea-to-mission-contract.test.js
+      - name: UI contract
+        run: node tests/meditation-idea-to-mission-ui.test.js
+      - name: Idea Analyzer v2 contract
+        run: node tests/meditation-idea-analyzer-v2.test.js
+      - name: App API and PWA contract
+        run: node tests/aria-app-api-v3-contract.test.js
+      - name: Gate
+        run: echo "IDEA_ANALYZER_GATE=PASS"
