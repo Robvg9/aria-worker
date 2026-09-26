@@ -175,3 +175,5 @@ while ($true) {
         Start-Sleep -Seconds 10
     }
 }
+
+# RWHT preflight trigger: machine-scope token repair validation.
