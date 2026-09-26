@@ -5,6 +5,7 @@ const path=require('node:path');
 const read=(p)=>fs.readFileSync(path.join(__dirname,'..',p),'utf8');
 const api=read('supabase/functions/aria-app-api-v3/index.ts');
 const migration=read('supabase/migrations/20260926100000_meditation_idea_analyzer_v2.sql');
+const pwa=read('pwa/src/App.tsx');
 const apiEnginePath=path.join(__dirname,'..','supabase','functions','_shared','idea-to-mission.mjs');
 
 (async()=>{
@@ -31,6 +32,15 @@ for(const fragment of [
   'proposal_must_be_accepted',
   'meditation_queue_add'
 ]) assert.ok(migration.includes(fragment),'migration missing '+fragment);
+
+for(const fragment of [
+  'ANALIZADOR DE IDEAS',
+  'ANALIZAR Y PROPONER',
+  'NO AUTOENCOLADA',
+  'NO AUTOEJECUTA',
+  '/meditation/ideas/',
+  '/convert'
+]) assert.ok(pwa.includes(fragment),'PWA missing analyzer marker: '+fragment);
 
 const p=await engine.buildIdeaMissionProposal('Quiero que ARIA mejore el sistema de diagnósticos y necesito mi aprobación antes de modificar producción.');
 assert.equal(p.schema_version,'idea-to-mission-v1');
