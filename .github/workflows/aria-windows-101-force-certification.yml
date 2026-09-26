@@ -1,5 +1,7 @@
 name: ARIA Windows 101 Force Certification
 
+# Force rerun after interactive scheduler launcher replacement 2026-09-26
+
 on:
   push:
     branches: [main]
