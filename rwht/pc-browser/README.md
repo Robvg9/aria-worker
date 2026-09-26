@@ -37,6 +37,8 @@ $env:RWHT_PASSWORD="..."
 node .\rwht-pc-browser.mjs
 ```
 
+ARIA's current default PWA entrypoint is `https://aria.robvg9.workers.dev/pwa/`.
+
 ARIA's current default route set is:
 
 `#home,#chat,#projects,#meditation,#capabilities,#settings,#mission`

@@ -10,6 +10,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-br
 assert.match(runner, /aria-pc-browser-rwht-v1\.0\.0/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
+assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
 assert.match(runner, /SAFE_BLOCKED/);
 assert.match(runner, /SECRET/);
 assert.match(runner, /SAFE_MUTATION/);
