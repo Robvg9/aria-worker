@@ -16,7 +16,6 @@ concurrency:
   cancel-in-progress: false
 jobs:
   human_gate:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[RUN-HG-E2E]')
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
