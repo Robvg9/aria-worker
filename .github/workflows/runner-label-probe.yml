@@ -1,0 +1,35 @@
+name: ARIA Runner Label Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner-label-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generic:
+    runs-on: self-hosted
+    timeout-minutes: 2
+    steps:
+      - name: Report runner
+        shell: powershell
+        run: |
+          Write-Host "PROBE_RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Host "PROBE_RUNNER_OS=$env:RUNNER_OS"
+          Write-Host "PROBE_RUNNER_ARCH=$env:RUNNER_ARCH"
+          Write-Host "PROBE_RUNNER_ENV=$env:RUNNER_ENVIRONMENT"
+
+  windows:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 2
+    steps:
+      - name: Report Windows runner
+        shell: powershell
+        run: |
+          Write-Host "WINDOWS_PROBE_RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Host "WINDOWS_PROBE_RUNNER_OS=$env:RUNNER_OS"
+          Write-Host "WINDOWS_PROBE_RUNNER_ARCH=$env:RUNNER_ARCH"
