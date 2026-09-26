@@ -221,7 +221,7 @@ jobs:
           INSERT INTO hg_auth_results
           SELECT 'anon_execute_denied',NOT has_function_privilege('anon','public.mission_human_gate_decide_authenticated(text,text,text,text)','EXECUTE'),'';
 
-          SELECT jsonb_agg(to_jsonb(h) ORDER BY test) AS result FROM hg_auth_results h;
+          SELECT string_agg('AUTH_TEST='||test||'='||passed, E'\n' ORDER BY test) AS result FROM hg_auth_results h;
           ROLLBACK;
           SQL
 
@@ -229,10 +229,17 @@ jobs:
           result="$(supabase db query --linked "$(cat /tmp/hg-auth-owner-regression.sql)")"
           printf '%s\n' "$result"
           python3 - <<'PY' "$result"
-          import json, sys
+          import sys
           raw = sys.argv[1]
-          required = {"correct_owner": True, "wrong_owner_denied": True, "authenticated_execute": True, "anon_execute_denied": True}
-          if not all(f'"test": "{k}"' in raw and f'"passed": {str(v).lower()}' in raw for k,v in required.items()):
-              raise SystemExit("AUTH_OWNER_REGRESSION_FAILED")
+          required = {
+              "correct_owner": "true",
+              "wrong_owner_denied": "true",
+              "authenticated_execute": "true",
+              "anon_execute_denied": "true",
+          }
+          for name, value in required.items():
+              marker = f"AUTH_TEST={name}={value}"
+              if marker not in raw:
+                  raise SystemExit("AUTH_OWNER_REGRESSION_FAILED:" + marker)
           print("AUTH_OWNER_REGRESSION_PASS")
           PY
