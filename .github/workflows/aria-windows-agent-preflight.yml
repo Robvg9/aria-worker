@@ -45,6 +45,35 @@ jobs:
           Write-Host 'RUNTIME_SYNC=PASS'
           Write-Host 'NOTE: If watchdog still logs NoNewWindow, ROBVG\robvg must End+Run the task once to reload the script into memory.'
 
+      - name: Repair Windows device token store from CI secret
+        env:
+          ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN) -or $env:ARIA_DEVICE_TOKEN.Length -lt 32) {
+            throw 'ARIA_DEVICE_TOKEN repository secret is missing or invalid'
+          }
+
+          $runtimeRoot = 'D:\ARIA-Windows-Agent'
+          $dataDir = Join-Path $runtimeRoot 'Data'
+          $stagingPath = Join-Path $dataDir 'token.staging'
+
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+
+          $interactiveUser = [string](Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
+          if ([string]::IsNullOrWhiteSpace($interactiveUser)) {
+            throw 'WINDOWS_HUMAN_GATE_NO_INTERACTIVE_USER_SESSION'
+          }
+
+          # Stage only long enough for run-agent.ps1 to encrypt it with the
+          # interactive user's DPAPI context. The watchdog removes the staging file.
+          [System.IO.File]::WriteAllText($stagingPath, $env:ARIA_DEVICE_TOKEN, [System.Text.Encoding]::ASCII)
+          & icacls.exe $stagingPath /inheritance:r /grant:r "${interactiveUser}:(R,W)" "SYSTEM:(F)" "Administrators:(F)" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not secure token staging file. icacls exit=$LASTEXITCODE" }
+
+          Write-Host 'TOKEN_DPAPI_REPAIR=STAGED'
+          Write-Host "INTERACTIVE_USER=$interactiveUser"
+          Write-Host 'TOKEN_PLAINTEXT_NOT_LOGGED=True'
       - name: Verify runner Node environment
         run: |
           $ErrorActionPreference = 'Stop'
