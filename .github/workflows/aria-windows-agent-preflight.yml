@@ -68,7 +68,9 @@ jobs:
           # Stage only long enough for run-agent.ps1 to encrypt it with the
           # interactive user's DPAPI context. The watchdog removes the staging file.
           [System.IO.File]::WriteAllText($stagingPath, $env:ARIA_DEVICE_TOKEN, [System.Text.Encoding]::ASCII)
-          & icacls.exe $stagingPath /inheritance:r /grant:r "${interactiveUser}:(R,W)" "SYSTEM:(F)" "Administrators:(F)" | Out-Null
+          # Use well-known SIDs for built-in principals so localized Windows
+          # group names cannot break token staging (e.g. "Administrators").
+          & icacls.exe $stagingPath /inheritance:r /grant:r "${interactiveUser}:(R,W)" "*S-1-5-18:(F)" | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Could not secure token staging file. icacls exit=$LASTEXITCODE" }
 
           Write-Host 'TOKEN_DPAPI_REPAIR=STAGED'
