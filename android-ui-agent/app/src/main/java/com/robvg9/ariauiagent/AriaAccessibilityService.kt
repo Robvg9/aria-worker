@@ -547,13 +547,23 @@ class AriaAccessibilityService : AccessibilityService() {
             runCatching { packageManager.getPackageInfo(it, 0) }.isSuccess
         } ?: return error("approved_browser_not_installed")
         return try {
-            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
-                setPackage(browser)
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
+            // ACTION_VIEW can synchronously block inside Android's ActivityTaskManager when
+            // the AccessibilityService calls it from the IPC worker. That can wedge the local
+            // UI-agent server during RWHT. Schedule the browser handoff on the main thread;
+            // actionResponse() independently verifies the resulting application window.
+            mainHandler.post {
+                runCatching {
+                    startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                        setPackage(browser)
+                        addFlags(BrowserHandoff.HANDOFF_INTENT_FLAGS)
+                    })
+                }
+            }
             ok(true)
+                .put("navigationScheduled", true)
+                .put("browserPackage", browser)
         } catch (_: Exception) {
-            error("navigation_failed")
+            error("navigation_schedule_failed")
         }
     }
 
