@@ -44,21 +44,50 @@ function Write-Status([hashtable]$Fields) {
     } catch {}
 }
 
+function Protect-MachineToken([string]$Token) {
+    Add-Type -AssemblyName System.Security
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Token)
+    $protected = [System.Security.Cryptography.ProtectedData]::Protect(
+        $bytes,
+        $null,
+        [System.Security.Cryptography.DataProtectionScope]::LocalMachine
+    )
+    return 'ARIA-DPAPI-MACHINE-V1:' + [Convert]::ToBase64String($protected)
+}
+
+function Unprotect-MachineToken([string]$Payload) {
+    Add-Type -AssemblyName System.Security
+    $encoded = $Payload.Substring('ARIA-DPAPI-MACHINE-V1:'.Length)
+    if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'ARIA machine token payload is empty' }
+    $protected = [Convert]::FromBase64String($encoded)
+    $bytes = [System.Security.Cryptography.ProtectedData]::Unprotect(
+        $protected,
+        $null,
+        [System.Security.Cryptography.DataProtectionScope]::LocalMachine
+    )
+    return [System.Text.Encoding]::UTF8.GetString($bytes)
+}
+
 function Resolve-Token {
     if (Test-Path $StagingTokenPath) {
         $stagedToken = (Get-Content -Raw -Path $StagingTokenPath).Trim()
         if ([string]::IsNullOrWhiteSpace($stagedToken) -or $stagedToken.Length -lt 32) {
             throw 'ARIA staged token is missing or invalid'
         }
-        $secureStaged = ConvertTo-SecureString -String $stagedToken -AsPlainText -Force
-        $encryptedStaged = $secureStaged | ConvertFrom-SecureString
-        Set-Content -Path $TokenPath -Value $encryptedStaged -Encoding ASCII
+        $machinePayload = Protect-MachineToken $stagedToken
+        Set-Content -Path $TokenPath -Value $machinePayload -Encoding ASCII -Force
         Remove-Item -Path $StagingTokenPath -Force -ErrorAction SilentlyContinue
-        Write-Log 'TOKEN_STORE_REPAIRED_FROM_STAGING=True'
+        Write-Log 'TOKEN_STORE_REPAIRED_FROM_STAGING=True scope=LocalMachine'
     }
     if (-not (Test-Path $TokenPath)) { throw "ARIA token store not found: $TokenPath" }
     $encrypted = (Get-Content -Raw -Path $TokenPath).Trim()
     if ([string]::IsNullOrWhiteSpace($encrypted)) { throw 'ARIA token store is empty' }
+
+    if ($encrypted.StartsWith('ARIA-DPAPI-MACHINE-V1:')) {
+        return Unprotect-MachineToken $encrypted
+    }
+
+    # Backward compatibility for token stores created before the machine-scope format.
     $secure = $encrypted | ConvertTo-SecureString -ErrorAction Stop
     $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
     try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
