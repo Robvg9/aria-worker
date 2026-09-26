@@ -25,7 +25,7 @@ for(const fragment of [
   }
 }
 for(const fragment of [
-  'add column if not exists aria_internal.meditation_idea_proposals',
+  'add column if not exists owner_user_id',
   'owner_user_id',
   'meditation_idea_proposal_decide',
   'meditation_idea_convert_mission',
