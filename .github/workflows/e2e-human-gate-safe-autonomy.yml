@@ -33,142 +33,142 @@ jobs:
         run: |
           set -euo pipefail
           python3 <<'PY'
-import json, os, subprocess, time, urllib.request, urllib.error, re
-
-project = os.environ["SUPABASE_PROJECT_REF"]
-secret = os.environ["ARIA_RUNTIME_SHARED_SECRET"]
-base = "https://" + project + ".supabase.co/functions/v1"
-headers = {"Authorization": "Bearer " + secret, "content-type": "application/json"}
-
-subprocess.run(["supabase","link","--project-ref",project], check=True)
-
-def call(fn, payload):
-    req = urllib.request.Request(base + "/" + fn, data=json.dumps(payload).encode(), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=180) as r:
-            return r.status, json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raw=e.read().decode()
-        try: return e.code, json.loads(raw)
-        except Exception: return e.code, {"raw":raw}
-
-def sql(q):
-    p=subprocess.run(["supabase","db","query","--linked",q],text=True,capture_output=True)
-    return p.stdout + p.stderr
-
-def make_mission(mid, goal):
-    code, body=call("aria-direct-v1",{"goal":goal,"mission_id":mid,"metadata":{"goal_source":"human_gate_e2e","probe":"human_gate_safe_autonomy","cloud_only":True}})
-    assert code < 300 and body.get("ok") is True, (code,body)
-
-def tick(mid):
-    return call("aria-mission-runner-v22",{"mission_id":mid})
-
-def wait_terminal(mid):
-    last=None
-    for _ in range(10):
-        _,last=tick(mid)
-        if last.get("status") in {"succeeded","failed","blocked","rejected","cancelled"}:
-            return last
-        time.sleep(1)
-    return last
-
-code, p = call("aria-planner-v11", {"goal":"Implement a harmless controlled test action that explicitly requires human approval before the protected action. Human Gate is required."})
-assert code < 300, p
-plan=p.get("plan") or p
-gated=[s for s in plan.get("steps",[]) if (s.get("policy") or {}).get("human_gate_required") is True]
-assert gated and any(str(s.get("risk","")).upper()=="HIGH_RISK_WRITE" for s in gated), plan
-route_text=sql("select m.model_id,m.provider_id,a.account_id from aria_internal.model_registry m join aria_internal.capability_matrix c on c.model_id=m.model_id and c.capability_id='text_generation' join aria_internal.account_registry a on a.provider_id=m.provider_id where m.enabled and m.status='available' and c.status='verified' and a.enabled and a.status in ('available','active') order by case when m.model_id='google/gemini-3.5-flash-lite-direct' then 0 when m.provider_id='openrouter' then 1 else 2 end,m.model_id limit 1;")
-vals=re.findall(r'"(model_id|provider_id|account_id)"\s*[:|]\s*"([^"]+)"',route_text)
-d=dict(vals)
-if not {'model_id','provider_id','account_id'} <= set(d):
-    vals=re.findall(r'(model_id|provider_id|account_id)\s*\|\s*([^|\s]+)',route_text)
-    d=dict(vals)
-if not {'model_id','provider_id','account_id'} <= set(d):
-    raise SystemExit("Incomplete verified model route: "+route_text[:1000])
-MODEL_ID=d["model_id"]; PROVIDER_ID=d["provider_id"]; ACCOUNT_ID=d["account_id"]
-print("PLANNER_HUMAN_GATE_PASS",[(s.get("id"),s.get("risk")) for s in gated],"ROUTE",PROVIDER_ID,MODEL_ID)
-
-def seed(mid, steps):
-    q=json.dumps(steps).replace("'","''")
-    sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','"+q+"'::jsonb,'completed_steps',jsonb_build_array(),'attempts','{}'::jsonb,'results','{}'::jsonb),status='queued',total_steps="+str(len(steps))+",lease_owner=null,lease_until=null WHERE mission_id='"+mid+"';")
-
-safe_steps=[
- {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
- {"id":"safe_m1","operation":"text_generation","executor_type":"model","target":{"type":"model","provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"risk":"READ","input":{"payload":{"prompt":"Reply SAFE_AUTONOMY_OK","max_tokens":32,"temperature":0}},"policy":{"runtime_probe":True},"verify":{"response_content_contains":"SAFE_AUTONOMY_OK"},"depends_on":["safe_c1"]}
-]
-protected_steps=[
- {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
- {"id":"protected_m1","operation":"text_generation","executor_type":"model","target":{"type":"model","provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"risk":"HIGH_RISK_WRITE","input":{"payload":{"prompt":"Reply PROTECTED_ACTION_OK","max_tokens":32,"temperature":0}},"policy":{"human_gate_required":True,"human_gate_reason":"Controlled E2E protected action","human_gate_instructions":"Approve the exact protected model action."},"verify":{"response_content_contains":"PROTECTED_ACTION_OK"},"depends_on":["safe_c1"]}
-]
-
-safe="mission_hg_SAFE_"+str(int(time.time()*1000))
-make_mission(safe,"Safe autonomy no gate"); seed(safe,safe_steps)
-s=wait_terminal(safe); sdb=sql("select status,completed_steps,total_steps,last_stderr from aria_internal.mission_state where mission_id='"+safe+"';")
-print("SAFE",s,sdb); assert "succeeded" in sdb and "2" in sdb
-
-pos="mission_hg_POS_"+str(int(time.time()*1000))
-make_mission(pos,"Protected action Human Gate"); seed(pos,protected_steps)
-_,p1=tick(pos); assert p1.get("status")=="human_required",p1
-gate_text=sql("select checkpoint->'human_gate' as gate from aria_internal.mission_state where mission_id='"+pos+"';")
-m=re.search(r'"action_hash"\s*:\s*"([^"]+)"',gate_text); assert m,gate_text
-action_hash=m.group(1)
-start0=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
-assert re.search(r'\b0\b',start0),start0
-
-bc,bad=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e","action_hash":"WRONG"})
-assert bc==409 and bad.get("status")=="human_gate_decision_rejected",bad
-
-direct={"execution_version":"1","request_id":"hg-bypass","task_id":"protected_m1","capability":"text_generation","selected_route":{"provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"authorization":{"status":"approved","human_gate_verified":True,"human_gate_mission_id":pos,"human_gate_step_id":"protected_m1","human_gate_action_hash":"fake","human_gate_approval_token":"fake"},"input":{"payload":{"prompt":"SHOULD_NOT_RUN","max_tokens":16}},"policy":{"human_gate_required":True}}
-_,dr=call("aria-execution-runtime-v1",direct); assert dr.get("status")=="blocked",dr
-
-bc,ap=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e","action_hash":action_hash})
-assert bc<300 and ap.get("status")=="human_gate_approved",ap
-
-sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_set(checkpoint,'{plan,1,target,model_id}','\"tampered-route\"',true) WHERE mission_id='"+pos+"';")
-_,tam=tick(pos); assert tam.get("status")=="human_required",tam
-
-seed(pos,protected_steps)
-_,fresh=tick(pos); assert fresh.get("status")=="human_required",fresh
-ht=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+pos+"';")
-m=re.search(r'"h"\s*:\s*"([^"]+)"',ht); assert m,ht
-fresh_hash=m.group(1)
-bc,ap2=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e2","action_hash":fresh_hash})
-assert bc<300 and ap2.get("status")=="human_gate_approved",ap2
-pf=wait_terminal(pos)
-pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
-started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
-print("POS",pf,pdb,started); assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r'\b1\b',started)
-
-rej="mission_hg_REJ_"+str(int(time.time()*1000))
-make_mission(rej,"Reject protected Human Gate"); seed(rej,protected_steps)
-_,r1=tick(rej); assert r1.get("status")=="human_required",r1
-rh=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+rej+"';")
-m=re.search(r'"h"\s*:\s*"([^"]+)"',rh); assert m
-bc,rr=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":rej,"decision":"reject","approver_id":"e2e-reject","action_hash":m.group(1)})
-assert bc<300 and rr.get("status")=="human_gate_rejected",rr
-rdb=sql("select status from aria_internal.mission_state where mission_id='"+rej+"';")
-rs=sql("select count(*) from aria_internal.mission_events where mission_id='"+rej+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
-assert ("blocked" in rdb or "cancelled" in rdb or "failed" in rdb) and re.search(r'\b0\b',rs),(rdb,rs)
-
-can="mission_hg_CAN_"+str(int(time.time()*1000))
-make_mission(can,"Cancel protected Human Gate"); seed(can,protected_steps)
-_,c1=tick(can); assert c1.get("status")=="human_required",c1
-p1=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
-assert "paused" in p1 and "pending" in p1
-_,c2=tick(can)
-p2=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
-assert "paused" in p2 and "pending" in p2,(c2,p2)
-ch=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+can+"';")
-m=re.search(r'"h"\s*:\s*"([^"]+)"',ch); assert m
-bc,cc=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":can,"decision":"cancel","approver_id":"e2e-cancel","action_hash":m.group(1)})
-assert bc<300 and cc.get("status")=="human_gate_cancelled",cc
-cdb=sql("select status from aria_internal.mission_state where mission_id='"+can+"';")
-assert "cancelled" in cdb
-
-print("HG_E2E_PASS")
-print("HUMAN_GATE_SAFE_AUTONOMY = VERIFIED E2E")
-print("ALL_PASS")
-PY
+          import json, os, subprocess, time, urllib.request, urllib.error, re
+          
+          project = os.environ["SUPABASE_PROJECT_REF"]
+          secret = os.environ["ARIA_RUNTIME_SHARED_SECRET"]
+          base = "https://" + project + ".supabase.co/functions/v1"
+          headers = {"Authorization": "Bearer " + secret, "content-type": "application/json"}
+          
+          subprocess.run(["supabase","link","--project-ref",project], check=True)
+          
+          def call(fn, payload):
+              req = urllib.request.Request(base + "/" + fn, data=json.dumps(payload).encode(), headers=headers, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as r:
+                      return r.status, json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode()
+                  try: return e.code, json.loads(raw)
+                  except Exception: return e.code, {"raw":raw}
+          
+          def sql(q):
+              p=subprocess.run(["supabase","db","query","--linked",q],text=True,capture_output=True)
+              return p.stdout + p.stderr
+          
+          def make_mission(mid, goal):
+              code, body=call("aria-direct-v1",{"goal":goal,"mission_id":mid,"metadata":{"goal_source":"human_gate_e2e","probe":"human_gate_safe_autonomy","cloud_only":True}})
+              assert code < 300 and body.get("ok") is True, (code,body)
+          
+          def tick(mid):
+              return call("aria-mission-runner-v22",{"mission_id":mid})
+          
+          def wait_terminal(mid):
+              last=None
+              for _ in range(10):
+                  _,last=tick(mid)
+                  if last.get("status") in {"succeeded","failed","blocked","rejected","cancelled"}:
+                      return last
+                  time.sleep(1)
+              return last
+          
+          code, p = call("aria-planner-v11", {"goal":"Implement a harmless controlled test action that explicitly requires human approval before the protected action. Human Gate is required."})
+          assert code < 300, p
+          plan=p.get("plan") or p
+          gated=[s for s in plan.get("steps",[]) if (s.get("policy") or {}).get("human_gate_required") is True]
+          assert gated and any(str(s.get("risk","")).upper()=="HIGH_RISK_WRITE" for s in gated), plan
+          route_text=sql("select m.model_id,m.provider_id,a.account_id from aria_internal.model_registry m join aria_internal.capability_matrix c on c.model_id=m.model_id and c.capability_id='text_generation' join aria_internal.account_registry a on a.provider_id=m.provider_id where m.enabled and m.status='available' and c.status='verified' and a.enabled and a.status in ('available','active') order by case when m.model_id='google/gemini-3.5-flash-lite-direct' then 0 when m.provider_id='openrouter' then 1 else 2 end,m.model_id limit 1;")
+          vals=re.findall(r'"(model_id|provider_id|account_id)"\s*[:|]\s*"([^"]+)"',route_text)
+          d=dict(vals)
+          if not {'model_id','provider_id','account_id'} <= set(d):
+              vals=re.findall(r'(model_id|provider_id|account_id)\s*\|\s*([^|\s]+)',route_text)
+              d=dict(vals)
+          if not {'model_id','provider_id','account_id'} <= set(d):
+              raise SystemExit("Incomplete verified model route: "+route_text[:1000])
+          MODEL_ID=d["model_id"]; PROVIDER_ID=d["provider_id"]; ACCOUNT_ID=d["account_id"]
+          print("PLANNER_HUMAN_GATE_PASS",[(s.get("id"),s.get("risk")) for s in gated],"ROUTE",PROVIDER_ID,MODEL_ID)
+          
+          def seed(mid, steps):
+              q=json.dumps(steps).replace("'","''")
+              sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','"+q+"'::jsonb,'completed_steps',jsonb_build_array(),'attempts','{}'::jsonb,'results','{}'::jsonb),status='queued',total_steps="+str(len(steps))+",lease_owner=null,lease_until=null WHERE mission_id='"+mid+"';")
+          
+          safe_steps=[
+           {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
+           {"id":"safe_m1","operation":"text_generation","executor_type":"model","target":{"type":"model","provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"risk":"READ","input":{"payload":{"prompt":"Reply SAFE_AUTONOMY_OK","max_tokens":32,"temperature":0}},"policy":{"runtime_probe":True},"verify":{"response_content_contains":"SAFE_AUTONOMY_OK"},"depends_on":["safe_c1"]}
+          ]
+          protected_steps=[
+           {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
+           {"id":"protected_m1","operation":"text_generation","executor_type":"model","target":{"type":"model","provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"risk":"HIGH_RISK_WRITE","input":{"payload":{"prompt":"Reply PROTECTED_ACTION_OK","max_tokens":32,"temperature":0}},"policy":{"human_gate_required":True,"human_gate_reason":"Controlled E2E protected action","human_gate_instructions":"Approve the exact protected model action."},"verify":{"response_content_contains":"PROTECTED_ACTION_OK"},"depends_on":["safe_c1"]}
+          ]
+          
+          safe="mission_hg_SAFE_"+str(int(time.time()*1000))
+          make_mission(safe,"Safe autonomy no gate"); seed(safe,safe_steps)
+          s=wait_terminal(safe); sdb=sql("select status,completed_steps,total_steps,last_stderr from aria_internal.mission_state where mission_id='"+safe+"';")
+          print("SAFE",s,sdb); assert "succeeded" in sdb and "2" in sdb
+          
+          pos="mission_hg_POS_"+str(int(time.time()*1000))
+          make_mission(pos,"Protected action Human Gate"); seed(pos,protected_steps)
+          _,p1=tick(pos); assert p1.get("status")=="human_required",p1
+          gate_text=sql("select checkpoint->'human_gate' as gate from aria_internal.mission_state where mission_id='"+pos+"';")
+          m=re.search(r'"action_hash"\s*:\s*"([^"]+)"',gate_text); assert m,gate_text
+          action_hash=m.group(1)
+          start0=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
+          assert re.search(r'\b0\b',start0),start0
+          
+          bc,bad=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e","action_hash":"WRONG"})
+          assert bc==409 and bad.get("status")=="human_gate_decision_rejected",bad
+          
+          direct={"execution_version":"1","request_id":"hg-bypass","task_id":"protected_m1","capability":"text_generation","selected_route":{"provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"authorization":{"status":"approved","human_gate_verified":True,"human_gate_mission_id":pos,"human_gate_step_id":"protected_m1","human_gate_action_hash":"fake","human_gate_approval_token":"fake"},"input":{"payload":{"prompt":"SHOULD_NOT_RUN","max_tokens":16}},"policy":{"human_gate_required":True}}
+          _,dr=call("aria-execution-runtime-v1",direct); assert dr.get("status")=="blocked",dr
+          
+          bc,ap=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e","action_hash":action_hash})
+          assert bc<300 and ap.get("status")=="human_gate_approved",ap
+          
+          sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_set(checkpoint,'{plan,1,target,model_id}','\"tampered-route\"',true) WHERE mission_id='"+pos+"';")
+          _,tam=tick(pos); assert tam.get("status")=="human_required",tam
+          
+          seed(pos,protected_steps)
+          _,fresh=tick(pos); assert fresh.get("status")=="human_required",fresh
+          ht=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+pos+"';")
+          m=re.search(r'"h"\s*:\s*"([^"]+)"',ht); assert m,ht
+          fresh_hash=m.group(1)
+          bc,ap2=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e2","action_hash":fresh_hash})
+          assert bc<300 and ap2.get("status")=="human_gate_approved",ap2
+          pf=wait_terminal(pos)
+          pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
+          started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
+          print("POS",pf,pdb,started); assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r'\b1\b',started)
+          
+          rej="mission_hg_REJ_"+str(int(time.time()*1000))
+          make_mission(rej,"Reject protected Human Gate"); seed(rej,protected_steps)
+          _,r1=tick(rej); assert r1.get("status")=="human_required",r1
+          rh=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+rej+"';")
+          m=re.search(r'"h"\s*:\s*"([^"]+)"',rh); assert m
+          bc,rr=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":rej,"decision":"reject","approver_id":"e2e-reject","action_hash":m.group(1)})
+          assert bc<300 and rr.get("status")=="human_gate_rejected",rr
+          rdb=sql("select status from aria_internal.mission_state where mission_id='"+rej+"';")
+          rs=sql("select count(*) from aria_internal.mission_events where mission_id='"+rej+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
+          assert ("blocked" in rdb or "cancelled" in rdb or "failed" in rdb) and re.search(r'\b0\b',rs),(rdb,rs)
+          
+          can="mission_hg_CAN_"+str(int(time.time()*1000))
+          make_mission(can,"Cancel protected Human Gate"); seed(can,protected_steps)
+          _,c1=tick(can); assert c1.get("status")=="human_required",c1
+          p1=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
+          assert "paused" in p1 and "pending" in p1
+          _,c2=tick(can)
+          p2=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
+          assert "paused" in p2 and "pending" in p2,(c2,p2)
+          ch=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+can+"';")
+          m=re.search(r'"h"\s*:\s*"([^"]+)"',ch); assert m
+          bc,cc=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":can,"decision":"cancel","approver_id":"e2e-cancel","action_hash":m.group(1)})
+          assert bc<300 and cc.get("status")=="human_gate_cancelled",cc
+          cdb=sql("select status from aria_internal.mission_state where mission_id='"+can+"';")
+          assert "cancelled" in cdb
+          
+          print("HG_E2E_PASS")
+          print("HUMAN_GATE_SAFE_AUTONOMY = VERIFIED E2E")
+          print("ALL_PASS")
+          PY
 
       - name: Authenticated owner-binding regression
         env:
