@@ -115,3 +115,4 @@ jobs:
           supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-device-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mcp-inbound-grok-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+# Final 3/7 notification cutover verification trigger: keep production workflows exercising the exact main state.
