@@ -2,6 +2,12 @@ name: ARIA Windows Local Agent Preflight
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'agents/windows/**'
+      - 'computer-use/windows-*'
+      - '.github/workflows/aria-windows-agent-preflight.yml'
 
 permissions:
   contents: read
