@@ -64,7 +64,19 @@ export function buildDeviceEnqueuePayload(
     // The runtime gateway persists device payloads in execution_jobs.command.
     // Keep the full Computer Use input there; sending it only as an extra field
     // is silently discarded by the gateway contract.
-    payload.command = JSON.stringify(step.input && typeof step.input === "object" ? step.input : {});
+    const input = step.input && typeof step.input === "object" ? { ...step.input } : {};
+    // Android observe historically appeared as { action: "observe" } while the
+    // governed DB contract expects { operation: "observe" }. Normalize the
+    // shorthand at the executor boundary so planners/missions cannot disagree.
+    if (
+      operation === "computer.use.android" &&
+      input.operation === undefined &&
+      input.action === "observe"
+    ) {
+      delete input.action;
+      input.operation = "observe";
+    }
+    payload.command = JSON.stringify(input);
   }
   return payload;
 }
