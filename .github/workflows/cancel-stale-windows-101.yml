@@ -20,26 +20,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          RUN_ID: "36272248754"
+          RUN_ID: "36273016587"
         run: |
           set -euo pipefail
-
-          echo "== regular cancel =="
           gh api --method POST "repos/$REPO/actions/runs/$RUN_ID/cancel" || true
-
           sleep 3
-
-          echo "== force cancel =="
           gh api --method POST "repos/$REPO/actions/runs/$RUN_ID/force-cancel" || true
-
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            status="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.status + "|" + (.conclusion // "")')"
-            echo "STALE_RUN_STATUS=$status"
-            case "$status" in
-              completed|completed|*) exit 0 ;;
-            esac
+          for i in {1..12}; do
+            status="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.status')"
+            conclusion="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.conclusion // ""')"
+            echo "STALE_RUN_STATUS=$status|$conclusion"
+            if [ "$status" = "completed" ]; then exit 0; fi
             sleep 5
           done
-
-          echo "STALE_RUN_DID_NOT_FINISH=1"
           exit 1
