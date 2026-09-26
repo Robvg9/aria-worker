@@ -450,8 +450,23 @@ class AriaAccessibilityService : AccessibilityService() {
                     node.performAction(AccessibilityNodeInfo.ACTION_CLICK) || gestureClick(node)
                 }
                 if (!clicked) return error("click_failed")
+                // The foreground window can be transiently unavailable immediately after a click
+                // (Chrome navigation, PWA route change, or Android window handoff). The old single
+                // lookup converted that normal transition into post_action_window_missing before
+                // the outer verifier had any chance to retry. Reuse the bounded resolver here.
                 Thread.sleep(300)
-                val afterRoot = resolveTargetRoot(targetPackage, allowAnyApp) ?: return error("post_action_window_missing")
+                val (afterRoot, afterDiag) = resolveTargetWithRetries(
+                    targetPackage = targetPackage ?: "",
+                    allowAnyApp = allowAnyApp,
+                    attempts = 12,
+                    delayMs = 200L,
+                    preferWindowsScan = true,
+                    phase = "click_post_action"
+                )
+                if (afterRoot == null) {
+                    return error("post_action_window_missing")
+                        .put("diagnostic", afterDiag)
+                }
                 refreshAccessibilityRoot(afterRoot)
                 val afterTree = serializeNode(afterRoot, "0", 0, NodeBudget())
                 val afterHash = sha256(afterTree.toString())
