@@ -71,6 +71,15 @@ jobs:
                       return last
                   time.sleep(1)
               return last
+
+          def wait_for_status(mid, expected, attempts=5):
+              last=None
+              for _ in range(attempts):
+                  _,last=tick(mid)
+                  if last.get("status")==expected:
+                      return last
+                  time.sleep(1)
+              return last
           
           code, p = call("aria-planner-v11", {"goal":"Implement a harmless controlled test action that explicitly requires human approval before the protected action. Human Gate is required."})
           assert code < 300, p
@@ -104,7 +113,7 @@ jobs:
           
           pos="mission_hg_POS_"+str(int(time.time()*1000))
           make_mission(pos,"Protected action Human Gate"); seed(pos,protected_steps)
-          _,p1=tick(pos); assert p1.get("status")=="human_required",p1
+          p1=wait_for_status(pos,"human_required"); assert p1.get("status")=="human_required",p1
           gate_text=sql("select checkpoint->'human_gate' as gate from aria_internal.mission_state where mission_id='"+pos+"';")
           m=re.search(r'"action_hash"\s*:\s*"([^"]+)"',gate_text); assert m,gate_text
           action_hash=m.group(1)
@@ -121,10 +130,10 @@ jobs:
           assert bc<300 and ap.get("status")=="human_gate_approved",ap
           
           sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_set(checkpoint,'{plan,1,target,model_id}','\"tampered-route\"',true) WHERE mission_id='"+pos+"';")
-          _,tam=tick(pos); assert tam.get("status")=="human_required",tam
+          tam=wait_for_status(pos,"human_required"); assert tam.get("status")=="human_required",tam
           
           seed(pos,protected_steps)
-          _,fresh=tick(pos); assert fresh.get("status")=="human_required",fresh
+          fresh=wait_for_status(pos,"human_required"); assert fresh.get("status")=="human_required",fresh
           ht=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+pos+"';")
           m=re.search(r'"h"\s*:\s*"([^"]+)"',ht); assert m,ht
           fresh_hash=m.group(1)
@@ -137,7 +146,7 @@ jobs:
           
           rej="mission_hg_REJ_"+str(int(time.time()*1000))
           make_mission(rej,"Reject protected Human Gate"); seed(rej,protected_steps)
-          _,r1=tick(rej); assert r1.get("status")=="human_required",r1
+          r1=wait_for_status(rej,"human_required"); assert r1.get("status")=="human_required",r1
           rh=sql("select checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+rej+"';")
           m=re.search(r'"h"\s*:\s*"([^"]+)"',rh); assert m
           bc,rr=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":rej,"decision":"reject","approver_id":"e2e-reject","action_hash":m.group(1)})
@@ -148,7 +157,7 @@ jobs:
           
           can="mission_hg_CAN_"+str(int(time.time()*1000))
           make_mission(can,"Cancel protected Human Gate"); seed(can,protected_steps)
-          _,c1=tick(can); assert c1.get("status")=="human_required",c1
+          c1=wait_for_status(can,"human_required"); assert c1.get("status")=="human_required",c1
           p1=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
           assert "paused" in p1 and "pending" in p1
           _,c2=tick(can)
