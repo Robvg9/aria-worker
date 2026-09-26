@@ -1,0 +1,540 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+const VERSION = 'aria-pc-browser-rwht-v1.0.0';
+const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
+const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
+const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
+const SAFE_MUTATION = /(crear|create|guardar|save|enviar|send|ejecutar|execute|run|deploy|actualizar|update|confirmar|confirm|publicar|publish|start|iniciar|submit)/i;
+
+function envBool(name, fallback = false) {
+  const value = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!value) return fallback;
+  return ['1', 'true', 'yes', 'si', 'sí', 'on'].includes(value);
+}
+
+function envInt(name, fallback) {
+  const value = Number.parseInt(String(process.env[name] ?? ''), 10);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeUrl(baseUrl, route) {
+  const raw = String(route || '').trim();
+  if (!raw) return baseUrl;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return baseUrl.replace(/#.*$/, '') + (raw.startsWith('#') ? raw : '#' + raw);
+}
+
+function sha(value) {
+  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function safeLabel(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 240);
+}
+
+async function discoverInteractive(page) {
+  const selector = [
+    'button',
+    'a[href]',
+    '[role="button"]',
+    '[role="tab"]',
+    '[role="menuitem"]',
+    '[role="link"]',
+    'input:not([type="hidden"]):not([type="password"]):not([type="file"])',
+    'textarea',
+    'select',
+    '[contenteditable="true"]'
+  ].join(',');
+  return page.locator(selector).evaluateAll((elements) => elements.map((el, index) => {
+    const rect = el.getBoundingClientRect();
+    const tag = el.tagName.toLowerCase();
+    const role = el.getAttribute('role') || (tag === 'button' ? 'button' : tag === 'a' ? 'link' : tag);
+    const labelledBy = (el.getAttribute('aria-labelledby') || '')
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.innerText || '')
+      .join(' ')
+      .trim();
+    const name = (
+      el.getAttribute('aria-label') ||
+      labelledBy ||
+      el.getAttribute('title') ||
+      el.getAttribute('placeholder') ||
+      el.innerText ||
+      el.textContent ||
+      ''
+    ).replace(/\s+/g, ' ').trim();
+    return {
+      index,
+      tag,
+      role,
+      id: el.id || null,
+      name: name.slice(0, 240),
+      href: el instanceof HTMLAnchorElement ? el.href : null,
+      type: el.getAttribute('type') || null,
+      disabled: Boolean(el.disabled),
+      visible: Boolean(rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden'),
+      box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      testid: el.getAttribute('data-testid')
+    };
+  }));
+}
+
+async function checkUx(page) {
+  return page.evaluate(() => {
+    const body = document.body;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const bodyScrollWidth = Math.max(body?.scrollWidth || 0, document.documentElement.scrollWidth);
+
+    const duplicateIds = [];
+    const seenIds = new Set();
+    for (const element of document.querySelectorAll('[id]')) {
+      if (seenIds.has(element.id)) duplicateIds.push(element.id);
+      seenIds.add(element.id);
+    }
+
+    const unnamedInteractive = [];
+    const offscreenInteractive = [];
+    const selector = 'button,a[href],[role="button"],[role="tab"],[role="menuitem"],input:not([type="hidden"]),textarea,select,[contenteditable="true"]';
+    for (const element of document.querySelectorAll(selector)) {
+      const rect = element.getBoundingClientRect();
+      const labelledBy = (element.getAttribute('aria-labelledby') || '')
+        .split(/\s+/)
+        .map((id) => document.getElementById(id)?.innerText || '')
+        .join(' ')
+        .trim();
+      const name = (
+        element.getAttribute('aria-label') ||
+        labelledBy ||
+        element.getAttribute('title') ||
+        element.getAttribute('placeholder') ||
+        element.innerText ||
+        element.textContent ||
+        ''
+      ).replace(/\s+/g, ' ').trim();
+
+      if (!name && rect.width > 0 && rect.height > 0) {
+        unnamedInteractive.push({ tag: element.tagName, id: element.id || null });
+      }
+
+      if (rect.width > 0 && rect.height > 0) {
+        const fullyOutside = rect.right <= 0 || rect.left >= viewportWidth || rect.bottom <= 0 || rect.top >= viewportHeight;
+        const huge = rect.width > viewportWidth * 1.2 || rect.height > viewportHeight * 1.2;
+        if (fullyOutside || huge) {
+          offscreenInteractive.push({
+            tag: element.tagName,
+            id: element.id || null,
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+          });
+        }
+      }
+    }
+
+    const imagesMissingAlt = [...document.images]
+      .filter((image) => !image.getAttribute('alt'))
+      .map((image) => ({ src: image.currentSrc || image.src || null }))
+      .slice(0, 50);
+
+    const unlabeledInputs = [...document.querySelectorAll('input,textarea,select')]
+      .filter((element) => !['hidden', 'password'].includes((element.getAttribute('type') || '').toLowerCase()))
+      .filter((element) => {
+        const aria = element.getAttribute('aria-label') || element.getAttribute('aria-labelledby');
+        if (aria?.trim()) return false;
+        if (element.getAttribute('placeholder')?.trim()) return false;
+        if (element.id && [...document.querySelectorAll('label')].some((label) => label.htmlFor === element.id)) return false;
+        return true;
+      })
+      .map((element) => ({
+        tag: element.tagName,
+        id: element.id || null,
+        name: element.getAttribute('name') || null
+      }))
+      .slice(0, 50);
+
+    return {
+      horizontal_overflow: bodyScrollWidth > viewportWidth + 2,
+      viewport: { width: viewportWidth, height: viewportHeight },
+      body_scroll_width: bodyScrollWidth,
+      duplicate_ids: [...new Set(duplicateIds)].slice(0, 50),
+      unnamed_interactive: unnamedInteractive.slice(0, 50),
+      offscreen_interactive: offscreenInteractive.slice(0, 50),
+      images_missing_alt: imagesMissingAlt,
+      unlabeled_inputs: unlabeledInputs
+    };
+  });
+}
+
+async function loginIfConfigured(page, config) {
+  const email = process.env.RWHT_EMAIL;
+  const password = process.env.RWHT_PASSWORD;
+  if (!email || !password) return { attempted: false, status: 'not_configured' };
+
+  const emailSelectors = ['input[type="email"]', 'input[name="email"]', 'input[autocomplete="username"]'];
+  const passwordSelectors = ['input[type="password"]', 'input[name="password"]', 'input[autocomplete="current-password"]'];
+
+  let emailLocator = null;
+  for (const selector of emailSelectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.count()) { emailLocator = locator; break; }
+  }
+
+  let passwordLocator = null;
+  for (const selector of passwordSelectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.count()) { passwordLocator = locator; break; }
+  }
+
+  if (!emailLocator || !passwordLocator) return { attempted: true, status: 'login_form_not_found' };
+
+  await emailLocator.fill(email);
+  await passwordLocator.fill(password);
+
+  const submit = page
+    .locator('button[type="submit"],input[type="submit"],button')
+    .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i })
+    .first();
+
+  if (await submit.count()) await submit.click();
+  else await passwordLocator.press('Enter');
+
+  await page.waitForTimeout(config.login_wait_ms);
+  return { attempted: true, status: 'submitted', url_after: page.url() };
+}
+
+async function closeDialogs(page) {
+  const candidates = page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i });
+  const count = Math.min(await candidates.count(), 5);
+  for (let index = 0; index < count; index += 1) {
+    try {
+      if (await candidates.nth(index).isVisible()) await candidates.nth(index).click({ timeout: 1000 });
+    } catch {}
+  }
+}
+
+async function testControl(page, control, config) {
+  const label = safeLabel(control.name);
+  if (!control.visible || control.disabled) {
+    return { outcome: 'skipped', reason: control.visible ? 'disabled' : 'not_visible' };
+  }
+
+  if (SAFE_BLOCKED.test(label)) {
+    return { outcome: 'blocked', reason: 'high_risk_control', label };
+  }
+  if (!config.allow_mutations && SAFE_MUTATION.test(label)) {
+    return { outcome: 'blocked', reason: 'mutation_requires_human_gate', label };
+  }
+
+  const inputLike = ['input', 'textarea', 'select'].includes(control.tag) || control.role === 'combobox';
+  if (inputLike) {
+    const locator = page.locator(control.tag).nth(control.index);
+    try {
+      if (control.tag === 'select') {
+        const options = await locator.locator('option').evaluateAll((items) => items.map((option) => ({
+          value: option.value,
+          disabled: option.disabled
+        })));
+        const candidate = options.find((option) => option.value && !option.disabled);
+        if (!candidate) return { outcome: 'verified', action: 'select', selected: null };
+        await locator.selectOption(candidate.value);
+        return { outcome: 'verified', action: 'select', selected: candidate.value };
+      }
+
+      if (SECRET.test(label)) return { outcome: 'blocked', reason: 'secret_input' };
+      await locator.fill('RWHT_PC_TEST');
+      const value = await locator.inputValue().catch(() => null);
+      await locator.fill('');
+      return {
+        outcome: value === 'RWHT_PC_TEST' ? 'verified' : 'failed',
+        action: 'type',
+        value_observed: value
+      };
+    } catch (error) {
+      return {
+        outcome: 'failed',
+        action: 'input',
+        error: String(error?.message || error).slice(0, 500)
+      };
+    }
+  }
+
+  const origin = new URL(page.url()).origin;
+  if (control.role === 'link' && control.href) {
+    try {
+      if (new URL(control.href).origin !== origin) {
+        return { outcome: 'blocked', reason: 'external_navigation' };
+      }
+    } catch {}
+  }
+
+  const beforeUrl = page.url();
+  const beforeTitle = await page.title();
+  const beforeControls = await discoverInteractive(page).catch(() => []);
+  const beforeHash = sha(beforeControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
+
+  try {
+    let locator;
+    if (control.id) locator = page.locator('#' + control.id).first();
+    else locator = page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').nth(control.index);
+
+    await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
+    await locator.click({ timeout: config.action_timeout_ms });
+    await page.waitForTimeout(config.settle_ms);
+    await closeDialogs(page);
+
+    const afterUrl = page.url();
+    const afterTitle = await page.title();
+    const afterControls = await discoverInteractive(page).catch(() => []);
+    const afterHash = sha(afterControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
+
+    return {
+      outcome: 'verified',
+      action: 'click',
+      effect_observed: beforeUrl !== afterUrl || beforeTitle !== afterTitle || beforeHash !== afterHash,
+      url_before: beforeUrl,
+      url_after: afterUrl,
+      title_before: beforeTitle,
+      title_after: afterTitle
+    };
+  } catch (error) {
+    return {
+      outcome: 'failed',
+      action: 'click',
+      error: String(error?.message || error).slice(0, 500)
+    };
+  }
+}
+
+async function auditRoute(page, url, routeIndex, config) {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
+  await page.waitForTimeout(config.settle_ms);
+
+  const login = routeIndex === 0 ? await loginIfConfigured(page, config).catch((error) => ({
+    attempted: true,
+    status: 'error',
+    error: String(error?.message || error).slice(0, 500)
+  })) : { attempted: false, status: 'skipped' };
+
+  await page.waitForTimeout(config.settle_ms);
+
+  const ux = await checkUx(page);
+  const initialControls = await discoverInteractive(page);
+  const screenKey = sha({
+    url: page.url(),
+    title: await page.title(),
+    controls: initialControls.map((control) => ({
+      role: control.role,
+      name: control.name,
+      href: control.href
+    }))
+  });
+
+  const routeResult = {
+    route: url,
+    final_url: page.url(),
+    title: await page.title(),
+    screen_key: screenKey,
+    controls_discovered: initialControls.length,
+    controls_verified: 0,
+    controls_blocked: 0,
+    controls_failed: 0,
+    ux,
+    login,
+    actions: []
+  };
+
+  if (config.capture_screenshots) {
+    await page.screenshot({
+      path: path.join(config.artifact_dir, 'route-' + String(routeIndex + 1).padStart(2, '0') + '-initial.png'),
+      fullPage: true
+    }).catch(() => {});
+  }
+
+  const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
+  for (let index = 0; index < maxControls; index += 1) {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+
+    const controlsNow = await discoverInteractive(page);
+    const original = initialControls[index];
+    const target = controlsNow[index] || controlsNow.find((control) =>
+      control.role === original.role &&
+      control.name === original.name &&
+      control.href === original.href &&
+      control.tag === original.tag
+    );
+
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height }
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        ux: null,
+        login: null,
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.coverage_ratio = summary.controls_discovered
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_discovered).toFixed(3))
+    : 0;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});

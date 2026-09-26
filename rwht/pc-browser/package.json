@@ -1,0 +1,13 @@
+{
+  "name": "aria-pc-rwht",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Reusable desktop browser RWHT runner for ARIA and future web apps.",
+  "scripts": {
+    "audit": "node rwht-pc-browser.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
