@@ -75,11 +75,21 @@ jobs:
             [System.Security.Cryptography.DataProtectionScope]::LocalMachine
           )
           $payload = 'ARIA-DPAPI-MACHINE-V1:' + [Convert]::ToBase64String($protected)
+
+          # The previous token file can carry an old restrictive DACL owned by
+          # another Windows context. Remove only that file, then recreate it so
+          # the directory's existing ACL is inherited cleanly.
+          if (Test-Path $tokenPath) {
+            Remove-Item -LiteralPath $tokenPath -Force -ErrorAction Stop
+          }
           Set-Content -Path $tokenPath -Value $payload -Encoding ASCII -Force
 
-          # The interactive scheduled task must be able to read the repaired token.
-          & icacls.exe $tokenPath /grant:r "${interactiveUser}:(R)" "*S-1-5-18:(F)" | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Could not secure token store. icacls exit=$LASTEXITCODE" }
+          # Verify both the runner and the interactive user can read the file;
+          # do not mutate the file DACL from NetworkService.
+          $rawToken = Get-Content -Raw -Path $tokenPath -ErrorAction Stop
+          if ([string]::IsNullOrWhiteSpace($rawToken) -or -not $rawToken.StartsWith('ARIA-DPAPI-MACHINE-V1:')) {
+            throw 'TOKEN_STORE_WRITE_VERIFY_FAILED'
+          }
 
           Write-Host 'TOKEN_DPAPI_REPAIR=MACHINE_SCOPE'
           Write-Host "INTERACTIVE_USER=$interactiveUser"
