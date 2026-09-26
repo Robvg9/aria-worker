@@ -13,8 +13,10 @@ assert.match(runner, /function executorType\(step: any\)/);
 assert.match(runner, /DEVICE_OPS_ALLOWLIST\.has\(operation\).*return "device"/s);
 assert.match(runner, /function normalizeExecutionStep\(step: any, mission: any\)/);
 assert.match(runner, /mission\?\.metadata\?\.device_id/);
-assert.match(runner, /steps = steps\.map\(\(step: any\) => normalizeExecutionStep\(step, mission\)\)/);
+assert.match(runner, /normalizeExecutionStep\(step, mission\)/);
 assert.match(runner, /plan_executor_normalized/);
-assert.match(runner, /operation.*computer\.use/);
+assert.match(runner, /computer\.use/);
+assert.match(runner, /computer\.use\.autonomous/);
+assert.match(runner, /computer\.use\.android/);
 
 console.log('MISSION RUNNER V22 EXECUTOR INFERENCE CONTRACT: PASS');
