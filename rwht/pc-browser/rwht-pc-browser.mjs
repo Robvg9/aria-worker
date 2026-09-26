@@ -7,6 +7,7 @@ const VERSION = 'aria-pc-browser-rwht-v1.0.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
+const SAFE_MUTATION = /(crear|create|guardar|save|enviar|send|ejecutar|execute|run|deploy|actualizar|update|confirmar|confirm|publicar|publish|start|iniciar|submit)/i;
 
 function envBool(name, fallback = false) {
   const value = String(process.env[name] ?? '').trim().toLowerCase();
@@ -225,6 +226,9 @@ async function testControl(page, control, config) {
   if (SAFE_BLOCKED.test(label)) {
     return { outcome: 'blocked', reason: 'high_risk_control', label };
   }
+  if (!config.allow_mutations && SAFE_MUTATION.test(label)) {
+    return { outcome: 'blocked', reason: 'mutation_requires_human_gate', label };
+  }
 
   const inputLike = ['input', 'textarea', 'select'].includes(control.tag) || control.role === 'combobox';
   if (inputLike) {
@@ -407,6 +411,7 @@ async function run() {
     settle_ms: envInt('RWHT_SETTLE_MS', 1000),
     login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
     max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
     capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
     artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
   };
