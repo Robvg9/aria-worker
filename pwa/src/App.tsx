@@ -1841,10 +1841,10 @@ function Meditation({ session }: { session: Session }) {
     setIdeaBusy(true);
     setIdeaError('');
     try {
-      await api('/meditation/ideas/' + encodeURIComponent(proposalId) + '/decision', {
+      await api('/meditation/ideas/' + encodeURIComponent(proposalId) + '/decision', session.accessToken, {
         method: 'POST',
         body: JSON.stringify({ action })
-      } as any);
+      });
       await loadIdeas();
     } catch (x) {
       setIdeaError(x instanceof Error ? x.message : 'No se pudo actualizar la propuesta.');
