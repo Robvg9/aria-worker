@@ -1,6 +1,8 @@
 // Canonical deploy trigger: mission recovery policy v8 / Android-aware fallback routing.
 // Human Gate post-hardening regression trigger: keep the LIVE E2E battery attached to this canonical runner.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
