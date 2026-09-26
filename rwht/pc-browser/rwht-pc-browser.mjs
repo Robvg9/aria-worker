@@ -7,6 +7,7 @@ const VERSION = 'aria-pc-browser-rwht-v1.0.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
+const LOGIN_CONTROL = /^(entrar|login|sign[ -]?in|acceder|iniciar(?:\s+sesión|\s+sesion)?|continuar)$/i;
 const SAFE_MUTATION = /(crear|create|guardar|save|enviar|send|ejecutar|execute|run|deploy|actualizar|update|confirmar|confirm|publicar|publish|start|iniciar|submit)/i;
 
 function envBool(name, fallback = false) {
@@ -66,6 +67,23 @@ async function discoverInteractive(page) {
       el.textContent ||
       ''
     ).replace(/\s+/g, ' ').trim();
+    const selectorHint = (() => {
+      if (el.id) return '#' + CSS.escape(el.id);
+      const testid = el.getAttribute('data-testid');
+      if (testid) return '[data-testid="' + CSS.escape(testid) + '"]';
+      const parts = [];
+      let current = el;
+      while (current && current.nodeType === 1 && current !== document.body) {
+        let part = current.tagName.toLowerCase();
+        const parent = current.parentElement;
+        if (!parent) break;
+        const siblings = [...parent.children].filter((item) => item.tagName === current.tagName);
+        if (siblings.length > 1) part += ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')';
+        parts.unshift(part);
+        current = parent;
+      }
+      return parts.join('>');
+    })();
     return {
       index,
       tag,
@@ -77,7 +95,8 @@ async function discoverInteractive(page) {
       disabled: Boolean(el.disabled),
       visible: Boolean(rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden'),
       box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      testid: el.getAttribute('data-testid')
+      testid: el.getAttribute('data-testid'),
+      selector_hint: selectorHint
     };
   }));
 }
@@ -171,6 +190,7 @@ async function checkUx(page) {
 }
 
 async function loginIfConfigured(page, config) {
+  if (config.storage_state) return { attempted: false, status: 'storage_state' };
   const email = process.env.RWHT_EMAIL;
   const password = process.env.RWHT_PASSWORD;
   if (!email || !password) return { attempted: false, status: 'not_configured' };
@@ -226,13 +246,16 @@ async function testControl(page, control, config) {
   if (SAFE_BLOCKED.test(label)) {
     return { outcome: 'blocked', reason: 'high_risk_control', label };
   }
+  if (config.require_auth && !config.auth_configured && LOGIN_CONTROL.test(label)) {
+    return { outcome: 'blocked', reason: 'authentication_human_gate', label };
+  }
   if (!config.allow_mutations && SAFE_MUTATION.test(label)) {
     return { outcome: 'blocked', reason: 'mutation_requires_human_gate', label };
   }
 
   const inputLike = ['input', 'textarea', 'select'].includes(control.tag) || control.role === 'combobox';
   if (inputLike) {
-    const locator = page.locator(control.tag).nth(control.index);
+    const locator = control.selector_hint ? page.locator(control.selector_hint).first() : page.locator(control.tag).nth(control.index);
     try {
       if (control.tag === 'select') {
         const options = await locator.locator('option').evaluateAll((items) => items.map((option) => ({
@@ -279,8 +302,10 @@ async function testControl(page, control, config) {
 
   try {
     let locator;
-    if (control.id) locator = page.locator('#' + control.id).first();
-    else locator = page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').nth(control.index);
+    if (control.selector_hint) locator = page.locator(control.selector_hint).first();
+    else if (control.id) locator = page.locator('#' + control.id).first();
+    else if (control.role && label) locator = page.getByRole(control.role, { name: label, exact: true }).first();
+    else locator = page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
 
     await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
     await locator.click({ timeout: config.action_timeout_ms });
@@ -428,6 +453,8 @@ async function run() {
     allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
     require_auth: envBool('RWHT_REQUIRE_AUTH', false),
     expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
     capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
     artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
   };
@@ -437,7 +464,8 @@ async function run() {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: config.headless });
   const context = await browser.newContext({
-    viewport: { width: config.viewport_width, height: config.viewport_height }
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
   });
   const page = await context.newPage();
 

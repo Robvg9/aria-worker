@@ -54,3 +54,17 @@ $env:RWHT_ROUTES="#home,/settings,/admin"
 RWHT is a verification runner, not a destructive migration tool. Controls matching the blocked-risk vocabulary are not clicked. Passwords, tokens, API keys, file uploads, and similar secret-like fields are not populated.
 
 That gives exhaustive coverage of the discoverable and safe browser UI while keeping destructive/secret actions behind an explicit Human Gate.
+
+
+## Authenticated PC RWHT
+
+For a full authenticated audit without storing a password in the runner, provide a Playwright storage-state JSON file obtained from a controlled browser session:
+
+```powershell
+$env:RWHT_STORAGE_STATE="C:\RWHT\aria-auth.json"
+$env:RWHT_REQUIRE_AUTH="true"
+$env:RWHT_EXPECTED_AUTH_TEXT="Lista para actuar"
+node .\rwht-pc-browser.mjs
+```
+
+The runner will reuse that session state, audit the authenticated surface, and keep destructive/secret actions behind the normal Human Gate.\n
