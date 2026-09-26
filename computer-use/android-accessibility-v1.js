@@ -232,6 +232,46 @@ async function executeLocalIpcJob({ request, timeoutMs = 12000 } = {}) {
   }
 }
 
+function recoverAndroidUiAgentProcess({ timeoutMs = 8000 } = {}) {
+  return new Promise((resolve) => {
+    const effectiveTimeout = Math.max(1000, Math.min(Number(timeoutMs) || 8000, 12000));
+    const child = spawn('am', [
+      'start',
+      '-n',
+      `${PACKAGE}/.MainActivity`,
+      '-f',
+      '0x10200000'
+    ], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      finish({ status: 'timeout', reason: `android_ui_agent_recovery_timeout_${effectiveTimeout}ms` });
+    }, effectiveTimeout);
+    child.stdout.on('data', chunk => { stdout += chunk.toString(); });
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.on('error', error => finish({
+      status: 'failed',
+      reason: `android_ui_agent_recovery_failed:${String(error?.message || error).slice(0, 180)}`
+    }));
+    child.on('close', code => {
+      finish({
+        status: code === 0 ? 'succeeded' : 'failed',
+        exit_code: code,
+        stdout: stdout.slice(-2000),
+        stderr: stderr.slice(-2000)
+      });
+    });
+  });
+}
+
 async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, resolveSecret } = {}) {
   let payload;
   try { payload = JSON.parse(String(command || '{}')); }
@@ -262,18 +302,25 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
   }
 
   let lastResult = null;
+  let recoveryAttempted = false;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const result = await executeLocalIpcJob({ request, timeoutMs });
     lastResult = result;
     if (result.status === 'succeeded') {
-      return { ...result, metadata: { ...(result.metadata || {}), attempt } };
+      return { ...result, metadata: { ...(result.metadata || {}), attempt, recovery_attempted: recoveryAttempted } };
     }
     const reason = String(result.reason || '');
     const retryable = /android_local_ipc_(?:unreachable|timeout)/.test(reason);
     if (!retryable || attempt === 3) {
-      return { ...result, metadata: { ...(result.metadata || {}), attempt } };
+      return { ...result, metadata: { ...(result.metadata || {}), attempt, recovery_attempted: recoveryAttempted } };
     }
-    await sleep(100 * attempt);
+    if (!recoveryAttempted) {
+      recoveryAttempted = true;
+      const recovery = await recoverAndroidUiAgentProcess({ timeoutMs: 8000 });
+      await sleep(recovery.status === 'succeeded' ? 1200 : 250);
+    } else {
+      await sleep(100 * attempt);
+    }
   }
   return lastResult;
 }
