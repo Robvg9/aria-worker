@@ -185,7 +185,38 @@ async function verifyLearningApplication(goal: string, steps: any[], results: Re
 }
 
 function executorType(step: any) {
-  return String(step?.executor_type || step?.target?.type || "");
+  const explicit = String(step?.executor_type || step?.target?.type || "");
+  if (explicit) return explicit;
+
+  const operation = String(step?.operation || "").trim();
+  if (DEVICE_OPS_ALLOWLIST.has(operation)) return "device";
+  if (step?.target?.connector_id) return "connector";
+  if (step?.target?.agent_id) return "agent";
+  if (step?.target?.provider_id && step?.target?.account_id && step?.target?.model_id) return "model";
+  if (String(step?.target?.project_id || "") === EAS_PROJECT_ID && /^eas[._:-]/i.test(operation)) return "eas";
+  return "";
+}
+
+function normalizeExecutionStep(step: any, mission: any) {
+  const type = executorType(step);
+  const target = { ...(step?.target || {}) };
+  const normalized = { ...(step || {}), target };
+
+  if (!normalized.executor_type && type) normalized.executor_type = type;
+  if (!target.type && type) target.type = type;
+
+  if (type === "device") {
+    const fallbackDeviceId =
+      step?.input?.device_id ||
+      mission?.metadata?.device_id ||
+      null;
+    if (!target.device_id && fallbackDeviceId) {
+      target.device_id = String(fallbackDeviceId);
+    }
+  }
+
+  normalized.target = target;
+  return normalized;
 }
 
 const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
@@ -1402,6 +1433,24 @@ Deno.serve(async (request) => {
     }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
+
+    const normalizedSteps = steps.map((step: any) => normalizeExecutionStep(step, mission));
+    const inferredExecutorSteps = normalizedSteps
+      .map((step: any, index: number) => ({
+        index: index + 1,
+        step_id: String(step?.id || `step_${index + 1}`),
+        executor_type: String(step?.executor_type || ""),
+        device_id: step?.target?.device_id || null,
+      }))
+      .filter((item: any) => item.executor_type);
+    if (inferredExecutorSteps.length) {
+      await emitEvent(missionId, "plan_executor_normalized", {
+        count: inferredExecutorSteps.length,
+        steps: inferredExecutorSteps,
+        reason: "execution contract normalization",
+      });
+    }
+    steps = normalizedSteps;
 
     const recoveryPreviousPlan = previousRecovery?.replan_required === true && Array.isArray(previousRecovery?.previous_plan)
       ? previousRecovery.previous_plan
