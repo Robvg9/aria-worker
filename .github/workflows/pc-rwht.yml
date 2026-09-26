@@ -31,7 +31,7 @@ jobs:
     needs: contract
     timeout-minutes: 20
     env:
-      RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev' }}
+      RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_HEADLESS: 'true'
       RWHT_ARTIFACT_DIR: rwht-artifacts
       RWHT_NO_SCREENSHOTS: 'false'
