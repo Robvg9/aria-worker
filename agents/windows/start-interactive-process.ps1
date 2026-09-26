@@ -18,17 +18,26 @@ function Get-InteractiveUser {
     throw 'WINDOWS_HUMAN_GATE_NO_INTERACTIVE_EXPLORER'
   }
 
-  $owner = Invoke-CimMethod -InputObject $explorer -MethodName GetOwner
-  if (-not $owner -or $owner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($owner.User)) {
+  $computer = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+  $userId = [string]$computer.UserName
+
+  if ([string]::IsNullOrWhiteSpace($userId)) {
+    # Fallback: query the interactive session through QUSER.
+    $quser = & quser.exe 2>$null
+    if ($LASTEXITCODE -eq 0 -and $quser) {
+      $line = $quser | Select-Object -Skip 1 | Where-Object { $_ -match '\S' } | Select-Object -First 1
+      if ($line -match '^\s*>?\s*(\S+)\s+(\S+)') {
+        $userId = $Matches[1]
+      }
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($userId)) {
     throw 'WINDOWS_HUMAN_GATE_NO_INTERACTIVE_USER'
   }
 
-  $domain = if ([string]::IsNullOrWhiteSpace($owner.Domain)) { $env:COMPUTERNAME } else { $owner.Domain }
-
   [pscustomobject]@{
-    User = $owner.User
-    Domain = $domain
-    UserId = "$domain\$($owner.User)"
+    UserId = $userId
     SessionId = [int]$explorer.SessionId
     ExplorerPid = [int]$explorer.ProcessId
   }
