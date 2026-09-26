@@ -21,6 +21,8 @@ $PidPath = Join-Path $PublicDir 'agent.pid'
 $StatusPath = Join-Path $PublicDir 'status.json'
 $WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
 $KillRequestPath = Join-Path $PublicDir 'kill-request'
+$DesktopTestRequestPath = Join-Path $PublicDir 'desktop-101-request.json'
+$DesktopTestResultPath = Join-Path $PublicDir 'desktop-101-result.json'
 
 New-Item -ItemType Directory -Force -Path $PublicDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -137,7 +139,54 @@ while ($true) {
         }
 
         while (-not $process.HasExited) {
-            if (Test-Path $KillRequestPath) {
+            if (Test-Path $DesktopTestRequestPath) {
+                try {
+                    $request = Get-Content -Raw -Path $DesktopTestRequestPath | ConvertFrom-Json
+                    Remove-Item -Path $DesktopTestRequestPath -Force -ErrorAction SilentlyContinue
+
+                    $testNode = [string]$request.node
+                    $testScript = [string]$request.script
+                    $testWorkingDirectory = [string]$request.working_directory
+                    $testLog = [string]$request.log
+                    $testErrorLog = [string]$request.error_log
+
+                    if ([string]::IsNullOrWhiteSpace($testNode)) { throw 'desktop-101 request node is missing' }
+                    if ([string]::IsNullOrWhiteSpace($testScript)) { throw 'desktop-101 request script is missing' }
+                    if ([string]::IsNullOrWhiteSpace($testWorkingDirectory)) { $testWorkingDirectory = $RepoRoot }
+                    if ([string]::IsNullOrWhiteSpace($testLog)) { $testLog = Join-Path $PublicDir 'desktop-101-child.log' }
+                    if ([string]::IsNullOrWhiteSpace($testErrorLog)) { $testErrorLog = Join-Path $PublicDir 'desktop-101-child.err' }
+
+                    Write-Log "DESKTOP_101_REQUEST_START script=$testScript"
+                    $child = Start-Process -FilePath $testNode -ArgumentList @($testScript) -WorkingDirectory $testWorkingDirectory -RedirectStandardOutput $testLog -RedirectStandardError $testErrorLog -PassThru -WindowStyle Hidden
+                    $childSessionId = [int]$child.SessionId
+                    $child.WaitForExit()
+                    $exitCode = $child.ExitCode
+                    Write-Log "DESKTOP_101_REQUEST_EXIT code=$exitCode session=$childSessionId"
+
+                    $result = [ordered]@{
+                        status = if ($exitCode -eq 0) { 'succeeded' } else { 'failed' }
+                        exit_code = $exitCode
+                        child_pid = $child.Id
+                        child_session_id = $childSessionId
+                        log = $testLog
+                        error_log = $testErrorLog
+                        completed_at = (Get-Date -Format o)
+                    }
+                    ($result | ConvertTo-Json -Depth 10) | Set-Content -Path $DesktopTestResultPath -Encoding UTF8 -Force
+                }
+                catch {
+                    $err = [ordered]@{
+                        status = 'failed'
+                        exit_code = 1
+                        error = $_.Exception.Message
+                        completed_at = (Get-Date -Format o)
+                    }
+                    ($err | ConvertTo-Json -Depth 10) | Set-Content -Path $DesktopTestResultPath -Encoding UTF8 -Force
+                    Write-Log "DESKTOP_101_REQUEST_ERROR $($_.Exception.Message)"
+                }
+            }
+
+        if (Test-Path $KillRequestPath) {
                 $req = ''
                 try { $req = (Get-Content -Raw $KillRequestPath).Trim() } catch {}
                 Write-Log "KILL_REQUEST_SEEN payload=$req agent_pid=$($process.Id)"
