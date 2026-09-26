@@ -1,0 +1,105 @@
+name: ARIA Runner Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect GitHub runner state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+
+          runners="$(gh api "repos/$REPO/actions/runners?per_page=100")"
+
+          runs="$(gh api "repos/$REPO/actions/runs?per_page=100")"
+
+          jobs_json='[]'
+          while read -r run_id; do
+            [ -z "$run_id" ] && continue
+            run_jobs="$(gh api "repos/$REPO/actions/runs/$run_id/jobs?per_page=100")"
+            jobs_json="$(jq -c --argjson a "$jobs_json" --argjson b "$run_jobs" '$a + $b.jobs')"
+          done < <(echo "$runs" | jq -r '.workflow_runs[] | select(.name=="ARIA Windows 101 Force Certification") | .id')
+
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          jq -n             --arg now "$now"             --arg repo "$REPO"             --argjson runners "$runners"             --argjson runs "$runs"             --argjson jobs "$jobs_json" '
+            {
+              generated_at: $now,
+              repository: $repo,
+              runners: ($runners.runners | map({
+                id,
+                name,
+                os,
+                architecture,
+                status,
+                busy,
+                runner_group_id,
+                runner_group_name,
+                labels: (.labels | map(.name))
+              })),
+              windows_101_runs: (
+                $runs.workflow_runs
+                | map(select(.name=="ARIA Windows 101 Force Certification")
+                  | {
+                      id,
+                      run_number,
+                      status,
+                      conclusion,
+                      created_at,
+                      updated_at,
+                      head_sha,
+                      html_url
+                    })
+              ),
+              windows_101_jobs: (
+                $jobs
+                | map(select(.workflow_name=="ARIA Windows 101 Force Certification")
+                  | {
+                      id,
+                      run_id,
+                      status,
+                      conclusion,
+                      labels,
+                      runner_id,
+                      runner_name,
+                      created_at,
+                      started_at,
+                      completed_at,
+                      name
+                    })
+              )
+            }
+            ' > reports/runner-diagnostic.json
+
+          cat reports/runner-diagnostic.json
+
+      - name: Persist diagnostic report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME}"
+          sha="$(gh api "repos/$REPO/contents/reports/runner-diagnostic.json?ref=$branch" --jq '.sha' 2>/dev/null || true)"
+          message="chore(diagnostics): persist self-hosted runner state"
+
+          if [ -n "$sha" ]; then
+            gh api               --method PUT               "repos/$REPO/contents/reports/runner-diagnostic.json"               -f message="$message"               -f content="$(base64 -w0 reports/runner-diagnostic.json)"               -f sha="$sha"               -f branch="$branch" >/dev/null
+          else
+            gh api               --method PUT               "repos/$REPO/contents/reports/runner-diagnostic.json"               -f message="$message"               -f content="$(base64 -w0 reports/runner-diagnostic.json)"               -f branch="$branch" >/dev/null
+          fi
