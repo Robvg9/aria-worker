@@ -210,11 +210,41 @@ jobs:
           }
 
           if (-not $agent) {
-            if (Test-Path $LogPath) {
-              Write-Host 'watchdog.log (last 40):'
-              Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
+            Write-Host 'ARIA_AGENT_FALLBACK_START=True'
+            $fallbackArgs = @(
+              '-NoProfile',
+              '-ExecutionPolicy', 'Bypass',
+              '-WindowStyle', 'Hidden',
+              '-File', $RuntimeWatchdog
+            )
+            try {
+              $fallback = Start-Process -FilePath 'powershell.exe' -ArgumentList $fallbackArgs -WorkingDirectory $RuntimeRoot -WindowStyle Hidden -PassThru
+              Write-Host "ARIA_AGENT_FALLBACK_PID=$($fallback.Id)"
+            } catch {
+              Write-Host "ARIA_AGENT_FALLBACK_START_ERROR=$($_.Exception.Message)"
             }
-            throw 'ARIA agent process not running. Restart task as ROBVG\robvg after runtime sync.'
+
+            $agent = $null
+            for ($i = 0; $i -lt 20; $i++) {
+              Start-Sleep -Seconds 2
+              $cim = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -and ($_.CommandLine -like '*aria-agent.js*') }
+              if ($cim) {
+                $agent = Get-Process -Id $cim[0].ProcessId -ErrorAction SilentlyContinue
+                if ($agent) {
+                  try { Set-Content -Path $PidPath -Value $cim[0].ProcessId -Encoding ASCII -Force } catch {}
+                  break
+                }
+              }
+            }
+          }
+
+          if (-not $agent) {
+            if (Test-Path $LogPath) {
+              Write-Host 'watchdog.log (last 60):'
+              Get-Content $LogPath -Tail 60 -ErrorAction SilentlyContinue
+            }
+            throw 'ARIA agent process not running after task restart + direct watchdog fallback'
           }
 
           Write-Host 'ARIA_TASK=RUNNING'
