@@ -34,6 +34,7 @@ assert.ok(transport.includes('process.getuid'));
 assert.ok(transport.includes('attempt <= 3'));
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('"swipe" -> gestureSwipe'));
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('dispatchGesture(gesture'));
+assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('phase = "click_post_action"'), 'click post-action window resolution must use bounded retries');
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('swipe_distance_too_small'));
 assert.ok(agent.includes('probeLocalIpcHealth'));
 assert.ok(agent.includes("if (androidUiHealth.ok) capabilities.push('computer.use.android')"));
