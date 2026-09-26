@@ -23,16 +23,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stop stale ARIA local agent
+      - name: Stop stale service-session ARIA agent only
         run: |
           $ErrorActionPreference = 'Stop'
-          $procs = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' }
+          $procs = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' }
+          $stopped = 0
           foreach ($p in $procs) {
-            Write-Host "STOP_OLD_ARIA_PID=$($p.ProcessId)"
-            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+            if ($proc -and $proc.SessionId -eq 0) {
+              Write-Host "STOP_SERVICE_SESSION_ARIA_PID=$($p.ProcessId)"
+              Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+              $stopped++
+            } else {
+              Write-Host "KEEP_INTERACTIVE_ARIA_PID=$($p.ProcessId) SESSION=$($proc.SessionId)"
+            }
           }
           Start-Sleep -Seconds 2
-          Write-Host 'ARIA_OLD_AGENT_STOP=PASS'
+          Write-Host "ARIA_SERVICE_SESSION_STOP_COUNT=$stopped"
+          Write-Host 'ARIA_INTERACTIVE_PROCESS_PRESERVED=True'
 
       - name: Sync canonical runtime to D
         run: |
