@@ -22,5 +22,8 @@ assert.match(runner, /executor_selected/);
 assert.match(continuity, /"computer\.use"/);
 assert.match(continuity, /"computer\.use\.autonomous"/);
 assert.match(continuity, /"computer\.use\.android"/);
+assert.match(continuity, /input\.operation === undefined/);
+assert.match(continuity, /input\.action === "observe"/);
+assert.match(continuity, /input\.operation = "observe"/);
 
 console.log('MISSION RUNNER V22 EXECUTOR INFERENCE CONTRACT: PASS');
