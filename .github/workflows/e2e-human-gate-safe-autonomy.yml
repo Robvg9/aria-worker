@@ -114,7 +114,7 @@ jobs:
           pos="mission_hg_POS_"+str(int(time.time()*1000))
           make_mission(pos,"Protected action Human Gate"); seed(pos,protected_steps)
           p1=wait_for_status(pos,"human_required"); assert p1.get("status")=="human_required",p1
-          gate_text=sql("select 'HG_HASH='||checkpoint->'human_gate'->>'action_hash' as gate from aria_internal.mission_state where mission_id='"+pos+"';")
+          gate_text=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as gate from aria_internal.mission_state where mission_id='"+pos+"';")
           m=re.search(r'HG_HASH=([0-9a-f]{64})',gate_text); assert m,gate_text
           action_hash=m.group(1)
           start0=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
@@ -134,7 +134,7 @@ jobs:
           
           seed(pos,protected_steps)
           fresh=wait_for_status(pos,"human_required"); assert fresh.get("status")=="human_required",fresh
-          ht=sql("select 'HG_HASH='||checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+pos+"';")
+          ht=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as h from aria_internal.mission_state where mission_id='"+pos+"';")
           m=re.search(r'HG_HASH=([0-9a-f]{64})',ht); assert m,ht
           fresh_hash=m.group(1)
           bc,ap2=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e2","action_hash":fresh_hash})
@@ -147,7 +147,7 @@ jobs:
           rej="mission_hg_REJ_"+str(int(time.time()*1000))
           make_mission(rej,"Reject protected Human Gate"); seed(rej,protected_steps)
           r1=wait_for_status(rej,"human_required"); assert r1.get("status")=="human_required",r1
-          rh=sql("select 'HG_HASH='||checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+rej+"';")
+          rh=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as h from aria_internal.mission_state where mission_id='"+rej+"';")
           m=re.search(r'HG_HASH=([0-9a-f]{64})',rh); assert m
           bc,rr=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":rej,"decision":"reject","approver_id":"e2e-reject","action_hash":m.group(1)})
           assert bc<300 and rr.get("status")=="human_gate_rejected",rr
@@ -163,7 +163,7 @@ jobs:
           _,c2=tick(can)
           p2=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
           assert "paused" in p2 and "pending" in p2,(c2,p2)
-          ch=sql("select 'HG_HASH='||checkpoint->'human_gate'->>'action_hash' as h from aria_internal.mission_state where mission_id='"+can+"';")
+          ch=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as h from aria_internal.mission_state where mission_id='"+can+"';")
           m=re.search(r'HG_HASH=([0-9a-f]{64})',ch); assert m
           bc,cc=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":can,"decision":"cancel","approver_id":"e2e-cancel","action_hash":m.group(1)})
           assert bc<300 and cc.get("status")=="human_gate_cancelled",cc
