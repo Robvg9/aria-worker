@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
+import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -507,6 +508,145 @@ async function markMeditationNotificationsReadForUser(userId:string,body:any){
   if(error)throw new Error(error.message);
   return{ok:true,marked_read:Number(data?.length||0),notification_ids:(data||[]).map((x:any)=>String(x.notification_id))};
 }
+
+function presentMeditationIdeaProposal(row:any){
+  return {
+    proposal_id:String(row.proposal_id),
+    fingerprint:String(row.fingerprint),
+    schema_version:String(row.schema_version),
+    status:String(row.status),
+    input:{idea:String(row.idea)},
+    classification:row.classification??{},
+    objective:row.objective??{},
+    subobjectives:row.subobjectives??[],
+    missions:row.missions??[],
+    blockers:row.blockers??[],
+    queue_policy:row.metadata?.queue_policy??{mode:"manual_only",auto_enqueue:false,auto_execute:false,human_decision_required:true},
+    closure:row.metadata?.closure??{required:true,rule:"inspectable_plan_without_auto_queue"},
+    created_from:row.metadata?.created_from??{source:"meditation-idea-analyzer-v2",device_id:row.source_device_id??null,created_by:"aria-pwa"},
+    summary:row.metadata?.summary??null,
+    converted_missions:row.metadata?.converted_missions??[],
+    auto_enqueued:Boolean(row.auto_enqueued),
+    created_at:row.created_at,
+    updated_at:row.updated_at
+  };
+}
+
+async function createMeditationIdeaProposalForUser(userId:string, ideaInput:string){
+  const idea=String(ideaInput??"").trim();
+  if(!idea) throw Object.assign(new Error("idea_required"),{status:400});
+  const proposal=await buildIdeaMissionProposal(idea,{created_by:userId});
+  const validation=validateProposal(proposal);
+  if(!validation.valid) throw Object.assign(new Error("proposal_invalid:"+String(validation.reason??"unknown")),{status:400});
+  const sb=serviceClient().schema("aria_internal");
+  const {data:existing,error:lookupError}=await sb.from("meditation_idea_proposals")
+    .select("*").eq("fingerprint",proposal.fingerprint).maybeSingle();
+  if(lookupError) throw new Error(lookupError.message);
+  if(existing){
+    if(existing.owner_user_id && String(existing.owner_user_id)!==String(userId)){
+      throw Object.assign(new Error("idea_already_exists_for_another_owner"),{status:409});
+    }
+    if(!existing.owner_user_id){
+      const {data:claimed,error:claimError}=await sb.from("meditation_idea_proposals")
+        .update({owner_user_id:userId,updated_at:new Date().toISOString()})
+        .eq("proposal_id",existing.proposal_id)
+        .is("owner_user_id",null)
+        .select("*").maybeSingle();
+      if(claimError) throw new Error(claimError.message);
+      if(claimed) return {ok:true,status:String(claimed.status),deduplicated:true,proposal:presentMeditationIdeaProposal(claimed)};
+    }
+    return {ok:true,status:String(existing.status),deduplicated:true,proposal:presentMeditationIdeaProposal(existing)};
+  }
+  const {data:row,error}=await sb.from("meditation_idea_proposals").insert({
+    fingerprint:proposal.fingerprint,
+    idea:proposal.input.idea,
+    schema_version:proposal.schema_version,
+    status:"proposed",
+    owner_user_id:userId,
+    classification:proposal.classification,
+    objective:proposal.objective,
+    subobjectives:proposal.subobjectives,
+    missions:proposal.missions,
+    blockers:proposal.classification.blockers??[],
+    metadata:{
+      created_from:{source:"meditation-idea-analyzer-v2",device_id:null,created_by:userId},
+      summary:proposal.summary,
+      queue_policy:proposal.queue_policy,
+      closure:proposal.closure
+    },
+    auto_enqueued:false,
+    source_device_id:null
+  }).select("*").single();
+  if(error){
+    const duplicate=await sb.from("meditation_idea_proposals").select("*").eq("fingerprint",proposal.fingerprint).maybeSingle();
+    if(!duplicate.error&&duplicate.data&&(!duplicate.data.owner_user_id||String(duplicate.data.owner_user_id)===String(userId))){
+      return {ok:true,status:String(duplicate.data.status),deduplicated:true,proposal:presentMeditationIdeaProposal(duplicate.data)};
+    }
+    throw Object.assign(new Error(error.message),{status:String(error.code)==="23505"?409:500});
+  }
+  return {ok:true,status:"proposed",deduplicated:false,proposal:presentMeditationIdeaProposal(row)};
+}
+
+async function meditationIdeaProposalsForUser(userId:string,limit=50){
+  const safe=Math.max(1,Math.min(100,Number(limit)||50));
+  const {data,error}=await serviceClient().schema("aria_internal").from("meditation_idea_proposals")
+    .select("proposal_id,fingerprint,idea,schema_version,status,owner_user_id,classification,objective,subobjectives,missions,blockers,metadata,auto_enqueued,source_device_id,created_at,updated_at")
+    .eq("owner_user_id",userId)
+    .order("created_at",{ascending:false}).limit(safe);
+  if(error) throw new Error(error.message);
+  return {
+    version:"aria-meditation-idea-analyzer-v2",
+    items:(data??[]).map(presentMeditationIdeaProposal),
+    total:Number((data??[]).length),
+    policy:{auto_enqueue:false,auto_execute:false,human_decision_required:true}
+  };
+}
+
+async function meditationIdeaProposalForUser(userId:string,proposalId:string){
+  const {data,error}=await serviceClient().schema("aria_internal").from("meditation_idea_proposals")
+    .select("*").eq("proposal_id",proposalId).eq("owner_user_id",userId).maybeSingle();
+  if(error) throw new Error(error.message);
+  if(!data) throw Object.assign(new Error("proposal_not_found"),{status:404});
+  return presentMeditationIdeaProposal(data);
+}
+
+async function meditationIdeaDecisionForUser(userId:string,proposalId:string,action:string,note:string|null){
+  const sb=serviceClient().schema("aria_internal");
+  const {data,error}=await sb.rpc("meditation_idea_proposal_decide",{
+    p_proposal_id:proposalId,
+    p_owner_user_id:userId,
+    p_action:String(action??"").trim().toLowerCase(),
+    p_note:note
+  });
+  if(error) throw Object.assign(new Error(error.message),{status:409});
+  return {ok:true,proposal:presentMeditationIdeaProposal(data),action:String(action??"").toLowerCase()};
+}
+
+async function meditationIdeaConvertForUser(userId:string,proposalId:string,templateMissionId:string,requestedDeviceId:string|null){
+  const sb=serviceClient().schema("aria_internal");
+  let deviceId=String(requestedDeviceId??"").trim();
+  if(deviceId){
+    const {data,error}=await sb.from("device_registry").select("device_id,agent_type,status,last_seen_at")
+      .eq("device_id",deviceId).eq("status","online").maybeSingle();
+    if(error) throw new Error(error.message);
+    if(!data) throw Object.assign(new Error("requested_device_not_online"),{status:409});
+  } else {
+    const {data,error}=await sb.from("device_registry").select("device_id,agent_type,status,last_seen_at")
+      .eq("agent_type","android-termux").eq("status","online").order("last_seen_at",{ascending:false}).limit(1);
+    if(error) throw new Error(error.message);
+    deviceId=String(data?.[0]?.device_id??"");
+  }
+  if(!deviceId) throw Object.assign(new Error("android_device_unavailable"),{status:409});
+  const {data,error}=await sb.rpc("meditation_idea_convert_mission",{
+    p_proposal_id:proposalId,
+    p_owner_user_id:userId,
+    p_device_id:deviceId,
+    p_template_mission_id:templateMissionId
+  });
+  if(error) throw Object.assign(new Error(error.message),{status:409});
+  return {ok:true,device_id:deviceId,...data};
+}
+
 async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);if(controller?.owner_user_id&&controller.owner_user_id!==userId)return{version:"aria-meditation-dashboard-v1",mode:"stopped",controller:null,active_mission:null,missions:[],human_gates:[],blocked:[],counts:{missions:0,human_gates:0,blocked:0}};const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at").order("updated_at",{ascending:false}).limit(200);if(me)throw new Error(me.message);const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(controller?.session_id&&md.meditation_session_id===controller.session_id)});const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||`Misión #${owned.length-i}`),description:String(m?.goal||"")}));const fastMissions=await Promise.all(ranked.slice(0,20).map((m:any)=>enrichMission(m,sb,false)));const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;return s==="running"?50:s==="waiting"&&hasLiveLease(m)?45:s==="waiting"?40:s==="planning"?30:s==="paused"?20:s==="queued"?10:0;};const rawActive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;const active=rawActive?await enrichMission(rawActive,sb,true):null;const missions=fastMissions.map((m:any)=>m.mission_id===active?.mission_id?active:m);const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:[m.block_details?.remediation||"Revisa el motivo indicado.",m.block_details?.next_action||m.next_action||"Determina qué recurso o autorización falta.","ARIA intentará una estrategia alternativa cuando exista una ruta gobernada disponible."],updated_at:m.updated_at}));const verification_pending=missions.filter(m=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,...(m.block_details||{}),step:m.steps.find((s:any)=>String(s.id)===String(m?.checkpoint?.recovery?.failed_step_id||""))??null,updated_at:m.updated_at}));
 let liveEvents:any[]=[];
 if(active?.mission_id){
@@ -657,6 +797,65 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path.endsWith("/meditation/status")) return json({ ok: true, ...await meditationStatus(user.id), trace_id: trace });
     if (req.method === "POST" && path.endsWith("/meditation/control")) { const body = await req.json().catch(() => null); const controller = await meditationControl(user.id, String(body?.action || "").toLowerCase()); return json({ ok: true, controller, trace_id: trace }); }
     if (req.method === "GET" && path.endsWith("/meditation/overview")) return json({ ok: true, ...(await meditationOverview(user.id)), trace_id: trace });
+
+    if (req.method === "POST" && path.endsWith("/meditation/idea-to-mission")) {
+      const body = await req.json().catch(() => null);
+      try {
+        return json({ ok:true, ...(await createMeditationIdeaProposalForUser(user.id,String(body?.idea??""))), trace_id:trace });
+      } catch(e) {
+        const status=Number((e as any)?.status||500);
+        return json({ error:String((e as any)?.message||e), trace_id:trace }, status);
+      }
+    }
+    if (req.method === "GET" && path.endsWith("/meditation/ideas")) {
+      const url=new URL(req.url);
+      return json({ ok:true, ...(await meditationIdeaProposalsForUser(user.id,Number(url.searchParams.get("limit")||50))), trace_id:trace });
+    }
+    const ideaDecisionPath=path.match(/\/meditation\/ideas\/([^/]+)\/decision$/);
+    if (req.method === "POST" && ideaDecisionPath) {
+      const body=await req.json().catch(() => null);
+      try {
+        return json({
+          ...(await meditationIdeaDecisionForUser(
+            user.id,
+            decodeURIComponent(ideaDecisionPath[1]),
+            String(body?.action??""),
+            typeof body?.note==="string"?body.note:null
+          )),
+          trace_id:trace
+        });
+      } catch(e) {
+        const status=Number((e as any)?.status||500);
+        return json({ error:String((e as any)?.message||e), trace_id:trace }, status);
+      }
+    }
+    const ideaConvertPath=path.match(/\/meditation\/ideas\/([^/]+)\/convert$/);
+    if (req.method === "POST" && ideaConvertPath) {
+      const body=await req.json().catch(() => null);
+      try {
+        return json({
+          ...(await meditationIdeaConvertForUser(
+            user.id,
+            decodeURIComponent(ideaConvertPath[1]),
+            String(body?.template_mission_id??""),
+            typeof body?.device_id==="string"?body.device_id:null
+          )),
+          trace_id:trace
+        });
+      } catch(e) {
+        const status=Number((e as any)?.status||500);
+        return json({ error:String((e as any)?.message||e), trace_id:trace }, status);
+      }
+    }
+    const ideaReadPath=path.match(/\/meditation\/ideas\/([^/]+)$/);
+    if (req.method === "GET" && ideaReadPath) {
+      try {
+        return json({ok:true,proposal:await meditationIdeaProposalForUser(user.id,decodeURIComponent(ideaReadPath[1])),trace_id:trace});
+      } catch(e) {
+        const status=Number((e as any)?.status||404);
+        return json({error:String((e as any)?.message||e),trace_id:trace},status);
+      }
+    }
     if (req.method === "POST" && path.endsWith("/meditation/queue/reorder")) {
       const body = await req.json().catch(() => null);
       try {
