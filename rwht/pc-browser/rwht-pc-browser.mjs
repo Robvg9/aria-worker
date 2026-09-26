@@ -409,7 +409,7 @@ async function auditRoute(page, url, routeIndex, config) {
 }
 
 async function run() {
-  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev').replace(/#.*$/, '');
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
   const configuredRoutes = String(process.env.RWHT_ROUTES || '')
     .split(',')
     .map((value) => value.trim())
