@@ -1,4 +1,5 @@
 name: ARIA Idea Analyzer Gate
+# Canonical gate for Meditation IA 4/7
 
 on:
   push:
