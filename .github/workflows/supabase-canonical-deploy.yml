@@ -36,6 +36,7 @@ jobs:
           node tests/aria-eas-mcp-contract.test.js
           node tests/eas-universal-executor.test.js
           node tests/eas-runner-patch.test.js
+          node tests/mission-runner-v22-executor-inference.test.js
       - name: Apply Supabase migrations
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
