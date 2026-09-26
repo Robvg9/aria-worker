@@ -6,7 +6,7 @@ const root=path.resolve(__dirname,'..');
 const read=(p)=>fs.readFileSync(path.join(root,p),'utf8');
 const gateway=read('supabase/functions/aria-device-gateway/index.ts');
 const migration=read('supabase/migrations/20260918150000_meditation_idea_to_mission_v1.sql');
-const engine=read('supabase/functions/aria-device-gateway/_shared/idea-to-mission.mjs');
+const engine=read('supabase/functions/_shared/idea-to-mission.mjs');
 for(const route of ['/v1/meditation/idea-to-mission','/v1/meditation/ideas']) assert.ok(gateway.includes(route),'gateway route missing: '+route);
 assert.ok(gateway.includes('validateProposal'),'proposal validation missing');
 assert.ok(gateway.includes('auto_enqueued:false'),'gateway must persist auto_enqueued false');
