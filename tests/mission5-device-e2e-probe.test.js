@@ -18,7 +18,7 @@ assert.ok(source.includes("v1/mission5/model-probe"),'missing Mission 5 model pr
 assert.ok(source.includes("mission5ModelProbe"),'missing Mission 5 model probe marker: '+"mission5ModelProbe");
 assert.ok(source.includes("model_not_allowed_for_mission5_probe"),'missing Mission 5 model probe marker: '+"model_not_allowed_for_mission5_probe");
 assert.ok(source.includes("mission5_model_probe_read_only"),'missing Mission 5 model probe marker: '+"mission5_model_probe_read_only");
-assert.ok(source.includes("google/gemini-3.8-flash-direct"),'missing Mission 5 Google free model marker');
+assert.ok(source.includes("google/gemini-3.5-flash-lite-direct"),'missing Mission 5 current verified Google free model marker');
 assert.ok(source.includes("nvidia/nemotron-3-ultra-550b-a55b:free"),'missing Mission 5 OpenRouter free model marker');
 assert.ok(source.includes("nex-agi/nex-n2.5-pro:free"),'missing Mission 5 agentic free model marker');
 assert.ok(source.includes("acct_openrouter_primary"),'missing Mission 5 model probe marker: '+"acct_openrouter_primary");
