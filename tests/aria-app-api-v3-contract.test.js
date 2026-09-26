@@ -60,6 +60,15 @@ assertContains(appApi,'executeConversationWithFallback','conversation fallback b
 assertContains(appApi,'input:{payload}','conversation execution payload wrapper missing');
 assertContains(appApi,'prompt,max_tokens:512,temperature:0.3','conversation payload must include canonical prompt parameters');
 assertContains(appApi,'/v1/meditation/tick-service','Meditation activation must trigger the canonical cloud tick');
+assertContains(appApi,'path.endsWith("/meditation/idea-to-mission")','Idea Analyzer create route missing');
+assertContains(appApi,'/meditation/ideas','Idea Analyzer list/read routes missing');
+assertContains(appApi,'meditation_idea_proposal_decide','Idea Analyzer decision RPC missing');
+assertContains(appApi,'meditation_idea_convert_mission','Idea Analyzer mission conversion RPC missing');
+assertContains(appApi,'owner_user_id','Idea Analyzer proposals must be user-scoped');
+assertContains(pwa,'ANALIZADOR DE IDEAS','PWA Idea Analyzer surface missing');
+assertContains(pwa,'ANALIZAR Y PROPONER','PWA Idea Analyzer action missing');
+assertContains(pwa,'NO AUTOENCOLADA','PWA Idea Analyzer must show manual queue policy');
+
 assertContains(planner,'aria-planner-v11-runtime-probe-v1','runtime probe planner branch missing');
 assertContains(planner,'aria-planner-v11-safe-readonly-actionable-v4-multistep','generic mission planner must use the governed multi-step actionable read-only fallback');
 if(planner.includes('steps:[step(1,"file_read","README.md")')) throw new Error('planner must not fall back to unrelated README.md');
