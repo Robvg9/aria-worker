@@ -154,8 +154,8 @@ jobs:
           }
 
           $node = (Get-Command powershell.exe).Source
-          $pid = Start-InteractiveProcess -FilePath $node -Arguments ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $runtime) -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows'
-          Set-Content -Path $log -Value "interactive_watchdog_pid=$pid started=$(Get-Date -Format o)" -Encoding UTF8
+          $watchdogProcessId = Start-InteractiveProcess -FilePath $node -Arguments ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $runtime) -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows'
+          Set-Content -Path $log -Value "interactive_watchdog_pid=$watchdogProcessId started=$(Get-Date -Format o)" -Encoding UTF8
 
           $live = $false
           for ($i=0; $i -lt 30; $i++) {
@@ -188,6 +188,27 @@ jobs:
           if (Test-Path $log) { Remove-Item $log -Force -ErrorAction SilentlyContinue }
 
           # Reuse the same interactive-token launcher type declared above.
+          Add-Type @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class AriaInteractiveLauncher {
+              [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+              public struct STARTUPINFO {
+                  public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
+                  public int dwX,dwY,dwXSize,dwYSize,dwXCountChars,dwYCountChars,dwFillAttribute,dwFlags;
+                  public short wShowWindow,cbReserved2; public IntPtr lpReserved2,hStdInput,hStdOutput,hStdError;
+              }
+              [StructLayout(LayoutKind.Sequential)] public struct PROCESS_INFORMATION { public IntPtr hProcess,hThread; public int dwProcessId,dwThreadId; }
+              [DllImport("kernel32.dll",SetLastError=true)] public static extern IntPtr OpenProcess(uint access,bool inherit,int pid);
+              [DllImport("advapi32.dll",SetLastError=true)] public static extern bool OpenProcessToken(IntPtr processHandle,uint desiredAccess,out IntPtr tokenHandle);
+              [DllImport("advapi32.dll",SetLastError=true)] public static extern bool DuplicateTokenEx(IntPtr existingToken,uint desiredAccess,IntPtr tokenAttributes,int impersonationLevel,int tokenType,out IntPtr newToken);
+              [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern bool CreateProcessWithTokenW(IntPtr token,uint logonFlags,string applicationName,StringBuilder commandLine,uint creationFlags,IntPtr environment,string currentDirectory,ref STARTUPINFO startupInfo,out PROCESS_INFORMATION processInformation);
+              [DllImport("kernel32.dll",SetLastError=true)] public static extern bool CloseHandle(IntPtr handle);
+              public const uint PROCESS_QUERY_LIMITED_INFORMATION=0x1000,TOKEN_ASSIGN_PRIMARY=0x1,TOKEN_DUPLICATE=0x2,TOKEN_QUERY=0x8,TOKEN_ADJUST_DEFAULT=0x80,TOKEN_ADJUST_SESSIONID=0x100,LOGON_WITH_PROFILE=0x1;
+              public const int SecurityImpersonation=2,TokenPrimary=1;
+          }
+'@
           $node = (Get-Command node).Source
           $launcher = @'
           param([string]$Node,[string]$Test,[string]$Work,[string]$Log,[string]$ExitFile)
