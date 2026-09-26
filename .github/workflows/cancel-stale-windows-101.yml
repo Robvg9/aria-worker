@@ -1,0 +1,35 @@
+name: Cancel Stale Windows 101
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cancel-stale-windows-101.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Cancel stale Windows 101 run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: "36272248754"
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$REPO/actions/runs/$RUN_ID/cancel"
+          for i in 1 2 3 4 5 6; do
+            status="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.status + "|" + (.conclusion // "")')"
+            echo "STALE_RUN_STATUS=$status"
+            case "$status" in
+              completed|completed|*) exit 0 ;;
+            esac
+            sleep 5
+          done
+          exit 0
