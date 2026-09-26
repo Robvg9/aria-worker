@@ -10,40 +10,38 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   certify:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stop stale service-session ARIA agent only
+      - name: Stop stale ARIA processes
         run: |
-          $ErrorActionPreference = 'Stop'
-          $procs = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' }
-          $stopped = 0
-          foreach ($p in $procs) {
-            $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
-            if ($proc -and $proc.SessionId -eq 0) {
-              Write-Host "STOP_SERVICE_SESSION_ARIA_PID=$($p.ProcessId)"
-              Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
-              $stopped++
-            } else {
-              Write-Host "KEEP_INTERACTIVE_ARIA_PID=$($p.ProcessId) SESSION=$($proc.SessionId)"
+          $ErrorActionPreference = 'Continue'
+          Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -match 'aria-agent\.js' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          $watchdogPidFile = 'D:\ARIA-Windows-Agent\Logs\watchdog.pid'
+          if (Test-Path $watchdogPidFile) {
+            $watchdogPid = 0
+            $raw = (Get-Content -Raw $watchdogPidFile).Trim()
+            if ([int]::TryParse($raw, [ref]$watchdogPid) -and $watchdogPid -gt 0) {
+              Stop-Process -Id $watchdogPid -Force -ErrorAction SilentlyContinue
             }
           }
           Start-Sleep -Seconds 2
-          Write-Host "ARIA_SERVICE_SESSION_STOP_COUNT=$stopped"
-          Write-Host 'ARIA_INTERACTIVE_PROCESS_PRESERVED=True'
+          Write-Host 'ARIA_STALE_PROCESSES_STOPPED=PASS'
 
-      - name: Sync canonical runtime to D
+      - name: Sync canonical runtime
         run: |
           $ErrorActionPreference = 'Stop'
           $root = 'D:\ARIA-Windows-Agent\Runtime\windows'
@@ -51,248 +49,116 @@ jobs:
           Copy-Item 'agents\windows\aria-agent.js' (Join-Path $root 'aria-agent.js') -Force
           Copy-Item 'agents\windows\run-agent.ps1' (Join-Path $root 'run-agent.ps1') -Force
           Copy-Item 'autonomy\windows-shell-executor.js' (Join-Path $root 'windows-shell-executor.js') -Force
-          foreach ($f in @('windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) {
-            Copy-Item (Join-Path 'computer-use' $f) (Join-Path $root $f) -Force
+          foreach ($name in @('windows-desktop-adapter.js','windows-desktop-runner.ps1','windows-ui-automation.ps1','windows-hotkey-runner.ps1')) {
+            Copy-Item (Join-Path 'computer-use' $name) (Join-Path $root $name) -Force
           }
           node --check (Join-Path $root 'aria-agent.js')
           node --check (Join-Path $root 'windows-shell-executor.js')
           node --check (Join-Path $root 'windows-desktop-adapter.js')
-          if (-not (Test-Path (Join-Path $root 'windows-hotkey-runner.ps1'))) { throw 'hotkey runner missing after sync' }
           Write-Host 'ARIA_D_RUNTIME_SYNC=PASS'
 
-      - name: Start ARIA watchdog in interactive desktop session
+      - name: Ensure machine-scope token is present
         env:
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
+          $tokenPath = 'D:\ARIA-Windows-Agent\Data\device-token.dpapi'
+          if ([string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_TOKEN) -or $env:ARIA_DEVICE_TOKEN.Length -lt 32) { throw 'ARIA_DEVICE_TOKEN repository secret is missing or invalid' }
+          if (-not (Test-Path $tokenPath)) {
+            Add-Type -AssemblyName System.Security
+            $bytes = [Text.Encoding]::UTF8.GetBytes($env:ARIA_DEVICE_TOKEN)
+            $protected = [Security.Cryptography.ProtectedData]::Protect($bytes,$null,[Security.Cryptography.DataProtectionScope]::LocalMachine)
+            $payload = 'ARIA-DPAPI-MACHINE-V1:' + [Convert]::ToBase64String($protected)
+            Set-Content -Path $tokenPath -Value $payload -Encoding ASCII -Force
+          }
+          $raw = (Get-Content -Raw $tokenPath).Trim()
+          if (-not $raw.StartsWith('ARIA-DPAPI-MACHINE-V1:')) { throw 'TOKEN_STORE_NOT_MACHINE_SCOPE' }
+          Write-Host 'TOKEN_MACHINE_SCOPE=PASS'
+
+      - name: Start watchdog in interactive user session
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $launcher = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\start-interactive-process.ps1'
           $runtime = 'D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
-          $log = 'D:\ARIA-Windows-Agent\Logs\interactive-launch.log'
-          $pidFile = 'D:\ARIA-Windows-Agent\Logs\agent.pid'
-
-          if (-not (Test-Path $runtime)) { throw 'interactive watchdog script missing' }
-
-          Add-Type @'
-          using System;
-          using System.Text;
-          using System.Runtime.InteropServices;
-          public static class AriaInteractiveLauncher {
-              [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-              public struct STARTUPINFO {
-                  public int cb;
-                  public string lpReserved;
-                  public string lpDesktop;
-                  public string lpTitle;
-                  public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
-                  public short wShowWindow, cbReserved2;
-                  public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
-              }
-              [StructLayout(LayoutKind.Sequential)]
-              public struct PROCESS_INFORMATION {
-                  public IntPtr hProcess, hThread;
-                  public int dwProcessId, dwThreadId;
-              }
-              [DllImport("kernel32.dll", SetLastError=true)]
-              public static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
-              [DllImport("advapi32.dll", SetLastError=true)]
-              public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
-              [DllImport("advapi32.dll", SetLastError=true)]
-              public static extern bool DuplicateTokenEx(IntPtr existingToken, uint desiredAccess, IntPtr tokenAttributes, int impersonationLevel, int tokenType, out IntPtr newToken);
-              [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-              public static extern bool CreateProcessWithTokenW(IntPtr token, uint logonFlags, string applicationName, StringBuilder commandLine, uint creationFlags, IntPtr environment, string currentDirectory, ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInformation);
-              [DllImport("kernel32.dll", SetLastError=true)]
-              public static extern bool CloseHandle(IntPtr handle);
-              public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-              public const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
-              public const uint TOKEN_DUPLICATE = 0x0002;
-              public const uint TOKEN_QUERY = 0x0008;
-              public const uint TOKEN_ADJUST_DEFAULT = 0x0080;
-              public const uint TOKEN_ADJUST_SESSIONID = 0x0100;
-              public const int SecurityImpersonation = 2;
-              public const int TokenPrimary = 1;
-              public const uint LOGON_WITH_PROFILE = 0x00000001;
-          }
-'@
-
-          function Start-InteractiveProcess([string]$FilePath, [string]$Arguments, [string]$WorkingDirectory) {
-            $explorer = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
-              ForEach-Object {
-                $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
-                if ($p -and $p.SessionId -ne 0) { $p }
-              } | Select-Object -First 1
-            if (-not $explorer) { throw 'WINDOWS_HUMAN_GATE_NO_INTERACTIVE_EXPLORER' }
-
-            $processHandle = [AriaInteractiveLauncher]::OpenProcess([AriaInteractiveLauncher]::PROCESS_QUERY_LIMITED_INFORMATION, $false, $explorer.Id)
-            if ($processHandle -eq [IntPtr]::Zero) { throw "OpenProcess failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
-
-            $sourceToken = [IntPtr]::Zero
-            $primaryToken = [IntPtr]::Zero
-            try {
-              $desired = [AriaInteractiveLauncher]::TOKEN_ASSIGN_PRIMARY -bor [AriaInteractiveLauncher]::TOKEN_DUPLICATE -bor [AriaInteractiveLauncher]::TOKEN_QUERY -bor [AriaInteractiveLauncher]::TOKEN_ADJUST_DEFAULT -bor [AriaInteractiveLauncher]::TOKEN_ADJUST_SESSIONID
-              if (-not [AriaInteractiveLauncher]::OpenProcessToken($processHandle, $desired, [ref]$sourceToken)) {
-                throw "OpenProcessToken failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
-              }
-              if (-not [AriaInteractiveLauncher]::DuplicateTokenEx($sourceToken, $desired, [IntPtr]::Zero, [AriaInteractiveLauncher]::SecurityImpersonation, [AriaInteractiveLauncher]::TokenPrimary, [ref]$primaryToken)) {
-                throw "DuplicateTokenEx failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
-              }
-
-              $si = New-Object AriaInteractiveLauncher+STARTUPINFO
-              $si.cb = [Runtime.InteropServices.Marshal]::SizeOf($si)
-              $si.lpDesktop = 'winsta0\default'
-              $cmd = New-Object Text.StringBuilder ('"{0}" {1}' -f $FilePath, $Arguments)
-              $pi = New-Object AriaInteractiveLauncher+PROCESS_INFORMATION
-              if (-not [AriaInteractiveLauncher]::CreateProcessWithTokenW($primaryToken, [AriaInteractiveLauncher]::LOGON_WITH_PROFILE, $null, $cmd, 0, [IntPtr]::Zero, $WorkingDirectory, [ref]$si, [ref]$pi)) {
-                throw "CreateProcessWithTokenW failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
-              }
-              Write-Host "INTERACTIVE_PROCESS_PID=$($pi.dwProcessId)"
-              return $pi.dwProcessId
-            }
-            finally {
-              if ($primaryToken -ne [IntPtr]::Zero) { [AriaInteractiveLauncher]::CloseHandle($primaryToken) | Out-Null }
-              if ($sourceToken -ne [IntPtr]::Zero) { [AriaInteractiveLauncher]::CloseHandle($sourceToken) | Out-Null }
-              if ($processHandle -ne [IntPtr]::Zero) { [AriaInteractiveLauncher]::CloseHandle($processHandle) | Out-Null }
-            }
-          }
-
-          $node = (Get-Command powershell.exe).Source
-          $watchdogProcessId = Start-InteractiveProcess -FilePath $node -Arguments ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $runtime) -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows'
-          Set-Content -Path $log -Value "interactive_watchdog_pid=$watchdogProcessId started=$(Get-Date -Format o)" -Encoding UTF8
-
+          $logPath = 'D:\ARIA-Windows-Agent\Logs\watchdog.log'
+          $pidPath = 'D:\ARIA-Windows-Agent\Logs\agent.pid'
+          $args = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $runtime
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -FilePath 'powershell.exe' -Arguments $args -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows'
+          if ($LASTEXITCODE -ne 0) { throw "interactive watchdog launcher failed with exit code $LASTEXITCODE" }
           $live = $false
-          for ($i=0; $i -lt 30; $i++) {
+          for ($i = 0; $i -lt 40; $i++) {
             Start-Sleep -Seconds 2
-            if (Test-Path $pidFile) {
-              $agentId = 0
-              $raw = (Get-Content -Raw $pidFile).Trim()
-              if ([int]::TryParse($raw, [ref]$agentId)) {
-                $proc = Get-Process -Id $agentId -ErrorAction SilentlyContinue
+            if (Test-Path $pidPath) {
+              $agentPid = 0
+              $rawPid = (Get-Content -Raw $pidPath).Trim()
+              if ([int]::TryParse($rawPid, [ref]$agentPid) -and $agentPid -gt 0) {
+                $proc = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
                 if ($proc -and $proc.SessionId -ne 0) { $live = $true; break }
               }
             }
           }
-          if (-not $live) {
-            if (Test-Path 'D:\ARIA-Windows-Agent\Logs\watchdog.log') {
-              Get-Content 'D:\ARIA-Windows-Agent\Logs\watchdog.log' -Tail 50
-            }
-            throw 'ARIA interactive agent did not start in the interactive session'
-          }
+          if (-not $live) { if (Test-Path $logPath) { Get-Content $logPath -Tail 80 }; throw 'ARIA interactive agent did not start' }
           Write-Host 'ARIA_INTERACTIVE_AGENT=PASS'
-      - name: Physical 101 certification
+
+      - name: Physical 101 desktop E2E in interactive session
         run: |
           $ErrorActionPreference = 'Stop'
+          $launcher = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\start-interactive-process.ps1'
           $work = $env:GITHUB_WORKSPACE
           $test = Join-Path $work 'tests\windows-desktop-physical-e2e.js'
+          $runnerScript = Join-Path $env:RUNNER_TEMP 'aria-windows-101-user-run.ps1'
           $log = 'D:\ARIA-Windows-Agent\Logs\windows-101-interactive.log'
           $exitFile = 'D:\ARIA-Windows-Agent\Logs\windows-101-interactive.exit'
-
-          if (Test-Path $exitFile) { Remove-Item $exitFile -Force -ErrorAction SilentlyContinue }
-          if (Test-Path $log) { Remove-Item $log -Force -ErrorAction SilentlyContinue }
-
-          # Reuse the same interactive-token launcher type declared above.
-          Add-Type @'
-          using System;
-          using System.Text;
-          using System.Runtime.InteropServices;
-          public static class AriaInteractiveLauncher {
-              [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-              public struct STARTUPINFO {
-                  public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
-                  public int dwX,dwY,dwXSize,dwYSize,dwXCountChars,dwYCountChars,dwFillAttribute,dwFlags;
-                  public short wShowWindow,cbReserved2; public IntPtr lpReserved2,hStdInput,hStdOutput,hStdError;
-              }
-              [StructLayout(LayoutKind.Sequential)] public struct PROCESS_INFORMATION { public IntPtr hProcess,hThread; public int dwProcessId,dwThreadId; }
-              [DllImport("kernel32.dll",SetLastError=true)] public static extern IntPtr OpenProcess(uint access,bool inherit,int pid);
-              [DllImport("advapi32.dll",SetLastError=true)] public static extern bool OpenProcessToken(IntPtr processHandle,uint desiredAccess,out IntPtr tokenHandle);
-              [DllImport("advapi32.dll",SetLastError=true)] public static extern bool DuplicateTokenEx(IntPtr existingToken,uint desiredAccess,IntPtr tokenAttributes,int impersonationLevel,int tokenType,out IntPtr newToken);
-              [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern bool CreateProcessWithTokenW(IntPtr token,uint logonFlags,string applicationName,StringBuilder commandLine,uint creationFlags,IntPtr environment,string currentDirectory,ref STARTUPINFO startupInfo,out PROCESS_INFORMATION processInformation);
-              [DllImport("kernel32.dll",SetLastError=true)] public static extern bool CloseHandle(IntPtr handle);
-              public const uint PROCESS_QUERY_LIMITED_INFORMATION=0x1000,TOKEN_ASSIGN_PRIMARY=0x1,TOKEN_DUPLICATE=0x2,TOKEN_QUERY=0x8,TOKEN_ADJUST_DEFAULT=0x80,TOKEN_ADJUST_SESSIONID=0x100,LOGON_WITH_PROFILE=0x1;
-              public const int SecurityImpersonation=2,TokenPrimary=1;
-          }
-'@
-          $node = (Get-Command node).Source
-          $launcher = @'
-          param([string]$Node,[string]$Test,[string]$Work,[string]$Log,[string]$ExitFile)
-          $ErrorActionPreference = 'Continue'
-          & $Node $Test *> $Log
-          $code = $LASTEXITCODE
-          Set-Content -Path $ExitFile -Value $code -Encoding ASCII -Force
-          '@
-          $launcherPath = Join-Path $env:RUNNER_TEMP 'aria-101-user-run.ps1'
-          Set-Content -Path $launcherPath -Value $launcher -Encoding UTF8
-
-          $explorer = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
-            ForEach-Object {
-              $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
-              if ($p -and $p.SessionId -ne 0) { $p }
-            } | Select-Object -First 1
-          if (-not $explorer) { throw 'WINDOWS_HUMAN_GATE_NO_INTERACTIVE_EXPLORER' }
-
-          $processHandle = [AriaInteractiveLauncher]::OpenProcess([AriaInteractiveLauncher]::PROCESS_QUERY_LIMITED_INFORMATION, $false, $explorer.Id)
-          if ($processHandle -eq [IntPtr]::Zero) { throw "OpenProcess failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
-          $sourceToken = [IntPtr]::Zero; $primaryToken = [IntPtr]::Zero
-          try {
-            $desired = [AriaInteractiveLauncher]::TOKEN_ASSIGN_PRIMARY -bor [AriaInteractiveLauncher]::TOKEN_DUPLICATE -bor [AriaInteractiveLauncher]::TOKEN_QUERY -bor [AriaInteractiveLauncher]::TOKEN_ADJUST_DEFAULT -bor [AriaInteractiveLauncher]::TOKEN_ADJUST_SESSIONID
-            if (-not [AriaInteractiveLauncher]::OpenProcessToken($processHandle, $desired, [ref]$sourceToken)) { throw "OpenProcessToken failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
-            if (-not [AriaInteractiveLauncher]::DuplicateTokenEx($sourceToken, $desired, [IntPtr]::Zero, [AriaInteractiveLauncher]::SecurityImpersonation, [AriaInteractiveLauncher]::TokenPrimary, [ref]$primaryToken)) { throw "DuplicateTokenEx failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
-            $si = New-Object AriaInteractiveLauncher+STARTUPINFO
-            $si.cb = [Runtime.InteropServices.Marshal]::SizeOf($si)
-            $si.lpDesktop = 'winsta0\default'
-            $args = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Node "{1}" -Test "{2}" -Work "{3}" -Log "{4}" -ExitFile "{5}"' -f $launcherPath,$node,$test,$work,$log,$exitFile
-            $cmd = New-Object Text.StringBuilder ('"{0}" {1}' -f (Get-Command powershell.exe).Source,$args)
-            $pi = New-Object AriaInteractiveLauncher+PROCESS_INFORMATION
-            if (-not [AriaInteractiveLauncher]::CreateProcessWithTokenW($primaryToken, [AriaInteractiveLauncher]::LOGON_WITH_PROFILE, $null, $cmd, 0, [IntPtr]::Zero, $work, [ref]$si, [ref]$pi)) {
-              throw "CreateProcessWithTokenW failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
-            }
-            Write-Host "PHYSICAL_101_INTERACTIVE_PID=$($pi.dwProcessId)"
-          } finally {
-            if ($primaryToken -ne [IntPtr]::Zero) { [AriaInteractiveLauncher]::CloseHandle($primaryToken) | Out-Null }
-            if ($sourceToken -ne [IntPtr]::Zero) { [AriaInteractiveLauncher]::CloseHandle($sourceToken) | Out-Null }
-            if ($processHandle -ne [IntPtr]::Zero) { [AriaInteractiveLauncher]::CloseHandle($processHandle) | Out-Null }
-          }
-
+          Remove-Item $log, $exitFile -Force -ErrorAction SilentlyContinue
+          $runnerContent = @(
+            '$ErrorActionPreference = "Continue"',
+            ('& node "{0}" *> "{1}"' -f $test,$log),
+            '$code = $LASTEXITCODE',
+            ('Set-Content -Path "{0}" -Value $code -Encoding ASCII -Force' -f $exitFile)
+          ) -join [Environment]::NewLine
+          Set-Content -Path $runnerScript -Value $runnerContent -Encoding UTF8
+          $runnerArgs = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $runnerScript
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -FilePath 'powershell.exe' -Arguments $runnerArgs -WorkingDirectory $work
+          if ($LASTEXITCODE -ne 0) { throw "interactive physical-test launcher failed with exit code $LASTEXITCODE" }
           $finished = $false
-          for ($i=0; $i -lt 90; $i++) {
-            Start-Sleep -Seconds 2
-            if (Test-Path $exitFile) { $finished = $true; break }
-          }
-          if (-not $finished) {
-            if (Test-Path $log) { Get-Content $log -Tail 120 }
-            throw 'Physical 101 interactive test timed out'
-          }
-          if (Test-Path $log) { Get-Content $log -Tail 160 }
+          for ($i = 0; $i -lt 100; $i++) { Start-Sleep -Seconds 2; if (Test-Path $exitFile) { $finished = $true; break } }
+          if (-not $finished) { if (Test-Path $log) { Get-Content $log -Tail 160 }; throw 'Physical 101 interactive test timed out' }
+          if (Test-Path $log) { Get-Content $log -Tail 200 }
           $code = [int](Get-Content -Raw $exitFile).Trim()
           if ($code -ne 0) { throw "Physical 101 E2E failed with exit code $code" }
           Write-Host 'ARIA_DESKTOP_101=PASS'
 
-      - name: Publish 101 proof
-        if: always()
+      - name: Verify fresh Windows heartbeat
         env:
-          GITHUB_JOB_STATUS: ${{ job.status }}
+          ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          $url = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
+          $headers = @{ Authorization = "Bearer $env:ARIA_DEVICE_TOKEN"; 'x-aria-device-id' = $deviceId; 'content-type' = 'application/json' }
+          $body = @{ device_id = $deviceId; agent_type = 'windows-local'; capabilities = @('ollama.qwen3','shell.execute','computer.use','computer.use.autonomous') } | ConvertTo-Json
+          $heartbeat = Invoke-RestMethod -Uri "$url/v1/devices/heartbeat" -Headers $headers -Method Post -Body $body -TimeoutSec 15
+          if ($null -eq $heartbeat) { throw 'Gateway heartbeat returned empty response' }
+          Write-Host 'GATEWAY_HEARTBEAT=PASS'
+
+      - name: Create 101 proof
+        if: always()
         run: |
           $ErrorActionPreference = 'Stop'
           $dir = Join-Path $env:GITHUB_WORKSPACE 'reports'
           $file = Join-Path $dir 'windows-desktop-101-proof.json'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          $payload = [ordered]@{
-            commit = $env:GITHUB_SHA
-            workflow = 'ARIA Windows 101 Force Certification'
-            outcome = [string]$env:GITHUB_JOB_STATUS
-            timestamp = (Get-Date -Format o)
-            adapter = 'aria-windows-desktop-v1.9'
-            physical_agent = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          $outcome = 'failed'
+          if (Test-Path 'D:\ARIA-Windows-Agent\Logs\windows-101-interactive.exit') {
+            $code = [int](Get-Content -Raw 'D:\ARIA-Windows-Agent\Logs\windows-101-interactive.exit').Trim()
+            if ($code -eq 0) { $outcome = 'success' }
           }
-          $payload | ConvertTo-Json -Depth 6 | Set-Content -Path $file -Encoding UTF8
-          git config user.name 'aria-runtime-proof'
-          git config user.email 'aria-runtime-proof@users.noreply.github.com'
-          git fetch origin main
-          git reset --mixed origin/main
-          git add reports/windows-desktop-101-proof.json
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host 'No proof changes to commit'
-          } else {
-            git commit -m "ci: publish Windows 101 certification proof"
-            if ($LASTEXITCODE -ne 0) { throw 'proof git commit failed' }
-            git push origin HEAD:main
-            if ($LASTEXITCODE -ne 0) { throw 'proof git push failed' }
-          }
+          [ordered]@{ commit=$env:GITHUB_SHA; workflow='ARIA Windows 101 Force Certification'; outcome=$outcome; timestamp=(Get-Date -Format o); adapter='aria-windows-desktop-v1.9'; physical_agent='windows-fe722cc6681e4f9c9cc35f5ebbb0a089' } | ConvertTo-Json -Depth 6 | Set-Content -Path $file -Encoding UTF8
+
+      - name: Upload 101 proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-windows-101-proof
+          path: reports/windows-desktop-101-proof.json
+          if-no-files-found: error
