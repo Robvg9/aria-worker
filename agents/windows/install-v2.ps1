@@ -32,11 +32,21 @@ foreach ($file in $requiredSources.Keys) {
     Copy-Item -Path $source -Destination (Join-Path $RuntimeDir $file) -Force
 }
 
+function Protect-MachineToken([string]$Token) {
+    Add-Type -AssemblyName System.Security
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Token)
+    $protected = [System.Security.Cryptography.ProtectedData]::Protect(
+        $bytes,
+        $null,
+        [System.Security.Cryptography.DataProtectionScope]::LocalMachine
+    )
+    return 'ARIA-DPAPI-MACHINE-V1:' + [Convert]::ToBase64String($protected)
+}
+
 $token = $env:ARIA_DEVICE_TOKEN
 if (-not [string]::IsNullOrWhiteSpace($token)) {
     if ($token.Length -lt 32) { throw 'ARIA_DEVICE_TOKEN invalido.' }
-    $secure = ConvertTo-SecureString -String $token -AsPlainText -Force
-    $encrypted = $secure | ConvertFrom-SecureString
+    $encrypted = Protect-MachineToken $token
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
 }
 elseif (Test-Path $TokenPath) {
@@ -47,8 +57,7 @@ elseif (Test-Path (Join-Path $env:LOCALAPPDATA 'ARIA-Windows-Agent\device-token.
 else {
     $token = Read-Host 'Pega el token del Windows Device'
     if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) { throw 'Token ausente o invalido. No se instalo nada.' }
-    $secure = ConvertTo-SecureString -String $token -AsPlainText -Force
-    $encrypted = $secure | ConvertFrom-SecureString
+    $encrypted = Protect-MachineToken $token
     Set-Content -Path $TokenPath -Value $encrypted -Encoding ASCII
 }
 if (-not (Test-Path $TokenPath)) { throw "ARIA token store was not created: $TokenPath" }
@@ -125,7 +134,7 @@ Write-Host "Config: $ConfigPath"
 Write-Host "Token store: $TokenPath"
 Write-Host "Public logs: $LogDir\watchdog.log"
 Write-Host "Task user: $taskUser"
-Write-Host 'Token: protegido con DPAPI del usuario Windows.'
+Write-Host 'Token: protegido con DPAPI de maquina (LocalMachine).'
 Write-Host 'Inicio automatico: AtLogOn (usuario interactivo)'
 Write-Host 'ExecutionTimeLimit: 0'
 Write-Host 'RestartOnFailure: 999 / 1 minuto'
