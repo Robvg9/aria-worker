@@ -109,3 +109,4 @@ async function observeHasText(observed, text) {
 // Windows 101 certification trigger: interactive-agent verification path fixed 2026-09-26.
 // Windows 101 trigger: preserve interactive ARIA agent before physical E2E.
 // Windows 101 trigger: authoritative physical E2E gate after agent-signal fix.
+// Windows 101 trigger: run desktop E2E through interactive token launcher.
