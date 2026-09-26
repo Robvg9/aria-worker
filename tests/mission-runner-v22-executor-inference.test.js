@@ -18,7 +18,7 @@ assert.match(runner, /DEVICE_OPS_ALLOWLIST\.has\(operation\).*return "device"/s)
 assert.match(runner, /function normalizeExecutionStep\(step: any, mission: any\)/);
 assert.match(runner, /mission\?\.metadata\?\.device_id/);
 assert.match(runner, /normalizeExecutionStep\(step, mission\)/);
-assert.match(runner, /plan_executor_normalized/);
+assert.match(runner, /executor_selected/);
 assert.match(continuity, /"computer\.use"/);
 assert.match(continuity, /"computer\.use\.autonomous"/);
 assert.match(continuity, /"computer\.use\.android"/);
