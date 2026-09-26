@@ -77,59 +77,96 @@ jobs:
           if (-not $raw.StartsWith('ARIA-DPAPI-MACHINE-V1:')) { throw 'TOKEN_STORE_NOT_MACHINE_SCOPE' }
           Write-Host 'TOKEN_MACHINE_SCOPE=PASS'
 
-      - name: Start watchdog in interactive user session
+      - name: Ensure existing interactive watchdog is active
         run: |
           $ErrorActionPreference = 'Stop'
-          $launcher = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\start-interactive-process.ps1'
-          $runtime = 'D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
           $logPath = 'D:\ARIA-Windows-Agent\Logs\watchdog.log'
           $pidPath = 'D:\ARIA-Windows-Agent\Logs\agent.pid'
-          $args = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $runtime
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -FilePath 'powershell.exe' -Arguments $args -WorkingDirectory 'D:\ARIA-Windows-Agent\Runtime\windows'
-          if ($LASTEXITCODE -ne 0) { throw "interactive watchdog launcher failed with exit code $LASTEXITCODE" }
           $live = $false
-          for ($i = 0; $i -lt 40; $i++) {
-            Start-Sleep -Seconds 2
+
+          for ($i = 0; $i -lt 45; $i++) {
             if (Test-Path $pidPath) {
               $agentPid = 0
               $rawPid = (Get-Content -Raw $pidPath).Trim()
               if ([int]::TryParse($rawPid, [ref]$agentPid) -and $agentPid -gt 0) {
                 $proc = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
-                if ($proc -and $proc.SessionId -ne 0) { $live = $true; break }
+                if ($proc -and $proc.SessionId -ne 0) {
+                  $live = $true
+                  Write-Host "ARIA_AGENT_PID=$agentPid"
+                  Write-Host "ARIA_AGENT_SESSION_ID=$($proc.SessionId)"
+                  break
+                }
               }
             }
+            $cim = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -and ($_.CommandLine -like '*aria-agent.js*') } |
+              Select-Object -First 1
+            if ($cim) {
+              $proc = Get-Process -Id $cim.ProcessId -ErrorAction SilentlyContinue
+              if ($proc -and $proc.SessionId -ne 0) {
+                Set-Content -Path $pidPath -Value $proc.Id -Encoding ASCII -Force
+                $live = $true
+                Write-Host "ARIA_AGENT_PID=$($proc.Id)"
+                Write-Host "ARIA_AGENT_SESSION_ID=$($proc.SessionId)"
+                break
+              }
+            }
+            Start-Sleep -Seconds 2
           }
-          if (-not $live) { if (Test-Path $logPath) { Get-Content $logPath -Tail 80 }; throw 'ARIA interactive agent did not start' }
+
+          if (-not $live) {
+            if (Test-Path $logPath) { Get-Content $logPath -Tail 100 }
+            throw 'Existing ARIA interactive watchdog did not recover after runtime sync'
+          }
+
           Write-Host 'ARIA_INTERACTIVE_AGENT=PASS'
 
       - name: Physical 101 desktop E2E in interactive session
         run: |
           $ErrorActionPreference = 'Stop'
-          $launcher = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\start-interactive-process.ps1'
           $work = $env:GITHUB_WORKSPACE
           $test = Join-Path $work 'tests\windows-desktop-physical-e2e.js'
-          $runnerScript = Join-Path $env:RUNNER_TEMP 'aria-windows-101-user-run.ps1'
-          $log = 'D:\ARIA-Windows-Agent\Logs\windows-101-interactive.log'
-          $exitFile = 'D:\ARIA-Windows-Agent\Logs\windows-101-interactive.exit'
-          Remove-Item $log, $exitFile -Force -ErrorAction SilentlyContinue
-          $runnerContent = @(
-            '$ErrorActionPreference = "Continue"',
-            ('& node "{0}" *> "{1}"' -f $test,$log),
-            '$code = $LASTEXITCODE',
-            ('Set-Content -Path "{0}" -Value $code -Encoding ASCII -Force' -f $exitFile)
-          ) -join [Environment]::NewLine
-          Set-Content -Path $runnerScript -Value $runnerContent -Encoding UTF8
-          $runnerArgs = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $runnerScript
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -FilePath 'powershell.exe' -Arguments $runnerArgs -WorkingDirectory $work
-          if ($LASTEXITCODE -ne 0) { throw "interactive physical-test launcher failed with exit code $LASTEXITCODE" }
-          $finished = $false
-          for ($i = 0; $i -lt 100; $i++) { Start-Sleep -Seconds 2; if (Test-Path $exitFile) { $finished = $true; break } }
-          if (-not $finished) { if (Test-Path $log) { Get-Content $log -Tail 160 }; throw 'Physical 101 interactive test timed out' }
-          if (Test-Path $log) { Get-Content $log -Tail 200 }
-          $code = [int](Get-Content -Raw $exitFile).Trim()
-          if ($code -ne 0) { throw "Physical 101 E2E failed with exit code $code" }
-          Write-Host 'ARIA_DESKTOP_101=PASS'
+          $request = 'D:\ARIA-Windows-Agent\Logs\desktop-101-request.json'
+          $result = 'D:\ARIA-Windows-Agent\Logs\desktop-101-result.json'
+          $log = 'D:\ARIA-Windows-Agent\Logs\desktop-101-child.log'
+          $err = 'D:\ARIA-Windows-Agent\Logs\desktop-101-child.err'
+          Remove-Item $request, $result, $log, $err -Force -ErrorAction SilentlyContinue
 
+          $node = (Get-Command node -ErrorAction Stop).Source
+          $payload = [ordered]@{
+            node = $node
+            script = $test
+            working_directory = $work
+            log = $log
+            error_log = $err
+            requested_at = (Get-Date -Format o)
+          } | ConvertTo-Json -Depth 10
+
+          Set-Content -Path $request -Value $payload -Encoding UTF8 -Force
+          Write-Host 'ARIA_DESKTOP_101_REQUEST=WRITTEN'
+
+          $finished = $false
+          for ($i = 0; $i -lt 150; $i++) {
+            Start-Sleep -Seconds 2
+            if (Test-Path $result) { $finished = $true; break }
+          }
+
+          if (Test-Path $log) { Get-Content $log -Tail 240 }
+          if (Test-Path $err) { Get-Content $err -Tail 120 }
+
+          if (-not $finished) {
+            if (Test-Path 'D:\ARIA-Windows-Agent\Logs\watchdog.log') { Get-Content 'D:\ARIA-Windows-Agent\Logs\watchdog.log' -Tail 120 }
+            throw 'Physical 101 interactive request timed out'
+          }
+
+          $proof = Get-Content -Raw $result | ConvertFrom-Json
+          Write-Host "ARIA_DESKTOP_101_CHILD_SESSION=$($proof.child_session_id)"
+          Write-Host "ARIA_DESKTOP_101_EXIT=$($proof.exit_code)"
+          if ($proof.status -ne 'succeeded' -or [int]$proof.exit_code -ne 0) {
+            throw "Physical 101 E2E failed in interactive agent session: $($proof.error)"
+          }
+
+          Write-Host 'ARIA_DESKTOP_101=PASS'
       - name: Verify fresh Windows heartbeat
         env:
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
