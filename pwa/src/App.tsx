@@ -1158,6 +1158,11 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [selected, setSelected] = useState<PwaNotificationItem | null>(null);
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
+  const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
+  const [ideaText, setIdeaText] = useState('');
+  const [ideaBusy, setIdeaBusy] = useState(false);
+  const [ideaError, setIdeaError] = useState('');
+
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const firstSync = useRef(true);
   const seenKey = 'aria_notification_seen_v1:' + session.userId;
@@ -1801,6 +1806,94 @@ function Meditation({ session }: { session: Session }) {
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
 
+
+  async function loadIdeas() {
+    try {
+      const data = await api('/meditation/ideas', session.accessToken);
+      if (Array.isArray(data?.items)) setIdeaProposals(data.items);
+      setIdeaError('');
+    } catch (x) {
+      setIdeaError(x instanceof Error ? x.message : 'No se pudieron cargar las propuestas de ideas.');
+    }
+  }
+
+  async function analyzeIdea() {
+    const idea = ideaText.trim();
+    if (!idea || ideaBusy) return;
+    setIdeaBusy(true);
+    setIdeaError('');
+    try {
+      await api('/meditation/idea-to-mission', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ idea })
+      });
+      setIdeaText('');
+      await loadIdeas();
+    } catch (x) {
+      setIdeaError(x instanceof Error ? x.message : 'No se pudo analizar la idea.');
+    } finally {
+      setIdeaBusy(false);
+    }
+  }
+
+  async function decideIdea(proposalId: string, action: 'accept' | 'reject') {
+    if (ideaBusy) return;
+    setIdeaBusy(true);
+    setIdeaError('');
+    try {
+      await api('/meditation/ideas/' + encodeURIComponent(proposalId) + '/decision', {
+        method: 'POST',
+        body: JSON.stringify({ action })
+      } as any);
+      await loadIdeas();
+    } catch (x) {
+      setIdeaError(x instanceof Error ? x.message : 'No se pudo actualizar la propuesta.');
+    } finally {
+      setIdeaBusy(false);
+    }
+  }
+
+  async function convertIdeaMission(proposalId: string, templateMissionId: string) {
+    if (ideaBusy) return;
+    setIdeaBusy(true);
+    setIdeaError('');
+    try {
+      await api('/meditation/ideas/' + encodeURIComponent(proposalId) + '/convert', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ template_mission_id: templateMissionId })
+      });
+      await Promise.all([loadIdeas(), load()]);
+    } catch (x) {
+      setIdeaError(x instanceof Error ? x.message : 'No se pudo convertir la propuesta en misión.');
+    } finally {
+      setIdeaBusy(false);
+    }
+  }
+
+  function ideaStateLabel(value: any): string {
+    const map: Record<string,string> = {
+      proposed: 'Propuesta',
+      accepted: 'Aceptada',
+      rejected: 'Rechazada',
+      converted: 'Convertida',
+      ready_for_review: 'Lista para revisar',
+      human_gate_or_governance_review: 'Requiere revisión humana',
+      blocked_payment_or_credential: 'Bloqueada por credencial o pago',
+      device_dependency: 'Depende de dispositivo',
+      human_gate_required: 'Requiere Human Gate',
+      dependency_check: 'Requiere verificar dependencia',
+      deferred: 'Diferida',
+      not_viable_currently: 'No viable actualmente'
+    };
+    return map[String(value ?? '')] || 'Estado registrado';
+  }
+
+  function convertedTemplate(proposal: any, templateId: string) {
+    return Array.isArray(proposal?.converted_missions)
+      ? proposal.converted_missions.find((x: any) => String(x?.template_mission_id) === String(templateId))
+      : null;
+  }
+
   async function load() {
     setSyncing(true);
     let successes = 0;
@@ -1900,6 +1993,8 @@ function Meditation({ session }: { session: Session }) {
   }
 
   useLiveSync(load, session.accessToken, MEDITATION_LIVE_POLL_MS);
+  useLiveSync(loadIdeas, session.accessToken, 10000);
+
 
   async function retryMission(missionId: string) {
     const data = await api('/missions/' + encodeURIComponent(missionId) + '/retry', session.accessToken, { method: 'POST' });
@@ -1929,6 +2024,79 @@ function Meditation({ session }: { session: Session }) {
     <main className='appShell'>
       
       <div className='pageBodyViewport meditationViewport'>
+      <section className='panel ideaAnalyzerPanel'>
+        <div className='panelTitle'>ANALIZADOR DE IDEAS</div>
+        <h2>Convierte una idea en una propuesta gobernada</h2>
+        <p className='muted'>ARIA analiza la idea, detecta dependencias, riesgos y Human Gate, y prepara misiones sin autoencolarlas ni autoejecutarlas.</p>
+        <textarea
+          className='ideaAnalyzerInput'
+          aria-label='Idea para analizar'
+          value={ideaText}
+          maxLength={4000}
+          onChange={e => setIdeaText(e.target.value)}
+          placeholder='Escribe una idea que quieras convertir en una ruta de misiones…'
+          rows={4}
+        />
+        <div className='ideaAnalyzerToolbar'>
+          <button className='primary' disabled={ideaBusy || !ideaText.trim()} onClick={() => void analyzeIdea()}>
+            {ideaBusy ? 'ANALIZANDO…' : 'ANALIZAR Y PROPONER'}
+          </button>
+          <span className='pill neutral'>NO AUTOENCOLADA</span>
+          <span className='pill neutral'>NO AUTOEJECUTA</span>
+        </div>
+        {ideaError && <div className='errorBox'>{ideaError}</div>}
+        <div className='ideaProposalList'>
+          {!ideaProposals.length
+            ? <div className='emptyState ideaEmpty'>Todavía no hay ideas analizadas.</div>
+            : ideaProposals.slice(0, 8).map((proposal: any) => (
+              <article className='ideaProposalCard' key={proposal.proposal_id}>
+                <div className='ideaProposalTop'>
+                  <div>
+                    <div className='eyebrow'>IDEA ANALIZADA</div>
+                    <strong>{proposal.input?.idea || 'Idea sin texto'}</strong>
+                  </div>
+                  <span className={'pill ' + tone(String(proposal.status))}>{ideaStateLabel(proposal.status)}</span>
+                </div>
+                <div className='ideaMetaGrid'>
+                  <span><b>Viabilidad</b>{ideaStateLabel(proposal.classification?.viability)}</span>
+                  <span><b>Estado</b>{ideaStateLabel(proposal.classification?.execution_state)}</span>
+                  <span><b>Misiones</b>{Array.isArray(proposal.missions) ? proposal.missions.length : 0}</span>
+                  <span><b>Human Gate</b>{proposal.summary?.human_gate_required ? 'Sí' : 'No'}</span>
+                </div>
+                {(proposal.blockers || []).length > 0 && (
+                  <div className='ideaBlockerBox'>
+                    <b>Bloqueos detectados</b>
+                    {(proposal.blockers || []).slice(0, 4).map((b: any, i: number) => <small key={i}>{b?.reason || b?.code || 'Bloqueo detectado'}</small>)}
+                  </div>
+                )}
+                {proposal.status === 'proposed' && (
+                  <div className='actions'>
+                    <button className='primary' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'accept')}>Aceptar propuesta</button>
+                    <button className='ghost' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'reject')}>Rechazar</button>
+                  </div>
+                )}
+                {['accepted','converted'].includes(String(proposal.status)) && Array.isArray(proposal.missions) && (
+                  <div className='ideaMissionTemplates'>
+                    {proposal.missions.map((template: any) => {
+                      const converted = convertedTemplate(proposal, template.mission_id);
+                      return (
+                        <div className='ideaMissionTemplate' key={template.mission_id}>
+                          <div>
+                            <strong>{template.title}</strong>
+                            <small>{template.goal}</small>
+                          </div>
+                          {converted
+                            ? <span className='pill good'>MISIÓN CREADA</span>
+                            : <button className='ghost' disabled={ideaBusy || proposal.status === 'rejected'} onClick={() => void convertIdeaMission(String(proposal.proposal_id), String(template.mission_id))}>Crear misión</button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            ))}
+        </div>
+      </section>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
       {m
         ? <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => void openMission(String(m.mission_id))} onCancel={() => cancelMission(String(m.mission_id))} />
