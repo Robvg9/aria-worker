@@ -170,3 +170,65 @@ print("HG_E2E_PASS")
 print("HUMAN_GATE_SAFE_AUTONOMY = VERIFIED E2E")
 print("ALL_PASS")
 PY
+
+      - name: Authenticated owner-binding regression
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/hg-auth-owner-regression.sql <<'SQL'
+          BEGIN;
+          CREATE TEMP TABLE hg_auth_results(test text, passed boolean, detail text) ON COMMIT DROP;
+          GRANT INSERT, SELECT ON hg_auth_results TO authenticated;
+
+          INSERT INTO aria_internal.mission_state
+          (mission_id,goal,status,current_step,total_steps,completed_steps,checkpoint,metadata)
+          VALUES
+          ('hg_auth_owner_workflow','auth owner binding workflow','paused',0,1,0,
+           jsonb_build_object('human_gate',jsonb_build_object('required',true,'status','pending','verified',false,'step_id','protected_auth','executor_type','model','operation','text_generation','risk','HIGH_RISK_WRITE','action_hash',repeat('a',64))),
+           jsonb_build_object('user_id','00000000-0000-0000-0000-000000000001')),
+          ('hg_auth_wrong_owner_workflow','auth wrong owner workflow','paused',0,1,0,
+           jsonb_build_object('human_gate',jsonb_build_object('required',true,'status','pending','verified',false,'step_id','protected_auth','executor_type','model','operation','text_generation','risk','HIGH_RISK_WRITE','action_hash',repeat('b',64))),
+           jsonb_build_object('user_id','00000000-0000-0000-0000-000000000002'));
+
+          SET LOCAL ROLE authenticated;
+          SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+
+          DO $$
+          DECLARE r jsonb;
+          BEGIN
+            r:=public.mission_human_gate_decide_authenticated('hg_auth_owner_workflow','approve',repeat('a',64),'owner-pass');
+            INSERT INTO hg_auth_results VALUES ('correct_owner',r->>'status'='queued' AND r->>'approval_token_issued'='true',r::text);
+          END $$;
+
+          SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',true);
+          DO $$
+          BEGIN
+            PERFORM public.mission_human_gate_decide_authenticated('hg_auth_wrong_owner_workflow','approve',repeat('b',64),'wrong-owner');
+            INSERT INTO hg_auth_results VALUES ('wrong_owner_denied',false,'unexpected approval');
+          EXCEPTION WHEN OTHERS THEN
+            INSERT INTO hg_auth_results VALUES ('wrong_owner_denied',SQLERRM='mission_not_owned_by_user',SQLERRM);
+          END $$;
+
+          SET LOCAL ROLE postgres;
+          INSERT INTO hg_auth_results
+          SELECT 'authenticated_execute',has_function_privilege('authenticated','public.mission_human_gate_decide_authenticated(text,text,text,text)','EXECUTE'),'';
+          INSERT INTO hg_auth_results
+          SELECT 'anon_execute_denied',NOT has_function_privilege('anon','public.mission_human_gate_decide_authenticated(text,text,text,text)','EXECUTE'),'';
+
+          SELECT jsonb_agg(to_jsonb(h) ORDER BY test) AS result FROM hg_auth_results h;
+          ROLLBACK;
+          SQL
+
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          result="$(supabase db query --linked "$(cat /tmp/hg-auth-owner-regression.sql)")"
+          printf '%s\n' "$result"
+          python3 - <<'PY' "$result"
+          import json, sys
+          raw = sys.argv[1]
+          required = {"correct_owner": True, "wrong_owner_denied": True, "authenticated_execute": True, "anon_execute_denied": True}
+          if not all(f'"test": "{k}"' in raw and f'"passed": {str(v).lower()}' in raw for k,v in required.items()):
+              raise SystemExit("AUTH_OWNER_REGRESSION_FAILED")
+          print("AUTH_OWNER_REGRESSION_PASS")
+          PY
