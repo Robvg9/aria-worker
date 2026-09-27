@@ -2,14 +2,17 @@
 
 const crypto = require('node:crypto');
 let executeWindowsDesktop;
+let createWindowsChromeCdpAdapter;
 try {
   ({ executeWindowsDesktop } = require('./windows-desktop-adapter'));
+  ({ createWindowsChromeCdpAdapter } = require('./windows-chrome-cdp'));
 } catch (error) {
   if (error?.code !== 'MODULE_NOT_FOUND') throw error;
   ({ executeWindowsDesktop } = require('../../computer-use/windows-desktop-adapter'));
+  ({ createWindowsChromeCdpAdapter } = require('../../computer-use/windows-chrome-cdp'));
 }
 
-const VERSION = 'aria-windows-autonomous-rwht-v1.1.0';
+const VERSION = 'aria-windows-autonomous-rwht-v1.2.0';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
 
@@ -63,9 +66,11 @@ function sanitize(raw) {
             y: Number(node.attributes.y),
             width: Number(node.attributes.width),
             height: Number(node.attributes.height),
+            selector: node.attributes.selector == null ? null : String(node.attributes.selector),
           }
         : {},
     })),
+    body_text: ui && ui.body_text == null ? '' : String(ui.body_text),
     metadata: {
       source: ui && ui.metadata && ui.metadata.source || 'windows-uia',
       node_count: nodes.length,
@@ -178,7 +183,13 @@ function capabilityProfile(deviceId) {
   };
 }
 
+function extractExactResponse(goal) {
+  const match = String(goal || '').match(/responder\s+exactamente\s+([A-Za-z0-9_]{2,100})/i);
+  return match ? match[1] : null;
+}
+
 function promptFor(goal, ui, capabilities, history, screenHash, exercised) {
+  const exactResponse = extractExactResponse(goal);
   const available = safeNodes(ui)
     .filter((node) => !exercised.has(controlKey(screenHash, node.id)))
     .slice(0, 80);
@@ -186,6 +197,7 @@ function promptFor(goal, ui, capabilities, history, screenHash, exercised) {
   return [
     'ARIA WINDOWS RWHT CONTROLLER.',
     'OBJETIVO: ' + goal,
+    exactResponse ? 'RESPUESTA EXACTA REQUERIDA: ' + exactResponse : null,
     'CAPACIDADES REALES: ' + JSON.stringify(capabilities),
     'REGLAS: usa solo nodos observados; prioriza cobertura real; no destructivos; no secretos; observa después de cada acción; NO finalices mientras existan controles seguros sin ejercitar.',
     'ACCIONES: click,double_click,type,scroll,back,wait,screenshot,finish.',
@@ -252,19 +264,37 @@ async function executeDecision(adapter, decision, ui) {
   const bounds = center(node);
   if (!bounds) return { status: 'failed', error: 'target_bounds_missing' };
 
+  const selector = node && node.attributes && node.attributes.selector
+    ? String(node.attributes.selector)
+    : null;
+
   if (decision.action === 'type') {
-    const focus = await adapter({ action: 'click', x: bounds.x, y: bounds.y });
+    const focus = await adapter({
+      action: 'click',
+      x: bounds.x,
+      y: bounds.y,
+      ...(selector ? { selector } : {}),
+    });
     if (focus && focus.status !== 'succeeded') {
       return { status: 'failed', error: focus.error || 'type_target_focus_failed' };
     }
-    const typed = await adapter({ action: 'type', text: decision.text });
+    const typed = await adapter({
+      action: 'type',
+      text: decision.text,
+      ...(selector ? { selector } : {}),
+    });
     return {
       status: typed && typed.status || 'failed',
       error: typed && typed.error || null,
     };
   }
 
-  return adapter({ action: decision.action, x: bounds.x, y: bounds.y });
+  return adapter({
+    action: decision.action,
+    x: bounds.x,
+    y: bounds.y,
+    ...(selector ? { selector } : {}),
+  });
 }
 
 async function navigate(adapter, url) {
@@ -303,9 +333,16 @@ async function runAutonomousRwht(options) {
   const startUrl = o.start_url || null;
   const maxActions = Math.max(5, Math.min(250, Number(o.max_actions) || 120));
   const maxRuntimeMs = Math.max(30000, Math.min(900000, Number(o.max_runtime_ms) || 600000));
-  const adapter = o.adapter || executeWindowsDesktop;
+  const desktopAdapter = o.adapter || executeWindowsDesktop;
   const model = o.model || qwen;
+  const modelTimeoutMs = Math.max(5000, Math.min(30000, Number(o.model_timeout_ms) || 15000));
   const captureScreenshots = o.capture_screenshots !== false;
+  const cdpCandidate = o.use_chrome_cdp === false
+    ? null
+    : await createWindowsChromeCdpAdapter({ startUrl }).catch(() => null);
+  const usingCdp = Boolean(cdpCandidate && cdpCandidate.status !== 'unavailable');
+  const adapter = usingCdp ? (request, options = {}) => cdpCandidate.action(request, options) : desktopAdapter;
+  const exactResponse = extractExactResponse(goal);
   const onProgress = typeof o.on_progress === 'function' ? o.on_progress : null;
   const started = Date.now();
 
@@ -337,11 +374,15 @@ async function runAutonomousRwht(options) {
   });
   await emitProgress('computer_use_device_confirmed', {
     device_id: deviceId,
-    surface: 'windows-desktop',
+    surface: usingCdp ? 'browser-dom' : 'windows-desktop',
     start_url: startUrl,
+    browser_bridge: usingCdp ? 'chrome-cdp' : 'windows-uia',
   });
 
-  const navigation = await navigate(adapter, startUrl).catch((error) => ({
+  const navigation = (usingCdp && startUrl
+    ? adapter({ action: 'navigate', url: startUrl }, { timeout_ms: 30000 })
+    : navigate(desktopAdapter, startUrl)
+  ).catch((error) => ({
     status: 'failed',
     error: String(error && error.message || error),
   }));
@@ -401,7 +442,7 @@ async function runAutonomousRwht(options) {
     try {
       decision = normalizeDecision(await model(
         promptFor(goal, current, capabilities, history, screenHash, exercisedControls),
-        120000
+        modelTimeoutMs
       ));
     } catch (error) {
       decisionSource = 'fallback';
@@ -410,13 +451,30 @@ async function runAutonomousRwht(options) {
 
     if (!decision) {
       decisionSource = 'fallback';
-      if (pending.length) {
+
+      if (exactResponse) {
+        const editor = pending.find((node) =>
+          node.role === 'edit' &&
+          /(chat|mensaje|habla|conversa)/i.test(nodeLabel(node))
+        );
+
+        if (editor) {
+          decision = {
+            action: 'type',
+            node_id: editor.id,
+            text: exactResponse,
+            reason: 'goal-directed exact-response fallback',
+          };
+        }
+      }
+
+      if (!decision && pending.length) {
         decision = {
           action: 'click',
           node_id: pending[0].id,
           reason: 'fallback coverage of safe unexercised control',
         };
-      } else if (noProgressStreak < 2) {
+      } else if (!decision && noProgressStreak < 2) {
         decision = {
           action: 'scroll',
           delta: 650,
@@ -494,6 +552,7 @@ async function runAutonomousRwht(options) {
     }
 
     const beforeHash = screenHash;
+    const beforeBodyText = String(current.body_text || '');
     const target = decision.node_id ? find(current, decision.node_id) : null;
 
     await emitProgress('computer_use_action_started', {
@@ -572,6 +631,22 @@ async function runAutonomousRwht(options) {
     history.push(item);
     current = after || current;
 
+    if (
+      exactResponse &&
+      after &&
+      !String(beforeBodyText || '').includes(exactResponse) &&
+      String(after.body_text || '').includes(exactResponse)
+    ) {
+      finishReason = 'goal_verified';
+      evidence.push({
+        kind: 'goal_verified',
+        exact_response: exactResponse,
+        verified: true,
+        timestamp: new Date().toISOString(),
+      });
+      break;
+    }
+
     if (captureScreenshots && (step === 1 || step % 10 === 0)) {
       try {
         const shot = await adapter({ action: 'screenshot' }, { timeout_ms: 30000 });
@@ -610,7 +685,7 @@ async function runAutonomousRwht(options) {
   const coverageRatio = discoveredControls.size
     ? Number((exercisedControls.size / discoveredControls.size).toFixed(3))
     : 0;
-  const complete = finishReason === 'coverage_complete';
+  const complete = finishReason === 'coverage_complete' || finishReason === 'goal_verified';
   const status = complete ? 'succeeded' : (verifiedActions.length ? 'partial' : 'failed');
 
   const summary = {
@@ -658,6 +733,7 @@ async function runAutonomousRwht(options) {
 module.exports = Object.freeze({
   VERSION,
   capabilityProfile,
+  extractExactResponse,
   parseJson,
   isHighRiskLabel: function (value) {
     return BLOCKED.test(String(value || ''));
