@@ -49,7 +49,7 @@ assert.match(app,/TEST_CATALOG_STATS\\.npmTest/);
 assert.match(app,/filterTestCatalog\(q, testCategory\)/);
 assert.doesNotMatch(app,/TEST_CATALOG\\.length/,'PWA views must not calculate the canonical test total independently');
 assert.doesNotMatch(app,/TEST_CATALOG\\.filter\(test => test\\.includedInNpmTest\)\\.length/,'PWA views must not calculate npm-test counts independently');
-assert.doesNotMatch(app,/Array\\.from\\(new Set\\(TEST_CATALOG\\.map/,'PWA views must not rebuild catalog categories independently');
+assert.equal(app.includes('Array.from(new Set(TEST_CATALOG.map'),false,'PWA views must not rebuild catalog categories independently');
 assert.ok((catalog.match(/"id": "/g)||[]).length >= 200,'test catalog should include the full repository test suite');
 assert.match(css,/\.testCatalogRow/);
 assert.match(css,/\.testDetailModal/);
