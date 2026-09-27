@@ -100,7 +100,7 @@ export async function cloudflareConnectorExecute(
     health: "/",
     account_read: "/admin/cloudflare?op=account_read",
     worker_read: "/admin/cloudflare?op=worker_read",
-    deployments_read: "/admin/cloudflare?op=deployment_read",
+    deployment_read: "/admin/cloudflare?op=deployment_read",
     deployments_read: "/admin/cloudflare?op=deployments_read",
     content_read: "/admin/cloudflare?op=content_read",
   };
