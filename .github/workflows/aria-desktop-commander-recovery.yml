@@ -1,0 +1,51 @@
+name: ARIA Desktop Commander Recovery
+
+on:
+  push:
+    branches: [ops/dc-recover-20260927]
+
+jobs:
+  recover:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Restart Desktop Commander Remote
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $log = Join-Path $env:USERPROFILE 'DesktopCommander-remote-recovery.log'
+          "=== ARIA Desktop Commander recovery $(Get-Date -Format o) ===" | Set-Content -Path $log
+          $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -match '(?i)(desktop-commander|wonderwhy-er).*(remote)' }
+          foreach ($p in $procs) {
+            try {
+              Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+              "STOPPED pid=$($p.ProcessId) cmd=$($p.CommandLine)" | Add-Content $log
+            } catch {}
+          }
+          $node = Get-Command node.exe -ErrorAction SilentlyContinue
+          $npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
+          "NODE=$($node.Source)" | Add-Content $log
+          "NPX=$($npx.Source)" | Add-Content $log
+          if (-not $npx) { throw 'npx.cmd not found on Windows runner' }
+          $command = "npx.cmd --yes @wonderwhy-er/desktop-commander@latest remote *>> '$log'"
+          $child = Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-Command',$command) -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 20
+          "LAUNCHED_PID=$($child.Id)" | Add-Content $log
+          "=== LOG TAIL ===" | Add-Content $log
+          if (Test-Path $log) { Get-Content $log -Tail 120 }
+      - name: Verify Desktop Commander local process
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -match '(?i)(desktop-commander|wonderwhy-er).*(remote)' } |
+            Select-Object ProcessId, Name, CommandLine |
+            Format-List | Out-String | Write-Host
+      - name: Upload recovery log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-desktop-commander-recovery-log
+          path: C:\Users\robvg\DesktopCommander-remote-recovery.log
+          if-no-files-found: warn
