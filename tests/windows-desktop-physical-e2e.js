@@ -36,6 +36,15 @@ async function observeHasText(observed, text) {
   return nodes.some((node) => String(node?.name || '').toLowerCase().includes(needle));
 }
 
+async function observeHasAnyText(observed, texts) {
+  const needles = texts.map((text) => String(text).toLowerCase());
+  const nodes = Array.isArray(observed?.ui?.nodes) ? observed.ui.nodes : [];
+  return nodes.some((node) => {
+    const haystack = String(node?.name || '').toLowerCase();
+    return needles.some((needle) => haystack.includes(needle));
+  });
+}
+
 (async () => {
   console.log(`[physical-e2e] certification=101 adapter=${VERSION}`);
 
@@ -66,7 +75,7 @@ async function observeHasText(observed, text) {
 
     const observedNotepad = await action('observe-notepad', { action: 'observe' }, 30000);
     assert.ok(Array.isArray(observedNotepad?.ui?.nodes) && observedNotepad.ui.nodes.length > 0, 'observe returned no UI evidence');
-    assert.ok(await observeHasText(observedNotepad, 'Notepad'), 'observe did not expose Notepad UI');
+    assert.ok(await observeHasAnyText(observedNotepad, ['Notepad', 'Bloc de notas']), 'observe did not expose the Notepad window UI');
     const shotNotepad = await action('screenshot-notepad', { action: 'screenshot' }, 30000);
     assert.ok(typeof shotNotepad.screenshot_base64 === 'string' && shotNotepad.screenshot_base64.length > 1000, 'screenshot payload missing');
 
@@ -74,7 +83,7 @@ async function observeHasText(observed, text) {
     await action('recovery-wait', { action: 'wait', ms: 100 }, 5000);
     await action('recovery-focus-notepad', { action: 'focus', process: 'notepad' });
     const recovered = await action('recovery-observe', { action: 'observe' }, 30000);
-    assert.ok(await observeHasText(recovered, 'Notepad'), 'recovery lost desktop control');
+    assert.ok(await observeHasAnyText(recovered, ['Notepad', 'Bloc de notas']), 'recovery lost desktop control');
 
     const chrome = await action('open-chrome', { action: 'open', path: 'chrome.exe' });
     chromePids.push(chrome.pid);
@@ -93,7 +102,7 @@ async function observeHasText(observed, text) {
     await action('keypress-end-final', { action: 'keypress', key: 'END' });
     await action('type-final-proof', { action: 'type', text: ' | RECOVERY_OK' });
     const finalObserve = await action('final-observe', { action: 'observe' }, 30000);
-    assert.ok(await observeHasText(finalObserve, 'Notepad'), 'final desktop verification failed');
+    assert.ok(await observeHasAnyText(finalObserve, ['Notepad', 'Bloc de notas']), 'final desktop verification failed');
 
     console.log(`[physical-e2e] PASS_101 adapter=${VERSION} screen=${screen.width}x${screen.height} notepad_pid=${notepadPid} chrome_pid=${chrome.pid}`);
   } finally {
