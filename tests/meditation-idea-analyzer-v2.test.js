@@ -18,7 +18,11 @@ for(const fragment of [
   'meditation_idea_proposal_decide',
   'meditation_idea_convert_mission',
   'owner_user_id',
-  'ANALIZAR Y PROPONER'
+  'ANALIZAR Y PROPONER',
+  'const [ideaText, setIdeaText] = useState',
+  'const [ideaBusy, setIdeaBusy] = useState',
+  'const [ideaError, setIdeaError] = useState',
+  'const [ideaProposals, setIdeaProposals] = useState'
 ]) {
   if(!api.includes(fragment) && fragment!=='ANALIZAR Y PROPONER') {
     throw new Error('API missing idea analyzer marker: '+fragment);
