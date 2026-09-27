@@ -110,6 +110,11 @@ async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
   if (payload.action === 'open') return openDirectly(payload);
   if (payload.action === 'wait') {
     const startedAt = Date.now();
+    const budget = Math.max(1000, timeout_ms);
+    if (payload.ms > budget) {
+      await new Promise((resolve) => setTimeout(resolve, budget));
+      return { status: 'timeout', action: 'wait', ms: payload.ms, timeout_ms: budget, elapsed_ms: Date.now() - startedAt, error: 'desktop_timeout', version: VERSION, method: 'node_timer' };
+    }
     await new Promise((resolve) => setTimeout(resolve, payload.ms));
     return { status: 'succeeded', action: 'wait', ms: payload.ms, elapsed_ms: Date.now() - startedAt, version: VERSION, method: 'node_timer' };
   }
