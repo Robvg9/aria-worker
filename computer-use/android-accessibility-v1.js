@@ -310,12 +310,19 @@ async function executeAndroidAccessibilityJob({ command, timeoutMs = 12000, reso
       return { ...result, metadata: { ...(result.metadata || {}), attempt, recovery_attempted: recoveryAttempted } };
     }
     const reason = String(result.reason || '');
-    const retryable = /android_local_ipc_(?:unreachable|timeout)/.test(reason);
+    const windowMissing = /(?:no_active_application_window|post_action_window_missing)/.test(reason);
+    const retryable = /android_local_ipc_(?:unreachable|timeout)/.test(reason) || windowMissing;
     if (!retryable || attempt === 3) {
       return { ...result, metadata: { ...(result.metadata || {}), attempt, recovery_attempted: recoveryAttempted } };
     }
     if (!recoveryAttempted) {
       recoveryAttempted = true;
+      if (windowMissing) {
+        const receiverRetry = await executeAndroidCommandReceiver({ request, timeoutMs: Math.min(Number(timeoutMs) || 12000, 8000) });
+        if (receiverRetry.status === 'succeeded') {
+          return { ...receiverRetry, metadata: { ...(receiverRetry.metadata || {}), attempt, recovery_attempted: true, fallback_from: 'android-local-http-window-missing' } };
+        }
+      }
       const recovery = await recoverAndroidUiAgentProcess({ timeoutMs: 8000 });
       await sleep(recovery.status === 'succeeded' ? 1200 : 250);
     } else {
