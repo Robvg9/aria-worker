@@ -3,7 +3,7 @@
  * - Planner timeout via AbortController
  * - Device operation from step (allowlist)
  * - Cloudflare governed read ops
- * - Computer Use enqueue normalization for optional-null planner fields
+ * - Strict Computer Use enqueue payload normalization by executor contract
  */
 export const PLANNER_TIMEOUT_MS = 45_000;
 export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android"]);
@@ -63,27 +63,33 @@ export function buildDeviceEnqueuePayload(
     payload.cwd = typeof step.input?.cwd === "string" ? step.input.cwd : null;
   } else if (operation === "computer.use" || operation === "computer.use.autonomous" || operation === "computer.use.android") {
     // The runtime gateway persists device payloads in execution_jobs.command.
-    // Keep the governed Computer Use input there and normalize optional-null
-    // planner fields before validation. JSON null for optional strings is not
-    // a meaningful value for the device contract, so omit it instead of
-    // sending a value that the strict DB validator rejects.
-    const input = step.input && typeof step.input === "object" ? { ...step.input } : {};
-    for (const key of ["start_url"] as const) {
-      if (input[key] === null || input[key] === undefined) delete input[key];
-    }
+    // Each device contract is strict, so never forward arbitrary planner fields.
+    if (operation === "computer.use.autonomous") {
+      const source = step.input && typeof step.input === "object" ? step.input : {};
+      const input: Record<string, unknown> = {};
+      for (const key of ["goal", "mode", "start_url", "max_actions", "max_runtime_ms", "capture_screenshots"] as const) {
+        const value = source[key];
+        if (value === null || value === undefined) continue;
+        if (key === "start_url" && (typeof value !== "string" || value.trim() === "")) continue;
+        input[key] = value;
+      }
+      payload.command = JSON.stringify(input);
+    } else {
+      const input = step.input && typeof step.input === "object" ? { ...step.input } : {};
 
-    // Android observe historically appeared as { action: "observe" } while the
-    // governed DB contract expects { operation: "observe" }. Normalize the
-    // shorthand at the executor boundary so planners/missions cannot disagree.
-    if (
-      operation === "computer.use.android" &&
-      input.operation === undefined &&
-      input.action === "observe"
-    ) {
-      delete input.action;
-      input.operation = "observe";
+      // Android observe historically appeared as { action: "observe" } while the
+      // governed DB contract expects { operation: "observe" }. Normalize the
+      // shorthand at the executor boundary so planners/missions cannot disagree.
+      if (
+        operation === "computer.use.android" &&
+        input.operation === undefined &&
+        input.action === "observe"
+      ) {
+        delete input.action;
+        input.operation = "observe";
+      }
+      payload.command = JSON.stringify(input);
     }
-    payload.command = JSON.stringify(input);
   }
   return payload;
 }
