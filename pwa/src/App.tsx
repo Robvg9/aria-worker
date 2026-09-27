@@ -277,6 +277,7 @@ function humanizeTechnicalText(value: any): string {
     ['succeeded', 'completado'],
     ['failed', 'fallido'],
     ['blocked', 'bloqueado'],
+    ['identical_replan_strategy_blocked', 'la recuperación detectó una estrategia idéntica y la bloqueó'],
   ];
   for (const [from, to] of replacements) text = text.replaceAll(from, to);
   return text;
@@ -496,7 +497,7 @@ async function api(path: string, token: string, init: RequestInit = {}) {
     headers.set('authorization', 'Bearer ' + token);
     if (init.body) headers.set('content-type', 'application/json');
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), isRead ? 9000 : path.endsWith('/conversation') ? 30000 : 20000);
+    const timeout = window.setTimeout(() => controller.abort(), isRead ? 9000 : path.endsWith('/conversation') ? 75000 : 20000);
     try {
       const response = await fetch(API + path, { ...init, headers, cache: 'no-store', signal: controller.signal });
       const raw = await response.text();
@@ -1805,6 +1806,10 @@ function Meditation({ session }: { session: Session }) {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
+  const [ideaText, setIdeaText] = useState('');
+  const [ideaBusy, setIdeaBusy] = useState(false);
+  const [ideaError, setIdeaError] = useState('');
+  const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
 
 
   async function loadIdeas() {
