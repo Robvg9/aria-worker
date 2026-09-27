@@ -18,7 +18,7 @@ class BootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
         "<div class='card'><div class='mark'>ARIA</div><div class='title'>Error al iniciar ARIA</div>" +
         "<div class='detail'>" +
         String(error?.message || 'La interfaz encontró un error de arranque.') +
-        "</div><button type='button' onclick='location.reload()'>RECARGAR</button></div>";
+        "</div><div class='actions'><button type='button' onclick="location.replace('/pwa/#home')">VOLVER AL DASHBOARD</button><button type='button' onclick='location.reload()'>RECARGAR</button></div></div>";
     }
   }
 
@@ -60,7 +60,7 @@ try {
       "<div class='card'><div class='mark'>ARIA</div><div class='title'>Error al iniciar ARIA</div>" +
       "<div class='detail'>" +
       String(error instanceof Error ? error.message : error) +
-      "</div><button type='button' onclick='location.reload()'>RECARGAR</button></div>";
+      "</div><div class='actions'><button type='button' onclick="location.replace('/pwa/#home')">VOLVER AL DASHBOARD</button><button type='button' onclick='location.reload()'>RECARGAR</button></div></div>";
   }
   throw error;
 }
