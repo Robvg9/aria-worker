@@ -457,6 +457,43 @@ async function getExecutionJob(jobId: string) {
     body: JSON.stringify({ action: "get_job", job_id: jobId }),
   });
   const body = await response.json().catch(() => null);
+
+  // Canonical fallback: the execution gateway can lag behind execution_jobs.
+  // For async device jobs, the mission runner must trust the persisted job row
+  // as the source of truth so a completed Windows job can be resumed and verified.
+  const gatewayJob = body?.job;
+  const gatewayStatus = String(gatewayJob?.status || "");
+  if (gatewayJob && ["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(gatewayStatus)) {
+    return { response, body };
+  }
+
+  try {
+    const { data, error } = await sb.schema("aria_internal")
+      .from("execution_jobs")
+      .select("job_id,status,exit_code,stdout,stderr,result,evidence,error,completed_at,started_at")
+      .eq("job_id", jobId)
+      .maybeSingle();
+
+    if (!error && data?.job_id) {
+      const persisted = {
+        ...data,
+        result: data.result ?? null,
+        evidence: data.evidence ?? null,
+        error: data.error ?? null,
+      };
+      return {
+        response,
+        body: {
+          ok: true,
+          job: persisted,
+          source: "aria_internal.execution_jobs",
+        },
+      };
+    }
+  } catch {
+    // Preserve the gateway response if the DB fallback is unavailable.
+  }
+
   return { response, body };
 }
 
