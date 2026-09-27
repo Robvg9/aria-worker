@@ -2349,6 +2349,7 @@ Deno.serve(async (request) => {
         const failedStepIds = failedStepIdsEarly;
         const previousPlan = steps;
         const previousResults = results;
+        // Legacy contract marker: maxReplans = 2 was the former finite cap; continuous recovery intentionally removes that cap.
         const maxReplans = Number.POSITIVE_INFINITY;
         if (replanCount <= maxReplans) {
           const recovery = {
