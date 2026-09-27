@@ -29,6 +29,7 @@ function defaultState() {
     last_error: null,
     last_checkpoint: null,
     failure_ledger: {},
+    next_retry_at: null,
     command_offset: 0
   };
 }
@@ -39,6 +40,7 @@ function normalizeLoadedState(value) {
   const next = { ...base, ...value };
   next.last_checkpoint = null;
   next.failure_ledger = value.failure_ledger && typeof value.failure_ledger === 'object' ? value.failure_ledger : {};
+  next.next_retry_at = value.next_retry_at || null;
   next.command_offset = Number.isFinite(Number(value.command_offset)) ? Number(value.command_offset) : 0;
   next.tick_count = Number.isFinite(Number(value.tick_count)) ? Number(value.tick_count) : 0;
   return next;
@@ -156,6 +158,7 @@ function createMeditationController({
   heartbeat_ms = 30000,
   min_idle_seconds = 45,
   max_consecutive_failures = 3,
+  degraded_backoff_ms = 120000,
   now = () => new Date()
 } = {}) {
   if (!stateStore || typeof stateStore.load !== 'function') throw new TypeError('stateStore required');
@@ -246,6 +249,11 @@ function createMeditationController({
         return { status: 'deferred_user_present', tick: state.tick_count };
       }
       try { await ensureNotepad(); } catch (error) { await write(`NOTEPAD_TICK_ERROR ${String(error?.message || error)}`); }
+      const retryAt = state.next_retry_at ? Date.parse(String(state.next_retry_at)) : NaN;
+      if (Number.isFinite(retryAt) && retryAt > now().getTime()) {
+        if (state.tick_count % 4 === 0) await write(`BACKOFF_ACTIVE retry_at=${state.next_retry_at}`);
+        return { status: 'degraded_backoff', retry_at: state.next_retry_at, tick: state.tick_count };
+      }
       const response = await requestTick({ state: snapshotWithoutCheckpoint(status()), reason, tick: state.tick_count });
       state = { ...state, last_result: response };
       if (response?.mission_created) {
@@ -258,15 +266,22 @@ function createMeditationController({
         await write(`IDLE tick=${state.tick_count}`);
       }
       const failed = response?.status === 'failed' || response?.ok === false;
+      if (!failed && response?.status !== 'degraded_backoff') {
+        state = { ...state, next_retry_at: null };
+      }
       if (failed) {
         const key = fingerprintMission(response?.goal || response?.mission_created || response);
         const prev = state.failure_ledger[key] || { consecutive: 0, total: 0 };
         const f = { consecutive: prev.consecutive + 1, total: prev.total + 1, last_error: response?.error || response?.status, last_at: now().toISOString() };
-        state = { ...state, failure_ledger: { ...state.failure_ledger, [key]: f }, last_error: f.last_error };
+        const message = String(f.last_error || '').toLowerCase();
+        const multiplier = message.includes('unauthorized') || message.includes('401') ? 5 : 1;
+        const backoffMs = Math.max(30000, degraded_backoff_ms * multiplier);
+        const nextRetryAt = f.consecutive >= max_consecutive_failures ? new Date(now().getTime() + backoffMs).toISOString() : null;
+        state = { ...state, failure_ledger: { ...state.failure_ledger, [key]: f }, last_error: f.last_error, next_retry_at: nextRetryAt };
         await persist();
         await write(`FAILURE consecutive=${f.consecutive} total=${f.total}`);
+        if (nextRetryAt) await write(`FAILURE_BACKOFF retry_at=${nextRetryAt} reason=${message.includes('unauthorized') || message.includes('401') ? 'auth' : 'transient'}`);
         if (f.consecutive >= max_consecutive_failures) {
-          await write('FAILURE_THRESHOLD reached=3 action=alternate_strategy_requested');
           await onMissionEvent({ type: 'fallback_requested', consecutive_failures: f.consecutive, mission: response, reason: 'same_goal_failed_3_times' });
         }
       }
@@ -304,6 +319,7 @@ function createMeditationController({
         stopped_at: null,
         paused_at: null,
         last_error: null,
+        next_retry_at: null,
         last_checkpoint: null
       };
       await persist();
