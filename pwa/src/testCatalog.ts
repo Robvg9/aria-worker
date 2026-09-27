@@ -2135,3 +2135,46 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
   }
 ];
+
+export type TestCatalogStats = Readonly<{
+  total: number;
+  npmTest: number;
+  catalogOnly: number;
+  categoryCount: number;
+  categories: readonly string[];
+  catalogVersion: string;
+}>;
+
+function assertUnique(values: string[], label: string) {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) throw new Error(`Duplicate test catalog ${label}: ${value}`);
+    seen.add(value);
+  }
+}
+
+const catalogIds = TEST_CATALOG.map(test => test.id);
+const catalogFiles = TEST_CATALOG.map(test => test.file);
+assertUnique(catalogIds, 'id');
+assertUnique(catalogFiles, 'file');
+
+const catalogCategories = Array.from(new Set(TEST_CATALOG.map(test => test.category))).sort();
+
+export const TEST_CATALOG_STATS: TestCatalogStats = Object.freeze({
+  total: TEST_CATALOG.length,
+  npmTest: TEST_CATALOG.filter(test => test.includedInNpmTest).length,
+  catalogOnly: TEST_CATALOG.filter(test => !test.includedInNpmTest).length,
+  categoryCount: catalogCategories.length,
+  categories: Object.freeze(catalogCategories)
+  ,
+  catalogVersion: TEST_CATALOG_VERSION
+});
+
+export function filterTestCatalog(query = '', category = 'Todas'): TestCatalogItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return TEST_CATALOG.filter(test => {
+    const categoryOk = category === 'Todas' || test.category === category;
+    const queryOk = !normalizedQuery || JSON.stringify(test).toLowerCase().includes(normalizedQuery);
+    return categoryOk && queryOk;
+  });
+}
