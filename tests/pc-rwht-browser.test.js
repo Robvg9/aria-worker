@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const runner = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-pc-browser.mjs'), 'utf8');
 const pwaIndex = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'index.html'), 'utf8');
+const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'package.json'), 'utf8'));
 const missionRunnerFixes = fs.readFileSync(
   path.join(__dirname, '..', 'supabase', 'functions', 'aria-mission-runner-v22', 'forensic-continuity-fixes.ts'),
@@ -60,3 +61,8 @@ assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /2026-09-27-canonical/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
 assert.match(pwaIndex, /content='245'/);
+
+assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
+assert.match(workersBuild, /__PWA_BUILD__/);
+assert.match(workersBuild, /index-.*html/);
+assert.match(workersBuild, /sw-.*\.js/);
