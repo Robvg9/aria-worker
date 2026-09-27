@@ -20,6 +20,26 @@ assert.doesNotMatch(capabilityBlock,/onMission/);
 assert.match(catalog,/export const TEST_CATALOG/);
 assert.match(catalog,/"file": "tests\//);
 assert.match(catalog,/includedInNpmTest/);
+
+assert.match(catalog,/export const TEST_CATALOG_STATS/);
+assert.match(catalog,/total: TEST_CATALOG\\.length/);
+assert.match(catalog,/npmTest: TEST_CATALOG\\.filter/);
+assert.match(catalog,/catalogOnly: TEST_CATALOG\\.filter/);
+assert.match(catalog,/function filterTestCatalog/);
+assert.match(catalog,/Object\\.freeze/);
+
+const catalogIds=[...catalog.matchAll(/"id": "([^"]+)"/g)].map(match=>match[1]);
+const catalogFiles=[...catalog.matchAll(/"file": "([^"]+)"/g)].map(match=>match[1]);
+assert.equal(new Set(catalogIds).size,catalogIds.length,'test catalog IDs must remain unique');
+assert.equal(new Set(catalogFiles).size,catalogFiles.length,'test catalog files must remain unique');
+assert.equal(catalogIds.length,catalogFiles.length,'every catalog entry must have exactly one id and file');
+
+assert.match(app,/TEST_CATALOG_STATS\\.total/);
+assert.match(app,/TEST_CATALOG_STATS\\.npmTest/);
+assert.match(app,/filterTestCatalog\(q, testCategory\)/);
+assert.doesNotMatch(app,/TEST_CATALOG\\.length/,'PWA views must not calculate the canonical test total independently');
+assert.doesNotMatch(app,/TEST_CATALOG\\.filter\(test => test\\.includedInNpmTest\)\\.length/,'PWA views must not calculate npm-test counts independently');
+assert.doesNotMatch(app,/Array\\.from\\(new Set\\(TEST_CATALOG\\.map/,'PWA views must not rebuild catalog categories independently');
 assert.ok((catalog.match(/"id": "/g)||[]).length >= 200,'test catalog should include the full repository test suite');
 assert.match(css,/\.testCatalogRow/);
 assert.match(css,/\.testDetailModal/);
