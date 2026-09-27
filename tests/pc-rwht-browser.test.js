@@ -41,9 +41,11 @@ assert.doesNotMatch(runner, /console\.log\([^\n]*password/i);
 assert.equal(pkg.dependencies.playwright, '1.63.0');
 
 assert.match(missionRunnerFixes, /buildDeviceEnqueuePayload/);
-assert.match(missionRunnerFixes, /for \(const key of \["start_url"\] as const\)/);
-assert.match(missionRunnerFixes, /input\[key\] === null \|\| input\[key\] === undefined/);
-assert.match(missionRunnerFixes, /delete input\[key\]/);
+assert.match(missionRunnerFixes, /operation === "computer\.use\.autonomous"/);
+assert.match(missionRunnerFixes, /\["goal", "mode", "start_url", "max_actions", "max_runtime_ms", "capture_screenshots"\]/);
+assert.match(missionRunnerFixes, /input\[key\] = value/);
+assert.match(missionRunnerFixes, /value === null \|\| value === undefined/);
+assert.match(missionRunnerFixes, /key === "start_url"/);
 
 console.log('PC BROWSER RWHT CONTRACT: PASS');
 
