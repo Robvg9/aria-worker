@@ -22,11 +22,11 @@ assert.match(catalog,/"file": "tests\//);
 assert.match(catalog,/includedInNpmTest/);
 
 assert.match(catalog,/export const TEST_CATALOG_STATS/);
-assert.match(catalog,/total: TEST_CATALOG\\.length/);
-assert.match(catalog,/npmTest: TEST_CATALOG\\.filter/);
-assert.match(catalog,/catalogOnly: TEST_CATALOG\\.filter/);
-assert.match(catalog,/function filterTestCatalog/);
-assert.match(catalog,/Object\\.freeze/);
+assert.ok(catalog.includes('total: TEST_CATALOG.length'),'canonical total must derive from TEST_CATALOG.length');
+assert.ok(catalog.includes('npmTest: TEST_CATALOG.filter'),'canonical npm-test count must derive from TEST_CATALOG');
+assert.ok(catalog.includes('catalogOnly: TEST_CATALOG.filter'),'canonical catalog-only count must derive from TEST_CATALOG');
+assert.ok(catalog.includes('export function filterTestCatalog'),'canonical filtering must live in the catalog module');
+assert.ok(catalog.includes('Object.freeze'),'canonical stats must be immutable');
 
 const catalogIds=[...catalog.matchAll(/"id": "([^"]+)"/g)].map(match=>match[1]);
 const catalogFiles=[...catalog.matchAll(/"file": "([^"]+)"/g)].map(match=>match[1]);
@@ -42,7 +42,7 @@ assert.deepEqual(
   repositoryTestFiles,
   'PWA test catalog must contain exactly the repository test suite: no missing or stale entries'
 );
-assert.match(catalog,/TEST_CATALOG_VERSION = '2026-09-27-canonical'/);
+assert.ok(catalog.includes("TEST_CATALOG_VERSION = '2026-09-27-canonical'"),'canonical catalog version must be explicit');
 
 assert.match(app,/TEST_CATALOG_STATS\\.total/);
 assert.match(app,/TEST_CATALOG_STATS\\.npmTest/);
