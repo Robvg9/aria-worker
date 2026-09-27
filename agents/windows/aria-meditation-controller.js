@@ -194,6 +194,20 @@ function createWindowsMeditationController() {
     onModeChange: async value => { await appendLog(`MODE ${value.mode}`); }
   });
   const server = startControlServer(core);
+  const autoResume = String(process.env.ARIA_MEDITATION_AUTO_RESUME ?? 'true').toLowerCase() !== 'false';
+  if (autoResume) {
+    void (async () => {
+      try {
+        const persisted = await store.load();
+        if (persisted?.mode === 'active') {
+          const result = await core.start();
+          await appendLog(`AUTO_RESUME status=${result.status} session=${result.state?.session_id || 'unknown'}`);
+        }
+      } catch (error) {
+        await appendLog(`AUTO_RESUME_ERROR ${String(error?.message || error)}`);
+      }
+    })();
+  }
   return Object.freeze({ core, server, event: appendLog, start: core.start, pause: core.pause, resume: core.resume, stop: async () => { notepadOpened = false; return core.stop(); }, shutdown: async () => { await core.shutdown(); server.close(); } });
 }
 
