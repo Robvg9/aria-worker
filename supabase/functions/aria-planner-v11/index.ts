@@ -231,17 +231,23 @@ async function windowsPcRwhtPlan(goal:string,context:any){
     .limit(8);
 
   const candidates=(Array.isArray(devices)?devices:[]);
+  // The registry capability list can lag behind the actual Windows runtime.
+  // For RWHT we already require an online windows-local device plus the local
+  // Qwen executor; the runtime itself advertises/implements computer.use and
+  // computer.use.autonomous. Do not reject a real Windows device solely because
+  // those two UI capabilities are missing from a stale heartbeat row.
   const device=candidates.find((d:any)=>{
     const caps=Array.isArray(d?.capabilities)?d.capabilities.map(String):[];
-    return caps.includes("computer.use") && caps.includes("ollama.qwen3");
+    return caps.includes("ollama.qwen3");
   }) || null;
 
   if(!device){
     return out({
       error:"windows_pc_executor_unavailable",
-      planner_version:"aria-planner-v11-capability-aware-windows-rwht-v1",
+      planner_version:"aria-planner-v11-capability-aware-windows-rwht-v2",
       capability_gap:{
-        required:["computer.use","ollama.qwen3","computer.use.autonomous"],
+        required:["ollama.qwen3"],
+        runtime_ui_capabilities:["computer.use","computer.use.autonomous"],
         online_windows_devices:candidates
       }
     },409);
