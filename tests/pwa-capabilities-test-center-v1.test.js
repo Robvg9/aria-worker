@@ -18,7 +18,7 @@ const capabilityBlock=app.slice(app.indexOf('function CapabilityCenter('),app.in
 assert.doesNotMatch(capabilityBlock,/Nueva misión/);
 assert.doesNotMatch(capabilityBlock,/onMission/);
 assert.match(catalog,/export const TEST_CATALOG/);
-assert.match(catalog,/"file": "tests\//);
+assert.ok(catalog.includes('"file": "tests/'),'catalog entries must use repository-relative test paths');
 assert.match(catalog,/includedInNpmTest/);
 
 assert.match(catalog,/export const TEST_CATALOG_STATS/);
@@ -44,11 +44,11 @@ assert.deepEqual(
 );
 assert.ok(catalog.includes("TEST_CATALOG_VERSION = '2026-09-27-canonical'"),'canonical catalog version must be explicit');
 
-assert.match(app,/TEST_CATALOG_STATS\\.total/);
-assert.match(app,/TEST_CATALOG_STATS\\.npmTest/);
-assert.match(app,/filterTestCatalog\(q, testCategory\)/);
-assert.doesNotMatch(app,/TEST_CATALOG\\.length/,'PWA views must not calculate the canonical test total independently');
-assert.doesNotMatch(app,/TEST_CATALOG\\.filter\(test => test\\.includedInNpmTest\)\\.length/,'PWA views must not calculate npm-test counts independently');
+assert.ok(app.includes('TEST_CATALOG_STATS.total'),'PWA totals must come from canonical stats');
+assert.ok(app.includes('TEST_CATALOG_STATS.npmTest'),'PWA npm-test count must come from canonical stats');
+assert.ok(app.includes('filterTestCatalog(q, testCategory)'),'PWA test filtering must use canonical catalog filtering');
+assert.equal(app.includes('TEST_CATALOG.length'),false,'PWA views must not calculate the canonical test total independently');
+assert.equal(app.includes('TEST_CATALOG.filter(test => test.includedInNpmTest).length'),false,'PWA views must not calculate npm-test counts independently');
 assert.equal(app.includes('Array.from(new Set(TEST_CATALOG.map'),false,'PWA views must not rebuild catalog categories independently');
 assert.ok((catalog.match(/"id": "/g)||[]).length >= 200,'test catalog should include the full repository test suite');
 assert.match(css,/\.testCatalogRow/);
