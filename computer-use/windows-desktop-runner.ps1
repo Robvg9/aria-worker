@@ -223,14 +223,14 @@ public static class AriaDesktopNative {
                     else { [System.Windows.Forms.Clipboard]::Clear() }
                 } catch {}
                 Emit-Result @{status='succeeded';action=$action;text_length=$text.Length;method='clipboard_paste';attempts=$attempt}
-            }
-
-            try {
-                [System.Windows.Forms.SendKeys]::SendWait($text)
-                Start-Sleep -Milliseconds 50
-                Emit-Result @{status='succeeded';action=$action;text_length=$text.Length;method='sendkeys_fallback';clipboard_attempts=8}
-            } catch {
-                Emit-Result @{status='failed';action=$action;text_length=$text.Length;error=("desktop_type_clipboard_and_sendkeys_failed: " + $_.Exception.Message)} 1
+            } else {
+                try {
+                    [System.Windows.Forms.SendKeys]::SendWait($text)
+                    Start-Sleep -Milliseconds 50
+                    Emit-Result @{status='succeeded';action=$action;text_length=$text.Length;method='sendkeys_fallback';clipboard_attempts=8}
+                } catch {
+                    Emit-Result @{status='failed';action=$action;text_length=$text.Length;error=("desktop_type_clipboard_and_sendkeys_failed: " + $_.Exception.Message)} 1
+                }
             }
         }
         'keypress' {
