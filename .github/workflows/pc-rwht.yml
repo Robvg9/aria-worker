@@ -78,3 +78,24 @@ jobs:
           name: aria-pc-rwht-evidence
           path: rwht/pc-browser/rwht-artifacts
           if-no-files-found: warn
+
+  cloudflare-build-config:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Inspect Workers Builds trigger configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          curl --fail --silent --show-error -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/builds/triggers" > /tmp/triggers.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/triggers.json'))
+          print("CF_API_SUCCESS=", data.get("success"))
+          for item in data.get("result", []):
+              print(json.dumps({k:item.get(k) for k in ("trigger_name","trigger_uuid","external_script_id","build_command","deploy_command","root_directory","branch_includes","branch_excludes","path_includes","path_excludes","environment_variables")}, ensure_ascii=False))
+          PY
