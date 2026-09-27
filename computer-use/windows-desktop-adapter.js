@@ -108,6 +108,11 @@ function openDirectly(payload) {
 async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
   const payload = validateRequest(request);
   if (payload.action === 'open') return openDirectly(payload);
+  if (payload.action === 'wait') {
+    const startedAt = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, payload.ms));
+    return { status: 'succeeded', action: 'wait', ms: payload.ms, elapsed_ms: Date.now() - startedAt, version: VERSION, method: 'node_timer' };
+  }
   const args = payload.action === 'observe'
     ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', UIA_SCRIPT]
     : payload.action === 'hotkey'
