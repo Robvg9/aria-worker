@@ -34,6 +34,16 @@ assert.equal(new Set(catalogIds).size,catalogIds.length,'test catalog IDs must r
 assert.equal(new Set(catalogFiles).size,catalogFiles.length,'test catalog files must remain unique');
 assert.equal(catalogIds.length,catalogFiles.length,'every catalog entry must have exactly one id and file');
 
+const repositoryTestFiles=fs.readdirSync(path.join(root,'tests'))
+  .filter(file=>file.endsWith('.test.js'))
+  .sort();
+assert.deepEqual(
+  [...catalogFiles].sort(),
+  repositoryTestFiles,
+  'PWA test catalog must contain exactly the repository test suite: no missing or stale entries'
+);
+assert.match(catalog,/TEST_CATALOG_VERSION = '2026-09-27-canonical'/);
+
 assert.match(app,/TEST_CATALOG_STATS\\.total/);
 assert.match(app,/TEST_CATALOG_STATS\\.npmTest/);
 assert.match(app,/filterTestCatalog\(q, testCategory\)/);
