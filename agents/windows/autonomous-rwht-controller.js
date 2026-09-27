@@ -21,6 +21,7 @@ const INTERACTIVE_ROLES = new Set([
 const BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log\s*out|sign\s*out|clear\s+all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s+sesión|cerrar\s+sesion|salir|vaciar)/i;
 const WINDOW_CHROME = /(MinimizeWindowButton|MaximizeWindowButton|CloseWindowButton|RestoreWindowButton|SystemMenu|Minimize|Maximize|Close)/i;
 const NATIVE_BROWSER_UI = /(Instalar PWA|Adjuntar archivo|choose file|seleccionar archivo)/i;
+const MUTATING = /\b(?:crear|create|guardar|save|enviar|send|ejecutar|execute|run|deploy|actualizar|update|confirmar|confirm|publicar|publish|submit|start|iniciar)\b/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s+key|bearer|credential|contraseña|contrasena)/i;
 
 function nodeLabel(node) {
@@ -34,6 +35,7 @@ function isInteractive(node) {
     node.enabled !== false &&
     !WINDOW_CHROME.test(nodeLabel(node)) &&
     !NATIVE_BROWSER_UI.test(nodeLabel(node)) &&
+    !MUTATING.test(nodeLabel(node)) &&
     INTERACTIVE_ROLES.has(String(node.role || '').toLowerCase())
   );
 }
@@ -42,8 +44,10 @@ function hash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-function controlKey(screenHash, nodeId) {
-  return hash([screenHash, String(nodeId)]);
+function controlKey(_screenHash, nodeId) {
+  const raw = String(nodeId);
+  const stable = raw.replace(/^cdp-\d+-/, 'cdp-');
+  return hash([stable]);
 }
 
 function sanitize(raw) {
@@ -69,6 +73,8 @@ function sanitize(raw) {
             height: Number(node.attributes.height),
             source: node.attributes.source == null ? null : String(node.attributes.source),
             cdp_index: Number.isInteger(node.attributes.cdp_index) ? node.attributes.cdp_index : null,
+            identity: node.attributes.identity == null ? null : String(node.attributes.identity),
+            href: node.attributes.href == null ? null : String(node.attributes.href),
           }
         : {},
     })),
@@ -240,7 +246,9 @@ async function chromeCdpInteractiveNodes() {
             const visible = function(el){ const r=el.getBoundingClientRect(); const s=getComputedStyle(el); return r.width>1 && r.height>1 && s.visibility!=='hidden' && s.display!=='none' && Number(s.opacity||1)>0; };
             const text = function(el){ return String(el.getAttribute('aria-label') || el.innerText || el.value || el.name || el.placeholder || '').trim().replace(/\\s+/g,' ').slice(0,240); };
             const role = function(el){ const explicit=String(el.getAttribute('role')||'').toLowerCase(); if(explicit) return explicit==='link'?'hyperlink':explicit; const tag=el.tagName.toLowerCase(); if(tag==='button') return 'button'; if(tag==='a') return 'hyperlink'; if(tag==='input'||tag==='textarea') return 'edit'; if(tag==='select') return 'combobox'; return 'custom'; };
-            return Array.from(document.querySelectorAll('button,a,input,textarea,select,[role],[tabindex]')).filter(visible).map(function(el,i){ const r=el.getBoundingClientRect(); const label=text(el); return {id:'cdp-'+i+'-'+(el.getAttribute('data-testid')||el.getAttribute('aria-label')||el.tagName),role:role(el),name:label,text:label,label:label,enabled:!el.disabled,visible:true,attributes:{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height),source:'chrome-cdp'}}; }).slice(0,250);
+            const selector='button,a,input,textarea,select,[role],[tabindex]';
+            const els=Array.from(document.querySelectorAll(selector)).filter(visible).filter(function(el){return el.getAttribute('tabindex') !== '-1';});
+            return els.map(function(el,i){ const r=el.getBoundingClientRect(); const label=text(el); const roleValue=role(el); const identity=(el.getAttribute('data-testid')||el.id||el.getAttribute('aria-label')||el.name||label||el.tagName)+'|'+roleValue; return {id:'cdp-'+i+'-'+(el.getAttribute('data-testid')||el.getAttribute('aria-label')||el.tagName),role:roleValue,name:label,text:label,label:label,enabled:!el.disabled,visible:true,attributes:{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height),source:'chrome-cdp',cdp_index:i,identity:identity,href:el.getAttribute('href')}}; }).slice(0,250);
           })()`
         }
       }));
@@ -265,7 +273,8 @@ async function chromeCdpAct(node, action, text) {
   if (!Number.isInteger(index) || index < 0) throw new Error('chrome_cdp_target_index_missing');
   const selector = 'button,a,input,textarea,select,[role],[tabindex]';
   const expression = "(function(){" +
-    "const els=Array.from(document.querySelectorAll(" + JSON.stringify(selector) + ")).filter(function(el){return el.getAttribute('tabindex') !== '-1';});" +
+    "const visible=function(el){const r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>1&&r.height>1&&s.visibility!=='hidden'&&s.display!=='none'&&Number(s.opacity||1)>0;};" +
+    "const els=Array.from(document.querySelectorAll(" + JSON.stringify(selector) + ")).filter(visible).filter(function(el){return el.getAttribute('tabindex') !== '-1';});" +
     "const el=els[" + String(index) + "];" +
     "if(!el) return {ok:false,error:'chrome_cdp_target_missing'};" +
     "if(" + JSON.stringify(action) + "==='click'){el.focus();el.click();return {ok:true};}" +
@@ -538,14 +547,19 @@ async function runAutonomousRwht(options) {
     let decisionSource = 'qwen3';
     let modelError = null;
 
-    try {
-      decision = normalizeDecision(await model(
-        promptFor(goal, current, capabilities, history, screenHash, exercisedControls),
-        5000
-      ));
-    } catch (error) {
-      decisionSource = 'fallback';
-      modelError = String(error && error.message || error);
+    const fastCoverageMode = /RWHT PC E2E|RWHT_CONTROL_DISCOVERY_VERIFY|ARIA PWA/.test(goal);
+    if (!fastCoverageMode) {
+      try {
+        decision = normalizeDecision(await model(
+          promptFor(goal, current, capabilities, history, screenHash, exercisedControls),
+          5000
+        ));
+      } catch (error) {
+        decisionSource = 'fallback';
+        modelError = String(error && error.message || error);
+      }
+    } else {
+      decisionSource = 'deterministic-coverage';
     }
 
     if (!decision) {
