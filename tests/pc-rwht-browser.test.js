@@ -6,6 +6,10 @@ const path = require('node:path');
 
 const runner = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-pc-browser.mjs'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'package.json'), 'utf8'));
+const missionRunnerFixes = fs.readFileSync(
+  path.join(__dirname, '..', 'supabase', 'functions', 'aria-mission-runner-v22', 'forensic-continuity-fixes.ts'),
+  'utf8',
+);
 
 assert.match(runner, /aria-pc-browser-rwht-v1\.0\.0/);
 assert.match(runner, /playwright/);
@@ -35,6 +39,11 @@ assert.match(runner, /RWHT_EMAIL/);
 assert.match(runner, /RWHT_PASSWORD/);
 assert.doesNotMatch(runner, /console\.log\([^\n]*password/i);
 assert.equal(pkg.dependencies.playwright, '1.63.0');
+
+assert.match(missionRunnerFixes, /buildDeviceEnqueuePayload/);
+assert.match(missionRunnerFixes, /for \(const key of \["start_url"\] as const\)/);
+assert.match(missionRunnerFixes, /input\[key\] === null \|\| input\[key\] === undefined/);
+assert.match(missionRunnerFixes, /delete input\[key\]/);
 
 console.log('PC BROWSER RWHT CONTRACT: PASS');
 
