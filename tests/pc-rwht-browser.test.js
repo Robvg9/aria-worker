@@ -60,3 +60,9 @@ assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /2026-09-27-canonical/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
 assert.match(pwaIndex, /content='245'/);
+
+const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
+assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
+assert.match(workersBuild, /__PWA_BUILD__/);
+assert.match(workersBuild, /index-.*html/);
+assert.match(workersBuild, /sw-.*\.js/);
