@@ -51,6 +51,7 @@ jobs:
         working-directory: rwht/pc-browser
         run: npx playwright install --with-deps chromium
       - name: Verify canonical test catalog on LIVE PWA
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           base="${RWHT_URL%/}"
