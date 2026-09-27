@@ -8,8 +8,89 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-09-24';
+export const TEST_CATALOG_VERSION = '2026-09-27-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
+  {
+    "id": "autonomous-windows-rwht-controller",
+    "file": "tests/autonomous-windows-rwht-controller.test.js",
+    "title": "Autonomous Windows RWHT Controller",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba el comportamiento específico indicado por el nombre del test y detecta regresiones.",
+    "capabilities": "Comprueba ejecución gobernada, Computer Use de Windows, recuperación y evidencia física."
+  },
+  {
+    "id": "chat-mission-confirmation-contract",
+    "file": "tests/chat-mission-confirmation-contract.test.js",
+    "title": "Chat Mission Confirmation Contract",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la interfaz y sus contratos mantengan el flujo de confirmación de misiones.",
+    "capabilities": "Detecta regresiones en chat, confirmación, navegación y creación de misiones."
+  },
+  {
+    "id": "computer-use-live-progress-v1",
+    "file": "tests/computer-use-live-progress-v1.test.js",
+    "title": "Computer Use Live Progress V1",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": false,
+    "how": "Comprueba progreso y estado observable durante Computer Use en vivo.",
+    "capabilities": "Detecta regresiones de ejecución, progreso, evidencia y sincronización."
+  },
+  {
+    "id": "mastery-learning-loop-v1",
+    "file": "tests/mastery-learning-loop-v1.test.js",
+    "title": "Mastery Learning Loop V1",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba el ciclo de aprendizaje y mejora de ARIA.",
+    "capabilities": "Valida aprendizaje, memoria de resultados, evaluación y evolución controlada."
+  },
+  {
+    "id": "mastery-learning-runtime-contract",
+    "file": "tests/mastery-learning-runtime-contract.test.js",
+    "title": "Mastery Learning Runtime Contract",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el contrato del runtime de aprendizaje permanezca estable.",
+    "capabilities": "Detecta regresiones en aprendizaje, runtime, persistencia y gobernanza."
+  },
+  {
+    "id": "meditation-idea-analyzer-v2",
+    "file": "tests/meditation-idea-analyzer-v2.test.js",
+    "title": "Meditation Idea Analyzer V2",
+    "category": "Meditación IA",
+    "includedInNpmTest": true,
+    "how": "Comprueba el análisis de ideas de Meditation IA.",
+    "capabilities": "Detecta regresiones en análisis, clasificación, propuesta de misión y continuidad."
+  },
+  {
+    "id": "mission-runner-v22-executor-inference",
+    "file": "tests/mission-runner-v22-executor-inference.test.js",
+    "title": "Mission Runner V22 Executor Inference",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": false,
+    "how": "Comprueba que el runner identifique correctamente el ejecutor de cada paso.",
+    "capabilities": "Detecta regresiones en inferencia de ejecutor, dispatch y ejecución universal."
+  },
+  {
+    "id": "pc-rwht-browser",
+    "file": "tests/pc-rwht-browser.test.js",
+    "title": "PC RWHT Browser",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba el contrato de auditoría RWHT de la PWA en navegador PC.",
+    "capabilities": "Detecta regresiones en navegador, PWA, navegación y certificación RWHT."
+  },
+  {
+    "id": "pwa-capabilities-test-center-v1",
+    "file": "tests/pwa-capabilities-test-center-v1.test.js",
+    "title": "PWA Capabilities Test Center V1",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba la superficie de capacidades y el centro de pruebas de la PWA.",
+    "capabilities": "Detecta regresiones en catálogo, filtros, navegación, contratos y UX de pruebas."
+  },
   {
     "id": "account-manager",
     "file": "tests/account-manager.test.js",
@@ -2135,3 +2216,45 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
   }
 ];
+
+export type TestCatalogStats = Readonly<{
+  total: number;
+  npmTest: number;
+  catalogOnly: number;
+  categoryCount: number;
+  categories: readonly string[];
+  catalogVersion: string;
+}>;
+
+function assertUnique(values: string[], label: string) {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) throw new Error(`Duplicate test catalog ${label}: ${value}`);
+    seen.add(value);
+  }
+}
+
+const catalogIds = TEST_CATALOG.map(test => test.id);
+const catalogFiles = TEST_CATALOG.map(test => test.file);
+assertUnique(catalogIds, 'id');
+assertUnique(catalogFiles, 'file');
+
+const catalogCategories = Array.from(new Set(TEST_CATALOG.map(test => test.category))).sort();
+
+export const TEST_CATALOG_STATS: TestCatalogStats = Object.freeze({
+  total: TEST_CATALOG.length,
+  npmTest: TEST_CATALOG.filter(test => test.includedInNpmTest).length,
+  catalogOnly: TEST_CATALOG.filter(test => !test.includedInNpmTest).length,
+  categoryCount: catalogCategories.length,
+  categories: Object.freeze(catalogCategories),
+  catalogVersion: TEST_CATALOG_VERSION
+});
+
+export function filterTestCatalog(query = '', category = 'Todas'): TestCatalogItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return TEST_CATALOG.filter(test => {
+    const categoryOk = category === 'Todas' || test.category === category;
+    const queryOk = !normalizedQuery || JSON.stringify(test).toLowerCase().includes(normalizedQuery);
+    return categoryOk && queryOk;
+  });
+}
