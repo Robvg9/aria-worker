@@ -275,6 +275,9 @@ function createMeditationController({
       let response;
       try {
         response = await requestTick({ state: snapshotWithoutCheckpoint(status()), reason, tick: state.tick_count });
+        const returnedTransportError = response?.status === 'failed'
+          && isTransportFailure(new Error(String(response?.error?.message || response?.error || '')));
+        if (returnedTransportError) throw new Error(String(response?.error?.message || response?.error || 'transport_unavailable'));
         const wasOffline = state.connection_status === 'offline';
         state = { ...state, connection_status: 'online', offline_since: null, last_transport_error: null, pending_sync_count: 0, last_result: response };
         if (wasOffline) await onConnectivityChange(status());
