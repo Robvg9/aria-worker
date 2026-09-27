@@ -257,7 +257,7 @@ async function windowsPcRwhtPlan(goal:string,context:any){
   const isBattleCruiser=/battlecruiser/i.test(g) || String(context?.project_id||"").toLowerCase()==="battlecruiser";
   const startUrl=String(context?.start_url||"").trim()
     || (urlMatch?urlMatch[0].replace(/[.,;]+$/,""):null)
-    || (isBattleCruiser?"https://battlecruiser.robvg9.workers.dev/":null);
+    || (isBattleCruiser?"https://battlecruiser.robvg9.workers.dev/":"https://aria.robvg9.workers.dev/pwa/");
 
   const maxActions=Math.max(20,Math.min(180,Number(context?.max_actions||120)));
   const maxRuntime=Math.max(120000,Math.min(900000,Number(context?.max_runtime_ms||600000)));
