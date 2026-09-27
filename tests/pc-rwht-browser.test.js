@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const runner = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-pc-browser.mjs'), 'utf8');
+const viteConfig = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'vite.config.ts'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'package.json'), 'utf8'));
 const missionRunnerFixes = fs.readFileSync(
   path.join(__dirname, '..', 'supabase', 'functions', 'aria-mission-runner-v22', 'forensic-continuity-fixes.ts'),
@@ -33,6 +34,8 @@ assert.match(runner, /controls_verified/);
 assert.match(runner, /controls_blocked/);
 assert.match(runner, /controls_failed/);
 assert.match(runner, /coverage_ratio/);
+assert.match(runner, /controls_testable/);
+assert.match(runner, /controls_skipped/);
 assert.match(runner, /page_errors/);
 assert.match(runner, /failed_responses/);
 assert.match(runner, /RWHT_EMAIL/);
@@ -52,3 +55,8 @@ console.log('PC BROWSER RWHT CONTRACT: PASS');
 assert.match(runner, /RWHT_REQUIRE_AUTH/);
 assert.match(runner, /RWHT_EXPECTED_AUTH_TEXT/);
 assert.match(runner, /auth_verified/);
+
+assert.match(viteConfig, /canonicalTestCatalogMetaPlugin/);
+assert.match(viteConfig, /aria-test-catalog-version/);
+assert.match(viteConfig, /aria-test-catalog-total/);
+assert.match(viteConfig, /testCatalog\.ts/);
