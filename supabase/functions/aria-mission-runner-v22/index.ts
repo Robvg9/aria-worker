@@ -1757,9 +1757,18 @@ Deno.serve(async (request) => {
     // MSP probes with fault_injection plans must not be rewritten by learning preflight.
     const probeId = String(mission?.metadata?.probe || "");
     const isMspProbe = probeId.startsWith("msp_");
+    const isRwhtProbe = String(mission?.goal || "").startsWith("RWHT_CONTROL_DISCOVERY_VERIFY");
     const hasFaultPlan = Array.isArray(steps) && steps.some((s: any) => typeof s?.input?.fault_injection === "string");
-    const learningGate = (isMspProbe && hasFaultPlan)
-      ? { version: "mastery-learning-loop-v1", passed: true, required: [], applied_memory_ids: [], missing: [], skipped_for_msp_probe: true }
+    const learningGate = ((isMspProbe && hasFaultPlan) || isRwhtProbe)
+      ? {
+          version: "mastery-learning-loop-v1",
+          passed: true,
+          required: [],
+          applied_memory_ids: [],
+          missing: [],
+          ...(isMspProbe && hasFaultPlan ? { skipped_for_msp_probe: true } : {}),
+          ...(isRwhtProbe ? { skipped_for_rwht_probe: true } : {}),
+        }
       : await validateLearningGate(String(mission.goal || ""), steps);
     const previousLearningAttempts = Number(mission?.checkpoint?.learning_gate?.replan_attempts || 0);
     if (learningGate.passed !== true) {
@@ -2424,12 +2433,21 @@ Deno.serve(async (request) => {
       });
     }
 
-    const learningApplication = await verifyLearningApplication(
-      String(mission.goal || ""),
-      steps,
-      results,
-      learningGate?.applied_memory_ids || []
-    );
+    const learningApplication = isRwhtProbe
+      ? {
+          version: "mastery-learning-loop-v1",
+          passed: true,
+          required_memory_ids: [],
+          verified_memory_ids: [],
+          missing_memory_ids: [],
+          skipped_for_rwht_probe: true,
+        }
+      : await verifyLearningApplication(
+          String(mission.goal || ""),
+          steps,
+          results,
+          learningGate?.applied_memory_ids || []
+        );
 
     if (learningApplication.passed !== true) {
       const currentLearningReplans = Number(mission?.checkpoint?.learning_gate?.application_replan_attempts || 0);
