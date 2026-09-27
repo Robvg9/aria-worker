@@ -17,16 +17,18 @@ for(const fragment of [
   '/meditation/ideas',
   'meditation_idea_proposal_decide',
   'meditation_idea_convert_mission',
-  'owner_user_id',
+  'owner_user_id'
+]) {
+  if(!api.includes(fragment)) throw new Error('API missing idea analyzer marker: '+fragment);
+}
+for(const fragment of [
   'ANALIZAR Y PROPONER',
   'const [ideaText, setIdeaText] = useState',
   'const [ideaBusy, setIdeaBusy] = useState',
   'const [ideaError, setIdeaError] = useState',
   'const [ideaProposals, setIdeaProposals] = useState'
 ]) {
-  if(!api.includes(fragment) && fragment!=='ANALIZAR Y PROPONER') {
-    throw new Error('API missing idea analyzer marker: '+fragment);
-  }
+  if(!pwa.includes(fragment)) throw new Error('PWA missing idea analyzer marker: '+fragment);
 }
 for(const fragment of [
   'add column if not exists owner_user_id',
