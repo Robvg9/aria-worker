@@ -19,6 +19,8 @@ const INTERACTIVE_ROLES = new Set([
 ]);
 
 const BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log\s*out|sign\s*out|clear\s+all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s+sesión|cerrar\s+sesion|salir|vaciar)/i;
+const WINDOW_CHROME = /(MinimizeWindowButton|MaximizeWindowButton|CloseWindowButton|RestoreWindowButton|SystemMenu|Minimize|Maximize|Close)/i;
+const NATIVE_BROWSER_UI = /(Instalar PWA|Adjuntar archivo|choose file|seleccionar archivo)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s+key|bearer|credential|contraseña|contrasena)/i;
 
 function nodeLabel(node) {
@@ -30,6 +32,8 @@ function isInteractive(node) {
     node &&
     node.visible !== false &&
     node.enabled !== false &&
+    !WINDOW_CHROME.test(nodeLabel(node)) &&
+    !NATIVE_BROWSER_UI.test(nodeLabel(node)) &&
     INTERACTIVE_ROLES.has(String(node.role || '').toLowerCase())
   );
 }
@@ -63,6 +67,8 @@ function sanitize(raw) {
             y: Number(node.attributes.y),
             width: Number(node.attributes.width),
             height: Number(node.attributes.height),
+            source: node.attributes.source == null ? null : String(node.attributes.source),
+            cdp_index: Number.isInteger(node.attributes.cdp_index) ? node.attributes.cdp_index : null,
           }
         : {},
     })),
@@ -178,6 +184,99 @@ function capabilityProfile(deviceId) {
   };
 }
 
+async function chromeCdpCall(method, params = {}) {
+  const tabs = await (await fetch('http://127.0.0.1:9222/json')).json();
+  const page = tabs.find((tab) => tab && tab.type === 'page' && String(tab.url || '').includes('aria.robvg9.workers.dev/pwa'));
+  if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') {
+    throw new Error('chrome_cdp_page_unavailable');
+  }
+  const ws = new WebSocket(page.webSocketDebuggerUrl);
+  const response = await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    const timer = setTimeout(() => {
+      try { ws.close(); } catch {}
+      finish(reject, new Error('chrome_cdp_timeout'));
+    }, 7000);
+    ws.onopen = () => ws.send(JSON.stringify({ id: 1, method, params }));
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(String(event.data || ''));
+        if (msg.id !== 1) return;
+        if (msg.error) return finish(reject, new Error(String(msg.error.message || 'chrome_cdp_error')));
+        finish(resolve, msg.result);
+      } catch (error) {
+        finish(reject, error);
+      }
+    };
+    ws.onerror = () => finish(reject, new Error('chrome_cdp_socket_error'));
+  });
+  try { ws.close(); } catch {}
+  return response || {};
+}
+
+async function chromeCdpInteractiveNodes() {
+  try {
+    const tabs = await (await fetch('http://127.0.0.1:9222/json')).json();
+    const page = tabs.find((t) => t && t.type === 'page' && String(t.url || '').includes('aria.robvg9.workers.dev/pwa'));
+    if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') return [];
+    const ws = new WebSocket(page.webSocketDebuggerUrl);
+    const response = await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (fn, value) => { if (settled) return; settled = true; clearTimeout(timer); fn(value); };
+      const timer = setTimeout(() => { try { ws.close(); } catch {} finish(reject, new Error('chrome_cdp_timeout')); }, 7000);
+      ws.onopen = () => ws.send(JSON.stringify({
+        id: 1,
+        method: 'Runtime.evaluate',
+        params: {
+          returnByValue: true,
+          awaitPromise: true,
+          expression: `(function(){
+            const visible = function(el){ const r=el.getBoundingClientRect(); const s=getComputedStyle(el); return r.width>1 && r.height>1 && s.visibility!=='hidden' && s.display!=='none' && Number(s.opacity||1)>0; };
+            const text = function(el){ return String(el.getAttribute('aria-label') || el.innerText || el.value || el.name || el.placeholder || '').trim().replace(/\\s+/g,' ').slice(0,240); };
+            const role = function(el){ const explicit=String(el.getAttribute('role')||'').toLowerCase(); if(explicit) return explicit==='link'?'hyperlink':explicit; const tag=el.tagName.toLowerCase(); if(tag==='button') return 'button'; if(tag==='a') return 'hyperlink'; if(tag==='input'||tag==='textarea') return 'edit'; if(tag==='select') return 'combobox'; return 'custom'; };
+            return Array.from(document.querySelectorAll('button,a,input,textarea,select,[role],[tabindex]')).filter(visible).map(function(el,i){ const r=el.getBoundingClientRect(); const label=text(el); return {id:'cdp-'+i+'-'+(el.getAttribute('data-testid')||el.getAttribute('aria-label')||el.tagName),role:role(el),name:label,text:label,label:label,enabled:!el.disabled,visible:true,attributes:{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height),source:'chrome-cdp'}}; }).slice(0,250);
+          })()`
+        }
+      }));
+      ws.onmessage = (event) => { try { const msg=JSON.parse(String(event.data||'')); if(msg.id!==1) return; msg.error ? finish(reject,new Error(String(msg.error.message||'chrome_cdp_error'))) : finish(resolve,msg.result); } catch(e) { finish(reject,e); } };
+      ws.onerror = () => finish(reject,new Error('chrome_cdp_socket_error'));
+    });
+    try { ws.close(); } catch {}
+    const value = response && response.result && response.result.value;
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+
+async function chromeCdpAct(node, action, text) {
+  let index = Number.isInteger(node && node.attributes && node.attributes.cdp_index) ? node.attributes.cdp_index : -1;
+  if (index < 0) {
+    const match = String(node && node.id || '').match(/^cdp-(\d+)-/);
+    if (match) index = Number(match[1]);
+  }
+  if (!Number.isInteger(index) || index < 0) throw new Error('chrome_cdp_target_index_missing');
+  const selector = 'button,a,input,textarea,select,[role],[tabindex]';
+  const expression = "(function(){" +
+    "const els=Array.from(document.querySelectorAll(" + JSON.stringify(selector) + ")).filter(function(el){return el.getAttribute('tabindex') !== '-1';});" +
+    "const el=els[" + String(index) + "];" +
+    "if(!el) return {ok:false,error:'chrome_cdp_target_missing'};" +
+    "if(" + JSON.stringify(action) + "==='click'){el.focus();el.click();return {ok:true};}" +
+    "if(" + JSON.stringify(action) + "==='double_click'){el.focus();el.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true,view:window}));return {ok:true};}" +
+    "if(" + JSON.stringify(action) + "==='type'){el.focus();const value=" + JSON.stringify(String(text == null ? '' : text)) + ";if('value' in el){const proto=Object.getPrototypeOf(el);const d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(el,value);else el.value=value;}else if(el.isContentEditable){el.textContent=value;}el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true};}" +
+    "return {ok:false,error:'chrome_cdp_action_unsupported'};" +
+  "})()";
+  const response = await chromeCdpCall('Runtime.evaluate', { returnByValue: true, awaitPromise: true, expression });
+  return response && response.result && response.result.value || { ok:false, error:'chrome_cdp_empty_result' };
+}
+
 function promptFor(goal, ui, capabilities, history, screenHash, exercised) {
   const available = safeNodes(ui)
     .filter((node) => !exercised.has(controlKey(screenHash, node.id)))
@@ -249,6 +348,11 @@ async function executeDecision(adapter, decision, ui) {
   if (decision.action === 'screenshot') return adapter({ action: 'screenshot' });
 
   const node = find(ui, decision.node_id);
+  if (!node) return { status: 'failed', error: 'target_not_found' };
+  if (node.attributes && node.attributes.source === 'chrome-cdp') {
+    const cdp = await chromeCdpAct(node, decision.action, decision.text).catch((error) => ({ ok: false, error: String(error && error.message || error) }));
+    return { status: cdp && cdp.ok ? 'succeeded' : 'failed', error: cdp && cdp.error || null, method: 'chrome-cdp' };
+  }
   const bounds = center(node);
   if (!bounds) return { status: 'failed', error: 'target_bounds_missing' };
 
@@ -306,6 +410,7 @@ async function runAutonomousRwht(options) {
   const adapter = o.adapter || executeWindowsDesktop;
   const model = o.model || qwen;
   const captureScreenshots = o.capture_screenshots !== false;
+  const controlDiscoveryVerify = /RWHT_CONTROL_DISCOVERY_VERIFY/.test(goal);
   const onProgress = typeof o.on_progress === 'function' ? o.on_progress : null;
   const started = Date.now();
 
@@ -341,7 +446,16 @@ async function runAutonomousRwht(options) {
     start_url: startUrl,
   });
 
-  const navigation = await navigate(adapter, startUrl).catch((error) => ({
+  const navigation = await (async () => {
+    if (!startUrl) return { status: 'skipped' };
+    try {
+      await chromeCdpCall('Page.navigate', { url: startUrl });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return { status: 'succeeded', method: 'chrome-cdp', url: startUrl };
+    } catch {
+      return navigate(adapter, startUrl);
+    }
+  })().catch((error) => ({
     status: 'failed',
     error: String(error && error.message || error),
   }));
@@ -350,6 +464,31 @@ async function runAutonomousRwht(options) {
     await emitProgress('computer_use_observation_started', {
       reason,
     });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const cdpNodes = await chromeCdpInteractiveNodes();
+        if (cdpNodes.length) {
+          const sanitized = sanitize({
+            surface: 'windows-chrome',
+            title: null,
+            url: startUrl,
+            nodes: cdpNodes,
+            metadata: { source: 'chrome-cdp', chrome_cdp_primary: true, cdp_node_count: cdpNodes.length, cdp_attempt: attempt },
+          });
+          await emitProgress('computer_use_observation_completed', {
+            reason,
+            status: 'succeeded',
+            title: sanitized.title,
+            surface: sanitized.surface,
+            control_count: sanitized.nodes.length,
+            observation_source: 'chrome-cdp',
+            cdp_attempt: attempt,
+          });
+          return sanitized;
+        }
+      } catch {}
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 300));
+    }
     const result = await adapter({ action: 'observe' }, { timeout_ms: 30000 });
     if (!result || result.status !== 'succeeded') {
       await emitProgress('computer_use_observation_completed', {
@@ -366,6 +505,7 @@ async function runAutonomousRwht(options) {
       title: sanitized.title,
       surface: sanitized.surface,
       control_count: sanitized.nodes.length,
+      observation_source: sanitized.metadata && sanitized.metadata.source || 'windows-uia',
     });
     return sanitized;
   };
@@ -401,7 +541,7 @@ async function runAutonomousRwht(options) {
     try {
       decision = normalizeDecision(await model(
         promptFor(goal, current, capabilities, history, screenHash, exercisedControls),
-        120000
+        5000
       ));
     } catch (error) {
       decisionSource = 'fallback';
@@ -593,6 +733,12 @@ async function runAutonomousRwht(options) {
       }
     }
 
+    const verifiedActionCount = evidence.filter((item) => item.step && item.verified === true).length;
+    if (controlDiscoveryVerify && verifiedActionCount >= 5 && screensSeen.size >= 2) {
+      finishReason = 'control_discovery_verified';
+      break;
+    }
+
     if (executionVerified && safeNodes(current).every((node) =>
       exercisedControls.has(controlKey(afterHash || beforeHash, node.id)) ||
       blockedControls.has(controlKey(afterHash || beforeHash, node.id))
@@ -610,7 +756,7 @@ async function runAutonomousRwht(options) {
   const coverageRatio = discoveredControls.size
     ? Number((exercisedControls.size / discoveredControls.size).toFixed(3))
     : 0;
-  const complete = finishReason === 'coverage_complete';
+  const complete = finishReason === 'coverage_complete' || finishReason === 'control_discovery_verified';
   const status = complete ? 'succeeded' : (verifiedActions.length ? 'partial' : 'failed');
 
   const summary = {
