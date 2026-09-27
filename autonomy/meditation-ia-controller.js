@@ -30,6 +30,11 @@ function defaultState() {
     last_checkpoint: null,
     failure_ledger: {},
     next_retry_at: null,
+    connection_status: 'online',
+    offline_since: null,
+    offline_tick_count: 0,
+    pending_sync_count: 0,
+    last_transport_error: null,
     command_offset: 0
   };
 }
@@ -41,6 +46,11 @@ function normalizeLoadedState(value) {
   next.last_checkpoint = null;
   next.failure_ledger = value.failure_ledger && typeof value.failure_ledger === 'object' ? value.failure_ledger : {};
   next.next_retry_at = value.next_retry_at || null;
+  next.connection_status = value.connection_status === 'offline' ? 'offline' : 'online';
+  next.offline_since = value.offline_since || null;
+  next.offline_tick_count = Number.isFinite(Number(value.offline_tick_count)) ? Number(value.offline_tick_count) : 0;
+  next.pending_sync_count = Number.isFinite(Number(value.pending_sync_count)) ? Number(value.pending_sync_count) : 0;
+  next.last_transport_error = value.last_transport_error || null;
   next.command_offset = Number.isFinite(Number(value.command_offset)) ? Number(value.command_offset) : 0;
   next.tick_count = Number.isFinite(Number(value.tick_count)) ? Number(value.tick_count) : 0;
   return next;
@@ -150,7 +160,9 @@ function createMeditationController({
   commandSource,
   log,
   requestTick,
+  requestLocalTick = null,
   checkpoint = async record => ({ status: 'local_only', record }),
+  onConnectivityChange = async () => {},
   isUserIdle = async () => true,
   ensureNotepad = async () => {},
   onModeChange = async () => {},
@@ -162,7 +174,7 @@ function createMeditationController({
   now = () => new Date()
 } = {}) {
   if (!stateStore || typeof stateStore.load !== 'function') throw new TypeError('stateStore required');
-  for (const [name, fn] of Object.entries({ read: commandSource?.read, log, requestTick, checkpoint, isUserIdle, ensureNotepad, onModeChange, onMissionEvent })) {
+  for (const [name, fn] of Object.entries({ read: commandSource?.read, log, requestTick, checkpoint, isUserIdle, ensureNotepad, onModeChange, onMissionEvent, onConnectivityChange })) {
     if (typeof fn !== 'function') throw new TypeError(`${name} function required`);
   }
   if (!Number.isInteger(heartbeat_ms) || heartbeat_ms < 10000) throw new TypeError('heartbeat_ms must be >= 10000');
@@ -171,6 +183,12 @@ function createMeditationController({
   let timer = null;
   let busy = false;
   let locked = false;
+
+  const isTransportFailure = error => {
+    const message = String(error?.message || error || '').toLowerCase();
+    return error?.name === 'AbortError'
+      || /fetch failed|network|connection reset|connection refused|enotfound|econn|gateway_(408|429|5\\d\\d)|timed out|timeout|this operation was aborted/.test(message);
+  };
 
   const persist = async () => stateStore.save(state);
   const status = () => Object.freeze({ ...state, failure_ledger: { ...state.failure_ledger }, last_checkpoint: state.last_checkpoint ? { ...state.last_checkpoint, state: snapshotWithoutCheckpoint(state.last_checkpoint.state || {}) } : null });
@@ -254,8 +272,33 @@ function createMeditationController({
         if (state.tick_count % 4 === 0) await write(`BACKOFF_ACTIVE retry_at=${state.next_retry_at}`);
         return { status: 'degraded_backoff', retry_at: state.next_retry_at, tick: state.tick_count };
       }
-      const response = await requestTick({ state: snapshotWithoutCheckpoint(status()), reason, tick: state.tick_count });
-      state = { ...state, last_result: response };
+      let response;
+      try {
+        response = await requestTick({ state: snapshotWithoutCheckpoint(status()), reason, tick: state.tick_count });
+        const wasOffline = state.connection_status === 'offline';
+        state = { ...state, connection_status: 'online', offline_since: null, last_transport_error: null, pending_sync_count: 0, last_result: response };
+        if (wasOffline) await onConnectivityChange(status());
+      } catch (error) {
+        if (!isTransportFailure(error)) throw error;
+        const transportError = String(error?.message || error || 'transport_unavailable');
+        const wasOffline = state.connection_status === 'offline';
+        let localResponse = { status: 'offline_waiting_for_sync', local_only: true, tick: state.tick_count };
+        if (typeof requestLocalTick === 'function') {
+          try {
+            localResponse = await requestLocalTick({ state: snapshotWithoutCheckpoint(status()), reason, tick: state.tick_count, error: transportError }) || localResponse;
+          } catch (localError) {
+            localResponse = { status: 'offline_checkpoint_only', local_only: true, tick: state.tick_count, error: String(localError?.message || localError || 'local_offline_tick_failed') };
+          }
+        }
+        const offlineSince = state.offline_since || now().toISOString();
+        state = { ...state, connection_status: 'offline', offline_since: offlineSince, offline_tick_count: state.offline_tick_count + 1, pending_sync_count: state.pending_sync_count + 1, last_transport_error: transportError, last_result: localResponse, next_retry_at: null };
+        if (!wasOffline) await onConnectivityChange(status());
+        const cp = await checkpoint({ type: 'offline_tick', reason, transport: 'offline', transport_error: transportError, state: snapshotWithoutCheckpoint(status()), response: localResponse });
+        state = { ...state, last_checkpoint: cp };
+        await persist();
+        await write('OFFLINE_CONTINUING tick=' + state.tick_count + ' mission=' + (state.active_mission_id || 'none') + ' pending_sync=' + state.pending_sync_count);
+        return { status: 'offline_continuing', tick: state.tick_count, response: localResponse, checkpoint: cp };
+      }
       if (response?.mission_created) {
         state = { ...state, active_mission_id: response.mission_created, active_goal: response.goal || null };
         await onMissionEvent({ type: 'mission_created', ...response });
