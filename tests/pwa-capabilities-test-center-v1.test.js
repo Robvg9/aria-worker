@@ -38,7 +38,7 @@ const repositoryTestFiles=fs.readdirSync(path.join(root,'tests'))
   .filter(file=>file.endsWith('.test.js'))
   .sort();
 assert.deepEqual(
-  catalogFiles.map(file=>file.replace(/^tests\\//,'')).sort(),
+  catalogFiles.map(file=>file.startsWith('tests/') ? file.slice('tests/'.length) : file).sort(),
   repositoryTestFiles,
   'PWA test catalog must contain exactly the repository test suite: no missing or stale entries'
 );
