@@ -378,9 +378,11 @@ async function auditRoute(page, url, routeIndex, config) {
     title: await page.title(),
     screen_key: screenKey,
     controls_discovered: initialControls.length,
+    controls_testable: initialControls.filter((control) => control.visible && !control.disabled).length,
     controls_verified: 0,
     controls_blocked: 0,
     controls_failed: 0,
+    controls_skipped: initialControls.filter((control) => !control.visible || control.disabled).length,
     ux,
     login,
     auth,
@@ -504,9 +506,11 @@ async function run() {
         final_url: page.url(),
         title: await page.title().catch(() => ''),
         controls_discovered: 0,
+        controls_testable: 0,
         controls_verified: 0,
         controls_blocked: 0,
         controls_failed: 1,
+        controls_skipped: 0,
         ux: null,
         login: null,
         auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
@@ -529,9 +533,11 @@ async function run() {
     routes_requested: routes.length,
     routes_completed: routeResults.length,
     controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
     controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
     controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
     controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
     ux_issues: routeResults.flatMap((route) => {
       const ux = route.ux || {};
       const issues = [];
@@ -553,9 +559,9 @@ async function run() {
   summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
 
 
-  summary.coverage_ratio = summary.controls_discovered
-    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_discovered).toFixed(3))
-    : 0;
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
 
   summary.verified =
     summary.routes_completed === summary.routes_requested &&
@@ -573,6 +579,8 @@ async function run() {
     target: summary.target,
     routes: summary.routes_completed + '/' + summary.routes_requested,
     controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
     blocked: summary.controls_blocked,
     failed: summary.controls_failed,
     coverage_ratio: summary.coverage_ratio,
