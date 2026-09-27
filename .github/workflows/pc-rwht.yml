@@ -35,7 +35,7 @@ jobs:
       RWHT_HEADLESS: 'true'
       RWHT_ARTIFACT_DIR: rwht-artifacts
       RWHT_NO_SCREENSHOTS: 'false'
-      RWHT_REQUIRE_AUTH: 'true'
+      RWHT_REQUIRE_AUTH: ${{ secrets.RWHT_EMAIL != '' && secrets.RWHT_PASSWORD != '' }}
       RWHT_EXPECTED_AUTH_TEXT: 'Lista para actuar'
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
@@ -50,6 +50,34 @@ jobs:
       - name: Install Chromium
         working-directory: rwht/pc-browser
         run: npx playwright install --with-deps chromium
+      - name: Verify canonical test catalog on LIVE PWA
+        run: |
+          set -euo pipefail
+          base="\${RWHT_URL%/}"
+          version=""
+          for attempt in \$(seq 1 60); do
+            version="\$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "\$base/version.json?probe=\$GITHUB_SHA-\$attempt" 2>/dev/null || true)"
+            if VERSION="\$version" GITHUB_SHA="\$GITHUB_SHA" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              break
+            fi
+            test "\$attempt" -lt 60 && sleep 2
+          done
+          VERSION="\$version" GITHUB_SHA="\$GITHUB_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+          PY
+          html="\$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "\$base/?probe=\$GITHUB_SHA-catalog")"
+          grep -q 'name="aria-test-catalog-version" content="2026-09-27-canonical"' <<<"\$html"
+          grep -q 'name="aria-test-catalog-total" content="245"' <<<"\$html"
+          echo CANONICAL_TEST_CATALOG_LIVE_OK
       - name: Execute full PC PWA RWHT
         working-directory: rwht/pc-browser
         run: node rwht-pc-browser.mjs
