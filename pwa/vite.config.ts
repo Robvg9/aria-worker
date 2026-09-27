@@ -8,7 +8,7 @@ function canonicalTestCatalogMetaPlugin() {
     name: 'canonical-test-catalog-meta',
     transformIndexHtml(html: string) {
       const source = fs.readFileSync(path.resolve(process.cwd(), 'src/testCatalog.ts'), 'utf8');
-      const version = source.match(/TEST_CATALOG_VERSION\\s*=\\s*['"]([^'"]+)['"]/)?.[1];
+      const version = source.match(/TEST_CATALOG_VERSION\s*=\\s*['"]([^'"]+)['"]/)?.[1];
       const total = [...source.matchAll(/\"id\"\\s*:\\s*\"[^\"]+\"/g)].length;
       if (!version || total < 1) throw new Error('Unable to derive canonical test catalog metadata');
       return html.replace(
