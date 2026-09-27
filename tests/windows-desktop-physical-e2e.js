@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { executeWindowsDesktop, VERSION } = require('../computer-use/windows-desktop-adapter');
 
@@ -85,7 +87,14 @@ async function observeHasAnyText(observed, texts) {
     const recovered = await action('recovery-observe', { action: 'observe' }, 30000);
     assert.ok(await observeHasAnyText(recovered, ['Notepad', 'Bloc de notas']), 'recovery lost desktop control');
 
-    const chrome = await action('open-chrome', { action: 'open', path: 'chrome.exe' });
+    const chromePath = [
+      path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      'C:\\Program Files\\TotalCommanderPlus\\Soft\\Principal\\Chrome\\chrome.exe'
+    ].find((candidate) => candidate && fs.existsSync(candidate));
+    assert.ok(chromePath, 'Chrome executable not found on Windows');
+    const chrome = await action('open-chrome', { action: 'open', path: chromePath });
     chromePids.push(chrome.pid);
     await action('wait-chrome', { action: 'wait', ms: 1000 }, 5000);
     await action('focus-chrome', { action: 'focus', process: 'chrome' });
