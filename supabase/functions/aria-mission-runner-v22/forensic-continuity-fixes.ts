@@ -3,6 +3,7 @@
  * - Planner timeout via AbortController
  * - Device operation from step (allowlist)
  * - Cloudflare governed read ops
+ * - Computer Use enqueue normalization for optional-null planner fields
  */
 export const PLANNER_TIMEOUT_MS = 45_000;
 export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android"]);
@@ -62,9 +63,15 @@ export function buildDeviceEnqueuePayload(
     payload.cwd = typeof step.input?.cwd === "string" ? step.input.cwd : null;
   } else if (operation === "computer.use" || operation === "computer.use.autonomous" || operation === "computer.use.android") {
     // The runtime gateway persists device payloads in execution_jobs.command.
-    // Keep the full Computer Use input there; sending it only as an extra field
-    // is silently discarded by the gateway contract.
+    // Keep the governed Computer Use input there and normalize optional-null
+    // planner fields before validation. JSON null for optional strings is not
+    // a meaningful value for the device contract, so omit it instead of
+    // sending a value that the strict DB validator rejects.
     const input = step.input && typeof step.input === "object" ? { ...step.input } : {};
+    for (const key of ["start_url"] as const) {
+      if (input[key] === null || input[key] === undefined) delete input[key];
+    }
+
     // Android observe historically appeared as { action: "observe" } while the
     // governed DB contract expects { operation: "observe" }. Normalize the
     // shorthand at the executor boundary so planners/missions cannot disagree.
@@ -93,8 +100,8 @@ export async function cloudflareConnectorExecute(
     health: "/",
     account_read: "/admin/cloudflare?op=account_read",
     worker_read: "/admin/cloudflare?op=worker_read",
+    deployments_read: "/admin/cloudflare?op=deployment_read",
     deployments_read: "/admin/cloudflare?op=deployments_read",
-    deployment_read: "/admin/cloudflare?op=deployment_read",
     content_read: "/admin/cloudflare?op=content_read",
   };
   const path = pathMap[operation] || "/";
