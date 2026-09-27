@@ -10,6 +10,7 @@ const { createFileStateStore, createMeditationController } = require('../../auto
 const ROOT = process.env.ARIA_WINDOWS_AGENT_ROOT || path.resolve(__dirname, '..', '..');
 const MED_ROOT = process.env.ARIA_MEDITATION_ROOT || path.join(ROOT, 'Runtime', 'meditation');
 const LOG_PATH = process.env.ARIA_MEDITATION_LOG || path.join(MED_ROOT, 'ARIA-Meditation-IA.txt');
+const OFFLINE_JOURNAL_PATH = process.env.ARIA_MEDITATION_OFFLINE_JOURNAL || path.join(MED_ROOT, 'offline-journal.jsonl');
 const CONTROL_PORT = Number(process.env.ARIA_MEDITATION_PORT || 45873);
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL || '';
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN || '';
@@ -113,6 +114,18 @@ async function requestTick({ state, reason, tick }) {
   } finally { clearTimeout(timer); }
 }
 
+async function appendOfflineJournal(record) {
+  await fsp.mkdir(path.dirname(OFFLINE_JOURNAL_PATH), { recursive: true });
+  await fsp.appendFile(OFFLINE_JOURNAL_PATH, JSON.stringify({ version: 'aria-meditation-offline-journal-v1', recorded_at: new Date().toISOString(), ...record }) + '\n', 'utf8');
+}
+
+async function requestLocalTick({ state, reason, tick, error }) {
+  const record = { type: 'offline_continuity', reason, tick, error: String(error || 'transport_unavailable'), mission_id: state.active_mission_id || null, goal: state.active_goal || null, session_id: state.session_id || null };
+  await appendOfflineJournal(record);
+  await appendLog('OFFLINE_CONTINUITY tick=' + tick + ' mission=' + (state.active_mission_id || 'none') + ' journal=' + OFFLINE_JOURNAL_PATH);
+  return { status: 'offline_continuing', local_only: true, journal: OFFLINE_JOURNAL_PATH, mission_id: state.active_mission_id || null, goal: state.active_goal || null, tick };
+}
+
 async function checkpoint(record) {
   const p = path.join(MED_ROOT, 'checkpoint.json');
   await fsp.mkdir(path.dirname(p), { recursive: true });
@@ -185,13 +198,15 @@ function createWindowsMeditationController() {
     commandSource: { read: readCommands },
     log: appendLog,
     requestTick,
+    requestLocalTick,
     checkpoint,
     isUserIdle,
     ensureNotepad: ensureNotepadOnce,
     heartbeat_ms: Number(process.env.ARIA_MEDITATION_HEARTBEAT_MS || 30_000),
     min_idle_seconds: Number(process.env.ARIA_MEDITATION_MIN_IDLE_SECONDS || 45),
     onMissionEvent: async event => { await appendLog(`EVENT ${JSON.stringify(event)}`); },
-    onModeChange: async value => { await appendLog(`MODE ${value.mode}`); }
+    onModeChange: async value => { await appendLog(`MODE ${value.mode}`); },
+    onConnectivityChange: async value => { await appendLog('CONNECTIVITY ' + value.connection_status + ' offline_ticks=' + value.offline_tick_count + ' pending_sync=' + value.pending_sync_count); }
   });
   const server = startControlServer(core);
   const autoResume = String(process.env.ARIA_MEDITATION_AUTO_RESUME ?? 'true').toLowerCase() !== 'false';
@@ -211,4 +226,4 @@ function createWindowsMeditationController() {
   return Object.freeze({ core, server, event: appendLog, start: core.start, pause: core.pause, resume: core.resume, stop: async () => { notepadOpened = false; return core.stop(); }, shutdown: async () => { await core.shutdown(); server.close(); } });
 }
 
-module.exports = Object.freeze({ createWindowsMeditationController, constants: Object.freeze({ ROOT, MED_ROOT, LOG_PATH, CONTROL_PORT, CONTROLLER_VERSION }) });
+module.exports = Object.freeze({ createWindowsMeditationController, requestLocalTick, constants: Object.freeze({ ROOT, MED_ROOT, LOG_PATH, OFFLINE_JOURNAL_PATH, CONTROL_PORT, CONTROLLER_VERSION }) });
