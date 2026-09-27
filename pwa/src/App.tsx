@@ -1094,8 +1094,8 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
         {mission?.block_details && (status === 'blocked' || status === 'waiting' || status === 'failed' || status === 'paused' || mission.block_details.kind === 'replan_required' || mission.block_details.kind === 'human_gate') && (
           <div className='detailResult recoveryPanel'>
             <div className='panelTitle'>{mission.block_details.kind === 'human_gate' ? 'HUMAN GATE · QUÉ FALTA' : 'BLOQUEO · QUÉ FALTA'}</div>
-            <div className='recoveryExplanation'><strong>{mission.block_details.explanation || mission.block_details.reason || 'La misión necesita una intervención antes de continuar.'}</strong></div>
-            <div className='recoverySteps'><strong>Cómo desbloquearla</strong>{(mission.block_details.steps?.length ? mission.block_details.steps : [mission.block_details.remediation || mission.block_details.next_action || 'Revisar el diagnóstico y corregir la causa.','Cuando quede resuelto, vuelve a ejecutar la misión.']).map((stepText: string, index: number) => <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>)}</div>
+            <div className='recoveryExplanation'><strong>{humanizeTechnicalText(mission.block_details.explanation || mission.block_details.reason || 'La misión necesita una intervención antes de continuar.')}</strong></div>
+            <div className='recoverySteps'><strong>Cómo desbloquearla</strong>{(mission.block_details.steps?.length ? mission.block_details.steps : [mission.block_details.remediation || mission.block_details.next_action || 'Revisar el diagnóstico y corregir la causa.','Cuando quede resuelto, vuelve a ejecutar la misión.']).map((stepText: string, index: number) => <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{humanizeTechnicalText(stepText)}</p></div>)}</div>
             <div className='recoveryActions'>
               {mission.block_details.link && <a className='ghost recoveryLink' href={mission.block_details.link} target='_blank' rel='noreferrer'>{mission.block_details.link_label || 'Abrir recurso relacionado'}</a>}
               {onRetry && mission.block_details.retry_ready !== false && <button className='primary' disabled={retrying || cancelling} onClick={async () => { setRetrying(true); setRetryError(''); try { await onRetry(); } catch (e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); } }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>}
@@ -1109,9 +1109,9 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
           <div className='detailResult'>
             <div className='panelTitle'>{status === 'blocked' ? 'POR QUÉ QUEDÓ BLOQUEADA' : 'RECUPERACIÓN / VERIFICACIÓN'}</div>
             <div className='humanSummaryGrid'>
-              <div><strong>Motivo</strong><p>{mission.block_details.reason || 'Sin motivo registrado.'}</p></div>
-              <div><strong>Qué está haciendo ARIA</strong><p>{mission.block_details.next_action || 'ARIA determinará la siguiente estrategia gobernada.'}</p></div>
-              <div><strong>Cómo solucionarlo</strong><p>{mission.block_details.remediation || 'Generar una estrategia alternativa con la evidencia disponible.'}</p></div>
+              <div><strong>Motivo</strong><p>{humanizeTechnicalText(mission.block_details.reason || 'Sin motivo registrado.')}</p></div>
+              <div><strong>Qué está haciendo ARIA</strong><p>{humanizeTechnicalText(mission.block_details.next_action || 'ARIA determinará la siguiente estrategia gobernada.')}</p></div>
+              <div><strong>Cómo solucionarlo</strong><p>{humanizeTechnicalText(mission.block_details.remediation || 'Generar una estrategia alternativa con la evidencia disponible.')}</p></div>
               <div><strong>¿Se puede recuperar?</strong><p>{mission.block_details.recoverable ? 'Sí. La misión conserva evidencia y puede continuar sin repetir innecesariamente el cambio.' : 'No con la estrategia actual. Requiere una nueva intervención gobernada.'}</p></div>
             </div>
             {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
