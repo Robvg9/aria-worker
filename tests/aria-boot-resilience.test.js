@@ -21,6 +21,8 @@ assert.match(main, /BootReady/, 'PWA must signal boot readiness from a mounted R
 assert.match(main, /useEffect\(\(\) => \{\s*\(window as any\).__ariaBootReady\?\./, 'PWA must dismiss the boot surface only after React commit');
 assert.match(main, /__ariaBootReady/, 'PWA must dismiss the boot surface after mounting');
 
+assert.match(main, /location\.replace\('\/pwa\/#home'\)/, 'PWA boot errors must offer direct Dashboard recovery');
+
 console.log('ARIA BLANK-SCREEN STARTUP RESILIENCE: PASS');
 
 const boundaryOrder = main.indexOf('<BootErrorBoundary>') < main.indexOf('<BootReady>') && main.indexOf('<BootReady>') < main.indexOf('<App />');
