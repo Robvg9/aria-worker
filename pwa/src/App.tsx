@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
-import { TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
+import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
 import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
