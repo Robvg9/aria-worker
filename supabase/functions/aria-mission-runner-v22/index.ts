@@ -2349,7 +2349,7 @@ Deno.serve(async (request) => {
         const failedStepIds = failedStepIdsEarly;
         const previousPlan = steps;
         const previousResults = results;
-        const maxReplans = 2;
+        const maxReplans = Number.POSITIVE_INFINITY;
         if (replanCount <= maxReplans) {
           const recovery = {
             status: "replan_required",
