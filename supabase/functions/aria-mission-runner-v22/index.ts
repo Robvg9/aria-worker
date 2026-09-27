@@ -451,22 +451,8 @@ function jobIdFor(missionId: string, stepId: string) {
 }
 
 async function getExecutionJob(jobId: string) {
-  const response = await fetch(RUNTIME, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify({ action: "get_job", job_id: jobId }),
-  });
-  const body = await response.json().catch(() => null);
-
-  // Canonical fallback: the execution gateway can lag behind execution_jobs.
-  // For async device jobs, the mission runner must trust the persisted job row
-  // as the source of truth so a completed Windows job can be resumed and verified.
-  const gatewayJob = body?.job;
-  const gatewayStatus = String(gatewayJob?.status || "");
-  if (gatewayJob && ["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(gatewayStatus)) {
-    return { response, body };
-  }
-
+  // Source of truth first: async device execution is persisted in execution_jobs.
+  // Do not wait on the runtime gateway when the canonical DB row already exists.
   try {
     const { data, error } = await sb.schema("aria_internal")
       .from("execution_jobs")
@@ -482,7 +468,7 @@ async function getExecutionJob(jobId: string) {
         error: data.error ?? null,
       };
       return {
-        response,
+        response: { ok: true, status: 200 },
         body: {
           ok: true,
           job: persisted,
@@ -491,9 +477,15 @@ async function getExecutionJob(jobId: string) {
       };
     }
   } catch {
-    // Preserve the gateway response if the DB fallback is unavailable.
+    // Fall through to the runtime gateway if the DB lookup itself is unavailable.
   }
 
+  const response = await fetch(RUNTIME, {
+    method: "POST",
+    headers: internalHeaders(),
+    body: JSON.stringify({ action: "get_job", job_id: jobId }),
+  });
+  const body = await response.json().catch(() => null);
   return { response, body };
 }
 
