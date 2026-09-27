@@ -186,26 +186,52 @@ public static class AriaDesktopNative {
         'type' {
             $text=[string]$payload.text
             if ([string]::IsNullOrEmpty($text)) { Emit-Result @{status='failed';action=$action;error='desktop_type_text_required'} 1 }
-            $oldText=$null; $hadText=$false
-            try {
-                if ([System.Windows.Forms.Clipboard]::ContainsText()) { $oldText=[System.Windows.Forms.Clipboard]::GetText(); $hadText=$true }
-            } catch {}
-            try {
-                [System.Windows.Forms.Clipboard]::SetText($text)
-                Start-Sleep -Milliseconds 30
-                Send-VkDown 0x11
-                Start-Sleep -Milliseconds 20
-                Send-VkDown 0x56
-                Send-VkUp 0x56
-                Send-VkUp 0x11
-                Start-Sleep -Milliseconds 30
-            } finally {
+
+            $clipboardWorked=$false
+            $oldText=$null
+            $hadText=$false
+
+            for ($attempt=1; $attempt -le 8 -and -not $clipboardWorked; $attempt++) {
+                try {
+                    if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+                        $oldText=[System.Windows.Forms.Clipboard]::GetText()
+                        $hadText=$true
+                    }
+                } catch {
+                    $oldText=$null
+                    $hadText=$false
+                }
+
+                try {
+                    [System.Windows.Forms.Clipboard]::SetText($text)
+                    Start-Sleep -Milliseconds 40
+                    Send-VkDown 0x11
+                    Start-Sleep -Milliseconds 15
+                    Send-VkDown 0x56
+                    Send-VkUp 0x56
+                    Send-VkUp 0x11
+                    Start-Sleep -Milliseconds 40
+                    $clipboardWorked=$true
+                } catch {
+                    Start-Sleep -Milliseconds 100
+                }
+            }
+
+            if ($clipboardWorked) {
                 try {
                     if ($hadText) { [System.Windows.Forms.Clipboard]::SetText($oldText) }
                     else { [System.Windows.Forms.Clipboard]::Clear() }
                 } catch {}
+                Emit-Result @{status='succeeded';action=$action;text_length=$text.Length;method='clipboard_paste';attempts=$attempt}
             }
-            Emit-Result @{status='succeeded';action=$action;text_length=$text.Length;method='clipboard_paste'}
+
+            try {
+                [System.Windows.Forms.SendKeys]::SendWait($text)
+                Start-Sleep -Milliseconds 50
+                Emit-Result @{status='succeeded';action=$action;text_length=$text.Length;method='sendkeys_fallback';clipboard_attempts=8}
+            } catch {
+                Emit-Result @{status='failed';action=$action;text_length=$text.Length;error=("desktop_type_clipboard_and_sendkeys_failed: " + $_.Exception.Message)} 1
+            }
         }
         'keypress' {
             $key=[string]$payload.key
