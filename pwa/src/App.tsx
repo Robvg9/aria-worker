@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
-import { TEST_CATALOG, TEST_CATALOG_VERSION } from './testCatalog';
+import { TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
 import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
@@ -964,12 +964,8 @@ function CapabilityCenter({
   const q = filter.trim().toLowerCase();
   const filtered = q ? source.filter((item: any) => JSON.stringify(item).toLowerCase().includes(q)) : source;
 
-  const testCategories = ['Todas', ...Array.from(new Set(TEST_CATALOG.map(test => test.category)))];
-  const filteredTests = TEST_CATALOG.filter(test => {
-    const categoryOk = testCategory === 'Todas' || test.category === testCategory;
-    const queryOk = !q || JSON.stringify(test).toLowerCase().includes(q);
-    return categoryOk && queryOk;
-  });
+  const testCategories = ['Todas', ...TEST_CATALOG_STATS.categories];
+  const filteredTests = filterTestCatalog(q, testCategory);
 
   function saveTab(next: typeof tab) {
     setTab(next);
@@ -1006,14 +1002,14 @@ function CapabilityCenter({
                 <button className='capTile' onClick={() => saveTab('devices')}><span>DISPOSITIVOS</span><strong>{caps.summary.devices ?? 0}</strong><small>{caps.summary.devices_online ?? 0} online</small></button>
                 <button className='capTile' onClick={() => saveTab('executors')}><span>EXECUTORS</span><strong>{caps.summary.executors ?? 0}</strong><small>rutas gobernadas</small></button>
                 <button className='capTile' onClick={() => saveTab('connections')}><span>CONEXIONES</span><strong>{caps.summary.connections ?? 0}</strong><small>estado no sensible</small></button>
-                <button className='capTile' onClick={() => saveTab('tests')}><span>PRUEBAS</span><strong>{TEST_CATALOG.length}</strong><small>{TEST_CATALOG.filter(test => test.includedInNpmTest).length} en npm test</small></button>
+                <button className='capTile' onClick={() => saveTab('tests')}><span>PRUEBAS</span><strong>{TEST_CATALOG_STATS.total}</strong><small>{TEST_CATALOG_STATS.npmTest} en npm test</small></button>
               </div>
             ) : <div className='emptyState'>No se pudo cargar el inventario.</div>
           ) : tab === 'tests' ? (
             <div className='testCenter'>
               <div className='testCenterStats'>
-                <div className='statCard'><div className='statValue'>{TEST_CATALOG.length}</div><div className='statLabel'>Tests catalogados</div></div>
-                <div className='statCard'><div className='statValue'>{TEST_CATALOG.filter(test => test.includedInNpmTest).length}</div><div className='statLabel'>Incluidos en npm test</div></div>
+                <div className='statCard'><div className='statValue'>{TEST_CATALOG_STATS.total}</div><div className='statLabel'>Tests catalogados</div></div>
+                <div className='statCard'><div className='statValue'>{TEST_CATALOG_STATS.npmTest}</div><div className='statLabel'>Incluidos en npm test</div></div>
                 <div className='statCard'><div className='statValue'>{testCategories.length - 1}</div><div className='statLabel'>Áreas de prueba</div></div>
               </div>
               <div className='testCatalogHeader'>
