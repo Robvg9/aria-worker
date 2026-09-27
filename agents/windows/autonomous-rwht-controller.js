@@ -747,8 +747,8 @@ async function runAutonomousRwht(options) {
       }
     }
 
-    const verifiedActionCount = evidence.filter((item) => item.step && item.verified === true).length;
-    if (controlDiscoveryVerify && verifiedActionCount >= 5 && screensSeen.size >= 2) {
+    const verifiedActionCount = evidence.filter((item) => item.step && item.action && item.verified === true).length;
+    if (controlDiscoveryVerify && exercisedControls.size >= 5 && screensSeen.size >= 2) {
       finishReason = 'control_discovery_verified';
       break;
     }
@@ -766,7 +766,7 @@ async function runAutonomousRwht(options) {
     finishReason = 'bounded_run_exhausted';
   }
 
-  const verifiedActions = evidence.filter((item) => item.step && item.verified === true);
+  const verifiedActions = evidence.filter((item) => item.step && item.action && item.verified === true);
   const coverageRatio = discoveredControls.size
     ? Number((exercisedControls.size / discoveredControls.size).toFixed(3))
     : 0;

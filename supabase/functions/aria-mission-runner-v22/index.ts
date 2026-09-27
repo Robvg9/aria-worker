@@ -329,8 +329,45 @@ function verificationPending(step: any, result: any) {
   ].includes(status);
 }
 
+function autonomousRwhtEvidence(result: any) {
+  const operation = String(result?.operation || result?.executor_type || "");
+  if (!/computer\.use\.autonomous/i.test(operation)) return null;
+  let parsed = null;
+  if (typeof result?.stdout === "string") {
+    try { parsed = JSON.parse(result.stdout); } catch {}
+  }
+  const source = parsed && typeof parsed === "object" ? parsed : result;
+  const status = String(source?.status || result?.status || "").toLowerCase();
+  const verificationStatus = String(source?.verification_status || result?.verification_status || "").toLowerCase();
+  const finishedReason = String(source?.finished_reason || "").toLowerCase();
+  const actionsVerified = Number(source?.actions_verified ?? result?.actions_verified ?? 0);
+  const screensSeen = Number(source?.screens_seen ?? result?.screens_seen ?? 0);
+  const controlsDiscovered = Number(source?.controls_discovered ?? result?.controls_discovered ?? 0);
+  const controlsExercised = Number(source?.controls_exercised ?? result?.controls_exercised ?? 0);
+  const evidenceCount = Number(source?.evidence_count ?? result?.evidence_count ?? 0);
+  const verifiedFlag = source?.verified === true || result?.verified === true || verificationStatus === "verified";
+  const passed = status === "succeeded"
+    && verifiedFlag
+    && finishedReason === "control_discovery_verified"
+    && actionsVerified >= 5
+    && screensSeen >= 2
+    && controlsDiscovered >= 5
+    && controlsExercised >= 5
+    && evidenceCount >= 5;
+  return { passed, status, verificationStatus, finishedReason, actionsVerified, screensSeen, controlsDiscovered, controlsExercised, evidenceCount };
+}
+
 function verifyStep(step: any, result: any) {
   if (result?.__aria_verified_by_runner === true && result?.__aria_verification_evidence?.verified === true) {
+    return true;
+  }
+  const autonomousRwht = executorType(step) === "device" && String(step?.operation || "") === "computer.use.autonomous"
+    ? autonomousRwhtEvidence(result)
+    : null;
+  if (autonomousRwht) {
+    if (!autonomousRwht.passed) return false;
+    // Focused RWHT evidence is the canonical verification payload; it intentionally
+    // lives in stdout because the Windows device contract does not use response.content.
     return true;
   }
   if (!(result?.status === "succeeded" || result?.ok === true)) return false;
