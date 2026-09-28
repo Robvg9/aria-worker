@@ -36,11 +36,8 @@ jobs:
           WORKERS_CI_COMMIT_SHA: ${{ github.sha }}
         run: npm run build
 
-      - name: Install Wrangler
-        run: npm install --global wrangler@latest
-
       - name: Wrangler version
-        run: wrangler --version
+        run: npm exec --no -- wrangler --version
 
       - name: Bundle Worker without deploy
-        run: wrangler deploy worker.js --name aria --dry-run
+        run: npm exec --no -- wrangler deploy worker.js --name aria --dry-run
