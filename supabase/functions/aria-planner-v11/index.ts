@@ -55,6 +55,68 @@ function applyHumanGateIntent(goal:string,steps:any[]){
 const repairStep=async(goal:string,context:any)=>{const contextText=JSON.stringify(context).slice(0,7000);return [agentStep("diagnosis_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Analiza primero la falla real de esta misión antes de modificar nada. Inspecciona la evidencia disponible y determina causa raíz, archivos/recursos afectados, riesgo y pruebas necesarias. No hagas cambios. Misión original: ${goal}. Contexto: ${contextText}`),{id:"repair_1",operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:"aria-agent-coding-v1"},capability:"coding",input:{goal:"Ejecutar reparación gobernada",prompt:esPrompt(`Esta es la fase de IMPLEMENTACIÓN de una reparación real. Usa el diagnóstico previo como guía, pero comprueba el estado actual por ti mismo. Trabaja en una rama gobernada que no sea main, corrige la causa raíz, ejecuta las pruebas focalizadas y devuelve evidencia concreta: cambios realizados, archivos afectados, pruebas ejecutadas y resultado. No declares éxito por texto solamente. Misión original: ${goal}. Contexto: ${contextText}`),max_tokens:3000},risk:"LOW_RISK_WRITE",timeout_ms:180000,policy:governedWritePolicy,depends_on:["diagnosis_1"],verify:{},selection:{review_role:"coder",write_route:"github_app_governed_or_agent_runtime"}},agentStep("verification_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Verifica la reparación real ya aplicada para esta misión. Inspecciona el estado actual del repositorio/PR, confirma que el cambio existe, revisa las pruebas/evidencias y determina si la causa raíz quedó resuelta. No hagas cambios. Misión original: ${goal}. Contexto: ${contextText}`,["repair_1"])]};
 const changeStep=async(goal:string,context:any)=>{const contextText=JSON.stringify(context).slice(0,7000);return [agentStep("analysis_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Antes de implementar, analiza la solicitud completa y localiza exactamente qué debe cambiar. Inspecciona el repositorio real, identifica archivos/componentes afectados, dependencias, riesgos y pruebas necesarias. No modifiques nada en esta fase. Solicitud original: ${goal}. Contexto: ${contextText}`),{id:"implementation_1",operation:"delegate",executor_type:"agent",target:{type:"agent",agent_id:"aria-agent-coding-v1"},capability:"coding",input:{goal:"Ejecutar implementación gobernada",prompt:esPrompt(`Esta es la fase de IMPLEMENTACIÓN de una solicitud real. Usa el análisis previo como guía y comprueba el estado actual por ti mismo. Trabaja únicamente en una rama gobernada que no sea main. Implementa exactamente la solicitud, añade o actualiza pruebas focalizadas y devuelve evidencia concreta de cambios y pruebas. No termines después del análisis y no declares éxito por texto solamente. Solicitud original: ${goal}. Contexto: ${contextText}`),max_tokens:3200},risk:"LOW_RISK_WRITE",timeout_ms:180000,policy:governedWritePolicy,depends_on:["analysis_1"],verify:{},selection:{review_role:"coder",write_route:"github_app_governed_or_agent_runtime"}},agentStep("verification_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},`Haz la VERIFICACIÓN FINAL de esta solicitud. Inspecciona el cambio real que acaba de producirse, confirma que satisface la solicitud original, revisa las pruebas y la evidencia disponible y señala cualquier contradicción, bloqueo o trabajo faltante. No modifiques nada. Solicitud original: ${goal}. Contexto: ${contextText}`,["implementation_1"])]};
 
+
+function extractMissionPlannerContract(context:any){
+  const raw=context?.mission_planner_contract;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+
+function explicitDeviceIntent(goal:string, context:any){
+  const c=extractMissionPlannerContract(context);
+  const requested=String(c?.requested_capability || c?.capability || "").trim().toLowerCase();
+  const deviceId=String(c?.requested_device_id || c?.device_id || "").trim();
+  const normalized = requested === "shell.execute" || requested === "computer.use" || requested === "computer.use.autonomous" || requested === "computer.use.android"
+    ? requested
+    : ((goal.match(/\b(shell\.execute|computer\.use(?:\.autonomous|\.android)?)\b/i)?.[1] || "").toLowerCase());
+  if(!normalized || !deviceId) return null;
+  return {operation:normalized,device_id:deviceId,contract:c};
+}
+
+function directDeviceIntentPlan(goal:string, context:any){
+  const intent=explicitDeviceIntent(goal,context);
+  if(!intent) return null;
+  const c=intent.contract;
+  const marker=String(c?.verification_marker || "").trim()
+    || (String(goal).match(/\bARIA_[A-Z0-9_]+\b/)?.[0] || "");
+  const operation=intent.operation;
+  const verification = operation==="shell.execute" && marker
+    ? {expected_exit_code:0,stdout_contains:marker}
+    : {response_content_nonempty:true};
+  const command=operation==="shell.execute"
+    ? String(c?.command || (marker ? `echo ${marker}` : "echo ARIA_DEVICE_INTENT_PASS"))
+    : null;
+  const input:any = operation==="shell.execute"
+    ? {command,...(typeof c?.cwd==="string"&&c.cwd.trim()?{cwd:c.cwd}: {})}
+    : {
+        ...(c?.input && typeof c.input==="object" ? c.input : {}),
+        ...(typeof c?.start_url==="string"&&c.start_url.trim()?{start_url:c.start_url}: {}),
+      };
+  return {
+    goal,
+    steps:[{
+      id:"device_intent_1",
+      operation,
+      executor_type:"device",
+      target:{type:"device",device_id:intent.device_id},
+      input,
+      risk:String(c?.risk || "READ").toUpperCase(),
+      timeout_ms:Number.isInteger(c?.timeout_ms) ? c.timeout_ms : 30000,
+      policy:{tool_use:true,explicit_device_intent:true,no_side_effects:operation==="shell.execute",spanish_output_required:true},
+      verify:verification,
+      selection:{
+        capability_intent:operation,
+        requested_device_id:intent.device_id,
+        requested_capability:operation,
+        verification_marker:marker || null,
+        selection_reason:"explicit mission device contract"
+      }
+    }],
+    planner_version:"aria-planner-v11-explicit-device-intent-v1",
+    explicit_device_intent:true,
+    mission_planner_contract:{requested_capability:operation,requested_device_id:intent.device_id,verification_marker:marker || null}
+  };
+}
+
 async function tryVerifiedPathPlan(goal:string, context:any){
   try{
     const candidates:any[]=[];
@@ -653,7 +715,7 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
   }catch(_e){ return null; }
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
