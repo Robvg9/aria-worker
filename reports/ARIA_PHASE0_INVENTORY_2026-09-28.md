@@ -179,3 +179,18 @@ La FASE 0 ya puede distinguir tres clases:
 
 El siguiente paso de inventario es completar la misma matriz para App API v1/v2/v3, Memory/MCP y los planners/runners/supervisors legacy.
 
+
+
+## 0.5b — App API / Memory: tráfico reciente
+
+Ventana auditada: 2026-09-28 12:30–15:00 UTC.
+
+- `aria-app-api-v3` v104: **251 llamadas**.
+- `aria-app-api-v1`: **0 observadas**.
+- `aria-app-api-v2`: **0 observadas**.
+- `aria-memory-v2` v33: **141 llamadas**.
+- `aria-memory-bridge-v1`: **0 observadas**.
+- `aria-memory-bridge-9-4`: **0 observadas**.
+
+**Clasificación:** v3/v2 son superficies activas demostradas. Las demás variantes son candidatos de legacy/deprecación sujetos a auditoría de consumidores y rollback. No se elimina ninguna en FASE 0.
+
