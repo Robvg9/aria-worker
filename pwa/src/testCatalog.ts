@@ -74,6 +74,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en inferencia de ejecutor, dispatch y ejecución universal."
   },
   {
+    "id": "explicit-device-intent-planner-contract",
+    "file": "tests/explicit-device-intent-planner-contract.test.js",
+    "title": "Explicit Device Intent Planner Contract",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la intención explícita de ejecución en dispositivo llegue del runner al planner y produzca un paso gobernado.",
+    "capabilities": "Detecta regresiones en selección de dispositivo, operación shell.execute, verificación y contrato planner-runner."
+  },
+  {
     "id": "pc-rwht-browser",
     "file": "tests/pc-rwht-browser.test.js",
     "title": "PC RWHT Browser",
