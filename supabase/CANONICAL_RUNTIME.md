@@ -1,6 +1,6 @@
 # ARIA canonical Supabase runtime
 
-The production control loop has one release-bearing execution chain:
+The production control loop has one release-bearing execution chain. Every protected canonical function must have its deployable source versioned under `supabase/functions/<function>/`; live-only source is not considered reproducible.
 
 - `aria-planner-v11`
 - `aria-canonical-runtime-v1`

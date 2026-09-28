@@ -1,12 +1,18 @@
 'use strict';
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
+const path=require('node:path');
 const source=fs.readFileSync('.github/workflows/supabase-canonical-deploy.yml','utf8');
 const pwaDeploy=fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 
-for(const fn of ['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-memory-v2'])
-  assert.match(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must be deployed`);
+const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-memory-v2'];
+for(const fn of releaseFunctions) assert.match(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must be deployed`);
+
+const protectedFunctions=['aria-planner-v11','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1'];
+for(const fn of protectedFunctions) assert.ok(fs.existsSync(path.join('supabase','functions',fn,'index.ts')),`${fn} source index.ts must be versioned`);
+assert.ok(fs.existsSync(path.join('supabase','functions','aria-runtime-gateway-v1','deno.json')),'aria-runtime-gateway-v1 deno.json must be versioned');
+
 for(const fn of ['aria-planner-v10','aria-autonomy-supervisor-v10','aria-autonomy-supervisor-v5','aria-mission-runner-v15','aria-mission-runner-v16','aria-mission-runner-v17','aria-mission-runner-v18'])
   assert.doesNotMatch(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must remain compatibility-only`);
 assert.doesNotMatch(source,/functions deploy aria-mission-runner-v14\\b/);
@@ -40,16 +46,8 @@ assert.ok(pwaDeploy.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
 const workflowDir='.github/workflows';
 const workflowFiles=fs.readdirSync(workflowDir).filter(name=>name.endsWith('.yml')||name.endsWith('.yaml'));
 const canonicalReleaseBearing=new Set(['supabase-canonical-deploy.yml']);
-const protectedFunctions=[
-  'aria-planner-v11',
-  'aria-mission-runner-v22',
-  'aria-runtime-gateway-v1',
-  'aria-execution-runtime-v1',
-  'aria-device-gateway',
-  'aria-smart-verifier-v1'
-];
 for(const file of workflowFiles){
-  const text=fs.readFileSync(require('node:path').join(workflowDir,file),'utf8');
+  const text=fs.readFileSync(path.join(workflowDir,file),'utf8');
   if(!canonicalReleaseBearing.has(file)){
     for(const fn of protectedFunctions){
       assert.doesNotMatch(text,new RegExp(`supabase functions deploy ${fn}\\b`),`${file} must not directly deploy canonical runtime function ${fn}`);
