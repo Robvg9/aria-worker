@@ -1,0 +1,45 @@
+{
+  "version": "aria-operational-diagnostics-v1.0.0",
+  "status_categories": [
+    "healthy",
+    "degraded",
+    "failed",
+    "blocked",
+    "unavailable",
+    "unknown"
+  ],
+  "severity": [
+    "info",
+    "warning",
+    "error",
+    "critical"
+  ],
+  "categories": [
+    "pwa",
+    "device",
+    "runtime",
+    "provider",
+    "model",
+    "connector",
+    "agent",
+    "eas",
+    "auth",
+    "credential",
+    "lease",
+    "timeout",
+    "backpressure",
+    "verifier",
+    "policy",
+    "routing",
+    "unknown"
+  ],
+  "required_diagnosis": [
+    "root_cause",
+    "summary",
+    "explanation",
+    "expected",
+    "observed",
+    "dependency",
+    "next_action"
+  ]
+}

@@ -491,10 +491,15 @@ async function api(path: string, token: string, init: RequestInit = {}) {
   const isRead = method === 'GET' || method === 'HEAD';
   const attempts = isRead ? 2 : 1;
   let lastError: unknown = null;
+  const traceId = (init.headers && new Headers(init.headers).get('x-aria-trace-id')) || crypto.randomUUID();
+  const requestId = (init.headers && new Headers(init.headers).get('x-aria-request-id')) || crypto.randomUUID();
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     const headers = new Headers(init.headers);
     headers.set('authorization', 'Bearer ' + token);
+    headers.set('x-aria-trace-id', traceId);
+    headers.set('x-aria-request-id', requestId);
+    headers.set('x-aria-pwa-build', BUILD);
     if (init.body) headers.set('content-type', 'application/json');
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), isRead ? 9000 : path.endsWith('/conversation') ? 75000 : 20000);
@@ -916,6 +921,26 @@ function StatCard({ value, label, color = '' }: { value: string | number; label:
   return <div className='statCard'><div className={'statValue ' + color}>{value}</div><div className='statLabel'>{label}</div></div>;
 }
 
+function OperationalHealthPanel({ health }: { health: any }) {
+  if (!health) return <section className='panel'><div className='panelTitle'>SALUD OPERATIVA</div><div className='emptyState'>Sin diagnóstico de salud disponible.</div></section>;
+  const status=String(health.status||'unknown');
+  const s=health.summary||{};
+  return <section className='panel diagnosticHealthPanel'>
+    <div className='detailTop'><div><div className='panelTitle'>SALUD OPERATIVA · v{String(health.version||'diagnóstico')}</div><div className='bigStatus'>{status==='healthy'?'SALUDABLE':status==='degraded'?'DEGRADADA':status==='unavailable'?'NO DISPONIBLE':'SIN DATOS SUFICIENTES'}</div><div className='muted'>Actualizado {health.generated_at ? formatDate(health.generated_at) : 'ahora'}</div></div><span className={'pill '+tone(status)}>{statusLabel(status)}</span></div>
+    <div className='detailGrid'>
+      <StatCard value={s.active_missions ?? 0} label='Misiones activas' />
+      <StatCard value={s.queued_jobs ?? 0} label='Jobs en cola' />
+      <StatCard value={s.running_jobs ?? 0} label='Jobs ejecutándose' />
+      <StatCard value={s.stale_jobs ?? 0} label='Jobs stale' />
+      <StatCard value={(s.devices_online ?? 0)+'/'+(s.devices_total ?? 0)} label='Dispositivos online' />
+      <StatCard value={(s.models_available ?? 0)+'/'+(s.models_total ?? 0)} label='Modelos disponibles' />
+    </div>
+    <div className='humanSummaryGrid'>
+      {(health.next_actions||[]).map((action:string,i:number)=><div key={i}><strong>Siguiente acción</strong><p>{action}</p></div>)}
+    </div>
+  </section>;
+}
+
 function QuickCatalogModal({ title, items, onClose }: { title: string; items: any[]; onClose: () => void }) {
   return (
     <div className='modalBackdrop' onClick={onClose}>
@@ -1066,7 +1091,7 @@ function CapabilityCenter({
 }
 
 
-function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { mission: Mission; events: MissionEvent[]; onClose: () => void; onRetry?: () => Promise<void>; onCancel?: () => Promise<void> }) {
+function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel }: { mission: Mission; events: MissionEvent[]; diagnostic?: any; onClose: () => void; onRetry?: () => Promise<void>; onCancel?: () => Promise<void> }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -1112,6 +1137,19 @@ function MissionDetail({ mission, events, onClose, onRetry, onCancel }: { missio
             {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
           </div>
         )}
+        {diagnostic && <div className='detailResult diagnosticPanel'>
+          <div className='panelTitle'>DIAGNÓSTICO OPERACIONAL · {String(diagnostic.classification?.category || 'unknown').toUpperCase()}</div>
+          <div className='humanSummaryGrid'>
+            <div><strong>Causa raíz</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.root_cause || 'No determinada')}</p></div>
+            <div><strong>Qué observó ARIA</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.observed || 'Sin observación registrada')}</p></div>
+            <div><strong>Qué esperaba</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.expected || 'Evidencia verificable y estado coherente')}</p></div>
+            <div><strong>Dependencia</strong><p>{humanizeTechnicalText(JSON.stringify(diagnostic.diagnosis?.dependency || diagnostic.health?.dependency || {}))}</p></div>
+            <div><strong>Siguiente acción</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.next_action || 'Revisar evidencia y estrategia')}</p></div>
+            <div><strong>Intentos observados</strong><p>{String(diagnostic.diagnosis?.attempts_observed ?? diagnostic.attempts?.length ?? 0)}</p></div>
+          </div>
+          <div className='muted'>Trace: {String(diagnostic.correlation?.trace_id || '—')} · Request: {String(diagnostic.correlation?.request_id || '—')} · Execution: {String(diagnostic.correlation?.execution_id || '—')}</div>
+          <div className='muted'>Runtime: {String(diagnostic.versions?.runtime_version || '—')} · Planner: {String(diagnostic.versions?.planner_version || '—')} · Verifier: {String(diagnostic.versions?.verifier_version || '—')} · Build PWA: {String(diagnostic.versions?.pwa_build || '—')}</div>
+        </div>}
         {status !== 'blocked' && <div className='detailResult'>
           <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
           <div className='objectiveStatusBanner'>
@@ -1154,6 +1192,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [selected, setSelected] = useState<PwaNotificationItem | null>(null);
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
+  const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
   const [ideaText, setIdeaText] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
@@ -1173,6 +1212,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     setOpen(true);
     setMissionDetail(null);
     setMissionEvents([]);
+    setMissionDiagnostic(null);
 
     try {
       await api('/meditation/notifications/read', session.accessToken, {
@@ -1187,12 +1227,14 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     } catch {}
 
     if (item.mission_id) {
-      const [missionResult, eventsResult] = await Promise.all([
+      const [missionResult, eventsResult, diagnosticResult] = await Promise.all([
         api('/missions/' + encodeURIComponent(item.mission_id), session.accessToken).catch(() => null),
-        api('/missions/' + encodeURIComponent(item.mission_id) + '/events', session.accessToken).catch(() => ({ events: [] }))
+        api('/missions/' + encodeURIComponent(item.mission_id) + '/events', session.accessToken).catch(() => ({ events: [] })),
+        api('/missions/' + encodeURIComponent(item.mission_id) + '/diagnostic', session.accessToken).catch(() => null)
       ]);
       if (missionResult?.mission) setMissionDetail(missionResult.mission);
       setMissionEvents(eventsResult?.events ?? []);
+      setMissionDiagnostic(diagnosticResult?.diagnostic ?? null);
     }
   }
 
@@ -1328,8 +1370,10 @@ function PwaNotificationCenter({ session }: { session: Session }) {
         <MissionDetail
           mission={missionDetail}
           events={missionEvents}
+          diagnostic={missionDiagnostic}
           onClose={() => {
             setMissionDetail(null);
+            setMissionDiagnostic(null);
             setSelected(null);
           }}
         />
@@ -1357,6 +1401,8 @@ function Chat({
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [mission, setMission] = useState<Mission | null>(() => readCached('active_mission', session.userId));
   const [events, setEvents] = useState<MissionEvent[]>([]);
+  const [operationalHealth, setOperationalHealth] = useState<any>(null);
+  const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const initialNavigation = navigationFromHash();
   const [showMission, setShowMission] = useState(false);
   const [showNewMission, setShowNewMission] = useState(() => initialNavigation.newMission);
@@ -1411,6 +1457,11 @@ function Chat({
     }
   };
 
+  const syncOperationalHealth = async () => {
+    const result = await api('/diagnostics/health', session.accessToken).catch(() => null);
+    if (result?.health) setOperationalHealth(result.health);
+  };
+
   useEffect(() => {
     const syncNavigation = () => {
       const nav = navigationFromHash();
@@ -1461,6 +1512,7 @@ function Chat({
 
   useLiveSync(syncSystemAndMission, session.accessToken, 8000);
   useLiveSync(syncCapabilities, session.accessToken, 60000);
+  useLiveSync(syncOperationalHealth, session.accessToken, 30000);
 
   useEffect(() => {
     if (!sending) {
@@ -1578,6 +1630,8 @@ function Chat({
           setMission(md.mission);
           setEvents(ev.events ?? []);
           if (['succeeded', 'failed', 'blocked', 'waiting', 'cancelled'].includes(String(md.mission.status))) {
+            const diagnostic = await api('/missions/' + encodeURIComponent(id) + '/diagnostic', session.accessToken).catch(() => null);
+            setMissionDiagnostic(diagnostic?.diagnostic ?? null);
             setShowMission(true);
             return;
           }
@@ -1663,6 +1717,7 @@ function Chat({
                 </button>
               </div>
             </section>
+            <OperationalHealthPanel health={operationalHealth} />
 
             {mission && (
               <section className='panel livePanel'>
@@ -1749,7 +1804,7 @@ function Chat({
       </div>
 
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
-      {showMission && mission && <MissionDetail mission={mission} events={events} onClose={() => setShowMission(false)} />}
+      {showMission && mission && <MissionDetail mission={mission} events={events} diagnostic={missionDiagnostic} onClose={() => { setShowMission(false); setMissionDiagnostic(null); }} />}
 
       {showNewMission && (
         <div className='modalBackdrop' onClick={() => setShowNewMission(false)}>
@@ -1799,8 +1854,10 @@ function Meditation({ session }: { session: Session }) {
   const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const [operationalHealth, setOperationalHealth] = useState<any>(null);
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
+  const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const [ideaText, setIdeaText] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [ideaError, setIdeaError] = useState('');
@@ -1897,9 +1954,10 @@ function Meditation({ session }: { session: Session }) {
   async function load() {
     setSyncing(true);
     let successes = 0;
-    const [overview, capability] = await Promise.all([
+    const [overview, capability, health] = await Promise.all([
       api('/meditation/overview', session.accessToken).catch(() => null),
-      api('/capabilities', session.accessToken).catch(() => null)
+      api('/capabilities', session.accessToken).catch(() => null),
+      api('/diagnostics/health', session.accessToken).catch(() => null)
     ]);
     if (overview) {
       let nextOverview = overview;
@@ -1946,17 +2004,20 @@ function Meditation({ session }: { session: Session }) {
       writeCached('capabilities', session.userId, capability.capabilities);
       successes++;
     }
+    if (health?.health) setOperationalHealth(health.health);
     setLastSyncAt(successes ? Date.now() : null);
-    setError(successes === 2 ? '' : successes === 1 ? 'Parte de Meditación IA se sincronizó; el resto sigue reintentándose.' : 'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar.');
+    const syncMessage = successes === 3 ? '' : successes > 0 ? 'Parte de Meditación IA se sincronizó; el resto sigue reintentándose.' : 'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar.';
+    setError(syncMessage);
     setSyncing(false);
   }
 
   async function openMission(missionId: string) {
     try {
       setError('');
-      const [missionResult, eventsResult] = await Promise.all([
+      const [missionResult, eventsResult, diagnosticResult] = await Promise.all([
         api('/missions/' + encodeURIComponent(missionId), session.accessToken),
-        api('/missions/' + encodeURIComponent(missionId) + '/events', session.accessToken).catch(() => ({ events: [] }))
+        api('/missions/' + encodeURIComponent(missionId) + '/events', session.accessToken).catch(() => ({ events: [] })),
+        api('/missions/' + encodeURIComponent(missionId) + '/diagnostic', session.accessToken).catch(() => null)
       ]);
       if (!missionResult?.mission) throw new Error('No se pudo recuperar la información de la misión.');
 
@@ -1964,6 +2025,7 @@ function Meditation({ session }: { session: Session }) {
       const freshEvents = Array.isArray(eventsResult?.events) ? eventsResult.events : [];
       setMissionDetail(freshMission);
       setMissionEvents(freshEvents);
+      setMissionDiagnostic(diagnosticResult?.diagnostic ?? null);
 
       // El modal y el panel en vivo deben compartir inmediatamente la misma
       // misión canónica para no mostrar "Completada" dentro y "Ejecutándose" detrás.
@@ -2008,6 +2070,7 @@ function Meditation({ session }: { session: Session }) {
     if (!data?.mission?.mission_id || data?.cancelled !== true) throw new Error('ARIA no confirmó la cancelación de la misión.');
     setMissionDetail(null);
     setMissionEvents([]);
+    setMissionDiagnostic(null);
     await load();
   }
 
@@ -2098,6 +2161,7 @@ function Meditation({ session }: { session: Session }) {
         </div>
       </section>
       <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
+      <OperationalHealthPanel health={operationalHealth} />
       {m
         ? <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => void openMission(String(m.mission_id))} onCancel={() => cancelMission(String(m.mission_id))} />
         : <section className='panel livePanel noActiveMissionPanel'>
@@ -2178,7 +2242,7 @@ function Meditation({ session }: { session: Session }) {
         <summary><span>HISTORIAL</span><b>{(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).length}</b></summary>
         {(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).slice(0, 12).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
       </details>
-      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} onRetry={() => retryMission(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); }} />}
+      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} diagnostic={missionDiagnostic} onRetry={() => retryMission(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); setMissionDiagnostic(null); }} />}
       </div>
     </main>
   );

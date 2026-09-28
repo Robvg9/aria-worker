@@ -115,6 +115,12 @@ Deno.serve(async (request) => {
   const userMetadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
     ? body.metadata
     : {};
+  const traceId = typeof userMetadata.trace_id === "string" && userMetadata.trace_id.trim()
+    ? userMetadata.trace_id.trim()
+    : crypto.randomUUID();
+  const requestId = typeof userMetadata.request_id === "string" && userMetadata.request_id.trim()
+    ? userMetadata.request_id.trim()
+    : traceId;
   const missionId = typeof body.mission_id === "string" && body.mission_id.trim()
     ? body.mission_id.trim()
     : undefined;
@@ -122,6 +128,10 @@ Deno.serve(async (request) => {
   const memoryContext = await recall(goal);
   const metadata = {
     ...userMetadata,
+    trace_id: traceId,
+    request_id: requestId,
+    runtime_version: "aria-mission-runner-v22-universal",
+    diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
     autonomy_managed: true,
     cognitive_memory: {
       source: "aria-memory-v2",
