@@ -21,3 +21,5 @@ Required GitHub Actions secrets for production deployment:
 - `SUPABASE_PROJECT_REF`
 
 No runtime credentials belong in this repository.
+
+<!-- Phase 4 LIVE migration certification trigger: behavior unchanged. -->
