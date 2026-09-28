@@ -1,0 +1,76 @@
+name: ARIA Delivery Deterministic Gate
+
+on:
+  workflow_run:
+    workflows: ["Deploy ARIA Cloudflare Worker"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  delivery-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Canonical deploy result
+        env:
+          EVENT_FILE: $GITHUB_EVENT_PATH
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sys
+          event=json.load(open(os.environ["EVENT_FILE"], encoding="utf-8"))
+          if event["workflow_run"]["conclusion"] != "success":
+              print("CANONICAL_DEPLOY_FAILED=" + str(event["workflow_run"]["conclusion"]))
+              sys.exit(1)
+          print("CANONICAL_DEPLOY_SUCCESS")
+          PY
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select exact deployed commit
+        env:
+          EVENT_FILE: $GITHUB_EVENT_PATH
+        run: |
+          set -euo pipefail
+          SHA="$(python -c 'import json,os; print(json.load(open(os.environ["EVENT_FILE"]))["workflow_run"]["head_sha"])')"
+          git fetch origin "$SHA"
+          git checkout --detach "$SHA"
+          echo "HEAD_SHA=$SHA" >> "$GITHUB_ENV"
+
+      - name: Verify release-bearing change
+        run: |
+          set -euo pipefail
+          PARENT="$(git rev-list --parents -n 1 "$HEAD_SHA" | cut -d' ' -f2)"
+          RESULT="$(node scripts/release-bearing.js "$PARENT" "$HEAD_SHA")"
+          echo "$RESULT"
+          printf '%s' "$RESULT" | python -c 'import json,sys; x=json.load(sys.stdin); assert x["release_bearing"] is True, "Deployment workflow ran for a non-release-bearing change"'
+
+      - name: Prepare independent release artifact identity
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          npm --prefix pwa install --ignore-scripts --no-audit --no-fund
+          export VITE_BUILD="$HEAD_SHA"
+          npm --prefix pwa run build
+          node scripts/delivery-artifact.js prepare "$HEAD_SHA"
+
+      - name: Verify release identity against LIVE
+        run: |
+          set -euo pipefail
+          node scripts/delivery-artifact.js verify-live "$HEAD_SHA" "https://aria.robvg9.workers.dev"
+
+      - name: Publish immutable delivery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-delivery-determinism
+          path: .delivery-release-*.json
+          if-no-files-found: error
+
+      - name: Final marker
+        run: echo ARIA_DELIVERY_DETERMINISM_GATE_PASS
