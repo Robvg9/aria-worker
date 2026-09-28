@@ -1,4 +1,4 @@
-name: ARIA Delivery Deterministic Gate
+name: ARIA Delivery Deterministic Gate V1
 
 on:
   pull_request:
