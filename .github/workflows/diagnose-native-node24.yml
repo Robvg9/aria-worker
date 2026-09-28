@@ -1,5 +1,7 @@
 name: Diagnose native build on Node 24
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: ["diagnose/native-node24-20260928"]
 permissions:
