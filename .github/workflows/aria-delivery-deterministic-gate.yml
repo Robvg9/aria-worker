@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Canonical deploy result
+        if: github.event_name == 'workflow_run'
         run: |
           set -euo pipefail
           python - <<'PY'
