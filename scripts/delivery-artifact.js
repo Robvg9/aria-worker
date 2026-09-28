@@ -24,6 +24,12 @@ function readUtf8(filePath) {
   return fs.readFileSync(filePath, 'utf8');
 }
 
+function buildRuntimeServiceWorker(source, sha) {
+  const lines = String(source).split(/\r?\n/);
+  lines[0] = 'const CACHE = ' + JSON.stringify('aria-pwa-' + sha) + ';';
+  return lines.join('\n');
+}
+
 function extractMeta(html, name) {
   const patterns = [
     new RegExp("<meta\\s+name=['\"]" + name + "['\"]\\s+content=['\"]([^'\"]+)['\"]", 'i'),
@@ -49,7 +55,7 @@ function prepareReleaseArtifact(sha) {
 
   const indexHtml = readUtf8(indexPath);
   const manifest = JSON.parse(readUtf8(manifestPath));
-  const sw = readUtf8(swPath).replaceAll('__BUILD__', sha);
+  const sw = buildRuntimeServiceWorker(readUtf8(swPath), sha);
   const worker = readUtf8(workerPath).replace('const PWA_BUILD = "__PWA_BUILD__";', 'const PWA_BUILD = "' + sha + '";');
   if (!worker.includes('const PWA_BUILD = "' + sha + '";')) {
     throw new Error('Worker PWA_BUILD does not match release SHA');
@@ -169,4 +175,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { canonicalText, sha256Text, sha256File, extractMeta, fetchText, prepareReleaseArtifact, verifyLive };
+module.exports = { canonicalText, sha256Text, sha256File, extractMeta, fetchText, buildRuntimeServiceWorker, prepareReleaseArtifact, verifyLive };
