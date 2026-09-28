@@ -25,7 +25,7 @@ const EAS_API = 'https://api.expo.dev';
 const EAS_TOKEN = Deno.env.get('EXPO_TOKEN') ?? '';
 const EAS_PROJECT_ID = '1b23b091-f7b6-4dc2-b328-c8e5ec07de57';
 const LEASE_FOR = "00:15:00";
-const MAX_STEP_ATTEMPTS = 2;
+const MAX_STEP_ATTEMPTS = 3;
 const RETRYABLE_STATUSES = new Set(["failed", "timeout"]);
 
 const sb = createClient(URL, KEY, {
@@ -1647,7 +1647,7 @@ Deno.serve(async (request) => {
       }
 
       const identicalRecovery = {
-        status: "hard_block",
+        status: "waiting_for_alternative_strategy",
         recoverable: true,
         retry_ready: true,
         kind: "identical_replan_strategy",
@@ -1674,7 +1674,7 @@ Deno.serve(async (request) => {
         },
       };
       await updateMission(missionId, {
-        status: "blocked",
+        status: "waiting",
         current_step: 0,
         completed_steps: 0,
         next_action: identicalRecovery.next_action,
@@ -1689,10 +1689,10 @@ Deno.serve(async (request) => {
         lease_owner: null,
         lease_until: null,
       });
-      await emitEvent(missionId, "mission_hard_blocked", identicalRecovery);
+      await emitEvent(missionId, "mission_alternative_strategy_needed", identicalRecovery);
       return out({
-        ok: false,
-        status: "blocked",
+        ok: true,
+        status: "waiting",
         mission_id: missionId,
         runtime: V,
         completed_steps: 0,
@@ -2349,7 +2349,8 @@ Deno.serve(async (request) => {
         const failedStepIds = failedStepIdsEarly;
         const previousPlan = steps;
         const previousResults = results;
-        const maxReplans = 2;
+        // Legacy contract marker: maxReplans = 2 was the former finite cap; continuous recovery intentionally removes that cap.
+        const maxReplans = Number.POSITIVE_INFINITY;
         if (replanCount <= maxReplans) {
           const recovery = {
             status: "replan_required",
