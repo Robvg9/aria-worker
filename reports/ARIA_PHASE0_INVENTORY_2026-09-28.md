@@ -208,3 +208,6 @@ Las **16 variantes `aria-mcp-*` activas** no mostraron llamadas en `function_edg
 
 ## 0.8 — Defensa de delivery verificada en progreso
 El workflow de Cloudflare fue restringido a cambios relevantes para el Worker/PWA (worker.js, wrangler.toml, manifests npm, pwa/**, build script, integración Cloudflare y el propio workflow). Los cambios puramente documentales ya no deben disparar el deploy Cloudflare.
+
+## 0.9 — Verificación de workflow definitions
+Los workflows manuales de reparación fueron blindados para aceptar ejecución efectiva únicamente vía `workflow_dispatch`. Se requiere un push que no modifique esos archivos para verificar el comportamiento de la definición ya corregida.
