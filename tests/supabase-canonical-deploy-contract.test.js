@@ -23,6 +23,8 @@ assert.ok(source.includes('supabase link --project-ref "$SUPABASE_PROJECT_REF"')
 assert.match(source,/supabase migration fetch --linked --yes/);
 assert.match(source,/supabase db push --include-all/);
 assert.match(source,/remote_hashes/);
+assert.match(source,/remote_versions/,'migration gate must track remote migration versions');
+assert.match(source,/MIGRATION_DRIFT_VERSION=/,'same-version content drift must fail closed');
 assert.doesNotMatch(source,/\\\\\$\\{remote_hashes\\[\\$hash\\]\\+x\\}/,'migration hash lookup must not escape the shell variable expansion');
 assert.match(source,/MIGRATION_PENDING=/);
 assert.match(source,/MIGRATION_ALREADY_APPLIED=/);
