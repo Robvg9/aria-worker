@@ -148,3 +148,34 @@ No se elimina ninguna todavía. Primero se completa el mapa de consumidores.
 4. Confirmar consumidores reales de runner/supervisor antiguos.
 5. Reconstruir matriz completa de claim/recovery y autorización.
 6. Con esa evidencia, proponer retiro reversible de legacy no utilizado.
+
+
+## 0.4b — Matriz de claim/recovery verificada
+
+### Mission claims
+| Superficie | Delegación | Tráfico observado 12:30–14:55 UTC | Clasificación |
+|---|---|---:|---|
+| `public.aria_mission_claim_by_id_lease` | → `aria_internal.aria_mission_claim_by_id_lease` | 85 | CANÓNICA / usada |
+| `public.aria_mission_claim_next_lease` | → `aria_internal.aria_mission_claim_next_lease` | 62 | CANÓNICA / usada |
+| `public.aria_mission_claim_next` | → `aria_internal.aria_mission_claim_next` | 0 observado | CANDIDATA LEGACY; no retirar todavía |
+| `aria_internal.aria_mission_claim_eligible` | predicado de elegibilidad | usada por claim/tick | CANÓNICA |
+| `run_mission_runner_tick_v1` | → HTTP `aria-mission-runner-v22` | scheduler activo | CANÓNICA |
+
+### Execution-job claim
+`public.claim_execution_job_gateway` → `aria_internal.claim_execution_job`.
+
+Tráfico observado: **2898 llamadas HTTP 200** en la ventana auditada. El fast-path vive dentro de `aria_internal.claim_execution_job`; el gateway público es el transporte canónico del device path.
+
+### Stale recovery
+`public.aria_autonomy_recover_stale_missions` → `aria_internal.aria_autonomy_recover_stale_missions` → `..._v1` → `..._heavy_v1`.
+
+Tráfico observado: **278 llamadas HTTP 200** al wrapper público en la ventana auditada. El gate de 15 minutos y el cuerpo pesado están separados.
+
+### Conclusión
+La FASE 0 ya puede distinguir tres clases:
+1. **Ruta canónica demostrada y usada.**
+2. **Facade/wrapper necesario para la ruta canónica.**
+3. **Variante histórica sin tráfico reciente que debe marcarse como candidata a deprecación, no eliminarse todavía.**
+
+El siguiente paso de inventario es completar la misma matriz para App API v1/v2/v3, Memory/MCP y los planners/runners/supervisors legacy.
+
