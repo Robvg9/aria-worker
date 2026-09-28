@@ -1,0 +1,18 @@
+name: Diagnose native build on Node 24
+on:
+  push:
+    branches: ["diagnose/native-node24-20260928"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+      - run: node --version
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      - run: npx --yes wrangler@latest deploy --dry-run
