@@ -743,7 +743,46 @@ async function processManualQueue(b:any,d:any){const {data:q,error:qe}=await sup
 
 async function meditationTick(b:any,d:any){const sessionId=String(b?.session_id||'').trim();const deviceId=String(d.device_id||'').trim();const lightweight=b?.lightweight===true;const recovered=lightweight?0:await recoverStale();const learning=lightweight?{skipped:true}:await learnRecent();const goalSync=lightweight?{skipped:true}:await syncGoalTerminalStates();const autonomyOnly=b?.autonomy_only===true;
 const queueChain:any[]=[];
-if(lightweight&&!autonomyOnly){const {data:runningManual}=await supabase.schema('aria_internal').from('meditation_queue').select('queue_id,resolved_mission_id,status,item_type,item_id,started_at,updated_at').eq('device_id',deviceId).eq('status','running').not('resolved_mission_id','is',null).order('updated_at',{ascending:false}).limit(1).maybeSingle();if(!runningManual?.error&&runningManual?.data?.resolved_mission_id){const activeMissionId=String(runningManual.data.resolved_mission_id);const {data:missionRow}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,status,goal,metadata').eq('mission_id',activeMissionId).maybeSingle();const missionStatus=String(missionRow?.status||'');if(['queued','planning','waiting','paused'].includes(missionStatus)){const resume=(async()=>{try{const runtime=await runCanonicalMission(activeMissionId,'meditation-ia-manual-resume');if(runtime.status==='succeeded'&&missionRow?.metadata?.goal_id)await closeGoalOnMissionSuccess({...missionRow,mission_id:activeMissionId});return runtime}catch{return null}})();const waitUntil=(globalThis as any).EdgeRuntime?.waitUntil;if(typeof waitUntil==='function')waitUntil(resume);}return{ok:true,status:missionStatus||'running',manual_queue:true,queue_id:String(runningManual.data.queue_id),active_mission_id:activeMissionId,mission_created:activeMissionId,goal:String(missionRow?.goal||''),background:true,recovered,learning,goalSync};}}}
+if(lightweight && !autonomyOnly){
+  const {data:runningManual,error:runningError}=await supabase.schema('aria_internal').from('meditation_queue')
+    .select('queue_id,resolved_mission_id,status,item_type,item_id,started_at,updated_at')
+    .eq('device_id',deviceId)
+    .eq('status','running')
+    .not('resolved_mission_id','is',null)
+    .order('updated_at',{ascending:false})
+    .limit(1)
+    .maybeSingle();
+  if(!runningError && runningManual?.resolved_mission_id){
+    const activeMissionId=String(runningManual.resolved_mission_id);
+    const {data:missionRow}=await supabase.schema('aria_internal').from('mission_state')
+      .select('mission_id,status,goal,metadata')
+      .eq('mission_id',activeMissionId)
+      .maybeSingle();
+    const missionStatus=String(missionRow?.status||'');
+    if(['queued','planning','waiting','paused'].includes(missionStatus)){
+      const resume=(async()=>{
+        try{
+          const runtime=await runCanonicalMission(activeMissionId,'meditation-ia-manual-resume');
+          if(runtime.status==='succeeded' && missionRow?.metadata?.goal_id) await closeGoalOnMissionSuccess({...missionRow,mission_id:activeMissionId});
+          return runtime;
+        }catch{return null;}
+      })();
+      const waitUntil=(globalThis as any).EdgeRuntime?.waitUntil;
+      if(typeof waitUntil==='function') waitUntil(resume);
+    }
+    return {
+      ok:true,
+      status:missionStatus||'running',
+      manual_queue:true,
+      queue_id:String(runningManual.queue_id),
+      active_mission_id:activeMissionId,
+      mission_created:activeMissionId,
+      goal:String(missionRow?.goal||''),
+      background:true,
+      recovered,learning,goalSync
+    };
+  }
+}
 let manual=autonomyOnly?null:await processManualQueue(b,d);
 if(manual){
   queueChain.push(manual);
