@@ -114,6 +114,18 @@ async function requestLocalTick({ state, reason, tick, error }) {
   return { status: 'offline_continuing', local_only: true, journal: OFFLINE_JOURNAL_PATH, mission_id: state.active_mission_id || null, goal: state.active_goal || null, tick };
 }
 
+async function appendOfflineJournal(record) {
+  await fsp.mkdir(path.dirname(OFFLINE_JOURNAL_PATH), { recursive: true });
+  await fsp.appendFile(OFFLINE_JOURNAL_PATH, JSON.stringify({ version: 'aria-meditation-offline-journal-v1', recorded_at: new Date().toISOString(), ...record }) + '\n', 'utf8');
+}
+
+async function requestLocalTick({ state, reason, tick, error }) {
+  const record = { type: 'offline_continuity', reason, tick, error: String(error || 'transport_unavailable'), mission_id: state.active_mission_id || null, goal: state.active_goal || null, session_id: state.session_id || null };
+  await appendOfflineJournal(record);
+  await appendLog('OFFLINE_CONTINUITY tick=' + tick + ' mission=' + (state.active_mission_id || 'none') + ' journal=' + OFFLINE_JOURNAL_PATH);
+  return { status: 'offline_continuing', local_only: true, journal: OFFLINE_JOURNAL_PATH, mission_id: state.active_mission_id || null, goal: state.active_goal || null, tick };
+}
+
 async function checkpoint(record) {
   const p = path.join(MED_ROOT, 'checkpoint.json');
   await fsp.mkdir(path.dirname(p), { recursive: true });
