@@ -23,6 +23,6 @@ assert.match(gate, /GITHUB_EVENT_PATH/);
 assert.match(gate, /push:/);
 assert.match(gate, /github.event_name == 'push'/);
 assert.match(gate, /Wait for exact SHA to appear LIVE/);
-assert.equal(artifact.buildRuntimeServiceWorker("const CACHE = 'aria-pwa-__BUILD__';\r\nself.x=1;", 'abc').split('\n')[0], 'const CACHE = \\"aria-pwa-abc\\";');
+assert.equal(artifact.buildRuntimeServiceWorker("const CACHE = 'aria-pwa-__BUILD__';\r\nself.x=1;", 'abc').split('\n')[0], 'const CACHE = "aria-pwa-abc";');
 
 console.log('DELIVERY DETERMINISM V1 CONTRACT: PASS');
