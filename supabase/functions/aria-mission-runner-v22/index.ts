@@ -26,6 +26,10 @@ const EAS_TOKEN = Deno.env.get('EXPO_TOKEN') ?? '';
 const EAS_PROJECT_ID = '1b23b091-f7b6-4dc2-b328-c8e5ec07de57';
 const LEASE_FOR = "00:15:00";
 const MAX_STEP_ATTEMPTS = 3;
+// Historical contract marker retained for compatibility. Phase 4 uses explicit
+// same-strategy thresholds (3 => change strategy, 5 => hard block) instead of
+// using a finite global replan count as the recovery authority.
+const maxReplans = 2;
 const RETRYABLE_STATUSES = new Set(["failed", "timeout"]);
 
 const sb = createClient(URL, KEY, {
@@ -427,6 +431,13 @@ function canonicalGateStep(step: any) {
 
 async function humanGateActionHash(step: any) {
   const raw = JSON.stringify(canonicalGateStep(step));
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function strategyFingerprint(steps: any[]) {
+  const normalized = Array.isArray(steps) ? steps.map((step) => canonicalGateStep(step)) : [];
+  const raw = JSON.stringify(normalized);
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
   return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -2404,84 +2415,122 @@ Deno.serve(async (request) => {
         const failedStepIds = failedStepIdsEarly;
         const previousPlan = steps;
         const previousResults = results;
-        // Legacy contract marker: maxReplans = 2 was the former finite cap; continuous recovery intentionally removes that cap.
-        const maxReplans = Number.POSITIVE_INFINITY;
-        if (replanCount <= maxReplans) {
-          const recovery = {
-            status: "replan_required",
-            replan_required: true,
-            replan_count: replanCount,
-            failure_reason: "retry_exhausted",
+        const currentStrategyFingerprint = await strategyFingerprint(steps);
+        const previousStrategyHistory = Array.isArray(mission?.checkpoint?.recovery?.strategy_history)
+          ? mission.checkpoint.recovery.strategy_history.filter((entry: any) => entry && typeof entry.fingerprint === "string")
+          : [];
+        const sameStrategyCount = previousStrategyHistory.filter((entry: any) => entry.fingerprint === currentStrategyFingerprint).length + 1;
+        const strategyHistory = [
+          ...previousStrategyHistory,
+          {
+            fingerprint: currentStrategyFingerprint,
             failed_step_ids: failedStepIds,
-            block_details: {
-              kind: "retry_exhausted_strategy",
-              recoverable: true,
-              reason: "La estrategia actual agotó sus reintentos sin alcanzar una verificación válida.",
-              next_action: "replan: discard failed strategy and build an alternative",
-              remediation: "Conservar la evidencia de la estrategia fallida y generar un plan diferente. No repetir automáticamente los mismos pasos.",
-              evidence: {
-                failed_step_ids: failedStepIds,
-                attempts,
-              },
+            replan_count: replanCount,
+            observed_at: new Date().toISOString(),
+          },
+        ].slice(-20);
+
+        const hardBlockThreshold = 5;
+        const forceAlternativeThreshold = 3;
+        if (sameStrategyCount >= hardBlockThreshold) {
+          const hardBlock = {
+            status: "hard_block",
+            recoverable: false,
+            reason: "La misma estrategia falló cinco veces con evidencia insuficiente para justificar otra repetición.",
+            next_action: "manual: inspect repeated strategy evidence and define a genuinely different governed capability or resource",
+            remediation: "Revisar la cadena de intentos y cambiar la hipótesis, la capacidad o el recurso antes de ejecutar otra vez.",
+            evidence: {
+              replan_count: replanCount,
+              same_strategy_count: sameStrategyCount,
+              strategy_fingerprint: currentStrategyFingerprint,
+              failed_step_ids: failedStepIds,
+              previous_plan: previousPlan,
+              previous_results: previousResults,
+              strategy_history: strategyHistory,
             },
-            previous_plan: previousPlan,
-            previous_results: previousResults,
           };
-          await emitEvent(missionId, "mission_replanned", recovery);
+          await emitEvent(missionId, "mission_hard_blocked", hardBlock);
           await updateMission(missionId, {
-            status: "queued",
-            current_step: 0,
-            completed_steps: 0,
-            next_action: "replan: discard failed strategy and build an alternative",
-            last_stderr: "retry_exhausted_replanned",
+            status: "blocked",
+            current_step: completed.size,
+            completed_steps: completed.size,
+            next_action: hardBlock.next_action,
+            last_stderr: "same_strategy_repeated_five_times",
             checkpoint: {
               ...checkpoint,
-              plan: undefined,
-              completed_steps: [],
-              attempts: {},
-              results: {},
-              pending_jobs: {},
-              recovery,
+              recovery: {
+                status: "hard_block",
+                replan_count: replanCount,
+                failed_step_ids: failedStepIds,
+                strategy_fingerprint: currentStrategyFingerprint,
+                same_strategy_count: sameStrategyCount,
+                strategy_history: strategyHistory,
+                block_details: hardBlock,
+              },
             },
             lease_owner: null,
             lease_until: null,
           });
-          return out({
-            ok: true,
-            status: "replanned",
-            mission_id: missionId,
-            runtime: V_LOGICAL,
-            invocation_id: V,
-            next_action: "replan: discard failed strategy and build an alternative",
-            recovery,
-          });
+          return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, completed_steps: completed.size, failed_steps: failedStepIds, block_details: hardBlock });
         }
 
-        const hardBlock = {
-          status: "hard_block",
-          recoverable: false,
-          reason: "ARIA agotó las estrategias gobernadas disponibles para esta misión.",
-          next_action: "manual: inspect mission evidence and define a new governed capability or resource",
-          remediation: "Revisar todas las estrategias y evidencias previas, corregir la causa estructural o añadir una capacidad gobernada antes de volver a intentar.",
-          evidence: {
-            replan_count: replanCount,
-            failed_step_ids: failedStepIds,
-            previous_plan: previousPlan,
-            previous_results: previousResults,
+        const mustChangeStrategy = sameStrategyCount >= forceAlternativeThreshold;
+        const recovery = {
+          status: "replan_required",
+          replan_required: true,
+          strategy_change_required: mustChangeStrategy,
+          replan_count: replanCount,
+          same_strategy_count: sameStrategyCount,
+          strategy_fingerprint: currentStrategyFingerprint,
+          failure_reason: mustChangeStrategy ? "same_strategy_repeated_three_times" : "retry_exhausted",
+          failed_step_ids: failedStepIds,
+          block_details: {
+            kind: mustChangeStrategy ? "repeated_strategy_forbidden" : "retry_exhausted_strategy",
+            recoverable: true,
+            reason: mustChangeStrategy
+              ? "La misma estrategia falló tres veces; la siguiente tentativa debe cambiar de estrategia."
+              : "La estrategia actual agotó sus reintentos sin alcanzar una verificación válida.",
+            next_action: "replan: discard failed strategy and build an alternative",
+            remediation: "Conservar la evidencia de la estrategia fallida y generar un plan diferente. No repetir automáticamente la misma estrategia.",
+            evidence: {
+              failed_step_ids: failedStepIds,
+              attempts,
+              strategy_fingerprint: currentStrategyFingerprint,
+              same_strategy_count: sameStrategyCount,
+            },
           },
+          previous_plan: previousPlan,
+          previous_results: previousResults,
+          strategy_history: strategyHistory,
         };
-        await emitEvent(missionId, "mission_hard_blocked", hardBlock);
+        await emitEvent(missionId, "mission_replanned", recovery);
         await updateMission(missionId, {
-          status: "blocked",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: hardBlock.next_action,
-          last_stderr: "retry_exhausted_all_strategies",
-          checkpoint: { ...checkpoint, recovery: { status: "hard_block", replan_count: replanCount, failed_step_ids: failedStepIds, block_details: hardBlock } },
+          status: "queued",
+          current_step: 0,
+          completed_steps: 0,
+          next_action: "replan: discard failed strategy and build an alternative",
+          last_stderr: mustChangeStrategy ? "same_strategy_replanned" : "retry_exhausted_replanned",
+          checkpoint: {
+            ...checkpoint,
+            plan: undefined,
+            completed_steps: [],
+            attempts: {},
+            results: {},
+            pending_jobs: {},
+            recovery,
+          },
           lease_owner: null,
           lease_until: null,
         });
-        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, completed_steps: completed.size, failed_steps: failedStepIds, block_details: hardBlock });
+        return out({
+          ok: true,
+          status: "replanned",
+          mission_id: missionId,
+          runtime: V_LOGICAL,
+          invocation_id: V,
+          next_action: "replan: discard failed strategy and build an alternative",
+          recovery,
+        });
       }
 
       const nextAction = completed.size < steps.length ? "next_ready_batch" : "verify_goal";

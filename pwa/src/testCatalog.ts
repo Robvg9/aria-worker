@@ -2250,6 +2250,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba la autoridad única del runtime y sus fronteras de error y salud efectiva.",
     "capabilities": "Comprueba planner, runner, gateway, execution, device, verification y separación PWA/dispositivo."
+  },
+  {
+    "id": "phase4-jobs-recovery-contract",
+    "file": "tests/phase4-jobs-recovery-contract.test.js",
+    "title": "Phase 4 Jobs Recovery Contract",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba máquina de estados, watchdog, backpressure, idempotencia y límites deterministas de recuperación.",
+    "capabilities": "Comprueba jobs, leases, reclaim, timeout, terminalización, retry con cambio de estrategia y saturación."
   }
 ];
 
