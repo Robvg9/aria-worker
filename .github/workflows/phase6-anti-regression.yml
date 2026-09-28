@@ -1,0 +1,49 @@
+name: ARIA Phase 6 Anti-Regression
+
+on:
+  pull_request:
+    paths:
+      - 'tests/phase6-anti-regression.test.js'
+      - 'tests/phase4-jobs-recovery-contract.test.js'
+      - 'supabase/functions/_shared/operational-diagnostics.mjs'
+      - 'supabase/functions/aria-mission-runner-v22/**'
+      - 'pwa/src/**'
+      - '.github/workflows/phase6-anti-regression.yml'
+      - 'package.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'tests/phase6-anti-regression.test.js'
+      - 'supabase/functions/_shared/operational-diagnostics.mjs'
+      - 'supabase/functions/aria-mission-runner-v22/**'
+      - 'pwa/src/**'
+      - '.github/workflows/phase6-anti-regression.yml'
+      - 'package.json'
+  workflow_dispatch:
+
+jobs:
+  phase6-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run Phase 6 deliberate fault matrix
+        run: node tests/phase6-anti-regression.test.js
+      - name: Run Phase 4 recovery baseline
+        run: node tests/phase4-jobs-recovery-contract.test.js
+
+  phase6-global:
+    runs-on: ubuntu-latest
+    needs: phase6-contract
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run canonical global test gate
+        run: npm test

@@ -11,6 +11,7 @@ function classifyDiagnostic(input={}){
  let category='unknown',root_cause=sanitizeText(input.error_code||input.event_type||'unknown_diagnostic',240),severity='info';
  if(/timeout|watchdog|timed_out|deadline/.test(raw)){category='timeout';root_cause=sanitizeText(input.error_code||'execution_timeout',240);}
  else if(/backpressure|queue_full|max_global|max_device|saturated|capacity_exhausted/.test(raw)){category='backpressure';root_cause=sanitizeText(input.error_code||'backpressure',240);}
+ else if(/duplicate[_ -]?job|idempoten|dedup|already[_ -]?enqueued/.test(raw)){category='lease';root_cause=sanitizeText(input.error_code||'duplicate_job',240);}
  else if(/lease|reclaim|fence|owner/.test(raw)){category='lease';root_cause=sanitizeText(input.error_code||'lease_conflict',240);}
  else if(/credential|token|api[_-]?key|secret/.test(raw)){category='credential';root_cause=sanitizeText(input.error_code||'credential_unavailable',240);}
  else if(/human_gate|approval|authorize|permission|authorization|policy/.test(raw)){category=/human_gate|approval|authorize|permission|authorization/.test(raw)?'auth':'policy';root_cause=sanitizeText(input.error_code||(category==='auth'?'authorization_required':'policy_block'),240);}
