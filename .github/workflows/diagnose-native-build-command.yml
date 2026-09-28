@@ -22,3 +22,5 @@ jobs:
           test -f pwa/dist/index.html
           test -f pwa/dist/manifest.json
           echo NATIVE_BUILD_COMMAND_PASS
+          npx --yes wrangler@latest deploy --dry-run
+          echo WRANGLER_DEFAULT_DEPLOY_DRY_RUN_PASS
