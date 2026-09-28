@@ -258,9 +258,23 @@ jobs:
           import json, os
           assert json.loads(os.environ['VERSION'])['build'] == os.environ['GITHUB_SHA']
           PY
-          stale="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}index-stale-test.html?probe=${GITHUB_SHA}-recovery")"
+          stale=""
+          for attempt in $(seq 1 30); do
+            stale="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}index-stale-test.html?probe=${GITHUB_SHA}-recovery-${attempt}" 2>/dev/null || true)"
+            if grep -q "${GITHUB_SHA}" <<<"$stale"; then
+              break
+            fi
+            test "$attempt" -lt 30 && sleep 2
+          done
           grep -q "${GITHUB_SHA}" <<<"$stale"
-          stale_sw="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "${base}sw-stale-test.js?probe=${GITHUB_SHA}-recovery")"
+          stale_sw=""
+          for attempt in $(seq 1 30); do
+            stale_sw="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}sw-stale-test.js?probe=${GITHUB_SHA}-recovery-${attempt}" 2>/dev/null || true)"
+            if grep -q "aria-pwa-${GITHUB_SHA}" <<<"$stale_sw"; then
+              break
+            fi
+            test "$attempt" -lt 30 && sleep 2
+          done
           grep -q "aria-pwa-${GITHUB_SHA}" <<<"$stale_sw"
       - name: Smoke test direct ARIA interface
         run: |
