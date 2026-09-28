@@ -115,14 +115,14 @@ async function fetchText(url, attempts = 3) {
   throw lastError;
 }
 
-async function verifyLive(sha, baseUrl, manifestPath) {
+async function verifyLiveOnce(sha, baseUrl, manifestPath, probe) {
   const expected = JSON.parse(readUtf8(manifestPath));
   const base = baseUrl.replace(/\/$/, '');
 
-  const version = JSON.parse(await fetchText(base + '/pwa/version.json?probe=' + sha));
+  const version = JSON.parse(await fetchText(base + '/pwa/version.json?probe=' + encodeURIComponent(probe)));
   if (version.build !== sha) throw new Error('LIVE_BUILD_MISMATCH expected=' + sha + ' observed=' + version.build);
 
-  const shell = await fetchText(base + '/pwa/?probe=' + sha);
+  const shell = await fetchText(base + '/pwa/?probe=' + encodeURIComponent(probe));
   if ((!shell.includes("aria-build' content='" + sha)) && (!shell.includes('aria-build" content="' + sha))) {
     throw new Error('LIVE PWA shell does not expose expected build SHA');
   }
@@ -134,7 +134,7 @@ async function verifyLive(sha, baseUrl, manifestPath) {
     ['service_worker', base + '/pwa/sw-' + sha + '.js'],
   ];
   for (const [kind, url] of targets) {
-    const body = await fetchText(url + '?probe=' + sha);
+    const body = await fetchText(url + '?probe=' + encodeURIComponent(probe));
     const actual = sha256Text(body);
     if (actual !== expected.pwa[kind].sha256) throw new Error('LIVE artifact hash mismatch for ' + kind);
   }
@@ -153,6 +153,31 @@ async function verifyLive(sha, baseUrl, manifestPath) {
     catalog_total: liveCatalogTotal,
     artifact_hashes_verified: true,
   }, null, 2));
+}
+
+async function verifyLive(sha, baseUrl, manifestPath) {
+  const maxAttempts = 12;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const probe = sha + '-' + Date.now() + '-' + attempt;
+    try {
+      await verifyLiveOnce(sha, baseUrl, manifestPath, probe);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        console.warn('LIVE_VERIFY_RETRY attempt=' + attempt + ' reason=' + (error instanceof Error ? error.message : String(error)));
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+  }
+
+  throw new Error(
+    'LIVE_STABILIZATION_TIMEOUT expected=' + sha +
+    ' attempts=' + maxAttempts +
+    ' last=' + (lastError instanceof Error ? lastError.message : String(lastError))
+  );
 }
 
 async function main() {
@@ -175,4 +200,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { canonicalText, sha256Text, sha256File, extractMeta, fetchText, buildRuntimeServiceWorker, prepareReleaseArtifact, verifyLive };
+module.exports = { canonicalText, sha256Text, sha256File, extractMeta, fetchText, buildRuntimeServiceWorker, prepareReleaseArtifact, verifyLiveOnce, verifyLive };
