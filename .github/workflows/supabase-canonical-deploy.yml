@@ -79,7 +79,7 @@ jobs:
               continue
             fi
             hash="$(sha256sum "$file" | awk '{print $1}')"
-            if [[ -n "\${remote_hashes[$hash]+x}" ]]; then
+            if [[ -n "${remote_hashes[$hash]+x}" ]]; then
               echo "MIGRATION_ALREADY_APPLIED=$name"
               continue
             fi
