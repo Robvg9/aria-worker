@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           npm install --ignore-scripts --no-audit --no-fund
-          npm --prefix pwa install --ignore-scripts --no-audit --no-fund
+          npm --prefix pwa ci --ignore-scripts --no-audit --no-fund
           export VITE_BUILD="$HEAD_SHA"
           npm --prefix pwa run build
           node scripts/delivery-artifact.js prepare "$HEAD_SHA"

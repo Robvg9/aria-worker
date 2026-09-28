@@ -57,7 +57,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
       - name: Install PWA dependencies
         working-directory: pwa
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build PWA from main
         working-directory: pwa
         env:
