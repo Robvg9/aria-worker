@@ -145,3 +145,4 @@ if(url.pathname==="/pwa"||url.pathname.startsWith("/pwa/")){if(request.method!==
 
 // phase2 final evidence upload certification
 // phase2 final automatic release-bearing certification trigger 2026-09-28
+// phase2 final PWA recovery propagation certification
