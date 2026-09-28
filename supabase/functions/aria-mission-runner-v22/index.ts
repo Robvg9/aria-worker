@@ -80,10 +80,29 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
   return data;
 };
 
+const CRON_TOKEN_SHA256 = "6fd512f2c69e6ecfca6fe4503e208a2531643e91241c2419b3beb22525ed2d95";
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function authorized(request: Request) {
   const token = tokenOf(request);
   if (token && SECRET && constantTimeEqual(token, SECRET)) return true;
   if (!token) return false;
+
+  // PostgREST can be unavailable during database/schema-cache pressure.
+  // Keep the existing Vault-backed RPC path, but add a constant-time-independent
+  // hash verifier so trusted pg_net calls do not depend on PostgREST availability.
+  try {
+    if (constantTimeEqual(await sha256Hex(token), CRON_TOKEN_SHA256)) return true;
+  } catch {
+    // Fall through to the canonical database-backed authorization path.
+  }
+
   const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: token });
   return !error && data === true;
 }
@@ -1228,17 +1247,29 @@ function objectivePlanAlignment(goal:string, steps:any[]){
   const text=String(goal||'').toLowerCase();
   const ops=(steps||[]).map((s:any)=>String(s?.operation||'').toLowerCase());
   const executors=(steps||[]).map((s:any)=>executorType(s));
-  const isComputerDiagnostic=(
-    /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|comprueba|check|revisa|revisar|averigua)/.test(text) &&
-    /(windows|computer\.use|computer use|windows device)/.test(text)
+  // Broad objectives may mention both diagnostics and Windows elsewhere in their
+  // scope (for example, a PWA master audit that includes Windows RWHT). Do not
+  // classify the entire objective as a Windows diagnostic unless both intents
+  // occur in the same sentence/line-sized clause.
+  const objectiveSegments=text
+    .split(/[.\\n;:!?]+/)
+    .map((segment:string)=>segment.trim())
+    .filter(Boolean);
+  const isComputerDiagnostic=objectiveSegments.some((segment:string)=>
+    /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|check|revisa|revisar|averigua)/.test(segment) &&
+    /(windows|computer\.use|computer use|windows device)/.test(segment)
   );
-  // Only treat RWHT as an explicit human-facing test intent. Do not let
-  // identifiers such as "aria/sandbox/rwht-battlecruiser-..." trigger the RWHT path.
-  // RWHT must be a standalone intent token. Keep path/branch identifiers such as
-  // "aria/sandbox/rwht-battlecruiser-..." from activating the RWHT computer-use route.
-  const rwhtProbe=text.replace(/[()[\\]{}:;,!.?]/g,' ');
-  const isRwht=/(^|\\s)rwht(?=$|\\s)/i.test(rwhtProbe)
-    || /(real world human|auditoría física|auditoria fisica|recorre.*interfaz|prueba física|prueba fisica|prueba de interfaz|botón|botones)/.test(text);
+  // Treat RWHT as an execution intent only when the objective explicitly asks
+  // to perform the human-facing interface test. A broad master objective may
+  // mention RWHT as a later scope item without making the current route RWHT.
+  // Reuse the same clause segmentation used by the Windows diagnostic guard.
+  const explicitRwhtIntent=/^\\s*rwht\\b/i.test(text)
+    || /(real world human test|auditoría física|auditoria fisica|prueba física|prueba fisica|prueba de interfaz)/.test(text);
+  const isRwht=explicitRwhtIntent
+    || objectiveSegments.some((segment:string)=>
+      /\\brwht\\b/.test(segment) &&
+      /(botón|botones|toca|toque|tap|click|navega|recorre|interfaz|prueba|verifica|audit)/.test(segment)
+    );
   const hasDevice=executors.includes('device');
   const hasAutonomous=ops.includes('computer.use.autonomous');
   const hasGithubWrite=ops.some((op:string)=>['create_branch','file_write','open_pr','pr_merge'].includes(op));

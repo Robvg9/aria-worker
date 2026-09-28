@@ -1,0 +1,43 @@
+name: Cloudflare Worker Preflight
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "worker.js"
+      - "wrangler.toml"
+      - "package.json"
+      - "integrations/**"
+      - "scripts/cloudflare-workers-build.js"
+      - "pwa/**"
+      - ".github/workflows/cloudflare-worker-preflight.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run native Workers build
+        env:
+          WORKERS_CI_COMMIT_SHA: ${{ github.sha }}
+        run: npm run build
+
+      - name: Wrangler version
+        run: npm exec --no -- wrangler --version
+
+      - name: Bundle Worker without deploy
+        run: npm exec --no -- wrangler deploy worker.js --name aria --dry-run

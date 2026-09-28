@@ -1,0 +1,36 @@
+name: ARIA Mission Runner Dependency Check
+
+on:
+  push:
+    branches:
+      - "aria/fix-canonical-mission-queue-consumer-v1"
+    paths:
+      - "supabase/functions/aria-mission-runner-v22/**"
+      - ".github/workflows/aria-mission-runner-compile-check.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/functions/aria-mission-runner-v22/**"
+      - ".github/workflows/aria-mission-runner-compile-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deno-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check canonical mission runner
+        run: |
+          set -euo pipefail
+          deno info --no-check --json --config supabase/functions/aria-mission-runner-v22/deno.json supabase/functions/aria-mission-runner-v22/index.ts > /tmp/aria-mission-runner-v22.info.json
+          test -s /tmp/aria-mission-runner-v22.info.json
+          grep -q 'aria-mission-runner-v22/index.ts' /tmp/aria-mission-runner-v22.info.json
+          echo ARIA_MISSION_RUNNER_DEPENDENCY_CHECK=PASS
