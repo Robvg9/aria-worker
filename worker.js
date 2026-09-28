@@ -142,3 +142,5 @@ if(url.pathname==="/pwa"||url.pathname.startsWith("/pwa/")){if(request.method!==
 // phase2 final push gate retry certification
 
 // phase2 final service-worker identity certification
+
+// phase2 final evidence upload certification
