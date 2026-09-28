@@ -65,18 +65,51 @@ jobs:
           PARENT="$(git rev-list --parents -n 1 "$HEAD_SHA" | cut -d' ' -f2)"
           RESULT="$(node scripts/release-bearing.js "$PARENT" "$HEAD_SHA")"
           echo "$RESULT"
-          printf '%s' "$RESULT" | python -c 'import json,sys; x=json.load(sys.stdin); assert x["release_bearing"] is True, "Deployment workflow ran for a non-release-bearing change"'
+          RELEASE_BEARING="$(printf '%s' "$RESULT" | python -c 'import json,sys; print(str(json.load(sys.stdin)["release_bearing"]).lower())')"
+          echo "RELEASE_BEARING=$RELEASE_BEARING" >> "$GITHUB_ENV"
+          if [ "$RELEASE_BEARING" != "true" ]; then
+            echo "NON_RELEASE_PUSH_NO_LIVE_REQUIRED"
+          fi
 
       - name: Prepare independent release artifact identity
+        if: env.RELEASE_BEARING == 'true'
         run: |
           set -euo pipefail
-          npm install --ignore-scripts --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           npm --prefix pwa ci --ignore-scripts --no-audit --no-fund
           export VITE_BUILD="$HEAD_SHA"
           npm --prefix pwa run build
           node scripts/delivery-artifact.js prepare "$HEAD_SHA"
 
+      - name: Wait for exact SHA to appear LIVE
+        if: env.RELEASE_BEARING == 'true'
+        run: |
+          set -euo pipefail
+          live=""
+          for attempt in $(seq 1 60); do
+            live="$(curl --fail --silent --show-error --max-time 20               "https://aria.robvg9.workers.dev/pwa/version.json?gate=$HEAD_SHA-$attempt" 2>/dev/null || true)"
+            if VERSION="$live" EXPECTED="$HEAD_SHA" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"])["build"] == os.environ["EXPECTED"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              echo "LIVE_SHA_CONFIRMED=$HEAD_SHA"
+              break
+            fi
+            test "$attempt" -lt 60 && sleep 5
+          done
+          test -n "$live"
+          VERSION="$live" EXPECTED="$HEAD_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"])["build"] == os.environ["EXPECTED"]
+          PY
+
       - name: Verify release identity against LIVE
+        if: env.RELEASE_BEARING == 'true'
         run: |
           set -euo pipefail
           node scripts/delivery-artifact.js verify-live "$HEAD_SHA" "https://aria.robvg9.workers.dev"
