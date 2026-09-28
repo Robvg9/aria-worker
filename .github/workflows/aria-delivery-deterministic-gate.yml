@@ -120,6 +120,7 @@ jobs:
           name: aria-delivery-determinism
           path: .delivery-release-*.json
           if-no-files-found: error
+          include-hidden-files: true
 
       - name: Final marker
         run: |
