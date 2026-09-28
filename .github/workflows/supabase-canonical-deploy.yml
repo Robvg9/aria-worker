@@ -1,4 +1,5 @@
 name: Deploy ARIA Supabase Runtime
+# Phase 4 migration reconciliation LIVE certification trigger; behavior unchanged.
 
 on:
   push:
