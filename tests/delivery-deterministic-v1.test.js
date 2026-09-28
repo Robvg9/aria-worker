@@ -8,6 +8,7 @@ const gate = fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate
 
 assert.equal(classifier.classifyFiles(['README.md', 'docs/plan.md', 'tests/example.test.js']).release_bearing, false);
 assert.equal(classifier.classifyFiles(['README.md', 'worker.js']).release_bearing, true);
+assert.equal(classifier.classifyFiles(['.github/workflows/aria-delivery-deterministic-gate.yml']).release_bearing, false);
 assert.equal(typeof artifact.prepareReleaseArtifact, 'function');
 assert.equal(typeof artifact.verifyLive, 'function');
 assert.equal(typeof artifact.fetchText, 'function');
@@ -18,5 +19,8 @@ assert.equal(artifact.sha256Text('a\r\r\nb'), artifact.sha256Text('a\nb'));
 assert.match(gate, /if: github\.event_name == 'pull_request'/);
 assert.match(gate, /node tests\/delivery-deterministic-v1\.test\.js/);
 assert.match(gate, /GITHUB_EVENT_PATH/);
+assert.match(gate, /push:/);
+assert.match(gate, /github.event_name == 'push'/);
+assert.match(gate, /Wait for exact SHA to appear LIVE/);
 
 console.log('DELIVERY DETERMINISM V1 CONTRACT: PASS');
