@@ -83,6 +83,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones de Single Source of Truth, estados contradictorios y reencolado de jobs async."
   },
   {
+    "id": "delivery-deterministic-v1",
+    "file": "tests/delivery-deterministic-v1.test.js",
+    "title": "Delivery Deterministic V1",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": false,
+    "how": "Comprueba la identidad determinista del artefacto, la clasificación release-bearing y la verificación de build contra LIVE.",
+    "capabilities": "Detecta drift entre commit desplegado, artefactos PWA, identidad LIVE y catálogo canónico."
+  },
+  {
     "id": "explicit-device-intent-planner-contract",
     "file": "tests/explicit-device-intent-planner-contract.test.js",
     "title": "Explicit Device Intent Planner Contract",

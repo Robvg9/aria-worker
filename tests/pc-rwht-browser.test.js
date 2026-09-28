@@ -59,7 +59,7 @@ assert.match(runner, /auth_verified/);
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /2026-09-28-canonical/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
-assert.match(pwaIndex, /content='246'/);
+assert.match(pwaIndex, /content='247'/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
