@@ -97,7 +97,7 @@ jobs:
             hash="$(sha256sum "$file" | awk '{print $1}')"
             version="${name%%_*}"
 
-            if [[ -n "$remote_max_version" && "$version" <= "$remote_max_version" ]]; then
+            if [[ -n "$remote_max_version" ]] && { [[ "$version" < "$remote_max_version" ]] || [[ "$version" == "$remote_max_version" ]]; }; then
               if [[ -n "${remote_versions[$version]+x}" ]]; then
                 if [[ "${remote_versions[$version]}" = "$hash" ]]; then
                   echo "MIGRATION_ALREADY_APPLIED=$name"
