@@ -99,7 +99,7 @@ function directDeviceIntentPlan(goal:string, context:any){
       executor_type:"device",
       target:{type:"device",device_id:intent.device_id},
       input,
-      risk:String(c?.risk || "READ").toUpperCase(),
+      risk:(["READ","LOW_RISK_WRITE","HIGH_RISK_WRITE","DESTRUCTIVE"].includes(String(c?.risk || "READ").toUpperCase()) ? String(c?.risk || "READ").toUpperCase() : "READ"),
       timeout_ms:Number.isInteger(c?.timeout_ms) ? c.timeout_ms : 30000,
       policy:{tool_use:true,explicit_device_intent:true,no_side_effects:operation==="shell.execute",spanish_output_required:true},
       verify:verification,
