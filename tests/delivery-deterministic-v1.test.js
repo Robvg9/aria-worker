@@ -26,6 +26,10 @@ assert.match(gate, /github.event_name == 'push'/);
 assert.match(gate, /Wait for exact SHA to appear LIVE/);
 assert.match(gate, /include-hidden-files: true/);
 assert.match(deployWorkflow, /--secrets-file \.cloudflare-runtime-secrets\.json/);
+const recoveryWorkflow = deployWorkflow;
+assert.match(recoveryWorkflow, /for attempt in \$\(seq 1 30\); do/);
+assert.match(recoveryWorkflow, /index-stale-test\.html\?probe=/);
+assert.match(recoveryWorkflow, /sw-stale-test\.js\?probe=/);
 assert.doesNotMatch(deployWorkflow, /wrangler secret put CLOUDFLARE_API_TOKEN/);
 assert.equal(artifact.buildRuntimeServiceWorker("const CACHE = 'aria-pwa-__BUILD__';\r\nself.x=1;", 'abc').split('\n')[0], 'const CACHE = "aria-pwa-abc";');
 
