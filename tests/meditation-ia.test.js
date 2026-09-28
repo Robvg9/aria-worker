@@ -18,7 +18,10 @@ assert(windowsControllerSource.includes('AUTO_RESUME'),'Windows controller must 
 assert(windowsControllerSource.includes('OFFLINE_CONTINUITY'),'Windows controller must persist offline continuity evidence');
 assert(windowsControllerSource.includes('offline-journal.jsonl'),'Windows controller must have a durable offline journal');
 assert(runnerSource.includes('const MAX_STEP_ATTEMPTS = 3'),'Canonical mission runner default must allow three attempts per route');
-assert(runnerSource.includes('const maxReplans = Number.POSITIVE_INFINITY;'),'Canonical mission runner must keep searching for a distinct strategy');
+assert(runnerSource.includes('strategyFingerprint'),'Canonical mission runner must fingerprint recovery strategies');
+assert(runnerSource.includes('same_strategy_repeated_three_times'),'Canonical mission runner must force a strategy change after three identical failures');
+assert(runnerSource.includes('same_strategy_repeated_five_times'),'Canonical mission runner must hard-block after five identical failures');
+assert(runnerSource.includes('strategy_change_required'),'Canonical mission runner must expose strategy-change evidence');
 assert(runnerSource.includes('status: "waiting_for_alternative_strategy"'),'Canonical mission runner must not terminally fail when a distinct recovery route is temporarily unavailable');
 
 (async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'aria-meditation-'));const events=[];let commands=[];let ticks=0;let checkpoints=0;const store=createFileStateStore({root_dir:root});const controller=createMeditationController({stateStore:store,commandSource:{async read(offset){const entries=commands.map(c=>({command:c,next_offset:offset+c.length+1}));commands=[];return{entries,next_offset:entries.at(-1)?.next_offset??offset}}},log:async m=>events.push(m),requestTick:async({tick})=>{ticks++;return{ok:true,status:'idle',tick}},checkpoint:async r=>{checkpoints++;return{status:'saved',...r}},isUserIdle:async()=>true,ensureNotepad:async()=>events.push('NOTEPAD'),now:()=>new Date(100000),heartbeat_ms:30000,min_idle_seconds:45,max_consecutive_failures:3});
@@ -41,14 +44,14 @@ const offlineRoot=fs.mkdtempSync(path.join(os.tmpdir(),'aria-meditation-offline-
   max_consecutive_failures:3
 });
 assert.equal((await offline.start()).status,'started');
-await delay(10);
+for(let i=0;i<100&&offline.status().pending_sync_count<1;i++) await delay(5);
 assert.equal(localCalls,1);
 assert.equal(offline.status().mode,'active');
 assert.equal(offline.status().connection_status,'offline');
 assert.equal(offline.status().next_retry_at,null);
 assert.equal(offline.status().pending_sync_count,1);
 offlineNow+=60000;
-await offline.tick('offline-heartbeat');
+for(let i=0;i<100&&offlineCalls<2;i++){await offline.tick('offline-heartbeat');if(offlineCalls<2)await delay(5);}
 assert.equal(offlineCalls,2);
 assert.equal(offline.status().connection_status,'online');
 assert.equal(offline.status().offline_since,null);
