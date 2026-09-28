@@ -1259,13 +1259,20 @@ function objectivePlanAlignment(goal:string, steps:any[]){
     /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|check|revisa|revisar|averigua)/.test(segment) &&
     /(windows|computer\.use|computer use|windows device)/.test(segment)
   );
-  // Only treat RWHT as an explicit human-facing test intent. Do not let
-  // identifiers such as "aria/sandbox/rwht-battlecruiser-..." trigger the RWHT path.
-  // RWHT must be a standalone intent token. Keep path/branch identifiers such as
-  // "aria/sandbox/rwht-battlecruiser-..." from activating the RWHT computer-use route.
-  const rwhtProbe=text.replace(/[()[\\]{}:;,!.?]/g,' ');
-  const isRwht=/(^|\\s)rwht(?=$|\\s)/i.test(rwhtProbe)
-    || /(real world human|auditoría física|auditoria fisica|recorre.*interfaz|prueba física|prueba fisica|prueba de interfaz|botón|botones)/.test(text);
+  // Treat RWHT as an execution intent only when the objective explicitly asks
+  // to perform the human-facing interface test. A broad master objective may
+  // mention RWHT as a later scope item without making the current route RWHT.
+  const objectiveSegments=text
+    .split(/[.\\n;:!?]+/)
+    .map((segment:string)=>segment.trim())
+    .filter(Boolean);
+  const explicitRwhtIntent=/^\\s*rwht\\b/i.test(text)
+    || /(real world human test|auditoría física|auditoria fisica|prueba física|prueba fisica|prueba de interfaz)/.test(text);
+  const isRwht=explicitRwhtIntent
+    || objectiveSegments.some((segment:string)=>
+      /\\brwht\\b/.test(segment) &&
+      /(botón|botones|toca|toque|tap|click|navega|recorre|interfaz|prueba|verifica|audit)/.test(segment)
+    );
   const hasDevice=executors.includes('device');
   const hasAutonomous=ops.includes('computer.use.autonomous');
   const hasGithubWrite=ops.some((op:string)=>['create_branch','file_write','open_pr','pr_merge'].includes(op));
