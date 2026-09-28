@@ -46,3 +46,5 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
           supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF"
+
+# 2026-09-28: explicit mission device-intent contract regression is part of the planner deployment gate.
