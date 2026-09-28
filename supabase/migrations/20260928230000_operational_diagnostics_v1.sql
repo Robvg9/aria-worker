@@ -10,14 +10,6 @@ alter table aria_internal.mission_events
   add column if not exists runtime_version text,
   add column if not exists source_sha text;
 
-create index if not exists mission_events_trace_idx
-  on aria_internal.mission_events(trace_id, created_at desc);
-
-create index if not exists mission_events_execution_idx
-  on aria_internal.mission_events(execution_id, created_at desc);
-
-create index if not exists mission_events_error_idx
-  on aria_internal.mission_events(error_code, created_at desc);
 
 create table if not exists aria_internal.mission_diagnostics (
   mission_id text primary key references aria_internal.mission_state(mission_id) on delete cascade,
@@ -137,14 +129,6 @@ comment on column aria_internal.mission_events.trace_id is
 comment on column aria_internal.mission_events.source_sha is
   'Optional release/source SHA when the caller propagates one; runtime_version remains mandatory diagnostic identity.';
 
-create index if not exists mission_state_status_updated_idx
-  on aria_internal.mission_state(status, updated_at desc);
-
-create index if not exists execution_jobs_status_updated_idx
-  on aria_internal.execution_jobs(status, updated_at desc);
-
-create index if not exists model_registry_status_enabled_idx
-  on aria_internal.model_registry(status, enabled);
 
 create or replace function aria_internal.get_operational_health_v1()
 returns jsonb
