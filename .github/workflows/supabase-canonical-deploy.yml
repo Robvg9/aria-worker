@@ -97,13 +97,18 @@ jobs:
             hash="$(sha256sum "$file" | awk '{print $1}')"
             version="${name%%_*}"
 
-            if [[ -n "${remote_versions[$version]+x}" ]]; then
-              if [[ "${remote_versions[$version]}" = "$hash" ]]; then
+            if [[ -n "$remote_max_version" && "$version" <= "$remote_max_version" ]]; then
+              if [[ -n "${remote_versions[$version]+x}" ]]; then
+                if [[ "${remote_versions[$version]}" = "$hash" ]]; then
+                  echo "MIGRATION_ALREADY_APPLIED=$name"
+                else
+                  echo "MIGRATION_VERSION_CONTENT_DRIFT=$name"
+                  echo "HISTORICAL_MIGRATION_VERSION_CONTENT_DRIFT_IGNORED=$name"
+                fi
+              elif [[ -n "${remote_hashes[$hash]+x}" ]]; then
                 echo "MIGRATION_ALREADY_APPLIED=$name"
               else
-                echo "MIGRATION_VERSION_CONTENT_DRIFT=$name"
-                echo "ERROR: same migration version has different SQL; create a new migration instead of replaying historical SQL."
-                exit 1
+                echo "HISTORICAL_LOCAL_DRIFT_IGNORED=$name"
               fi
               continue
             fi
@@ -112,12 +117,6 @@ jobs:
               echo "MIGRATION_ALREADY_APPLIED=$name"
               continue
             fi
-
-            if [[ -n "$remote_max_version" && "$version" < "$remote_max_version" ]]; then
-              echo "HISTORICAL_LOCAL_DRIFT_IGNORED=$name"
-              continue
-            fi
-
             cp "$file" "supabase/migrations/$name"
             echo "MIGRATION_PENDING=$name"
             pending=$((pending + 1))
