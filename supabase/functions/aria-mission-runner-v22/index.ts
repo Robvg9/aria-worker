@@ -2095,7 +2095,50 @@ Deno.serve(async (request) => {
 
       const outcomes = await Promise.all(batch.map(async (step) => {
         const id = String(step.id);
-        const nextAttempt = Number(attempts[id] || 0) + 1;
+        const pending = pendingJobs[id] && typeof pendingJobs[id] === "object"
+          ? pendingJobs[id] as Record<string, unknown>
+          : null;
+        const pendingJobId = executorType(step) === "device" && typeof pending?.job_id === "string"
+          ? String(pending.job_id)
+          : "";
+        const pendingAttempt = Number(pending?.attempt || 0);
+
+        // Async device jobs are already persisted in execution_jobs. While a pending
+        // job is queued/claimed/running, poll that exact job instead of creating a
+        // fresh attempt. This prevents the paused -> retry -> re-enqueue loop.
+        if (pendingJobId) {
+          const polled = await getExecutionJob(pendingJobId);
+          const pendingJob = polled.body?.job;
+          const pendingStatus = String(pendingJob?.status || pending?.status || "queued");
+          if (!pendingJob || !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(pendingStatus)) {
+            pendingJobs[id] = {
+              ...(pending || {}),
+              job_id: pendingJobId,
+              status: pendingStatus,
+              attempt: pendingAttempt || Number(attempts[id] || 1),
+            };
+            return {
+              step,
+              result: {
+                status: "waiting",
+                executor_type: "device",
+                operation: step.operation,
+                job_id: pendingJobId,
+                job_status: pendingStatus,
+              },
+              waiting: true,
+              passed: false,
+            };
+          }
+          pendingJobs[id] = {
+            ...(pending || {}),
+            job_id: pendingJobId,
+            status: pendingStatus,
+            attempt: pendingAttempt || Number(attempts[id] || 1),
+          };
+        }
+
+        const nextAttempt = pendingAttempt > 0 ? pendingAttempt : Number(attempts[id] || 0) + 1;
         attempts[id] = nextAttempt;
         await renewLease(missionId);
         await emitEvent(missionId, "step_started", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt });
