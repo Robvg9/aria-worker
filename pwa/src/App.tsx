@@ -541,7 +541,7 @@ async function parseAuthResponse(response: Response) {
 
 async function signInDirect(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 7000);
+  const timer = window.setTimeout(() => controller.abort(), 15000);
   try {
     const r = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
       method: 'POST',
@@ -558,7 +558,7 @@ async function signInDirect(email: string, password: string) {
 
 async function signInProxy(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 8000);
+  const timer = window.setTimeout(() => controller.abort(), 20000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
@@ -575,7 +575,7 @@ async function signInProxy(email: string, password: string) {
 
 async function refreshSessionDirect(refreshToken: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 7000);
+  const timer = window.setTimeout(() => controller.abort(), 15000);
   try {
     const r = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
@@ -592,7 +592,7 @@ async function refreshSessionDirect(refreshToken: string) {
 
 async function refreshSessionProxy(refreshToken: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 8000);
+  const timer = window.setTimeout(() => controller.abort(), 20000);
   try {
     const r = await fetch('/auth/token?grant_type=refresh_token', {
       method: 'POST',
