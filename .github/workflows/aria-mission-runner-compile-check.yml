@@ -1,4 +1,4 @@
-name: ARIA Mission Runner Module Check
+name: ARIA Mission Runner Bundle Check
 
 on:
   push:
@@ -30,5 +30,6 @@ jobs:
       - name: Type-check canonical mission runner
         run: |
           set -euo pipefail
-          deno check --no-check --config supabase/functions/aria-mission-runner-v22/deno.json supabase/functions/aria-mission-runner-v22/index.ts
-          echo ARIA_MISSION_RUNNER_MODULE_CHECK=PASS
+          deno bundle --no-check --config supabase/functions/aria-mission-runner-v22/deno.json supabase/functions/aria-mission-runner-v22/index.ts /tmp/aria-mission-runner-v22.bundle.js
+          test -s /tmp/aria-mission-runner-v22.bundle.js
+          echo ARIA_MISSION_RUNNER_BUNDLE_CHECK=PASS
