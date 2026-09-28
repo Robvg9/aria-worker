@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-09-27-canonical';
+export const TEST_CATALOG_VERSION = '2026-09-28-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "autonomous-windows-rwht-controller",
@@ -72,6 +72,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba que el runner identifique correctamente el ejecutor de cada paso.",
     "capabilities": "Detecta regresiones en inferencia de ejecutor, dispatch y ejecución universal."
+  },
+  {
+    "id": "mission-runner-ssot-regression",
+    "file": "tests/mission-runner-ssot-regression.test.js",
+    "title": "Mission Runner SSoT Regression",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el estado canónico de misión, los leases vivos y el recovery async no creen estados activos o reintentos duplicados.",
+    "capabilities": "Detecta regresiones de Single Source of Truth, estados contradictorios y reencolado de jobs async."
   },
   {
     "id": "explicit-device-intent-planner-contract",

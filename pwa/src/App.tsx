@@ -686,9 +686,8 @@ function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): num
   // está siendo ejecutado o esperando una condición externa de esa ejecución.
   // Planning/queued/paused son estados de cola/control, no una ejecución viva.
   if (value === 'running' && leased) return 60;
-  if (value === 'running') return 50;
   if (value === 'waiting' && leased) return 45;
-  if (value === 'waiting') return 40;
+  // Sin lease vigente, el estado no representa ejecución viva en la PWA.
   return 0;
 }
 

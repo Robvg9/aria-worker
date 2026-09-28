@@ -57,9 +57,9 @@ assert.match(runner, /RWHT_EXPECTED_AUTH_TEXT/);
 assert.match(runner, /auth_verified/);
 
 assert.match(pwaIndex, /aria-test-catalog-version/);
-assert.match(pwaIndex, /2026-09-27-canonical/);
+assert.match(pwaIndex, /2026-09-28-canonical/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
-assert.match(pwaIndex, /content='245'/);
+assert.match(pwaIndex, /content='246'/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
