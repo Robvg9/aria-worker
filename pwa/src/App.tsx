@@ -1379,17 +1379,17 @@ function Chat({
 
   const syncSystemAndMission = async () => {
     let fresh = false;
-    const [systemResult, overviewResult] = await Promise.all([
+    const [systemResult, missionsResult] = await Promise.all([
       api('/system', session.accessToken).catch(() => null),
-      api('/meditation/overview', session.accessToken).catch(() => null)
+      api('/missions?limit=100', session.accessToken).catch(() => null)
     ]);
     if (systemResult) {
       setSystem(systemResult.aria);
       writeCached('system', session.userId, systemResult.aria);
       fresh = true;
     }
-    if (overviewResult) {
-      const active = overviewResult?.active_mission;
+    if (missionsResult) {
+      const active = missionsResult?.active_mission;
       setMission(active ?? null);
       writeCached('active_mission', session.userId, active ?? null);
       if (active?.mission_id) {

@@ -131,3 +131,12 @@ const appApiMissionRetryAssertions=[
 ];
 for (const fragment of appApiMissionRetryAssertions) assertContains(appApi,fragment,'mission recovery/retry contract missing: '+fragment);
 console.log('MISSION RECOVERY + RETRY API CONTRACT: PASS');
+
+assertContains(appApi,'controllerOwnedByUser','mission overview must separate meditation-control ownership from canonical mission visibility'); 
+assertContains(appApi,'scopedSessionId','meditation session scope must not hide canonical user missions when another controller owns the meditation session');
+assertContains(appApi,'source_of_truth:"aria_internal.mission_state"','mission collection must expose its canonical source of truth');
+assertContains(appApi,'path.endsWith("/missions")','canonical authenticated mission collection route missing');
+assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;return 0;','active mission selection must require a live lease');
+assertContains(pwa,"api('/missions?limit=100', session.accessToken)","PWA chat sync must use the canonical missions collection, not the meditation-control overview as its source of truth");
+console.log('FASE 1 BUG-PC-002/003 SSoT CONTRACT: PASS');
+
