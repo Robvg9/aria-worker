@@ -25,6 +25,9 @@ for(const fragment of [
   'aria-execution-jobs-watchdog-every-minute',
   'cron.schedule',
   'execution_jobs_idempotency_key_uidx',
+  'watchdog_grace_ms',
+  'timeout_ms',
+  'watchdog_running_timeout',
   'Normalize existing terminal rows',
   'completed_at=COALESCE(completed_at,updated_at,clock_timestamp())',
 ]) assert.ok(migration.includes(fragment),`Phase 4 migration missing: ${fragment}`);

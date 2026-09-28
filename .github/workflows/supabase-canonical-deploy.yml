@@ -78,6 +78,14 @@ jobs:
             remote_versions["$version"]="$hash"
           done < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print0)
 
+          remote_max_version=""
+          for version in "${!remote_versions[@]}"; do
+            if [[ -z "$remote_max_version" || "$version" > "$remote_max_version" ]]; then
+              remote_max_version="$version"
+            fi
+          done
+          echo "REMOTE_MAX_MIGRATION_VERSION=$remote_max_version"
+
           pending=0
           for file in .ci/supabase-migrations-source/*.sql; do
             [[ -e "$file" ]] || continue
@@ -88,18 +96,28 @@ jobs:
             fi
             hash="$(sha256sum "$file" | awk '{print $1}')"
             version="${name%%_*}"
+
             if [[ -n "${remote_versions[$version]+x}" ]]; then
               if [[ "${remote_versions[$version]}" = "$hash" ]]; then
                 echo "MIGRATION_ALREADY_APPLIED=$name"
               else
                 echo "MIGRATION_VERSION_CONTENT_DRIFT=$name"
+                echo "ERROR: same migration version has different SQL; create a new migration instead of replaying historical SQL."
+                exit 1
               fi
               continue
             fi
+
             if [[ -n "${remote_hashes[$hash]+x}" ]]; then
               echo "MIGRATION_ALREADY_APPLIED=$name"
               continue
             fi
+
+            if [[ -n "$remote_max_version" && "$version" < "$remote_max_version" ]]; then
+              echo "HISTORICAL_LOCAL_DRIFT_IGNORED=$name"
+              continue
+            fi
+
             cp "$file" "supabase/migrations/$name"
             echo "MIGRATION_PENDING=$name"
             pending=$((pending + 1))

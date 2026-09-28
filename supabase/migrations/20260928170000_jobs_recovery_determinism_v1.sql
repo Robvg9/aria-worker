@@ -132,10 +132,14 @@ SECURITY DEFINER
 SET search_path = pg_catalog, aria_internal
 AS $$
 DECLARE
+  p aria_internal.runtime_job_policy;
   v_reclaimed integer := 0;
   v_timed_out integer := 0;
   v_now timestamptz := clock_timestamp();
 BEGIN
+  SELECT * INTO p
+    FROM aria_internal.runtime_job_policy
+   WHERE policy_id=1;
   UPDATE aria_internal.execution_jobs
      SET status='queued',
          claimed_at=NULL,
@@ -159,9 +163,15 @@ BEGIN
        AND completed_at IS NULL
        AND (
          (lease_until IS NOT NULL AND lease_until < v_now)
-         OR (lease_until IS NULL AND updated_at < v_now - interval '60 seconds')
+         OR (
+           started_at IS NOT NULL
+           AND started_at + ((greatest(1000, coalesce(timeout_ms,120000)) + p.watchdog_grace_ms) * interval '1 millisecond') < v_now
+         )
+         OR (
+           lease_until IS NULL
+           AND updated_at < v_now - interval '60 seconds'
+         )
        )
-       AND updated_at < v_now - interval '10 seconds'
      FOR UPDATE SKIP LOCKED
   )
   UPDATE aria_internal.execution_jobs j
@@ -180,7 +190,18 @@ BEGIN
 
   INSERT INTO aria_internal.execution_job_events(job_id,device_id,event_type,payload)
   SELECT j.job_id,j.device_id,'job.timeout',
-         jsonb_build_object('reason','watchdog_running_lease_expired','recovery_count',j.recovery_count,'recovered_at',v_now)
+         jsonb_build_object(
+           'reason',case
+             when j.started_at is not null
+              and j.started_at + ((greatest(1000, coalesce(j.timeout_ms,120000)) + p.watchdog_grace_ms) * interval '1 millisecond') < v_now
+               then 'watchdog_running_timeout'
+             else 'watchdog_running_lease_expired'
+           end,
+           'timeout_ms',j.timeout_ms,
+           'watchdog_grace_ms',p.watchdog_grace_ms,
+           'recovery_count',j.recovery_count,
+           'recovered_at',v_now
+         )
     FROM aria_internal.execution_jobs j
    WHERE j.updated_at=v_now
      AND j.status='timeout';
