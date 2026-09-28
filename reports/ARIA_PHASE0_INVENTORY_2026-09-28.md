@@ -204,3 +204,7 @@ Las **16 variantes `aria-mcp-*` activas** no mostraron llamadas en `function_edg
 
 **Clasificación:** no hay evidencia de uso reciente del conjunto MCP en esta ventana. Esto es suficiente para crear una lista de candidatos a deprecación, pero **no** para eliminarlos: todavía falta comprobar consumidores externos y la ruta MCP que debe certificarse en la fase operacional.
 
+
+
+## 0.8 — Defensa de delivery verificada en progreso
+El workflow de Cloudflare fue restringido a cambios relevantes para el Worker/PWA (worker.js, wrangler.toml, manifests npm, pwa/**, build script, integración Cloudflare y el propio workflow). Los cambios puramente documentales ya no deben disparar el deploy Cloudflare.
