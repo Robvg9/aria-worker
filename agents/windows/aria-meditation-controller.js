@@ -96,22 +96,10 @@ async function requestGateway(pathName,{method='GET',body=null}={}) {
 
 async function requestTick({ state, reason, tick }) {
   if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) return { status: 'blocked', error: 'meditation_gateway_config_missing' };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const response = await fetch(`${GATEWAY_URL.replace(/\/$/, '')}/v1/meditation/tick`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${DEVICE_TOKEN}`, 'x-aria-device-id': DEVICE_ID },
-      body: JSON.stringify({ device_id: DEVICE_ID, session_id: state.session_id, reason, tick }),
-      signal: controller.signal
-    });
-    const text = await response.text();
-    let body;
-    try { body = text ? JSON.parse(text) : {}; } catch { body = { status: 'failed', error: 'gateway_invalid_json' }; }
-    return response.ok ? body : { status: 'failed', error: body?.error || `gateway_${response.status}` };
-  } catch (error) {
-    return { status: 'failed', error: String(error?.message || error) };
-  } finally { clearTimeout(timer); }
+  return requestGateway('/v1/meditation/tick', {
+    method: 'POST',
+    body: { device_id: DEVICE_ID, session_id: state.session_id, reason, tick }
+  });
 }
 
 async function appendOfflineJournal(record) {
