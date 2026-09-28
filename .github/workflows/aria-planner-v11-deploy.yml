@@ -23,6 +23,8 @@ jobs:
           node-version: 22
       - name: Run ARIA APP v3 contract test
         run: node tests/aria-app-api-v3-contract.test.js
+      - name: Run explicit device intent planner contract test
+        run: node tests/explicit-device-intent-planner-contract.test.js
 
   deploy:
     needs: contract
