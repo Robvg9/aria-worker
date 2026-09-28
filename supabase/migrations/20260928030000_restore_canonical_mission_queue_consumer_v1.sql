@@ -58,9 +58,9 @@ grant execute on function aria_internal.run_mission_runner_tick_v1() to service_
 -- Keep job 34 as the only active autonomy scheduler, but reconnect the
 -- canonical queued-mission consumer before the supervisor tick.
 select cron.alter_job(
-  34,
-  '* * * * *',
-  $job$
+  job_id := 34,
+  schedule := '* * * * *',
+  command := $job$
     select aria_internal.run_mission_runner_tick_v1();
     select net.http_post(
       url := 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-autonomy-supervisor-v5',
@@ -72,9 +72,7 @@ select cron.alter_job(
       timeout_milliseconds := 60000
     );
   $job$,
-  'postgres',
-  'postgres',
-  true
+  active := true
 );
 
 comment on function aria_internal.run_mission_runner_tick_v1()
