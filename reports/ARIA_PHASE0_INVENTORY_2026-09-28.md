@@ -211,3 +211,13 @@ El workflow de Cloudflare fue restringido a cambios relevantes para el Worker/PW
 
 ## 0.9 — Verificación de workflow definitions
 Los workflows manuales de reparación fueron blindados para aceptar ejecución efectiva únicamente vía `workflow_dispatch`. Se requiere un push que no modifique esos archivos para verificar el comportamiento de la definición ya corregida.
+
+## Cierre FASE 0 — 2026-09-28
+
+- Commit final de la certificación delivery: `c7ea8ecc5b3a8f764b63fa70461cd310d3f2806b`.
+- GitHub Actions `Deploy ARIA Cloudflare Worker` run `36443560844`: SUCCESS.
+- Pasaron: suite completa, configuración Wrangler/secrets, build PWA, deploy Worker, secret sync, observación nativa no bloqueante y todos los smoke tests LIVE (PWA shell/assets, auth boundary, API boundary, version recovery, interfaz ARIA, MCP OAuth y Grok OAuth).
+- Verificación independiente desde el PC físico `RobVG`: `version.json.build` coincide exactamente con `c7ea8ecc5b3a8f764b63fa70461cd310d3f2806b`; `/aria` respondió `ok=true`, `aria-direct-v1`.
+- Desktop Commander: dispositivo `RobVG` online y `ping` respondió correctamente.
+- El check externo `Workers Builds: aria` queda como señal informativa; no bloquea el cierre porque el deploy directo + smoke LIVE están verificados.
+- Estado: **FASE 0 CERRADA**. La fase siguiente no se inicia automáticamente; queda a decisión explícita del proyecto.
