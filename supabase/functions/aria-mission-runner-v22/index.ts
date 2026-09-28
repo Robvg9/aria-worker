@@ -1247,9 +1247,17 @@ function objectivePlanAlignment(goal:string, steps:any[]){
   const text=String(goal||'').toLowerCase();
   const ops=(steps||[]).map((s:any)=>String(s?.operation||'').toLowerCase());
   const executors=(steps||[]).map((s:any)=>executorType(s));
-  const isComputerDiagnostic=(
-    /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|comprueba|check|revisa|revisar|averigua)/.test(text) &&
-    /(windows|computer\.use|computer use|windows device)/.test(text)
+  // Broad objectives may mention both diagnostics and Windows elsewhere in their
+  // scope (for example, a PWA master audit that includes Windows RWHT). Do not
+  // classify the entire objective as a Windows diagnostic unless both intents
+  // occur in the same sentence/line-sized clause.
+  const objectiveSegments=text
+    .split(/[.\\n;:!?]+/)
+    .map((segment:string)=>segment.trim())
+    .filter(Boolean);
+  const isComputerDiagnostic=objectiveSegments.some((segment:string)=>
+    /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|check|revisa|revisar|averigua)/.test(segment) &&
+    /(windows|computer\.use|computer use|windows device)/.test(segment)
   );
   // Only treat RWHT as an explicit human-facing test intent. Do not let
   // identifiers such as "aria/sandbox/rwht-battlecruiser-..." trigger the RWHT path.
