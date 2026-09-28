@@ -20,12 +20,10 @@ function changedFiles(fromSha, toSha) {
   if (!toSha) throw new Error('toSha is required');
   if (!fromSha || /^0+$/.test(fromSha)) {
     return execFileSync('git', ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', toSha], { encoding: 'utf8' })
-      .split(/?
-/).map(s => s.trim()).filter(Boolean);
+      .split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean);
   }
   return execFileSync('git', ['diff', '--name-only', fromSha + '..' + toSha], { encoding: 'utf8' })
-    .split(/?
-/).map(s => s.trim()).filter(Boolean);
+    .split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean);
 }
 
 function isNonReleasePath(path) {
