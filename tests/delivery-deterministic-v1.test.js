@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const classifier = require('../scripts/release-bearing');
 const artifact = require('../scripts/delivery-artifact');
 const gate = fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml', 'utf8');
+const deployWorkflow = fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml', 'utf8');
 
 assert.equal(classifier.classifyFiles(['README.md', 'docs/plan.md', 'tests/example.test.js']).release_bearing, false);
 assert.equal(classifier.classifyFiles(['README.md', 'worker.js']).release_bearing, true);
@@ -24,6 +25,8 @@ assert.match(gate, /push:/);
 assert.match(gate, /github.event_name == 'push'/);
 assert.match(gate, /Wait for exact SHA to appear LIVE/);
 assert.match(gate, /include-hidden-files: true/);
+assert.match(deployWorkflow, /--secrets-file \.cloudflare-runtime-secrets\.json/);
+assert.doesNotMatch(deployWorkflow, /wrangler secret put CLOUDFLARE_API_TOKEN/);
 assert.equal(artifact.buildRuntimeServiceWorker("const CACHE = 'aria-pwa-__BUILD__';\r\nself.x=1;", 'abc').split('\n')[0], 'const CACHE = "aria-pwa-abc";');
 
 console.log('DELIVERY DETERMINISM V1 CONTRACT: PASS');
