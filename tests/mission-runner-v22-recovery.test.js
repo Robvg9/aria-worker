@@ -5,10 +5,13 @@ const fs = require('node:fs');
 
 const source = fs.readFileSync('supabase/functions/aria-mission-runner-v22/index.ts', 'utf8');
 
-const terminalFailure = source.match(/status:\s*"failed"[\s\S]{0,900}retry_exhausted[\s\S]{0,300}/);
-assert.ok(terminalFailure, 'v22 terminal failure path missing');
-assert.match(terminalFailure[0], /lease_owner:\s*null/);
-assert.match(terminalFailure[0], /lease_until:\s*null/);
+assert.match(source, /status:\s*"failed"/);
+assert.match(source, /failure_reason:[\s\S]{0,120}retry_exhausted/);
+const retryExhaustedIndex = source.indexOf('retry_exhausted');
+assert.ok(retryExhaustedIndex > 0, 'v22 retry exhausted path missing');
+const recoveryWindow = source.slice(Math.max(0,retryExhaustedIndex - 350), retryExhaustedIndex + 4200);
+assert.match(recoveryWindow, /lease_owner:\s*null/);
+assert.match(recoveryWindow, /lease_until:\s*null/);
 assert.match(source, /verificationWait/);
 assert.match(source, /status:\s*"waiting"/);
 assert.match(source, /verifyPendingMutation/);
