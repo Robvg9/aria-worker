@@ -44,7 +44,7 @@ function parseShellJob(job, deviceId) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('shell_payload_invalid');
 
   const keys = Object.keys(payload);
-  if (keys.some((key) => !['script', 'cwd', 'timeout_ms', 'dry_run'].includes(key))) {
+  if (keys.some((key) => !['script', 'cwd', 'timeout_ms', 'dry_run', 'capability'].includes(key))) {
     throw new Error('shell_payload_field_rejected');
   }
 
