@@ -367,3 +367,5 @@ jobs:
 
           echo "GROK_CONSENT_OPTIONAL_STATUS=$status"
           echo "Grok OAuth is optional external certification; external blockage does not block the ARIA core deployment."
+
+# phase0 workflow trigger verification
