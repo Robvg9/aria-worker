@@ -87,11 +87,26 @@ function prepareReleaseArtifact(sha) {
   return release;
 }
 
-async function fetchText(url) {
-  const response = await fetch(url, { headers: { 'cache-control': 'no-cache' } });
-  const text = await response.text();
-  if (!response.ok) throw new Error('LIVE request failed ' + response.status + ' ' + url + ': ' + text.slice(0, 500));
-  return text;
+async function fetchText(url, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: { 'cache-control': 'no-cache' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error('LIVE request failed ' + response.status + ' ' + url + ': ' + text.slice(0, 500));
+      }
+      return text;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+      }
+    }
+  }
+  throw lastError;
 }
 
 async function verifyLive(sha, baseUrl, manifestPath) {
@@ -154,4 +169,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { sha256Text, sha256File, extractMeta, prepareReleaseArtifact, verifyLive };
+module.exports = { canonicalText, sha256Text, sha256File, extractMeta, fetchText, prepareReleaseArtifact, verifyLive };
