@@ -115,6 +115,7 @@ jobs:
           node scripts/delivery-artifact.js verify-live "$HEAD_SHA" "https://aria.robvg9.workers.dev"
 
       - name: Publish immutable delivery evidence
+        if: env.RELEASE_BEARING == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: aria-delivery-determinism
@@ -122,4 +123,9 @@ jobs:
           if-no-files-found: error
 
       - name: Final marker
-        run: echo ARIA_DELIVERY_DETERMINISM_GATE_PASS
+        run: |
+          if [ "${RELEASE_BEARING:-false}" = "true" ]; then
+            echo ARIA_DELIVERY_DETERMINISM_GATE_PASS
+          else
+            echo ARIA_DELIVERY_DETERMINISM_NON_RELEASE_PASS
+          fi
