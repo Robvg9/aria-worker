@@ -1,0 +1,35 @@
+name: Cloudflare Baseline Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/cloudflare-build-regression.js"
+      - "tests/cloudflare-build-regression.test.js"
+      - ".github/workflows/cloudflare-baseline-regression.yml"
+      - "worker.js"
+      - "wrangler.toml"
+      - "scripts/cloudflare-workers-build.js"
+      - "pwa/**"
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unit test
+        run: node tests/cloudflare-build-regression.test.js
+
+      - name: Classify Cloudflare failure against base
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/cloudflare-build-regression.js
