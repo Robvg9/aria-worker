@@ -10,6 +10,8 @@ assert.equal(classifier.classifyFiles(['README.md', 'docs/plan.md', 'tests/examp
 assert.equal(classifier.classifyFiles(['README.md', 'worker.js']).release_bearing, true);
 assert.equal(typeof artifact.prepareReleaseArtifact, 'function');
 assert.equal(typeof artifact.verifyLive, 'function');
+assert.equal(typeof artifact.fetchText, 'function');
+assert.match(artifact.fetchText.toString(), /attempts = 3/);
 assert.equal(artifact.sha256Text('a\r\nb'), artifact.sha256Text('a\nb'));
 assert.equal(artifact.sha256Text('a\r\r\nb'), artifact.sha256Text('a\nb'));
 
