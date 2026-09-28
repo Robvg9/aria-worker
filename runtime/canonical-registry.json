@@ -1,0 +1,34 @@
+{
+  "version": "aria-runtime-canonical-v1.0.0",
+  "status": "active",
+  "canonical_entrypoint": "aria-canonical-runtime-v1",
+  "stage_order": ["planner","runner","runtime_gateway","execution","device_gateway","verification"],
+  "canonical_chain": {
+    "planner": "aria-planner-v11",
+    "runner": "aria-mission-runner-v22",
+    "runtime_gateway": "aria-runtime-gateway-v1",
+    "execution": "aria-execution-runtime-v1",
+    "device_gateway": "aria-device-gateway",
+    "verification": "aria-smart-verifier-v1"
+  },
+  "approved_consumers": [
+    {"id":"cloudflare-scheduler","entrypoint":"aria-canonical-runtime-v1"},
+    {"id":"device-autonomy-cycle","entrypoint":"aria-canonical-runtime-v1"},
+    {"id":"meditation-tick","entrypoint":"aria-canonical-runtime-v1"},
+    {"id":"mission-tick-rpc","entrypoint":"aria-mission-runner-v22"}
+  ],
+  "authority_rules": [
+    "planner selects plan only; runner owns mission execution state",
+    "runtime gateway owns execution-job enqueue/get transport only",
+    "execution runtime executes one already-authorized model route",
+    "device gateway owns device transport only",
+    "verification is evidence authority, not execution authority",
+    "legacy functions are never canonical execution authorities"
+  ],
+  "failure_surfaces": ["pwa","device","runtime","provider","connector","agent","model","eas"],
+  "legacy_policy": "compatibility_only_not_deployable",
+  "legacy_prefixes": ["aria-planner-v","aria-mission-runner-v","aria-autonomy-supervisor-v"],
+  "legacy_exceptions": ["aria-planner-v11","aria-mission-runner-v22","aria-autonomy-supervisor-v5"],
+  "retirement_rule": "remove legacy from deploy consumers first; deactivate only after consumer audit",
+  "rollback": {"unit":"stage","rule":"rollback only the failed canonical stage; never promote a legacy stage implicitly"}
+}

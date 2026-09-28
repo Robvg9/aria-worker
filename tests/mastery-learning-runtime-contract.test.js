@@ -43,7 +43,7 @@ test('production migration contains recurrence, candidate, promotion and regress
   const verifierStart = migration.indexOf('create or replace function aria_internal.verify_learning_application');
   assert.ok(verifierStart >= 0);
   const verifierHeader = migration.slice(verifierStart, verifierStart + 400);
-  assert.ok(verifierHeader.includes('as ' + '$$' + '\ndeclare'));
+  assert.match(verifierHeader, /as \$\$\r?\ndeclare/);
   assert.equal(verifierHeader.includes('as ' + '$' + '\ndeclare'), false);
   assert.match(migration, /application_verified/);
   assert.match(migration, /Regression contract/);

@@ -23,7 +23,7 @@ jobs:
           MID="mission_stateprop_$(date +%s)"
           echo "MID=$MID"
 
-          for path in aria-direct-v1 aria-mission-intake-v1 aria-canonical-runtime-v1 aria-mission-runner-v22 aria-planner-v12; do
+          for path in aria-direct-v1 aria-mission-intake-v1 aria-canonical-runtime-v1 aria-mission-runner-v22 aria-planner-v11; do
             echo "=== GET/POST $path ==="
             code=$(curl -s -o /tmp/body.json -w "%{http_code}" -X POST "$BASE/$path" \
               -H "$AUTH" -H "content-type: application/json" -d '{}' --max-time 25 || echo err)

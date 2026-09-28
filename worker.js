@@ -1,3 +1,4 @@
+// Phase 3 canonical runtime certification trigger: behavior unchanged; force exact-SHA LIVE delivery.
 const SUPABASE_MCP = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
 const SUPABASE_OAUTH = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
 const SUPABASE_BROWSER_OAUTH = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
