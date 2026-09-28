@@ -169,6 +169,14 @@ function createAutonomousMissionOrchestrator({ missionStore, planner, replanner 
             if (!Array.isArray(normalized) || normalized.length === 0) throw new Error('replanner returned no executable steps');
             const remaining = normalized.filter(item => !completedIds.has(String(item.id)));
             if (remaining.length === 0) throw new Error('replanner returned no remaining work');
+            
+            // Check for identical plan to prevent infinite loops
+            const currentRemainingIds = plan.filter(item => !completedIds.has(String(item.id))).map(item => item.id).sort();
+            const newRemainingIds = remaining.map(item => item.id || 'unknown').sort();
+            if (JSON.stringify(currentRemainingIds) === JSON.stringify(newRemainingIds)) {
+              throw new Error('replanner returned identical plan');
+            }
+
             plan = remaining.map((item, index) => ({ ...item, id: item.id || stableId({ missionId, index, action: item.action || item.operation || null }), depends_on: Array.isArray(item.depends_on) ? item.depends_on.map(String).filter(dep => !completedIds.has(dep)) : [] }));
             replanCount += 1;
             await missionStore.checkpoint(missionId, { ...(mission.checkpoint || {}), plan, completed_steps: [...completedIds], active_steps: [], replanned_from_step: primary.step.id, replan_count: replanCount, last_replan_reason: primary.outcome?.error || primary.outcome?.result?.status || 'execution_or_verification_failure' }, { total_steps: completedCount + plan.length, current_step: completedCount, next_action: 'replanned_next_ready_batch' });
