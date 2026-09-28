@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   diagnose:
+    environment: production
     runs-on: ubuntu-latest
     steps:
       - name: Inspect Workers Builds configuration and failing build
