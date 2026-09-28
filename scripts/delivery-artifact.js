@@ -169,4 +169,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { sha256Text, sha256File, extractMeta, prepareReleaseArtifact, verifyLive };
+module.exports = { canonicalText, sha256Text, sha256File, extractMeta, fetchText, prepareReleaseArtifact, verifyLive };
