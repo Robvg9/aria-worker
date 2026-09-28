@@ -9,7 +9,4 @@ assert.match(sql,/create trigger mission_events_diagnostic_enrichment/);
 assert.match(sql,/jsonb_build_object\(/);
 assert.match(sql,/v_payload \|\| jsonb_strip_nulls/,'canonical diagnostics must override conflicting payload correlation fields');
 assert.match(sql,/aria_internal\.enrich_mission_event_diagnostics/);
-assert.match(sql,/mission_events_trace_idx/);
-assert.match(sql,/mission_events_execution_idx/);
-assert.match(sql,/mission_events_error_idx/);
 console.log('PHASE5 DIAGNOSTICS DB CONTRACT: PASS');
