@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
 
 jobs:
   deploy:
@@ -78,6 +79,33 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: printf '%s' "$CLOUDFLARE_API_TOKEN" | wrangler secret put CLOUDFLARE_API_TOKEN --name aria
+      - name: Verify native Cloudflare Workers Build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for native Cloudflare check on $TARGET_SHA"
+          found=""
+          for attempt in $(seq 1 90); do
+            found="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/commits/$TARGET_SHA/check-runs?per_page=100" \
+              | python -c 'import json,sys; x=json.load(sys.stdin); matches=[c for c in x.get("check_runs",[]) if c.get("name")=="Workers Builds: aria"]; print((matches[-1].get("status","")+"|"+(matches[-1].get("conclusion") or "")) if matches else "")')"
+            if test "$found" = "completed|success"; then
+              echo "NATIVE_CLOUDFLARE_BUILD_SUCCESS"
+              break
+            fi
+            case "$found" in
+              "completed|failure"|"completed|cancelled"|"completed|timed_out"|"completed|action_required"|"completed|stale")
+                echo "NATIVE_CLOUDFLARE_BUILD_FAILED:$found"
+                exit 1
+                ;;
+            esac
+            test "$attempt" -lt 90 && sleep 10
+          done
+          test "$found" = "completed|success"
       - name: Smoke test PWA main auto-deploy
         run: |
           set -euo pipefail
