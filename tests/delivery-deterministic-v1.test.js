@@ -8,5 +8,9 @@ assert.equal(classifier.classifyFiles(['README.md', 'docs/plan.md', 'tests/examp
 assert.equal(classifier.classifyFiles(['README.md', 'worker.js']).release_bearing, true);
 assert.equal(typeof artifact.prepareReleaseArtifact, 'function');
 assert.equal(typeof artifact.verifyLive, 'function');
+assert.match(gate, /if: github\.event_name == 'pull_request'/);
+assert.match(gate, /node tests\/delivery-deterministic-v1\.test\.js/);
+assert.match(gate, /GITHUB_EVENT_PATH/);
+assert.doesNotMatch(gate, /EVENT_FILE: \$GITHUB_EVENT_PATH/);
 
 console.log('DELIVERY DETERMINISM V1 CONTRACT: PASS');
