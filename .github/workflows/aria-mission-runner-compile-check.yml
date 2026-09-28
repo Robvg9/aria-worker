@@ -1,0 +1,29 @@
+name: ARIA Mission Runner Compile Check
+
+on:
+  push:
+    branches:
+      - "aria/fix-canonical-mission-queue-consumer-v1"
+    paths:
+      - "supabase/functions/aria-mission-runner-v22/**"
+      - ".github/workflows/aria-mission-runner-compile-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deno-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check canonical mission runner
+        run: |
+          set -euo pipefail
+          deno check --config supabase/functions/aria-mission-runner-v22/deno.json supabase/functions/aria-mission-runner-v22/index.ts
+          echo ARIA_MISSION_RUNNER_DENO_CHECK=PASS
