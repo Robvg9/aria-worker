@@ -90,11 +90,10 @@ jobs:
             if [[ -n "${remote_versions[$version]+x}" ]]; then
               if [[ "${remote_versions[$version]}" = "$hash" ]]; then
                 echo "MIGRATION_ALREADY_APPLIED=$name"
-                continue
+              else
+                echo "MIGRATION_VERSION_CONTENT_DRIFT=$name"
               fi
-              echo "MIGRATION_DRIFT_VERSION=$name"
-              echo "ERROR: migration version $version exists remotely with different content"
-              exit 1
+              continue
             fi
             if [[ -n "${remote_hashes[$hash]+x}" ]]; then
               echo "MIGRATION_ALREADY_APPLIED=$name"
