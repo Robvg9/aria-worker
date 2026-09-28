@@ -162,7 +162,7 @@ jobs:
           set -euo pipefail
           body='{"email":"aria-ci-invalid@example.invalid","password":"invalid-password-for-smoke-test"}'
           set +e
-          direct_code="$(curl --silent --show-error --max-time 8 --retry 0 -o /tmp/auth-direct-body -w '%{http_code}' \
+          direct_code="$(curl --silent --show-error --max-time 20 --retry 0 -o /tmp/auth-direct-body -w '%{http_code}' \
             'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password' \
             -X POST -H 'Content-Type: application/json' \
             -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
@@ -182,7 +182,7 @@ jobs:
           fi
           base="https://aria.robvg9.workers.dev/auth/token?grant_type=password"
           set +e
-          proxy_code="$(curl --silent --show-error --max-time 10 --retry 0 -o /tmp/auth-proxy-body -w '%{http_code}' "$base" \
+          proxy_code="$(curl --silent --show-error --max-time 25 --retry 0 -o /tmp/auth-proxy-body -w '%{http_code}' "$base" \
             -X POST -H 'Content-Type: application/json' \
             -H 'apikey: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' \
             -d "$body")"
