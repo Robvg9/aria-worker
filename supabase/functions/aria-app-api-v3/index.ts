@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
+import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -13,7 +14,7 @@ const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
 const EXEC = `${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`;
 const DEVICE_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-device-gateway`;
 const MEDIA_BUCKET = "aria-app-media";
-const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
+const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,x-aria-request-id,x-aria-pwa-build,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
 const PROJECTS = Object.freeze([
   { id: "battlecruiser", name: "BattleCruiser", icon: "🏴‍☠️", context: "BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio." },
@@ -417,6 +418,47 @@ function missionBlockDetails(m:any) {
 }
 function rows(m:any){ const plan=Array.isArray(m?.checkpoint?.plan)?m.checkpoint.plan:[]; const done=new Set((Array.isArray(m?.checkpoint?.completed_steps)?m.checkpoint.completed_steps:[]).map(String)); const results=m?.checkpoint?.results&&typeof m.checkpoint.results==="object"?m.checkpoint.results:{}; const rec=m?.checkpoint?.recovery&&typeof m.checkpoint.recovery==="object"?m.checkpoint.recovery:{}; const failed=Array.isArray(rec.failed_step_ids)?rec.failed_step_ids.map(String):[]; return plan.map((s:any,i:number)=>{const id=String(s?.id??`step_${i+1}`);let st=done.has(id)?"succeeded":"pending"; if(!done.has(id)&&m?.status==="blocked"&&failed.includes(id))st="blocked"; if(!done.has(id)&&m?.status==="paused"&&rec.status==="waiting_for_async_executor")st=m?.checkpoint?.pending_jobs?.[id]?"waiting":"pending"; if(!done.has(id)&&m?.status==="running"&&Number(m?.current_step??0)===i)st="running"; if(!done.has(id)&&results[id]?.status==="failed")st="failed"; return {index:i+1,id,title:String(s?.title??s?.operation??`Paso ${i+1}`),status:st,risk:String(s?.risk??"READ"),executor_type:String(s?.executor_type||s?.target?.type||""),operation:String(s?.operation??""),depends_on:Array.isArray(s?.depends_on)?s.depends_on.map(String):[],weight:Number(weightOf(s).toFixed(3)),timeout_ms:Number.isFinite(Number(s?.timeout_ms))?Number(s.timeout_ms):null,result:results[id]??null};}); }
 async function etaFor(sb:any, steps:any[]){const rem=steps.filter(s=>!['succeeded','skipped'].includes(s.status));if(!rem.length)return{eta_seconds:0,basis:"complete",samples:0};const ops=[...new Set(rem.map(s=>s.operation).filter(Boolean))];let hist:number[]=[];if(ops.length){const {data}=await sb.schema("aria_internal").from("mission_steps").select("operation,started_at,completed_at").in("operation",ops).not("started_at","is",null).not("completed_at","is",null).order("completed_at",{ascending:false}).limit(120);hist=(data??[]).map((r:any)=>{const a=Date.parse(r.started_at),b=Date.parse(r.completed_at),d=(Number.isFinite(a)&&Number.isFinite(b))?(b-a)/1000:NaN;return Number.isFinite(d)&&d>0&&d<86400?d:NaN}).filter(Number.isFinite);}const med=hist.length?[...hist].sort((a,b)=>a-b)[Math.floor(hist.length/2)]:null;const estimate=(s:any)=>{const t=Number(s.timeout_ms);if(Number.isFinite(t)&&t>0)return Math.max(5,Math.min(900,t/1000*.35));return String(s.executor_type).toLowerCase()==="device"?30:12;};const sec=rem.reduce((sum,s)=>sum+(Number(med??estimate(s))*s.weight),0);return{eta_seconds:Math.max(0,Math.round(sec)),basis:hist.length?"historical_operation_median":"step_estimate",samples:hist.length};}
+async function missionDiagnosticForUser(missionId:string,userId:string){
+  const mission=await missionForUser(missionId,userId);
+  if(!mission)return null;
+  const sb=serviceClient();
+  const [{data:steps,error:se},{data:events,error:ee}]=await Promise.all([
+    sb.schema('aria_internal').from('mission_steps').select('mission_id,step_index,status,operation,agent_id,attempt_count,started_at,completed_at,result').eq('mission_id',missionId).order('step_index',{ascending:true}),
+    sb.schema('aria_internal').from('mission_events').select('event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha').eq('mission_id',missionId).order('created_at',{ascending:true}).limit(300)
+  ]);
+  if(se)throw new Error('mission_diagnostics_steps:'+se.message);
+  if(ee)throw new Error('mission_diagnostics_events:'+ee.message);
+  const jobIds=Array.from(new Set((events??[]).map((e:any)=>String(e?.execution_id||e?.payload?.job_id||'')).filter(Boolean)));
+  let jobs:any[]=[];let jobEvents:any[]=[];
+  if(jobIds.length){
+    const [{data:jobsData,error:je},{data:jobEventData,error:jve}]=await Promise.all([
+      sb.schema('aria_internal').from('execution_jobs').select('job_id,mission_id,device_id,operation,status,timeout_ms,requested_at,started_at,completed_at,result,metadata,updated_at').in('job_id',jobIds).limit(100),
+      sb.schema('aria_internal').from('execution_job_events').select('event_id,job_id,device_id,event_type,payload,created_at').in('job_id',jobIds).order('created_at',{ascending:true}).limit(200)
+    ]);
+    if(je)throw new Error('mission_diagnostics_jobs:'+je.message);
+    if(jve)throw new Error('mission_diagnostics_job_events:'+jve.message);
+    jobs=jobsData??[];jobEvents=jobEventData??[];
+  }
+  const lastEvent=(events??[])[(events??[]).length-1];
+  const deviceId=String(lastEvent?.payload?.device_id||lastEvent?.device_id||jobs.find((j:any)=>j.device_id)?.device_id||'');
+  let deviceHealth:any={status:'unknown',observed:false};
+  if(deviceId){
+    const {data:device}=await sb.schema('aria_internal').from('device_registry').select('device_id,status,last_seen_at,updated_at').eq('device_id',deviceId).maybeSingle();
+    if(device){deviceHealth={status:String(device.status)==='online'?'healthy':String(device.status)==='pending'?'degraded':'unavailable',observed:true,device_id:device.device_id,last_seen_at:device.last_seen_at};}
+  }
+  const diagnostic=deriveOperationalDiagnostic({mission,steps:steps??[],events:events??[],jobs,jobEvents,health:{status:deviceHealth.status,observed:deviceHealth.observed,device:deviceHealth}});
+  const now=new Date().toISOString();
+  const {error:upsertError}=await sb.schema('aria_internal').from('mission_diagnostics').upsert({mission_id:missionId,diagnostic_version:diagnostic.version,correlation:diagnostic.correlation,classification:diagnostic.classification,diagnosis:diagnostic.diagnosis,versions:diagnostic.versions,attempts:diagnostic.attempts,evidence_chain:diagnostic.evidence_chain,health:diagnostic.health,generated_at:now,updated_at:now},{onConflict:'mission_id'});
+  if(upsertError)throw new Error('mission_diagnostics_persist:'+upsertError.message);
+  return diagnostic;
+}
+
+async function operationalHealth(userId:string){
+  const sb=serviceClient();
+  const {data,error}=await sb.rpc('get_operational_health_v1');
+  if(error)throw new Error('diagnostic_health_rpc:'+error.message);
+  return {...(data&&typeof data==='object'?data:{}),user_id:userId};
+}
 async function capabilityCatalog(userId:string){
   const sb=serviceClient();
   const [{data:models,error:modelError},{data:agents,error:agentError},{data:devices,error:deviceError}] = await Promise.all([
@@ -960,6 +1002,12 @@ Deno.serve(async (req) => {
             execution_requested: true,
             mission_confirmation: true,
             conversation_id: conversationId,
+            trace_id: trace,
+            request_id: req.headers.get("x-aria-request-id") ?? trace,
+            pwa_build: req.headers.get("x-aria-pwa-build") ?? null,
+            source_sha: (() => { const v=req.headers.get("x-aria-pwa-build"); return v && /^[0-9a-f]{40}$/i.test(v) ? v : null; })(),
+            runtime_version: "aria-mission-runner-v22-universal",
+            diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
             chat_handoff: "canonical-direct-v1",
           },
           "x-aria-user-id": user.id,
@@ -1101,6 +1149,8 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
       if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400);
+      const requestId = req.headers.get("x-aria-request-id") ?? trace;
+      const pwaBuild = req.headers.get("x-aria-pwa-build") ?? null;
       const project = normalizeProjectContext(body);
       const visual_context = normalizeVisualContext(body);
       const direct = await internal(DIRECT, {
@@ -1114,6 +1164,11 @@ Deno.serve(async (req) => {
           project_name: project?.name ?? null,
           project_context: project?.context ?? null,
           visual_context,
+          trace_id: trace,
+          request_id: requestId,
+          pwa_build: pwaBuild,
+          runtime_version: "aria-mission-runner-v22-universal",
+          diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
         },
         "x-aria-user-id": user.id
       });
@@ -1146,10 +1201,18 @@ Deno.serve(async (req) => {
 
       const md = original.metadata && typeof original.metadata === "object" ? original.metadata : {};
       const retryCount = Number(md.retry_count || 0) + 1;
+      const retryRequestId = req.headers.get("x-aria-request-id") ?? trace;
+      const retryPwaBuild = req.headers.get("x-aria-pwa-build") ?? null;
       const direct = await internal(DIRECT, {
         goal: String(original.goal || ""),
         metadata: {
           ...md,
+          trace_id: trace,
+          request_id: retryRequestId,
+          pwa_build: retryPwaBuild,
+          source_sha: retryPwaBuild && /^[0-9a-f]{40}$/i.test(retryPwaBuild) ? retryPwaBuild : null,
+          runtime_version: "aria-mission-runner-v22-universal",
+          diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
           source_application: "aria-pwa-retry",
           user_id: user.id,
           retry_of: missionId,
@@ -1234,11 +1297,18 @@ Deno.serve(async (req) => {
         trace_id: trace
       });
     }
+    if (req.method === "GET" && path.endsWith("/diagnostics/health")) return json({ok:true,health:await operationalHealth(user.id),trace_id:trace});
+    if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/diagnostic")) {
+      const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/diagnostic$/,""));
+      const diagnostic=await missionDiagnosticForUser(missionId,user.id);
+      if(!diagnostic)return json({error:"mission_not_found",trace_id:trace},404);
+      return json({ok:true,diagnostic,trace_id:trace});
+    }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
       const mission=await missionForUser(missionId,user.id);
       if(!mission) return json({error:"mission_not_found",trace_id:trace},404);
-      const {data,error}=await serviceClient().schema("aria_internal").from("mission_events").select("event_id,mission_id,step_index,event_type,payload,created_at").eq("mission_id",missionId).order("created_at",{ascending:true}).limit(200);
+      const {data,error}=await serviceClient().schema("aria_internal").from("mission_events").select("event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha").eq("mission_id",missionId).order("created_at",{ascending:true}).limit(200);
       if(error) return json({error:"mission_events_failed",detail:error.message,trace_id:trace},502);
       return json({ok:true,events:data??[],trace_id:trace});
     }

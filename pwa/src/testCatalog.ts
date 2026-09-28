@@ -2259,6 +2259,33 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba máquina de estados, watchdog, backpressure, idempotencia y límites deterministas de recuperación.",
     "capabilities": "Comprueba jobs, leases, reclaim, timeout, terminalización, retry con cambio de estrategia y saturación."
+  },
+  {
+    "id": "operational-diagnostics",
+    "file": "tests/operational-diagnostics.test.js",
+    "title": "Operational Diagnostics",
+    "category": "Diagnóstico / observabilidad",
+    "includedInNpmTest": true,
+    "how": "Comprueba correlación, clasificación de causa, historial de intentos, evidencia y redacción segura.",
+    "capabilities": "Valida trace/request/execution IDs, raíz del fallo, dependencia, siguiente acción y evidencia sin secretos."
+  },
+  {
+    "id": "aria-app-api-v3-diagnostics-contract",
+    "file": "tests/aria-app-api-v3-diagnostics-contract.test.js",
+    "title": "ARIA App API V3 Diagnostics Contract",
+    "category": "Diagnóstico / observabilidad",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el API exponga diagnóstico por misión y salud operativa y que la PWA propague identidad de ejecución.",
+    "capabilities": "Detecta regresiones en diagnóstico humano, health dashboard, correlación y endpoints canónicos."
+  },
+  {
+    "id": "phase5-diagnostics-db-contract",
+    "file": "tests/phase5-diagnostics-db-contract.test.js",
+    "title": "Phase 5 Diagnostics DB Contract",
+    "category": "Diagnóstico / observabilidad",
+    "includedInNpmTest": true,
+    "how": "Comprueba columnas, índices, trigger y almacenamiento persistente del diagnóstico operacional.",
+    "capabilities": "Valida la fuente persistente de correlation IDs, versiones, errores y evidencia."
   }
 ];
 

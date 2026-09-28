@@ -14,3 +14,7 @@ credentials/
 *.token
 auth.json
 service-account*.json
+
+# Local PWA build/install outputs
+/pwa/node_modules/
+/pwa/dist/

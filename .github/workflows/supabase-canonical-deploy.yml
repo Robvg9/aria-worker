@@ -46,6 +46,9 @@ jobs:
           node tests/aria-app-api-v3-contract.test.js
           node tests/phase3-canonical-runtime-contract.test.js
           node tests/phase4-jobs-recovery-contract.test.js
+          node tests/operational-diagnostics.test.js
+          node tests/aria-app-api-v3-diagnostics-contract.test.js
+          node tests/phase5-diagnostics-db-contract.test.js
           node tests/supabase-canonical-deploy-contract.test.js
       - name: Apply Supabase migrations
         env:
@@ -152,6 +155,7 @@ jobs:
           supabase functions deploy aria-agent-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-app-api-v3 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-github-app-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mcp-inbound-grok-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt

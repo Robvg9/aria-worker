@@ -1,0 +1,31 @@
+'use strict';
+const assert=require('node:assert/strict');
+async function run(){
+ const d=await import('../supabase/functions/_shared/operational-diagnostics.mjs');
+ assert.equal(d.registry.version,'aria-operational-diagnostics-v1.0.0');
+ assert.equal(d.registry.status_categories.includes('unavailable'),true);
+ assert.equal(d.classifyDiagnostic({status:'failed',event_type:'execution_timeout'}).category,'timeout');
+ assert.equal(d.classifyDiagnostic({status:'blocked',event_type:'execution_failed',error_code:'credential_unavailable'}).category,'credential');
+ assert.equal(d.classifyDiagnostic({status:'failed',event_type:'execution_failed',executor_type:'device'}).category,'device');
+ const mission={mission_id:'m1',status:'failed',goal:'Diagnosticar prueba',metadata:{trace_id:'tr1',request_id:'req1',runtime_version:'runtime-v1',pwa_build:'build1'},checkpoint:{}};
+ const events=[{event_id:1,mission_id:'m1',step_index:1,event_type:'step_failed',payload:{attempt:3,error_code:'execution_timeout',executor_type:'device',operation:'computer.use',trace_id:'tr1',request_id:'req1',execution_id:'exec1',message:'timeout'},trace_id:'tr1',created_at:'2026-09-28T00:00:00Z'}];
+ const jobs=[{job_id:'j1',status:'timeout',device_id:'pc1',operation:'computer.use',metadata:{attempt:3},requested_at:'2026-09-28T00:00:00Z'}];
+ const diag=d.deriveOperationalDiagnostic({mission,events,jobs,steps:[{step_index:1,operation:'computer.use',executor_type:'device',attempt_count:3,status:'failed'}]});
+ assert.equal(diag.correlation.trace_id,'tr1');
+ assert.equal(diag.correlation.execution_id,'exec1');
+ assert.equal(diag.classification.category,'timeout');
+ assert.equal(diag.attempts.length>=2,true);
+ assert.equal(diag.evidence_chain.length>=2,true);
+ assert.equal(diag.versions.runtime_version,'runtime-v1');
+ assert.match(diag.diagnosis.next_action,/timeout/i);
+ assert.equal(d.sanitizeText('Bearer SUPERSECRET'),'[REDACTED]');
+ assert.equal(d.sanitizeText('api_key=SUPERSECRET'),'[REDACTED]');
+ assert.equal(d.sanitizeText('token=SUPERSECRET'),'[REDACTED]');
+ assert.doesNotMatch(JSON.stringify(d.classifyDiagnostic({status:'failed',message:'Bearer SUPERSECRET'})),/SUPERSECRET/);
+ const secureDiag=d.deriveOperationalDiagnostic({mission:{mission_id:'sec',status:'failed',goal:'x',metadata:{}},events:[{event_type:'execution_failed',error_code:'api_key=SUPERSECRET',payload:{error_code:'api_key=SUPERSECRET',message:'Bearer SUPERSECRET'}}]});
+ assert.doesNotMatch(JSON.stringify(secureDiag),/SUPERSECRET/);
+ const good=d.deriveOperationalDiagnostic({mission:{...mission,status:'succeeded'},events:[],jobs:[],steps:[]});
+ assert.equal(good.classification.root_cause,'none');
+ console.log('OPERATIONAL DIAGNOSTICS CONTRACT: PASS');
+}
+run().catch(e=>{console.error(e);process.exit(1)});
