@@ -21,7 +21,7 @@ function run(command, args, options = {}) {
   if (result.status !== 0) process.exit(result.status || 1);
 }
 
-run('npm', ['--prefix', 'pwa', 'install', '--ignore-scripts', '--no-audit', '--no-fund']);
+run('npm', ['--prefix', 'pwa', 'ci', '--ignore-scripts', '--no-audit', '--no-fund']);
 run('npm', ['--prefix', 'pwa', 'run', 'build'], {
   env: { VITE_BUILD: buildSha },
 });
