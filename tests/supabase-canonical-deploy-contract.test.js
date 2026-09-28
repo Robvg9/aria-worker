@@ -23,6 +23,7 @@ assert.ok(source.includes('supabase link --project-ref "$SUPABASE_PROJECT_REF"')
 assert.match(source,/supabase migration fetch --linked --yes/);
 assert.match(source,/supabase db push --include-all/);
 assert.match(source,/remote_hashes/);
+assert.doesNotMatch(source,/\\\\\$\\{remote_hashes\\[\\$hash\\]\\+x\\}/,'migration hash lookup must not escape the shell variable expansion');
 assert.match(source,/MIGRATION_PENDING=/);
 assert.match(source,/MIGRATION_ALREADY_APPLIED=/);
 assert.match(source,/LEGACY_MIGRATION_IGNORED=/);
