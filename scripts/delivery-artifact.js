@@ -8,12 +8,16 @@ const crypto = require('node:crypto');
 const ROOT = process.cwd();
 const PWA_DIST = path.join(ROOT, 'pwa', 'dist');
 
+function canonicalText(value) {
+  return String(value).replace(/\r\n?/g, '\n');
+}
+
 function sha256Text(value) {
-  return crypto.createHash('sha256').update(value).digest('hex');
+  return crypto.createHash('sha256').update(canonicalText(value)).digest('hex');
 }
 
 function sha256File(filePath) {
-  return sha256Text(fs.readFileSync(filePath));
+  return sha256Text(fs.readFileSync(filePath, 'utf8'));
 }
 
 function readUtf8(filePath) {
