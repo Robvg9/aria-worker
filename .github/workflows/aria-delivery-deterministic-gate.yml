@@ -75,7 +75,6 @@ jobs:
         if: env.RELEASE_BEARING == 'true'
         run: |
           set -euo pipefail
-          npm ci --ignore-scripts --no-audit --no-fund
           npm --prefix pwa ci --ignore-scripts --no-audit --no-fund
           export VITE_BUILD="$HEAD_SHA"
           npm --prefix pwa run build
