@@ -41,7 +41,7 @@ test('Canonical runtime remains the single mission execution entrypoint', () => 
   assert.ok(runner.includes('agentSteps.length > 0'));
 
 const dbGuard = fs.readFileSync(
-  path.join(root, 'supabase/migrations/20260918013000_meditation_verified_db_guard_v1.sql'),
+  path.join(root, 'supabase/migrations/20260928213000_reconcile_duplicate_20260918013000_v1.sql'),
   'utf8'
 );
 assert.ok(dbGuard.includes('semantic_verification_required:mission_verified_event'));
