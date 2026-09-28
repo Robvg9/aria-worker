@@ -3,7 +3,9 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=path.join(__dirname,'..');
-const migration=fs.readFileSync(path.join(root,'supabase','migrations','20260928170000_jobs_recovery_determinism_v1.sql'),'utf8');
+const migration=fs.readFileSync(path.join(root,'supabase','migrations','20260928170000_jobs_recovery_determinism_v1.sql'),'utf8')
+  + '\\n'
+  + fs.readFileSync(path.join(root,'supabase','migrations','20260928180000_fix_execution_jobs_watchdog_policy_alias_v1.sql'),'utf8');
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
 
 for(const fragment of [
@@ -28,6 +30,8 @@ for(const fragment of [
   'watchdog_grace_ms',
   'timeout_ms',
   'watchdog_running_timeout',
+  'v_policy',
+  'SELECT to_jsonb(pol)',
   'Normalize existing terminal rows',
   'completed_at=COALESCE(completed_at,updated_at,clock_timestamp())',
 ]) assert.ok(migration.includes(fragment),`Phase 4 migration missing: ${fragment}`);
