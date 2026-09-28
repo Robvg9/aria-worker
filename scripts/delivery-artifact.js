@@ -9,7 +9,7 @@ const ROOT = process.cwd();
 const PWA_DIST = path.join(ROOT, 'pwa', 'dist');
 
 function canonicalText(value) {
-  return String(value).replace(/\r\n?/g, '\n');
+  return String(value).replace(/\r/g, '');
 }
 
 function sha256Text(value) {
