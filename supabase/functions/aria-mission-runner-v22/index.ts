@@ -1441,6 +1441,18 @@ Deno.serve(async (request) => {
       available: recalled.available,
       recall_count: recalled.results.length,
       memory_ids: recalled.results.map((item: any) => item.memory_id || item.id).filter(Boolean),
+      mission_planner_contract: {
+        requested_capability: typeof mission?.metadata?.requested_capability === "string" ? mission.metadata.requested_capability : null,
+        requested_device_id: typeof mission?.metadata?.requested_device_id === "string" ? mission.metadata.requested_device_id : (typeof mission?.metadata?.device_id === "string" ? mission.metadata.device_id : null),
+        verification_marker: typeof mission?.metadata?.verification_marker === "string" ? mission.metadata.verification_marker : null,
+        command: typeof mission?.metadata?.command === "string" ? mission.metadata.command : null,
+        cwd: typeof mission?.metadata?.cwd === "string" ? mission.metadata.cwd : null,
+        start_url: typeof mission?.metadata?.start_url === "string" ? mission.metadata.start_url : null,
+        timeout_ms: Number.isInteger(mission?.metadata?.timeout_ms) ? mission.metadata.timeout_ms : null,
+        risk: typeof mission?.metadata?.risk === "string" ? mission.metadata.risk : null,
+        source: typeof mission?.metadata?.source === "string" ? mission.metadata.source : null,
+        roadmap_block: typeof mission?.metadata?.roadmap_block === "string" ? mission.metadata.roadmap_block : null,
+      },
       recovery: previousRecovery?.replan_required === true ? {
         replan_required: true,
         replan_count: Number(previousRecovery?.replan_count || 0),
