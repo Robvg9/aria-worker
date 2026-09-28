@@ -3,6 +3,15 @@ name: Deploy ARIA Cloudflare Worker
 on:
   push:
     branches: [main]
+    paths:
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'pwa/**'
+      - 'scripts/cloudflare-workers-build.js'
+      - 'integrations/cloudflare-*.js'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
   workflow_dispatch:
 
 permissions:
