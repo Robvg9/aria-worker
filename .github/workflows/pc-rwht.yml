@@ -15,6 +15,7 @@ on:
       - 'rwht/pc-browser/**'
       - 'tests/pc-rwht-browser.test.js'
       - 'pwa/**'
+      - '.github/workflows/pc-rwht.yml'
 
 jobs:
   contract:
