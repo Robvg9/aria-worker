@@ -744,6 +744,7 @@ async function processManualQueue(b:any,d:any){const {data:q,error:qe}=await sup
 async function meditationTick(b:any,d:any){const sessionId=String(b?.session_id||'').trim();const deviceId=String(d.device_id||'').trim();const lightweight=b?.lightweight===true;const recovered=lightweight?0:await recoverStale();const learning=lightweight?{skipped:true}:await learnRecent();const goalSync=lightweight?{skipped:true}:await syncGoalTerminalStates();const autonomyOnly=b?.autonomy_only===true;
 const queueChain:any[]=[];
 let manual=autonomyOnly?null:await processManualQueue(b,d);
+if(!manual && lightweight){const {data:runningManual}=await supabase.schema('aria_internal').from('meditation_queue').select('queue_id,resolved_mission_id,status,item_type,item_id,started_at,updated_at').eq('device_id',deviceId).eq('status','running').not('resolved_mission_id','is',null).order('updated_at',{ascending:false}).limit(1).maybeSingle();if(!runningManual?.error && runningManual?.data?.resolved_mission_id){const activeMissionId=String(runningManual.data.resolved_mission_id);return{ok:true,status:'running',manual_queue:true,queue_id:String(runningManual.data.queue_id),active_mission_id:activeMissionId,mission_created:activeMissionId,goal:null,background:true,recovered,learning,goalSync};}}
 if(manual){
   queueChain.push(manual);
   for(let i=0;i<7&&manual?.status==='succeeded';i++){
