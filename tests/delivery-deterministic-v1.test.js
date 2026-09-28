@@ -10,6 +10,7 @@ assert.equal(classifier.classifyFiles(['README.md', 'docs/plan.md', 'tests/examp
 assert.equal(classifier.classifyFiles(['README.md', 'worker.js']).release_bearing, true);
 assert.equal(typeof artifact.prepareReleaseArtifact, 'function');
 assert.equal(typeof artifact.verifyLive, 'function');
+assert.equal(artifact.sha256Text('a\r\nb'), artifact.sha256Text('a\nb'));
 
 assert.match(gate, /if: github\.event_name == 'pull_request'/);
 assert.match(gate, /node tests\/delivery-deterministic-v1\.test\.js/);
