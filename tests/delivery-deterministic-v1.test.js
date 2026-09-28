@@ -12,6 +12,8 @@ assert.equal(classifier.classifyFiles(['README.md', 'worker.js']).release_bearin
 assert.equal(classifier.classifyFiles(['.github/workflows/aria-delivery-deterministic-gate.yml']).release_bearing, false);
 assert.equal(typeof artifact.prepareReleaseArtifact, 'function');
 assert.equal(typeof artifact.verifyLive, 'function');
+assert.equal(typeof artifact.verifyLiveOnce, 'function');
+assert.match(artifact.verifyLive.toString(), /LIVE_STABILIZATION_TIMEOUT/);
 assert.equal(typeof artifact.buildRuntimeServiceWorker, 'function');
 assert.equal(typeof artifact.fetchText, 'function');
 assert.match(artifact.fetchText.toString(), /attempts = 3/);
