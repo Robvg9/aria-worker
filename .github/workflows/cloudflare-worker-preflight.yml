@@ -53,7 +53,14 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           wrangler whoami
+          echo '=== WORKERS BUILDS TRIGGERS ==='
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/builds/triggers" | jq .
+          echo '=== DEPLOYMENTS ==='
           wrangler deployments list --name aria --json
+          echo '=== VERSIONS ==='
           wrangler versions list --name aria --json
 
       - name: Bundle Worker without deploy
