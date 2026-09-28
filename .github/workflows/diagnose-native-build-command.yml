@@ -18,7 +18,7 @@ jobs:
           set -euo pipefail
           npm install --ignore-scripts --no-audit --no-fund
           npm run build
-          grep -q '__PWA_BUILD__' worker.js
+          ! grep -q '__PWA_BUILD__' worker.js
           test -f pwa/dist/index.html
           test -f pwa/dist/manifest.json
           echo NATIVE_BUILD_COMMAND_PASS
