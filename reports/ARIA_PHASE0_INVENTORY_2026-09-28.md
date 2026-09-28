@@ -194,3 +194,13 @@ Ventana auditada: 2026-09-28 12:30–15:00 UTC.
 
 **Clasificación:** v3/v2 son superficies activas demostradas. Las demás variantes son candidatos de legacy/deprecación sujetos a auditoría de consumidores y rollback. No se elimina ninguna en FASE 0.
 
+
+
+## 0.5c — MCP/OAuth legacy traffic audit
+
+Ventana auditada: 2026-09-28 12:30–15:00 UTC.
+
+Las **16 variantes `aria-mcp-*` activas** no mostraron llamadas en `function_edge_logs` durante la ventana auditada, incluyendo server/gateway/oauth históricos y variantes Grok.
+
+**Clasificación:** no hay evidencia de uso reciente del conjunto MCP en esta ventana. Esto es suficiente para crear una lista de candidatos a deprecación, pero **no** para eliminarlos: todavía falta comprobar consumidores externos y la ruta MCP que debe certificarse en la fase operacional.
+
