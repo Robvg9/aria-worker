@@ -83,12 +83,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js
-          wrangler deploy worker.js --name aria
+          python - <<'PY'
+          import json, os
+          with open(".cloudflare-runtime-secrets.json", "w", encoding="utf-8") as handle:
+              json.dump({"CLOUDFLARE_API_TOKEN": os.environ["CLOUDFLARE_API_TOKEN"]}, handle)
+          PY
+          trap 'rm -f .cloudflare-runtime-secrets.json' EXIT
+          wrangler deploy worker.js --name aria --secrets-file .cloudflare-runtime-secrets.json
 
-      - name: Sync Cloudflare runtime secret
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: printf '%s' "$CLOUDFLARE_API_TOKEN" | wrangler secret put CLOUDFLARE_API_TOKEN --name aria
       - name: Observe native Cloudflare Workers Build (non-blocking)
         env:
           GH_TOKEN: ${{ github.token }}
