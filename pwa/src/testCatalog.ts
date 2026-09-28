@@ -2241,6 +2241,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba el comportamiento específico indicado por el nombre del test y detecta regresiones.",
     "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
+  },
+  {
+    "id": "phase3-canonical-runtime-contract",
+    "file": "tests/phase3-canonical-runtime-contract.test.js",
+    "title": "Phase 3 Canonical Runtime Contract",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba la autoridad única del runtime y sus fronteras de error y salud efectiva.",
+    "capabilities": "Comprueba planner, runner, gateway, execution, device, verification y separación PWA/dispositivo."
   }
 ];
 

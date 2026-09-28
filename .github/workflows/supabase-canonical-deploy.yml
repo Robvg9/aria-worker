@@ -10,6 +10,10 @@ on:
       - 'scripts/patch-eas-into-mission-runner-v22.js'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - 'tests/mission-runner-v22-executor-inference.test.js'
+      - 'tests/phase3-canonical-runtime-contract.test.js'
+      - 'tests/supabase-canonical-deploy-contract.test.js'
+      - 'runtime/**'
+      - 'health/effective-status.js'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +42,9 @@ jobs:
           node tests/eas-universal-executor.test.js
           node tests/eas-runner-patch.test.js
           node tests/mission-runner-v22-executor-inference.test.js
+          node tests/aria-app-api-v3-contract.test.js
+          node tests/phase3-canonical-runtime-contract.test.js
+          node tests/supabase-canonical-deploy-contract.test.js
       - name: Apply Supabase migrations
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -98,24 +105,20 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
           node scripts/patch-eas-into-mission-runner-v22.js supabase/functions/aria-mission-runner-v22/index.ts
-          supabase functions deploy aria-planner-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          # Phase 3: only the canonical execution chain is release-bearing.
+          # Legacy planner/runner/supervisor slots remain compatibility-only and are not re-deployed.
           supabase functions deploy aria-planner-v11 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-autonomy-supervisor-v10 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-autonomy-supervisor-v5 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          # aria-repair-supervisor-v1 is a retired slot-bound legacy function; the live repair path uses aria-autonomy-supervisor-v5/v10.
-          supabase functions deploy aria-mission-runner-v15 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-mission-runner-v16 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-mission-runner-v17 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-mission-runner-v18 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-mission-runner-v22 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-agent-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-canonical-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-mission-runner-v22 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-runtime-gateway-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-execution-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-device-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-smart-verifier-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy aria-agent-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-gemini-direct-live-check-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-direct-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-github-app-runtime-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-memory-v2 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-          supabase functions deploy aria-device-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy aria-mcp-inbound-grok-v1 --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 # Final 3/7 notification cutover verification trigger: keep production workflows exercising the exact main state.
 

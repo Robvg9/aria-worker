@@ -1,12 +1,19 @@
 # ARIA canonical Supabase runtime
 
-These directories are the version-controlled source for the production ARIA control loop:
+The production control loop has one release-bearing execution chain:
 
-- `supabase/functions/aria-planner-v9`
-- `supabase/functions/aria-autonomy-supervisor-v10`
-- `supabase/functions/aria-mission-runner-v15`
+- `aria-planner-v11`
+- `aria-canonical-runtime-v1`
+- `aria-mission-runner-v22`
+- `aria-runtime-gateway-v1`
+- `aria-execution-runtime-v1`
+- `aria-device-gateway`
+- `aria-smart-verifier-v1`
 
-Production deployment is intentionally gated by GitHub Actions secrets. Pull requests validate that the canonical sources exist; only pushes to `main` may deploy them.
+The machine-readable authority is `runtime/canonical-registry.json`; the consumer and rollback boundary is documented in `runtime/consumer-rollback-matrix.md`.
+Legacy planner/runner/supervisor slots are compatibility-only and are no longer deployed by the canonical workflow. Existing live legacy versions require a separate consumer audit before deactivation.
+
+Production deployment is gated by GitHub Actions secrets. Only pushes to `main` may deploy the release-bearing chain.
 
 Required GitHub Actions secrets for production deployment:
 

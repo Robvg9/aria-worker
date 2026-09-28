@@ -9,7 +9,7 @@ const plannerConfig=read('supabase','functions','aria-planner-v11','deno.json');
 const memory=read('supabase','functions','aria-memory-v2','index.ts');
 const executor=read('supabase','functions','aria-execution-runtime-v1','index.ts');
 const appWorkflow=read('.github','workflows','aria-app-api-v3-deploy.yml');
-const plannerWorkflow=read('.github','workflows','aria-planner-v11-deploy.yml');
+const plannerWorkflow=read('.github','workflows','supabase-canonical-deploy.yml');
 function assertContains(source,fragment,message){if(!source.includes(fragment))throw new Error(message||`Missing: ${fragment}`);}
 function assertAny(source,fragments,message){if(!fragments.some(f=>source.includes(f)))throw new Error(message||`Missing one of: ${fragments.join(' | ')}`);}
 assertContains(appApi,'SUPABASE_SERVICE_ROLE_KEY','service-role binding missing');
