@@ -13,6 +13,12 @@ async function run(){
  const diag=d.deriveOperationalDiagnostic({mission,events,jobs,steps:[{step_index:1,operation:'computer.use',executor_type:'device',attempt_count:3,status:'failed'}]});
  assert.equal(diag.correlation.trace_id,'tr1');
  assert.equal(diag.correlation.execution_id,'exec1');
+ const sparse=d.extractCorrelation({mission_id:'m2',metadata:{trace_id:'tr-meta',request_id:'req-meta'}},[{event_type:'started',payload:{trace_id:'tr-event',request_id:'req-event',execution_id:'exec-old'}},{event_type:'completed',payload:{trace_id:'tr-event-2'}}]);
+ assert.equal(sparse.trace_id,'tr-event-2');
+ assert.equal(sparse.request_id,'req-event');
+ assert.equal(sparse.execution_id,'exec-old');
+ const metadataOnly=d.extractCorrelation({mission_id:'m3',metadata:{trace_id:'tr-meta',request_id:'req-meta',execution_id:'exec-meta'}},[]);
+ assert.equal(metadataOnly.execution_id,'exec-meta');
  assert.equal(diag.classification.category,'timeout');
  assert.equal(diag.attempts.length>=2,true);
  assert.equal(diag.evidence_chain.length>=2,true);
