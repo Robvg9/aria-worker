@@ -1262,10 +1262,7 @@ function objectivePlanAlignment(goal:string, steps:any[]){
   // Treat RWHT as an execution intent only when the objective explicitly asks
   // to perform the human-facing interface test. A broad master objective may
   // mention RWHT as a later scope item without making the current route RWHT.
-  const objectiveSegments=text
-    .split(/[.\\n;:!?]+/)
-    .map((segment:string)=>segment.trim())
-    .filter(Boolean);
+  // Reuse the same clause segmentation used by the Windows diagnostic guard.
   const explicitRwhtIntent=/^\\s*rwht\\b/i.test(text)
     || /(real world human test|auditoría física|auditoria fisica|prueba física|prueba fisica|prueba de interfaz)/.test(text);
   const isRwht=explicitRwhtIntent
