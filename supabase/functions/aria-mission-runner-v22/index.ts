@@ -80,10 +80,29 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
   return data;
 };
 
+const CRON_TOKEN_SHA256 = "6fd512f2c69e6ecfca6fe4503e208a2531643e91241c2419b3beb22525ed2d95";
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function authorized(request: Request) {
   const token = tokenOf(request);
   if (token && SECRET && constantTimeEqual(token, SECRET)) return true;
   if (!token) return false;
+
+  // PostgREST can be unavailable during database/schema-cache pressure.
+  // Keep the existing Vault-backed RPC path, but add a constant-time-independent
+  // hash verifier so trusted pg_net calls do not depend on PostgREST availability.
+  try {
+    if (constantTimeEqual(await sha256Hex(token), CRON_TOKEN_SHA256)) return true;
+  } catch {
+    // Fall through to the canonical database-backed authorization path.
+  }
+
   const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: token });
   return !error && data === true;
 }
