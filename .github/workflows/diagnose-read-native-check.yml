@@ -1,0 +1,19 @@
+name: Diagnose native Cloudflare check
+on:
+  push:
+    branches: ["diagnose/read-native-check-20260928"]
+permissions:
+  checks: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read native check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: 93dc8dd9a0a1b1b1face7049720043b3e7761049
+        run: |
+          set -euo pipefail
+          json="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/Robvg9/aria-worker/commits/$SHA/check-runs?per_page=100")"
+          echo "$json" | python -c 'import json,sys; x=json.load(sys.stdin); [print({"name":i["name"],"status":i["status"],"conclusion":i["conclusion"],"started_at":i["started_at"],"completed_at":i["completed_at"],"details_url":i.get("details_url")}) for i in x["check_runs"] if "Workers Builds: aria" in i["name"]]'
