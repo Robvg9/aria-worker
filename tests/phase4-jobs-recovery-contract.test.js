@@ -5,7 +5,9 @@ const path=require('node:path');
 const root=path.join(__dirname,'..');
 const migration=fs.readFileSync(path.join(root,'supabase','migrations','20260928170000_jobs_recovery_determinism_v1.sql'),'utf8')
   + '\\n'
-  + fs.readFileSync(path.join(root,'supabase','migrations','20260928180000_fix_execution_jobs_watchdog_policy_alias_v1.sql'),'utf8');
+  + fs.readFileSync(path.join(root,'supabase','migrations','20260928180000_fix_execution_jobs_watchdog_policy_alias_v1.sql'),'utf8')
+  + '\\n'
+  + fs.readFileSync(path.join(root,'supabase','migrations','20260928220000_fix_execution_jobs_watchdog_policy_alias_v2.sql'),'utf8');
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
 
 for(const fragment of [
