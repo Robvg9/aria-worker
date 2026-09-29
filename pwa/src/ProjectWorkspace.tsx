@@ -286,6 +286,8 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   </section>;
 }
 
+// Projects certification baseline: the project workspace is validated against the exact deployed PWA SHA.
+
 export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>void}) {
   const PROJECT_KEY='aria_project_selection_v2:'+session.userId;
   const TAB_KEY=(projectId:string)=>'aria_project_tab_v2:'+session.userId+':'+projectId;
