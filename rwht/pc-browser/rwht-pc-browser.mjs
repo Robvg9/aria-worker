@@ -120,6 +120,14 @@ async function checkUx(page) {
     const selector = 'button,a[href],[role="button"],[role="tab"],[role="menuitem"],input:not([type="hidden"]),textarea,select,[contenteditable="true"]';
     for (const element of document.querySelectorAll(selector)) {
       const rect = element.getBoundingClientRect();
+      const surface = element.closest('.appScreen');
+      if (surface) {
+        const surfaceRect = surface.getBoundingClientRect();
+        const surfaceOutside =
+          surfaceRect.right <= 0 || surfaceRect.left >= viewportWidth ||
+          surfaceRect.bottom <= 0 || surfaceRect.top >= viewportHeight;
+        if (surfaceOutside) continue;
+      }
       const labelledBy = (element.getAttribute('aria-labelledby') || '')
         .split(/\s+/)
         .map((id) => document.getElementById(id)?.innerText || '')
@@ -161,6 +169,12 @@ async function checkUx(page) {
       .slice(0, 50);
 
     const unlabeledInputs = [...document.querySelectorAll('input,textarea,select')]
+      .filter((element) => {
+        const surface = element.closest('.appScreen');
+        if (!surface) return true;
+        const rect = surface.getBoundingClientRect();
+        return !(rect.right <= 0 || rect.left >= viewportWidth || rect.bottom <= 0 || rect.top >= viewportHeight);
+      })
       .filter((element) => !['hidden', 'password'].includes((element.getAttribute('type') || '').toLowerCase()))
       .filter((element) => {
         const aria = element.getAttribute('aria-label') || element.getAttribute('aria-labelledby');
