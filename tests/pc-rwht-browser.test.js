@@ -84,3 +84,4 @@ assert.match(runner, /reload_auth: envBool\('RWHT_RELOAD_AUTH'/);
 assert.match(runner, /page\.reload\(\{ waitUntil: 'domcontentloaded'/);
 assert.match(authenticatedWorkflow, /RWHT_ROUTES: '#home'/);
 assert.match(authenticatedWorkflow, /RWHT_RELOAD_AUTH: 'true'/);
+assert.match(authenticatedWorkflow, /RWHT_LOGIN_WAIT_MS: '40000'/);
