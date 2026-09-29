@@ -294,7 +294,7 @@ async function run() {
     await page.locator('.projectTabs .tabButton').filter({ hasText: 'Misiones' }).click();
     await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
 
-    await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 }).catch(() => {});
+    await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
     const missionWait = await waitForProjectMission(page, session.accessToken, battle.id, missionGoalMarker, 60000);
     if (!missionWait.mission) throw new Error('visual_mission_not_persisted');
     if (missionWait.result.status !== 200 || missionWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue');
@@ -314,7 +314,8 @@ async function run() {
       image_path: visual.image_path,
       mime_type: visual.mime_type,
       annotation_summary: visual.annotation_summary,
-      instruction: visual.instruction
+      instruction: visual.instruction,
+      annotations: visual.annotations
     };
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
