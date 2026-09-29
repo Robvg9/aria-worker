@@ -538,10 +538,22 @@ async function api(path: string, token: string, init: RequestInit = {}) {
 
 async function parseAuthResponse(response: Response) {
   const d: any = await response.json().catch(() => ({}));
-  if (!response.ok || !d.access_token || !d.user?.id) {
-    throw new Error(d.error_description || d.msg || d.error || 'No se pudo iniciar sesión.');
+  if (!response.ok) {
+    const error = new Error(d.error_description || d.msg || d.error || 'No se pudo iniciar sesión.');
+    (error as any).retryable = response.status >= 500 && response.status <= 599;
+    (error as any).status = response.status;
+    throw error;
+  }
+  if (!d.access_token || !d.user?.id) {
+    throw new Error('No se pudo iniciar sesión.');
   }
   return d;
+}
+
+function isRetryableAuthError(error: unknown) {
+  return Boolean((error as any)?.retryable)
+    || (error instanceof DOMException && error.name === 'AbortError')
+    || error instanceof TypeError;
 }
 
 async function signInDirect(email: string, password: string) {
@@ -625,7 +637,7 @@ async function refreshSession(session: Session) {
     } satisfies Session;
   } catch (error) {
     directError = error;
-    const retryable = error instanceof DOMException && error.name === 'AbortError' || error instanceof TypeError;
+    const retryable = isRetryableAuthError(error);
     if (!retryable) throw error;
   }
   try {
@@ -661,11 +673,12 @@ async function signIn(email: string, password: string) {
     return s;
   } catch (error) {
     directError = error;
-    const retryable = error instanceof DOMException && error.name === 'AbortError' || error instanceof TypeError;
+    const retryable = isRetryableAuthError(error);
     if (!retryable) throw error;
   }
 
   try {
+    await new Promise(resolve => window.setTimeout(resolve, 350));
     const d: any = await signInProxy(email, password);
     const s: Session = {
       accessToken: d.access_token,
@@ -677,7 +690,7 @@ async function signIn(email: string, password: string) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(s));
     return s;
   } catch (proxyError) {
-    if ((proxyError instanceof DOMException && proxyError.name === 'AbortError') || proxyError instanceof TypeError) {
+    if (isRetryableAuthError(proxyError)) {
       throw new Error('ARIA no pudo alcanzar el servicio de autenticación por ninguna de sus rutas. La red o el servicio de autenticación está tardando demasiado.');
     }
     if (proxyError instanceof Error && proxyError.message) throw proxyError;
