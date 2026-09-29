@@ -25,7 +25,11 @@ jobs:
         run: node tests/delivery-deterministic-v1.test.js
 
   delivery-gate:
-    if: github.event_name == 'push' || github.event_name == 'workflow_run'
+    # A workflow_run may arrive after a newer main commit is already current.
+    # Only gate a completed deploy when it belongs to the commit represented by
+    # this gate run; stale deploy failures are handled by that newer commit's
+    # own push gate instead of poisoning current delivery state.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_sha == github.sha)
     runs-on: ubuntu-latest
     steps:
       - name: Canonical deploy result
