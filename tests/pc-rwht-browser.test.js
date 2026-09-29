@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1\.1\.0/);
+assert.match(runner, /aria-pc-browser-rwht-v1\.2\.0/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -91,6 +91,7 @@ assert.match(authenticatedWorkflow, /RWHT_LOGIN_WAIT_MS: '40000'/);
 
 assert.match(runner, /routeHash === '#home' \? '\.dashboardScreen'/);
 assert.match(runner, /routeHash === '#chat' \? '\.chatScreen'/);
+assert.match(runner, /routeHash === '#projects' \? '\.projectShell'/);
 assert.match(runner, /isInActiveSurface/);
 assert.match(runner, /activeSurfaceSelector/);
 assert.match(runner, /\.chatScreen/);
@@ -118,3 +119,20 @@ const appSource = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'App.
 assert.match(appSource, /chatWindowRef/);
 assert.match(appSource, /data-testid='chat-window'/);
 assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
+
+const projectsSource = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-projects-e2e.mjs'), 'utf8');
+assert.match(projectsSource, /aria-projects-rwht-e2e-v1\\.0\\.0/);
+assert.match(projectsSource, /battlecruiser|cuevacoin|aria/);
+assert.match(projectsSource, /server_persistence_verified/);
+assert.match(projectsSource, /visual_mission_verified/);
+assert.match(projectsSource, /png_persisted/);
+assert.match(projectsSource, /canonical_queue/);
+const projectsWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
+assert.match(projectsWorkflow, /ARIA Projects Browser RWHT Authenticated/);
+assert.match(projectsWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
+assert.match(projectsWorkflow, /RWHT_ROUTES: '#projects'/);
+assert.match(projectsWorkflow, /Execute generic Projects surface RWHT/);
+assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
+assert.match(projectsWorkflow, /RWHT_EMAIL/);
+assert.match(projectsWorkflow, /RWHT_PASSWORD/);
+assert.match(projectsWorkflow, /RWHT_STORAGE_STATE_B64/);
