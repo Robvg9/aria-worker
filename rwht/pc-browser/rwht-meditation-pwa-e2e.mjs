@@ -88,7 +88,7 @@ async function run() {
   page.on('response', response => { if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() }); });
   const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
   try {
-    await page.goto(base + '#home', { waitUntil:'domcontentloaded', timeout:30000 });
+    await page.goto(base + '#projects', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(1200);
     const loginResult = await login(page);
     assert.equal(loginResult.status, 'authenticated');
