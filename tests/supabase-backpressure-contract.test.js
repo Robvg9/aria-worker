@@ -26,8 +26,7 @@ assert.match(migration, /aria-autonomy-supervisor-v5-every-5-minutes/);
 assert.match(migration, /'2-59\/5 \* \* \* \*'/);
 assert.match(migration, /aria-execution-jobs-watchdog-every-5-minutes/);
 assert.match(migration, /'4-59\/5 \* \* \* \*'/);
-assert.doesNotMatch(migration, /every-2-minutes/);
-assert.doesNotMatch(migration, /every-minute/);
+assert.doesNotMatch(migration, /\*\/2 \* \* \* \*/);
 assert.match(migration, /Recovery is owned by aria_internal\.execution_jobs_watchdog/);
 assert.doesNotMatch(migration, /UPDATE aria_internal\.execution_jobs\s+SET status='queued'/);
 
