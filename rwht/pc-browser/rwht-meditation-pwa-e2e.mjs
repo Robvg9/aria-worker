@@ -117,7 +117,7 @@ async function run() {
       expectApi(page, '/meditation/notifications?limit=20', session.accessToken)
     ]);
     for (const [name, result] of [['overview',overview],['health',health],['ideas',ideas],['notifications',notifications]]) assert.equal(result.status,200,name+'_http_'+result.status);
-    assert.ok(Array.isArray(ideas.body?.items)); assert.ok(Array.isArray(notifications.body?.items));
+    assert.ok(Array.isArray(ideas.body?.items)); assert.ok(Array.isArray(notifications.body?.notifications));
     report.api_health_verified = true; report.notifications_route_verified = true;
     const marker = 'RWHTMEDIATION' + Date.now();
     const idea = 'Certificación Meditation IA ' + marker + ': mejorar el diagnóstico operativo y preparar una ruta gobernada sin ejecutar cambios externos.';
