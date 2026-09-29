@@ -128,8 +128,9 @@ async function run() {
     const analysisResponse = await analysisPromise; assert.equal(analysisResponse.status(),200,'idea analyzer POST must return 200');
     const proposalCard = page.locator('.ideaProposalCard').filter({ hasText:marker }).first();
     await proposalCard.waitFor({ state:'visible', timeout:30000 });
-    await proposalCard.getByText('NO AUTOENCOLADA', { exact:true }).waitFor({ state:'visible', timeout:10000 });
-    await proposalCard.getByText('NO AUTOEJECUTA', { exact:true }).waitFor({ state:'visible', timeout:10000 });
+    const analyzerPanel = page.locator('.ideaAnalyzerPanel').first();
+    await analyzerPanel.getByText('NO AUTOENCOLADA', { exact:true }).waitFor({ state:'visible', timeout:10000 });
+    await analyzerPanel.getByText('NO AUTOEJECUTA', { exact:true }).waitFor({ state:'visible', timeout:10000 });
     report.idea_analyzer_verified = true;
     const proposalResult = await expectApi(page, '/meditation/ideas', session.accessToken);
     const proposal = (proposalResult.body?.items || []).find(item => String(item?.input?.idea || '') === idea);
