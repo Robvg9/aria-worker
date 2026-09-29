@@ -263,6 +263,17 @@ async function run() {
 
     await page.getByRole('button', { name: 'Pausar para pintar' }).click();
     await page.getByRole('button', { name: 'Rectángulo' }).click();
+    const tools = ['Lápiz','Marcador','Línea','Rectángulo','Círculo','Flecha','Texto','Borrador'];
+    for (const label of tools) {
+      const button = page.getByRole('button', { name: label }).first();
+      if (!(await button.count())) throw new Error('artia_tool_missing_' + label);
+      await button.click();
+      if (!(await button.evaluate((node) => node.classList.contains('selected')))) throw new Error('artia_tool_not_selectable_' + label);
+    }
+    await page.getByRole('button', { name: 'Rectángulo' }).click();
+    const fixture = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+Xq8YQwAAAABJRU5ErkJggg==';
+    await page.locator('.fileButton input[type="file"]').setInputFiles({ name: 'artia-reference.png', mimeType: 'image/png', buffer: Buffer.from(fixture, 'base64') });
+    await page.getByText('Referencia cargada').waitFor({ state: 'visible', timeout: 10000 });
     const instructionMarker = 'RWHTARTIA' + Date.now();
     await page.locator('.visualInstruction').fill('Certificación visual ' + instructionMarker + ': marcar esta zona y crear la misión.');
     const canvas = page.locator('.artiaPreviewShell canvas').first();
