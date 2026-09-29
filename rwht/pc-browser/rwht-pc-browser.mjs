@@ -331,12 +331,28 @@ async function testControl(page, control, config) {
   const beforeHash = sha(beforeControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
 
   try {
-    let locator;
-    if (control.selector_hint) locator = page.locator(control.selector_hint).first();
-    else if (control.id) locator = page.locator('#' + control.id).first();
-    else if (control.role && label) locator = page.getByRole(control.role, { name: label, exact: true }).first();
-    else locator = page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
+    let locator = null;
+    const semanticLocator = () => {
+      if (control.id) return page.locator('#' + control.id).first();
+      if (control.role && label) return page.getByRole(control.role, { name: label, exact: true }).first();
+      return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
+    };
+    if (control.selector_hint) {
+      const hinted = page.locator(control.selector_hint).first();
+      if (await hinted.count() && await hinted.isVisible().catch(() => false)) locator = hinted;
+    }
+    if (!locator) locator = semanticLocator();
 
+    // Details accordions are normally closed after a fresh navigation. Open the
+    // containing details before acting so controls are tested in their real route,
+    // not rejected merely because the accordion reset itself.
+    if (await locator.count()) {
+      await locator.evaluate((el) => {
+        const details = el.closest('details');
+        if (details) details.open = true;
+        el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      }).catch(() => {});
+    }
     await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
@@ -381,15 +397,19 @@ async function auditRoute(page, url, routeIndex, config) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
   await page.waitForTimeout(config.settle_ms);
 
-  const login = routeIndex === 0 ? await loginIfConfigured(page, config).catch((error) => ({
-    attempted: true,
-    status: 'error',
-    error: String(error?.message || error).slice(0, 500)
-  })) : { attempted: false, status: 'skipped' };
+  const passwordVisible = await page.locator('input[type="password"]').count().catch(() => 0);
+  const login = passwordVisible && config.auth_configured
+    ? await loginIfConfigured(page, config).catch((error) => ({
+        attempted: true,
+        status: 'error',
+        error: String(error?.message || error).slice(0, 500)
+      }))
+    : { attempted: false, status: 'not_needed' };
 
   await page.waitForTimeout(config.settle_ms);
 
-  let auth = await verifyAuthState(page, config);
+  const routeAuthConfig = routeIndex === 0 ? config : { ...config, expected_auth_text: '' };
+  let auth = await verifyAuthState(page, routeAuthConfig);
   let reloadAuth = null;
   if (routeIndex === 0 && config.reload_auth && auth.verified) {
     await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
