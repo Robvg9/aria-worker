@@ -60,7 +60,15 @@ async function login(page) {
       }, null, { timeout: 60000 });
       return;
     } catch (error) {
-      if (attempt === 3) throw new Error('settings_authenticated_login_failed_after_3_attempts:' + String(error?.message || error).slice(0, 500));
+      if (attempt === 3) {
+        const authError = await page.locator('.errorBox').innerText().catch(() => '');
+        const sessionPresent = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2')));
+        throw new Error('settings_authenticated_login_failed_after_3_attempts:' + JSON.stringify({
+          visible_error: authError.slice(0, 300),
+          session_present: sessionPresent,
+          auth_responses: responseDiagnostics.slice(-6)
+        }));
+      }
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
       await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
       await Promise.race([
@@ -89,9 +97,23 @@ function panel(page, text) {
   const page = await context.newPage();
 
   const runtimeErrors = [];
+  const responseDiagnostics = [];
   page.on('pageerror', e => runtimeErrors.push('pageerror: ' + e.message));
   page.on('console', msg => {
     if (msg.type() === 'error') runtimeErrors.push('console: ' + msg.text());
+  });
+  page.on('response', async response => {
+    if (response.status() >= 400) {
+      const target = response.url();
+      const diagnostic = { status: response.status(), url: target };
+      if (/auth\/token/i.test(target)) {
+        try {
+          const body = await response.json();
+          diagnostic.auth_error = body?.error || body?.error_description || body?.msg || body?.code || null;
+        } catch {}
+      }
+      responseDiagnostics.push(diagnostic);
+    }
   });
 
   try {
@@ -191,14 +213,13 @@ function panel(page, text) {
     if (sessionAfterLogout !== null) throw new Error('Session key remains after logout.');
     evidence.checks.logout_verified = true;
 
-    await page.getByLabel('Correo').fill(email);
-    await page.getByLabel('Contraseña').fill(password);
-    await page.getByRole('button', { name: 'ENTRAR EN ARIA' }).click();
-    await page.getByRole('heading', { name: 'Dashboard' }).waitFor({ timeout: 40000 });
+    await page.waitForTimeout(3000);
+    await login(page);
     const sessionAfterRelogin = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2')));
     if (!sessionAfterRelogin) throw new Error('Session was not persisted after re-login.');
     await openSettings(page);
     evidence.checks.relogin_verified = true;
+    evidence.checks.error_responses_observed = responseDiagnostics.filter(x => x.status >= 400);
 
     if (runtimeErrors.length) throw new Error(runtimeErrors.join(' | '));
     evidence.status = 'verified';
