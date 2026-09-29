@@ -99,13 +99,14 @@ assert.match(runner, /'hidden', 'password', 'file'/);
 
 
 const chatE2E = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-chat-e2e.mjs'), 'utf8');
-assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.0\.1/);
+assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.0\.2/);
 assert.match(chatE2E, /Habla con ARIA/);
 assert.match(chatE2E, /aria_session_v2/);
 assert.match(chatE2E, /chat_server_persistence_missing/);
 assert.match(chatE2E, /chat_reload_persistence_missing/);
 assert.match(chatE2E, /chat_ux_contract_failed/);
 assert.match(chatE2E, /RWHTCHATCERT/);
+assert.match(chatE2E, /replace\(\/\\\\s\+\/g, ' '\)/);
 assert.doesNotMatch(chatE2E, /RWHT_CHAT_CERT_/);
 const chatWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'chat-rwht-authenticated.yml'), 'utf8');
 assert.match(chatWorkflow, /ARIA Chat Browser RWHT Authenticated/);
