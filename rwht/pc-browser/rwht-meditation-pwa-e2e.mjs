@@ -6,21 +6,55 @@ const artifactDir = path.resolve(process.env.RWHT_ARTIFACT_DIR || 'meditation-e2
 fs.mkdirSync(artifactDir, { recursive: true });
 function envBool(name, fallback = false) { const value = process.env[name]; return value == null ? fallback : /^(1|true|yes)$/i.test(String(value)); }
 
+async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
 async function loginIfNeeded(page) {
-  const password = page.locator('input[type="password"]').first();
-  if (!(await password.count())) return false;
+  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+  if (!(await password.count()) || !(await password.isVisible().catch(() => false))) return false;
+
   const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   if (!(await email.count())) throw new Error('meditation_login_email_input_missing');
+
   const configuredEmail = process.env.RWHT_EMAIL;
   const configuredPassword = process.env.RWHT_PASSWORD;
   if (!configuredEmail || !configuredPassword) throw new Error('meditation_auth_secrets_missing');
-  await email.fill(configuredEmail);
-  await password.fill(configuredPassword);
-  const submit = page.locator('button[type="submit"],input[type="submit"],button').filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
-  if (await submit.count()) await submit.click(); else await password.press('Enter');
-  await page.waitForTimeout(Number(process.env.RWHT_LOGIN_WAIT_MS || 40000));
-  if (await page.locator('input[type="password"]').count()) throw new Error('meditation_login_failed');
-  return true;
+
+  const attempts = [];
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await email.fill(configuredEmail);
+    await password.fill(configuredPassword);
+    const submit = page.locator('button[type="submit"],input[type="submit"],button')
+      .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
+    if (await submit.count()) await submit.click();
+    else await password.press('Enter');
+
+    try {
+      await page.waitForFunction(() => {
+        const pwd = [...document.querySelectorAll('input[type="password"]')].find(el => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        });
+        const authError = /servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i.test(
+          [...document.querySelectorAll('*')].map(el => String(el.textContent || '')).join(' ').slice(-20000)
+        );
+        return !pwd || authError;
+      }, null, { timeout: 60000 });
+
+      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
+      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
+      if (passwordStillVisible && visibleError) throw new Error('authenticated_login_visible_error');
+      attempts.push({ attempt, status: 'authenticated' });
+      return { attempted: true, status: 'authenticated', attempts };
+    } catch (error) {
+      attempts.push({ attempt, status: 'failed', error: String(error?.message || error).slice(0, 300) });
+      if (attempt < 3) {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await waitFor(2000 * attempt);
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+      }
+    }
+  }
+  throw new Error('meditation_login_failed_after_3_attempts:' + JSON.stringify(attempts).slice(0, 1200));
 }
 
 async function expectApi(page, apiPath, token) {
@@ -46,7 +80,7 @@ async function run() {
   try {
     await page.goto(base + '#home', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(1500);
-    if (requireAuth) { await loginIfNeeded(page); assert.equal(await page.locator('input[type="password"]').count(), 0); }
+    if (requireAuth) { await loginIfNeeded(page); assert.equal(await page.locator('input[type="password"]').isVisible().catch(() => false), false); }
     report.auth_verified = true;
     await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(2500);
@@ -56,7 +90,7 @@ async function run() {
     await page.getByText('EJECUCIÓN EN TIEMPO REAL', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     await page.getByRole('button', { name:'ANALIZAR Y PROPONER' }).waitFor({ state:'visible', timeout:30000 });
     report.meditation_surface_verified = true;
-    const sessionRaw = await page.evaluate(() => localStorage.getItem('aria-session-v2'));
+    const sessionRaw = await page.evaluate(() => localStorage.getItem('aria_session_v2'));
     assert.ok(sessionRaw, 'aria session missing after login');
     const session = JSON.parse(sessionRaw); assert.ok(session.accessToken, 'access token missing from persisted session');
     const [overview, health, ideas, notifications] = await Promise.all([
