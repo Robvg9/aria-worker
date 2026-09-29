@@ -10,7 +10,7 @@ const { executeWindowsDesktop } = (() => {
 })();
 const GATEWAY_URL=process.env.ARIA_DEVICE_GATEWAY_URL, DEVICE_TOKEN=process.env.ARIA_DEVICE_TOKEN, DEVICE_ID=process.env.ARIA_DEVICE_ID;
 const HEARTBEAT_MS=Math.max(30_000,Number(process.env.ARIA_HEARTBEAT_MS||60_000)), POLL_MS=Math.max(5_000,Number(process.env.ARIA_POLL_MS||12_000));
-const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||2));
+const GATEWAY_TIMEOUT_MS=Math.max(3_000,Number(process.env.ARIA_GATEWAY_TIMEOUT_MS||15_000)), GATEWAY_RETRIES=Math.max(0,Number(process.env.ARIA_GATEWAY_RETRIES||1));
 const OLLAMA_URL='http://127.0.0.1:11434', OLLAMA_MODEL='qwen3:4b', OLLAMA_OPERATION='ollama.qwen3', SHELL_OPERATION='shell.execute', COMPUTER_OPERATION='computer.use', AUTONOMOUS_COMPUTER_OPERATION='computer.use.autonomous';
 const MAX_OUTPUT=256*1024, DISPLAY_OUTPUT=4096;
 function log(message){console.log(`[ARIA] ${new Date().toISOString()} ${message}`)}
