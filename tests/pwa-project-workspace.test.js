@@ -112,3 +112,5 @@ assert.ok(project.includes("if(tab==='chat'||tab==='visual')void loadProjectChat
 assert.ok(project.includes("setInterval(refresh,15000)"));
 assert.ok(!project.includes("void loadMissions();void loadProjectChat()"));
 assert.ok(!project.includes("setInterval(refresh,5000)"));
+
+assert.ok(project.includes("setConversationId(null);setMessages([]);setMissions([])"));
