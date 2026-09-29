@@ -8,9 +8,21 @@ function envBool(name, fallback = false) { const value = process.env[name]; retu
 
 async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
+async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function readPersistedSession(page) {
+  return page.evaluate(() => {
+    try {
+      const raw = localStorage.getItem('aria_session_v2');
+      const s = raw ? JSON.parse(raw) : null;
+      return s && typeof s.accessToken === 'string' ? { userId: String(s.userId || ''), accessToken: s.accessToken } : null;
+    } catch { return null; }
+  }).catch(() => null);
+}
+
 async function loginIfNeeded(page) {
   const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-  if (!(await password.count()) || !(await password.isVisible().catch(() => false))) return false;
+  if (!(await password.count()) || !(await password.isVisible().catch(() => false))) return { attempted:false, status:'already_authenticated' };
 
   const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   if (!(await email.count())) throw new Error('meditation_login_email_input_missing');
@@ -24,37 +36,32 @@ async function loginIfNeeded(page) {
     await email.fill(configuredEmail);
     await password.fill(configuredPassword);
     const submit = page.locator('button[type="submit"],input[type="submit"],button')
-      .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
-    if (await submit.count()) await submit.click();
-    else await password.press('Enter');
+      .filter({ hasText:/entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
+    if (await submit.count()) await submit.click(); else await password.press('Enter');
 
-    try {
-      await page.waitForFunction(() => {
-        const pwd = [...document.querySelectorAll('input[type="password"]')].find(el => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        });
-        const authError = /servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i.test(
-          [...document.querySelectorAll('*')].map(el => String(el.textContent || '')).join(' ').slice(-20000)
-        );
-        return !pwd || authError;
-      }, null, { timeout: 60000 });
-
-      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
-      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
-      if (passwordStillVisible && visibleError) throw new Error('authenticated_login_visible_error');
-      attempts.push({ attempt, status: 'authenticated' });
-      return { attempted: true, status: 'authenticated', attempts };
-    } catch (error) {
-      attempts.push({ attempt, status: 'failed', error: String(error?.message || error).slice(0, 300) });
-      if (attempt < 3) {
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-        await waitFor(2000 * attempt);
-        await page.waitForLoadState('domcontentloaded').catch(() => {});
+    const deadline = Date.now() + 70000;
+    let session = null;
+    while (Date.now() < deadline) {
+      session = await readPersistedSession(page);
+      if (session?.accessToken) {
+        attempts.push({ attempt, status:'authenticated', persisted_session:true });
+        return { attempted:true, status:'authenticated', attempts };
       }
+      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
+      if (visibleError && await password.isVisible().catch(() => false)) {
+        attempts.push({ attempt, status:'auth_error_visible', error:String(visibleError).slice(0,300) });
+        break;
+      }
+      await waitFor(1000);
+    }
+
+    attempts.push({ attempt, status:'timeout_waiting_for_session' });
+    if (attempt < 3) {
+      await page.reload({ waitUntil:'domcontentloaded', timeout:30000 }).catch(() => {});
+      await waitFor(2000 * attempt);
     }
   }
-  throw new Error('meditation_login_failed_after_3_attempts:' + JSON.stringify(attempts).slice(0, 1200));
+  throw new Error('meditation_login_failed_after_3_attempts:' + JSON.stringify(attempts).slice(0,1200));
 }
 
 async function expectApi(page, apiPath, token) {
