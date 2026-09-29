@@ -12,15 +12,6 @@ on:
       - 'tests/**project-workspace.test.js'
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/projects-rwht-authenticated.yml'
-  pull_request:
-    paths:
-      - 'pwa/**'
-      - 'supabase/functions/aria-app-api-v3/**'
-      - 'rwht/pc-browser/rwht-pc-browser.mjs'
-      - 'rwht/pc-browser/rwht-projects-e2e.mjs'
-      - 'tests/**project-workspace.test.js'
-      - 'tests/pc-rwht-browser.test.js'
-      - '.github/workflows/projects-rwht-authenticated.yml'
   workflow_dispatch:
 
 concurrency:
