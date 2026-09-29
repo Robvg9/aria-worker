@@ -46,7 +46,7 @@ function queryMatches(query) {
   '})()';
 }
 
-function cdpCall(method, params, timeoutMs) {
+function cdpCall(method, params, timeoutMs, pageUrl = null) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let ws = null;
@@ -59,8 +59,11 @@ function cdpCall(method, params, timeoutMs) {
     fetch(CDP_URL + '/json')
       .then((r) => { if (!r.ok) throw new Error('chrome_cdp_http_' + r.status); return r.json(); })
       .then((tabs) => {
-        const page = Array.isArray(tabs) ? tabs.find((x) => x && x.type === 'page' && x.webSocketDebuggerUrl) : null;
-        if (!page) throw new Error('chrome_cdp_page_unavailable');
+        const pages = Array.isArray(tabs) ? tabs.filter((x) => x && x.type === 'page' && x.webSocketDebuggerUrl) : [];
+        const candidates = pageUrl ? pages.filter((x) => String(x.url || '').startsWith(String(pageUrl))) : pages;
+        if (candidates.length === 0) throw new Error('chrome_cdp_page_unavailable');
+        if (candidates.length > 1) throw new Error('chrome_cdp_page_ambiguous');
+        const page = candidates[0];
         if (typeof WebSocket !== 'function') throw new Error('chrome_cdp_websocket_unavailable');
         ws = new WebSocket(page.webSocketDebuggerUrl);
         ws.onopen = () => ws.send(JSON.stringify({id:1,method,params:params || {}}));
@@ -83,8 +86,10 @@ function cdpCall(method, params, timeoutMs) {
 }
 
 async function executeChromeSemanticAction(payload, {timeout_ms=7000}={}) {
-  const target = payload && payload.target && payload.target.query ? payload.target.query : (payload && payload.target);
+  const fullTarget = payload && payload.target;
+  const target = fullTarget && fullTarget.query ? fullTarget.query : fullTarget;
   if (!target || typeof target !== 'object') return {status:'failed',action:payload && payload.action,error:'semantic_target_missing'};
+  const pageUrl = fullTarget && (fullTarget.page_url || fullTarget.url) ? String(fullTarget.page_url || fullTarget.url) : null;
   const action = payload.action === 'double_click' ? 'double_click' : 'click';
   const beforeExpression = queryMatches(target);
   const actionExpression = '(async function(){' +
@@ -104,7 +109,7 @@ async function executeChromeSemanticAction(payload, {timeout_ms=7000}={}) {
     'return {ok:true,matched:{role:hit.role,name:hit.name},ui:{version:"ui-state-v1.0.0",surface:"windows-chrome",url:location.href,title:document.title,focused_id:null,nodes:nodes,metadata:{source:"chrome-cdp",cdp_node_count:nodes.length}}};' +
   '})()';
   try {
-    const result = await cdpCall('Runtime.evaluate',{returnByValue:true,awaitPromise:true,expression:actionExpression},timeout_ms);
+    const result = await cdpCall('Runtime.evaluate',{returnByValue:true,awaitPromise:true,expression:actionExpression},timeout_ms,pageUrl);
     const value = result && result.result && result.result.value;
     if (!value || value.ok !== true) return {status:'failed',action,error:value && value.error || 'chrome_cdp_semantic_action_failed',version:'aria-windows-chrome-semantic-v1'};
     return {status:'succeeded',action,method:'chrome-cdp-semantic',version:'aria-windows-chrome-semantic-v1',matched:value.matched,ui:value.ui};
