@@ -144,12 +144,25 @@ function panel(page, text) {
     }
 
     const notificationPanel = panel(page, 'Notificaciones de ARIA');
-    const permission = await page.evaluate(() => ('Notification' in window ? Notification.permission : 'unsupported'));
-    const notificationText = await notificationPanel.innerText();
-    if (permission !== 'granted' || !/Activad|permitidos/.test(notificationText)) {
-      throw new Error('Notification permission/state is not reflected correctly.');
+    let permission = await page.evaluate(() => ('Notification' in window ? Notification.permission : 'unsupported'));
+    if (permission === 'default') {
+      const activate = notificationPanel.getByRole('button', { name: 'Activar avisos' });
+      if (await activate.isEnabled().catch(() => false)) {
+        await activate.click();
+        await page.waitForTimeout(300);
+        permission = await page.evaluate(() => ('Notification' in window ? Notification.permission : 'unsupported'));
+      }
     }
-    evidence.checks.notifications_verified = true;
+    const notificationText = await notificationPanel.innerText();
+    const notificationStateValid =
+      (permission === 'granted' && /Los avisos están permitidos\.|Activadas/.test(notificationText)) ||
+      (permission === 'denied' && /Activa los avisos para recibir cambios de misiones\.|Activar avisos/.test(notificationText)) ||
+      (permission === 'unsupported' && /Este dispositivo no expone notificaciones web\./.test(notificationText));
+    if (!notificationStateValid) {
+      throw new Error('Notification permission/state mismatch: ' + JSON.stringify({ permission, text: notificationText }));
+    }
+    evidence.checks.notifications_state_verified = true;
+    evidence.checks.notifications_permission = permission;
 
     const userId = await page.evaluate(() => {
       try { return JSON.parse(localStorage.getItem('aria_session_v2') || 'null')?.userId || null; }
