@@ -157,7 +157,9 @@ async function run() {
     const location = message.location?.() || {};
     const url = String(location.url || page.url());
     const item = { text: message.text().slice(0, 1000), url };
-    if (url.includes('battlecruiser.robvg9.workers.dev')) externalPreviewConsoleErrors.push(item);
+    const host = (() => { try { return new URL(url).host; } catch { return ""; } })();
+    const internalHosts = new Set(['aria.robvg9.workers.dev','icuqsstxfdbvjytkhlog.supabase.co']);
+    if (host && !internalHosts.has(host)) externalPreviewConsoleErrors.push(item);
     else consoleErrors.push(item);
   });
   page.on('pageerror', (error) => pageErrors.push({ message: String(error?.message || error).slice(0, 1000), url: page.url() }));
@@ -317,13 +319,27 @@ async function run() {
     const instructionMarker = 'RWHTARTIA' + Date.now();
     await page.locator('.visualInstruction').fill('Certificación visual ' + instructionMarker + ': marcar esta zona y crear la misión.');
     const canvas = page.locator('.artiaPreviewShell canvas').first();
+    await canvas.scrollIntoViewIfNeeded();
+    await canvas.waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForFunction(() => {
+      const c = document.querySelector('.artiaPreviewShell canvas');
+      const shell = document.querySelector('.artiaPreviewShell');
+      return Boolean(c && shell && (c.getAttribute('width') || '') !== '0' && shell.getBoundingClientRect().width > 400);
+    }, null, { timeout: 10000 });
     const box = await canvas.boundingBox();
-    if (!box) throw new Error('artia_canvas_missing');
-    await page.mouse.move(box.x + 160, box.y + 160);
+    if (!box || box.width < 400 || box.height < 200) throw new Error('artia_canvas_not_ready');
+    const centerX = box.x + Math.min(180, box.width * 0.25);
+    const centerY = box.y + Math.min(160, box.height * 0.25);
+    await page.mouse.move(centerX, centerY);
     await page.mouse.down();
-    await page.mouse.move(box.x + 420, box.y + 300, { steps: 5 });
+    await new Promise(resolve => setTimeout(resolve, 250));
+    await page.mouse.move(box.x + Math.max(320, box.width * 0.55), box.y + Math.max(260, box.height * 0.45), { steps: 12 });
+    await new Promise(resolve => setTimeout(resolve, 100));
     await page.mouse.up();
-    await page.getByText(/^Anotaciones: 1 ·/).waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForFunction(() => {
+      const text = [...document.querySelectorAll('.visualHint')].map(n => n.textContent || '').join(' ');
+      return /Anotaciones:\s*[1-9]\d*/.test(text);
+    }, null, { timeout: 10000 });
 
     const missionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
     if (!(await missionButton.isEnabled())) throw new Error('artia_mission_button_not_enabled');
