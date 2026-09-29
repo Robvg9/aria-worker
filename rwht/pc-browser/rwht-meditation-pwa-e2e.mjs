@@ -8,37 +8,62 @@ function envBool(name, fallback = false) { const value = process.env[name]; retu
 
 async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-async function readPersistedSession(page) {
+const EMAIL = String(process.env.RWHT_EMAIL || '');
+const PASSWORD = String(process.env.RWHT_PASSWORD || '');
+
+async function login(page) {
+  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
+  const maxAttempts = Math.max(1, Math.min(3, Number(process.env.RWHT_AUTH_ATTEMPTS || 3)));
+  const attempts = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+    const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+    await email.waitFor({ state: 'visible', timeout: 30000 });
+    await password.waitFor({ state: 'visible', timeout: 30000 });
+    await email.fill(EMAIL);
+    await password.fill(PASSWORD);
+    const submit = page.locator('button[type="submit"],input[type="submit"],button')
+      .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
+    if (await submit.count()) await submit.click();
+    else await password.press('Enter');
+    try {
+      await page.waitForFunction(() => {
+        const passwordVisible = [...document.querySelectorAll('input[type="password"]')].some((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+        const authErrorVisible = /servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i.test(
+          [...document.querySelectorAll('*')].map((el) => String(el.textContent || '')).join(' ').slice(-20000)
+        );
+        return !passwordVisible || authErrorVisible;
+      }, null, { timeout: 60000 });
+      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
+      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
+      if (passwordStillVisible && visibleError) throw new Error('authenticated_login_visible_error');
+      attempts.push({ attempt, status: 'authenticated' });
+      return { mode: 'password', status: 'authenticated', attempts };
+    } catch (error) {
+      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
+      attempts.push({ attempt, status: 'failed', error: String(error?.message || error).slice(0, 300), visible_error: String(visibleError || '').slice(0, 300) });
+      if (attempt < maxAttempts) {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await waitFor(2000 * attempt);
+      }
+    }
+  }
+  throw new Error('authenticated_login_failed_after_' + maxAttempts + '_attempts:' + JSON.stringify(attempts).slice(0, 1200));
+}
+
+async function readSession(page) {
   return page.evaluate(() => {
     try {
       const raw = localStorage.getItem('aria_session_v2');
-      const s = raw ? JSON.parse(raw) : null;
-      return s && typeof s.accessToken === 'string' ? { userId: String(s.userId || ''), accessToken: s.accessToken } : null;
+      const session = raw ? JSON.parse(raw) : null;
+      return session && typeof session.accessToken === 'string'
+        ? { accessToken: session.accessToken, userId: String(session.userId || '') }
+        : null;
     } catch { return null; }
-  }).catch(() => null);
-}
-
-async function obtainSupabaseSession(context, base, anon) {
-  const email = process.env.RWHT_EMAIL;
-  const password = process.env.RWHT_PASSWORD;
-  if (!email || !password) throw new Error('meditation_auth_secrets_missing');
-  if (!anon) throw new Error('meditation_anon_key_missing');
-  const response = await context.request.post(base + 'auth/token?grant_type=password', {
-    headers: { 'content-type': 'application/json', apikey: anon },
-    data: { email: email.trim(), password },
-    timeout: 30000
   });
-  const body = await response.json().catch(() => null);
-  if (!response.ok() || !body?.access_token || !body?.user?.id) {
-    throw new Error('meditation_proxy_auth_http_' + response.status() + ':' + String(body?.error_description || body?.msg || body?.error || '').slice(0,180));
-  }
-  return {
-    accessToken: body.access_token,
-    refreshToken: body.refresh_token || '',
-    userId: String(body.user.id),
-    expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
-    email: body.user.email
-  };
 }
 
 async function expectApi(page, apiPath, token) {
@@ -56,13 +81,6 @@ async function run() {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: envBool('RWHT_HEADLESS', true) });
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) } });
-  const appSource = fs.readFileSync(path.resolve(process.cwd(), '../../pwa/src/App.tsx'), 'utf8');
-  const anon = (appSource.match(/const ANON = ['"]([^'"]+)['"]/i) || [])[1];
-  const authOrigin = new URL(base).origin + '/';
-  const authSession = await obtainSupabaseSession(context, authOrigin, anon);
-  await context.addInitScript(({ session }) => {
-    localStorage.setItem('aria_session_v2', JSON.stringify(session));
-  }, { session: authSession });
   const page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
@@ -71,9 +89,10 @@ async function run() {
   const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
   try {
     await page.waitForTimeout(1200);
-    const persisted = await readPersistedSession(page);
-    assert.ok(persisted?.accessToken, 'direct Supabase session was not persisted');
-    assert.equal(persisted.userId, authSession.userId, 'persisted session user mismatch');
+    const loginResult = await login(page);
+    assert.equal(loginResult.status, 'authenticated');
+    const persisted = await readSession(page);
+    assert.ok(persisted?.accessToken, 'authenticated session was not persisted');
     report.auth_verified = true;
     await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(2500);
