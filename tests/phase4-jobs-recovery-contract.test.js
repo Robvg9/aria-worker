@@ -54,3 +54,11 @@ assert.match(runner,/next_action:\s*\"replan: discard failed strategy and build 
 assert.match(runner,/lease_owner:\s*null[\s\S]{0,120}lease_until:\s*null/);
 
 console.log('PHASE4 JOBS + RECOVERY CONTRACT: PASS');
+const cronBackpressure=fs.readFileSync(path.join(root,'supabase','migrations','20260929160000_cron_backpressure_hardening_v1.sql'),'utf8');
+for(const fragment of [
+  'aria-autonomy-supervisor-v5-every-5-minutes',
+  'aria-execution-jobs-watchdog-every-2-minutes',
+  "PERFORM cron.unschedule",
+  "timeout_milliseconds := 60000"
+]) assert.ok(cronBackpressure.includes(fragment),`Cron backpressure hardening missing: ${fragment}`);
+
