@@ -143,6 +143,26 @@ jobs:
           Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=PASS'
           Write-Host "WINDOWS_AGENT_PID=$pidNow"
 
+      - name: Sync Computer Use runtime to D
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'computer-use'
+          $dst='D:\ARIA-Windows-Agent\Runtime\windows'
+          if(-not(Test-Path $src)){throw 'computer-use source missing'}
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          $files=Get-ChildItem -LiteralPath $src -File
+          foreach($f in $files){
+            $target=Join-Path $dst $f.Name
+            $changed=$true
+            if(Test-Path $target){
+              $changed=((Get-FileHash $f.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $target -Algorithm SHA256).Hash)
+            }
+            if($changed){Copy-Item -LiteralPath $f.FullName -Destination $target -Force;Write-Host "COMPUTER_USE_SYNC=$($f.Name)"}
+          }
+          $js=Get-ChildItem -LiteralPath $src -Filter '*.js' -File
+          foreach($f in $js){& node --check $f.FullName;if($LASTEXITCODE -ne 0){throw "computer-use syntax failed: $($f.Name)"}}
+          Write-Host 'COMPUTER_USE_RUNTIME_SYNC=PASS'
+
       - name: Enforce singleton Agent and singleton watchdog without restart
         run: |
           $ErrorActionPreference='Continue'
