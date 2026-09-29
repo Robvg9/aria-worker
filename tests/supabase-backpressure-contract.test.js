@@ -7,6 +7,7 @@ const termux = fs.readFileSync('agents/termux/aria-agent.js','utf8');
 const windows = fs.readFileSync('agents/windows/aria-agent.js','utf8');
 const installer = fs.readFileSync('agents/windows/install-v2.ps1','utf8');
 const migration = fs.readFileSync('supabase/migrations/20260929193000_cron_backpressure_hardening_v3.sql','utf8');
+const gateway = fs.readFileSync('supabase/functions/aria-device-gateway/index.ts','utf8');
 
 assert.match(termux, /HEARTBEAT_MS = Math\.max\(30_000, Number\(process\.env\.ARIA_HEARTBEAT_MS \|\| 60_000\)\)/);
 assert.match(termux, /POLL_MS = Math\.max\(5_000, Number\(process\.env\.ARIA_POLL_MS \|\| 12_000\)\)/);
@@ -29,5 +30,11 @@ assert.match(migration, /'4-59\/5 \* \* \* \*'/);
 assert.doesNotMatch(migration, /\*\/2 \* \* \* \*/);
 assert.match(migration, /Recovery is owned by aria_internal\.execution_jobs_watchdog/);
 assert.doesNotMatch(migration, /UPDATE aria_internal\.execution_jobs\s+SET status='queued'/);
+
+assert.match(gateway, /AUTH_CACHE_TTL_MS/);
+assert.match(gateway, /authCache=new Map<string/);
+assert.match(gateway, /AUTH_CACHE_MAX_ENTRIES=256/);
+assert.match(gateway, /authCache\.get\(cacheKey\)/);
+assert.match(gateway, /authCache\.set\(cacheKey/);
 
 console.log('SUPABASE BACKPRESSURE CONTRACT: PASS');
