@@ -22,6 +22,7 @@ function classifyDiagnostic(input={}){
  else if(/connector|github|supabase|http_json/.test(raw)||String(input.executor_type||'').toLowerCase()==='connector'){category='connector';root_cause=sanitizeText(input.error_code||'connector_error',240);}
  else if(/agent|delegate/.test(raw)||String(input.executor_type||'').toLowerCase()==='agent'){category='agent';root_cause=sanitizeText(input.error_code||'agent_error',240);}
  else if(/eas|expo/.test(raw)||String(input.executor_type||'').toLowerCase()==='eas'){category='eas';root_cause=sanitizeText(input.error_code||'eas_error',240);}
+ else if(/pwa_build_mismatch|live_build_mismatch|ui_stale_state|pwa_ui_stale/.test(raw)){category='pwa';root_cause=sanitizeText(input.error_code||'pwa_failure',240);}
  else if(/planner|route|routing/.test(raw)){category='routing';root_cause=sanitizeText(input.error_code||'routing_failure',240);}
  else if(/pwa|browser|frontend|ui/.test(raw)){category='pwa';root_cause=sanitizeText(input.error_code||'pwa_failure',240);}
  else if(/runtime|gateway|runner|execution/.test(raw)){category='runtime';root_cause=sanitizeText(input.error_code||'runtime_failure',240);}
