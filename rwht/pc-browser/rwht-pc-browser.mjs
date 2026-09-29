@@ -610,6 +610,9 @@ async function run() {
     summary.controls_failed === 0 &&
     summary.coverage_ratio >= 0.98 &&
     summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
     summary.auth_verified === true;
 
   const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
