@@ -15,6 +15,63 @@ jobs:
     environment: production
     timeout-minutes: 45
     steps:
+      - name: Restart Supabase project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          echo "PROJECT_RESTART_REQUEST"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/restart" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Accept: application/json"
+          echo
+
+      - name: Wait for ACTIVE_HEALTHY
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            payload="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
+              --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              --header "Accept: application/json")" || payload='{}'
+            printf '%s\n' "$payload"
+            status="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status",""))' "$payload" 2>/dev/null || true)"
+            echo "PROJECT_STATUS=$status"
+            if [ "$status" = "ACTIVE_HEALTHY" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "RESTART_HEALTH_TIMEOUT"
+          exit 2
+
+      - name: Check backup state
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/backups" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Accept: application/json" \
+            | tee /tmp/backups.json
+
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/backups.json'))
+          backups=d.get('backups') or []
+          active=[b for b in backups if str(b.get('status','')).upper() not in {'COMPLETED','FAILED','CANCELLED','ERROR'}]
+          print('BACKUPS_TOTAL=',len(backups))
+          print('ACTIVE_BACKUPS=',active)
+          if active:
+              raise SystemExit('BACKUP_STILL_ACTIVE')
+          PY
+
       - name: Pause Free project
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -39,14 +96,11 @@ jobs:
             payload="$(curl --fail-with-body --silent --show-error \
               --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
               --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-              --header "Accept: application/json")"
+              --header "Accept: application/json")" || payload='{}'
             printf '%s\n' "$payload"
-            status="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status",""))' "$payload")"
+            status="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status",""))' "$payload" 2>/dev/null || true)"
             echo "PROJECT_STATUS=$status"
-            case "$status" in
-              INACTIVE|PAUSED|PAUSING) 
-                if [ "$status" = "INACTIVE" ] || [ "$status" = "PAUSED" ]; then exit 0; fi ;;
-            esac
+            if [ "$status" = "INACTIVE" ] || [ "$status" = "PAUSED" ]; then exit 0; fi
             sleep 10
           done
           echo "PAUSE_STATUS_TIMEOUT"
@@ -72,7 +126,7 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 150); do
+          for i in $(seq 1 180); do
             payload="$(curl --fail-with-body --silent --show-error \
               --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
               --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
