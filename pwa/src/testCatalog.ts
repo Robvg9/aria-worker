@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-09-28-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "phase6-anti-regression",
+    "file": "tests/phase6-anti-regression.test.js",
+    "title": "Phase 6 Anti-Regresión Final",
+    "category": "Diagnóstico / resiliencia",
+    "includedInNpmTest": true,
+    "how": "Provoca y verifica fallos operacionales controlados, además de comprobar las defensas de recuperación y no-regresión.",
+    "capabilities": "Detecta stale device, deploy drift, contract mismatch, duplicate job, lease expirado, timeout, fallo de verificación, estado stale de UI, proveedor/ejecutor no disponible y saturación."
+  },
+  {
     "id": "autonomous-windows-rwht-controller",
     "file": "tests/autonomous-windows-rwht-controller.test.js",
     "title": "Autonomous Windows RWHT Controller",
