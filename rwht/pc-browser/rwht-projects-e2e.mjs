@@ -387,11 +387,8 @@ async function run() {
     const missionGoalMarker = 'RWHTVISUALMISSION' + Date.now();
     await page.locator('.visualInstruction').fill('Certificación visual ' + missionGoalMarker + ': mantener el diseño y verificar el contexto del proyecto; no ejecutar cambios externos.');
     await missionButton.click();
-    await page.waitForSelector('.projectTabs .tabButton', { state: 'visible', timeout: 30000 });
-    await page.locator('.projectTabs .tabButton').filter({ hasText: 'Misiones' }).click();
-    await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
-
     await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
+
     const missionWait = await waitForProjectMission(page, session.accessToken, battle.id, missionGoalMarker, 60000);
     if (!missionWait.mission) throw new Error('visual_mission_not_persisted');
     if (missionWait.result.status !== 200 || missionWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue');
@@ -402,6 +399,10 @@ async function run() {
     if (String(visual.mime_type || '') !== 'image/png') throw new Error('visual_mission_png_mime_missing');
     if (!String(visual.annotation_summary || '').includes('rect')) throw new Error('visual_mission_annotation_summary_missing');
     if (!String(visual.instruction || '').includes(missionGoalMarker)) throw new Error('visual_mission_instruction_missing');
+
+    await page.waitForSelector('.projectTabs .tabButton', { state: 'visible', timeout: 30000 });
+    await page.locator('.projectTabs .tabButton').filter({ hasText: 'Misiones' }).click();
+    await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
 
     report.visual_mission = {
       mission_id: missionWait.mission.mission_id,
