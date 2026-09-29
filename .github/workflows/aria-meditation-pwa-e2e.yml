@@ -23,8 +23,8 @@ jobs:
       RWHT_URL: https://aria.robvg9.workers.dev/pwa/
       RWHT_HEADLESS: 'true'
       RWHT_REQUIRE_AUTH: 'true'
-      RWHT_EMAIL: \${{ secrets.RWHT_EMAIL }}
-      RWHT_PASSWORD: \${{ secrets.RWHT_PASSWORD }}
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
       RWHT_LOGIN_WAIT_MS: '40000'
       RWHT_ARTIFACT_DIR: meditation-e2e-artifacts
     steps:
