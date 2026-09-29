@@ -79,3 +79,9 @@ assert.match(authenticatedWorkflow, /RWHT_STORAGE_STATE_B64:/);
 assert.match(authenticatedWorkflow, /Require an authenticated session source/);
 assert.match(authenticatedWorkflow, /Configure RWHT_EMAIL \+ RWHT_PASSWORD or RWHT_STORAGE_STATE_B64/);
 assert.match(authenticatedWorkflow, /Execute authenticated PC PWA RWHT/);
+
+assert.match(runner, /reload_auth: envBool\('RWHT_RELOAD_AUTH'/);
+assert.match(runner, /page\.reload\(\{ waitUntil: 'domcontentloaded'/);
+assert.match(authenticatedWorkflow, /RWHT_ROUTES: '#home'/);
+assert.match(authenticatedWorkflow, /RWHT_RELOAD_AUTH: 'true'/);
+assert.match(authenticatedWorkflow, /RWHT_LOGIN_WAIT_MS: '40000'/);

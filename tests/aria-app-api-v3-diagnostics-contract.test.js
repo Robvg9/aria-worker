@@ -22,3 +22,8 @@ assert.match(pwa,/DIAGNÓSTICO OPERACIONAL/);
 assert.match(pwa,/Intentos observados/);
 assert.match(pwa,/Siguiente acción/);
 console.log('ARIA APP API V3 DIAGNOSTICS CONTRACT: PASS');
+
+assert.match(pwa,/if \(screen !== 1\) return;/);
+assert.match(api,/status: \"unavailable\"/);
+assert.match(api,/reason: \"diagnostic_unavailable\"/);
+console.log('DASHBOARD ROOT RESILIENCE: PASS');

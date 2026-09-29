@@ -17,6 +17,9 @@ jobs:
       RWHT_NO_SCREENSHOTS: 'false'
       RWHT_ALLOW_MUTATIONS: 'false'
       RWHT_REQUIRE_AUTH: 'true'
+      RWHT_ROUTES: '#home'
+      RWHT_RELOAD_AUTH: 'true'
+      RWHT_LOGIN_WAIT_MS: '40000'
       RWHT_EXPECTED_AUTH_TEXT: 'Lista para actuar'
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}

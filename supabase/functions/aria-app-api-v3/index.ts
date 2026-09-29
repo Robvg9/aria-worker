@@ -1297,7 +1297,25 @@ Deno.serve(async (req) => {
         trace_id: trace
       });
     }
-    if (req.method === "GET" && path.endsWith("/diagnostics/health")) return json({ok:true,health:await operationalHealth(user.id),trace_id:trace});
+    if (req.method === "GET" && path.endsWith("/diagnostics/health")) {
+      try {
+        return json({ok:true,health:await operationalHealth(user.id),trace_id:trace});
+      } catch {
+        return json({
+          ok: true,
+          health: {
+            version: "aria-operational-diagnostics-v1.0.0",
+            status: "unavailable",
+            observed: false,
+            scope: "system",
+            user_id: user.id,
+            reason: "diagnostic_unavailable",
+            next_actions: ["Restaurar el diagnóstico operativo antes de considerar el núcleo saludable."]
+          },
+          trace_id: trace
+        });
+      }
+    }
     if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/diagnostic")) {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/diagnostic$/,""));
       const diagnostic=await missionDiagnosticForUser(missionId,user.id);

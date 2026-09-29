@@ -120,6 +120,14 @@ async function checkUx(page) {
     const selector = 'button,a[href],[role="button"],[role="tab"],[role="menuitem"],input:not([type="hidden"]),textarea,select,[contenteditable="true"]';
     for (const element of document.querySelectorAll(selector)) {
       const rect = element.getBoundingClientRect();
+      const surface = element.closest('.appScreen');
+      if (surface) {
+        const surfaceRect = surface.getBoundingClientRect();
+        const surfaceOutside =
+          surfaceRect.right <= 0 || surfaceRect.left >= viewportWidth ||
+          surfaceRect.bottom <= 0 || surfaceRect.top >= viewportHeight;
+        if (surfaceOutside) continue;
+      }
       const labelledBy = (element.getAttribute('aria-labelledby') || '')
         .split(/\s+/)
         .map((id) => document.getElementById(id)?.innerText || '')
@@ -161,6 +169,12 @@ async function checkUx(page) {
       .slice(0, 50);
 
     const unlabeledInputs = [...document.querySelectorAll('input,textarea,select')]
+      .filter((element) => {
+        const surface = element.closest('.appScreen');
+        if (!surface) return true;
+        const rect = surface.getBoundingClientRect();
+        return !(rect.right <= 0 || rect.left >= viewportWidth || rect.bottom <= 0 || rect.top >= viewportHeight);
+      })
       .filter((element) => !['hidden', 'password'].includes((element.getAttribute('type') || '').toLowerCase()))
       .filter((element) => {
         const aria = element.getAttribute('aria-label') || element.getAttribute('aria-labelledby');
@@ -359,7 +373,18 @@ async function auditRoute(page, url, routeIndex, config) {
 
   await page.waitForTimeout(config.settle_ms);
 
-  const auth = await verifyAuthState(page, config);
+  let auth = await verifyAuthState(page, config);
+  let reloadAuth = null;
+  if (routeIndex === 0 && config.reload_auth && auth.verified) {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
+    await page.waitForTimeout(config.settle_ms);
+    reloadAuth = await verifyAuthState(page, config);
+    auth = {
+      ...auth,
+      verified: auth.verified && reloadAuth.verified,
+      reload: reloadAuth
+    };
+  }
   const ux = await checkUx(page);
   const initialControls = await discoverInteractive(page);
   const screenKey = sha({
@@ -454,6 +479,7 @@ async function run() {
     max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
     allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
     require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
     expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
     storage_state: process.env.RWHT_STORAGE_STATE || null,
     auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),

@@ -1482,6 +1482,7 @@ function Chat({
   }, [session.userId, conversationId, messages, pendingMissionConfirmation]);
 
   useEffect(() => {
+    if (screen !== 1) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1512,7 +1513,7 @@ function Chat({
       }
     })();
     return () => { cancelled = true; };
-  }, [session.accessToken, session.userId]);
+  }, [session.accessToken, session.userId, screen]);
 
   useLiveSync(syncSystemAndMission, session.accessToken, 8000);
   useLiveSync(syncCapabilities, session.accessToken, 60000);
