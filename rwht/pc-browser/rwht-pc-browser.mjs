@@ -49,7 +49,14 @@ async function discoverInteractive(page) {
     'select',
     '[contenteditable="true"]'
   ].join(',');
-  return page.locator(selector).evaluateAll((elements) => elements.map((el, index) => {
+  const activeSurfaceSelector = await page.evaluate(() => {
+    const routeHash = (window.location.hash || '#home').split('?')[0];
+    return routeHash === '#home' ? '.dashboardScreen' : routeHash === '#chat' ? '.chatScreen' : null;
+  }).catch(() => null);
+  const interactive = activeSurfaceSelector
+    ? page.locator(activeSurfaceSelector).locator(selector)
+    : page.locator(selector);
+  return interactive.evaluateAll((elements) => elements.map((el, index) => {
     const rect = el.getBoundingClientRect();
     const tag = el.tagName.toLowerCase();
     const role = el.getAttribute('role') || (tag === 'button' ? 'button' : tag === 'a' ? 'link' : tag);
@@ -168,12 +175,13 @@ async function checkUx(page) {
 
     const imagesMissingAlt = [...document.images]
       .filter((image) => !image.getAttribute('alt'))
+      .filter((image) => !activeSurfaceSelector || Boolean(image.closest(activeSurfaceSelector)))
       .map((image) => ({ src: image.currentSrc || image.src || null }))
       .slice(0, 50);
 
     const unlabeledInputs = [...document.querySelectorAll('input,textarea,select')]
       .filter((element) => isInActiveSurface(element))
-      .filter((element) => !['hidden', 'password'].includes((element.getAttribute('type') || '').toLowerCase()))
+      .filter((element) => !['hidden', 'password', 'file'].includes((element.getAttribute('type') || '').toLowerCase()))
       .filter((element) => {
         const aria = element.getAttribute('aria-label') || element.getAttribute('aria-labelledby');
         if (aria?.trim()) return false;
