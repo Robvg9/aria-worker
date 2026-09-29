@@ -83,4 +83,4 @@ assert.match(authenticatedWorkflow, /Execute authenticated PC PWA RWHT/);
 assert.match(runner, /reload_auth: envBool\('RWHT_RELOAD_AUTH'/);
 assert.match(runner, /page\.reload\(\{ waitUntil: 'domcontentloaded'/);
 assert.match(authenticatedWorkflow, /RWHT_ROUTES: '#home'/);
-assert.match(authenticatedWorkflow, /RWHT_RELOAD_AUTH: true/);
+assert.match(authenticatedWorkflow, /RWHT_RELOAD_AUTH: 'true'/);
