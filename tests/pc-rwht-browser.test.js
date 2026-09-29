@@ -106,7 +106,7 @@ assert.match(chatE2E, /chat_server_persistence_missing/);
 assert.match(chatE2E, /chat_reload_persistence_missing/);
 assert.match(chatE2E, /chat_ux_contract_failed/);
 assert.match(chatE2E, /RWHTCHATCERT/);
-assert.match(chatE2E, /replace\(\/\\\\s\+\/g, ' '\)/);
+assert.match(chatE2E, /replace\(\/\\s\+\/g, ' '\)/);
 assert.doesNotMatch(chatE2E, /RWHT_CHAT_CERT_/);
 const chatWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'chat-rwht-authenticated.yml'), 'utf8');
 assert.match(chatWorkflow, /ARIA Chat Browser RWHT Authenticated/);
