@@ -1418,6 +1418,7 @@ function Chat({
   const [processingElapsedMs, setProcessingElapsedMs] = useState(0);
   const [lastProcessingMs, setLastProcessingMs] = useState<number | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatWindowRef = useRef<HTMLDivElement | null>(null);
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
     system || caps || mission ? 'cached' : 'offline'
   );
@@ -1480,6 +1481,15 @@ function Chat({
   useEffect(() => {
     writeChatHistory(session.userId, conversationId, messages, pendingMissionConfirmation);
   }, [session.userId, conversationId, messages, pendingMissionConfirmation]);
+
+  useEffect(() => {
+    const node = chatWindowRef.current;
+    if (!node) return;
+    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+    if (messages.length <= 1 || distanceFromBottom < 140 || sending) {
+      requestAnimationFrame(() => { node.scrollTop = node.scrollHeight; });
+    }
+  }, [messages.length, sending]);
 
   useEffect(() => {
     if (screen !== 1) return;
@@ -1759,7 +1769,7 @@ function Chat({
                 </div>
 
               </div>
-              <div className='chatWindow'>
+              <div ref={chatWindowRef} className='chatWindow' data-testid='chat-window' aria-live='polite' aria-atomic='false'>
                 {messages.length
                   ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div>{m.role === 'aria' && m.processingMs != null && <small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>)
                   : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
