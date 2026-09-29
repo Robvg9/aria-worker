@@ -137,5 +137,5 @@ assert.match(projectE2E,/artia_canvas_not_ready/);
 assert.ok(projectE2E.includes("return /Anotaciones:\\s*[1-9]\\d*/.test(text);"));
 assert.match(projectE2E,/setTimeout\(resolve, 250\)/);
 
-assert.ok(project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
-assert.ok(!project.includes("setGoal('');selectTab('missions');await loadMissions();setTimeout(()=>void loadMissions(),1200);"));
+assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
+assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
