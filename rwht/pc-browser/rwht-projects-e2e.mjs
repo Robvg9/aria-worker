@@ -103,6 +103,15 @@ async function checkUx(page) {
   });
 }
 
+async function expectEnabled(locator, projectId) {
+  const started = Date.now();
+  while (Date.now() - started < 30000) {
+    if (await locator.isEnabled().catch(() => false)) return;
+    await waitFor(500);
+  }
+  throw new Error('project_chat_send_not_enabled_' + projectId);
+}
+
 function normalizeMetadata(value) {
   if (value && typeof value === 'object') return value;
   if (typeof value === 'string') {
@@ -213,7 +222,8 @@ async function run() {
       const composer = page.locator('.projectShell textarea[placeholder^="Habla con ARIA sobre"]').first();
       await composer.fill(marker + ' responde con una confirmación breve y menciona únicamente el proyecto actual.');
       const send = page.getByRole('button', { name: 'Enviar mensaje' }).first();
-      if (!(await send.isEnabled())) throw new Error('project_chat_send_not_enabled_' + project.id);
+      await send.waitFor({state:'visible',timeout:30000});
+      await expectEnabled(send, project.id);
       await send.click();
       await page.locator('.projectChatWindow .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
       const assistant = page.locator('.projectChatWindow .bubble.aria').last();
