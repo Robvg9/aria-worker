@@ -121,7 +121,7 @@ assert.match(appSource, /data-testid='chat-window'/);
 assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
 
 const projectsSource = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-projects-e2e.mjs'), 'utf8');
-assert.match(projectsSource, /aria-projects-rwht-e2e-v1\\.0\\.0/);
+assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.0\.0/);
 assert.match(projectsSource, /battlecruiser|cuevacoin|aria/);
 assert.match(projectsSource, /server_persistence_verified/);
 assert.match(projectsSource, /visual_mission_verified/);
