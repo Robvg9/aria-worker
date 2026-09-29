@@ -296,9 +296,18 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return()=>window.clearInterval(timer);
   },[sending]);
 
-  useEffect(()=>{setSelectedMission(null);setError('');try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}void loadMissions();void loadProjectChat()},[project.id]);
+  useEffect(()=>{setSelectedMission(null);setError('');try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}},[project.id]);
 
-  useEffect(()=>{const refresh=()=>{if(tab==='missions'||tab==='overview')void loadMissions()};void refresh();const timer=window.setInterval(refresh,5000);return()=>window.clearInterval(timer)},[project.id,tab,session.accessToken]);
+  useEffect(()=>{
+    if(tab==='missions'||tab==='overview')void loadMissions();
+    if(tab==='chat'||tab==='visual')void loadProjectChat();
+  },[project.id,tab,session.accessToken]);
+
+  useEffect(()=>{
+    const refresh=()=>{if(tab==='missions'||tab==='overview')void loadMissions()};
+    const timer=window.setInterval(refresh,15000);
+    return()=>window.clearInterval(timer);
+  },[project.id,tab,session.accessToken]);
 
   useEffect(()=>{
     if(!selectedMission)return;
