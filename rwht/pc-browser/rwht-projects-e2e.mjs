@@ -149,9 +149,17 @@ async function run() {
   });
   const page = await context.newPage();
   const consoleErrors = [];
+  const externalPreviewConsoleErrors = [];
   const pageErrors = [];
   const failedResponses = [];
-  page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push({ text: message.text().slice(0, 1000), url: page.url() }); });
+  page.on('console', (message) => {
+    if (message.type() !== 'error') return;
+    const location = message.location?.() || {};
+    const url = String(location.url || page.url());
+    const item = { text: message.text().slice(0, 1000), url };
+    if (url.includes('battlecruiser.robvg9.workers.dev')) externalPreviewConsoleErrors.push(item);
+    else consoleErrors.push(item);
+  });
   page.on('pageerror', (error) => pageErrors.push({ message: String(error?.message || error).slice(0, 1000), url: page.url() }));
   page.on('response', (response) => {
     if (response.status() >= 500) failedResponses.push({ status: response.status(), method: response.request().method(), url: response.url().slice(0, 1200) });
@@ -173,6 +181,7 @@ async function run() {
     visual_mission: null,
     ux: null,
     console_errors: [],
+    external_preview_console_errors: [],
     page_errors: [],
     failed_responses: [],
     verified: false,
@@ -346,6 +355,7 @@ async function run() {
   } finally {
     report.finished_at = new Date().toISOString();
     report.console_errors = consoleErrors.slice(0, 100);
+    report.external_preview_console_errors = externalPreviewConsoleErrors.slice(0, 100);
     report.page_errors = pageErrors.slice(0, 100);
     report.failed_responses = failedResponses.slice(0, 100);
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'projects-rwht-report.json'), JSON.stringify(report, null, 2));
@@ -365,6 +375,7 @@ async function run() {
     canonical_queue: report.visual_mission?.queue || null,
     page_errors: report.page_errors.length,
     console_errors: report.console_errors.length,
+    external_preview_console_errors: report.external_preview_console_errors.length,
     failed_responses: report.failed_responses.length,
     failure: report.failure
   }, null, 2));
