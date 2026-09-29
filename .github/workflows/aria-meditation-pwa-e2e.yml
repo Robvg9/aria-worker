@@ -1,0 +1,62 @@
+name: ARIA Meditation IA PWA Authenticated E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
+      - '.github/workflows/aria-meditation-pwa-e2e.yml'
+      - 'pwa/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'supabase/migrations/*meditation*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RWHT_URL: https://aria.robvg9.workers.dev/pwa/
+      RWHT_HEADLESS: 'true'
+      RWHT_REQUIRE_AUTH: 'true'
+      RWHT_EMAIL: \${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: \${{ secrets.RWHT_PASSWORD }}
+      RWHT_LOGIN_WAIT_MS: '40000'
+      RWHT_ARTIFACT_DIR: rwht/pc-browser/meditation-e2e-artifacts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install --with-deps chromium
+      - name: Verify canonical PWA catalog on LIVE
+        run: |
+          set -euo pipefail
+          html=""
+          for attempt in $(seq 1 60); do
+            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/?probe=$GITHUB_SHA-meditation-catalog-$attempt" 2>/dev/null || true)"
+            if grep -q "aria-test-catalog-version" <<<"$html" && grep -q "2026-09-28-canonical" <<<"$html"; then break; fi
+            test "$attempt" -lt 60 && sleep 2
+          done
+          test -n "$html"
+          grep -q "2026-09-28-canonical" <<<"$html"
+          echo MEDITATION_PWA_CANONICAL_CATALOG_LIVE_OK
+      - name: Execute authenticated Meditation IA PWA E2E
+        working-directory: rwht/pc-browser
+        run: node rwht-meditation-pwa-e2e.mjs
+      - name: Upload Meditation PWA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-meditation-pwa-evidence
+          path: rwht/pc-browser/meditation-e2e-artifacts
+          if-no-files-found: warn
