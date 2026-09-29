@@ -77,7 +77,8 @@ BEGIN
        'aria-autonomy-supervisor-v5-every-minute',
        'aria-execution-jobs-watchdog-every-minute',
        'aria-autonomy-supervisor-v5-every-5-minutes',
-       'aria-execution-jobs-watchdog-every-2-minutes'
+       'aria-execution-jobs-watchdog-every-2-minutes',
+       'aria-execution-jobs-watchdog-every-5-minutes'
      )
   LOOP
     PERFORM cron.unschedule(r.jobid);
