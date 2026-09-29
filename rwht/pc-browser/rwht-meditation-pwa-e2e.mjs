@@ -13,45 +13,49 @@ const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 
 async function login(page) {
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
+  const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+  const authenticatedSurface = page.locator('.projectShell,.dashboardScreen').first();
+  await Promise.race([
+    authForm.waitFor({ state:'visible', timeout:60000 }),
+    authenticatedSurface.waitFor({ state:'visible', timeout:60000 })
+  ]).catch(() => {});
+
+  if (await authenticatedSurface.isVisible().catch(() => false)) {
+    return { mode:'existing_session', status:'authenticated', attempts:0 };
+  }
+  if (!(await authForm.isVisible().catch(() => false))) throw new Error('meditation_auth_surface_not_visible');
+
+  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+  await password.waitFor({ state:'visible', timeout:30000 });
+
   const maxAttempts = Math.max(1, Math.min(3, Number(process.env.RWHT_AUTH_ATTEMPTS || 3)));
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
-    const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-    await email.waitFor({ state: 'visible', timeout: 30000 });
-    await password.waitFor({ state: 'visible', timeout: 30000 });
-    await email.fill(EMAIL);
+    await authForm.fill(EMAIL);
     await password.fill(PASSWORD);
     const submit = page.locator('button[type="submit"],input[type="submit"],button')
-      .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
+      .filter({ hasText:/entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
     if (await submit.count()) await submit.click();
     else await password.press('Enter');
     try {
       await page.waitForFunction(() => {
-        const passwordVisible = [...document.querySelectorAll('input[type="password"]')].some((el) => {
-          const rect = el.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
+        const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
+          const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
         });
-        const authErrorVisible = /servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i.test(
-          [...document.querySelectorAll('*')].map((el) => String(el.textContent || '')).join(' ').slice(-20000)
-        );
-        return !passwordVisible || authErrorVisible;
-      }, null, { timeout: 60000 });
-      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
-      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
-      if (passwordStillVisible && visibleError) throw new Error('authenticated_login_visible_error');
-      attempts.push({ attempt, status: 'authenticated' });
-      return { mode: 'password', status: 'authenticated', attempts };
+        const surface = !!document.querySelector('.projectShell,.dashboardScreen');
+        return surface || !pwd;
+      }, null, { timeout:60000 });
+      attempts.push({ attempt, status:'authenticated' });
+      return { mode:'password', status:'authenticated', attempts };
     } catch (error) {
-      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
-      attempts.push({ attempt, status: 'failed', error: String(error?.message || error).slice(0, 300), visible_error: String(visibleError || '').slice(0, 300) });
+      attempts.push({ attempt, status:'failed', error:String(error?.message || error).slice(0,300) });
       if (attempt < maxAttempts) {
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await page.reload({ waitUntil:'domcontentloaded', timeout:30000 }).catch(() => {});
         await waitFor(2000 * attempt);
       }
     }
   }
-  throw new Error('authenticated_login_failed_after_' + maxAttempts + '_attempts:' + JSON.stringify(attempts).slice(0, 1200));
+  throw new Error('authenticated_login_failed_after_' + maxAttempts + '_attempts:' + JSON.stringify(attempts).slice(0,1200));
 }
 
 async function readSession(page) {
