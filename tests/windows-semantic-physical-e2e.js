@@ -105,6 +105,7 @@ function findChromeExecutable() {
 
 async function main() {
   const port = await freePort();
+  process.env.ARIA_CHROME_CDP_URL = 'http://127.0.0.1:' + port;
   const userDataDir = path.join(os.tmpdir(), 'aria-pc006-semantic-' + process.pid);
   fs.mkdirSync(userDataDir, { recursive: true });
   const chromePath = findChromeExecutable();
