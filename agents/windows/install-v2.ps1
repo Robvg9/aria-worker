@@ -71,10 +71,10 @@ $config = [ordered]@{
     runtime_dir = $RuntimeDir
     data_dir = $DataDir
     log_dir = $LogDir
-    heartbeat_ms = 30000
-    poll_ms = 3000
+    heartbeat_ms = 60000
+    poll_ms = 12000
     gateway_timeout_ms = 15000
-    gateway_retries = 2
+    gateway_retries = 1
     capabilities = @('ollama.qwen3','shell.execute','computer.use','desktop.screenshot','desktop.uia')
 }
 $config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8

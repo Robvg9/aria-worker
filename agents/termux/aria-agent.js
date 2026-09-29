@@ -9,8 +9,8 @@ const { executeAutonomousAndroidMission } = require('./android-autonomous-runner
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
 const DEVICE_ID = process.env.ARIA_DEVICE_ID;
-const HEARTBEAT_MS = Math.max(10_000, Number(process.env.ARIA_HEARTBEAT_MS || 30_000));
-const POLL_MS = Math.max(1_000, Number(process.env.ARIA_POLL_MS || 3_000));
+const HEARTBEAT_MS = Math.max(30_000, Number(process.env.ARIA_HEARTBEAT_MS || 60_000));
+const POLL_MS = Math.max(5_000, Number(process.env.ARIA_POLL_MS || 12_000));
 const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
 let computerUseInFlight = false;
@@ -145,7 +145,7 @@ async function heartbeat() {
 async function claimAndExecute() {
   try {
     const body=await api('/v1/jobs/claim',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID}),timeoutMs:8_000});
-    if(!body?.job)return;
+    if(!body?.job)return 'idle';
     const job=body.job;
     if(job.device_id!==DEVICE_ID)throw new Error('gateway returned job for another device');
     if(!['shell.execute','android.notification','computer.use.android'].includes(job.operation))throw new Error(`unsupported operation: ${job.operation}`);
@@ -193,24 +193,28 @@ async function claimAndExecute() {
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})});
     log(`JOB ACK id=${job.job_id} status=${result.status}`);
     if (job.operation === 'computer.use.android') computerUseInFlight = false;
+    return 'worked';
   }catch(error){
     computerUseInFlight = false;
-    console.error(`[job] ${error.message}`)
+    console.error(`[job] ${error.message}`);
+    return 'error';
   }
 }
 let stopping=false;
 let heartbeatTimer=null;
 async function loop(){
+  let consecutivePollFailures=0;
   while(!stopping){
-    try{
-      // Do not start another claim while a previous job is still executing.
-      // A watchdog that leaves the old promise alive can overlap Android IPC
-      // requests and destabilize the physical UI service.
-      await claimAndExecute();
-    }catch(error){
-      console.error('[claim-loop] ' + String(error?.message || error));
+    const state=await claimAndExecute();
+    if(state==='error'){
+      consecutivePollFailures=Math.min(consecutivePollFailures+1,6);
+    }else{
+      consecutivePollFailures=0;
     }
-    await new Promise(r=>setTimeout(r,POLL_MS));
+    const baseDelay=state==='worked' ? 5_000 : POLL_MS;
+    const backoff=state==='error' ? Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000) : baseDelay;
+    const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));
+    await new Promise(r=>setTimeout(r,backoff+jitter));
   }
 }
 function requestStop(signal){

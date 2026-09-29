@@ -11,7 +11,31 @@ import postgres from "npm:postgres@3.4.7";
 function json(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','cache-control':'no-store'}})}
 async function hash(t:string){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('')}
 async function body(r:Request){try{return await r.json()}catch{return {}}}
-async function auth(r:Request,id?:string){const m=(r.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i);if(!m)return{error:json({error:'unauthorized'},401)};const deviceId=id||r.headers.get('x-aria-device-id');if(!deviceId)return{error:json({error:'device_id_required'},400)};const tokenHash=await hash(m[1]);const {data,error}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities').eq('device_id',deviceId).eq('token_hash',tokenHash).maybeSingle();if(error||!data)return{error:json({error:'unauthorized'},401)};if(data.status==='disabled')return{error:json({error:'device_disabled'},403)};return{device:data}}
+const AUTH_CACHE_TTL_MS=Math.max(5_000,Number(Deno.env.get('ARIA_DEVICE_AUTH_CACHE_TTL_MS')||15_000));
+const AUTH_CACHE_MAX_ENTRIES=256;
+const authCache=new Map<string,{device:any;expiresAt:number}>();
+function pruneAuthCache(now=Date.now()){
+  for(const [key,value] of authCache) if(value.expiresAt<=now) authCache.delete(key);
+  while(authCache.size>AUTH_CACHE_MAX_ENTRIES) authCache.delete(authCache.keys().next().value);
+}
+async function auth(r:Request,id?:string){
+  const m=(r.headers.get('authorization')||'').match(/^Bearer\s+(.+)$/i);
+  if(!m)return{error:json({error:'unauthorized'},401)};
+  const deviceId=id||r.headers.get('x-aria-device-id');
+  if(!deviceId)return{error:json({error:'device_id_required'},400)};
+  const tokenHash=await hash(m[1]);
+  const cacheKey=deviceId+':'+tokenHash;
+  const now=Date.now();
+  const cached=authCache.get(cacheKey);
+  if(cached&&cached.expiresAt>now)return{device:cached.device};
+  if(cached)authCache.delete(cacheKey);
+  const {data,error}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities').eq('device_id',deviceId).eq('token_hash',tokenHash).maybeSingle();
+  if(error||!data)return{error:json({error:'unauthorized'},401)};
+  if(data.status==='disabled')return{error:json({error:'device_disabled'},403)};
+  authCache.set(cacheKey,{device:data,expiresAt:now+AUTH_CACHE_TTL_MS});
+  pruneAuthCache(now);
+  return{device:data};
+}
 function keyOf(v:unknown){return typeof v==='string'?v.trim().toLowerCase().replace(/\s+/g,' ').replace(/[^a-z0-9:_ -]/g,''):''}
 async function recoverStale(){const {data,error}=await supabase.rpc('aria_autonomy_recover_stale_missions',{p_stale_after:'00:02:00'});if(error)throw new Error(error.message);return Number(data||0)}
 async function learnRecent(){const cut=new Date(Date.now()-6*60*60*1000).toISOString();const {data,error}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,metadata,last_stderr,last_stdout,updated_at,created_at').in('status',['succeeded','blocked','failed','timeout','cancelled']).gt('updated_at',cut);if(error)throw new Error(error.message);let created=0;for(const m of data||[]){const {data:e}=await supabase.schema('aria_internal').from('autonomy_learnings').select('lesson_id').eq('mission_id',m.mission_id).limit(1);if(!e?.length){const {error:ie}=await supabase.schema('aria_internal').from('autonomy_learnings').insert({mission_id:m.mission_id,goal_id:m.metadata?.goal_id??null,category:m.status==='succeeded'?'verified_success':'operational_failure',summary:`Observed ${m.status}: ${(m.goal||'').slice(0,220)}`,evidence:{status:m.status,stderr:m.last_stderr||null,stdout_sample:(m.last_stdout||'').slice(0,800)},confidence:m.status==='succeeded'?0.9:0.75,reusable:true});if(!ie)created++}}return{scanned:data?.length||0,created}}
