@@ -1,7 +1,6 @@
-'use strict';
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const artifactDir = path.resolve(process.env.RWHT_ARTIFACT_DIR || 'meditation-e2e-artifacts');
 fs.mkdirSync(artifactDir, { recursive: true });
