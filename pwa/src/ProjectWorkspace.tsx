@@ -272,6 +272,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const [processingElapsedMs,setProcessingElapsedMs]=useState(0);
   const [lastProcessingMs,setLastProcessingMs]=useState<number|null>(null);
   const [conversationId,setConversationId]=useState<string|null>(null);
+  const [projectChatReady,setProjectChatReady]=useState(false);
   const [text,setText]=useState('');
   const [goal,setGoal]=useState('');
   const [sending,setSending]=useState(false);
@@ -284,7 +285,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   async function loadMissions(){try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=100',session.accessToken);setMissions(d.missions||[])}catch(e){setError(e instanceof Error?e.message:'No se pudieron cargar las misiones.')}}
 
-  async function loadProjectChat(){try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/conversation',session.accessToken);setConversationId(d.conversation_id||null);const rows=Array.isArray(d.conversation?.messages)?d.conversation.messages:[];setMessages(rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim()))}catch(e){setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.')}}
+  async function loadProjectChat(){setProjectChatReady(false);try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/conversation',session.accessToken);if(!d?.conversation_id)throw new Error('ARIA no confirmó la conversación del proyecto.');setConversationId(d.conversation_id);const rows=Array.isArray(d.conversation?.messages)?d.conversation.messages:[];setMessages(rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim()));setProjectChatReady(true)}catch(e){setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.')}}
 
   useEffect(()=>{
     if(!sending){setProcessingElapsedMs(0);return;}
@@ -296,7 +297,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return()=>window.clearInterval(timer);
   },[sending]);
 
-  useEffect(()=>{setSelectedMission(null);setError('');setConversationId(null);setMessages([]);setMissions([]);try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}},[project.id]);
+  useEffect(()=>{setSelectedMission(null);setError('');setConversationId(null);setProjectChatReady(false);setMessages([]);setMissions([]);try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}},[project.id]);
 
   useEffect(()=>{
     if(tab==='missions'||tab==='overview')void loadMissions();
