@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ci/projects-rwht-auth-probe-20260929
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: aria-projects-rwht-auth-probe
