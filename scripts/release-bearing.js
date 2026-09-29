@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 
 const NON_RELEASE_PATTERNS = [
   /^tests\//,
-  /^\.github\/workflows\/aria-delivery-deterministic-gate\.yml$/,
+  /^\.github\/workflows\//,
   /^docs\//,
   /^reports\//,
   /^test-results\//,
