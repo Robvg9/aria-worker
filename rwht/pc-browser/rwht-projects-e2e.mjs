@@ -210,7 +210,8 @@ async function run() {
     await page.goto(BASE_URL + '#home', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitFor(SETTLE_MS);
     report.login = await login(page);
-    report.auth_attempts = Number(report.login?.attempts?.length || 0);\n    const session = await readSession(page);
+    report.auth_attempts = Number(report.login?.attempts?.length || 0);
+    const session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
     report.auth_verified = true;
 
