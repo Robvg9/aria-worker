@@ -30,14 +30,47 @@ const evidence = {
 };
 
 async function login(page) {
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  const loginButton = page.getByRole('button', { name: 'ENTRAR EN ARIA' });
-  if (await loginButton.count()) {
-    await page.getByLabel('Correo').fill(email);
-    await page.getByLabel('Contraseña').fill(password);
-    await loginButton.click();
+  const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[autocomplete="username"]').first();
+  const authenticatedSurface = page.locator('.dashboardScreen,.projectShell').first();
+  await Promise.race([
+    authForm.waitFor({ state: 'visible', timeout: 60000 }),
+    authenticatedSurface.waitFor({ state: 'visible', timeout: 60000 })
+  ]).catch(() => {});
+
+  if (await authenticatedSurface.isVisible().catch(() => false)) return;
+
+  if (!(await authForm.isVisible().catch(() => false))) {
+    throw new Error('settings_auth_surface_not_visible');
   }
-  await page.getByRole('heading', { name: 'Dashboard' }).waitFor({ timeout: 40000 });
+
+  const passwordInput = page.locator('input[aria-label="Contraseña"],input[type="password"],input[autocomplete="current-password"]').first();
+  await passwordInput.waitFor({ state: 'visible', timeout: 30000 });
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await authForm.fill(email);
+    await passwordInput.fill(password);
+    await page.getByRole('button', { name: 'ENTRAR EN ARIA' }).click();
+    try {
+      await page.waitForFunction(() => {
+        const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        });
+        return !!document.querySelector('.dashboardScreen,.projectShell') || !pwd;
+      }, null, { timeout: 60000 });
+      return;
+    } catch (error) {
+      if (attempt === 3) throw new Error('settings_authenticated_login_failed_after_3_attempts:' + String(error?.message || error).slice(0, 500));
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+      await Promise.race([
+        authForm.waitFor({ state: 'visible', timeout: 30000 }),
+        authenticatedSurface.waitFor({ state: 'visible', timeout: 30000 })
+      ]).catch(() => {});
+      if (await authenticatedSurface.isVisible().catch(() => false)) return;
+      await passwordInput.waitFor({ state: 'visible', timeout: 30000 });
+    }
+  }
 }
 
 async function openSettings(page) {
@@ -62,6 +95,7 @@ function panel(page, text) {
   });
 
   try {
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
     await login(page);
     evidence.checks.auth_verified = true;
 
