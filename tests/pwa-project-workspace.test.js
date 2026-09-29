@@ -95,3 +95,14 @@ assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
 assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
 assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
 
+
+
+const projectApi = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-app-api-v3', 'index.ts'), 'utf8');
+assert.ok(projectApi.includes('.eq("metadata->>project_id", project.id)'), 'project missions must filter by project in Postgres');
+assert.ok(projectApi.includes('.order("updated_at", { ascending: false }).limit(100)'), 'project missions must use bounded ordered query');
+const projectIndexMigration = fs.readFileSync(
+  path.join(__dirname, '..', 'supabase', 'migrations', '20260929124500_project_mission_query_index_v1.sql'),
+  'utf8',
+);
+assert.ok(projectIndexMigration.includes('mission_state_project_updated_idx'));
+assert.ok(projectIndexMigration.includes("(metadata ->> 'project_id')"));
