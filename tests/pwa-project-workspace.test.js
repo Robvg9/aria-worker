@@ -90,6 +90,6 @@ assert.match(project,/body:blob/);
 assert.match(project,/image_path:path/);
 assert.match(project,/mime_type:'image\/png'/);
 assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
-assert.match(project,/livePreviewUrl=project\.previewUrl/);
+assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
 assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
 
