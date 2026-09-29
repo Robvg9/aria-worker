@@ -374,7 +374,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     try{
       const d=await api('/missions',session.accessToken,{method:'POST',body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:payload.visual_context||null})});
       if(!d?.mission?.mission_id)throw new Error('ARIA no confirmó la creación de la misión.');
-      setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);
+      setGoal('');if(!payload?.visual_context)selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);
     }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.')}finally{setSending(false)}
   }
 
