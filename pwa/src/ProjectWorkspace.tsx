@@ -149,6 +149,10 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const backgroundImage = useRef<HTMLImageElement|null>(null);
   const drawing = useRef(false);
   const startPoint = useRef<Point|null>(null);
+  const drawingActionRef = useRef<number|null>(null);
+  const drawingPointsRef = useRef<Point[]>([]);
+  const drawingActionRef = useRef<number|null>(null);
+  const drawingPointsRef = useRef<Point[]>([]);
 
   const drawOne = (ctx:CanvasRenderingContext2D,a:DrawAction) => {
     if (!a.points.length) return;
@@ -212,12 +216,34 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const pointFromEvent=(e:React.PointerEvent)=>{const c=canvasRef.current;if(!c)return null;const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*1100/r.width,y:(e.clientY-r.top)*650/r.height}};
   const pointerDown=(e:React.PointerEvent)=>{
     if(!previewPaused){setNotice('Pausa la vista previa antes de pintar.');return;}
-    const p=pointFromEvent(e);if(!p)return;canvasRef.current?.setPointerCapture(e.pointerId);drawing.current=true;startPoint.current=p;
-    if(tool==='text'){const text=instruction.trim();if(text)setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.slice(0,120)}]);else setNotice('Escribe primero el texto que quieras colocar sobre la vista.');drawing.current=false;return;}
-    setActions(a=>[...a,{tool,color,size,points:[p]}]);
+    const p=pointFromEvent(e);if(!p)return;canvasRef.current?.setPointerCapture(e.pointerId);drawing.current=true;startPoint.current=p;drawingPointsRef.current=[p];
+    if(tool==='text'){const text=instruction.trim();if(text)setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.slice(0,120)}]);else setNotice('Escribe primero el texto que quieras colocar sobre la vista.');drawing.current=false;drawingActionRef.current=null;return;}
+    setActions(a=>{drawingActionRef.current=a.length;return [...a,{tool,color,size,points:[p]}]});
   };
-  const pointerMove=(e:React.PointerEvent)=>{if(!drawing.current||!previewPaused)return;const p=pointFromEvent(e);if(!p)return;setActions(a=>{if(!a.length)return a;const next=[...a];const last={...next[next.length-1]};last.points=['pen','marker','eraser'].includes(tool)?[...last.points,p]:[startPoint.current||p,p];next[next.length-1]=last;return next})};
-  const pointerUp=()=>{drawing.current=false;startPoint.current=null};
+  const pointerMove=(e:React.PointerEvent)=>{
+    if(!drawing.current||!previewPaused)return;
+    const p=pointFromEvent(e);if(!p)return;
+    drawingPointsRef.current.push(p);
+    const points=['pen','marker','eraser'].includes(tool)?[...drawingPointsRef.current]:[startPoint.current||p,p];
+    setActions(a=>{
+      const index=drawingActionRef.current;
+      if(index==null||!a[index])return a;
+      const next=[...a];next[index]={...next[index],points};return next;
+    });
+  };
+  const pointerUp=()=>{
+    if(drawing.current){
+      const points=drawingPointsRef.current.length?drawingPointsRef.current:[startPoint.current!];
+      setActions(a=>{
+        const index=drawingActionRef.current;
+        if(index==null||!a[index])return a;
+        const next=[...a];
+        next[index]={...next[index],points:['pen','marker','eraser'].includes(tool)?points:[points[0],points[points.length-1]||points[0]]};
+        return next;
+      });
+    }
+    drawing.current=false;startPoint.current=null;drawingActionRef.current=null;drawingPointsRef.current=[];
+  };
   const annotationSummary=useMemo(()=>actions.map((a,i)=>{const p=a.points[0],q=a.points[a.points.length-1]||p;return '#'+(i+1)+' '+a.tool+' inicio=('+Math.round(p.x)+','+Math.round(p.y)+') fin=('+Math.round(q.x)+','+Math.round(q.y)+') color='+a.color+' tamaño='+a.size+(a.text?' texto="'+a.text+'"':'')}).join('; ')||'ninguna',[actions]);
 
   async function send(createMission:boolean){
