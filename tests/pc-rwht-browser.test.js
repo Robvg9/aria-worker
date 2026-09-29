@@ -66,3 +66,16 @@ assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
 assert.match(workersBuild, /__PWA_BUILD__/);
 assert.match(workersBuild, /index-.*html/);
 assert.match(workersBuild, /sw-.*\.js/);
+
+const authenticatedWorkflow = fs.readFileSync(
+  path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht-authenticated.yml'),
+  'utf8',
+);
+assert.match(authenticatedWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
+assert.match(authenticatedWorkflow, /RWHT_EXPECTED_AUTH_TEXT: 'Lista para actuar'/);
+assert.match(authenticatedWorkflow, /RWHT_EMAIL:/);
+assert.match(authenticatedWorkflow, /RWHT_PASSWORD:/);
+assert.match(authenticatedWorkflow, /RWHT_STORAGE_STATE_B64:/);
+assert.match(authenticatedWorkflow, /Require an authenticated session source/);
+assert.match(authenticatedWorkflow, /Configure RWHT_EMAIL \+ RWHT_PASSWORD or RWHT_STORAGE_STATE_B64/);
+assert.match(authenticatedWorkflow, /Execute authenticated PC PWA RWHT/);
