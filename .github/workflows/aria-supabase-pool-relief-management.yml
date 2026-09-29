@@ -15,12 +15,35 @@ jobs:
     environment: production
     timeout-minutes: 10
     steps:
-      - name: Alter canonical cron schedules through Supabase Management API
+      - name: Restart database and reduce canonical cron pressure
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
+
+          echo "REQUEST_DATABASE_RESTART"
+          curl --fail-with-body --silent --show-error \
+            --request PUT \
+            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/database/postgres" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"restart_database":true}'
+
+          echo
+          echo "WAIT_FOR_HEALTH"
+          for i in $(seq 1 30); do
+            health="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/health" \
+              --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN")" || health=""
+            printf '%s\n' "$health"
+
+            if printf '%s' "$health" | grep -q 'ACTIVE_HEALTHY'; then
+              break
+            fi
+            sleep 10
+          done
+
           python3 - <<'PY' > /tmp/body.json
           import json
           sql = """
@@ -34,9 +57,13 @@ jobs:
           print(json.dumps({"query": sql}))
           PY
 
+          echo "ALTER_CANONICAL_CRONS"
           curl --fail-with-body --silent --show-error \
             --request POST \
             --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
             --data-binary @/tmp/body.json
+
+          echo
+          echo "POOL_RELIEF_COMPLETE"
