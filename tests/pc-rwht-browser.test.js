@@ -126,6 +126,8 @@ assert.match(projectsSource, /battlecruiser|cuevacoin|aria/);
 assert.match(projectsSource, /server_persistence_verified/);
 assert.match(projectsSource, /visual_mission_verified/);
 assert.match(projectsSource, /png_persisted/);
+assert.match(projectsSource, /externalPreviewConsoleErrors/);
+assert.match(projectsSource, /external_preview_console_errors/);
 assert.match(projectsSource, /canonical_queue/);
 const projectsWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
 assert.match(projectsWorkflow, /ARIA Projects Browser RWHT Authenticated/);
