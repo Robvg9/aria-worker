@@ -233,19 +233,40 @@ async function run() {
       const send = page.getByRole('button', { name: 'Enviar mensaje' }).first();
       await send.waitFor({state:'visible',timeout:30000});
       await expectEnabled(send, project.id);
+      const postResponsePromise = page.waitForResponse((response) =>
+        response.request().method() === 'POST' && /\/api\/conversation(?:\?|$)/.test(response.url())
+      , { timeout: TIMEOUT_MS });
       await send.click();
+      const postResponse = await postResponsePromise;
+      const postBody = await postResponse.json().catch(() => null);
+      if (postResponse.status() !== 200 || !postBody?.ok) throw new Error('project_chat_post_failed_' + project.id + '_' + postResponse.status());
+      if (!postBody?.conversationId) throw new Error('project_chat_post_conversation_id_missing_' + project.id);
+      if (postBody?.cognitive?.persistence_warning) throw new Error('project_chat_persistence_warning_' + project.id + '_' + String(postBody.cognitive.persistence_warning));
+      if (!Number.isFinite(Number(postBody?.cognitive?.input_persistence_ms))) throw new Error('project_chat_input_persistence_unconfirmed_' + project.id);
+      if (!Number.isFinite(Number(postBody?.cognitive?.assistant_persistence_ms))) throw new Error('project_chat_assistant_persistence_unconfirmed_' + project.id);
+
       await page.locator('.projectChatWindow .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
       const assistant = page.locator('.projectChatWindow .bubble.aria').last();
       await assistant.waitFor({ state: 'visible', timeout: TIMEOUT_MS });
       const responseText = (await assistant.innerText()).trim();
       if (!responseText || /error comunicando|no se pudo|fall[oó] al|conversation_/i.test(responseText)) throw new Error('project_chat_bad_response_' + project.id);
 
-      const conversation = await readApi(page, session.accessToken, '/projects/' + project.id + '/conversation');
-      if (conversation.status !== 200) throw new Error('project_conversation_status_' + project.id + '_' + conversation.status);
-      const messages = Array.isArray(conversation.body?.conversation?.messages) ? conversation.body.conversation.messages : [];
-      if (!messages.some((message) => typeof message?.content === 'string' && message.content.includes(marker))) throw new Error('project_chat_server_persistence_missing_' + project.id);
+      let conversation = null;
+      let messages = [];
+      for (let attempt = 1; attempt <= 8; attempt += 1) {
+        conversation = await readApi(page, session.accessToken, '/projects/' + project.id + '/conversation');
+        if (conversation.status === 200) {
+          messages = Array.isArray(conversation.body?.conversation?.messages) ? conversation.body.conversation.messages : [];
+          if (messages.some((message) => typeof message?.content === 'string' && message.content.includes(marker))) break;
+        }
+        await waitFor(1000);
+      }
+      if (!conversation || conversation.status !== 200) throw new Error('project_conversation_status_' + project.id + '_' + String(conversation?.status ?? 'missing'));
+      if (!messages.some((message) => typeof message?.content === 'string' && message.content.includes(marker))) {
+        throw new Error('project_chat_server_readback_missing_' + project.id);
+      }
       const conversationId = String(conversation.body?.conversation_id || '');
-      if (!conversationId) throw new Error('project_conversation_id_missing_' + project.id);
+      if (!conversationId || conversationId !== String(postBody.conversationId)) throw new Error('project_conversation_id_mismatch_' + project.id);
 
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
