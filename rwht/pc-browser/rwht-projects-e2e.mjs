@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.0.0';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.0';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -19,20 +19,35 @@ const PROJECTS = [
 function waitFor(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 async function login(page) {
-  if (STORAGE_STATE) return { mode: 'storage_state', status: 'loaded' };
+  if (STORAGE_STATE) return { mode: 'storage_state', status: 'loaded', attempts: 0 };
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
-  const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
-  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-  await email.waitFor({ state: 'visible', timeout: 30000 });
-  await password.waitFor({ state: 'visible', timeout: 30000 });
-  await email.fill(EMAIL);
-  await password.fill(PASSWORD);
-  const submit = page.locator('button[type="submit"],input[type="submit"],button')
-    .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
-  if (await submit.count()) await submit.click();
-  else await password.press('Enter');
-  await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
-  return { mode: 'password', status: 'submitted' };
+  const maxAttempts = Math.max(1, Math.min(3, Number(process.env.RWHT_AUTH_ATTEMPTS || 3)));
+  const attempts = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+    const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+    await email.waitFor({ state: 'visible', timeout: 30000 });
+    await password.waitFor({ state: 'visible', timeout: 30000 });
+    await email.fill(EMAIL);
+    await password.fill(PASSWORD);
+    const submit = page.locator('button[type="submit"],input[type="submit"],button')
+      .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
+    if (await submit.count()) await submit.click();
+    else await password.press('Enter');
+    try {
+      await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
+      attempts.push({ attempt, status: 'authenticated' });
+      return { mode: 'password', status: 'authenticated', attempts };
+    } catch (error) {
+      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
+      attempts.push({ attempt, status: 'failed', error: String(error?.message || error).slice(0, 300), visible_error: String(visibleError || '').slice(0, 300) });
+      if (attempt < maxAttempts) {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await waitFor(2000 * attempt);
+      }
+    }
+  }
+  throw new Error('authenticated_login_failed_after_' + maxAttempts + '_attempts:' + JSON.stringify(attempts).slice(0, 1200));
 }
 
 async function readSession(page) {
@@ -176,6 +191,7 @@ async function run() {
     auth_verified: false,
     reload_auth_verified: false,
     login: null,
+    auth_attempts: 0,
     project_count: 0,
     project_ids: [],
     tabs: [],
@@ -194,7 +210,7 @@ async function run() {
     await page.goto(BASE_URL + '#home', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitFor(SETTLE_MS);
     report.login = await login(page);
-    const session = await readSession(page);
+    report.auth_attempts = Number(report.login?.attempts?.length || 0);\n    const session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
     report.auth_verified = true;
 
