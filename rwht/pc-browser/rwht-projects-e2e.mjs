@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.1.0';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.1';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -60,6 +60,16 @@ async function readSession(page) {
         : null;
     } catch { return null; }
   });
+}
+
+async function waitForPersistedSession(page, expectedUserId, timeoutMs = 30000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const session = await readSession(page).catch(() => null);
+    if (session?.accessToken && session.userId === expectedUserId) return session;
+    await waitFor(500);
+  }
+  throw new Error('reload_auth_session_not_persisted');
 }
 
 async function readApi(page, token, apiPath) {
@@ -289,6 +299,7 @@ async function run() {
 
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
+      await waitForPersistedSession(page, session.userId);
       await page.waitForFunction(({ expected }) => {
         const card = [...document.querySelectorAll('.projectGrid .projectCard')].find((node) => node.textContent?.includes(expected));
         return Boolean(card?.classList.contains('selected'));
@@ -393,10 +404,8 @@ async function run() {
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
+    const finalSession = await waitForPersistedSession(page, session.userId);
     await page.waitForFunction(() => Boolean(document.querySelector('.projectGrid .projectCard.selected')?.textContent?.includes('BattleCruiser')), null, { timeout: 30000 });
-
-    const finalSession = await readSession(page);
-    if (!finalSession?.accessToken || finalSession.userId !== session.userId) throw new Error('reload_auth_session_missing');
 
     if (consoleErrors.length) throw new Error('projects_console_errors_' + consoleErrors.length);
     if (pageErrors.length) throw new Error('projects_page_errors_' + pageErrors.length);

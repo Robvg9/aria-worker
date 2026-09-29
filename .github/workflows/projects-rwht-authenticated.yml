@@ -11,6 +11,7 @@ on:
       - 'rwht/pc-browser/rwht-projects-e2e.mjs'
       - 'tests/**project-workspace.test.js'
       - 'tests/pc-rwht-browser.test.js'
+      - 'supabase/migrations/**'
       - '.github/workflows/projects-rwht-authenticated.yml'
   workflow_dispatch:
 
