@@ -1,0 +1,42 @@
+name: ARIA Supabase pool relief
+
+on:
+  push:
+    paths:
+      - '.github/workflows/aria-supabase-pool-relief.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relieve:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Reduce canonical cron pressure
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+          SQL="select cron.alter_job(42, schedule := '2-59/15 * * * *'); select cron.alter_job(43, schedule := '4-59/15 * * * *'); select jobid, jobname, schedule, active from cron.job where jobid in (42,43) order by jobid;"
+
+          if ! supabase db --help 2>/dev/null | grep -q 'query'; then
+            echo "Supabase CLI lacks 'db query'; aborting without changing anything."
+            exit 2
+          fi
+
+          supabase db query --linked "$SQL"
