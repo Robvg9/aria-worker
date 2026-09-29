@@ -206,6 +206,11 @@ async function run() {
     localPersistence = stored;
     if (!stored.length) throw new Error('chat_local_persistence_missing');
 
+    const autoScroll = await page.locator('[data-testid="chat-window"]').evaluate((node) =>
+      node.scrollHeight <= node.clientHeight + 8 || node.scrollTop + node.clientHeight >= node.scrollHeight - 8
+    ).catch(() => false);
+    if (!autoScroll) throw new Error('chat_auto_scroll_missing');
+
     serverPersistence = await readServerConversation(page, session.accessToken);
     if (serverPersistence.status !== 200) throw new Error('chat_server_conversation_status_' + serverPersistence.status);
     const serverMessages = Array.isArray(serverPersistence.body?.conversation?.messages)
@@ -220,6 +225,10 @@ async function run() {
     await page.locator('.chatScreen .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
     reloadPersistence = await page.locator('.chatScreen .bubble.aria').filter({ hasText: responseText }).count();
     if (!reloadPersistence) throw new Error('chat_reload_persistence_missing');
+
+    if (consoleErrors.length) throw new Error('chat_console_errors_' + consoleErrors.length);
+    if (pageErrors.length) throw new Error('chat_page_errors_' + pageErrors.length);
+    if (failedResponses.length) throw new Error('chat_failed_responses_' + failedResponses.length);
 
     result = 'verified';
   } catch (error) {
