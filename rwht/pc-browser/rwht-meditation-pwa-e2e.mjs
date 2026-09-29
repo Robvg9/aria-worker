@@ -18,28 +18,42 @@ async function readPersistedSession(page) {
   }).catch(() => null);
 }
 
-async function obtainSupabaseSession() {
+async function obtainSupabaseSession(page, anon) {
   const email = process.env.RWHT_EMAIL;
   const password = process.env.RWHT_PASSWORD;
   if (!email || !password) throw new Error('meditation_auth_secrets_missing');
-  const anon = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
-  const response = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', apikey: anon },
-    body: JSON.stringify({ email: email.trim(), password }),
-    cache: 'no-store'
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.access_token || !body?.user?.id) {
-    throw new Error('meditation_direct_auth_http_' + response.status);
-  }
-  return {
-    accessToken: body.access_token,
-    refreshToken: body.refresh_token || '',
-    userId: String(body.user.id),
-    expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
-    email: body.user.email
-  };
+  if (!anon) throw new Error('meditation_anon_key_missing');
+  return page.evaluate(async ({ email, password, anon }) => {
+    const response = await fetch('/auth/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: anon },
+      body: JSON.stringify({ email: email.trim(), password }),
+      cache: 'no-store'
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body?.access_token || !body?.user?.id) {
+      throw new Error('meditation_proxy_auth_http_' + response.status + ':' + String(body?.error_description || body?.msg || body?.error || '').slice(0,180));
+    }
+    return {
+      accessToken: body.access_token,
+      refreshToken: body.refresh_token || '',
+      userId: String(body.user.id),
+      expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
+      email: body.user.email
+    };
+  }, { email, password, anon });
+}
+
+async function readPersistedSession(page) {
+  return page.evaluate(() => {
+    try {
+      const raw = localStorage.getItem('aria_session_v2');
+      const s = raw ? JSON.parse(raw) : null;
+      return s && typeof s.accessToken === 'string'
+        ? { userId: String(s.userId || ''), accessToken: s.accessToken }
+        : null;
+    } catch { return null; }
+  }).catch(() => null);
 }
 
 async function expectApi(page, apiPath, token) {
@@ -57,18 +71,20 @@ async function run() {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: envBool('RWHT_HEADLESS', true) });
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) } });
-  const authSession = await obtainSupabaseSession();
-  await context.addInitScript(({ session }) => {
+  const page = await context.newPage();
+  await page.goto(base + '#home', { waitUntil:'domcontentloaded', timeout:30000 });
+  const appSource = fs.readFileSync(path.resolve(process.cwd(), '../../pwa/src/App.tsx'), 'utf8');
+  const anon = (appSource.match(/const ANON = ['"]([^'"]+)['"]/i) || [])[1];
+  const authSession = await obtainSupabaseSession(page, anon);
+  await page.evaluate(({ session }) => {
     localStorage.setItem('aria_session_v2', JSON.stringify(session));
   }, { session: authSession });
-  const page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', e => pageErrors.push(String(e?.message || e)));
   page.on('response', response => { if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() }); });
   const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
   try {
-    await page.goto(base + '#home', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(1200);
     const persisted = await readPersistedSession(page);
     assert.ok(persisted?.accessToken, 'direct Supabase session was not persisted');
