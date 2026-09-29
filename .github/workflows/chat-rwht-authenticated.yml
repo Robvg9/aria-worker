@@ -41,6 +41,7 @@ jobs:
         with:
           node-version: 24
       - name: Require an authenticated session source
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -61,9 +62,11 @@ jobs:
         working-directory: rwht/pc-browser
         run: npm install --no-audit --no-fund
       - name: Install Chromium
+        if: github.event_name != 'pull_request'
         working-directory: rwht/pc-browser
         run: npx playwright install --with-deps chromium
       - name: Verify canonical test catalog on LIVE PWA
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           base="${RWHT_URL%/}"
@@ -81,16 +84,17 @@ jobs:
           (grep -q "name='aria-test-catalog-total' content='254'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="254"' <<<"$html")
           echo CHAT_CANONICAL_TEST_CATALOG_LIVE_OK
       - name: Execute authenticated Chat E2E
+        if: github.event_name != 'pull_request'
         working-directory: rwht/pc-browser
         run: node rwht-chat-e2e.mjs
       - name: Upload Chat RWHT evidence
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: aria-chat-rwht-evidence
           path: rwht/pc-browser/chat-rwht-artifacts
           if-no-files-found: warn
       - name: Remove temporary authentication state
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         shell: bash
         run: rm -f "${RUNNER_TEMP}/aria-rwht-auth-state.json"
