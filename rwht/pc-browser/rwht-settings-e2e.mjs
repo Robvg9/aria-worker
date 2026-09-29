@@ -1,8 +1,12 @@
 'use strict';
 
-const fs = require('node:fs');
-const path = require('node:path');
-const { chromium } = require('playwright');
+import fs from 'node:fs';
+import path from 'node:path';
+import { chromium } from 'playwright';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const ARTIFACT_DIR = path.join(__dirname, 'rwht-artifacts');
 fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
@@ -12,8 +16,8 @@ const email = process.env.RWHT_EMAIL || '';
 const password = process.env.RWHT_PASSWORD || '';
 const storageState = process.env.RWHT_STORAGE_STATE || '';
 
-if ((!email || !password) && !storageState) {
-  throw new Error('Authenticated settings RWHT requires RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE.');
+if (!email || !password) {
+  throw new Error('Authenticated settings RWHT requires RWHT_EMAIL + RWHT_PASSWORD for the logout/re-login gate.');
 }
 
 const evidence = {
@@ -125,7 +129,7 @@ function panel(page, text) {
     }, probeKey);
 
     await page.getByRole('button', { name: 'Borrar caché y recargar' }).click();
-    await page.getByRole('heading', { name: 'Dashboard' }).waitFor({ timeout: 20000 });
+    await page.getByRole('heading', { name: 'Configuración' }).waitFor({ timeout: 20000 });
     const cacheProbe = await page.evaluate((key) => localStorage.getItem(key), probeKey);
     const sessionAfterCache = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2')));
     if (cacheProbe !== null || !sessionAfterCache) {
