@@ -91,7 +91,7 @@ assert.match(runner, /routeHash === '#chat' \? '\.chatScreen'/);
 assert.match(runner, /isInActiveSurface/);
 assert.match(runner, /activeSurfaceSelector/);
 assert.match(runner, /\.chatScreen/);
-assert.match(runner, /not\\(\\[type="file"\\]\\)/);
+assert.match(runner, /not\(\[type="file"\]\)/);
 assert.match(runner, /'hidden', 'password', 'file'/);
 
 
