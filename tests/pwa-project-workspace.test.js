@@ -113,7 +113,7 @@ assert.ok(project.includes("setInterval(refresh,15000)"));
 assert.ok(!project.includes("void loadMissions();void loadProjectChat()"));
 assert.ok(!project.includes("setInterval(refresh,5000)"));
 
-assert.ok(project.includes("setConversationId(null);setMessages([]);setMissions([])"));
+assert.ok(project.includes("setConversationId(null);setProjectChatReady(false);setMessages([]);setMissions([])"));
 
 assert.ok(project.includes("projectChatReady"), 'project chat readiness state must exist');
 assert.ok(project.includes("disabled={sending||!text.trim()||!projectChatReady}"), 'project chat send must wait for ready conversation');
