@@ -35,6 +35,7 @@ assert.doesNotMatch(api,/aria_app_save_message/);
 assert.match(api,/looksLikeSimpleConversation/);
 assert.match(api,/multimodal/);
 assert.match(api,/createSignedUrl/);
+assert.match(api,/const annotations = Array\.isArray\(raw\.annotations\)/);
 const projectConstCount=(api.match(/const project = normalizeProjectContext\(body\);/g)||[]).length;
 assert.equal(projectConstCount,2);
 assert.match(app,/bottomNav/);
@@ -84,3 +85,24 @@ assert.match(project,/allow='fullscreen'/);
 assert.match(project,/artiaFullscreenExit/);
 assert.match(css,/\.artiaPreviewShell:fullscreen/);
 console.log('ARTIA FULLSCREEN LIVE PWA CONTRACT: PASS');
+assert.match(project,/const up=await api\('\/media\/upload-url'/);
+assert.match(project,/if\(!signed\|\|!path\)throw new Error\('ARIA no confirmó la ubicación del diseño.'/);
+assert.match(project,/body:blob/);
+assert.match(project,/image_path:path/);
+assert.match(project,/annotations:actions\.slice\(0,128\)/);
+assert.match(project,/mime_type:'image\/png'/);
+assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
+assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
+assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
+
+
+
+const projectApi = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-app-api-v3', 'index.ts'), 'utf8');
+assert.ok(projectApi.includes('.eq("metadata->>project_id", project.id)'), 'project missions must filter by project in Postgres');
+assert.ok(projectApi.includes('.order("updated_at", { ascending: false }).limit(100)'), 'project missions must use bounded ordered query');
+const projectIndexMigration = fs.readFileSync(
+  path.join(__dirname, '..', 'supabase', 'migrations', '20260929124500_project_mission_query_index_v1.sql'),
+  'utf8',
+);
+assert.ok(projectIndexMigration.includes('mission_state_project_updated_idx'));
+assert.ok(projectIndexMigration.includes("(metadata ->> 'project_id')"));

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.1.0';
+const VERSION = 'aria-pc-browser-rwht-v1.2.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -53,6 +53,8 @@ async function discoverInteractive(page) {
     const routeHash = (window.location.hash || '#home').split('?')[0];
     return routeHash === '#home' ? '.dashboardScreen' :
       routeHash === '#chat' ? '.chatScreen' :
+      routeHash === '#projects' ? '.projectShell' :
+      routeHash === '#projects' ? '.projectShell' :
       routeHash === '#capabilities' ? '.capabilitiesViewport' :
       routeHash === '#settings' ? '.settingsViewport' :
       routeHash === '#meditation' ? '.meditationViewport' :
@@ -608,6 +610,9 @@ async function run() {
     summary.controls_failed === 0 &&
     summary.coverage_ratio >= 0.98 &&
     summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
     summary.auth_verified === true;
 
   const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
