@@ -125,7 +125,9 @@ Deno.serve(async (request) => {
     ? body.mission_id.trim()
     : undefined;
 
-  const memoryContext = await recall(goal);
+  const visualContext = userMetadata.visual_context && typeof userMetadata.visual_context === "object" ? userMetadata.visual_context : null;
+  const hasExplicitVisualContext = Boolean(visualContext?.image_path || visualContext?.annotations?.length || visualContext?.annotation_summary);
+  const memoryContext = hasExplicitVisualContext ? [] : await recall(goal);
   const metadata = {
     ...userMetadata,
     trace_id: traceId,
@@ -134,7 +136,7 @@ Deno.serve(async (request) => {
     diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
     autonomy_managed: true,
     cognitive_memory: {
-      source: "aria-memory-v2",
+      source: hasExplicitVisualContext ? "explicit_visual_context" : "aria-memory-v2",
       recalled_at: new Date().toISOString(),
       result_count: memoryContext.length,
       results: memoryContext

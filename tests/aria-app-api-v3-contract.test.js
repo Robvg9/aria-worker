@@ -7,6 +7,7 @@ const pwa=read('pwa','src','App.tsx');
 const planner=read('supabase','functions','aria-planner-v11','index.ts');
 const plannerConfig=read('supabase','functions','aria-planner-v11','deno.json');
 const memory=read('supabase','functions','aria-memory-v2','index.ts');
+const direct=read('supabase','functions','aria-direct-v1','index.ts');
 const executor=read('supabase','functions','aria-execution-runtime-v1','index.ts');
 const appWorkflow=read('.github','workflows','aria-app-api-v3-deploy.yml');
 const plannerWorkflow=read('.github','workflows','supabase-canonical-deploy.yml');
@@ -140,3 +141,7 @@ assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiti
 assertContains(pwa,"api('/missions?limit=100', session.accessToken)","PWA chat sync must use the canonical missions collection, not the meditation-control overview as its source of truth");
 console.log('FASE 1 BUG-PC-002/003 SSoT CONTRACT: PASS');
 
+
+assertContains(direct,'hasExplicitVisualContext','direct mission intake must detect explicit visual context');
+assertContains(direct,'const memoryContext = hasExplicitVisualContext ? [] : await recall(goal);','visual missions must skip redundant semantic recall');
+assertContains(direct,'source: hasExplicitVisualContext ? "explicit_visual_context" : "aria-memory-v2"','visual mission provenance must explain skipped recall');
