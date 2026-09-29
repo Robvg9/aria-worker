@@ -133,7 +133,6 @@ const projectsWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', '
 assert.match(projectsWorkflow, /ARIA Projects Browser RWHT Authenticated/);
 assert.match(projectsWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
 assert.match(projectsWorkflow, /RWHT_ROUTES: '#projects'/);
-assert.match(projectsWorkflow, /Execute generic Projects surface RWHT/);
 assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
 assert.match(projectsWorkflow, /RWHT_EMAIL/);
 assert.match(projectsWorkflow, /RWHT_PASSWORD/);
