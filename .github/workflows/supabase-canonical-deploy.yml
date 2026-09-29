@@ -55,7 +55,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep -q '^supabase/migrations/'; then
+          BASE_SHA="$(git rev-list --parents -n 1 "$GITHUB_SHA" | cut -d' ' -f2)"
+          if [[ -z "$BASE_SHA" ]]; then
+            echo "ERROR: unable to determine first parent for $GITHUB_SHA"
+            exit 1
+          fi
+          echo "MIGRATION_DIFF_BASE_SHA=$BASE_SHA"
+          if git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -q '^supabase/migrations/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
