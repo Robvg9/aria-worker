@@ -842,7 +842,8 @@ Deno.serve(async (req) => {
       const sb = serviceClient();
       const { data, error } = await sb.schema("aria_internal").from("mission_state")
         .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
-        .order("updated_at", { ascending: false }).limit(1000);
+        .eq("metadata->>project_id", project.id)
+        .order("updated_at", { ascending: false }).limit(100);
       if (error) return json({ error: "project_missions_failed", detail: error.message, trace_id: trace }, 502);
       const owned = (data ?? []).filter((m:any) => {
         const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
