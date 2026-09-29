@@ -8,8 +8,6 @@ function envBool(name, fallback = false) { const value = process.env[name]; retu
 
 async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
 async function readPersistedSession(page) {
   return page.evaluate(() => {
     try {
