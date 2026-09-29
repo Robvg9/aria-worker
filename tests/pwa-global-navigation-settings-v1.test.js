@@ -103,3 +103,8 @@ assert.match(css,/.meditationViewport>\.executionHero\{flex:0 0 auto!important/)
 assert.match(css,/.missionConfirmation\{/);
 console.log('CHAT PERSISTENCE + MOBILE MEDITATION + MISSION CONFIRMATION CONTRACT: PASS');
 
+
+assert.match(app,/const active = selectLiveMission\(missionsResult\)/,'Dashboard/Chat must use the canonical live-mission selector instead of trusting an arbitrary active_mission payload.');
+assert.match(app,/only an actively leased RUNNING\/WAITING mission belongs in the/,'Dashboard live-state rule must remain documented at the source.');
+assert.doesNotMatch(app,/const active = missionsResult\?\.active_mission;\s*setMission\(active \?\? null\)/,'Dashboard must not surface stale/queued active_mission directly.');
+console.log('DASHBOARD LIVE MISSION SSoT CONTRACT: PASS');
