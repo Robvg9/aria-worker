@@ -84,3 +84,12 @@ assert.match(project,/allow='fullscreen'/);
 assert.match(project,/artiaFullscreenExit/);
 assert.match(css,/\.artiaPreviewShell:fullscreen/);
 console.log('ARTIA FULLSCREEN LIVE PWA CONTRACT: PASS');
+assert.match(project,/const up=await api\('\/media\/upload-url'/);
+assert.match(project,/if\(!signed\|\|!path\)throw new Error\('ARIA no confirmó la ubicación del diseño.'/);
+assert.match(project,/body:blob/);
+assert.match(project,/image_path:path/);
+assert.match(project,/mime_type:'image\/png'/);
+assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
+assert.match(project,/livePreviewUrl=project\.previewUrl/);
+assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
+
