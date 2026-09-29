@@ -359,7 +359,18 @@ async function auditRoute(page, url, routeIndex, config) {
 
   await page.waitForTimeout(config.settle_ms);
 
-  const auth = await verifyAuthState(page, config);
+  let auth = await verifyAuthState(page, config);
+  let reloadAuth = null;
+  if (routeIndex === 0 && config.reload_auth && auth.verified) {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
+    await page.waitForTimeout(config.settle_ms);
+    reloadAuth = await verifyAuthState(page, config);
+    auth = {
+      ...auth,
+      verified: auth.verified && reloadAuth.verified,
+      reload: reloadAuth
+    };
+  }
   const ux = await checkUx(page);
   const initialControls = await discoverInteractive(page);
   const screenKey = sha({
@@ -454,6 +465,7 @@ async function run() {
     max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
     allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
     require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
     expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
     storage_state: process.env.RWHT_STORAGE_STATE || null,
     auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
