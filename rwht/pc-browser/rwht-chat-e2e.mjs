@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.3';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.4';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -126,7 +126,9 @@ async function run() {
     if (message.type() === 'error') consoleErrors.push({ text: message.text().slice(0, 1000) });
   });
   page.on('response', (response) => {
-    if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url().slice(0, 1000) });
+    if (response.status() >= 500) {
+      failedResponses.push({ status: response.status(), method: response.request().method(), url: response.url().slice(0, 1000) });
+    }
   });
 
   const startedAt = new Date().toISOString();
@@ -175,6 +177,14 @@ async function run() {
     marker = 'RWHTCHATCERT' + Date.now();
     await textarea.fill(marker + ' responde con una confirmación breve.');
     await sendButton.click();
+
+    await page.waitForFunction(
+      () => !window.__aria_rwht_failed_conversation_response,
+      null,
+      { timeout: 1000 }
+    ).catch(() => {
+      throw new Error('chat_conversation_http_5xx');
+    });
 
     await page.locator('.chatScreen .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
     await page.waitForFunction(
