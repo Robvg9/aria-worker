@@ -65,7 +65,7 @@ function humanDiagnosis({mission,classification,lastFailure,dependency,attemptCo
 }
 function deriveOperationalDiagnostic({mission,steps=[],events=[],jobs=[],jobEvents=[],health={}}){
  let lastFailure=null;const failureEventTypes=new Set(['planner_failed','step_failed','execution_failed','execution_timeout','mission_failed','mission_hard_blocked','agent_executor_diagnostic','learning_preflight_blocked']);
- for(const event of events){if(failureEventTypes.has(String(event.event_type)))lastFailure=event;}
+ for(const event of events){const eventType=String(event.event_type||'');const payload=payloadOf(event);if(failureEventTypes.has(eventType)||((mission?.status==='failed'||mission?.status==='blocked')&&(firstString(event.error_code,payload.error_code,payload.error?.code))))lastFailure=event;}
  const lastPayload=payloadOf(lastFailure);
  const classification=classifyDiagnostic({status:mission?.status,event_type:lastFailure?.event_type,error_code:firstString(lastFailure?.error_code,lastPayload.error_code,lastPayload.error?.code),message:firstString(lastPayload.message,lastPayload.error?.message,mission?.last_stderr),recovery_status:mission?.checkpoint?.recovery?.status,executor_type:firstString(lastPayload.executor_type),operation:firstString(lastPayload.operation)});
  const dependency={executor_type:firstString(lastPayload.executor_type),provider_id:firstString(lastPayload.provider_id),model_id:firstString(lastPayload.model_id),device_id:firstString(lastPayload.device_id),operation:firstString(lastPayload.operation)};

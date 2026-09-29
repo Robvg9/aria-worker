@@ -3,10 +3,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 async function main() {
   const root = path.join(__dirname, '..');
-  const diagnostics = await import(path.join(root, 'supabase', 'functions', '_shared', 'operational-diagnostics.mjs'));
+  const diagnostics = await import(pathToFileURL(path.join(root, 'supabase', 'functions', '_shared', 'operational-diagnostics.mjs')).href);
   const runner = fs.readFileSync(path.join(root, 'supabase', 'functions', 'aria-mission-runner-v22', 'index.ts'), 'utf8');
   const phase4 = fs.readFileSync(path.join(root, 'tests', 'phase4-jobs-recovery-contract.test.js'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'pwa', 'src', 'App.tsx'), 'utf8');
