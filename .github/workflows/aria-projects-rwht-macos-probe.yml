@@ -1,0 +1,50 @@
+name: ARIA Projects RWHT Authenticated macOS Probe
+
+on:
+  push:
+    branches:
+      - ci/projects-rwht-auth-macos-20260929
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  projects-rwht-macos:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    env:
+      RWHT_URL: https://aria.robvg9.workers.dev/pwa/
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE: ''
+      RWHT_AUTH_ATTEMPTS: '3'
+      RWHT_TIMEOUT_MS: '120000'
+      RWHT_SETTLE_MS: '1200'
+      RWHT_ARTIFACT_DIR: projects-rwht-macos-artifacts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Require authenticated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RWHT_EMAIL}" || { echo "::error::RWHT_EMAIL missing"; exit 1; }
+          test -n "${RWHT_PASSWORD}" || { echo "::error::RWHT_PASSWORD missing"; exit 1; }
+      - name: Install Projects RWHT dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install chromium
+      - name: Execute authenticated Projects + ARTIA E2E
+        working-directory: rwht/pc-browser
+        run: node rwht-projects-e2e.mjs
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-projects-rwht-macos-evidence
+          path: rwht/pc-browser/projects-rwht-macos-artifacts
+          if-no-files-found: warn
