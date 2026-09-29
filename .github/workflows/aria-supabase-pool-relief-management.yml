@@ -21,10 +21,22 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          body='{"query":"select cron.alter_job(42, schedule := '''2-59/15 * * * *'''); select cron.alter_job(43, schedule := '''4-59/15 * * * *'''); select jobid, jobname, schedule, active from cron.job where jobid in (42,43) order by jobid;"}'
+          python3 - <<'PY' > /tmp/body.json
+          import json
+          sql = """
+          select cron.alter_job(42, schedule := '2-59/15 * * * *');
+          select cron.alter_job(43, schedule := '4-59/15 * * * *');
+          select jobid, jobname, schedule, active
+          from cron.job
+          where jobid in (42,43)
+          order by jobid;
+          """
+          print(json.dumps({"query": sql}))
+          PY
+
           curl --fail-with-body --silent --show-error \
             --request POST \
             --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
-            --data "$body"
+            --data-binary @/tmp/body.json
