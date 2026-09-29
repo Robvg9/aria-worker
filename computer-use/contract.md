@@ -52,3 +52,11 @@ The runtime has no direct credential lookup, environment access, browser-network
 ## Compatibility
 
 Computer Use v1 is additive and leaves the existing execution engine, device dispatcher, Universal Executor, router, fallback, Self-Model and World Model contracts intact.
+
+
+## Windows semantic execution
+
+The Windows adapter accepts the canonical semantic `click` / `double_click` shape with a `target` query (role/name/text/label/attributes) and does not require absolute `x/y` coordinates. It resolves the current target through Windows UI Automation first. When the active surface is Chrome and UIA does not expose the web control, the adapter may use Chrome DevTools Protocol semantic DOM resolution. Missing or ambiguous matches fail closed; successful semantic execution returns the matched target and a refreshed UI snapshot when available so the canonical runtime can verify the post-action state.
+
+
+For Chrome semantic execution, the canonical runtime propagates the current UI URL as `target.page_url`. The browser adapter uses that routing hint to select exactly one page; zero matches or multiple matching pages fail closed rather than guessing a tab.

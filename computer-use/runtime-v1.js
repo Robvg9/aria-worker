@@ -122,7 +122,7 @@ function planAction({id, intent, ui, preferredTarget, risk='read'} = {}) {
   if (match.status === 'not_found') return {status:'blocked', reason:'element_not_found', intent, diagnostics:{query:clone(target)}};
   if (match.status === 'ambiguous') return {status:'blocked', reason:'element_ambiguous', intent, diagnostics:{query:clone(target), candidates:match.candidates.map(x=>x.id)}};
   const action = createAction({
-    id, action:target.action || 'click', target:{ref:match.element.id, query:clone(target)},
+    id, action:target.action || 'click', target:{ref:match.element.id, query:clone(target), page_url:ui.url || null, surface:ui.surface || null},
     text:target.text, value:target.value, risk, reason:intent, expectation:target.expectation,
     metadata:target.metadata || {}
   });

@@ -80,6 +80,24 @@ jobs:
           if($s.mode-ne'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;Write-Host ("ACTIVATE status={0} mode={1} session={2} tick={3}"-f$r.status,$s.mode,$s.session_id,$s.tick_count)}else{Write-Host "ALREADY_ACTIVE session=$($s.session_id)"}
           if($s.mode-ne'active'){throw "Meditation IA activation failed mode=$($s.mode)"}
 
+      - name: Sync Computer Use runtime to D and run semantic physical E2E
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Join-Path $env:GITHUB_WORKSPACE 'computer-use'
+          $dst='D:\ARIA-Windows-Agent\Runtime\windows'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          foreach($f in (Get-ChildItem -LiteralPath $src -File)){
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dst $f.Name) -Force
+          }
+          foreach($f in (Get-ChildItem -LiteralPath $src -Filter '*.js' -File)){
+            & node --check $f.FullName
+            if($LASTEXITCODE -ne 0){throw "computer-use syntax failed: $($f.Name)"}
+          }
+          Write-Host 'COMPUTER_USE_RUNTIME_SYNC=PASS'
+          & node (Join-Path $env:GITHUB_WORKSPACE 'tests\windows-semantic-physical-e2e.js')
+          if($LASTEXITCODE -ne 0){throw 'BUG-PC-006 semantic physical E2E failed'}
+          Write-Host 'BUG_PC_006_SEMANTIC_PHYSICAL_E2E=PASS'
+
       - name: Verify heartbeat and real read-only shell path
         run: |
           $ErrorActionPreference='Stop'

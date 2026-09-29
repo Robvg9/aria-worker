@@ -16,6 +16,9 @@ assert.equal(validateDeviceJobOperation('computer.use.autonomous', JSON.stringif
 assert.equal(validateDeviceJobOperation('computer.use.autonomous', JSON.stringify({ mode: 'task', goal: 'x' })).ok, false);
 
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'click', x: 10, y: 20 })).ok, true);
+assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'click', target: { role: 'button', name: 'ARIA Semantic Test' } })).ok, true);
+assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'click', target: { query: { role: 'button', name: 'ARIA Semantic Test' } } })).ok, true);
+assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'click', target: {} })).ok, false);
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'double_click', x: 10, y: 20 })).ok, true);
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'move', x: 10, y: 20 })).ok, true);
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'drag', x1: 10, y1: 20, x2: 100, y2: 200 })).ok, true);
@@ -28,7 +31,10 @@ assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action:
 assert.equal(validateDeviceJobOperation('computer.use', JSON.stringify({ action: 'wait', ms: 60001 })).ok, false);
 
 assert.deepEqual(validateRequest({ action: 'screenshot' }).action, 'screenshot');
-assert.throws(() => validateRequest({ action: 'click', x: 1 }), /desktop_pointer_invalid/);
+assert.throws(() => validateRequest({ action: 'click', x: 1 }), /desktop_pointer_or_semantic_target_invalid/);
+assert.equal(validateRequest({ action: 'click', target: { role: 'button', name: 'ARIA Semantic Test' } }).action, 'click');
+assert.equal(validateRequest({ action: 'click', target: { query: { role: 'button', name: 'ARIA Semantic Test' } } }).action, 'click');
+assert.throws(() => validateRequest({ action: 'click', target: {} }), /desktop_semantic_target_invalid/);
 assert.throws(() => validateRequest({ action: 'drag', x1: 1, y1: 2, x2: 3 }), /desktop_drag_invalid/);
 assert.throws(() => validateRequest({ action: 'type', text: '' }), /desktop_type_invalid/);
 assert.throws(() => validateRequest({ action: 'open' }), /desktop_open_invalid/);
@@ -50,6 +56,9 @@ const adapterSrc = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'w
 assert.match(adapterSrc, /-STA/);
 assert.match(adapterSrc, /windows-desktop-runner\.ps1/);
 assert.match(adapterSrc, /windows-ui-automation\.ps1/);
+assert.match(adapterSrc, /windows-ui-automation-action\.ps1/);
+assert.match(adapterSrc, /windows-chrome-semantic-action/);
+assert.match(adapterSrc, /semanticQueryFromTarget/);
 assert.match(adapterSrc, /windows-hotkey-runner\.ps1/);
 assert.match(adapterSrc, /spawnPowerShell\(/);
 assert.doesNotMatch(adapterSrc, /New-Object System\.Drawing\.Bitmap -ArgumentList @/);
