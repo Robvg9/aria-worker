@@ -176,3 +176,4 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+// Phase 6 final certification replay marker.
