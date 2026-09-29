@@ -38,8 +38,22 @@ function normalizeVisualContext(body: any) {
   const annotation_summary = typeof raw.annotation_summary === "string" ? raw.annotation_summary.slice(0, 12000) : "";
   const image_path = typeof raw.image_path === "string" ? raw.image_path.slice(0, 500) : null;
   const mime_type = typeof raw.mime_type === "string" ? raw.mime_type.slice(0, 100) : null;
-  if (!instruction && !annotation_summary && !image_path) return null;
-  return { instruction, annotation_summary, image_path, mime_type };
+  const annotations = Array.isArray(raw.annotations)
+    ? raw.annotations.slice(0, 128).map((item: any) => ({
+        tool: typeof item?.tool === "string" ? item.tool.slice(0, 32) : "unknown",
+        color: typeof item?.color === "string" ? item.color.slice(0, 32) : "",
+        size: Number.isFinite(Number(item?.size)) ? Math.max(1, Math.min(64, Number(item.size))) : 1,
+        points: Array.isArray(item?.points)
+          ? item.points.slice(0, 512).map((point: any) => ({
+              x: Number.isFinite(Number(point?.x)) ? Number(point.x) : 0,
+              y: Number.isFinite(Number(point?.y)) ? Number(point.y) : 0,
+            }))
+          : [],
+        text: typeof item?.text === "string" ? item.text.slice(0, 120) : null,
+      }))
+    : [];
+  if (!instruction && !annotation_summary && !image_path && !annotations.length) return null;
+  return { instruction, annotation_summary, annotations, image_path, mime_type };
 }
 function normalizeAttachments(parts: any[]) {
   return parts.filter((p: any) => p?.type === "file").slice(0, 3).map((p: any) => ({
