@@ -1,4 +1,4 @@
-name: ARIA Supabase postgres upgrade
+name: ARIA Supabase free restore upgrade
 
 on:
   push:
@@ -10,103 +10,83 @@ permissions:
   contents: read
 
 jobs:
-  upgrade:
+  restore:
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Check Postgres upgrade eligibility
-        id: eligibility
+      - name: Pause Free project
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/upgrade/eligibility" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Accept: application/json" \
-            > /tmp/eligibility.json
-          cat /tmp/eligibility.json
-
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/eligibility.json'))
-          targets=d.get('target_upgrade_versions') or []
-          matches=[x for x in targets if x.get('postgres_version')=='17.11' and x.get('release_channel')=='ga']
-          if not d.get('eligible'):
-              raise SystemExit('PROJECT_NOT_ELIGIBLE: '+json.dumps(d))
-          if not matches:
-              raise SystemExit('PG_17_11_NOT_EXPOSED: '+json.dumps(targets))
-          print('ELIGIBLE_FOR_17_11')
-          print('TARGET=', matches[0])
-          PY
-
-      - name: Initiate Postgres 17.11 upgrade
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-        run: |
-          set -euo pipefail
-          body='{"target_version":"17.11","release_channel":"ga"}'
+          echo "PAUSE_REQUEST"
           curl --fail-with-body --silent --show-error \
             --request POST \
-            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/upgrade" \
+            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/pause" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data "$body" \
-            | tee /tmp/upgrade.json
+            --header "Accept: application/json"
+          echo
 
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/upgrade.json'))
-          tid=d.get('tracking_id')
-          if not tid:
-              raise SystemExit('UPGRADE_ACCEPTANCE_MISSING_TRACKING_ID: '+json.dumps(d))
-          print('UPGRADE_TRACKING_ID='+tid)
-          PY
-
-      - name: Monitor upgrade status
+      - name: Wait for paused state
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          tracking="$(python3 -c 'import json; print(json.load(open("/tmp/upgrade.json"))["tracking_id"])')"
-          for i in $(seq 1 170); do
-            response="$(curl --fail-with-body --silent --show-error \
-              --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/upgrade/status?tracking_id=$tracking" \
+          for i in $(seq 1 90); do
+            payload="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
               --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-              --header "Accept: application/json")" || response='{}'
-            printf '%s\n' "$response"
+              --header "Accept: application/json")"
+            printf '%s\n' "$payload"
+            status="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status",""))' "$payload")"
+            echo "PROJECT_STATUS=$status"
+            case "$status" in
+              INACTIVE|PAUSED|PAUSING) 
+                if [ "$status" = "INACTIVE" ] || [ "$status" = "PAUSED" ]; then exit 0; fi ;;
+            esac
+            sleep 10
+          done
+          echo "PAUSE_STATUS_TIMEOUT"
+          exit 2
 
-            python3 - "$response" <<'PY'
-          import json,sys
-          try:
-              d=json.loads(sys.argv[1])
-          except Exception:
-              raise SystemExit(0)
-          s=d.get('databaseUpgradeStatus')
-          if not s:
-              raise SystemExit(0)
-          status=str(s.get('status','')).lower()
-          progress=str(s.get('progress','')).lower()
-          print('STATUS=',status,'PROGRESS=',progress)
-          if status in {'succeeded','success','completed'} or progress in {'completed','100_completed','done'}:
-              raise SystemExit(10)
-          if status in {'failed','error','cancelled'}:
-              raise SystemExit(11)
-          PY
-            rc=$?
-            if [ "$rc" -eq 10 ]; then
-              echo UPGRADE_COMPLETED
+      - name: Restore Free project to latest available platform version
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          echo "RESTORE_REQUEST"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/restore" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Accept: application/json"
+          echo
+
+      - name: Verify restored project and Postgres version
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 150); do
+            payload="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
+              --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              --header "Accept: application/json")" || payload='{}'
+            printf '%s\n' "$payload"
+            status="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status",""))' "$payload" 2>/dev/null || true)"
+            version="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("database",{}).get("version",""))' "$payload" 2>/dev/null || true)"
+            echo "PROJECT_STATUS=$status POSTGRES_VERSION=$version"
+            if [ "$status" = "ACTIVE_HEALTHY" ] && [ "$version" != "" ]; then
+              echo "RESTORE_ACTIVE_HEALTHY"
+              echo "POSTGRES_VERSION=$version"
               exit 0
-            fi
-            if [ "$rc" -eq 11 ]; then
-              echo UPGRADE_FAILED
-              exit 1
             fi
             sleep 10
           done
-          echo UPGRADE_STATUS_MONITOR_TIMEOUT
+          echo "RESTORE_STATUS_TIMEOUT"
           exit 2
