@@ -28,7 +28,7 @@ jobs:
       RWHT_ROUTES: '#capabilities'
       RWHT_RELOAD_AUTH: 'true'
       RWHT_LOGIN_WAIT_MS: '40000'
-      RWHT_EXPECTED_AUTH_TEXT: 'Núcleo conectado'
+      RWHT_EXPECTED_AUTH_TEXT: 'Centro de capacidades'
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
