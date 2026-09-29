@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.0.0';
+const VERSION = 'aria-pc-browser-rwht-v1.1.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -51,7 +51,12 @@ async function discoverInteractive(page) {
   ].join(',');
   const activeSurfaceSelector = await page.evaluate(() => {
     const routeHash = (window.location.hash || '#home').split('?')[0];
-    return routeHash === '#home' ? '.dashboardScreen' : routeHash === '#chat' ? '.chatScreen' : null;
+    return routeHash === '#home' ? '.dashboardScreen' :
+      routeHash === '#chat' ? '.chatScreen' :
+      routeHash === '#capabilities' ? '.capabilitiesViewport' :
+      routeHash === '#settings' ? '.settingsViewport' :
+      routeHash === '#meditation' ? '.meditationViewport' :
+      null;
   }).catch(() => null);
   const interactive = activeSurfaceSelector
     ? page.locator(activeSurfaceSelector).locator(selector)
@@ -130,6 +135,9 @@ async function checkUx(page) {
     const activeSurfaceSelector =
       routeHash === '#home' ? '.dashboardScreen' :
       routeHash === '#chat' ? '.chatScreen' :
+      routeHash === '#capabilities' ? '.capabilitiesViewport' :
+      routeHash === '#settings' ? '.settingsViewport' :
+      routeHash === '#meditation' ? '.meditationViewport' :
       null;
     const isInActiveSurface = (element) =>
       !activeSurfaceSelector || Boolean(element.closest(activeSurfaceSelector));
