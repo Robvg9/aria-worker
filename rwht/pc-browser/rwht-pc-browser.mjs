@@ -117,17 +117,20 @@ async function checkUx(page) {
 
     const unnamedInteractive = [];
     const offscreenInteractive = [];
+    // The PWA keeps adjacent screens mounted in a horizontal track. RWHT must audit
+    // only the routed surface, otherwise inactive screens become false UX failures.
+    const routeHash = (window.location.hash || '#home').split('?')[0];
+    const activeSurfaceSelector =
+      routeHash === '#home' ? '.dashboardScreen' :
+      routeHash === '#chat' ? '.chatScreen' :
+      null;
+    const isInActiveSurface = (element) =>
+      !activeSurfaceSelector || Boolean(element.closest(activeSurfaceSelector));
+
     const selector = 'button,a[href],[role="button"],[role="tab"],[role="menuitem"],input:not([type="hidden"]),textarea,select,[contenteditable="true"]';
     for (const element of document.querySelectorAll(selector)) {
+      if (!isInActiveSurface(element)) continue;
       const rect = element.getBoundingClientRect();
-      const surface = element.closest('.appScreen');
-      if (surface) {
-        const surfaceRect = surface.getBoundingClientRect();
-        const surfaceOutside =
-          surfaceRect.right <= 0 || surfaceRect.left >= viewportWidth ||
-          surfaceRect.bottom <= 0 || surfaceRect.top >= viewportHeight;
-        if (surfaceOutside) continue;
-      }
       const labelledBy = (element.getAttribute('aria-labelledby') || '')
         .split(/\s+/)
         .map((id) => document.getElementById(id)?.innerText || '')
@@ -169,12 +172,7 @@ async function checkUx(page) {
       .slice(0, 50);
 
     const unlabeledInputs = [...document.querySelectorAll('input,textarea,select')]
-      .filter((element) => {
-        const surface = element.closest('.appScreen');
-        if (!surface) return true;
-        const rect = surface.getBoundingClientRect();
-        return !(rect.right <= 0 || rect.left >= viewportWidth || rect.bottom <= 0 || rect.top >= viewportHeight);
-      })
+      .filter((element) => isInActiveSurface(element))
       .filter((element) => !['hidden', 'password'].includes((element.getAttribute('type') || '').toLowerCase()))
       .filter((element) => {
         const aria = element.getAttribute('aria-label') || element.getAttribute('aria-labelledby');

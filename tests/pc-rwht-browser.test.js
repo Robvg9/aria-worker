@@ -85,3 +85,7 @@ assert.match(runner, /page\.reload\(\{ waitUntil: 'domcontentloaded'/);
 assert.match(authenticatedWorkflow, /RWHT_ROUTES: '#home'/);
 assert.match(authenticatedWorkflow, /RWHT_RELOAD_AUTH: 'true'/);
 assert.match(authenticatedWorkflow, /RWHT_LOGIN_WAIT_MS: '40000'/);
+
+assert.match(runner, /routeHash === '#home' \? '\.dashboardScreen'/);
+assert.match(runner, /routeHash === '#chat' \? '\.chatScreen'/);
+assert.match(runner, /isInActiveSurface/);
