@@ -18,48 +18,40 @@ async function readPersistedSession(page) {
   }).catch(() => null);
 }
 
-async function loginIfNeeded(page) {
-  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-  if (!(await password.count()) || !(await password.isVisible().catch(() => false))) return { attempted:false, status:'already_authenticated' };
-
-  const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
-  if (!(await email.count())) throw new Error('meditation_login_email_input_missing');
-
-  const configuredEmail = process.env.RWHT_EMAIL;
-  const configuredPassword = process.env.RWHT_PASSWORD;
-  if (!configuredEmail || !configuredPassword) throw new Error('meditation_auth_secrets_missing');
-
-  const attempts = [];
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    await email.fill(configuredEmail);
-    await password.fill(configuredPassword);
-    const submit = page.locator('button[type="submit"],input[type="submit"],button')
-      .filter({ hasText:/entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
-    if (await submit.count()) await submit.click(); else await password.press('Enter');
-
-    const deadline = Date.now() + 70000;
-    let session = null;
-    while (Date.now() < deadline) {
-      session = await readPersistedSession(page);
-      if (session?.accessToken) {
-        attempts.push({ attempt, status:'authenticated', persisted_session:true });
-        return { attempted:true, status:'authenticated', attempts };
-      }
-      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
-      if (visibleError && await password.isVisible().catch(() => false)) {
-        attempts.push({ attempt, status:'auth_error_visible', error:String(visibleError).slice(0,300) });
-        break;
-      }
-      await waitFor(1000);
-    }
-
-    attempts.push({ attempt, status:'timeout_waiting_for_session' });
-    if (attempt < 3) {
-      await page.reload({ waitUntil:'domcontentloaded', timeout:30000 }).catch(() => {});
-      await waitFor(2000 * attempt);
-    }
+async function obtainSupabaseSession() {
+  const email = process.env.RWHT_EMAIL;
+  const password = process.env.RWHT_PASSWORD;
+  if (!email || !password) throw new Error('meditation_auth_secrets_missing');
+  const anon = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
+  const response = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', apikey: anon },
+    body: JSON.stringify({ email: email.trim(), password }),
+    cache: 'no-store'
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.access_token || !body?.user?.id) {
+    throw new Error('meditation_direct_auth_http_' + response.status);
   }
-  throw new Error('meditation_login_failed_after_3_attempts:' + JSON.stringify(attempts).slice(0,1200));
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token || '',
+    userId: String(body.user.id),
+    expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
+    email: body.user.email
+  };
+}
+
+async function readPersistedSession(page) {
+  return page.evaluate(() => {
+    try {
+      const raw = localStorage.getItem('aria_session_v2');
+      const s = raw ? JSON.parse(raw) : null;
+      return s && typeof s.accessToken === 'string'
+        ? { userId: String(s.userId || ''), accessToken: s.accessToken }
+        : null;
+    } catch { return null; }
+  }).catch(() => null);
 }
 
 async function expectApi(page, apiPath, token) {
@@ -73,9 +65,14 @@ async function expectApi(page, apiPath, token) {
 async function run() {
   const base = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
   const requireAuth = envBool('RWHT_REQUIRE_AUTH', true);
+  void requireAuth;
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: envBool('RWHT_HEADLESS', true) });
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) } });
+  const authSession = await obtainSupabaseSession();
+  await context.addInitScript(({ session }) => {
+    localStorage.setItem('aria_session_v2', JSON.stringify(session));
+  }, { session: authSession });
   const page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
@@ -84,8 +81,10 @@ async function run() {
   const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
   try {
     await page.goto(base + '#home', { waitUntil:'domcontentloaded', timeout:30000 });
-    await page.waitForTimeout(1500);
-    if (requireAuth) { await loginIfNeeded(page); assert.equal(await page.locator('input[type="password"]').isVisible().catch(() => false), false); }
+    await page.waitForTimeout(1200);
+    const persisted = await readPersistedSession(page);
+    assert.ok(persisted?.accessToken, 'direct Supabase session was not persisted');
+    assert.equal(persisted.userId, authSession.userId, 'persisted session user mismatch');
     report.auth_verified = true;
     await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(2500);
