@@ -133,7 +133,13 @@ jobs:
           fi
 
           echo "MIGRATIONS_PENDING_COUNT=$pending"
-          supabase db push --include-all --yes
+          if (( pending > 0 )); then
+            echo "APPLYING_PENDING_MIGRATIONS=true"
+            supabase db push --include-all --yes
+          else
+            echo "APPLYING_PENDING_MIGRATIONS=false"
+            echo "SUPABASE_MIGRATION_NOOP=true"
+          fi
       - name: Deploy canonical ARIA functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
