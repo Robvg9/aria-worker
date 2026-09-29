@@ -2286,7 +2286,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba columnas, índices, trigger y almacenamiento persistente del diagnóstico operacional.",
     "capabilities": "Valida la fuente persistente de correlation IDs, versiones, errores y evidencia."
-  }
+  },
   {
     "id": "phase6-anti-regression",
     "file": "tests/phase6-anti-regression.test.js",
@@ -2295,8 +2295,10 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Provoca y certifica fallos de dispositivo, delivery, contratos, jobs, leases, timeout, verificación, estado stale, provider, executor y saturación.",
     "capabilities": "Comprueba DETECTAR → LOCALIZAR → EXPLICAR → RECUPERAR/BLOQUEAR → EVIDENCIA sin repetir ciegamente una estrategia fallida."
-  },
-];\n\nexport type TestCatalogStats = Readonly<{
+  }
+];
+
+export type TestCatalogStats = Readonly<{
   total: number;
   npmTest: number;
   catalogOnly: number;
