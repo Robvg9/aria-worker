@@ -58,7 +58,8 @@ async function run() {
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) } });
   const appSource = fs.readFileSync(path.resolve(process.cwd(), '../../pwa/src/App.tsx'), 'utf8');
   const anon = (appSource.match(/const ANON = ['"]([^'"]+)['"]/i) || [])[1];
-  const authSession = await obtainSupabaseSession(context, base.replace(/#.*$/, ''), anon);
+  const authOrigin = new URL(base).origin + '/';
+  const authSession = await obtainSupabaseSession(context, authOrigin, anon);
   await context.addInitScript(({ session }) => {
     localStorage.setItem('aria_session_v2', JSON.stringify(session));
   }, { session: authSession });
