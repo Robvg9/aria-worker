@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.3';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.4';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -120,13 +120,23 @@ async function run() {
   const pageErrors = [];
   const failedResponses = [];
   const consoleErrors = [];
+  let conversation5xxError = null;
+  let conversation5xxReject;
+  const conversation5xxPromise = new Promise((_, reject) => { conversation5xxReject = reject; });
 
   page.on('pageerror', (error) => pageErrors.push({ message: String(error?.message || error).slice(0, 1000) }));
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push({ text: message.text().slice(0, 1000) });
   });
   page.on('response', (response) => {
-    if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url().slice(0, 1000) });
+    if (response.status() >= 500) {
+      const failure = { status: response.status(), method: response.request().method(), url: response.url().slice(0, 1000) };
+      failedResponses.push(failure);
+      if (failure.url.includes('/api/conversation')) {
+        conversation5xxError = failure;
+        conversation5xxReject(new Error('chat_conversation_http_5xx'));
+      }
+    }
   });
 
   const startedAt = new Date().toISOString();
@@ -177,11 +187,14 @@ async function run() {
     await sendButton.click();
 
     await page.locator('.chatScreen .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
-    await page.waitForFunction(
-      ({ before }) => document.querySelectorAll('.chatScreen .bubble.aria').length > before,
-      { before: beforeAssistant },
-      { timeout: TIMEOUT_MS }
-    );
+    await Promise.race([
+      page.waitForFunction(
+        ({ before }) => document.querySelectorAll('.chatScreen .bubble.aria').length > before,
+        { before: beforeAssistant },
+        { timeout: TIMEOUT_MS }
+      ),
+      conversation5xxPromise
+    ]);
 
     const assistant = page.locator('.chatScreen .bubble.aria').last();
     responseText = (await assistant.innerText()).trim();
