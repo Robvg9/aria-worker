@@ -168,9 +168,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const redraw = () => {
     const c=canvasRef.current; if(!c)return; const d=window.devicePixelRatio||1; const ctx=c.getContext('2d'); if(!ctx)return;
     ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,1100,650);
-    if(livePreviewUrl){
-      ctx.clearRect(0,0,1100,650);
-    } else if(backgroundImage.current?.complete&&backgroundImage.current.naturalWidth){
+    if(backgroundImage.current?.complete&&backgroundImage.current.naturalWidth){
       const img=backgroundImage.current;const scale=Math.min(1100/img.naturalWidth,650/img.naturalHeight);const w=img.naturalWidth*scale,h=img.naturalHeight*scale;
       ctx.fillStyle='#0e0b17';ctx.fillRect(0,0,1100,650);ctx.drawImage(img,(1100-w)/2,(650-h)/2,w,h);
     } else {
@@ -233,7 +231,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       const signed=up?.signedUrl??up?.upload?.signed_url;const path=up?.path??up?.upload?.path;
       if(!signed||!path)throw new Error('ARIA no confirmó la ubicación del diseño.');
       const put=await fetch(signed,{method:'PUT',headers:{'content-type':'image/png'},body:blob});if(!put.ok)throw new Error('No se pudo guardar el diseño.');
-      const visualContext={project_preview:true,preview_paused:true,preview_url:livePreviewUrl,instruction:instruction.trim(),annotation_summary:'Proyecto='+project.name+'. Vista previa LIVE pausada. Lienzo 1100x650. Anotaciones: '+annotationSummary+'.',image_path:path,mime_type:'image/png'};
+      const visualContext={project_preview:true,preview_paused:true,preview_url:livePreviewUrl,instruction:instruction.trim(),annotation_summary:'Proyecto='+project.name+'. Vista previa LIVE pausada. Lienzo 1100x650. Anotaciones: '+annotationSummary+'.',annotations:actions.slice(0,128).map(a=>({tool:a.tool,color:a.color,size:a.size,points:a.points.slice(0,512).map(pt=>({x:Math.round(pt.x*100)/100,y:Math.round(pt.y*100)/100})),text:a.text??null})),image_path:path,mime_type:'image/png'};
       const text='TRABAJO VISUAL DE PROYECTO. Proyecto: '+project.name+'. PWA LIVE: '+(livePreviewUrl||'no configurada')+'. El usuario pausó la vista previa real y realizó estas anotaciones: '+annotationSummary+'. INSTRUCCIÓN DEL USUARIO: '+(instruction.trim()||'Interpreta las anotaciones como instrucciones exactas y pregunta solo si algo es realmente ambiguo.')+'\\n\\nVISUAL_CONTEXT:\\n'+visualContext.annotation_summary;
       const activeConversationId=conversationId||crypto.randomUUID();
       if(createMission){await onMission({goal:text,visual_context:visualContext});setNotice('Misión confirmada por ARIA con el diseño y las anotaciones.')}
