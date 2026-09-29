@@ -35,7 +35,20 @@ async function login(page) {
     if (await submit.count()) await submit.click();
     else await password.press('Enter');
     try {
-      await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
+      await page.waitForFunction(() => {
+        const passwordVisible = !![...document.querySelectorAll('input[type="password"]')].find((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+        const authErrorVisible = /servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i.test(
+          [...document.querySelectorAll('*')].map((el) => String(el.textContent || '')).join(' ').slice(-20000)
+        );
+        return !passwordVisible || authErrorVisible;
+      }, null, { timeout: 60000 });
+
+      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
+      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
+      if (passwordStillVisible && visibleError) throw new Error('authenticated_login_visible_error');
       attempts.push({ attempt, status: 'authenticated' });
       return { mode: 'password', status: 'authenticated', attempts };
     } catch (error) {
