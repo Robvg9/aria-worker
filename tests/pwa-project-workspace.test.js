@@ -130,3 +130,9 @@ assert.ok(project.includes("drawingActionRef"));
 assert.ok(project.includes("drawingPointsRef"));
 assert.ok(project.includes("const points=['pen','marker','eraser'].includes(tool)?[...drawingPointsRef.current]:[startPoint.current||p,p]"));
 assert.ok(project.includes("drawingActionRef.current=a.length"));
+
+const projectE2E = fs.readFileSync(path.join(root, 'rwht/pc-browser/rwht-projects-e2e.mjs'), 'utf8');
+assert.match(projectE2E,/internalHosts = new Set/);
+assert.match(projectE2E,/artia_canvas_not_ready/);
+assert.match(projectE2E,/Anotaciones:\\s*\[1-9\]\\d\*/);
+assert.match(projectE2E,/setTimeout\(resolve, 250\)/);
