@@ -1,3 +1,12 @@
+const fs=require('node:fs');
+const path=require('node:path');
+const assert=require('node:assert/strict');
+const workflow=fs.readFileSync(path.join(__dirname,'..','.github','workflows','pc-rwht-authenticated.yml'),'utf8');
+const runner=fs.readFileSync(path.join(__dirname,'..','rwht','pc-browser','rwht-pc-browser.mjs'),'utf8');
+assert(workflow.includes("RWHT_ROUTES: '#home'"));
+assert(workflow.includes('RWHT_RELOAD_AUTH: true'));
+assert(runner.includes("envBool('RWHT_RELOAD_AUTH', false)"));
+assert(runner.includes('page.reload({ waitUntil: \'domcontentloaded\''));
 'use strict';
 
 const assert = require('node:assert/strict');
@@ -79,3 +88,4 @@ assert.match(authenticatedWorkflow, /RWHT_STORAGE_STATE_B64:/);
 assert.match(authenticatedWorkflow, /Require an authenticated session source/);
 assert.match(authenticatedWorkflow, /Configure RWHT_EMAIL \+ RWHT_PASSWORD or RWHT_STORAGE_STATE_B64/);
 assert.match(authenticatedWorkflow, /Execute authenticated PC PWA RWHT/);
+
