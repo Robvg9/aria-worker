@@ -14,6 +14,8 @@ const DIRECT_ARIA = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-
 const CRON_AUTH_URL = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const SUPABASE_AUTH = "https://icuqsstxfdbvjytkhlog.supabase.co";
 const SUPABASE_APP_API = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3";
+const APP_API_GET_TIMEOUT_MS = 10000;
+const APP_API_POST_TIMEOUT_MS = 75000;
 const PWA_BUILD = "__PWA_BUILD__";
 const PWA_RELEASE = "2026.09.24-pwa-v10";
 const RESOURCE = PUBLIC_RESOURCE;
@@ -38,7 +40,8 @@ async function proxyAppApi(request,url){
   const headers=new Headers(request.headers);
   headers.delete("host");
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),request.method==="GET"?10000:30000);
+  const timeoutMs=request.method==="GET"?APP_API_GET_TIMEOUT_MS:APP_API_POST_TIMEOUT_MS;
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
   try{
     const upstream=await fetch(new Request(upstreamUrl,{method:request.method,headers,body:request.method==="GET"||request.method==="HEAD"?undefined:request.body,redirect:"manual",signal:controller.signal}));
     const outHeaders=new Headers(upstream.headers);
@@ -47,7 +50,7 @@ async function proxyAppApi(request,url){
     return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:outHeaders});
   }catch(error){
     const timedOut=error?.name==="AbortError";
-    return json({error:"app_api_unreachable",error_description:timedOut?"ARIA tardó demasiado en responder.": "No se pudo conectar con ARIA.",stage:"network"},504);
+    return json({error:"app_api_unreachable",error_description:timedOut?"ARIA tardó demasiado en responder.": "No se pudo conectar con ARIA.",stage:"network",method:request.method,timeout_ms:timeoutMs},504);
   }finally{clearTimeout(timer);}
 }
 async function proxyPasswordSignIn(request, url){
