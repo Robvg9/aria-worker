@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-projects-rwht-authenticated
+  group: aria-projects-rwht-authenticated-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
