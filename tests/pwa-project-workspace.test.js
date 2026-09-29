@@ -106,3 +106,9 @@ const projectIndexMigration = fs.readFileSync(
 );
 assert.ok(projectIndexMigration.includes('mission_state_project_updated_idx'));
 assert.ok(projectIndexMigration.includes("(metadata ->> 'project_id')"));
+
+assert.ok(project.includes("if(tab==='missions'||tab==='overview')void loadMissions();"));
+assert.ok(project.includes("if(tab==='chat'||tab==='visual')void loadProjectChat();"));
+assert.ok(project.includes("setInterval(refresh,15000)"));
+assert.ok(!project.includes("void loadMissions();void loadProjectChat()"));
+assert.ok(!project.includes("setInterval(refresh,5000)"));
