@@ -151,8 +151,6 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const startPoint = useRef<Point|null>(null);
   const drawingActionRef = useRef<number|null>(null);
   const drawingPointsRef = useRef<Point[]>([]);
-  const drawingActionRef = useRef<number|null>(null);
-  const drawingPointsRef = useRef<Point[]>([]);
 
   const drawOne = (ctx:CanvasRenderingContext2D,a:DrawAction) => {
     if (!a.points.length) return;
