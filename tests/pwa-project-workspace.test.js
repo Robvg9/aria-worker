@@ -125,3 +125,8 @@ const missionEventsIndexMigration = fs.readFileSync(
 );
 assert.ok(missionEventsIndexMigration.includes('mission_events_type_created_idx'));
 assert.ok(missionEventsIndexMigration.includes('(event_type, created_at desc)'));
+
+assert.ok(project.includes("drawingActionRef"));
+assert.ok(project.includes("drawingPointsRef"));
+assert.ok(project.includes("const points=['pen','marker','eraser'].includes(tool)?[...drawingPointsRef.current]:[startPoint.current||p,p]"));
+assert.ok(project.includes("drawingActionRef.current=a.length"));
