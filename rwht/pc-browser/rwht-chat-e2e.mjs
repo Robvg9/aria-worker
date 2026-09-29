@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.2';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.3';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -189,6 +189,23 @@ async function run() {
     if (/error comunicando|no se pudo|fall[oó] al|conversation_/i.test(responseText)) throw new Error('chat_assistant_response_is_error');
     if (await page.locator('.chatScreen .errorBox').count()) throw new Error('chat_error_box_visible');
 
+    await page.waitForFunction(
+      ({ markerValue }) => {
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i) || '';
+          if (!key.startsWith('aria-chat-history-v1:')) continue;
+          try {
+            const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+            if (parsed?.messages?.some((m) => typeof m?.text === 'string' && m.text.includes(markerValue))) {
+              return true;
+            }
+          } catch {}
+        }
+        return false;
+      },
+      { markerValue: marker },
+      { timeout: 30000 }
+    );
     const stored = await page.evaluate(({ markerValue }) => {
       const matches = [];
       for (let i = 0; i < localStorage.length; i += 1) {
