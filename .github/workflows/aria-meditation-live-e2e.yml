@@ -90,3 +90,5 @@ jobs:
           $ErrorActionPreference='Stop'
           Invoke-RestMethod http://127.0.0.1:45873/status -TimeoutSec 5 | ConvertTo-Json -Depth 10
           Write-Host 'ARIA_MEDITATION_LIVE_E2E=PASS'
+
+# 2026-09-29: canonical live physical gate trigger
