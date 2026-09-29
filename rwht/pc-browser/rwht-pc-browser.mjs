@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.2.0';
+const VERSION = 'aria-pc-browser-rwht-v1.3.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -225,36 +225,46 @@ async function loginIfConfigured(page, config) {
   const password = process.env.RWHT_PASSWORD;
   if (!email || !password) return { attempted: false, status: 'not_configured' };
 
-  const emailSelectors = ['input[type="email"]', 'input[name="email"]', 'input[autocomplete="username"]'];
-  const passwordSelectors = ['input[type="password"]', 'input[name="password"]', 'input[autocomplete="current-password"]'];
+  const maxAttempts = Math.max(1, Math.min(3, envInt('RWHT_AUTH_ATTEMPTS', 3)));
+  const attempts = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const emailLocator = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+    const passwordLocator = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+    await emailLocator.waitFor({ state: 'visible', timeout: config.navigation_timeout_ms });
+    await passwordLocator.waitFor({ state: 'visible', timeout: config.navigation_timeout_ms });
+    await emailLocator.fill(email);
+    await passwordLocator.fill(password);
+    const submit = page.locator('button[type="submit"],input[type="submit"],button')
+      .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
+    if (await submit.count()) await submit.click();
+    else await passwordLocator.press('Enter');
 
-  let emailLocator = null;
-  for (const selector of emailSelectors) {
-    const locator = page.locator(selector).first();
-    if (await locator.count()) { emailLocator = locator; break; }
+    try {
+      await page.waitForFunction(() => {
+        const passwordVisible = [...document.querySelectorAll('input[type="password"]')].some((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+        const authErrorVisible = /servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i.test(
+          [...document.querySelectorAll('*')].map((el) => String(el.textContent || '')).join(' ').slice(-20000)
+        );
+        return !passwordVisible || authErrorVisible;
+      }, null, { timeout: 60000 });
+
+      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
+      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
+      if (passwordStillVisible && visibleError) throw new Error('authenticated_login_visible_error');
+      attempts.push({ attempt, status: 'authenticated' });
+      return { attempted: true, status: 'authenticated', attempts };
+    } catch (error) {
+      attempts.push({ attempt, status: 'failed', error: String(error?.message || error).slice(0, 300) });
+      if (attempt < maxAttempts) {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+      }
+    }
   }
-
-  let passwordLocator = null;
-  for (const selector of passwordSelectors) {
-    const locator = page.locator(selector).first();
-    if (await locator.count()) { passwordLocator = locator; break; }
-  }
-
-  if (!emailLocator || !passwordLocator) return { attempted: true, status: 'login_form_not_found' };
-
-  await emailLocator.fill(email);
-  await passwordLocator.fill(password);
-
-  const submit = page
-    .locator('button[type="submit"],input[type="submit"],button')
-    .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i })
-    .first();
-
-  if (await submit.count()) await submit.click();
-  else await passwordLocator.press('Enter');
-
-  await page.waitForTimeout(config.login_wait_ms);
-  return { attempted: true, status: 'submitted', url_after: page.url() };
+  return { attempted: true, status: 'failed', attempts, error: 'authenticated_login_failed' };
 }
 
 async function closeDialogs(page) {
@@ -464,12 +474,24 @@ async function auditRoute(page, url, routeIndex, config) {
 
     const controlsNow = await discoverInteractive(page);
     const original = initialControls[index];
-    const target = controlsNow[index] || controlsNow.find((control) =>
+    const preblocked = SAFE_BLOCKED.test(safeLabel(original.name))
+      || (!config.allow_mutations && SAFE_MUTATION.test(safeLabel(original.name)))
+      || (SECRET.test(safeLabel(original.name)) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    const target = controlsNow.find((control) =>
       control.role === original.role &&
       control.name === original.name &&
       control.href === original.href &&
       control.tag === original.tag
-    );
+    ) || controlsNow[index];
 
     if (!target) {
       routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
