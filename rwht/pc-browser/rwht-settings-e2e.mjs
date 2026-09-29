@@ -20,6 +20,8 @@ if (!email || !password) {
   throw new Error('Authenticated settings RWHT requires RWHT_EMAIL + RWHT_PASSWORD for the logout/re-login gate.');
 }
 
+const responseDiagnostics = [];
+
 const evidence = {
   version: 'aria-settings-rwht-e2e-v1.0.0',
   url,
@@ -56,8 +58,12 @@ async function login(page) {
           const r = el.getBoundingClientRect();
           return r.width > 0 && r.height > 0;
         });
-        return !!document.querySelector('.dashboardScreen,.projectShell') || !pwd;
-      }, null, { timeout: 60000 });
+        return !!document.querySelector('.dashboardScreen,.projectShell') || !!document.querySelector('.errorBox') || !pwd;
+      }, null, { timeout: 30000 });
+      const authError = await page.locator('.errorBox').innerText().catch(() => '');
+      if (authError) {
+        throw new Error('settings_auth_ui_error:' + authError.slice(0, 300) + ':' + JSON.stringify(responseDiagnostics.slice(-6)));
+      }
       return;
     } catch (error) {
       if (attempt === 3) {
@@ -97,7 +103,6 @@ function panel(page, text) {
   const page = await context.newPage();
 
   const runtimeErrors = [];
-  const responseDiagnostics = [];
   page.on('pageerror', e => runtimeErrors.push('pageerror: ' + e.message));
   page.on('console', msg => {
     if (msg.type() === 'error') runtimeErrors.push('console: ' + msg.text());
