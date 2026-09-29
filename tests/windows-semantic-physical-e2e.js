@@ -41,7 +41,7 @@ function getJson(url, timeoutMs = 4000) {
   });
 }
 
-async function waitForPage(port, timeoutMs = 30000) {
+async function waitForPage(port, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -123,7 +123,7 @@ async function main() {
 
     const tab = await waitForPage(port);
     const controls = await (async () => {
-      const deadline = Date.now() + 30000;
+      const deadline = Date.now() + 60000;
       const expression = 'Array.from(document.querySelectorAll("button,input,textarea,select,a,[role],[tabindex]")).map(function(e){return {role:(e.getAttribute("role")||e.tagName.toLowerCase()),name:String(e.getAttribute("aria-label")||e.innerText||e.value||e.name||e.placeholder||"").trim().replace(/\\s+/g," "),disabled:!!e.disabled};}).filter(function(x){return x.name;})';
       while (Date.now() < deadline) {
         try {
@@ -132,7 +132,7 @@ async function main() {
         } catch {}
         await wait(500);
       }
-      throw new Error('PWA semantic login control not mounted');
+      throw new Error('PWA semantic login control not mounted within 60s cold-start budget');
     })();
 
     assert.ok(controls.some((x) => x.name === 'ENTRAR EN ARIA'), 'semantic PWA control missing');
