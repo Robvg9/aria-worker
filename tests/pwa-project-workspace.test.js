@@ -118,3 +118,10 @@ assert.ok(project.includes("setConversationId(null);setProjectChatReady(false);s
 assert.ok(project.includes("projectChatReady"), 'project chat readiness state must exist');
 assert.ok(project.includes("disabled={sending||!text.trim()||!projectChatReady}"), 'project chat send must wait for ready conversation');
 assert.ok(project.includes("Cargando conversación"), 'project chat must expose loading state');
+
+const missionEventsIndexMigration = fs.readFileSync(
+  path.join(__dirname, '..', 'supabase', 'migrations', '20260929130000_mission_events_hotpath_index_v1.sql'),
+  'utf8',
+);
+assert.ok(missionEventsIndexMigration.includes('mission_events_type_created_idx'));
+assert.ok(missionEventsIndexMigration.includes('(event_type, created_at desc)'));
