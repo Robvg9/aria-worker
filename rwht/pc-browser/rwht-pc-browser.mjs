@@ -235,8 +235,13 @@ async function loginIfConfigured(page, config) {
   if (await submit.count()) await submit.click();
   else await passwordLocator.press('Enter');
 
-  await page.waitForTimeout(config.login_wait_ms);
-  return { attempted: true, status: 'submitted', url_after: page.url() };
+  const deadline = Date.now() + config.login_wait_ms;
+  let authState = await verifyAuthState(page, config);
+  while (!authState.verified && Date.now() < deadline) {
+    await page.waitForTimeout(500);
+    authState = await verifyAuthState(page, config);
+  }
+  return { attempted: true, status: authState.verified ? 'authenticated' : 'submitted_not_authenticated', url_after: page.url(), auth: authState };
 }
 
 async function closeDialogs(page) {
