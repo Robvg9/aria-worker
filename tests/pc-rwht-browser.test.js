@@ -93,3 +93,22 @@ assert.match(runner, /activeSurfaceSelector/);
 assert.match(runner, /\.chatScreen/);
 assert.match(runner, /not\\(\\[type="file"\\]\\)/);
 assert.match(runner, /'hidden', 'password', 'file'/);
+
+
+const chatE2E = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-chat-e2e.mjs'), 'utf8');
+assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.0\.0/);
+assert.match(chatE2E, /Habla con ARIA/);
+assert.match(chatE2E, /aria_session_v2/);
+assert.match(chatE2E, /chat_server_persistence_missing/);
+assert.match(chatE2E, /chat_reload_persistence_missing/);
+assert.match(chatE2E, /chat_ux_contract_failed/);
+const chatWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'chat-rwht-authenticated.yml'), 'utf8');
+assert.match(chatWorkflow, /ARIA Chat Browser RWHT Authenticated/);
+assert.match(chatWorkflow, /RWHT_EMAIL/);
+assert.match(chatWorkflow, /RWHT_PASSWORD/);
+assert.match(chatWorkflow, /RWHT_STORAGE_STATE_B64/);
+assert.match(chatWorkflow, /Execute authenticated Chat E2E/);
+const appSource = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'App.tsx'), 'utf8');
+assert.match(appSource, /chatWindowRef/);
+assert.match(appSource, /data-testid='chat-window'/);
+assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
