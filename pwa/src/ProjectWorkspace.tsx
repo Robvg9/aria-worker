@@ -287,6 +287,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
 }
 
 // Projects certification baseline: the project workspace is validated against the exact deployed PWA SHA.
+// Projects certification trigger: final RWHT must execute against the exact main PWA build.
 
 export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>void}) {
   const PROJECT_KEY='aria_project_selection_v2:'+session.userId;
