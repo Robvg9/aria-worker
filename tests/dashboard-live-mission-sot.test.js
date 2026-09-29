@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const app=fs.readFileSync(path.join(__dirname,'..','pwa/src/App.tsx'),'utf8');
+assert.match(app,/function activeMissionRank\(/);
+assert.match(app,/function selectLiveMission\(/);
+assert.match(app,/const active = selectLiveMission\(missionsResult\)/);
+assert.match(app,/setMission\(active \?\? null\)/);
+assert.doesNotMatch(app,/const active = missionsResult\?\.active_mission;\s*setMission\(active \?\? null\)/);
+assert.match(app,/EJECUCIÓN ACTUAL/);
+assert.match(app,/Dashboard/);
+console.log('DASHBOARD LIVE MISSION SSoT CONTRACT: PASS');
