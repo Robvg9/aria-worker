@@ -42,18 +42,6 @@ async function obtainSupabaseSession() {
   };
 }
 
-async function readPersistedSession(page) {
-  return page.evaluate(() => {
-    try {
-      const raw = localStorage.getItem('aria_session_v2');
-      const s = raw ? JSON.parse(raw) : null;
-      return s && typeof s.accessToken === 'string'
-        ? { userId: String(s.userId || ''), accessToken: s.accessToken }
-        : null;
-    } catch { return null; }
-  }).catch(() => null);
-}
-
 async function expectApi(page, apiPath, token) {
   return page.evaluate(async ({ apiPath, token }) => {
     const r = await fetch('/api' + apiPath, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' } });
