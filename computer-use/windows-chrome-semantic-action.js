@@ -1,6 +1,6 @@
 'use strict';
 
-const CDP_URL = String(process.env.ARIA_CHROME_CDP_URL || 'http://127.0.0.1:9222').replace(/\/$/, '');
+function getCdpUrl() { return String(process.env.ARIA_CHROME_CDP_URL || 'http://127.0.0.1:9222').replace(/\/$/, ''); }
 const BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log\s*out|sign\s*out|clear\s+all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s+sesión|cerrar\s+sesion|salir|vaciar)/i;
 
 function labelOf(el) {
@@ -56,7 +56,7 @@ function cdpCall(method, params, timeoutMs, pageUrl = null) {
       try { if (ws) ws.close(); } catch {}
       reject(new Error('chrome_cdp_timeout'));
     }, Math.max(1000, timeoutMs || 7000));
-    fetch(CDP_URL + '/json')
+    fetch(getCdpUrl() + '/json')
       .then((r) => { if (!r.ok) throw new Error('chrome_cdp_http_' + r.status); return r.json(); })
       .then((tabs) => {
         const pages = Array.isArray(tabs) ? tabs.filter((x) => x && x.type === 'page' && x.webSocketDebuggerUrl) : [];
