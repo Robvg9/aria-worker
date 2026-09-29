@@ -19,6 +19,7 @@ assert.doesNotMatch(source,/functions deploy aria-mission-runner-v14\\b/);
 assert.doesNotMatch(source,/functions deploy aria-mcp-server-grok-v2\\b/);
 assert.doesNotMatch(source,/functions deploy aria-mcp-oauth-grok-v2\\b/);
 assert.match(source,/canonical execution chain is release-bearing/);
+assert.ok(source.includes('fetch-depth: 0'),'migration detector requires merge parent history');
 assert.ok(source.includes('supabase link --project-ref "$SUPABASE_PROJECT_REF"'));
 assert.match(source,/supabase migration fetch --linked --yes/);
 assert.match(source,/BASE_SHA="\$\(git rev-list --parents -n 1 "\$GITHUB_SHA" \| cut -d' ' -f2\)"/);
