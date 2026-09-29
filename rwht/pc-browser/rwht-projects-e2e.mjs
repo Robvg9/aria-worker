@@ -283,7 +283,8 @@ async function run() {
     await page.locator('.projectTabs .tabButton').filter({ hasText: 'Misiones' }).click();
     await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
 
-    const missionWait = await waitForProjectMission(page, session.accessToken, battle.id, 'TRABAJO VISUAL DE PROYECTO', 60000);
+    await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 }).catch(() => {});
+    const missionWait = await waitForProjectMission(page, session.accessToken, battle.id, missionGoalMarker, 60000);
     if (!missionWait.mission) throw new Error('visual_mission_not_persisted');
     if (missionWait.result.status !== 200 || missionWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue');
     const metadata = missionWait.metadata || {};
