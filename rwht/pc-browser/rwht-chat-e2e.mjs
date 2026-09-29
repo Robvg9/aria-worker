@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.1';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.2';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -222,8 +222,26 @@ async function run() {
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.chatScreen .chatWindow', { state: 'visible', timeout: 60000 });
-    await page.locator('.chatScreen .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
-    reloadPersistence = await page.locator('.chatScreen .bubble.aria').filter({ hasText: responseText }).count();
+    await page.waitForFunction(
+      ({ markerValue, expectedResponse }) => {
+        const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+        const userVisible = [...document.querySelectorAll('.chatScreen .bubble.user')]
+          .some((node) => normalize(node.textContent).includes(normalize(markerValue)));
+        const assistantVisible = [...document.querySelectorAll('.chatScreen .bubble.aria')]
+          .some((node) => normalize(node.textContent).includes(normalize(expectedResponse)));
+        return userVisible && assistantVisible;
+      },
+      { markerValue: marker, expectedResponse: responseText },
+      { timeout: 60000 }
+    );
+    reloadPersistence = await page.locator('.chatScreen .bubble.aria').evaluateAll(
+      (nodes, expectedResponse) => {
+        const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+        const expected = normalize(expectedResponse);
+        return nodes.filter((node) => normalize(node.textContent).includes(expected)).length;
+      },
+      responseText
+    );
     if (!reloadPersistence) throw new Error('chat_reload_persistence_missing');
 
     if (consoleErrors.length) throw new Error('chat_console_errors_' + consoleErrors.length);
