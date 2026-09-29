@@ -106,3 +106,9 @@ const projectIndexMigration = fs.readFileSync(
 );
 assert.ok(projectIndexMigration.includes('mission_state_project_updated_idx'));
 assert.ok(projectIndexMigration.includes("(metadata ->> 'project_id')"));
+
+assert.ok(project.includes("setMessages([])"));
+assert.ok(project.includes("setConversationId(null)"));
+assert.ok(project.includes("setTab(saved ? saved as any : 'overview')"));
+assert.ok(project.includes("if(tab==='overview'||tab==='missions')"));
+assert.ok(project.includes("else if(tab==='chat'||tab==='visual')"));

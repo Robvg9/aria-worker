@@ -296,9 +296,34 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return()=>window.clearInterval(timer);
   },[sending]);
 
-  useEffect(()=>{setSelectedMission(null);setError('');try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}void loadMissions();void loadProjectChat()},[project.id]);
+  useEffect(()=>{
+    setSelectedMission(null);
+    setError('');
+    setMessages([]);
+    setConversationId(null);
+    try {
+      const saved=localStorage.getItem(TAB_KEY(project.id));
+      setTab(saved ? saved as any : 'overview');
+    } catch {
+      setTab('overview');
+    }
+  },[project.id,session.userId]);
 
-  useEffect(()=>{const refresh=()=>{if(tab==='missions'||tab==='overview')void loadMissions()};void refresh();const timer=window.setInterval(refresh,5000);return()=>window.clearInterval(timer)},[project.id,tab,session.accessToken]);
+  useEffect(()=>{
+    if(tab==='overview'||tab==='missions') {
+      void loadMissions();
+    } else if(tab==='chat'||tab==='visual') {
+      void loadProjectChat();
+    }
+  },[project.id,tab,session.accessToken]);
+
+  useEffect(()=>{
+    const refresh=()=>{if(tab==='missions'||tab==='overview')void loadMissions()};
+    if(tab!=='missions'&&tab!=='overview')return;
+    refresh();
+    const timer=window.setInterval(refresh,5000);
+    return()=>window.clearInterval(timer);
+  },[project.id,tab,session.accessToken]);
 
   useEffect(()=>{
     if(!selectedMission)return;
