@@ -161,7 +161,15 @@ function validateDeviceJobOperation(operation, command) {
     if (!isPlainObject(payload)) return { ok: false, error: 'computer.use payload must be an object' };
     if (typeof payload.action !== 'string' || !COMPUTER_USE_ACTIONS.has(payload.action)) return { ok: false, error: 'computer.use action unsupported' };
 
-    if (['click','double_click','move'].includes(payload.action) && (!validInteger(payload.x) || !validInteger(payload.y))) {
+    if (['click','double_click'].includes(payload.action) && !validInteger(payload.x) && !isPlainObject(payload.target)) {
+      return { ok: false, error: 'computer.use pointer or semantic target invalid' };
+    }
+    if (['click','double_click'].includes(payload.action) && isPlainObject(payload.target)) {
+      const semantic = payload.target.query && isPlainObject(payload.target.query) ? payload.target.query : payload.target;
+      const semanticKeys = ['role','name','text','label','attribute'];
+      if (!semanticKeys.some(key => semantic[key] !== undefined)) return { ok: false, error: 'computer.use semantic target invalid' };
+    }
+    if (payload.action === 'move' && (!validInteger(payload.x) || !validInteger(payload.y))) {
       return { ok: false, error: 'computer.use pointer coordinates invalid' };
     }
     if (payload.action === 'drag' && !['x1','y1','x2','y2'].every(key => validInteger(payload[key]))) {
