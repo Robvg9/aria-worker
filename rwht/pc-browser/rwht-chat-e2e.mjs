@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.4';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.5';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -252,25 +252,26 @@ async function run() {
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.chatScreen .chatWindow', { state: 'visible', timeout: 60000 });
+    const semanticResponseText = responseText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     await page.waitForFunction(
       ({ markerValue, expectedResponse }) => {
-        const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+        const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
         const userVisible = [...document.querySelectorAll('.chatScreen .bubble.user')]
           .some((node) => normalize(node.textContent).includes(normalize(markerValue)));
         const assistantVisible = [...document.querySelectorAll('.chatScreen .bubble.aria')]
           .some((node) => normalize(node.textContent).includes(normalize(expectedResponse)));
         return userVisible && assistantVisible;
       },
-      { markerValue: marker, expectedResponse: responseText },
+      { markerValue: marker, expectedResponse: semanticResponseText },
       { timeout: 60000 }
     );
     reloadPersistence = await page.locator('.chatScreen .bubble.aria').evaluateAll(
       (nodes, expectedResponse) => {
-        const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+        const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
         const expected = normalize(expectedResponse);
         return nodes.filter((node) => normalize(node.textContent).includes(expected)).length;
       },
-      responseText
+      semanticResponseText
     );
     if (!reloadPersistence) throw new Error('chat_reload_persistence_missing');
 
