@@ -1,0 +1,63 @@
+name: ARIA Settings Browser RWHT Authenticated
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pwa/src/App.tsx'
+      - 'pwa/src/index.css'
+      - 'rwht/pc-browser/rwht-settings-e2e.mjs'
+      - 'tests/pwa-global-navigation-settings-v1.test.js'
+      - '.github/workflows/settings-rwht-authenticated.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: aria-settings-rwht-authenticated
+  cancel-in-progress: false
+
+jobs:
+  settings-rwht:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Require authenticated settings source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${RWHT_EMAIL}" && -n "${RWHT_PASSWORD}" ]]; then exit 0; fi
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-settings-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-settings-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-settings-auth-state.json" >> "${GITHUB_ENV}"
+            exit 0
+          fi
+          echo "::error title=Settings RWHT blocked::Configure RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE_B64."
+          exit 1
+      - name: Install PC RWHT dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install chromium
+      - name: Execute authenticated Settings E2E
+        working-directory: rwht/pc-browser
+        run: node rwht-settings-e2e.mjs
+      - name: Upload Settings evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-settings-rwht-evidence
+          path: rwht/pc-browser/rwht-artifacts
+          if-no-files-found: warn
+      - name: Remove temporary auth state
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/aria-settings-auth-state.json"
