@@ -32,7 +32,7 @@ public static class AriaDesktopNative {
     [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
     [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
@@ -257,7 +257,7 @@ public static class AriaDesktopNative {
         'scroll' {
             $delta=[int]$payload.delta
             if ($delta -eq 0) { Emit-Result @{status='failed';action=$action;error='desktop_scroll_delta_required'} 1 }
-            [AriaDesktopNative]::mouse_event([AriaDesktopNative]::WHEEL,0,0,[uint32]$delta,[UIntPtr]::Zero)
+            [AriaDesktopNative]::mouse_event([AriaDesktopNative]::WHEEL,0,0,$delta,[UIntPtr]::Zero)
             Emit-Result @{status='succeeded';action=$action;delta=$delta}
         }
         'wait' {

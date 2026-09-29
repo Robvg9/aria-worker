@@ -63,5 +63,8 @@ assert.match(runnerSrc, /double_click/);
 assert.match(runnerSrc, /Send-Vk/);
 assert.match(runnerSrc, /'hotkey'/);
 assert.match(runnerSrc, /'drag'/);
+assert.match(runnerSrc, /mouse_event\(uint flags, uint dx, uint dy, int data/);
+assert.doesNotMatch(runnerSrc, /mouse_event\([^\n]+\[uint32\]\$delta/);
+assert.match(runnerSrc, /mouse_event\(\[AriaDesktopNative\]::WHEEL,0,0,\$delta/);
 
 console.log('WINDOWS COMPUTER USE CONTRACT: PASS');
