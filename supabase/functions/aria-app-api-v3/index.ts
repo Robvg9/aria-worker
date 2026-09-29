@@ -1,3 +1,4 @@
+// Runtime refresh checkpoint: redeploy unchanged canonical APP API v3 after transient Edge Function boot errors observed 2026-09-29.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { classifyConversation } from "../_shared/fast-lane.ts";
