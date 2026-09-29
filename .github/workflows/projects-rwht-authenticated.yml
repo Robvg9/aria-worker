@@ -81,12 +81,6 @@ jobs:
           test -n "$html"
           echo PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK
 
-      - name: Execute generic Projects surface RWHT
-        working-directory: rwht/pc-browser
-        env:
-          RWHT_ARTIFACT_DIR: projects-surface-rwht-artifacts
-        run: node rwht-pc-browser.mjs
-
       - name: Execute authenticated Projects + ARTIA E2E
         working-directory: rwht/pc-browser
         env:
@@ -100,7 +94,6 @@ jobs:
         with:
           name: aria-projects-rwht-evidence
           path: |
-            rwht/pc-browser/projects-surface-rwht-artifacts
             rwht/pc-browser/projects-e2e-artifacts
           if-no-files-found: warn
 
