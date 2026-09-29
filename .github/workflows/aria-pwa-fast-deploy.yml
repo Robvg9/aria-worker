@@ -59,10 +59,6 @@ jobs:
         run: |
           sed -i "s/__PWA_BUILD__/$GITHUB_SHA/g" worker.js
           wrangler deploy worker.js --name aria
-      - name: Sync Cloudflare runtime secret
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: printf '%s' "$CLOUDFLARE_API_TOKEN" | wrangler secret put CLOUDFLARE_API_TOKEN --name aria
       - name: Smoke test PWA version and assets
         run: |
           set -euo pipefail
