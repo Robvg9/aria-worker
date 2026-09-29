@@ -6,6 +6,7 @@ const { execFileSync } = require('node:child_process');
 const NON_RELEASE_PATTERNS = [
   /^tests\//,
   /^\.github\/workflows\//,
+  /^scripts\/release-bearing\.js$/,
   /^docs\//,
   /^reports\//,
   /^test-results\//,
