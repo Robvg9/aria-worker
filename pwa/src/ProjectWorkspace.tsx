@@ -296,7 +296,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return()=>window.clearInterval(timer);
   },[sending]);
 
-  useEffect(()=>{setSelectedMission(null);setError('');try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}},[project.id]);
+  useEffect(()=>{setSelectedMission(null);setError('');setConversationId(null);setMessages([]);setMissions([]);try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}},[project.id]);
 
   useEffect(()=>{
     if(tab==='missions'||tab==='overview')void loadMissions();
