@@ -4,6 +4,7 @@
 // Do not remove this marker without preserving an equivalent trigger path.
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const { executeChromeSemanticAction } = require('./windows-chrome-semantic-action');
 
 const VERSION = 'aria-windows-desktop-v1.9';
 const MAX_TEXT = 32 * 1024;
@@ -15,7 +16,42 @@ const ACTIONS = new Set([
 ]);
 const RUNNER = path.join(__dirname, 'windows-desktop-runner.ps1');
 const UIA_SCRIPT = path.join(__dirname, 'windows-ui-automation.ps1');
+const UIA_ACTION_SCRIPT = path.join(__dirname, 'windows-ui-automation-action.ps1');
 const HOTKEY_SCRIPT = path.join(__dirname, 'windows-hotkey-runner.ps1');
+
+function semanticQueryFromTarget(target) {
+  const value = target && typeof target === 'object' ? target : null;
+  const query = value && value.query && typeof value.query === 'object' ? value.query : value;
+  if (!query || !['role','name','text','label','attribute'].some((key) => query[key] != null)) {
+    throw new Error('desktop_semantic_target_invalid');
+  }
+  return query;
+}
+
+async function executeSemanticClick(payload, timeoutMs) {
+  const uia = await spawnPowerShell(
+    ['-NoLogo','-NoProfile','-NonInteractive','-STA','-ExecutionPolicy','Bypass','-File',UIA_ACTION_SCRIPT],
+    payload,
+    timeoutMs
+  );
+  if (uia.status === 'succeeded') {
+    const observed = await spawnPowerShell(
+      ['-NoLogo','-NoProfile','-NonInteractive','-STA','-ExecutionPolicy','Bypass','-File',UIA_SCRIPT],
+      { action: 'observe' },
+      timeoutMs
+    );
+    return { ...uia, ui: observed.status === 'succeeded' ? observed.ui : null, method: 'windows-uia-semantic' };
+  }
+  const cdp = await executeChromeSemanticAction(payload, { timeout_ms: Math.min(15000, Math.max(1000, timeoutMs || 7000)) });
+  if (cdp.status === 'succeeded') return cdp;
+  return {
+    status: 'failed',
+    action: payload.action,
+    version: VERSION,
+    error: 'semantic_executor_failed:' + (uia.error || 'uia_not_found') + ';cdp=' + (cdp.error || 'cdp_not_available'),
+    methods_tried: ['windows-uia-semantic','chrome-cdp-semantic']
+  };
+}
 
 function validateRequest(request = {}) {
   if (!request || typeof request !== 'object') throw new Error('desktop_request_invalid');
@@ -24,7 +60,11 @@ function validateRequest(request = {}) {
   if (action === 'type' && (typeof request.text !== 'string' || request.text.length === 0 || request.text.length > MAX_TEXT)) throw new Error('desktop_type_invalid');
   if (action === 'open' && (typeof request.path !== 'string' || !request.path.trim())) throw new Error('desktop_open_invalid');
   if (action === 'focus' && (typeof request.process !== 'string' || !request.process.trim())) throw new Error('desktop_focus_invalid');
-  if ((action === 'click' || action === 'double_click' || action === 'move') && (!Number.isInteger(request.x) || !Number.isInteger(request.y))) throw new Error('desktop_pointer_invalid');
+  if ((action === 'click' || action === 'double_click') && !(Number.isInteger(request.x) && Number.isInteger(request.y))) {
+    if (request.target == null) throw new Error('desktop_pointer_or_semantic_target_invalid');
+    semanticQueryFromTarget(request.target);
+  }
+  if (action === 'move' && (!Number.isInteger(request.x) || !Number.isInteger(request.y))) throw new Error('desktop_pointer_invalid');
   if (action === 'drag' && (![request.x1, request.y1, request.x2, request.y2].every(Number.isInteger))) throw new Error('desktop_drag_invalid');
   if (action === 'keypress' && (typeof request.key !== 'string' || !request.key.trim())) throw new Error('desktop_keypress_invalid');
   if (action === 'hotkey' && (!Array.isArray(request.keys) || request.keys.length < 2 || request.keys.length > MAX_HOTKEY_KEYS || request.keys.some(key => typeof key !== 'string' || !key.trim()))) throw new Error('desktop_hotkey_invalid');
@@ -108,6 +148,9 @@ function openDirectly(payload) {
 async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
   const payload = validateRequest(request);
   if (payload.action === 'open') return openDirectly(payload);
+  if ((payload.action === 'click' || payload.action === 'double_click') && payload.target && !(Number.isInteger(payload.x) && Number.isInteger(payload.y))) {
+    return executeSemanticClick(payload, timeout_ms);
+  }
   if (payload.action === 'wait') {
     const startedAt = Date.now();
     const budget = Math.max(1000, timeout_ms);
@@ -126,4 +169,4 @@ async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
   return spawnPowerShell(args, payload, timeout_ms);
 }
 
-module.exports = Object.freeze({ VERSION, ACTIONS, RUNNER, UIA_SCRIPT, HOTKEY_SCRIPT, validateRequest, executeWindowsDesktop });
+module.exports = Object.freeze({ VERSION, ACTIONS, RUNNER, UIA_SCRIPT, UIA_ACTION_SCRIPT, HOTKEY_SCRIPT, validateRequest, executeWindowsDesktop, semanticQueryFromTarget });
