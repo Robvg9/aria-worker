@@ -1434,7 +1434,11 @@ function Chat({
       fresh = true;
     }
     if (missionsResult) {
-      const active = missionsResult?.active_mission;
+      // Dashboard and Chat must share the same definition of "live":
+      // only an actively leased RUNNING/WAITING mission belongs in the
+      // realtime surface. Queued/paused/terminal missions stay in history
+      // and must never masquerade as current execution.
+      const active = selectLiveMission(missionsResult);
       setMission(active ?? null);
       writeCached('active_mission', session.userId, active ?? null);
       if (active?.mission_id) {
