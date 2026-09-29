@@ -1,0 +1,96 @@
+name: ARIA Chat Browser RWHT Authenticated
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pwa/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'rwht/pc-browser/rwht-chat-e2e.mjs'
+      - 'tests/pc-rwht-browser.test.js'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+  pull_request:
+    paths:
+      - 'pwa/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'rwht/pc-browser/rwht-chat-e2e.mjs'
+      - 'tests/pc-rwht-browser.test.js'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: aria-chat-rwht-authenticated
+  cancel-in-progress: false
+
+jobs:
+  chat-rwht:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
+      RWHT_HEADLESS: 'true'
+      RWHT_ARTIFACT_DIR: chat-rwht-artifacts
+      RWHT_EXPECTED_AUTH_TEXT: 'Núcleo conectado'
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Require an authenticated session source
+        shell: bash
+        run: |
+          set -euo pipefail
+          has_password_auth=false
+          has_storage_auth=false
+          if [[ -n "${RWHT_EMAIL}" && -n "${RWHT_PASSWORD}" ]]; then has_password_auth=true; fi
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then has_storage_auth=true; fi
+          if [[ "${has_password_auth}" != true && "${has_storage_auth}" != true ]]; then
+            echo "::error title=Authenticated Chat RWHT blocked::Configure RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE_B64 as repository secrets."
+            exit 1
+          fi
+          if [[ "${has_storage_auth}" == true ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          fi
+      - name: Install Chat RWHT dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install --with-deps chromium
+      - name: Verify canonical test catalog on LIVE PWA
+        run: |
+          set -euo pipefail
+          base="${RWHT_URL%/}"
+          html=""
+          for attempt in $(seq 1 60); do
+            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$base/?probe=$GITHUB_SHA-chat-catalog-$attempt" 2>/dev/null || true)"
+            if (grep -q "name='aria-test-catalog-version' content='2026-09-28-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-09-28-canonical"' <<<"$html") &&
+               (grep -q "name='aria-test-catalog-total' content='254'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="254"' <<<"$html"); then
+              break
+            fi
+            test "$attempt" -lt 60 && sleep 2
+          done
+          test -n "$html"
+          (grep -q "name='aria-test-catalog-version' content='2026-09-28-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-09-28-canonical"' <<<"$html")
+          (grep -q "name='aria-test-catalog-total' content='254'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="254"' <<<"$html")
+          echo CHAT_CANONICAL_TEST_CATALOG_LIVE_OK
+      - name: Execute authenticated Chat E2E
+        working-directory: rwht/pc-browser
+        run: node rwht-chat-e2e.mjs
+      - name: Upload Chat RWHT evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-chat-rwht-evidence
+          path: rwht/pc-browser/chat-rwht-artifacts
+          if-no-files-found: warn
+      - name: Remove temporary authentication state
+        if: always()
+        shell: bash
+        run: rm -f "${RUNNER_TEMP}/aria-rwht-auth-state.json"
