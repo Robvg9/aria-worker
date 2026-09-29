@@ -2000,6 +2000,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Comprueba orquestación, misiones, executors, recuperación, persistencia y ejecución universal."
   },
   {
+    "id": "supabase-backpressure-contract",
+    "file": "tests/supabase-backpressure-contract.test.js",
+    "title": "Supabase Backpressure Contract",
+    "category": "Supabase / estabilidad",
+    "includedInNpmTest": true,
+    "how": "Verifica límites de polling, backoff, retries, caché de autenticación y cron escalonados del runtime.",
+    "capabilities": "Detecta presión innecesaria sobre Supabase, reintentos agresivos y recuperación duplicada en el camino caliente."
+  },
+  {
     "id": "supabase-mission-repository",
     "file": "tests/supabase-mission-repository.test.js",
     "title": "Supabase Mission Repository",
