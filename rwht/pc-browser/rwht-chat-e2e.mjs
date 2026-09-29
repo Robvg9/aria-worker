@@ -120,6 +120,9 @@ async function run() {
   const pageErrors = [];
   const failedResponses = [];
   const consoleErrors = [];
+  let conversation5xxError = null;
+  let conversation5xxReject;
+  const conversation5xxPromise = new Promise((_, reject) => { conversation5xxReject = reject; });
 
   page.on('pageerror', (error) => pageErrors.push({ message: String(error?.message || error).slice(0, 1000) }));
   page.on('console', (message) => {
@@ -127,7 +130,12 @@ async function run() {
   });
   page.on('response', (response) => {
     if (response.status() >= 500) {
-      failedResponses.push({ status: response.status(), method: response.request().method(), url: response.url().slice(0, 1000) });
+      const failure = { status: response.status(), method: response.request().method(), url: response.url().slice(0, 1000) };
+      failedResponses.push(failure);
+      if (failure.url.includes('/api/conversation')) {
+        conversation5xxError = failure;
+        conversation5xxReject(new Error('chat_conversation_http_5xx'));
+      }
     }
   });
 
@@ -178,20 +186,15 @@ async function run() {
     await textarea.fill(marker + ' responde con una confirmación breve.');
     await sendButton.click();
 
-    await page.waitForFunction(
-      () => !window.__aria_rwht_failed_conversation_response,
-      null,
-      { timeout: 1000 }
-    ).catch(() => {
-      throw new Error('chat_conversation_http_5xx');
-    });
-
     await page.locator('.chatScreen .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
-    await page.waitForFunction(
-      ({ before }) => document.querySelectorAll('.chatScreen .bubble.aria').length > before,
-      { before: beforeAssistant },
-      { timeout: TIMEOUT_MS }
-    );
+    await Promise.race([
+      page.waitForFunction(
+        ({ before }) => document.querySelectorAll('.chatScreen .bubble.aria').length > before,
+        { before: beforeAssistant },
+        { timeout: TIMEOUT_MS }
+      ),
+      conversation5xxPromise
+    ]);
 
     const assistant = page.locator('.chatScreen .bubble.aria').last();
     responseText = (await assistant.innerText()).trim();
