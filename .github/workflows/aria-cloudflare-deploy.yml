@@ -285,7 +285,7 @@ jobs:
           for attempt in $(seq 1 30); do
             stale_sw_headers="$(mktemp)"
             stale_sw_body="$(mktemp)"
-            stale_sw_code="$(curl --silent --show-error --max-time 15 --retry 2 --delay 1 -D "$stale_sw_headers" -o "$stale_sw_body" -w '%{http_code}' "${base}sw-stale-test.js?probe=${GITHUB_SHA}-recovery-${attempt}" 2>/dev/null || true)"
+            stale_sw_code="$(curl --silent --show-error --max-time 15 --retry 2 --retry-delay 1 -D "$stale_sw_headers" -o "$stale_sw_body" -w '%{http_code}' "${base}sw-stale-test.js?probe=${GITHUB_SHA}-recovery-${attempt}" 2>/dev/null || true)"
             stale_sw_build="$(awk 'BEGIN{IGNORECASE=1} tolower($1)=="x-aria-pwa-build:" {sub(/\r$/,"",$0); sub(/^[^:]*:[[:space:]]*/,"",$0); print $0}' "$stale_sw_headers" | tail -n1)"
             stale_sw_cache="$(grep -i '^cache-control:' "$stale_sw_headers" | tail -n1 | tr -d '\r')"
             if test "$stale_sw_code" = "200" && test "$stale_sw_build" = "$GITHUB_SHA" && grep -qi 'no-store' <<<"$stale_sw_cache"; then
