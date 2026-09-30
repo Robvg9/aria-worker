@@ -127,12 +127,32 @@ async function run() {
   const consoleErrors = [];
   const failedResponses = [];
   const requestFailures = [];
+  let chatPostResponse = null;
+  let chatPostResponseReady = Promise.resolve();
 
   page.on('pageerror', error => pageErrors.push({ message: String(error?.message || error).slice(0, 1200) }));
   page.on('console', message => {
     if (message.type() === 'error') consoleErrors.push({ text: message.text().slice(0, 1200) });
   });
   page.on('response', response => {
+    if (response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/api/conversation')) {
+      chatPostResponseReady = response.json().then(body => {
+        chatPostResponse = {
+          status: response.status(),
+          conversationId: typeof body?.conversationId === 'string' ? body.conversationId : null,
+          error: typeof body?.error === 'string' ? body.error : null,
+          cognitive: body?.cognitive && typeof body.cognitive === 'object' ? {
+            input_persistence_ms: body.cognitive.input_persistence_ms ?? null,
+            assistant_persistence_ms: body.cognitive.assistant_persistence_ms ?? null,
+            persistence_warning: body.cognitive.persistence_warning ?? null,
+            processing_ms: body.cognitive.processing_ms ?? null
+          } : null,
+          response_text: typeof body?.parts?.find?.(part => part?.type === 'text')?.text === 'string'
+            ? body.parts.find(part => part?.type === 'text').text.slice(0, 160)
+            : null
+        };
+      }).catch(() => { chatPostResponse = { status: response.status(), body_parse_failed: true }; });
+    }
     if (response.status() >= 500) {
       failedResponses.push({
         status: response.status(),
@@ -285,11 +305,22 @@ async function run() {
     );
     report.chat.local_persistence_verified = true;
 
-    const server = await readConversation(page, accessToken);
-    report.chat.server_persistence_status = server.status;
-    const serverMessages = Array.isArray(server.body?.conversation?.messages) ? server.body.conversation.messages : [];
+    await chatPostResponseReady;
+    report.chat.post_response = chatPostResponse;
+    let server = null;
+    let serverMessages = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      server = await readConversation(page, accessToken);
+      serverMessages = Array.isArray(server.body?.conversation?.messages) ? server.body.conversation.messages : [];
+      if (serverMessages.some(m => typeof m?.content === 'string' && m.content.includes(marker))) break;
+      if (attempt < 5) await waitFor(1000);
+    }
+    report.chat.server_persistence_status = server?.status ?? null;
+    report.chat.server_conversation_id = server?.body?.conversation_id ?? null;
+    report.chat.server_message_count = serverMessages.length;
+    report.chat.server_message_roles = serverMessages.map(m => String(m?.role ?? '')).slice(-8);
     report.chat.server_persistence_verified =
-      server.status === 200 && serverMessages.some(m => typeof m?.content === 'string' && m.content.includes(marker));
+      server?.status === 200 && serverMessages.some(m => typeof m?.content === 'string' && m.content.includes(marker));
     if (!report.chat.server_persistence_verified) throw new Error('chat_server_persistence_missing');
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
