@@ -61,6 +61,17 @@ for (const fragment of [
   assert.ok(workflow.includes(fragment), fragment);
 }
 
+for (const fragment of [
+  'status.supabase.com/api/v2/incidents.json',
+  'w91bvbjhqf0f',
+  'persistence-recovery-rwht-authenticated.yml/dispatches',
+  'already_dispatched',
+  'actions: write',
+  'No authenticated RWHT is launched during the provider incident'
+]) {
+  assert.ok(providerGate.includes(fragment), fragment);
+}
+
 assert.doesNotMatch(runner, /console\.(log|error)\([^\n]*(password|refreshToken|accessToken)/i);
 
 console.log('PWA PERSISTENCE + RECOVERY CONTRACT: PASS');
