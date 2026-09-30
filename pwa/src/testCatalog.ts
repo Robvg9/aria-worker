@@ -128,6 +128,24 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en catálogo, filtros, navegación, contratos y UX de pruebas."
   },
   {
+    "id": "pwa-persistence-recovery-v1",
+    "file": "tests/pwa-persistence-recovery-v1.test.js",
+    "title": "PWA Persistence + Recovery V1",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba persistencia de sesión, caché, conversación y recuperación del PWA ante reload y fallos transitorios del API.",
+    "capabilities": "Detecta regresiones de persistencia, renovación de sesión, recuperación tras fallo de red y sincronización posterior."
+  },
+  {
+    "id": "pwa-responsive-ux-v1",
+    "file": "tests/pwa-responsive-ux-v1.test.js",
+    "title": "PWA Responsive UX V1",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": false,
+    "how": "Comprueba la PWA en múltiples viewports, navegación, scroll, focus, touch, clipping, overflow y modales.",
+    "capabilities": "Detecta regresiones responsive, overflow, controles pequeños, navegación móvil, teclado y layout."
+  },
+  {
     "id": "account-manager",
     "file": "tests/account-manager.test.js",
     "title": "Account Manager",
