@@ -62,7 +62,7 @@ async function proxyPasswordSignIn(request, url){
   const body=await request.text();
   if(!body)return json({error:"invalid_request",error_description:"Falta el cuerpo de autenticación."},400);
   const controller=new AbortController();
-  const upstreamTimeoutMs=grantType==="refresh_token"?60000:20000;
+  const upstreamTimeoutMs=grantType==="refresh_token"?60000:45000;
   const timer=setTimeout(()=>controller.abort(),upstreamTimeoutMs);
   try{
     const upstream=await fetch(SUPABASE_AUTH+"/auth/v1/token?grant_type="+encodeURIComponent(grantType),{
