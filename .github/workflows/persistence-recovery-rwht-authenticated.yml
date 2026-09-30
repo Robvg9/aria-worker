@@ -11,6 +11,7 @@ on:
       - 'tests/pwa-persistence-recovery-v1.test.js'
       - 'tests/pwa-auth-proxy-contract.test.js'
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
+      - 'pwa/src/.rwht-persistence-recovery-trigger.ts'
   workflow_dispatch:
 
 concurrency:
