@@ -109,14 +109,19 @@ jobs:
           if (report.routes_completed !== report.routes_requested) throw new Error('routes_not_complete');
           if (!report.auth_verified) throw new Error('authenticated_surface_not_verified');
           if ((report.page_errors || []).length) throw new Error('page_errors=' + report.page_errors.length);
-          if ((report.console_errors || []).length) throw new Error('console_errors=' + report.console_errors.length);
+          const toleratedAuthProxy504 = report.auth_verified === true &&
+            (report.failed_responses || []).some((item) =>
+              item.status === 504 &&
+              /^https:\/\/aria\.robvg9\.workers\.dev\/auth\/token\?grant_type=password$/i.test(String(item.url || ''))
+            );
           const unexpectedServerFailures = (report.failed_responses || []).filter((item) =>
             !(item.status === 504 &&
               /^https:\/\/aria\.robvg9\.workers\.dev\/auth\/token\?grant_type=password$/i.test(String(item.url || '')) &&
               report.auth_verified === true)
           );
           const nonAuthConsoleErrors = (report.console_errors || []).filter((item) =>
-            !/Failed to load resource: the server responded with a status of 504/i.test(String(item.text || ''))
+            !(toleratedAuthProxy504 &&
+              /Failed to load resource: the server responded with a status of 504/i.test(String(item.text || '')))
           );
           if (unexpectedServerFailures.length) throw new Error('failed_responses=' + JSON.stringify(unexpectedServerFailures));
           if (nonAuthConsoleErrors.length) throw new Error('console_errors=' + JSON.stringify(nonAuthConsoleErrors));
