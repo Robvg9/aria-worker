@@ -558,7 +558,7 @@ function isRetryableAuthError(error: unknown) {
 
 async function signInDirect(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 30000);
+  const timer = window.setTimeout(() => controller.abort(), 15000);
   try {
     const r = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
       method: 'POST',
@@ -575,7 +575,7 @@ async function signInDirect(email: string, password: string) {
 
 async function signInProxy(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 45000);
+  const timer = window.setTimeout(() => controller.abort(), 50000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
@@ -658,7 +658,23 @@ async function refreshSession(session: Session) {
   }
 }
 async function signIn(email: string, password: string) {
-  let directError: unknown = null;
+  let proxyError: unknown = null;
+  try {
+    const d: any = await signInProxy(email, password);
+    const s: Session = {
+      accessToken: d.access_token,
+      refreshToken: d.refresh_token,
+      userId: d.user.id,
+      expiresAt: Date.now() + Math.max(60, Number(d.expires_in ?? 3600)) * 1000,
+      email: d.user.email
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    return s;
+  } catch (error) {
+    proxyError = error;
+    if (!isRetryableAuthError(error)) throw error;
+  }
+
   try {
     const d: any = await signInDirect(email, password);
     const s: Session = {
@@ -670,30 +686,12 @@ async function signIn(email: string, password: string) {
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(s));
     return s;
-  } catch (error) {
-    directError = error;
-    const retryable = isRetryableAuthError(error);
-    if (!retryable) throw error;
-  }
-
-  try {
-    await new Promise(resolve => window.setTimeout(resolve, 350));
-    const d: any = await signInProxy(email, password);
-    const s: Session = {
-      accessToken: d.access_token,
-      refreshToken: d.refresh_token,
-      userId: d.user.id,
-      expiresAt: Date.now() + Math.max(60, Number(d.expires_in ?? 3600)) * 1000,
-      email: d.user.email
-    };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-    return s;
-  } catch (proxyError) {
-    if (isRetryableAuthError(proxyError)) {
+  } catch (directError) {
+    if (isRetryableAuthError(directError)) {
       throw new Error('ARIA no pudo alcanzar el servicio de autenticación por ninguna de sus rutas. La red o el servicio de autenticación está tardando demasiado.');
     }
-    if (proxyError instanceof Error && proxyError.message) throw proxyError;
-    throw directError instanceof Error ? directError : new Error('No se pudo iniciar sesión.');
+    if (directError instanceof Error && directError.message) throw directError;
+    throw proxyError instanceof Error ? proxyError : new Error('No se pudo iniciar sesión.');
   }
 }
 function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): number {
