@@ -3065,3 +3065,5 @@ export default function App() {
     </div>
   );
 }
+
+// RWHT persistence/recovery certification trigger marker.
