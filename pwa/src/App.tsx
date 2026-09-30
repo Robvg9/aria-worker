@@ -575,7 +575,7 @@ async function signInDirect(email: string, password: string) {
 
 async function signInProxy(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 65000);
+  const timer = window.setTimeout(() => controller.abort(), 20000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
@@ -609,7 +609,7 @@ async function refreshSessionDirect(refreshToken: string) {
 
 async function refreshSessionProxy(refreshToken: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 20000);
+  const timer = window.setTimeout(() => controller.abort(), 65000);
   try {
     const r = await fetch('/auth/token?grant_type=refresh_token', {
       method: 'POST',
