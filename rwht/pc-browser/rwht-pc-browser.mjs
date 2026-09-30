@@ -539,19 +539,22 @@ async function auditRoute(page, url, routeIndex, config) {
       continue;
     }
 
-    const target = controlsNow.find((control) =>
-      control.role === original.role &&
-      control.name === original.name &&
-      control.href === original.href &&
-      control.tag === original.tag
-    ) || (original.selector_hint
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const target = (original.selector_hint
       ? controlsNow.find((control) =>
           control.selector_hint === original.selector_hint &&
           control.tag === original.tag
         )
       : null) || (original.id
       ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
-      : null) || controlsNow[index];
+      : null) || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      ) || controlsNow[index];
 
     if (!target) {
       routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
