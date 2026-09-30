@@ -189,12 +189,14 @@ async function collectLayoutAudit(page) {
       const el = [...document.querySelectorAll('button')].find(candidate => {
         const r = candidate.getBoundingClientRect();
         return Math.round(r.left) === b.left && Math.round(r.right) === b.right && Math.round(r.top) === b.top && Math.round(r.bottom) === b.bottom &&
-          ((candidate.getAttribute('aria-label') || candidate.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 90)) === b.text;
+          ((candidate.getAttribute('aria-label') || candidate.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 90)) === b.text;
       });
       const intentionalOffscreen = !!el?.closest('.screenTrack');
-      return !intentionalOffscreen && (b.left < -1 || b.right > vw + 1 || b.top < -1 || b.bottom > vh + 2);
+      const insideVerticalScroll = !!el?.closest('.pageBodyViewport,.chatWindow,.projectBodyViewport,.detailModal,.notificationPanel,.detailTimeline');
+      const horizontalClipping = b.left < -1 || b.right > vw + 1;
+      const verticalClipping = b.top < -1 || b.bottom > vh + 2;
+      return !intentionalOffscreen && (horizontalClipping || (verticalClipping && !insideVerticalScroll));
     });
-
     const scrollContainers = [...document.querySelectorAll('.pageBodyViewport,.chatWindow,.projectBodyViewport,.detailModal,.notificationPanel,.detailTimeline')].filter(visible);
     const scrollableContainers = scrollContainers.filter(el => {
       const s = getComputedStyle(el);
