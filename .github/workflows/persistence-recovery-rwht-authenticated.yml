@@ -81,6 +81,33 @@ jobs:
             echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-persistence-recovery-auth-state.json" >> "${GITHUB_ENV}"
           fi
 
+      - name: Diagnose Auth connectivity (credentials not printed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(python - <<'PY'
+import json, os
+print(json.dumps({"email": os.environ["RWHT_EMAIL"], "password": os.environ["RWHT_PASSWORD"]}))
+PY
+          )
+          probe() {
+            local name="$1"
+            local url="$2"
+            local code
+            local total
+            read -r code total < <(curl -sS --max-time 12 --connect-timeout 5 -o /dev/null -w '%{http_code} %{time_total}' \
+              -X POST "$url" \
+              -H 'content-type: application/json' \
+              -H "apikey: $RWHT_PUBLISHABLE_KEY" \
+              --data "$payload" || printf '000 12')
+            echo "AUTH_PROBE_${name}_HTTP=${code} TOTAL=${total}"
+          }
+          probe DIRECT "https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password"
+          probe PROXY "https://aria.robvg9.workers.dev/auth/token?grant_type=password"
+        env:
+          RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+          RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+          RWHT_PUBLISHABLE_KEY: ${{ vars.RWHT_PUBLISHABLE_KEY || 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw' }}
       - name: Install PC RWHT dependencies
         working-directory: rwht/pc-browser
         run: npm install --no-audit --no-fund
