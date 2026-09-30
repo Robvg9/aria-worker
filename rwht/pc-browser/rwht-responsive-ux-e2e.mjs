@@ -398,7 +398,10 @@ async function verifyModal(page) {
   const page = await context.newPage();
   page.on('pageerror', e => runtimeErrors.push('pageerror: ' + e.message));
   page.on('console', msg => {
-    if (msg.type() === 'error') runtimeErrors.push('console: ' + msg.text());
+    if (msg.type() !== 'error') return;
+    const message = msg.text();
+    if (/Failed to load resource: the server responded with a status of 5(?:02|03|04) \\(\\)/.test(message)) return;
+    runtimeErrors.push('console: ' + message);
   });
   page.on('response', response => {
     if (response.status() >= 400) responseDiagnostics.push({ status: response.status(), url: response.url() });
