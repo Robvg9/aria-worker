@@ -2,6 +2,9 @@ name: ARIA PC Browser RWHT Authenticated
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - aria/phase4-pc-regression-20260930
 
 concurrency:
   group: aria-pc-rwht-authenticated
@@ -17,7 +20,7 @@ jobs:
       RWHT_NO_SCREENSHOTS: 'false'
       RWHT_ALLOW_MUTATIONS: 'false'
       RWHT_REQUIRE_AUTH: 'true'
-      RWHT_ROUTES: '#home'
+      RWHT_ROUTES: '#home,#chat,#projects,#meditation,#capabilities,#settings,#mission'
       RWHT_RELOAD_AUTH: 'true'
       RWHT_LOGIN_WAIT_MS: '40000'
       RWHT_EXPECTED_AUTH_TEXT: 'Lista para actuar'
