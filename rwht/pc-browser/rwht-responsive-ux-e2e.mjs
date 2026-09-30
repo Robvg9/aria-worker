@@ -135,7 +135,7 @@ async function collectLayoutAudit(page) {
     };
 
     const excludedHorizontalOverflow = (el) =>
-      el.closest('.chatWindow,.pageBodyViewport,.projectBodyViewport,.canvasWrap,.testCategoryBar,.executionStepRail,.detailModal,.notificationPanel,.detailTimeline,.screenTrack') !== null;
+      el.closest('.chatWindow,.pageBodyViewport,.projectBodyViewport,.canvasWrap,.testCategoryBar,.executionStepRail,.detailModal,.notificationPanel,.detailTimeline,.screenTrack,.screenViewport') !== null;
 
     const horizontalOverflow = [];
     const clipping = [];
@@ -188,7 +188,15 @@ async function collectLayoutAudit(page) {
       };
     });
     const smallTargets = visibleButtons.filter(b => b.width < 32 || b.height < 32);
-    const clippedTargets = visibleButtons.filter(b => b.left < -1 || b.right > vw + 1 || b.top < -1 || b.bottom > vh + 2);
+    const clippedTargets = visibleButtons.filter(b => {
+      const el = [...document.querySelectorAll('button')].find(candidate => {
+        const r = candidate.getBoundingClientRect();
+        return Math.round(r.left) === b.left && Math.round(r.right) === b.right && Math.round(r.top) === b.top && Math.round(r.bottom) === b.bottom &&
+          ((candidate.getAttribute('aria-label') || candidate.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 90)) === b.text;
+      });
+      const intentionalOffscreen = !!el?.closest('.screenTrack');
+      return !intentionalOffscreen && (b.left < -1 || b.right > vw + 1 || b.top < -1 || b.bottom > vh + 2);
+    });
 
     const scrollContainers = [...document.querySelectorAll('.pageBodyViewport,.chatWindow,.projectBodyViewport,.detailModal,.notificationPanel,.detailTimeline')].filter(visible);
     const scrollableContainers = scrollContainers.filter(el => {
