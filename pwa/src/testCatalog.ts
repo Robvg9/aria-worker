@@ -2332,6 +2332,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba el Mission Context, gates de conducta, escalamiento, cierre verificado y promoción controlada de aprendizajes.",
     "capabilities": "Valida continuidad, STOP ante contradicción, REVALIDATE por frescura, cambio de ruta tras fallos y no auto-promoción de reglas."
   },
+  {
+    "id": "chatbending-canonical-runtime-integration",
+    "file": "tests/chatbending-canonical-runtime.integration.test.js",
+    "title": "ChatBending Canonical Runtime Integration",
+    "category": "ChatBending / continuidad / gobierno",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el runtime canónico construya y transporte el contexto ChatBending y respete el gate de STOP cuando se exige.",
+    "capabilities": "Valida el cableado Machine Layer → runtime sin depender de una sesión de chat concreta."
+  },
 
 ];
 
