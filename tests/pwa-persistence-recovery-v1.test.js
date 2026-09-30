@@ -36,7 +36,7 @@ for (const fragment of [
   'session_refresh_not_repersisted',
   'session_reload_persistence_missing',
   'chat_server_persistence_missing',
-  'chat_reload_persistence_missing',
+  'chat_reload_persistence_verified',
   'dashboard_recovery_from_api_failure_missing',
   'live_sync_recovered',
   'Núcleo conectado',
