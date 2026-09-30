@@ -289,7 +289,8 @@ async function verifyKeyboardFocus(page, viewportName) {
     });
     samples.push(state);
   }
-  const keyboardReachable = samples.filter(Boolean).every(s => s.width > 0 && s.height > 0 && s.x >= -1 && s.x + s.width <= window.innerWidth + 1 && s.y < window.innerHeight + 2);
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const keyboardReachable = samples.filter(Boolean).every(s => s.width > 0 && s.height > 0 && s.x >= -1 && s.x + s.width <= viewport.width + 1 && s.y < viewport.height + 2);
   if (!keyboardReachable || samples.length === 0) {
     throw new Error('keyboard_focus_failed:' + JSON.stringify({ viewport: viewportName, samples }));
   }
