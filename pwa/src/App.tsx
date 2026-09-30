@@ -575,7 +575,7 @@ async function signInDirect(email: string, password: string) {
 
 async function signInProxy(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 20000);
+  const timer = window.setTimeout(() => controller.abort(), 65000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
@@ -625,9 +625,9 @@ async function refreshSessionProxy(refreshToken: string) {
 }
 
 async function refreshSession(session: Session) {
-  let directError: unknown = null;
+  let proxyError: unknown = null;
   try {
-    const d: any = await refreshSessionDirect(session.refreshToken);
+    const d: any = await refreshSessionProxy(session.refreshToken);
     return {
       ...session,
       accessToken: d.access_token,
@@ -636,12 +636,12 @@ async function refreshSession(session: Session) {
       email: d.user?.email || session.email
     } satisfies Session;
   } catch (error) {
-    directError = error;
+    proxyError = error;
     const retryable = isRetryableAuthError(error);
     if (!retryable) throw error;
   }
   try {
-    const d: any = await refreshSessionProxy(session.refreshToken);
+    const d: any = await refreshSessionDirect(session.refreshToken);
     return {
       ...session,
       accessToken: d.access_token,
@@ -654,10 +654,9 @@ async function refreshSession(session: Session) {
       throw new Error('ARIA no pudo renovar la sesión por ninguna de sus rutas.');
     }
     if (error instanceof Error && error.message) throw error;
-    throw directError instanceof Error ? directError : new Error('No se pudo renovar la sesión.');
+    throw proxyError instanceof Error ? proxyError : new Error('No se pudo renovar la sesión.');
   }
 }
-
 async function signIn(email: string, password: string) {
   let directError: unknown = null;
   try {
