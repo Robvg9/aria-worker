@@ -354,6 +354,18 @@ async function testControl(page, control, config) {
       if (control.role && label) return page.getByRole(control.role, { name: label, exact: true }).first();
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
     };
+
+    // Settings toggles expose dynamic labels ("Activadas"/"Desactivadas",
+    // "Activar avisos") but stable structural classes. Resolve those explicitly.
+    if (new URL(page.url()).hash.split('?')[0] === '#settings' && control.role === 'button') {
+      if (/^Activad(?:as|os)$|^Desactivad(?:as|os)$/i.test(label)) {
+        const candidate = page.locator('.settingsOption button.toggleButton').first();
+        if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+      } else if (/^Activar avisos$/i.test(label)) {
+        const candidate = page.locator('.settingsOption button.ghost').first();
+        if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+      }
+    }
     if (control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
       if (await hinted.count() && await hinted.isVisible().catch(() => false)) locator = hinted;
