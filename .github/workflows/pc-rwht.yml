@@ -36,15 +36,24 @@ jobs:
       RWHT_HEADLESS: 'true'
       RWHT_ARTIFACT_DIR: rwht-artifacts
       RWHT_NO_SCREENSHOTS: 'false'
-      RWHT_REQUIRE_AUTH: ${{ secrets.RWHT_EMAIL != '' && secrets.RWHT_PASSWORD != '' }}
+      RWHT_REQUIRE_AUTH: ${{ (secrets.RWHT_EMAIL != '' && secrets.RWHT_PASSWORD != '') || secrets.RWHT_STORAGE_STATE_B64 != '' }}
       RWHT_EXPECTED_AUTH_TEXT: 'Lista para actuar'
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Load persistent authenticated browser state
+        if: env.RWHT_STORAGE_STATE_B64 != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+          chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+          echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
       - name: Install PC RWHT dependencies
         working-directory: rwht/pc-browser
         run: npm install --no-audit --no-fund
