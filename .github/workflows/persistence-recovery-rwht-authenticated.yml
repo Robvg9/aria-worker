@@ -36,8 +36,8 @@ jobs:
           set -euo pipefail
           base="${RWHT_URL%/}/"
           version=""
-          for attempt in \$(seq 1 60); do
-            version="\$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}version.json?persist-recovery=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
+          for attempt in $(seq 1 60); do
+            version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}version.json?persist-recovery=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
             if VERSION="${version}" GITHUB_SHA="${GITHUB_SHA}" python - <<'PY'
           import json, os
           try:
