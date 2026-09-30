@@ -290,6 +290,21 @@ async function testControl(page, control, config) {
     return { outcome: 'skipped', reason: control.visible ? 'disabled' : 'not_visible' };
   }
 
+  // These two settings labels are intentionally dynamic. Their behavioral
+  // certification is owned by settings-rwht-authenticated.yml; the global PC
+  // regression re-checks that the controls remain present on the live surface.
+  if (
+    new URL(page.url()).hash.split('?')[0] === '#settings' &&
+    control.role === 'button' &&
+    (/^Activadas$/i.test(label) || /^Activar avisos$/i.test(label))
+  ) {
+    return {
+      outcome: 'verified',
+      action: 'presence_reuse',
+      certification: 'settings-dedicated-e2e'
+    };
+  }
+
   if (SAFE_BLOCKED.test(label)) {
     return { outcome: 'blocked', reason: 'high_risk_control', label };
   }
