@@ -1,0 +1,64 @@
+{
+  "phase": "4/9",
+  "name": "PC Final Regression",
+  "certification": "PASS",
+  "certified_at": "2026-09-30T22:30:45Z",
+  "tested_head": "212437ddc189f354a9c967e33b51f29e621ac9c0",
+  "main_code_base": "3926de9cb4d491f6d17271165b579b2f25cb280d",
+  "workflow_runs": {
+    "phase4_final": {
+      "run_id": 36785612035,
+      "job_id": 110126170323,
+      "conclusion": "success"
+    },
+    "pc_authenticated": {
+      "run_id": 36785611969,
+      "job_id": 110126170372,
+      "conclusion": "success"
+    }
+  },
+  "authenticated_routes": {
+    "requested": 7,
+    "completed": 7,
+    "routes": [
+      "#home",
+      "#chat",
+      "#projects",
+      "#meditation",
+      "#capabilities",
+      "#settings",
+      "#mission"
+    ]
+  },
+  "results": {
+    "auth_verified": true,
+    "controls_verified": 34,
+    "controls_failed_dynamic": 13,
+    "blocked_human_gate": 3,
+    "coverage_ratio": 0.74,
+    "page_errors": 0,
+    "console_errors": 0,
+    "failed_responses": 0,
+    "ux_issues": 0
+  },
+  "failure_classification": {
+    "dynamic_known": true,
+    "dynamic_names": [
+      "Misión 01–12 · ...",
+      "Activar avisos"
+    ],
+    "unexpected_control_failures": 0,
+    "unexpected_http_failures": 0
+  },
+  "human_gate_controls": [
+    "Actualizar app",
+    "Borrar caché y recargar",
+    "Cerrar sesión"
+  ],
+  "artifact": {
+    "id": 11129856392,
+    "digest": "sha256:629b9b19116dfaa5e7b174e221cbab57756b919f7a16c17cf1476829e3ae6c78",
+    "name": "aria-phase4-final-cert-evidence"
+  },
+  "closure": "Phase 4/9 final PC regression certified by official gate; code already integrated in main; this record is the final persisted evidence."
+}
