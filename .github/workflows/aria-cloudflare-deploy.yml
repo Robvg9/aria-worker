@@ -11,6 +11,8 @@ on:
       - 'pwa/**'
       - 'scripts/cloudflare-workers-build.js'
       - 'integrations/cloudflare-*.js'
+      - 'autonomy/**'
+      - 'chatbending/**'
       - '.github/workflows/aria-cloudflare-deploy.yml'
   workflow_dispatch:
 
