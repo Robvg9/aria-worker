@@ -1,0 +1,105 @@
+name: ARIA Responsive UX Browser RWHT
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pwa/src/App.tsx'
+      - 'pwa/src/index.css'
+      - 'tests/pwa-responsive-ux-v1.test.js'
+      - 'rwht/pc-browser/rwht-responsive-ux-e2e.mjs'
+      - '.github/workflows/responsive-ux-rwht-authenticated.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: aria-responsive-ux-rwht
+  cancel-in-progress: false
+
+jobs:
+  responsive-ux-rwht:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Wait for PWA LIVE build
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${RWHT_URL%/}/"
+          version=""
+          for attempt in $(seq 1 60); do
+            version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}version.json?responsive-rwht=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
+            if VERSION="${version}" GITHUB_SHA="${GITHUB_SHA}" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              echo "RESPONSIVE_UX_LIVE_BUILD_OK build=${GITHUB_SHA}"
+              break
+            fi
+            test "${attempt}" -lt 60 && sleep 2
+          done
+          VERSION="${version}" GITHUB_SHA="${GITHUB_SHA}" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+          PY
+
+      - name: Require authenticated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          has_password_auth=false
+          has_storage_auth=false
+          if [[ -n "${RWHT_EMAIL}" && -n "${RWHT_PASSWORD}" ]]; then has_password_auth=true; fi
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then has_storage_auth=true; fi
+          if [[ "${has_password_auth}" != true && "${has_storage_auth}" != true ]]; then
+            echo "::error title=Responsive UX RWHT blocked::Configure RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE_B64 as repository secrets."
+            exit 1
+          fi
+          if [[ "${has_storage_auth}" == true ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-responsive-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-responsive-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-responsive-auth-state.json" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Install PC RWHT dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install chromium
+
+      - name: Static Responsive UX contract
+        run: node tests/pwa-responsive-ux-v1.test.js
+
+      - name: Execute Responsive + UX E2E
+        working-directory: rwht/pc-browser
+        run: node rwht-responsive-ux-e2e.mjs
+
+      - name: Upload Responsive UX evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-responsive-ux-rwht-evidence
+          path: rwht/pc-browser/rwht-artifacts
+          if-no-files-found: warn
+
+      - name: Remove temporary authentication state
+        if: always()
+        shell: bash
+        run: rm -f "${RUNNER_TEMP}/aria-responsive-auth-state.json"

@@ -1,0 +1,39 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
+const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
+
+assert.match(css,/body\{margin:0;min-width:320px;min-height:100vh/);
+assert.match(css,/\.pwaShell\{overflow-x:hidden;/);
+assert.match(css,/\.screenViewport\{[^}]*overflow:hidden;/);
+assert.match(css,/\.appShell\{height:100dvh;min-height:0;max-height:100dvh;overflow:hidden;/);
+assert.match(css,/\.pageBodyViewport\{[^}]*overflow:auto;/);
+assert.match(css,/\.chatPanel \.chatWindow[^}]*overflow:auto;/);
+assert.match(css,/\.projectBodyViewport\{[^}]*overflow:auto;/);
+assert.match(css,/\.bottomNav\{[^}]*grid-template-columns:repeat\(7,minmax\(0,1fr\)/);
+assert.match(css,/\.bottomNav button\{width:100%;min-width:0;min-height:52px/);
+assert.match(css,/\.bottomNav button small\{[^}]*text-overflow:ellipsis/);
+assert.match(css,/\.desktopOnly\{display:none !important;/);
+assert.match(css,/\.modalBackdrop\{position:fixed;inset:0/);
+assert.match(css,/\.detailModal\{width:min\(760px,100%\);max-height:88vh;overflow:auto/);
+assert.match(css,/\.canvasWrap\{[^}]*overflow:auto/);
+assert.match(css,/\.canvasWrap canvas\{[^}]*max-width:100%/);
+assert.match(css,/@media\(max-width:900px\)/);
+assert.match(css,/@media\(max-width:560px\)/);
+assert.match(css,/@media\(max-width:700px\)/);
+assert.match(css,/@media\(max-width:380px\)/);
+
+assert.match(app,/function GlobalBottomNav/);
+assert.match(app,/aria-label='Navegación principal'/);
+assert.match(app,/aria-label='Nueva misión'/);
+assert.match(app,/globalSwipeStartRef/);
+assert.match(app,/event.pointerType !== 'touch'/);
+assert.match(app,/const SWIPE_PAGES = \['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings'\]/);
+assert.match(app,/function handleGlobalPointerDown/);
+assert.match(app,/function handleGlobalPointerUp/);
+assert.match(app,/role='dialog'/);
+assert.match(app,/aria-label='Confirmar inicio de misión'/);
+
+console.log('RESPONSIVE UX CONTRACT: PASS');
