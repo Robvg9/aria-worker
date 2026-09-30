@@ -422,7 +422,14 @@ async function testControl(page, control, config) {
 async function verifyAuthState(page, config) {
   if (!config.require_auth) return { required: false, verified: true, reason: 'auth_not_required' };
   const passwordInputs = page.locator('input[type="password"]');
-  if (await passwordInputs.count()) return { required: true, verified: false, reason: 'login_form_visible' };
+  const visiblePassword = await passwordInputs.evaluateAll((items) =>
+    items.some((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    })
+  ).catch(() => false);
+  if (visiblePassword) return { required: true, verified: false, reason: 'login_form_visible' };
   if (config.expected_auth_text) {
     const pattern = new RegExp(config.expected_auth_text, 'i');
     const matches = await page.getByText(pattern).count().catch(() => 0);
@@ -435,7 +442,13 @@ async function auditRoute(page, url, routeIndex, config) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
   await page.waitForTimeout(config.settle_ms);
 
-  const passwordVisible = await page.locator('input[type="password"]').count().catch(() => 0);
+  const passwordVisible = await page.locator('input[type="password"]').evaluateAll((items) =>
+    items.some((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    })
+  ).catch(() => false);
   const login = passwordVisible && config.auth_configured
     ? await loginIfConfigured(page, config).catch((error) => ({
         attempted: true,
