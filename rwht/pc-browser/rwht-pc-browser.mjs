@@ -474,6 +474,7 @@ async function auditRoute(page, url, routeIndex, config) {
     }).catch(() => {});
   }
 
+  const routeHash = new URL(url).hash.split('?')[0] || '#home';
   const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
   for (let index = 0; index < maxControls; index += 1) {
     // Force a genuinely fresh SPA state before each control. Reusing the same
