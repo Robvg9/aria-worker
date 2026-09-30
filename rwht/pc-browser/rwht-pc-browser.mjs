@@ -469,7 +469,9 @@ async function auditRoute(page, url, routeIndex, config) {
 
   const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
   for (let index = 0; index < maxControls; index += 1) {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    // Force a genuinely fresh SPA state before each control. Reusing the same
+    // hash URL does not guarantee React state (modals/accordions) is reset.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
     await page.waitForTimeout(Math.min(config.settle_ms, 1500));
 
     const controlsNow = await discoverInteractive(page);
