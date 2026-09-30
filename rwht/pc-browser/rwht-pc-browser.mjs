@@ -51,9 +51,11 @@ async function discoverInteractive(page) {
   ].join(',');
   const activeSurfaceSelector = await page.evaluate(() => {
     const routeHash = (window.location.hash || '#home').split('?')[0];
+    if (routeHash === '#mission') {
+      return document.querySelector('.modalBackdrop') ? '.modalBackdrop' : '.dashboardScreen';
+    }
     return routeHash === '#home' ? '.dashboardScreen' :
       routeHash === '#chat' ? '.chatScreen' :
-      routeHash === '#projects' ? '.projectShell' :
       routeHash === '#projects' ? '.projectShell' :
       routeHash === '#capabilities' ? '.capabilitiesViewport' :
       routeHash === '#settings' ? '.settingsViewport' :
@@ -135,12 +137,14 @@ async function checkUx(page) {
     // only the routed surface, otherwise inactive screens become false UX failures.
     const routeHash = (window.location.hash || '#home').split('?')[0];
     const activeSurfaceSelector =
-      routeHash === '#home' ? '.dashboardScreen' :
-      routeHash === '#chat' ? '.chatScreen' :
-      routeHash === '#capabilities' ? '.capabilitiesViewport' :
-      routeHash === '#settings' ? '.settingsViewport' :
-      routeHash === '#meditation' ? '.meditationViewport' :
-      null;
+      routeHash === '#mission'
+        ? (document.querySelector('.modalBackdrop') ? '.modalBackdrop' : '.dashboardScreen')
+        : routeHash === '#home' ? '.dashboardScreen' :
+          routeHash === '#chat' ? '.chatScreen' :
+          routeHash === '#capabilities' ? '.capabilitiesViewport' :
+          routeHash === '#settings' ? '.settingsViewport' :
+          routeHash === '#meditation' ? '.meditationViewport' :
+          null;
     const isInActiveSurface = (element) =>
       !activeSurfaceSelector || Boolean(element.closest(activeSurfaceSelector));
 
@@ -168,7 +172,10 @@ async function checkUx(page) {
       }
 
       if (rect.width > 0 && rect.height > 0) {
-        const fullyOutside = rect.right <= 0 || rect.left >= viewportWidth || rect.bottom <= 0 || rect.top >= viewportHeight;
+        // Vertical scrolling is legitimate UX: controls below the viewport are
+        // not failures when they remain inside the document. Flag only controls
+        // outside horizontally, above the viewport, or unreasonably oversized.
+        const fullyOutside = rect.right <= 0 || rect.left >= viewportWidth || rect.bottom <= 0;
         const huge = rect.width > viewportWidth * 1.2 || rect.height > viewportHeight * 1.2;
         if (fullyOutside || huge) {
           offscreenInteractive.push({
@@ -493,7 +500,14 @@ async function auditRoute(page, url, routeIndex, config) {
       control.name === original.name &&
       control.href === original.href &&
       control.tag === original.tag
-    ) || controlsNow[index];
+    ) || (original.selector_hint
+      ? controlsNow.find((control) =>
+          control.selector_hint === original.selector_hint &&
+          control.tag === original.tag
+        )
+      : null) || (original.id
+      ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+      : null) || controlsNow[index];
 
     if (!target) {
       routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
@@ -501,6 +515,10 @@ async function auditRoute(page, url, routeIndex, config) {
       continue;
     }
 
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
     const outcome = await testControl(page, target, config);
     routeResult.actions.push({
       control: {
