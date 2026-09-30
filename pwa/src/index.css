@@ -54,17 +54,17 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 .ideaAnalyzerPanel{margin-bottom:14px}
 .ideaAnalyzerInput{width:100%;margin:12px 0 8px;padding:13px;border:1px solid var(--line);border-radius:15px;background:#0f0c18;color:#fff;outline:none;resize:vertical;min-height:96px}
 .ideaAnalyzerToolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.ideaProposalList{display:grid;gap:10px;margin-top:14px}
-.ideaProposalCard{padding:13px;border:1px solid rgba(159,124,255,.18);border-radius:18px;background:rgba(255,255,255,.025)}
-.ideaProposalTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.ideaProposalList{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:14px}
+.ideaProposalCard{width:100%;min-width:0;max-width:100%;box-sizing:border-box;padding:13px;border:1px solid rgba(159,124,255,.18);border-radius:18px;background:rgba(255,255,255,.025)}
+.ideaProposalTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.ideaProposalTop>div{min-width:0;flex:1}
 .ideaProposalTop strong{display:block;line-height:1.45}
-.ideaMetaGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:11px}
+.ideaMetaGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:11px}
 .ideaMetaGrid span{padding:9px;border:1px solid rgba(255,255,255,.06);border-radius:12px;color:var(--muted);font-size:10px}
 .ideaMetaGrid b{display:block;color:var(--text);font-size:9px;text-transform:uppercase;margin-bottom:3px}
 .ideaBlockerBox{display:grid;gap:3px;margin-top:10px;padding:10px;border:1px dashed rgba(255,120,149,.28);border-radius:13px}
 .ideaBlockerBox b{font-size:10px;color:#ff91ab}
 .ideaBlockerBox small{color:var(--muted);line-height:1.4}
-.ideaMissionTemplates{display:grid;gap:7px;margin-top:11px}
+.ideaMissionTemplates{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;margin-top:11px}
 .ideaMissionTemplate{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:9px 10px;border-top:1px solid rgba(255,255,255,.06)}
 .ideaMissionTemplate:first-child{border-top:0}
 .ideaMissionTemplate>div{min-width:0;flex:1}
