@@ -3,6 +3,7 @@
 const { createAutonomousRuntime } = require('./autonomous-runtime');
 const { createCognitiveMemory } = require('../memory/cognitive-memory');
 const { createCognitiveLoop } = require('./cognitive-loop');
+const { buildMissionContext, evaluateBehavior } = require('../chatbending/operational-engine');
 
 function safeJson(value) {
   try { return JSON.stringify(value); } catch (_) { return String(value); }
@@ -44,8 +45,37 @@ function createCanonicalAriaRuntime(options = {}) {
   }
 
   async function startMission(input = {}) {
-    if (!cognitiveLoop) return runtime.startMission(input);
-    return cognitiveLoop.run(input);
+    const metadata = input && typeof input.metadata === 'object' ? input.metadata : {};
+    const cb = buildMissionContext({
+      goal: input?.goal,
+      project: input?.project || metadata.project || null,
+      current_state: metadata.current_state || null,
+      active_rules: metadata.active_rules || [],
+      evidence: metadata.evidence || [],
+      decisions: metadata.decisions || [],
+      learnings: metadata.learnings || [],
+      source_of_truth: metadata.source_of_truth || null,
+      tools: metadata.tools || [],
+      human_gates: metadata.human_gates || [],
+      forbidden_actions: metadata.forbidden_actions || [],
+      success_criteria: metadata.success_criteria || [],
+      next_test: metadata.next_test || null
+    });
+    const governance = evaluateBehavior({
+      context: cb,
+      contradiction: metadata.chatbending_contradiction === true,
+      stale: metadata.chatbending_stale === true
+    });
+    const enrichedInput = {
+      ...input,
+      metadata: { ...metadata, chatbending_context: cb, chatbending_behavior: governance },
+      checkpoint: { ...(input?.checkpoint || {}), chatbending_context: cb, chatbending_behavior: governance }
+    };
+    if (metadata.chatbending_enforce === true && ['STOP', 'BLOCKED', 'REVALIDATE'].includes(governance.mode)) {
+      return { mission_id: input?.mission_id || input?.missionId || null, status: governance.mode.toLowerCase(), reason: governance.reason, chatbending: governance };
+    }
+    if (!cognitiveLoop) return runtime.startMission(enrichedInput);
+    return cognitiveLoop.run(enrichedInput);
   }
 
   return Object.freeze({
@@ -60,7 +90,8 @@ function createCanonicalAriaRuntime(options = {}) {
     startMission,
     missionHttp: runtime.missionHttp,
     cognitiveMemory,
-    cognitiveLoop
+    cognitiveLoop,
+    chatbending: Object.freeze({ buildMissionContext, evaluateBehavior })
   });
 }
 
