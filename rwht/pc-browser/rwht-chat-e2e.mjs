@@ -17,7 +17,13 @@ function waitFor(ms) {
 }
 
 async function login(page) {
-  if (STORAGE_STATE) return { mode: 'storage_state', status: 'loaded' };
+  await page.waitForFunction(
+    () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('input[type="password"]')),
+    null,
+    { timeout: 30000 }
+  );
+  const dashboardVisible = await page.locator('.dashboardScreen').isVisible().catch(() => false);
+  if (dashboardVisible) return { mode: STORAGE_STATE ? 'storage_state' : 'existing_session', status: 'authenticated' };
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
 
   const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
