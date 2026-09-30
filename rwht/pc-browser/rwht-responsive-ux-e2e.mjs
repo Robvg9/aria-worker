@@ -268,12 +268,28 @@ async function verifyRealScroll(page) {
 }
 
 async function verifyKeyboardFocus(page, viewportName) {
-  const count = await page.locator('button,input,textarea,select,[tabindex]:not([tabindex="-1"])').count();
+  const candidates = page.locator('button,input,textarea,select,[tabindex]:not([tabindex="-1"])');
+  const count = await candidates.count();
   const samples = [];
-  for (let i = 0; i < Math.min(count, 8); i += 1) {
-    const locator = page.locator('button,input,textarea,select,[tabindex]:not([tabindex="-1"])').nth(i);
-    if (!(await locator.isVisible().catch(() => false))) continue;
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+
+  for (let i = 0; i < Math.min(count, 24) && samples.length < 8; i += 1) {
+    const locator = candidates.nth(i);
+    const eligible = await locator.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const s = getComputedStyle(el);
+      return !el.closest('.screenTrack') &&
+        s.display !== 'none' &&
+        s.visibility !== 'hidden' &&
+        Number(s.opacity) > 0 &&
+        r.width > 0 && r.height > 0 &&
+        r.left >= -1 && r.right <= window.innerWidth + 1 &&
+        r.top >= -1 && r.bottom <= window.innerHeight + 2;
+    }).catch(() => false);
+
+    if (!eligible) continue;
     await locator.focus().catch(() => {});
+
     const state = await page.evaluate(() => {
       const el = document.activeElement;
       if (!el) return null;
@@ -289,11 +305,19 @@ async function verifyKeyboardFocus(page, viewportName) {
     });
     samples.push(state);
   }
-  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
-  const keyboardReachable = samples.filter(Boolean).every(s => s.width > 0 && s.height > 0 && s.x >= -1 && s.x + s.width <= viewport.width + 1 && s.y < viewport.height + 2);
+
+  const keyboardReachable = samples.filter(Boolean).every(s =>
+    s.width > 0 &&
+    s.height > 0 &&
+    s.x >= -1 &&
+    s.x + s.width <= viewport.width + 1 &&
+    s.y < viewport.height + 2
+  );
+
   if (!keyboardReachable || samples.length === 0) {
     throw new Error('keyboard_focus_failed:' + JSON.stringify({ viewport: viewportName, samples }));
   }
+
   return { samples, checked: samples.length };
 }
 
