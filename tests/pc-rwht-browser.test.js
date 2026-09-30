@@ -83,6 +83,18 @@ assert.match(authenticatedWorkflow, /Require an authenticated session source/);
 assert.match(authenticatedWorkflow, /Configure RWHT_EMAIL \+ RWHT_PASSWORD or RWHT_STORAGE_STATE_B64/);
 assert.match(authenticatedWorkflow, /Execute authenticated PC PWA RWHT/);
 
+const pcWorkflow = fs.readFileSync(
+  path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'),
+  'utf8',
+);
+assert.match(pcWorkflow, /RWHT_STORAGE_STATE_B64/);
+assert.match(pcWorkflow, /Load persistent authenticated browser state/);
+assert.match(pcWorkflow, /RWHT_REQUIRE_AUTH:.*RWHT_STORAGE_STATE_B64/);
+
+const wranglerToml = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
+assert.match(wranglerToml, /\[placement\]/);
+assert.match(wranglerToml, /mode = "smart"/);
+
 assert.match(runner, /reload_auth: envBool\('RWHT_RELOAD_AUTH'/);
 assert.match(runner, /page\.reload\(\{ waitUntil: 'domcontentloaded'/);
 assert.match(authenticatedWorkflow, /RWHT_ROUTES: '#home'/);
