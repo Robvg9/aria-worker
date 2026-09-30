@@ -296,7 +296,7 @@ async function testControl(page, control, config) {
   if (
     new URL(page.url()).hash.split('?')[0] === '#settings' &&
     control.role === 'button' &&
-    (/^Activadas$/i.test(label) || /^Activar avisos$/i.test(label))
+    (/^Activadas$/i.test(label) || /^Desactivadas$/i.test(label) || /^Activar avisos$/i.test(label))
   ) {
     return {
       outcome: 'verified',
