@@ -308,11 +308,17 @@ async function run() {
       { timeout: TIMEOUT_MS }
     );
 
-    report.chat.response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
-    if (!report.chat.response_text) throw new Error('chat_response_empty');
-
     const chatPostResponse = await chatPostResponsePromise;
     const chatPostBody = await chatPostResponse.json().catch(() => null);
+    const canonicalAssistantText = typeof chatPostBody?.parts?.find?.(part => part?.type === 'text')?.text === 'string'
+      ? chatPostBody.parts.find(part => part.type === 'text').text.trim()
+      : '';
+    if (!canonicalAssistantText) throw new Error('chat_post_response_missing_assistant_text');
+
+    report.chat.response_text = canonicalAssistantText;
+    report.chat.ui_response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
+    if (!report.chat.ui_response_text) throw new Error('chat_response_empty');
+
     report.chat.post_response = {
       status: chatPostResponse.status(),
       conversationId: typeof chatPostBody?.conversationId === 'string' ? chatPostBody.conversationId : null,
@@ -324,6 +330,16 @@ async function run() {
         processing_ms: chatPostBody.cognitive.processing_ms ?? null
       } : null
     };
+
+    await page.waitForFunction(
+      ({responseValue}) => {
+        const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+        return [...document.querySelectorAll('.chatScreen .bubble.aria')]
+          .some(node => normalize(node.textContent).includes(normalize(responseValue)));
+      },
+      { responseValue: canonicalAssistantText },
+      { timeout: TIMEOUT_MS }
+    );
 
     await page.waitForFunction(
       ({prefix, markerValue}) => {
@@ -342,7 +358,7 @@ async function run() {
     );
     report.chat.local_persistence_verified = true;
 
-    const expectedAssistantText = report.chat.response_text.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
+    const expectedAssistantText = canonicalAssistantText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     let server = null;
     let serverMessages = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {
