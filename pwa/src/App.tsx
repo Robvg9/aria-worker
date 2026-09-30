@@ -1014,7 +1014,7 @@ function CapabilityCenter({
   return (
     <main className='appShell'>
       <header className='topBar'>
-        <div><div className='eyebrow'>ARIA / UNIVERSO</div><h1>Centro de capacidades</h1><div className='sub' data-testid='aria-sync-state' aria-live='polite'>Inventario real, pruebas, cobertura y rutas gobernadas.</div></div>
+        <div><div className='eyebrow'>ARIA / UNIVERSO</div><h1>Centro de capacidades</h1><div className='sub' data-testid='aria-sync-state' aria-live='polite' aria-atomic='true'>Inventario real, pruebas, cobertura y rutas gobernadas.</div></div>
       </header>
       <div className='pageBodyViewport capabilitiesViewport'>
         <section className='panel'>
