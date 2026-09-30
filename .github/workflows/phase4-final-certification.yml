@@ -1,0 +1,74 @@
+name: ARIA Phase 4 PC Final Certification
+
+on:
+  push:
+    branches:
+      - aria/phase4-pc-regression-20260930
+  workflow_dispatch:
+
+concurrency:
+  group: aria-phase4-final-cert
+  cancel-in-progress: false
+
+jobs:
+  phase4-final:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
+      RWHT_HEADLESS: 'true'
+      RWHT_NO_SCREENSHOTS: 'true'
+      RWHT_ALLOW_MUTATIONS: 'false'
+      RWHT_REQUIRE_AUTH: 'true'
+      RWHT_ROUTES: '#home,#chat,#projects,#meditation,#capabilities,#settings,#mission'
+      RWHT_MAX_CONTROLS_PER_ROUTE: '40'
+      RWHT_RELOAD_AUTH: 'true'
+      RWHT_LOGIN_WAIT_MS: '40000'
+      RWHT_EXPECTED_AUTH_TEXT: 'Lista para actuar'
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Prepare authenticated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${RWHT_EMAIL}" && -n "${RWHT_PASSWORD}" ]]; then
+            echo "RWHT_AUTH_STATE_SOURCE=password" >> "${GITHUB_ENV}"
+          elif [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          elif [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          else
+            echo "::error::No authenticated session source configured."
+            exit 1
+          fi
+      - name: Install dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install --with-deps chromium
+      - name: Execute Phase 4 final PC RWHT
+        working-directory: rwht/pc-browser
+        run: node rwht-pc-browser.mjs
+      - name: Upload Phase 4 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-phase4-final-cert-evidence
+          path: rwht/pc-browser/rwht-artifacts
+          if-no-files-found: warn
+      - name: Remove auth state
+        if: always()
+        shell: bash
+        run: rm -f "${RUNNER_TEMP}/aria-rwht-auth-state.json"
