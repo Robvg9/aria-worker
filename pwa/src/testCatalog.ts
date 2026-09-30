@@ -2323,6 +2323,16 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba columnas, índices, trigger y almacenamiento persistente del diagnóstico operacional.",
     "capabilities": "Valida la fuente persistente de correlation IDs, versiones, errores y evidencia."
   }
+  {
+    "id": "chatbending-operational-engine",
+    "file": "tests/chatbending-operational-engine.test.js",
+    "title": "ChatBending Operational Engine",
+    "category": "ChatBending / continuidad / gobierno",
+    "includedInNpmTest": true,
+    "how": "Comprueba el Mission Context, gates de conducta, escalamiento, cierre verificado y promoción controlada de aprendizajes.",
+    "capabilities": "Valida continuidad, STOP ante contradicción, REVALIDATE por frescura, cambio de ruta tras fallos y no auto-promoción de reglas."
+  },
+
 ];
 
 export type TestCatalogStats = Readonly<{
