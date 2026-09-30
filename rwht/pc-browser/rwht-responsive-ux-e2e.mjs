@@ -400,7 +400,7 @@ async function verifyModal(page) {
   page.on('console', msg => {
     if (msg.type() !== 'error') return;
     const message = msg.text();
-    if (/Failed to load resource: the server responded with a status of 5(?:02|03|04) \\(\\)/.test(message)) return;
+    if (/Failed to load resource: the server responded with a status of 5(?:02|03|04) \(\)/.test(message)) return;
     runtimeErrors.push('console: ' + message);
   });
   page.on('response', response => {
