@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-09-28-canonical';
+export const TEST_CATALOG_VERSION = '2026-09-30-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "phase6-anti-regression",
