@@ -18,6 +18,22 @@ function waitFor(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function evaluateWithNavigationRetry(page, callback, argument) {
+  let lastError;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await page.evaluate(callback, argument);
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message || error);
+      if (!/execution context was destroyed|cannot find context with specified id/i.test(message)) throw error;
+      await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+      await waitFor(150);
+    }
+  }
+  throw lastError;
+}
+
 async function login(page) {
   await page.waitForFunction(
     () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('input[type="password"]')),
@@ -46,7 +62,7 @@ async function login(page) {
 }
 
 async function readStoredSession(page) {
-  return page.evaluate(key => {
+  return evaluateWithNavigationRetry(page, key => {
     try {
       const raw = localStorage.getItem(key);
       const s = raw ? JSON.parse(raw) : null;
@@ -65,7 +81,7 @@ async function readStoredSession(page) {
 }
 
 async function readStateSnapshot(page) {
-  return page.evaluate(({sessionKey, cachePrefix, chatPrefix}) => {
+  return evaluateWithNavigationRetry(page, ({sessionKey, cachePrefix, chatPrefix}) => {
     const localKeys = [];
     for (let i = 0; i < localStorage.length; i += 1) localKeys.push(localStorage.key(i) || '');
     const session = (() => {
@@ -98,7 +114,7 @@ async function readStateSnapshot(page) {
 }
 
 async function readConversation(page, token) {
-  return page.evaluate(async accessToken => {
+  return evaluateWithNavigationRetry(page, async accessToken => {
     const response = await fetch('/api/conversation', {
       headers: { authorization: 'Bearer ' + accessToken },
       cache: 'no-store'
@@ -190,6 +206,8 @@ async function run() {
     report.login = await login(page);
 
     await assertDashboard(page);
+    await waitFor(500);
+    await assertDashboard(page);
     const session = await readStoredSession(page);
     if (!session?.userId || !session.accessTokenPresent || !session.refreshTokenPresent) {
       throw new Error('session_not_persisted_after_login');
@@ -205,7 +223,7 @@ async function run() {
 
     const refreshedBaseline = report.initial_session.expiresAt;
     const forcedExpiry = Date.now() + 65000;
-    await page.evaluate(({key, expiry}) => {
+    await evaluateWithNavigationRetry(page, ({key, expiry}) => {
       const raw = localStorage.getItem(key);
       const s = raw ? JSON.parse(raw) : null;
       if (!s) throw new Error('session_missing_before_refresh_probe');
@@ -246,7 +264,7 @@ async function run() {
 
     await page.goto(BASE_URL + '#chat', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.chatScreen .chatWindow', { state: 'visible', timeout: 60000 });
-    const accessToken = await page.evaluate(key => {
+    const accessToken = await evaluateWithNavigationRetry(page, key => {
       const s = JSON.parse(localStorage.getItem(key) || 'null');
       return s?.accessToken || '';
     }, SESSION_KEY);
