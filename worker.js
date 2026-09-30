@@ -1,3 +1,4 @@
+// Phase 3 RWHT clean verification trigger.
 // Phase 3 RWHT auth diagnostic trigger: same bounded deploy/certification cycle.
 // Phase 3 auth timeout contract: proxy-first password authentication uses bounded upstream latency.
 // Phase 3 canonical runtime certification trigger: behavior unchanged; force exact-SHA LIVE delivery after restoring versioned runtime-gateway source.
