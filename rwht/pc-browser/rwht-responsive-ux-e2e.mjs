@@ -79,20 +79,17 @@ async function login(page) {
     await page.getByRole('button', { name: 'ENTRAR EN ARIA' }).click();
 
     try {
-      await page.waitForFunction(() => {
-        const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        });
-        return !!document.querySelector('.dashboardScreen,.projectShell') || !!document.querySelector('.errorBox') || !pwd;
-      }, null, { timeout: 30000 });
+      await Promise.race([
+        authenticatedSurface.waitFor({ state: 'visible', timeout: 30000 }),
+        page.locator('.errorBox').waitFor({ state: 'visible', timeout: 30000 })
+      ]).catch(() => {});
 
       const authError = await page.locator('.errorBox').innerText().catch(() => '');
       if (authError) throw new Error('responsive_ux_auth_ui_error:' + authError.slice(0, 300));
 
       if (await authenticatedSurface.isVisible().catch(() => false)) return;
       throw new Error('authenticated_surface_not_visible_after_login');
-    } catch (error) {
+        } catch (error) {
       if (attempt === 3) {
         const authError = await page.locator('.errorBox').innerText().catch(() => '');
         throw new Error('responsive_ux_authenticated_login_failed_after_3_attempts:' + JSON.stringify({
