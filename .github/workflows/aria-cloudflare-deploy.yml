@@ -236,6 +236,8 @@ jobs:
             echo AUTH_PROXY_REACHABLE
           elif test "$proxy_code" = "504"; then
             echo AUTH_PROXY_UPSTREAM_BLOCKED
+          elif test "$proxy_code" = "000"; then
+            echo AUTH_PROXY_NETWORK_BLOCKED
           else
             echo AUTH_PROXY_UNEXPECTED_STATUS
             exit 1
