@@ -360,6 +360,27 @@ async function testControl(page, control, config) {
     }
     if (!locator) locator = semanticLocator();
 
+    // Dynamic labels can change across a reload (for example a preference toggle
+    // or notification permission button). As a final deterministic fallback, use
+    // the current control index within the same active route surface.
+    if (!locator && Number.isInteger(control.index)) {
+      const routeHash = new URL(page.url()).hash.split('?')[0] || '#home';
+      const surfaceSelector = routeHash === '#mission'
+        ? (await page.locator('.modalBackdrop').count().catch(() => 0) ? '.modalBackdrop' : '.dashboardScreen')
+        : routeHash === '#home' ? '.dashboardScreen' :
+          routeHash === '#chat' ? '.chatScreen' :
+          routeHash === '#projects' ? '.projectShell' :
+          routeHash === '#capabilities' ? '.capabilitiesViewport' :
+          routeHash === '#settings' ? '.settingsViewport' :
+          routeHash === '#meditation' ? '.meditationViewport' :
+          null;
+      const scoped = surfaceSelector ? page.locator(surfaceSelector) : page;
+      const candidate = scoped.locator(
+        'button,a[href],[role="button"],[role="tab"],[role="menuitem"],[role="link"],input:not([type="hidden"]):not([type="password"]):not([type="file"]),textarea,select,[contenteditable="true"]'
+      ).nth(control.index);
+      if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+    }
+
     // Details accordions are normally closed after a fresh navigation. Open the
     // containing details before acting so controls are tested in their real route,
     // not rejected merely because the accordion reset itself.
