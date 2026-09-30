@@ -851,7 +851,7 @@ function useLiveSync(load: () => Promise<void>, token: string, intervalMs: numbe
     const run = async () => {
       if (stopped || running || !navigator.onLine || document.visibilityState === 'hidden') return;
       running = true;
-      try { await loadRef.current(); } finally { running = false; }
+      try { await loadRef.current(); } catch {} finally { running = false; }
     };
     const wake = () => { if (document.visibilityState !== 'hidden') void run(); };
     void run();
