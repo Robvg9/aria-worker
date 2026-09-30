@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'pwa', 'src', 'App.tsx'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'rwht', 'pc-browser', 'rwht-persistence-recovery-e2e.mjs'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
+const providerGate = fs.readFileSync(path.join(root, '.github', 'workflows', 'supabase-provider-recovery-gate.yml'), 'utf8');
 
 for (const fragment of [
   "SESSION_KEY = 'aria_session_v2'",
