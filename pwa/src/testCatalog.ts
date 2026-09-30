@@ -128,6 +128,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en catálogo, filtros, navegación, contratos y UX de pruebas."
   },
   {
+    "id": "pwa-chat-history-race",
+    "file": "tests/pwa-chat-history-race.test.js",
+    "title": "PWA Chat History Race",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba que restaurar el historial tarde no borre mensajes enviados durante la carga inicial.",
+    "capabilities": "Detecta carreras entre la restauración GET y los envíos POST, preservando conversación e historial local."
+  },
+  {
     "id": "pwa-persistence-recovery-v1",
     "file": "tests/pwa-persistence-recovery-v1.test.js",
     "title": "PWA Persistence + Recovery V1",

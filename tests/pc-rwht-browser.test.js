@@ -62,7 +62,7 @@ assert.match(runner, /auth_verified/);
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /2026-09-28-canonical/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
-assert.match(pwaIndex, /content='254'/);
+assert.match(pwaIndex, /content='255'/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
@@ -80,7 +80,7 @@ assert.match(authenticatedWorkflow, /RWHT_EMAIL:/);
 assert.match(authenticatedWorkflow, /RWHT_PASSWORD:/);
 assert.match(authenticatedWorkflow, /RWHT_STORAGE_STATE_B64:/);
 assert.match(authenticatedWorkflow, /Require an authenticated session source/);
-assert.match(authenticatedWorkflow, /Configure RWHT_EMAIL \+ RWHT_PASSWORD or RWHT_STORAGE_STATE_B64/);
+assert.match(authenticatedWorkflow, /Configure RWHT_EMAIL \+ RWHT_PASSWORD, RWHT_STORAGE_STATE_B64, or RWHT_STORAGE_STATE_GZIP_B64/);
 assert.match(authenticatedWorkflow, /Execute authenticated PC PWA RWHT/);
 
 const pcWorkflow = fs.readFileSync(
