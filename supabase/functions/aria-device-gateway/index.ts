@@ -29,7 +29,12 @@ async function auth(r:Request,id?:string){
   const cached=authCache.get(cacheKey);
   if(cached&&cached.expiresAt>now)return{device:cached.device};
   if(cached)authCache.delete(cacheKey);
-  const {data,error}=await supabase.schema('aria_internal').from('device_registry').select('device_id,agent_type,status,capabilities').eq('device_id',deviceId).eq('token_hash',tokenHash).maybeSingle();
+  // aria_internal is intentionally not exposed through PostgREST. Use the
+  // public SECURITY DEFINER RPC as the single authenticated gateway path.
+  const {data,error}=await supabase.rpc('authenticate_device_gateway',{
+    p_device_id:deviceId,
+    p_token:m[1]
+  });
   if(error||!data)return{error:json({error:'unauthorized'},401)};
   if(data.status==='disabled')return{error:json({error:'device_disabled'},403)};
   authCache.set(cacheKey,{device:data,expiresAt:now+AUTH_CACHE_TTL_MS});
