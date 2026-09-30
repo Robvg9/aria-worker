@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'pwa/src/App.tsx'
+      - 'pwa/index.html'
+      - 'pwa/src/testCatalog.ts'
       - 'pwa/src/index.css'
       - 'worker.js'
       - 'rwht/pc-browser/rwht-persistence-recovery-e2e.mjs'
@@ -32,6 +34,8 @@ jobs:
       RWHT_ARTIFACT_DIR: persistence-recovery-rwht-artifacts
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -46,22 +50,37 @@ jobs:
           for attempt in $(seq 1 60); do
             version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}version.json?persist-recovery=${GITHUB_SHA}-${attempt}" 2>/dev/null || true)"
             if VERSION="${version}" GITHUB_SHA="${GITHUB_SHA}" python - <<'PY'
-          import json, os
+          import json, os, subprocess
           try:
-              assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+              live = json.loads(os.environ["VERSION"])["build"]
+              head = os.environ["GITHUB_SHA"]
+              if live == head:
+                  raise SystemExit(0)
+              subprocess.run(["git", "merge-base", "--is-ancestor", live, head], check=True)
+              subprocess.run([
+                  "git", "diff", "--quiet", live, head, "--",
+                  "pwa/", "worker.js", "scripts/cloudflare-workers-build.js", "wrangler.toml"
+              ], check=True)
               raise SystemExit(0)
           except Exception:
               raise SystemExit(1)
           PY
             then
-              echo "PERSISTENCE_RECOVERY_LIVE_BUILD_OK build=${GITHUB_SHA}"
+              echo "PERSISTENCE_RECOVERY_LIVE_BUILD_OK build=${GITHUB_SHA} live_build=$(VERSION="${version}" python -c 'import json,os; print(json.loads(os.environ["VERSION"])["build"])')"
               break
             fi
             test "${attempt}" -lt 60 && sleep 2
           done
           VERSION="${version}" GITHUB_SHA="${GITHUB_SHA}" python - <<'PY'
-          import json, os
-          assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
+          import json, os, subprocess
+          live = json.loads(os.environ["VERSION"])["build"]
+          head = os.environ["GITHUB_SHA"]
+          if live != head:
+              subprocess.run(["git", "merge-base", "--is-ancestor", live, head], check=True)
+              subprocess.run([
+                  "git", "diff", "--quiet", live, head, "--",
+                  "pwa/", "worker.js", "scripts/cloudflare-workers-build.js", "wrangler.toml"
+              ], check=True)
           PY
 
       - name: Require authenticated session source
