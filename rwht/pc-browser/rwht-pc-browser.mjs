@@ -359,6 +359,7 @@ async function testControl(page, control, config) {
       if (await hinted.count() && await hinted.isVisible().catch(() => false)) locator = hinted;
     }
     if (!locator) locator = semanticLocator();
+    if (locator && !(await locator.count().catch(() => 0))) locator = null;
 
     // Dynamic labels can change across a reload (for example a preference toggle
     // or notification permission button). As a final deterministic fallback, use
