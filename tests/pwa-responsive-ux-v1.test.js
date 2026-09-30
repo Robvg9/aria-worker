@@ -15,6 +15,7 @@ assert.match(css,/\.projectBodyViewport\{[^}]*overflow:auto;/);
 assert.match(css,/\.bottomNav\{[^}]*grid-template-columns:repeat\(7,minmax\(0,1fr\)/);
 assert.match(css,/\.bottomNav button\{width:100%;min-width:0;min-height:52px/);
 assert.match(css,/\.tabButton\{min-height:40px;box-sizing:border-box;/);
+assert.match(css,/\.primary,.ghost,.tool,.send,.actionCard,.tabButton\{min-height:40px;box-sizing:border-box;/);
 assert.match(css,/\.bottomNav button small\{[^}]*text-overflow:ellipsis/);
 assert.match(css,/\.desktopOnly\{display:none !important;/);
 assert.match(css,/\.modalBackdrop\{position:fixed;inset:0/);
