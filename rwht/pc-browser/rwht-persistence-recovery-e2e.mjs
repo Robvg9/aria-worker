@@ -127,32 +127,16 @@ async function run() {
   const consoleErrors = [];
   const failedResponses = [];
   const requestFailures = [];
-  let chatPostResponse = null;
-  let chatPostResponseReady = Promise.resolve();
+  let expectedRecoveryAbortErrors = false;
 
   page.on('pageerror', error => pageErrors.push({ message: String(error?.message || error).slice(0, 1200) }));
   page.on('console', message => {
-    if (message.type() === 'error') consoleErrors.push({ text: message.text().slice(0, 1200) });
+    if (message.type() !== 'error') return;
+    const text = message.text().slice(0, 1200);
+    if (expectedRecoveryAbortErrors && /Failed to load resource: net::ERR_FAILED/i.test(text)) return;
+    consoleErrors.push({ text });
   });
   page.on('response', response => {
-    if (response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/api/conversation')) {
-      chatPostResponseReady = response.json().then(body => {
-        chatPostResponse = {
-          status: response.status(),
-          conversationId: typeof body?.conversationId === 'string' ? body.conversationId : null,
-          error: typeof body?.error === 'string' ? body.error : null,
-          cognitive: body?.cognitive && typeof body.cognitive === 'object' ? {
-            input_persistence_ms: body.cognitive.input_persistence_ms ?? null,
-            assistant_persistence_ms: body.cognitive.assistant_persistence_ms ?? null,
-            persistence_warning: body.cognitive.persistence_warning ?? null,
-            processing_ms: body.cognitive.processing_ms ?? null
-          } : null,
-          response_text: typeof body?.parts?.find?.(part => part?.type === 'text')?.text === 'string'
-            ? body.parts.find(part => part?.type === 'text').text.slice(0, 160)
-            : null
-        };
-      }).catch(() => { chatPostResponse = { status: response.status(), body_parse_failed: true }; });
-    }
     if (response.status() >= 500) {
       failedResponses.push({
         status: response.status(),
@@ -275,6 +259,10 @@ async function run() {
     await input.fill(marker + ' responde con una confirmación breve.');
     if (!(await send.isEnabled())) throw new Error('chat_send_button_not_enabled');
     const before = await page.locator('.chatScreen .bubble.aria').count();
+    const chatPostResponsePromise = page.waitForResponse(response => {
+      const pathname = new URL(response.url()).pathname.replace(/\/+$/, '');
+      return response.request().method() === 'POST' && pathname === '/api/conversation';
+    }, { timeout: TIMEOUT_MS });
     await send.click();
 
     await page.waitForFunction(
@@ -287,6 +275,20 @@ async function run() {
 
     report.chat.response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
     if (!report.chat.response_text) throw new Error('chat_response_empty');
+
+    const chatPostResponse = await chatPostResponsePromise;
+    const chatPostBody = await chatPostResponse.json().catch(() => null);
+    report.chat.post_response = {
+      status: chatPostResponse.status(),
+      conversationId: typeof chatPostBody?.conversationId === 'string' ? chatPostBody.conversationId : null,
+      error: typeof chatPostBody?.error === 'string' ? chatPostBody.error : null,
+      cognitive: chatPostBody?.cognitive && typeof chatPostBody.cognitive === 'object' ? {
+        input_persistence_ms: chatPostBody.cognitive.input_persistence_ms ?? null,
+        assistant_persistence_ms: chatPostBody.cognitive.assistant_persistence_ms ?? null,
+        persistence_warning: chatPostBody.cognitive.persistence_warning ?? null,
+        processing_ms: chatPostBody.cognitive.processing_ms ?? null
+      } : null
+    };
 
     await page.waitForFunction(
       ({prefix, markerValue}) => {
@@ -305,14 +307,15 @@ async function run() {
     );
     report.chat.local_persistence_verified = true;
 
-    await chatPostResponseReady;
-    report.chat.post_response = chatPostResponse;
+    const expectedAssistantText = report.chat.response_text.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     let server = null;
     let serverMessages = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {
       server = await readConversation(page, accessToken);
       serverMessages = Array.isArray(server.body?.conversation?.messages) ? server.body.conversation.messages : [];
-      if (serverMessages.some(m => typeof m?.content === 'string' && m.content.includes(marker))) break;
+      const userSaved = serverMessages.some(m => m?.role === 'user' && typeof m?.content === 'string' && m.content.includes(marker));
+      const assistantSaved = serverMessages.some(m => m?.role === 'assistant' && typeof m?.content === 'string' && m.content.includes(expectedAssistantText));
+      if (userSaved && assistantSaved) break;
       if (attempt < 5) await waitFor(1000);
     }
     report.chat.server_persistence_status = server?.status ?? null;
@@ -320,8 +323,11 @@ async function run() {
     report.chat.server_message_count = serverMessages.length;
     report.chat.server_message_roles = serverMessages.map(m => String(m?.role ?? '')).slice(-8);
     report.chat.server_persistence_verified =
-      server?.status === 200 && serverMessages.some(m => typeof m?.content === 'string' && m.content.includes(marker));
+      server?.status === 200 && serverMessages.some(m => m?.role === 'user' && typeof m?.content === 'string' && m.content.includes(marker));
+    report.chat.server_assistant_persistence_verified =
+      server?.status === 200 && serverMessages.some(m => m?.role === 'assistant' && typeof m?.content === 'string' && m.content.includes(expectedAssistantText));
     if (!report.chat.server_persistence_verified) throw new Error('chat_server_persistence_missing');
+    if (!report.chat.server_assistant_persistence_verified) throw new Error('chat_server_assistant_persistence_missing');
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.chatScreen .chatWindow', { state: 'visible', timeout: 60000 });
@@ -343,6 +349,7 @@ async function run() {
     const beforeRecovery = await readStateSnapshot(page);
     if (!beforeRecovery.cache.system) throw new Error('system_cache_missing_before_recovery');
 
+    expectedRecoveryAbortErrors = true;
     await page.route('**/api/system*', route => route.abort('failed'));
     await page.route('**/api/missions*', route => route.abort('failed'));
     report.recovery.simulated_api_failure = true;
@@ -359,6 +366,7 @@ async function run() {
 
     await page.unroute('**/api/system*');
     await page.unroute('**/api/missions*');
+    expectedRecoveryAbortErrors = false;
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await assertDashboard(page);
