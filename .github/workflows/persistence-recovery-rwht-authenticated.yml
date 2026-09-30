@@ -6,6 +6,11 @@ on:
     paths:
       - 'pwa/src/App.tsx'
       - 'pwa/src/index.css'
+      - 'worker.js'
+      - 'rwht/pc-browser/rwht-persistence-recovery-e2e.mjs'
+      - 'tests/pwa-persistence-recovery-v1.test.js'
+      - 'tests/pwa-auth-proxy-contract.test.js'
+      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
   workflow_dispatch:
 
 concurrency:
