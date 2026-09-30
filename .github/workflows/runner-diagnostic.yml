@@ -104,4 +104,3 @@ jobs:
             gh api               --method PUT               "repos/$REPO/contents/reports/runner-diagnostic.json"               -f message="$message"               -f content="$(base64 -w0 reports/runner-diagnostic.json)"               -f branch="$branch" >/dev/null
           fi
 
-# 2026-09-30: trigger diagnostic to verify self-hosted Windows runner state.
