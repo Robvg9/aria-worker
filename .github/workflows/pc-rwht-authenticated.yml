@@ -51,20 +51,24 @@ jobs:
           if [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then
             has_storage_gzip_auth=true
           fi
-          if [[ "${has_password_auth}" != true && "${has_storage_auth}" != true && "${has_storage_gzip_auth}" != true ]]; then
-            echo "::error title=Authenticated RWHT blocked::Configure RWHT_EMAIL + RWHT_PASSWORD, RWHT_STORAGE_STATE_B64, or RWHT_STORAGE_STATE_GZIP_B64 as repository secrets."
-            exit 1
-          fi
-          if [[ "${has_storage_auth}" == true ]]; then
+
+          # Prefer the real password login when configured. The previously saved
+          # storage state may be stale and must remain a fallback, not the authority.
+          if [[ "${has_password_auth}" == true ]]; then
+            echo "RWHT_AUTH_STATE_SOURCE=password" >> "${GITHUB_ENV}"
+          elif [[ "${has_storage_auth}" == true ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             echo "RWHT_AUTH_STATE_SOURCE=raw-storage-state" >> "${GITHUB_ENV}"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
           elif [[ "${has_storage_gzip_auth}" == true ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
-            echo "RWHT_AUTH_STATE_SOURCE=gzip-storage-state" >> "${GITHUB_ENV}"
-          fi
-          if [[ "${has_storage_auth}" == true || "${has_storage_gzip_auth}" == true ]]; then
             chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_AUTH_STATE_SOURCE=gzip-storage-state" >> "${GITHUB_ENV}"
             echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          else
+            echo "::error title=Authenticated RWHT blocked::Configure RWHT_EMAIL + RWHT_PASSWORD, RWHT_STORAGE_STATE_B64, or RWHT_STORAGE_STATE_GZIP_B64 as repository secrets."
+            exit 1
           fi
 
       - name: Install PC RWHT dependencies
