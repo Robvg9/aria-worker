@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-persistence-recovery-rwht
+  group: aria-persistence-recovery-rwht-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
