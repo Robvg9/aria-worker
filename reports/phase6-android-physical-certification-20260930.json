@@ -1,0 +1,40 @@
+{
+  "phase": "6/9",
+  "name": "Android Physical",
+  "status": "PASS",
+  "closed_at": "2026-09-30T21:00:29.552534Z",
+  "device_id": "android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092",
+  "gateway": "aria-device-gateway v177",
+  "auth": {
+    "heartbeat_http": 200,
+    "heartbeat_seconds": 0.645123,
+    "token_hash_verified_against_registry": true
+  },
+  "preflight": "13/13 PASS",
+  "physical": {
+    "observe_before_recovery": "succeeded",
+    "click_entrar_en_aria": "succeeded",
+    "observe_after_action": "succeeded",
+    "navigate_post_recovery": "succeeded",
+    "final_post_recovery_observe": "succeeded",
+    "final_evidence_hash": "61c91553d867181456966239e16e8613bc7ae2b86a807f8b8790c9f45779679a"
+  },
+  "recovery": {
+    "manual_ui_agent_stop": true,
+    "automatic_recovery_seen": true,
+    "ready_seen_again": true,
+    "failed_attempts_before_ready": 2,
+    "post_recovery_navigate": "succeeded",
+    "post_recovery_observe": "succeeded"
+  },
+  "persistence": {
+    "mission_id": "phase6_android_physical_20260930",
+    "status": "succeeded",
+    "completed_steps": 3,
+    "total_steps": 3
+  },
+  "integration": {
+    "pull_request": 663,
+    "main_merge_required_before_100_percent": true
+  }
+}
