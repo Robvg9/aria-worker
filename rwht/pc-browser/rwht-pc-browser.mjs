@@ -382,6 +382,14 @@ async function testControl(page, control, config) {
       if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
     }
 
+    if (!locator) {
+      return {
+        outcome: 'failed',
+        action: 'click',
+        reason: 'control_not_reproducible'
+      };
+    }
+
     // Details accordions are normally closed after a fresh navigation. Open the
     // containing details before acting so controls are tested in their real route,
     // not rejected merely because the accordion reset itself.
