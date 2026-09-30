@@ -558,7 +558,7 @@ function isRetryableAuthError(error: unknown) {
 
 async function signInDirect(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 15000);
+  const timer = window.setTimeout(() => controller.abort(), 30000);
   try {
     const r = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
       method: 'POST',
@@ -575,7 +575,7 @@ async function signInDirect(email: string, password: string) {
 
 async function signInProxy(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 20000);
+  const timer = window.setTimeout(() => controller.abort(), 45000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
