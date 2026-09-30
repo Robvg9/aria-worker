@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-phase4-final-cert
+  group: aria-phase4-final-cert-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
