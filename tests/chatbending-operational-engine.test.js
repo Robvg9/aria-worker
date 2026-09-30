@@ -3,6 +3,15 @@
 const assert = require('node:assert/strict');
 const {
   buildMissionContext,
+  inferIntent,
+  rankRecall,
+  detectContradictions,
+  evaluateFreshness,
+  buildEvidenceEdge,
+  buildHealthSnapshot,
+  planCleanup,
+  buildDashboardSnapshot,
+  runContinuityCheck,
   evaluateBehavior,
   verifyClosure,
   buildLearningCandidate,
@@ -19,6 +28,38 @@ const context = buildMissionContext({
 
 assert.equal(context.version, 'chatbending-mission-context-v1');
 assert.deepEqual(context.active_rules, ['RULE-001', 'RULE-004']);
+assert.equal(inferIntent('debug this error'), 'DEBUG');
+assert.equal(inferIntent('build this capability', 'BUILD'), 'BUILD');
+const ranked = rankRecall([
+  { memory_id: 'low', title: 'legacy', content: 'other', hybrid_score: 0.1 },
+  { memory_id: 'high', title: 'debug authentication', content: 'debug error', hybrid_score: 0.9, confidence: 0.9 }
+], { query: 'debug error', limit: 1 });
+assert.equal(ranked.length, 1);
+assert.equal(ranked[0].memory_id, 'high');
+assert.equal(detectContradictions([
+  { id: 'a', subject: 'version', value: '1.0' },
+  { id: 'b', subject: 'version', value: '2.0' }
+]).length, 1);
+assert.equal(evaluateFreshness({ verified_at: '2026-09-29T00:00:00Z', freshness_window_days: 2, now: '2026-09-30T00:00:00Z' }).status, 'CURRENT');
+assert.equal(evaluateFreshness({ verified_at: '2026-09-20T00:00:00Z', freshness_window_days: 2, now: '2026-09-30T00:00:00Z' }).status, 'REVALIDATE');
+assert.equal(buildEvidenceEdge({ from: 'e1', to: 'd1', relation: 'supports' }).relation, 'supports');
+const health = buildHealthSnapshot();
+assert.equal(health.status, 'HEALTHY');
+assert.equal(buildHealthSnapshot({ evidence: false }).status, 'DEGRADED');
+assert.equal(buildHealthSnapshot({ evidence: false, behavior: false }).status, 'BLOCKED');
+assert.deepEqual(planCleanup([
+  { id: 'old', superseded: true },
+  { id: 'historical', superseded: true, historical: true },
+  { id: 'broken', broken_reference: true }
+]).map(x => x.action), ['ARCHIVE', 'REPAIR']);
+const dashboard = buildDashboardSnapshot({ health, blockers: ['none'], gates: [{ id: 'G1', result: 'PASS' }] });
+assert.equal(dashboard.status, 'HEALTHY');
+assert.equal(runContinuityCheck({
+  context,
+  expected_project: 'ChatBending',
+  required_rules: ['RULE-001'],
+  require_source_of_truth: false
+}).verified, true);
 
 assert.equal(evaluateBehavior({context}).mode, 'CONTINUE');
 assert.equal(evaluateBehavior({context, contradiction:true}).mode, 'STOP');
