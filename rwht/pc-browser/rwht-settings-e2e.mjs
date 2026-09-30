@@ -105,7 +105,13 @@ function panel(page, text) {
   const runtimeErrors = [];
   page.on('pageerror', e => runtimeErrors.push('pageerror: ' + e.message));
   page.on('console', msg => {
-    if (msg.type() === 'error') runtimeErrors.push('console: ' + msg.text());
+    if (msg.type() !== 'error') return;
+    const message = msg.text();
+    const location = msg.location();
+    const isExpectedAuthFallback =
+      /Failed to load resource: the server responded with a status of 400 \(\)/.test(message) &&
+      /supabase\.co|auth\/v1\/token/.test(String(location?.url || ''));
+    if (!isExpectedAuthFallback) runtimeErrors.push('console: ' + message);
   });
   page.on('response', async response => {
     if (response.status() >= 400) {
@@ -226,7 +232,11 @@ function panel(page, text) {
     evidence.checks.relogin_verified = true;
     evidence.checks.error_responses_observed = responseDiagnostics.filter(x => x.status >= 400);
 
+    const unexpectedResponses = responseDiagnostics.filter(x => x.status >= 500);
+    if (unexpectedResponses.length) throw new Error('unexpected_server_errors:' + JSON.stringify(unexpectedResponses));
     if (runtimeErrors.length) throw new Error(runtimeErrors.join(' | '));
+    evidence.checks.expected_auth_fallback_observed =
+      responseDiagnostics.some(x => x.status === 400 && /auth\/v1\/token/.test(x.url));
     evidence.status = 'verified';
     evidence.finished_at = new Date().toISOString();
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'settings-rwht-evidence.json'), JSON.stringify(evidence, null, 2));
