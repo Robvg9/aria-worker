@@ -236,6 +236,37 @@ async function collectLayoutAudit(page) {
   });
 }
 
+async function verifyRealScroll(page) {
+  const result = await page.evaluate(() => {
+    const candidates = [...document.querySelectorAll('.pageBodyViewport,.chatWindow,.projectBodyViewport,.detailModal,.notificationPanel,.detailTimeline')]
+      .filter(el => {
+        const s = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && /(auto|scroll)/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 20;
+      });
+    const el = candidates[0];
+    if (!el) return { available: false, changed: false };
+    const before = el.scrollTop;
+    const max = el.scrollHeight - el.clientHeight;
+    el.scrollTop = Math.min(max, Math.max(40, Math.round(max * 0.35)));
+    const after = el.scrollTop;
+    el.scrollTop = before;
+    return {
+      available: true,
+      changed: after !== before,
+      className: String(el.className || ''),
+      before: Math.round(before),
+      after: Math.round(after),
+      scrollHeight: Math.round(el.scrollHeight),
+      clientHeight: Math.round(el.clientHeight)
+    };
+  });
+  if (result.available && !result.changed) {
+    throw new Error('real_scroll_did_not_move:' + JSON.stringify(result));
+  }
+  return result;
+}
+
 async function verifyKeyboardFocus(page, viewportName) {
   const count = await page.locator('button,input,textarea,select,[tabindex]:not([tabindex="-1"])').count();
   const samples = [];
@@ -363,6 +394,8 @@ async function verifyModal(page) {
         await waitRouteReady(page, route);
 
         const audit = await collectLayoutAudit(page);
+        const scrollCheck = await verifyRealScroll(page);
+        const keyboardCheck = await verifyKeyboardFocus(page, viewport.name + ':' + route.id);
         const globalPass = !audit.document_horizontal_overflow &&
           audit.horizontal_overflow.length === 0 &&
           audit.clipping.length === 0 &&
@@ -395,7 +428,9 @@ async function verifyModal(page) {
           pass: true,
           scroll_available: audit.scroll_available,
           visible_buttons: audit.visible_buttons,
-          intentional_truncations: audit.intentional_truncations.length
+          intentional_truncations: audit.intentional_truncations.length,
+          scroll_check: scrollCheck,
+          keyboard_check: keyboardCheck
         });
 
         if (route.id === 'dashboard' || route.id === 'settings') {
@@ -406,7 +441,6 @@ async function verifyModal(page) {
         }
       }
 
-      row.keyboard = await verifyKeyboardFocus(page, viewport.name);
       evidence.viewport_checks.push(row);
     }
 
@@ -420,7 +454,7 @@ async function verifyModal(page) {
     );
     if (unexpectedRuntime.length) throw new Error('unexpected_runtime_errors:' + JSON.stringify(unexpectedRuntime));
 
-    evidence.keyboard_focus = { all_viewports_verified: true };
+    evidence.keyboard_focus = { all_viewports_verified: true, routes_per_viewport: ROUTES.length };
     evidence.response_diagnostics = responseDiagnostics.slice(-40);
     evidence.runtime_errors = unexpectedRuntime;
     evidence.status = 'verified';
