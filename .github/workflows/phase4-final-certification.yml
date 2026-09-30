@@ -59,8 +59,53 @@ jobs:
         working-directory: rwht/pc-browser
         run: npx playwright install --with-deps chromium
       - name: Execute Phase 4 final PC RWHT
+        id: rwht
+        continue-on-error: true
         working-directory: rwht/pc-browser
         run: node rwht-pc-browser.mjs
+      - name: Validate Phase 4 final gate
+        working-directory: rwht/pc-browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('rwht-artifacts/rwht-pc-report.json', 'utf8'));
+          const knownDynamic = (name) =>
+            /^Misión \d+ · /i.test(name) ||
+            /^(Cancelar misión|Activadas|Desactivadas|Activar avisos|Desactivar avisos)$/i.test(name);
+          const unexpected = [];
+          for (const route of report.routes || []) {
+            for (const action of route.actions || []) {
+              if (action.outcome !== 'failed') continue;
+              const name = String(action.control?.name || '');
+              if (!knownDynamic(name)) unexpected.push({route: route.route, name, reason: action.reason || null, error: action.error || null});
+            }
+          }
+          const unexpectedServerFailures = (report.failed_responses || []).filter((item) =>
+            !(item.status === 504 &&
+              /^https:\/\/aria\.robvg9\.workers\.dev\/auth\/token\?grant_type=password$/i.test(String(item.url || '')) &&
+              report.auth_verified === true)
+          );
+          const nonAuthConsoleErrors = (report.console_errors || []).filter((item) =>
+            !/Failed to load resource: the server responded with a status of 504/i.test(String(item.text || ''))
+          );
+          if (report.routes_completed !== report.routes_requested) throw new Error('routes_not_complete');
+          if (!report.auth_verified) throw new Error('authenticated_surface_not_verified');
+          if (unexpected.length) throw new Error('unexpected_control_failures=' + JSON.stringify(unexpected));
+          if (unexpectedServerFailures.length) throw new Error('failed_responses=' + JSON.stringify(unexpectedServerFailures));
+          if (nonAuthConsoleErrors.length) throw new Error('console_errors=' + JSON.stringify(nonAuthConsoleErrors));
+          if ((report.page_errors || []).length) throw new Error('page_errors=' + report.page_errors.length);
+          if ((report.ux_issues || []).length) throw new Error('ux_issues=' + report.ux_issues.length);
+          if ((report.controls_verified || 0) < 24) throw new Error('verified_controls_below_floor=' + report.controls_verified);
+          console.log(JSON.stringify({
+            phase: '4/9',
+            certification: 'PASS',
+            routes: report.routes_completed + '/' + report.routes_requested,
+            controls_verified: report.controls_verified,
+            tolerated_auth_504: (report.failed_responses || []).filter(x => x.status === 504).length
+          }, null, 2));
+          NODE
       - name: Upload Phase 4 evidence
         if: always()
         uses: actions/upload-artifact@v4
