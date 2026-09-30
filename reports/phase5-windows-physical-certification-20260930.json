@@ -1,0 +1,56 @@
+{
+  "phase": "5/9",
+  "name": "Windows Physical",
+  "status": "PASS",
+  "certification": "101",
+  "branch": "aria/phase5-windows-physical-20260930",
+  "main_base": "98ffd91efb1af65839b1d505e43cff08f1945a56",
+  "local_head_before_evidence": "bdd283a1",
+  "device_id": "windows-fe722cc6681e4f9c9cc35f5ebbb0a089",
+  "runtime_node": "v24.19.0",
+  "os": "windows/10.0.19045",
+  "agent_version": "aria-windows-agent-v2",
+  "desktop_version": "aria-windows-desktop-v1.9",
+  "agent_file_sha256": "DB6F3ED783736C438DB6F6955F547C110D72368688FB5799C2A781FCDA5BFB2F",
+  "runtime_agent_sha256": "DB6F3ED783736C438DB6F6955F547C110D72368688FB5799C2A781FCDA5BFB2F",
+  "adapter_file_sha256": "0413ED05ED08DDC3BB3BB5D666F3ABC23D1BE70621D0695207249C9334331D42",
+  "runtime_adapter_sha256": "0413ED05ED08DDC3BB3BB5D666F3ABC23D1BE70621D0695207249C9334331D42",
+  "shell_job": {
+    "job_id": "phase5-shell-20260930-01",
+    "status": "succeeded",
+    "exit_code": 0,
+    "marker": "ARIA_PHASE5_WINDOWS_SHELL_E2E_20260930"
+  },
+  "computer_use_jobs": [
+    ["phase5-cu-open-20260930-01", "succeeded", "open"],
+    ["phase5-cu-focus-20260930-01", "succeeded", "focus"],
+    ["phase5-cu-type-20260930-01", "succeeded", "type"],
+    ["phase5-cu-observe-20260930-01", "succeeded", "observe"]
+  ],
+  "recovery": {
+    "timeout_job": "phase5-cu-timeout-20260930-01",
+    "timeout_status": "timeout",
+    "recovery_job": "phase5-cu-recover-focus-20260930-01",
+    "recovery_status": "succeeded"
+  },
+  "physical_e2e": {
+    "started": "2026-09-30T15:49:34.6561828-04:00",
+    "ended": "2026-09-30T15:50:03.6045995-04:00",
+    "exit_code": 0,
+    "result": "PASS_101",
+    "screen": "1366x768",
+    "notepad": "observe+screenshot+recovery verified",
+    "chrome": "open+focus+navigate+observe+screenshot verified"
+  },
+  "contract_tests": {
+    "windows_computer_use": "PASS",
+    "computer_use_runtime_v1": "PASS",
+    "autonomous_windows_rwht_controller": "PASS"
+  },
+  "persisted_mission": {
+    "mission_id": "phase5_windows_physical_20260930",
+    "status": "succeeded",
+    "completed_steps": 3,
+    "total_steps": 3
+  }
+}
