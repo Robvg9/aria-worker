@@ -2322,7 +2322,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba columnas, índices, trigger y almacenamiento persistente del diagnóstico operacional.",
     "capabilities": "Valida la fuente persistente de correlation IDs, versiones, errores y evidencia."
-  }
+  },
   {
     "id": "chatbending-operational-engine",
     "file": "tests/chatbending-operational-engine.test.js",
