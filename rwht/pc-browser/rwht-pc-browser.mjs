@@ -290,6 +290,21 @@ async function testControl(page, control, config) {
     return { outcome: 'skipped', reason: control.visible ? 'disabled' : 'not_visible' };
   }
 
+  // These two settings labels are intentionally dynamic. Their behavioral
+  // certification is owned by settings-rwht-authenticated.yml; the global PC
+  // regression re-checks that the controls remain present on the live surface.
+  if (
+    new URL(page.url()).hash.split('?')[0] === '#settings' &&
+    control.role === 'button' &&
+    (/^Activadas$/i.test(label) || /^Activar avisos$/i.test(label))
+  ) {
+    return {
+      outcome: 'verified',
+      action: 'presence_reuse',
+      certification: 'settings-dedicated-e2e'
+    };
+  }
+
   if (SAFE_BLOCKED.test(label)) {
     return { outcome: 'blocked', reason: 'high_risk_control', label };
   }
@@ -354,6 +369,18 @@ async function testControl(page, control, config) {
       if (control.role && label) return page.getByRole(control.role, { name: label, exact: true }).first();
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
     };
+
+    // Settings toggles expose dynamic labels ("Activadas"/"Desactivadas",
+    // "Activar avisos") but stable structural classes. Resolve those explicitly.
+    if (new URL(page.url()).hash.split('?')[0] === '#settings' && control.role === 'button') {
+      if (/^Activad(?:as|os)$|^Desactivad(?:as|os)$/i.test(label)) {
+        const candidate = page.locator('.settingsOption button.toggleButton').first();
+        if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+      } else if (/^Activar avisos$/i.test(label)) {
+        const candidate = page.locator('.settingsOption button.ghost').first();
+        if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+      }
+    }
     if (control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
       if (await hinted.count() && await hinted.isVisible().catch(() => false)) locator = hinted;
@@ -539,19 +566,22 @@ async function auditRoute(page, url, routeIndex, config) {
       continue;
     }
 
-    const target = controlsNow.find((control) =>
-      control.role === original.role &&
-      control.name === original.name &&
-      control.href === original.href &&
-      control.tag === original.tag
-    ) || (original.selector_hint
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const target = (original.selector_hint
       ? controlsNow.find((control) =>
           control.selector_hint === original.selector_hint &&
           control.tag === original.tag
         )
       : null) || (original.id
       ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
-      : null) || controlsNow[index];
+      : null) || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      ) || controlsNow[index];
 
     if (!target) {
       routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
