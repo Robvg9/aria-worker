@@ -1698,7 +1698,7 @@ function Chat({
           <div>
             <div className='eyebrow'>ARIA · COGNITIVE CORE</div>
             <h1>{screen === 0 ? 'Dashboard' : 'Chat'}</h1>
-            <div className='sub'>
+            <div className='sub' data-testid='aria-sync-state'>
               {syncState === 'live'
                 ? 'Núcleo conectado'
                 : syncState === 'cached'
