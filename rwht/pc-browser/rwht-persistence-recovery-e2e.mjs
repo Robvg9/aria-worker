@@ -143,6 +143,7 @@ async function run() {
   const consoleErrors = [];
   const failedResponses = [];
   const requestFailures = [];
+  const authRefreshResponses = [];
   let expectedRecoveryAbortErrors = false;
 
   page.on('pageerror', error => pageErrors.push({ message: String(error?.message || error).slice(0, 1200) }));
@@ -153,6 +154,21 @@ async function run() {
     consoleErrors.push({ text });
   });
   page.on('response', response => {
+    const responseUrl = new URL(response.url());
+    if (responseUrl.pathname.endsWith('/auth/token') || responseUrl.pathname.endsWith('/auth/v1/token')) {
+      void response.json().then(body => authRefreshResponses.push({
+        path: responseUrl.pathname,
+        grant_type: responseUrl.searchParams.get('grant_type'),
+        status: response.status(),
+        error: typeof body?.error === 'string' ? body.error.slice(0, 120) : null,
+        error_description: typeof body?.error_description === 'string' ? body.error_description.slice(0, 200) : null
+      })).catch(() => authRefreshResponses.push({
+        path: responseUrl.pathname,
+        grant_type: responseUrl.searchParams.get('grant_type'),
+        status: response.status(),
+        body_parse_failed: true
+      }));
+    }
     if (response.status() >= 500) {
       failedResponses.push({
         status: response.status(),
@@ -196,6 +212,7 @@ async function run() {
     page_errors: [],
     failed_responses: [],
     request_failures: [],
+    auth_refresh_responses: [],
     verified: false,
     failure: null
   };
@@ -408,6 +425,7 @@ async function run() {
   report.page_errors = pageErrors.slice(0, 100);
   report.failed_responses = failedResponses.slice(0, 100);
   report.request_failures = requestFailures.slice(0, 100);
+  report.auth_refresh_responses = authRefreshResponses.slice(0, 20);
 
   fs.writeFileSync(path.join(ARTIFACT_DIR, 'persistence-recovery-rwht-report.json'), JSON.stringify(report, null, 2));
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'persistence-recovery-final.png'), fullPage: true }).catch(() => {});
@@ -427,7 +445,8 @@ async function run() {
     page_errors: report.page_errors.length,
     console_errors: report.console_errors.length,
     failed_responses: report.failed_responses.length,
-    failure: report.failure
+    failure: report.failure,
+    auth_refresh_responses: report.auth_refresh_responses
   }, null, 2));
 
   if (!report.verified) process.exitCode = 2;
