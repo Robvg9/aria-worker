@@ -155,3 +155,5 @@ if(url.pathname==="/pwa"||url.pathname.startsWith("/pwa/")){if(request.method!==
 // phase2 final PWA recovery propagation certification
 
 // Persistence / Recovery phase: Supabase auth refresh proxy is intentionally given a bounded 60s upstream window.
+
+// 2026-09-30: fresh Persistence/Recovery certification trigger after new Supabase Auth/DB recovery evidence; behavior unchanged.
