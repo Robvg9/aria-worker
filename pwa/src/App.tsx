@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
+import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
 import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
@@ -1429,6 +1430,7 @@ function Chat({
   const [lastProcessingMs, setLastProcessingMs] = useState<number | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatWindowRef = useRef<HTMLDivElement | null>(null);
+  const chatMutationVersionRef = useRef(0);
   const [syncState, setSyncState] = useState<'cached' | 'live' | 'offline'>(
     system || caps || mission ? 'cached' : 'offline'
   );
@@ -1503,6 +1505,7 @@ function Chat({
 
   useEffect(() => {
     if (screen !== 1) return;
+    const loadMutationVersion = chatMutationVersionRef.current;
     let cancelled = false;
     (async () => {
       try {
@@ -1518,6 +1521,10 @@ function Chat({
           : [];
         if (cancelled) return;
         const serverConversationId = typeof d?.conversation_id === 'string' ? d.conversation_id : null;
+        if (loadMutationVersion !== chatMutationVersionRef.current) {
+          setMessages(current => mergeRestoredChatMessages(restored, current));
+          return;
+        }
         const localHistory = readChatHistory(session.userId);
         if (restored.length || !localHistory?.messages?.length) {
           setConversationId(serverConversationId ?? localHistory?.conversationId ?? null);
@@ -1561,6 +1568,7 @@ function Chat({
   async function send() {
     const clean = text.trim();
     if ((!clean && !file) || sending) return;
+    chatMutationVersionRef.current += 1;
     setSending(true); setError('');
     processingStartedAtRef.current = Date.now();
     setProcessingElapsedMs(0);
@@ -1607,6 +1615,7 @@ function Chat({
   async function confirmPendingMission() {
     const pending = pendingMissionConfirmation;
     if (!pending || sending) return;
+    chatMutationVersionRef.current += 1;
     setSending(true);
     setError('');
     const startedAt = Date.now();
