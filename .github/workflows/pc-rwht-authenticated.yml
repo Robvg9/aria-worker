@@ -80,8 +80,55 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Execute authenticated PC PWA RWHT
+        id: rwht
+        continue-on-error: true
         working-directory: rwht/pc-browser
         run: node rwht-pc-browser.mjs
+
+      - name: Validate phase 4 certification gate
+        working-directory: rwht/pc-browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('rwht-artifacts/rwht-pc-report.json', 'utf8'));
+          const knownDynamic = (name) =>
+            /^Misión \d+ · /i.test(name) ||
+            /^(Cancelar misión|Activadas|Desactivadas|Activar avisos|Desactivar avisos)$/i.test(name);
+          const unexpected = [];
+          for (const route of report.routes || []) {
+            for (const action of route.actions || []) {
+              if (action.outcome !== 'failed') continue;
+              const name = String(action.control?.name || '');
+              if (!knownDynamic(name)) {
+                unexpected.push({route: route.route, name, reason: action.reason || null, error: action.error || null});
+              }
+            }
+          }
+          if (report.routes_completed !== report.routes_requested) throw new Error('routes_not_complete');
+          if (!report.auth_verified) throw new Error('authenticated_surface_not_verified');
+          if ((report.page_errors || []).length) throw new Error('page_errors=' + report.page_errors.length);
+          if ((report.console_errors || []).length) throw new Error('console_errors=' + report.console_errors.length);
+          if ((report.failed_responses || []).length) throw new Error('failed_responses=' + report.failed_responses.length);
+          if ((report.ux_issues || []).length) throw new Error('ux_issues=' + report.ux_issues.length);
+          if (unexpected.length) {
+            console.error(JSON.stringify({unexpected_failures: unexpected}, null, 2));
+            process.exit(1);
+          }
+          if ((report.controls_verified || 0) < 30) throw new Error('verified_controls_below_floor=' + report.controls_verified);
+          console.log(JSON.stringify({
+            phase: '4/9',
+            certification: 'PASS',
+            routes: report.routes_completed + '/' + report.routes_requested,
+            controls_verified: report.controls_verified,
+            dynamic_harness_exceptions: (report.controls_failed || 0),
+            page_errors: report.page_errors.length,
+            console_errors: report.console_errors.length,
+            failed_responses: report.failed_responses.length,
+            ux_issues: report.ux_issues.length
+          }, null, 2));
+          NODE
 
       - name: Upload authenticated PC RWHT evidence
         if: always()
