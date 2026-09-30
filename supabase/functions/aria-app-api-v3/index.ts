@@ -789,16 +789,12 @@ Deno.serve(async (req) => {
     }
     if (req.method === "GET" && path.endsWith("/conversation") && !path.includes("/projects/")) {
       const sb = serviceClient();
-      // Global chat lookup must use the canonical security-definer RPC.
-      // Direct PostgREST access to aria_app is not a supported API surface and
-      // can produce PGRST106 even while the canonical conversation RPCs are healthy.
-      const lookup = await sb.rpc("aria_app_list_conversations", { p_user_id: user.id });
+      // Global chat lookup uses a bounded security-definer RPC that returns only
+      // the latest global conversation. Listing every historical conversation can
+      // exceed the Edge Function latency budget on large histories.
+      const lookup = await sb.rpc("aria_app_get_global_conversation", { p_user_id: user.id });
       if (lookup.error) return json({ error: "conversation_lookup_failed", trace_id: trace }, 502);
-      const rows = Array.isArray(lookup.data) ? lookup.data : [];
-      const row = rows.find((x:any) => {
-        const md = x?.metadata && typeof x.metadata === "object" ? x.metadata : {};
-        return !md.project_id;
-      });
+      const row = lookup.data && typeof lookup.data === "object" ? lookup.data : null;
       let conversationId = row?.conversation_id ? String(row.conversation_id) : crypto.randomUUID();
       if (!row) {
         const ensured = await sb.rpc("aria_app_ensure_conversation", {
