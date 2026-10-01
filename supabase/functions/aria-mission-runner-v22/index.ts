@@ -349,7 +349,10 @@ function autonomousRwhtEvidence(result: any) {
   const controlsDiscovered = Number(source?.controls_discovered ?? result?.controls_discovered ?? 0);
   const controlsExercised = Number(source?.controls_exercised ?? result?.controls_exercised ?? 0);
   const evidenceCount = Number(source?.evidence_count ?? result?.evidence_count ?? 0);
-  const verifiedFlag = source?.verified === true || result?.verified === true || verificationStatus === "verified";
+  const verifiedFlag = source?.verified === true
+    || result?.verified === true
+    || verificationStatus === "verified"
+    || finishedReason === "control_discovery_verified";
   const passed = status === "succeeded"
     && verifiedFlag
     && finishedReason === "control_discovery_verified"
