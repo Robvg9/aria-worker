@@ -201,12 +201,21 @@ async function ariaPwaMasterMissionPlan(goal:string,context:any){
   const gl=g.toLowerCase();
   const deviceId=String(context?.mission_planner_contract?.requested_device_id||context?.device_id||"").trim();
   const targetUrl=String(context?.start_url||"https://aria.robvg9.workers.dev/pwa/");
-  const windows=await windowsPcRwhtPlan(g+" Windows PC RWHT",{
+  const windowsResponse=await windowsPcRwhtPlan(g+" Windows PC RWHT",{
     ...context,
     start_url:targetUrl,
     max_actions:Math.max(40,Math.min(180,Number(context?.max_actions||120))),
     max_runtime_ms:Math.max(180000,Math.min(900000,Number(context?.max_runtime_ms||600000)))
   });
+  let windowsPlan:any=null;
+  try{
+    if(windowsResponse && typeof (windowsResponse as any).json==="function"){
+      const parsed=await (windowsResponse as Response).json();
+      windowsPlan=parsed?.plan||null;
+    }else if(windowsResponse && typeof windowsResponse==="object"){
+      windowsPlan=(windowsResponse as any).plan||null;
+    }
+  }catch(_e){ windowsPlan=null; }
   const routes=await modelRoutes();
   const agentsRes=await db.from("agent_catalog").select("agent_id,role,model_id,status,max_risk")
     .eq("status","available").order("agent_id").limit(20);
@@ -226,14 +235,34 @@ async function ariaPwaMasterMissionPlan(goal:string,context:any){
   steps.push(modelStep("master_synthesis_1",route,
     "Analiza el inventario producido por master_inventory_1 y conviértelo en un backlog operativo mínimo, ordenado por dependencia. El resultado debe indicar qué puede verificarse en Windows RWHT, qué requiere repositorio/runtime y qué requiere Human Gate. No inventes. Objetivo: "+g+" CONTEXTO: "+evidenceContext,
     ["master_inventory_1"]));
+  const rwhtBase=(windowsPlan?.steps?.[0]&&typeof windowsPlan.steps[0]==="object")
+    ? windowsPlan.steps[0]
+    : {
+        operation:"computer.use.autonomous",executor_type:"device",
+        target:{type:"device",device_id:deviceId||null},
+        input:{mode:"rwht",goal:g,start_url:targetUrl,max_actions:120,max_runtime_ms:600000,capture_screenshots:true},
+        risk:"LOW_RISK_WRITE",timeout_ms:660000,
+        policy:{tool_use:true,autonomous_ui_test:true,adaptive_replanning:true,destructive_actions_blocked:true,secret_input_blocked:true,spanish_output_required:true},
+        verify:{response_content_nonempty:true}
+      };
+  const rwhtGoal=g+" — VERIFICACIÓN FULL PWA LIVE: recorrer y verificar #home, #chat, #mission, #projects, #meditation, #capabilities y #settings.";
   steps.push({
-    id:"master_rwht_1",
-    ...(windows&&typeof windows==="object"&&windows.plan?windows.plan.steps?.[0]||{}:{
-      operation:"computer.use.autonomous",executor_type:"device",
-      target:{type:"device",device_id:deviceId||null},
-      input:{mode:"rwht",goal:g,start_url:targetUrl,max_actions:120,max_runtime_ms:600000,capture_screenshots:true},
-      risk:"LOW_RISK_WRITE",timeout_ms:660000,policy:{tool_use:true,autonomous_ui_test:true,adaptive_replanning:true,destructive_actions_blocked:true,secret_input_blocked:true,spanish_output_required:true},verify:{response_content_nonempty:true}
-    }),
+    ...rwhtBase,
+    id:"master_rwht_full_1",
+    operation:"computer.use.autonomous",
+    executor_type:"device",
+    target:{type:"device",device_id:deviceId||rwhtBase?.target?.device_id||null},
+    input:{
+      ...(rwhtBase.input||{}),
+      mode:"rwht",
+      goal:rwhtGoal,
+      start_url:targetUrl,
+      max_actions:Math.max(40,Math.min(180,Number(context?.max_actions||120))),
+      max_runtime_ms:Math.max(180000,Math.min(900000,Number(context?.max_runtime_ms||600000))),
+      capture_screenshots:true
+    },
+    timeout_ms:Math.max(240000,Math.min(960000,Number(rwhtBase.timeout_ms||660000))),
+    verify:{...(rwhtBase.verify||{}),response_content_nonempty:true}
   });
   steps[2].depends_on=["master_synthesis_1"];
   steps.push({
@@ -241,17 +270,17 @@ async function ariaPwaMasterMissionPlan(goal:string,context:any){
     operation:"delegate",executor_type:"agent",
     target:{type:"agent",agent_id:coder.agent_id},
     capability:"coding",
-    input:{goal:"LIBRO MAESTRO — implementación gobernada de los hallazgos confirmados",prompt:esPrompt("Usa los resultados de master_inventory_1, master_synthesis_1 y master_rwht_1. Implementa únicamente correcciones confirmadas y gobernadas en una rama no-main. No trabajes sobre BattleCruiser/CuevaCoin salvo que el hallazgo lo requiera explícitamente. Ejecuta pruebas focalizadas. Registra archivos, commits y evidencia. Objetivo: "+g),max_tokens:3600},
+    input:{goal:"LIBRO MAESTRO — implementación gobernada de los hallazgos confirmados",prompt:esPrompt("Usa los resultados de master_inventory_1, master_synthesis_1 y master_rwht_full_1. Implementa únicamente correcciones confirmadas y gobernadas en una rama no-main. No trabajes sobre BattleCruiser/CuevaCoin salvo que el hallazgo lo requiera explícitamente. Ejecuta pruebas focalizadas. Registra archivos, commits y evidencia. Objetivo: "+g),max_tokens:3600},
     risk:"LOW_RISK_WRITE",timeout_ms:240000,
     policy:{...governedWritePolicy,spanish_output_required:true,post_merge_verification_required:true},
-    depends_on:["master_rwht_1"],verify:{}
+    depends_on:["master_rwht_full_1"],verify:{}
   });
   steps.push(agentStep("master_verification_1",reviewer,
     "VERIFICACIÓN FINAL DEL BLOQUE ACTUAL DEL LIBRO MAESTRO. Contrasta inventario, RWHT, cambios implementados, tests y evidencia LIVE. No modifiques nada. Debes indicar explícitamente si el bloque está listo para pasar al siguiente área o qué causa concreta queda pendiente. Objetivo: "+g+" CONTEXTO: "+evidenceContext,
     ["master_implementation_1"]));
   return {
     goal:g,steps,
-    planner_version:"aria-planner-v11-aria-pwa-master-v1",
+    planner_version:"aria-planner-v11-aria-pwa-master-v2-full-rwht",
     primary_objective:true,
     project_id:"aria",
     scope:"pwa_master",
