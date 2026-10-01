@@ -20,8 +20,12 @@ function waitFor(ms) {
 async function login(page) {
   const apiSession = await signInViaAuthApi(page);
   if (apiSession) {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await waitFor(1500);
     const verified = await ensureLiveSession(page);
     if (verified) return { mode: 'password_api', status: 'authenticated', attempts: 1, auth_endpoint: apiSession.authEndpoint };
+    const persisted = await readSession(page).catch(() => null);
+    if (persisted?.accessToken && persisted.userId) return { mode: 'password_api_persisted', status: 'authenticated', attempts: 1, auth_endpoint: apiSession.authEndpoint };
   }
 
   await page.waitForFunction(
@@ -32,6 +36,10 @@ async function login(page) {
 
   const existing = await ensureLiveSession(page);
   if (existing) return { mode: 'existing_session', status: 'authenticated', attempts: 0 };
+  const persisted = await readSession(page).catch(() => null);
+  if (persisted?.accessToken && persisted.userId && await page.locator('.dashboardScreen').isVisible().catch(() => false)) {
+    return { mode: 'persisted_session', status: 'authenticated', attempts: 0 };
+  }
 
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
 
@@ -122,8 +130,6 @@ async function signInViaAuthApi(page) {
     email: result.email
   };
   await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), session);
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await waitFor(1200);
   return { ...session, authEndpoint: result.endpoint };
 }
 
