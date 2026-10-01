@@ -190,8 +190,20 @@ function capabilityProfile(deviceId) {
   };
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error('http_' + response.status);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function chromeCdpCall(method, params = {}) {
-  const tabs = await (await fetch('http://127.0.0.1:9222/json')).json();
+  const tabs = await fetchJsonWithTimeout('http://127.0.0.1:9222/json', 5000);
   const page = tabs.find((tab) => tab && tab.type === 'page' && String(tab.url || '').includes('aria.robvg9.workers.dev/pwa'));
   if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') {
     throw new Error('chrome_cdp_page_unavailable');
