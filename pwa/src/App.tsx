@@ -2885,7 +2885,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(() => {
     try {
       const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-      return s && s.expiresAt > Date.now() + 60000 ? s : null;
+      return s && typeof s.accessToken === 'string' && typeof s.refreshToken === 'string' ? s : null;
     } catch { return null; }
   });
   const initialNavigation = navigationFromHash();
@@ -2946,6 +2946,7 @@ export default function App() {
     const onVisibility = () => { if (document.visibilityState === 'visible') refreshIfNeeded(); };
     window.addEventListener('focus', refreshIfNeeded);
     document.addEventListener('visibilitychange', onVisibility);
+    void refreshIfNeeded();
     schedule();
 
     return () => {
