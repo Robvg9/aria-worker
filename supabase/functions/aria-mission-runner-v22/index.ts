@@ -269,6 +269,26 @@ function applyRecoveryAgentFallbacks(steps: any[], recovery: any) {
   });
 }
 
+function preserveCompletedProgress(checkpoint: any, nextSteps: any[]) {
+  const completed = Array.isArray(checkpoint?.completed_steps) ? checkpoint.completed_steps.map(String) : [];
+  const validIds = new Set((Array.isArray(nextSteps) ? nextSteps : []).map((step:any)=>String(step?.id)));
+  const preserved = completed.filter((id) => validIds.has(id));
+  const attemptsSource = checkpoint?.attempts && typeof checkpoint.attempts === "object" ? checkpoint.attempts : {};
+  const resultsSource = checkpoint?.results && typeof checkpoint.results === "object" ? checkpoint.results : {};
+  const attempts: Record<string, number> = {};
+  const results: Record<string, unknown> = {};
+  for (const id of preserved) {
+    if (Object.prototype.hasOwnProperty.call(attemptsSource, id)) attempts[id] = Number(attemptsSource[id] || 0);
+    if (Object.prototype.hasOwnProperty.call(resultsSource, id)) results[id] = resultsSource[id];
+  }
+  return {
+    completed_steps: preserved,
+    attempts,
+    results,
+    pending_jobs: {},
+  };
+}
+
 function validateStep(step: any) {
   const type = executorType(step);
   if (!["connector", "device", "model", "agent", "eas"].includes(type)) {
@@ -1664,18 +1684,23 @@ Deno.serve(async (request) => {
             previous_plan: recoveryPreviousPlan,
             previous_results: previousResults,
           };
+          const preservedRecovery = preserveCompletedProgress(mission.checkpoint, recoveredSteps);
+          autoRecovery.evidence = {
+            ...(autoRecovery.evidence || {}),
+            preserved_completed_steps: preservedRecovery.completed_steps,
+          };
           await updateMission(missionId, {
             status: "queued",
-            current_step: 0,
-            completed_steps: 0,
+            current_step: preservedRecovery.completed_steps.length,
+            completed_steps: preservedRecovery.completed_steps.length,
             next_action: "next_ready_batch",
             last_stderr: "automatic_strategy_recovery",
             checkpoint: {
               ...(mission.checkpoint || {}),
               plan: recoveredSteps,
-              completed_steps: [],
-              attempts: {},
-              results: {},
+              completed_steps: preservedRecovery.completed_steps,
+              attempts: preservedRecovery.attempts,
+              results: preservedRecovery.results,
               pending_jobs: {},
               recovery: autoRecovery,
               recovery_history: [
@@ -1734,16 +1759,24 @@ Deno.serve(async (request) => {
           current_plan_signature: planStrategySignature(steps),
         },
       };
+      const preservedIdenticalRecovery = preserveCompletedProgress(mission.checkpoint, steps);
+      identicalRecovery.evidence = {
+        ...(identicalRecovery.evidence || {}),
+        preserved_completed_steps: preservedIdenticalRecovery.completed_steps,
+      };
       await updateMission(missionId, {
         status: "waiting",
-        current_step: 0,
-        completed_steps: 0,
+        current_step: preservedIdenticalRecovery.completed_steps.length,
+        completed_steps: preservedIdenticalRecovery.completed_steps.length,
         next_action: identicalRecovery.next_action,
         last_stderr: "identical_replan_strategy_blocked",
         checkpoint: {
           ...(mission.checkpoint || {}),
           recovery: identicalRecovery,
           plan: steps,
+          completed_steps: preservedIdenticalRecovery.completed_steps,
+          attempts: preservedIdenticalRecovery.attempts,
+          results: preservedIdenticalRecovery.results,
           active_step: null,
           pending_jobs: {},
         },
@@ -1805,6 +1838,7 @@ Deno.serve(async (request) => {
           });
           return out({ok:false,status:"blocked",mission_id:missionId,runtime:V,block_details:{kind:"objective_plan_replan_failed",reason:"El planificador no pudo generar una estrategia que investigue directamente la superficie solicitada.",remediation:"Revisar el diagnóstico y volver a ejecutar la misión con la ruta Windows/Computer Use disponible."}});
         }
+        const preservedObjectiveProgress = preserveCompletedProgress(mission.checkpoint, steps);
         const secondGuard=objectivePlanAlignment(String(mission.goal || ""), steps);
         if(!secondGuard.ok){
           await updateMission(missionId,{
@@ -1819,13 +1853,14 @@ Deno.serve(async (request) => {
           });
           return out({ok:false,status:"blocked",mission_id:missionId,runtime:V,block_details:{kind:secondGuard.kind,reason:secondGuard.reason,required:secondGuard.required,forbidden:secondGuard.forbidden,next_action:"Generar un plan que investigue directamente Windows/Computer Use antes de ejecutar cambios en otra capa.",remediation:"La misión no puede certificarse hasta que su plan corresponda con el objetivo."}});
         }
+        const preservedObjectiveForUpdate = preserveCompletedProgress(mission.checkpoint, steps);
         await updateMission(missionId,{
           status:"queued",
-          current_step:0,
-          completed_steps:0,
+          current_step:preservedObjectiveForUpdate.completed_steps.length,
+          completed_steps:preservedObjectiveForUpdate.completed_steps.length,
           next_action:"next_ready_batch",
           last_stderr:null,
-          checkpoint:{...(mission.checkpoint||{}),objective_plan_guard:{kind:objectiveGuard.kind,replan_attempts:previousObjectiveReplans+1,recovered:true},plan:steps,completed_steps:[],attempts:{},results:{},pending_jobs:{}},
+          checkpoint:{...(mission.checkpoint||{}),objective_plan_guard:{kind:objectiveGuard.kind,replan_attempts:previousObjectiveReplans+1,recovered:true},plan:steps,completed_steps:preservedObjectiveForUpdate.completed_steps,attempts:preservedObjectiveForUpdate.attempts,results:preservedObjectiveForUpdate.results,pending_jobs:{}},
           lease_owner:null,
           lease_until:null,
         });
@@ -2468,6 +2503,7 @@ Deno.serve(async (request) => {
           });
         }
 
+        const preservedBeforeReplan = preserveCompletedProgress(checkpoint, steps);
         const replanCount = Number(mission?.checkpoint?.recovery?.replan_count || 0) + 1;
         const failedStepIds = failedStepIdsEarly;
         const previousPlan = steps;
@@ -2570,11 +2606,14 @@ Deno.serve(async (request) => {
           checkpoint: {
             ...checkpoint,
             plan: undefined,
-            completed_steps: [],
-            attempts: {},
-            results: {},
+            completed_steps: preservedBeforeReplan.completed_steps,
+            attempts: preservedBeforeReplan.attempts,
+            results: preservedBeforeReplan.results,
             pending_jobs: {},
-            recovery,
+            recovery: {
+              ...recovery,
+              preserved_completed_steps: preservedBeforeReplan.completed_steps,
+            },
           },
           lease_owner: null,
           lease_until: null,
