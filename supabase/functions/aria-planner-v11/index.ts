@@ -195,6 +195,69 @@ function learningPromptSuffix(learning:any){
 }
 
 async function modelRoutes(){const [{data:m},{data:c},{data:a}]=await Promise.all([db.from("model_registry").select("model_id,provider_id,status,enabled"),db.from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),db.from("account_registry").select("account_id,provider_id,status,enabled")]);return (m||[]).filter((x:any)=>x.enabled&&x.status==="available").map((x:any)=>{const cap=(c||[]).find((z:any)=>z.model_id===x.model_id);const acc=(a||[]).find((z:any)=>z.provider_id===x.provider_id&&z.enabled&&["available","active"].includes(String(z.status)));return acc?{model_id:x.model_id,provider_id:x.provider_id,account_id:acc.account_id,capability_status:cap?.status||"unknown",evidence_type:cap?.evidence_type||"unknown",evidence_ref:cap?.evidence_ref||null,score:(cap?.status==="verified"?100:50)+(x.provider_id==="google"?10:0)}:null}).filter(Boolean).sort((x:any,y:any)=>y.score-x.score)}
+async function ariaPwaMasterMissionPlan(goal:string,context:any){
+  const g=String(goal||"");
+  if(!/(libro\s+maestro|pwa\s+aria|aria\s+.*pwa|pwa\s+.*aria)/i.test(g)) return null;
+  const gl=g.toLowerCase();
+  const deviceId=String(context?.mission_planner_contract?.requested_device_id||context?.device_id||"").trim();
+  const targetUrl=String(context?.start_url||"https://aria.robvg9.workers.dev/pwa/");
+  const windows=await windowsPcRwhtPlan(g+" Windows PC RWHT",{
+    ...context,
+    start_url:targetUrl,
+    max_actions:Math.max(40,Math.min(180,Number(context?.max_actions||120))),
+    max_runtime_ms:Math.max(180000,Math.min(900000,Number(context?.max_runtime_ms||600000)))
+  });
+  const routes=await modelRoutes();
+  const agentsRes=await db.from("agent_catalog").select("agent_id,role,model_id,status,max_risk")
+    .eq("status","available").order("agent_id").limit(20);
+  const agents=Array.isArray(agentsRes.data)?agentsRes.data:[];
+  const reviewer=agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||"")))||agents[0];
+  const coder=agents.find((a:any)=>/cod|developer|implement/i.test(String(a.role||"")))||agents.find((a:any)=>a.agent_id!=="aria-agent-reviewer-v1")||agents[0];
+  const route=routes.find((x:any)=>x.provider_id==="openrouter")||routes[0];
+  if(!reviewer||!coder||!route)return null;
+  const evidenceContext=JSON.stringify({scope:"PWA ARIA Libro Maestro",goal:g,start_url:targetUrl,device_id:deviceId||null}).slice(0,7000);
+  const steps:any[]=[];
+  steps.push(agentStep("master_inventory_1",reviewer,
+    "AUDITORÍA INICIAL DEL LIBRO MAESTRO. Inspecciona únicamente evidencia real del estado actual de ARIA y su PWA. Debes producir un inventario priorizado de problemas, contradicciones y pruebas pendientes por las 13 áreas del alcance. No modifiques nada. Distingue CONFIRMADO/HIPÓTESIS. Objetivo: "+g+" CONTEXTO: "+evidenceContext));
+  steps.push(modelStep("master_synthesis_1",route,
+    "Analiza el inventario producido por master_inventory_1 y conviértelo en un backlog operativo mínimo, ordenado por dependencia. El resultado debe indicar qué puede verificarse en Windows RWHT, qué requiere repositorio/runtime y qué requiere Human Gate. No inventes. Objetivo: "+g+" CONTEXTO: "+evidenceContext,
+    ["master_inventory_1"]));
+  steps.push({
+    id:"master_rwht_1",
+    ...(windows&&typeof windows==="object"&&windows.plan?windows.plan.steps?.[0]||{}:{
+      operation:"computer.use.autonomous",executor_type:"device",
+      target:{type:"device",device_id:deviceId||null},
+      input:{mode:"rwht",goal:g,start_url:targetUrl,max_actions:120,max_runtime_ms:600000,capture_screenshots:true},
+      risk:"LOW_RISK_WRITE",timeout_ms:660000,policy:{tool_use:true,autonomous_ui_test:true,adaptive_replanning:true,destructive_actions_blocked:true,secret_input_blocked:true,spanish_output_required:true},verify:{response_content_nonempty:true}
+    }),
+  });
+  steps[2].depends_on=["master_synthesis_1"];
+  steps.push({
+    id:"master_implementation_1",
+    operation:"delegate",executor_type:"agent",
+    target:{type:"agent",agent_id:coder.agent_id},
+    capability:"coding",
+    input:{goal:"LIBRO MAESTRO — implementación gobernada de los hallazgos confirmados",prompt:esPrompt("Usa los resultados de master_inventory_1, master_synthesis_1 y master_rwht_1. Implementa únicamente correcciones confirmadas y gobernadas en una rama no-main. No trabajes sobre BattleCruiser/CuevaCoin salvo que el hallazgo lo requiera explícitamente. Ejecuta pruebas focalizadas. Registra archivos, commits y evidencia. Objetivo: "+g),max_tokens:3600},
+    risk:"LOW_RISK_WRITE",timeout_ms:240000,
+    policy:{...governedWritePolicy,spanish_output_required:true,post_merge_verification_required:true},
+    depends_on:["master_rwht_1"],verify:{}
+  });
+  steps.push(agentStep("master_verification_1",reviewer,
+    "VERIFICACIÓN FINAL DEL BLOQUE ACTUAL DEL LIBRO MAESTRO. Contrasta inventario, RWHT, cambios implementados, tests y evidencia LIVE. No modifiques nada. Debes indicar explícitamente si el bloque está listo para pasar al siguiente área o qué causa concreta queda pendiente. Objetivo: "+g+" CONTEXTO: "+evidenceContext,
+    ["master_implementation_1"]));
+  return {
+    goal:g,steps,
+    planner_version:"aria-planner-v11-aria-pwa-master-v1",
+    primary_objective:true,
+    project_id:"aria",
+    scope:"pwa_master",
+    execution_lane:"primary",
+    start_url:targetUrl,
+    capability_policy:"aria-pwa-master-explicit-scope-v1",
+    learning_context:context?.learned_knowledge
+  };
+}
+
 async function battlecruiserGithubRwhtPlan(goal:string,context:any){
   const rawProject=String(
     context?.project_id
