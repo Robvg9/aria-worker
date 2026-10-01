@@ -22,10 +22,10 @@ async function login(page) {
   if (apiSession) {
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     await waitFor(1500);
-    const verified = await ensureLiveSession(page);
-    if (verified) return { mode: 'password_api', status: 'authenticated', attempts: 1, auth_endpoint: apiSession.authEndpoint };
     const persisted = await readSession(page).catch(() => null);
-    if (persisted?.accessToken && persisted.userId) return { mode: 'password_api_persisted', status: 'authenticated', attempts: 1, auth_endpoint: apiSession.authEndpoint };
+    if (persisted?.accessToken && persisted.userId) {
+      return { mode: 'password_api', status: 'authenticated', attempts: 1, auth_endpoint: apiSession.authEndpoint };
+    }
   }
 
   await page.waitForFunction(
