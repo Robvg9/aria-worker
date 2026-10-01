@@ -1,3 +1,0 @@
-Trigger only. Independent PWA headless baseline requested on 2026-10-01.
-v5
-final-v6
