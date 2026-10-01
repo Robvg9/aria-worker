@@ -272,14 +272,46 @@ function applyRecoveryAgentFallbacks(steps: any[], recovery: any) {
 function preserveCompletedProgress(checkpoint: any, nextSteps: any[]) {
   const completed = Array.isArray(checkpoint?.completed_steps) ? checkpoint.completed_steps.map(String) : [];
   const validIds = new Set((Array.isArray(nextSteps) ? nextSteps : []).map((step:any)=>String(step?.id)));
-  const preserved = completed.filter((id) => validIds.has(id));
   const attemptsSource = checkpoint?.attempts && typeof checkpoint.attempts === "object" ? checkpoint.attempts : {};
   const resultsSource = checkpoint?.results && typeof checkpoint.results === "object" ? checkpoint.results : {};
+  const recovery = checkpoint?.recovery && typeof checkpoint.recovery === "object" ? checkpoint.recovery : {};
+  const recoveryResults = recovery?.previous_results && typeof recovery.previous_results === "object" ? recovery.previous_results : {};
+  const recoveryAttempts = recovery?.block_details?.evidence?.attempts && typeof recovery.block_details.evidence.attempts === "object"
+    ? recovery.block_details.evidence.attempts
+    : {};
+  const failedIds = new Set(
+    (Array.isArray(recovery?.failed_step_ids) ? recovery.failed_step_ids : [recovery?.failed_step_id])
+      .filter(Boolean)
+      .map(String),
+  );
+  const resultIsVerifiedSuccess = (result: any) => {
+    const status = String(result?.status || "").toLowerCase();
+    const verificationStatus = String(result?.verification_status || "").toLowerCase();
+    if (status !== "succeeded") return false;
+    if (["failed", "timeout", "cancelled", "blocked", "unverified", "error", "none"].includes(verificationStatus)) return false;
+    if (result?.verified === false) return false;
+    return !result?.error;
+  };
+  const recovered = (Array.isArray(nextSteps) ? nextSteps : [])
+    .map((step:any) => String(step?.id || ""))
+    .filter((id) => id && !completed.includes(id) && !failedIds.has(id))
+    .filter((id) => Object.prototype.hasOwnProperty.call(recoveryResults, id) && resultIsVerifiedSuccess(recoveryResults[id]));
+  const preserved = [...new Set([...completed, ...recovered])].filter((id) => validIds.has(id));
   const attempts: Record<string, number> = {};
   const results: Record<string, unknown> = {};
   for (const id of preserved) {
-    if (Object.prototype.hasOwnProperty.call(attemptsSource, id)) attempts[id] = Number(attemptsSource[id] || 0);
-    if (Object.prototype.hasOwnProperty.call(resultsSource, id)) results[id] = resultsSource[id];
+    if (Object.prototype.hasOwnProperty.call(attemptsSource, id)) {
+      attempts[id] = Number(attemptsSource[id] || 0);
+    } else if (Object.prototype.hasOwnProperty.call(recoveryAttempts, id)) {
+      attempts[id] = Number(recoveryAttempts[id] || 1);
+    } else {
+      attempts[id] = 1;
+    }
+    if (Object.prototype.hasOwnProperty.call(resultsSource, id)) {
+      results[id] = resultsSource[id];
+    } else if (Object.prototype.hasOwnProperty.call(recoveryResults, id)) {
+      results[id] = recoveryResults[id];
+    }
   }
   return {
     completed_steps: preserved,
