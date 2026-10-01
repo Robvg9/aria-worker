@@ -2413,3 +2413,5 @@ export function filterTestCatalog(query = '', category = 'Todas'): TestCatalogIt
     return categoryOk && queryOk;
   });
 }
+
+// Baseline trigger marker 2026-10-01. No runtime behavior change.
