@@ -204,7 +204,12 @@ async function battlecruiserGithubRwhtPlan(goal:string,context:any){
   ).toLowerCase();
   const g=String(goal||"");
   const gl=g.toLowerCase();
-  const isBattleCruiser=rawProject==="battlecruiser" || /battlecruiser/i.test(g);
+  // Mentioning BattleCruiser inside a broader ARIA/PWA audit is scope context, not BattleCruiser mission intent.
+  // Specialized GitHub RWHT must activate only for an explicit BattleCruiser target/project.
+  const broadAriaPwaScope=/(libro\s+maestro|pwa\s+aria|aria\s+.*pwa|pwa\s+.*aria)/i.test(g);
+  const explicitBattleCruiserTarget=rawProject==="battlecruiser"
+    || /(?:^|[\n.;])\s*(?:objetivo|misión|mision|tarea|proyecto)?\s*battlecruiser\s*(?:$|[\n.;:])/i.test(g);
+  const isBattleCruiser=explicitBattleCruiserTarget && !broadAriaPwaScope;
   const githubWork=/github|rama|branch|archivo|pull request|pr|main|merge/i.test(gl) || gl.includes(".md");
   if(!isBattleCruiser || !githubWork)return null;
 
