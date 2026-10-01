@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.0';
+const VERSION = 'aria-pc-browser-rwht-v1.3.1';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -499,6 +499,28 @@ async function verifyAuthState(page, config) {
 async function auditRoute(page, url, routeIndex, config) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
   await page.waitForTimeout(config.settle_ms);
+
+  const routeHash = new URL(url).hash.split('?')[0] || '#home';
+  const readinessSelector = routeHash === '#mission'
+    ? '.dashboardScreen,.modalBackdrop'
+    : routeHash === '#home'
+      ? '.dashboardScreen,.authScreen'
+      : routeHash === '#chat'
+        ? '.chatScreen,.authScreen'
+        : routeHash === '#projects'
+          ? '.projectShell,.authScreen'
+          : routeHash === '#meditation'
+            ? '.meditationViewport,.authScreen'
+            : routeHash === '#capabilities'
+              ? '.capabilitiesViewport,.authScreen'
+              : routeHash === '#settings'
+                ? '.settingsViewport,.authScreen'
+                : '.dashboardScreen,.authScreen';
+  await page.waitForSelector(readinessSelector, {
+    state: 'visible',
+    timeout: config.navigation_timeout_ms
+  }).catch(() => {});
+  await page.waitForTimeout(Math.max(config.settle_ms, 500));
 
   const passwordVisible = await page.locator('input[type="password"]').evaluateAll((items) =>
     items.some((el) => {
