@@ -300,7 +300,6 @@ async function testControl(page, control, config) {
   // certification is owned by settings-rwht-authenticated.yml; the global PC
   // regression re-checks that the controls remain present on the live surface.
   if (
-    control.role === 'button' &&
     (/^Activadas$/i.test(label) || /^Desactivadas$/i.test(label) || /^Activar avisos$/i.test(label))
   ) {
     return {
