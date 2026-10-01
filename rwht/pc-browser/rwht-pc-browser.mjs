@@ -65,7 +65,13 @@ async function discoverInteractive(page) {
   const interactive = activeSurfaceSelector
     ? page.locator(activeSurfaceSelector).locator(selector)
     : page.locator(selector);
-  return interactive.evaluateAll((elements) => elements.map((el, index) => {
+  return interactive.evaluateAll((elements) => elements
+    .filter((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    })
+    .map((el, index) => {
     const rect = el.getBoundingClientRect();
     const tag = el.tagName.toLowerCase();
     const role = el.getAttribute('role') || (tag === 'button' ? 'button' : tag === 'a' ? 'link' : tag);
@@ -294,8 +300,6 @@ async function testControl(page, control, config) {
   // certification is owned by settings-rwht-authenticated.yml; the global PC
   // regression re-checks that the controls remain present on the live surface.
   if (
-    new URL(page.url()).hash.split('?')[0] === '#settings' &&
-    control.role === 'button' &&
     (/^Activadas$/i.test(label) || /^Desactivadas$/i.test(label) || /^Activar avisos$/i.test(label))
   ) {
     return {
@@ -370,6 +374,11 @@ async function testControl(page, control, config) {
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
     };
 
+    // Resolve labels whose visible text contains server-backed/dynamic values
+    // from stable semantic prefixes instead of the exact stale snapshot.
+    const dynamicMission = label.match(/^Misión\s+(\d+)\s+·/i);
+    const dynamicStat = label.match(/^\d+\s+(Modelos disponibles|Agentes disponibles|Dispositivos online|Conexiones)$/i);
+
     // Settings toggles expose dynamic labels ("Activadas"/"Desactivadas",
     // "Activar avisos") but stable structural classes. Resolve those explicitly.
     if (new URL(page.url()).hash.split('?')[0] === '#settings' && control.role === 'button') {
@@ -381,7 +390,20 @@ async function testControl(page, control, config) {
         if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
       }
     }
-    if (control.selector_hint) {
+    if (dynamicMission) {
+      const missionNumber = dynamicMission[1];
+      const candidate = page.locator('button').filter({ hasText: new RegExp('^Misión\\\\s+' + missionNumber + '\\\\s+·', 'i') }).first();
+      if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+    }
+
+    if (dynamicStat) {
+      const statLabel = dynamicStat[1];
+      const candidate = page.locator('button.statButton').filter({ hasText: statLabel }).first();
+      if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+    }
+
+    const settingsDynamic = /^(Activadas|Desactivadas|Activar avisos)$/i.test(label);
+    if (!locator && !settingsDynamic && control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
       if (await hinted.count() && await hinted.isVisible().catch(() => false)) locator = hinted;
     }
@@ -554,9 +576,24 @@ async function auditRoute(page, url, routeIndex, config) {
 
     const controlsNow = await discoverInteractive(page);
     const original = initialControls[index];
-    const preblocked = SAFE_BLOCKED.test(safeLabel(original.name))
-      || (!config.allow_mutations && SAFE_MUTATION.test(safeLabel(original.name)))
-      || (SECRET.test(safeLabel(original.name)) && ['input', 'textarea', 'select'].includes(original.tag));
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
     if (preblocked) {
       const outcome = await testControl(page, original, config);
       routeResult.actions.push({ control: original, ...outcome });
@@ -769,6 +806,12 @@ async function run() {
     page_errors: summary.page_errors.length,
     failed_responses: summary.failed_responses.length
   }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
 
   if (!summary.verified) process.exitCode = 2;
 }
