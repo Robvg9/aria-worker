@@ -12,9 +12,14 @@ async function directGemini(route:any,input:any){
   if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
   if(route.account_id!=="acct_google_gemini_free")return out({status:"blocked",reason:"route_not_selectable"});
   const googleModels:Record<string,string>={
-// Only LIVE-verified Google direct models. Invented IDs removed (caused unauthorized).
-"google/gemini-3.5-flash-lite-direct":"gemini-3.5-flash-lite"
-};const model=googleModels[route.model_id];if(!model)return out({status:"blocked",reason:"model_not_verified"});
+    // Only routes present in the LIVE agent/resource registry and backed by
+    // verified capability evidence. Keep the public ARIA route id mapped to
+    // the concrete Google Generative Language model id.
+    "google/gemini-3.5-flash-lite-direct":"gemini-3.5-flash-lite",
+    "google/gemini-3.5-flash-direct":"gemini-3.5-flash"
+  };
+  const model=googleModels[route.model_id];
+  if(!model)return out({status:"blocked",reason:"model_not_verified"});
   if(!GOOGLE_API_KEY)return out({status:"failed",error:{code:"credential_unavailable",message:"google credential unavailable"}});
   const p=input?.payload??{};const contents=Array.isArray(p.contents)&&p.contents.length?p.contents:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",parts:[{text:p.prompt}]}]:null);
   if(!contents)return out({status:"blocked",reason:"input_missing"});
