@@ -472,3 +472,5 @@ run().catch(error => {
   console.error('[ARIA-PERSISTENCE-RECOVERY-RWHT] fatal:', String(error?.message || error));
   process.exitCode = 1;
 });
+
+// Final universal certification trigger: persistence/recovery contract aligned.

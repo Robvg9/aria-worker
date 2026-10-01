@@ -29,7 +29,7 @@ for (const fragment of [
 }
 
 for (const fragment of [
-  'aria-persistence-recovery-rwht-e2e-v1.0.0',
+  'aria-persistence-recovery-rwht-e2e-v1.0.1',
   'aria_session_v2',
   'aria-runtime-cache-v3',
   'aria-chat-history-v1:',

@@ -165,3 +165,5 @@ if(url.pathname==="/pwa"||url.pathname.startsWith("/pwa/")){if(request.method!==
 // 2026-10-01: final universal certification trigger; behavior unchanged.
 
 // Final universal certification trigger: all broad gates share this HEAD.
+
+// Final universal certification trigger: final green-light HEAD.
