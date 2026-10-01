@@ -458,3 +458,5 @@ run().catch((error) => {
   console.error('[ARIA-CHAT-RWHT] fatal:', String(error?.message || error));
   process.exitCode = 1;
 });
+
+// 2026-10-01: final-head authenticated RWHT certification trigger.
