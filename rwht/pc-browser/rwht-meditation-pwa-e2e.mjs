@@ -10,8 +10,10 @@ async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, m
 
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
+const STORAGE_STATE = String(process.env.RWHT_STORAGE_STATE || '');
 
 async function login(page) {
+  if (STORAGE_STATE) return { mode:'storage_state', status:'authenticated', attempts:0 };
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
   const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   const authenticatedSurface = page.locator('.projectShell,.dashboardScreen').first();
@@ -84,7 +86,7 @@ async function run() {
   void requireAuth;
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: envBool('RWHT_HEADLESS', true) });
-  const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) } });
+  const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) }, ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) });
   const page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
