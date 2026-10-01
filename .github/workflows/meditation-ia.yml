@@ -17,6 +17,8 @@ jobs:
           node-version: 24
       - name: Core tests
         run: node tests/meditation-ia.test.js
+      - name: Queue state machine contract
+        run: node tests/meditation-queue-state-machine.test.js
       - name: Static contracts
         run: |
           node - <<'NODE'

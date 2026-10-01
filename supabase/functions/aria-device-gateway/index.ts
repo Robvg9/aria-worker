@@ -768,7 +768,194 @@ function missionStepRows(m:any){
 function catalogText(g:any){const md=g?.metadata&&typeof g.metadata==='object'?g.metadata:{};const goal=String(g?.goal||'').trim();const acceptance=String(md.acceptance||'').trim();const source=String(md.source_section||md.source_type||g?.source_type||'ARIA');return{summary:goal,result:acceptance||goal||'Resultado definido por el objetivo canónico.',solution:`Trabajo gobernado para el objetivo: ${goal||'objetivo registrado'}`,improvement:`Mejora ARIA: avanza la capacidad asociada a ${source} con evidencia verificable.`,technical_description:goal,dependencies:Array.isArray(md.dependencies)?md.dependencies.map(String):[],risk:String(md.risk||md.risk_level||'READ'),source_type:String(g?.source_type||'unknown'),acceptance:acceptance||null}}
 async function meditationCatalog(deviceId:string){const sb=supabase.schema('aria_internal');const [goalsRes,missionsRes,gatesRes]=await Promise.all([sb.from('autonomy_goals').select('goal_id,goal,priority,status,next_run_at,last_mission_id,source_type,source_ref,dynamic_score,metadata,objective_verification_status,objective_verification_reason,objective_verified_at,updated_at').in('status',['queued','paused','running','blocked']).order('priority',{ascending:false}).order('updated_at',{ascending:false}).limit(120),sb.from('mission_state').select('mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,checkpoint,metadata,created_at,updated_at,finished_at').in('status',['queued','planning','running','waiting','paused','blocked']).order('updated_at',{ascending:false}).limit(120),sb.from('mission_events').select('mission_id,event_type,payload,created_at').in('event_type',['human_gate_requested','self_improvement_human_gate']).order('created_at',{ascending:false}).limit(300)]);for(const r of [goalsRes,missionsRes,gatesRes])if(r.error)throw new Error(r.error.message);const missionsById=new Map((missionsRes.data||[]).map((m:any)=>[String(m.mission_id),m]));const gates=gatesRes.data||[];const seen=new Set<string>();const goalItems=(goalsRes.data||[]).map((g:any)=>{const mission=g.last_mission_id?missionsById.get(String(g.last_mission_id)):null;const human_gate=objectiveHumanGate(g,mission,gates);const progress=mission?missionProgress(mission):{percent:g.status==='completed'?100:0,completed:0,total:0};const texts=catalogText(g);const item={id:`goal:${g.goal_id}`,item_type:'goal',goal_id:g.goal_id,mission_id:mission?.mission_id??null,title:String(g.goal||g.goal_id),...texts,status:String(g.status),priority:Number(g.priority||0),progress_percent:progress.percent,progress_steps:progress,steps:missionStepRows(mission),next_action:mission?.next_action??null,last_error:mission?.last_stderr??null,objective_verification_status:g.objective_verification_status??'UNVERIFIED',objective_verification_reason:g.objective_verification_reason??null,human_gate,source_ref:g.source_ref??null,updated_at:g.updated_at};seen.add(String(g.goal_id));return item});const missionItems=(missionsRes.data||[]).filter((m:any)=>!seen.has(String(m.metadata?.goal_id||''))).map((m:any)=>{const progress=missionProgress(m);const human_gate=objectiveHumanGate(m,m,gates);const text=catalogText({goal:m.goal,metadata:m.metadata,source_type:m.metadata?.source});return{id:`mission:${m.mission_id}`,item_type:'mission',goal_id:m.metadata?.goal_id??null,mission_id:m.mission_id,title:String(m.goal||m.mission_id),...text,status:String(m.status),priority:0,progress_percent:progress.percent,progress_steps:progress,steps:missionStepRows(m),objective_verification_status:'MISSION_SCOPE',objective_verification_reason:null,human_gate,source_ref:m.metadata?.source_ref??null,updated_at:m.updated_at,next_action:m.next_action??null,last_error:m.last_stderr??null}});const catalog=[...goalItems,...missionItems].sort((a,b)=>Number(b.priority)-Number(a.priority)||String(a.status).localeCompare(String(b.status))||String(b.updated_at).localeCompare(String(a.updated_at)));return{version:'aria-meditation-catalog-v1',device_id:deviceId,items:catalog,total:catalog.length,human_gate_rule:'NO EXISTE MISION HUMANA when no real human verification method is registered'}}
 async function createManualMissionFromGoal(goalId:string,b:any,d:any){const {data:goal,error}=await supabase.schema('aria_internal').from('autonomy_goals').select('*').eq('goal_id',goalId).maybeSingle();if(error)throw new Error(error.message);if(!goal)throw new Error('goal_not_found');if(goal.status==='completed')throw new Error('goal_terminal');if(goal.last_mission_id){const {data:existing}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,status,metadata').eq('mission_id',goal.last_mission_id).maybeSingle();if(existing&&!['succeeded','failed','blocked','cancelled'].includes(String(existing.status)))return existing}const missionId=`mission_${crypto.randomUUID()}`;const {data:mission,error:me}=await supabase.rpc('aria_mission_create',{p_mission:{mission_id:missionId,status:'queued',goal:goal.goal,current_step:0,completed_steps:0,checkpoint:{manual_queue:{queue_v1:true,queue_item_goal_id:goalId}},metadata:{source:'meditation-center-v1',meditation_session_id:b.session_id||null,device_id:d.device_id,goal_id:goalId,manual_queue:true,...(goal.metadata?.requires_human_gate?{human_gate_required:Array.isArray(goal.metadata.requires_human_gate)?goal.metadata.requires_human_gate:[String(goal.metadata.requires_human_gate)]}:goal.metadata?.physical_gate===true?{human_gate_required:['PHYSICAL']}:{})}}});if(me)throw new Error(me.message);await supabase.schema('aria_internal').from('autonomy_goals').update({status:'running',last_mission_id:missionId,updated_at:new Date().toISOString()}).eq('goal_id',goalId).eq('status',goal.status);return mission}
-async function processManualQueue(b:any,d:any){const {data:q,error:qe}=await supabase.rpc('meditation_queue_claim_next',{p_device_id:d.device_id});if(qe)throw new Error(qe.message);if(!q)return null;let missionId=q.resolved_mission_id?String(q.resolved_mission_id):null;try{if(String(q.item_type)==='goal'){const m=await createManualMissionFromGoal(String(q.item_id),b,d);missionId=String(m.mission_id);await supabase.schema('aria_internal').from('meditation_queue').update({resolved_mission_id:missionId,updated_at:new Date().toISOString()}).eq('queue_id',q.queue_id).eq('device_id',d.device_id)}else missionId=String(q.item_id);const {data:before}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,status,goal,metadata').eq('mission_id',missionId).maybeSingle();if(!before)throw new Error('mission_not_found');if(['succeeded','failed','blocked','cancelled'].includes(String(before.status))){const terminalStatus=String(before.status)==='succeeded'?'completed':String(before.status);await supabase.schema('aria_internal').from('meditation_queue').update({status:terminalStatus,completed_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('queue_id',q.queue_id);return{status:terminalStatus,queue_id:q.queue_id,mission_id:missionId,manual_queue:true,already_terminal:true}}if(b?.lightweight===true){const background=(async()=>{try{const runtime=await runCanonicalMission(missionId,'meditation-ia-manual');const finalStatus=runtime.status==='succeeded'?'completed':runtime.status==='blocked'?'blocked':runtime.status==='failed'?'failed':'paused';await supabase.schema('aria_internal').from('meditation_queue').update({status:finalStatus,resolved_mission_id:missionId,last_error:finalStatus==='completed'?null:String(runtime.error||runtime.status||''),completed_at:['completed','blocked','failed'].includes(finalStatus)?new Date().toISOString():null,updated_at:new Date().toISOString()}).eq('queue_id',q.queue_id);if(runtime.status==='succeeded'){const {data:finished}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,metadata').eq('mission_id',missionId).maybeSingle();await closeGoalOnMissionSuccess(finished)}return runtime}catch(error){const message=queueError(error);await supabase.schema('aria_internal').from('meditation_queue').update({status:'failed',last_error:message,updated_at:new Date().toISOString(),completed_at:new Date().toISOString()}).eq('queue_id',q.queue_id).eq('device_id',d.device_id);return{status:'failed',error:message}}})();const waitUntil=(globalThis as any).EdgeRuntime?.waitUntil;if(typeof waitUntil==='function'){waitUntil(background);return{status:'started',queue_id:q.queue_id,mission_id:missionId,mission_created:missionId,manual_queue:true,background:true}}const runtime=await background;return{status:runtime?.status||'unknown',queue_id:q.queue_id,mission_id:missionId,manual_queue:true,runtime}}const runtime=await runCanonicalMission(missionId,'meditation-ia-manual');const finalStatus=runtime.status==='succeeded'?'completed':runtime.status==='blocked'?'blocked':runtime.status==='failed'?'failed':'paused';await supabase.schema('aria_internal').from('meditation_queue').update({status:finalStatus,resolved_mission_id:missionId,last_error:finalStatus==='completed'?null:String(runtime.error||runtime.status||''),completed_at:['completed','blocked','failed'].includes(finalStatus)?new Date().toISOString():null,updated_at:new Date().toISOString()}).eq('queue_id',q.queue_id);if(runtime.status==='succeeded'){const {data:finished}=await supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,metadata').eq('mission_id',missionId).maybeSingle();await closeGoalOnMissionSuccess(finished)}return{status:runtime.status,queue_id:q.queue_id,mission_id:missionId,manual_queue:true,runtime}}catch(error){const message=queueError(error);await supabase.schema('aria_internal').from('meditation_queue').update({status:'failed',last_error:message,updated_at:new Date().toISOString(),completed_at:new Date().toISOString()}).eq('queue_id',q.queue_id).eq('device_id',d.device_id);return{status:'failed',queue_id:q.queue_id,mission_id:missionId,manual_queue:true,error:message}}}
+async function manualQueueSetStatus(queueId:string,patch:Record<string,unknown>){
+  const {error}=await supabase.schema('aria_internal').from('meditation_queue').update({
+    ...patch,
+    updated_at:new Date().toISOString()
+  }).eq('queue_id',queueId);
+  if(error)throw new Error(error.message);
+}
+async function processManualQueue(b:any,d:any){
+  const {data:q,error:qe}=await supabase.rpc('meditation_queue_claim_next',{p_device_id:d.device_id});
+  if(qe)throw new Error(qe.message);
+  if(!q)return null;
+  let missionId=q.resolved_mission_id?String(q.resolved_mission_id):null;
+  try{
+    if(String(q.item_type)==='goal'){
+      const m=await createManualMissionFromGoal(String(q.item_id),b,d);
+      missionId=String(m.mission_id);
+      const {error}=await supabase.schema('aria_internal').from('meditation_queue')
+        .update({resolved_mission_id:missionId,updated_at:new Date().toISOString()})
+        .eq('queue_id',q.queue_id).eq('device_id',d.device_id);
+      if(error)throw new Error(error.message);
+    }else{
+      missionId=String(q.item_id);
+    }
+
+    const {data:before}=await supabase.schema('aria_internal').from('mission_state')
+      .select('mission_id,status,goal,metadata,current_step,completed_steps,total_steps,next_action,lease_owner,lease_until')
+      .eq('mission_id',missionId).maybeSingle();
+    if(!before)throw new Error('mission_not_found');
+
+    if(['succeeded','failed','blocked','cancelled'].includes(String(before.status))){
+      const terminalStatus=String(before.status)==='succeeded'?'completed':String(before.status);
+      await manualQueueSetStatus(q.queue_id,{
+        status:terminalStatus,
+        completed_at:new Date().toISOString(),
+        last_error:null,
+        resolved_mission_id:missionId
+      });
+      return{status:terminalStatus,queue_id:q.queue_id,mission_id:missionId,manual_queue:true,already_terminal:true};
+    }
+
+    // A claimed queue item represents one logical mission, not one runner batch.
+    // Non-terminal continuation stays RUNNING so the next tick can resume it.
+    const launch=async()=>{
+      try{
+        const runtime=await runCanonicalMission(missionId,'meditation-ia-manual');
+        const status=String(runtime?.status||'unknown');
+        if(status==='succeeded'){
+          await manualQueueSetStatus(q.queue_id,{
+            status:'completed',resolved_mission_id:missionId,last_error:null,
+            completed_at:new Date().toISOString()
+          });
+          const {data:finished}=await supabase.schema('aria_internal').from('mission_state')
+            .select('mission_id,goal,status,metadata').eq('mission_id',missionId).maybeSingle();
+          await closeGoalOnMissionSuccess(finished);
+        }else if(status==='blocked'){
+          await manualQueueSetStatus(q.queue_id,{
+            status:'blocked',resolved_mission_id:missionId,
+            last_error:String(runtime?.error||status),completed_at:new Date().toISOString()
+          });
+        }else if(status==='failed'){
+          await manualQueueSetStatus(q.queue_id,{
+            status:'failed',resolved_mission_id:missionId,
+            last_error:String(runtime?.error||status),completed_at:new Date().toISOString()
+          });
+        }else if(status==='running' || status==='waiting'){
+          await manualQueueSetStatus(q.queue_id,{
+            status:'running',resolved_mission_id:missionId,last_error:null,completed_at:null
+          });
+        }else if(status==='paused'){
+          await manualQueueSetStatus(q.queue_id,{
+            status:'paused',resolved_mission_id:missionId,
+            last_error:String(runtime?.error||''),completed_at:null
+          });
+        }else{
+          await manualQueueSetStatus(q.queue_id,{
+            status:'running',resolved_mission_id:missionId,last_error:String(runtime?.error||status),completed_at:null
+          });
+        }
+        return runtime;
+      }catch(error){
+        const message=queueError(error);
+        await manualQueueSetStatus(q.queue_id,{
+          status:'failed',resolved_mission_id:missionId,last_error:message,
+          completed_at:new Date().toISOString()
+        }).catch(()=>{});
+        return{status:'failed',error:message};
+      }
+    };
+
+    if(b?.lightweight===true){
+      await manualQueueSetStatus(q.queue_id,{
+        status:'running',resolved_mission_id:missionId,last_error:null,completed_at:null
+      });
+      const background=launch();
+      const waitUntil=(globalThis as any).EdgeRuntime?.waitUntil;
+      if(typeof waitUntil==='function'){
+        waitUntil(background);
+        return{status:'started',queue_id:q.queue_id,mission_id:missionId,mission_created:missionId,manual_queue:true,background:true};
+      }
+      const runtime=await background;
+      return{status:runtime?.status||'unknown',queue_id:q.queue_id,mission_id:missionId,manual_queue:true,runtime};
+    }
+
+    const runtime=await launch();
+    return{status:runtime?.status||'unknown',queue_id:q.queue_id,mission_id:missionId,manual_queue:true,runtime};
+  }catch(error){
+    const message=queueError(error);
+    await manualQueueSetStatus(q.queue_id,{
+      status:'failed',last_error:message,completed_at:new Date().toISOString()
+    }).catch(()=>{});
+    return{status:'failed',queue_id:q.queue_id,mission_id:missionId,manual_queue:true,error:message};
+  }
+}
+
+async function resumeManualContinuation(b:any,d:any){
+  const {data:rows,error}=await supabase.schema('aria_internal').from('meditation_queue')
+    .select('queue_id,item_type,item_id,resolved_mission_id,status,position,updated_at,started_at')
+    .eq('device_id',d.device_id)
+    .in('status',['running','paused'])
+    .order('position',{ascending:true})
+    .order('updated_at',{ascending:true})
+    .limit(20);
+  if(error)throw new Error(error.message);
+
+  for(const q of rows||[]){
+    const missionId=q.resolved_mission_id?String(q.resolved_mission_id):String(q.item_id);
+    if(!missionId)continue;
+    const {data:m,error:me}=await supabase.schema('aria_internal').from('mission_state')
+      .select('mission_id,status,goal,metadata,current_step,completed_steps,total_steps,next_action,lease_owner,lease_until,updated_at')
+      .eq('mission_id',missionId).maybeSingle();
+    if(me)throw new Error(me.message);
+    if(!m){
+      await manualQueueSetStatus(q.queue_id,{status:'failed',last_error:'mission_not_found',completed_at:new Date().toISOString()});
+      continue;
+    }
+    const ms=String(m.status||'');
+    if(['succeeded','failed','blocked','cancelled'].includes(ms)){
+      await manualQueueSetStatus(q.queue_id,{
+        status:ms==='succeeded'?'completed':ms,last_error:null,completed_at:new Date().toISOString()
+      });
+      continue;
+    }
+
+    const leaseAlive=Boolean(m.lease_until&&Date.parse(String(m.lease_until))>Date.now());
+    const continuation=ms==='running' && String(m.next_action||'')==='next_ready_batch';
+    if(q.status==='paused' && !continuation)continue;
+    if(q.status==='running' && !continuation && !['queued','planning','waiting','paused'].includes(ms))continue;
+
+    if(leaseAlive){
+      return{status:'running',manual_queue:true,queue_id:q.queue_id,mission_id:missionId,
+        active_mission_id:missionId,background:false,already_running:true};
+    }
+
+    await manualQueueSetStatus(q.queue_id,{
+      status:'running',resolved_mission_id:missionId,last_error:null,completed_at:null
+    });
+    const background=(async()=>{
+      try{
+        const runtime=await runCanonicalMission(missionId,'meditation-ia-manual-resume');
+        const status=String(runtime?.status||'unknown');
+        if(status==='succeeded'){
+          await manualQueueSetStatus(q.queue_id,{status:'completed',last_error:null,completed_at:new Date().toISOString()});
+          const {data:finished}=await supabase.schema('aria_internal').from('mission_state')
+            .select('mission_id,goal,status,metadata').eq('mission_id',missionId).maybeSingle();
+          await closeGoalOnMissionSuccess(finished);
+        }else if(status==='blocked'||status==='failed'){
+          await manualQueueSetStatus(q.queue_id,{status,last_error:String(runtime?.error||status),completed_at:new Date().toISOString()});
+        }else if(status==='running'||status==='waiting'){
+          await manualQueueSetStatus(q.queue_id,{status:'running',last_error:null,completed_at:null});
+        }else if(status==='paused'){
+          await manualQueueSetStatus(q.queue_id,{status:'paused',last_error:String(runtime?.error||''),completed_at:null});
+        }else{
+          await manualQueueSetStatus(q.queue_id,{status:'running',last_error:String(runtime?.error||status),completed_at:null});
+        }
+        return runtime;
+      }catch(error){
+        const message=queueError(error);
+        await manualQueueSetStatus(q.queue_id,{status:'failed',last_error:message,completed_at:new Date().toISOString()}).catch(()=>{});
+        return{status:'failed',error:message};
+      }
+    })();
+    const waitUntil=(globalThis as any).EdgeRuntime?.waitUntil;
+    if(typeof waitUntil==='function')waitUntil(background);
+    return{status:'started',manual_queue:true,queue_id:q.queue_id,mission_id:missionId,
+      active_mission_id:missionId,background:true,resumed:true};
+  }
+  return null;
+}
 
 async function meditationTick(b:any,d:any){const sessionId=String(b?.session_id||'').trim();const deviceId=String(d.device_id||'').trim();const lightweight=b?.lightweight===true;const recovered=lightweight?0:await recoverStale();const learning=lightweight?{skipped:true}:await learnRecent();const goalSync=lightweight?{skipped:true}:await syncGoalTerminalStates();const autonomyOnly=b?.autonomy_only===true;
 const queueChain:any[]=[];
@@ -812,27 +999,32 @@ if(lightweight && !autonomyOnly){
     };
   }
 }
-let manual=autonomyOnly?null:await processManualQueue(b,d);
-if(manual){
-  queueChain.push(manual);
-  for(let i=0;i<7&&manual?.status==='succeeded';i++){
-    const next=await processManualQueue(b,d);
-    if(!next)break;
-    queueChain.push(next);
-    manual=next;
-    if(['failed','blocked','paused','waiting'].includes(String(next.status)))break;
+if(!autonomyOnly){
+  const continuation=await resumeManualContinuation(b,d);
+  if(continuation){
+    return{ok:true,status:continuation.status||'running',manual_queue:true,
+      queue_chain:[{queue_id:continuation.queue_id,mission_id:continuation.mission_id,status:continuation.status}],
+      queue_processed_count:1,queue_id:continuation.queue_id,
+      active_mission_id:continuation.active_mission_id||continuation.mission_id,
+      recovered,learning,goalSync,runtime:null};
   }
-  const last=queueChain[queueChain.length-1]||manual;
-  return{
-    ok:queueChain.every(x=>x.status!=='failed'&&x.status!=='blocked'),
-    status:last?.status||'unknown',
-    manual_queue:true,
-    queue_chain:queueChain.map(x=>({queue_id:x.queue_id,mission_id:x.mission_id,status:x.status})),
-    queue_processed_count:queueChain.length,
-    queue_id:last?.queue_id||null,
-    active_mission_id:last?.mission_id||null,
-    recovered,learning,goalSync,runtime:last?.runtime||null
-  };
+
+  // Exactly one new queue item per service tick. The canonical runner owns
+  // multi-step continuation; the queue must never fan out into 8 concurrent runs.
+  const manual=await processManualQueue(b,d);
+  if(manual){
+    queueChain.push(manual);
+    return{
+      ok:manual.status!=='failed'&&manual.status!=='blocked',
+      status:manual.status||'unknown',
+      manual_queue:true,
+      queue_chain:[{queue_id:manual.queue_id,mission_id:manual.mission_id,status:manual.status}],
+      queue_processed_count:1,
+      queue_id:manual.queue_id||null,
+      active_mission_id:manual.active_mission_id||manual.mission_id||null,
+      recovered,learning,goalSync,runtime:manual.runtime||null
+    };
+  }
 }
 let activeQuery=supabase.schema('aria_internal').from('mission_state').select('mission_id,goal,status,metadata,updated_at').contains('metadata',{source:'meditation-ia-v1'}).in('status',['queued','planning','running','paused']).eq('metadata->>device_id',deviceId).order('updated_at',{ascending:false});
 // Active missions are device-scoped, not session-scoped; session_id remains evidence only.
