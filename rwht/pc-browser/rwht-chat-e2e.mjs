@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.9';
+const VERSION = 'aria-chat-rwht-e2e-v1.1.0';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -15,6 +15,22 @@ const ARTIFACT_DIR = process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd()
 
 function waitFor(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function evaluateStable(page, fn, arg, attempts = 10) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await page.evaluate(fn, arg);
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message || error);
+      const retryable = /Execution context was destroyed|Cannot find context with specified id|frame was detached/i.test(message);
+      if (!retryable || attempt === attempts) throw error;
+      await waitFor(300);
+    }
+  }
+  throw lastError || new Error('stable_evaluate_failed');
 }
 
 async function login(page) {
@@ -46,7 +62,7 @@ async function login(page) {
 }
 
 async function readSession(page) {
-  return page.evaluate(() => {
+  return evaluateStable(page, () => {
     try {
       const raw = localStorage.getItem('aria_session_v2');
       const session = raw ? JSON.parse(raw) : null;
@@ -67,7 +83,7 @@ async function readSession(page) {
 }
 
 async function apiAuthStatus(page, accessToken) {
-  return page.evaluate(async (token) => {
+  return evaluateStable(page, async (token) => {
     try {
       const response = await fetch('/api/session', {
         headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
@@ -113,7 +129,7 @@ async function signInViaAuthApi() {
 async function refreshStoredSession(page) {
   const session = await readSession(page);
   if (!session?.refreshToken) return null;
-  const result = await page.evaluate(async ({ refreshToken, anon }) => {
+  const result = await evaluateStable(page, async ({ refreshToken, anon }) => {
     try {
       const response = await fetch('/auth/token?grant_type=refresh_token', {
         method: 'POST',
@@ -141,7 +157,7 @@ async function refreshStoredSession(page) {
     userId: result.user_id,
     expiresAt: Date.now() + Math.max(60, result.expires_in || 3600) * 1000
   };
-  await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), next);
+  await evaluateStable(page, (value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), next);
   return next;
 }
 
@@ -160,7 +176,7 @@ async function ensureLiveSession(page) {
 }
 
 async function readServerConversation(page, accessToken) {
-  return page.evaluate(async (token) => {
+  return evaluateStable(page, async (token) => {
     const response = await fetch('/api/conversation', {
       headers: { authorization: 'Bearer ' + token },
       cache: 'no-store'
@@ -171,7 +187,7 @@ async function readServerConversation(page, accessToken) {
 }
 
 async function checkChatUx(page) {
-  return page.evaluate(() => {
+  return evaluateStable(page, () => {
     const root = document.querySelector('.chatScreen');
     if (!root) return { error: 'chat_surface_missing' };
     const viewportWidth = window.innerWidth;
@@ -335,7 +351,7 @@ async function run() {
       { markerValue: marker },
       { timeout: 30000 }
     );
-    const stored = await page.evaluate(({ markerValue }) => {
+    const stored = await evaluateStable(page, ({ markerValue }) => {
       const matches = [];
       for (let i = 0; i < localStorage.length; i += 1) {
         const key = localStorage.key(i) || '';
