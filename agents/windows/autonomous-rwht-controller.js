@@ -967,3 +967,4 @@ module.exports = Object.freeze({
   },
   runAutonomousRwht,
 });
+// Diagnostic trigger 2026-10-01: no runtime behavior change.
