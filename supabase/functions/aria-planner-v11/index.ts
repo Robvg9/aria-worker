@@ -259,7 +259,8 @@ async function ariaPwaMasterMissionPlan(goal:string,context:any){
       start_url:targetUrl,
       max_actions:Math.max(40,Math.min(180,Number(context?.max_actions||120))),
       max_runtime_ms:Math.max(180000,Math.min(900000,Number(context?.max_runtime_ms||600000))),
-      capture_screenshots:true
+      capture_screenshots:true,
+      strategy_key:"windows-rwht-controller-v1.2.1-route-verified"
     },
     timeout_ms:Math.max(240000,Math.min(960000,Number(rwhtBase.timeout_ms||660000))),
     verify:{...(rwhtBase.verify||{}),response_content_nonempty:true}
@@ -280,7 +281,7 @@ async function ariaPwaMasterMissionPlan(goal:string,context:any){
     ["master_implementation_1"]));
   return {
     goal:g,steps,
-    planner_version:"aria-planner-v11-aria-pwa-master-v2-full-rwht",
+    planner_version:"aria-planner-v11-aria-pwa-master-v3-full-rwht-route-verified",
     primary_objective:true,
     project_id:"aria",
     scope:"pwa_master",
