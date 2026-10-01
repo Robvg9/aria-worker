@@ -50,7 +50,7 @@ assert.match(missionRunnerFixes, /input\[key\] = value/);
 assert.match(missionRunnerFixes, /value === null \|\| value === undefined/);
 assert.match(missionRunnerFixes, /key === "start_url"/);
 const appApi = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-app-api-v3', 'index.ts'), 'utf8');
-assert.match(appApi, /aria_app_list_conversations/);
+assert.match(appApi, /aria_app_get_global_conversation/);
 assert.doesNotMatch(appApi, /schema\(["']aria_app["']\)\.from\(["']conversations["']\)/);
 
 console.log('PC BROWSER RWHT CONTRACT: PASS');
