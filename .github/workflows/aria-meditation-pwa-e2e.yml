@@ -25,6 +25,8 @@ jobs:
       RWHT_REQUIRE_AUTH: 'true'
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
       RWHT_LOGIN_WAIT_MS: '40000'
       RWHT_ARTIFACT_DIR: meditation-e2e-artifacts
     steps:
@@ -32,6 +34,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Prepare authenticated session fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+          elif [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+          fi
+          if [[ -f "${RUNNER_TEMP}/aria-rwht-auth-state.json" ]]; then
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          fi
       - name: Install dependencies
         working-directory: rwht/pc-browser
         run: npm install --no-audit --no-fund
