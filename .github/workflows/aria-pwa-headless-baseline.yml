@@ -29,7 +29,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run independent 7-route baseline
+      - name: Run independent 7-route baseline v2
         shell: bash
         run: |
           set -euo pipefail
