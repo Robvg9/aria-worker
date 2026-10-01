@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.5';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.6';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -18,45 +18,34 @@ function waitFor(ms) {
 }
 
 async function login(page) {
+  const apiSession = await signInViaAuthApi(page);
+  if (apiSession) {
+    const verified = await ensureLiveSession(page);
+    if (verified) return { mode: 'password_api', status: 'authenticated', attempts: 1, auth_endpoint: apiSession.authEndpoint };
+  }
+
   await page.waitForFunction(
-    () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('input[type="password"]')),
+    () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.authScreen')) || Boolean(document.querySelector('input[type="password"]')),
     null,
-    { timeout: 30000 }
+    { timeout: 60000 }
   );
 
-  if (STORAGE_STATE) {
-    const liveSession = await ensureLiveSession(page);
-    if (liveSession) return { mode: 'storage_state_refresh_or_validated', status: 'authenticated' };
-    await page.evaluate(() => localStorage.removeItem('aria_session_v2')).catch(() => {});
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    await waitFor(1000);
-  }
-
-  const dashboardVisible = await page.locator('.dashboardScreen').isVisible().catch(() => false);
-  if (dashboardVisible) {
-    const liveSession = await ensureLiveSession(page);
-    if (liveSession) return { mode: 'existing_session', status: 'authenticated' };
-  }
+  const existing = await ensureLiveSession(page);
+  if (existing) return { mode: 'existing_session', status: 'authenticated', attempts: 0 };
 
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
 
-  const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
-  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-  await email.waitFor({ state: 'visible', timeout: 30000 });
+  const email = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+  const password = page.locator('input[aria-label="Contraseña"],input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+  await email.waitFor({ state: 'visible', timeout: 60000 });
   await password.waitFor({ state: 'visible', timeout: 30000 });
   await email.fill(EMAIL);
   await password.fill(PASSWORD);
-
-  const submit = page.locator('button[type="submit"],input[type="submit"],button')
-    .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i })
-    .first();
-  if (await submit.count()) await submit.click();
-  else await password.press('Enter');
-
+  await password.press('Enter');
   await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
   const authenticated = await ensureLiveSession(page);
   if (!authenticated) throw new Error('authenticated_session_not_verified_after_login');
-  return { mode: 'password', status: 'authenticated' };
+  return { mode: 'password_ui_fallback', status: 'authenticated', attempts: 1 };
 }
 
 async function readSession(page) {
@@ -83,8 +72,8 @@ async function readSession(page) {
 async function apiAuthStatus(page, accessToken) {
   return page.evaluate(async (token) => {
     try {
-      const response = await fetch('/api/diagnostics/health', {
-        headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+      const response = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/user', {
+        headers: { authorization: 'Bearer ' + token, apikey: '${ANON}', accept: 'application/json' },
         cache: 'no-store'
       });
       return response.status;
@@ -92,6 +81,51 @@ async function apiAuthStatus(page, accessToken) {
       return 0;
     }
   }, accessToken);
+}
+
+async function signInViaAuthApi(page) {
+  if (!EMAIL || !PASSWORD) return null;
+  const result = await page.evaluate(async ({ email, password, anon }) => {
+    const attempts = [
+      '/auth/token?grant_type=password',
+      'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
+    ];
+    for (const endpoint of attempts) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', apikey: anon, accept: 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password }),
+          cache: 'no-store'
+        });
+        const body = await response.json().catch(() => null);
+        if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
+          return {
+            status: response.status,
+            access_token: body.access_token,
+            refresh_token: body.refresh_token,
+            user_id: body.user.id,
+            email: body.user.email || email,
+            expires_in: Number(body.expires_in || 3600),
+            endpoint
+          };
+        }
+      } catch {}
+    }
+    return null;
+  }, { email: EMAIL, password: PASSWORD, anon: ANON });
+  if (!result) return null;
+  const session = {
+    accessToken: result.access_token,
+    refreshToken: result.refresh_token,
+    userId: result.user_id,
+    expiresAt: Date.now() + Math.max(60, result.expires_in) * 1000,
+    email: result.email
+  };
+  await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), session);
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+  await waitFor(1200);
+  return { ...session, authEndpoint: result.endpoint };
 }
 
 async function refreshStoredSession(page) {
