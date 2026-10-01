@@ -487,10 +487,19 @@ function currentHumanGate(mission: any, step: any) {
   return gate;
 }
 
-function jobIdFor(missionId: string, stepId: string, attempt: number = 1) {
+function jobIdFor(missionId: string, stepId: string, attempt: number = 1, strategyKey: string = "") {
   const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 28);
   const safeAttempt = Math.max(1, Math.min(99, Number.isFinite(Number(attempt)) ? Number(attempt) : 1));
-  return `uo_${safe(missionId)}_${safe(stepId)}_a${safeAttempt}`;
+  const strategyFingerprint = (value: string) => {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  };
+  const strategy = strategyKey ? `_s${strategyFingerprint(strategyKey)}` : "";
+  return `uo_${safe(missionId)}_${safe(stepId)}_a${safeAttempt}${strategy}`;
 }
 
 async function getExecutionJob(jobId: string) {
@@ -499,7 +508,7 @@ async function getExecutionJob(jobId: string) {
   try {
     const { data, error } = await sb.schema("aria_internal")
       .from("execution_jobs")
-      .select("job_id,status,exit_code,stdout,stderr,result,evidence,error,completed_at,started_at")
+      .select("job_id,status,exit_code,stdout,stderr,result,completed_at,started_at")
       .eq("job_id", jobId)
       .maybeSingle();
 
@@ -507,8 +516,6 @@ async function getExecutionJob(jobId: string) {
       const persisted = {
         ...data,
         result: data.result ?? null,
-        evidence: data.evidence ?? null,
-        error: data.error ?? null,
       };
       return {
         response: { ok: true, status: 200 },
@@ -544,18 +551,67 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
   return body.job || body;
 }
 
-async function deviceExecute(missionId: string, step: any) {
+async function deviceExecute(missionId: string, step: any, mission: any = null) {
   const operation = String(step.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) throw new Error(`device_operation_not_allowed:${operation}`);
-  const attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
-  const jobId = jobIdFor(missionId, String(step.id), attempt);
+  let attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
+  const strategyKey = String(step?.input?.strategy_key || "");
+  let jobId = jobIdFor(missionId, String(step.id), attempt, strategyKey);
   let current = await getExecutionJob(jobId);
-  if (!(current.response.ok && current.body?.ok && current.body.job)) {
-    await enqueueDeviceJob(missionId, step, jobId);
-    current = await getExecutionJob(jobId);
+  let job = current.body?.job;
+
+  const previousVerificationRejected =
+    mission?.checkpoint?.results &&
+    typeof mission.checkpoint.results === "object" &&
+    mission.checkpoint.results[String(step.id)]?.__aria_verification_rejected === true;
+
+  const isPersistedRwhtVerificationRejected = (candidate:any) => {
+    if (operation !== "computer.use.autonomous" || !candidate || String(candidate.status || "") !== "succeeded") return false;
+    try {
+      let raw:any =
+        candidate.result?.result && typeof candidate.result.result === "object"
+          ? candidate.result.result
+          : candidate.result && typeof candidate.result === "object"
+            ? candidate.result
+            : {};
+      if (typeof raw?.stdout === "string" && raw.stdout.trim()) {
+        try {
+          const parsed = JSON.parse(raw.stdout);
+          if (parsed && typeof parsed === "object") raw = parsed;
+        } catch {}
+      }
+      const total = Number(raw.required_routes_total || 0);
+      const visited = Number(raw.required_routes_visited || 0);
+      return Boolean(raw.full_pwa_coverage === true && total > 0 && visited < total);
+    } catch {
+      return false;
+    }
+  };
+
+  // Advance across terminal failures or verifier-rejected physical successes,
+  // checking every selected job. This prevents accepting an incomplete a2 as
+  // the result merely because a1 was the original candidate.
+  for (let guard = 0; guard < MAX_STEP_ATTEMPTS && attempt < MAX_STEP_ATTEMPTS; guard += 1) {
+    const rejected = isPersistedRwhtVerificationRejected(job);
+    const failedTerminal = Boolean(job && ["failed", "timeout"].includes(String(job.status || "")));
+    const checkpointRejected = attempt === Math.max(1, Number(step?.input?.__aria_attempt || 1)) && previousVerificationRejected;
+    if ((rejected || failedTerminal || checkpointRejected) && attempt < MAX_STEP_ATTEMPTS) {
+      attempt += 1;
+      jobId = jobIdFor(missionId, String(step.id), attempt, strategyKey);
+      current = await getExecutionJob(jobId);
+      job = current.body?.job;
+      continue;
+    }
+    break;
   }
-  const job = current.body?.job;
-  if (!job) return { status: "waiting", executor_type: "device", operation, job_id: jobId };
+
+  if (!(current.response.ok && current.body?.ok && job)) {
+    await enqueueDeviceJob(missionId, { ...step, input: { ...(step.input || {}), __aria_attempt: attempt } }, jobId);
+    current = await getExecutionJob(jobId);
+    job = current.body?.job;
+  }
+
+  if (!job) return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: "queued", attempt };
   const status = String(job.status || "");
   if (["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
     return {
@@ -563,6 +619,7 @@ async function deviceExecute(missionId: string, step: any) {
       executor_type: "device",
       operation,
       job_id: jobId,
+      attempt,
       exit_code: job.exit_code,
       stdout: job.stdout,
       stderr: job.stderr,
@@ -571,7 +628,7 @@ async function deviceExecute(missionId: string, step: any) {
       error: job.error ?? null,
     };
   }
-  return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: status };
+  return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: status, attempt };
 }
 
 async function githubExecute(step: any, token: string | null, mission: any = null) {
@@ -1269,6 +1326,7 @@ function planStrategySignature(steps:any[]) {
       model_id: step?.target?.model_id ?? null,
       project_id: step?.target?.project_id ?? null,
     },
+    strategy_key: step?.input?.strategy_key ?? step?.metadata?.strategy_key ?? null,
   })).sort((a:any,b:any) => a.id.localeCompare(b.id));
   return JSON.stringify(normalized);
 }
@@ -1318,7 +1376,7 @@ async function executeStep(missionId: string, step: any, auth: AuthContext, miss
   validateStep(step);
   const type = executorType(step);
   if (type === "connector") return connectorExecute(missionId, step, auth.token, mission);
-  if (type === "device") return deviceExecute(missionId, step);
+  if (type === "device") return deviceExecute(missionId, step, mission);
   if (type === "model") return modelExecute(missionId, step, auth);
   if (type === "agent") return agentExecute(missionId, step, auth);
   if (type === "eas") return easExecute(step);
@@ -2277,6 +2335,9 @@ Deno.serve(async (request) => {
           return { step, result, waiting: true, passed: false };
         }
 
+        if (String(result?.status || "") === "succeeded" && executorType(step) === "device") {
+          result.__aria_verification_rejected = true;
+        }
         await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || (String(result?.status || "") === "succeeded" ? "verification_failed" : (result?.status || "verification_failed")), result_status: result?.status ?? null, verification_status: result?.repair?.verification_status ?? result?.verification_status ?? null });
         return { step, result, passed: false, waiting: false };
       }));
