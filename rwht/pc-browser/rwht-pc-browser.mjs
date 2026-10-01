@@ -770,6 +770,12 @@ async function run() {
     failed_responses: summary.failed_responses.length
   }, null, 2));
 
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
   if (!summary.verified) process.exitCode = 2;
 }
 
