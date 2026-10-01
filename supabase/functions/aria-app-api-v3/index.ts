@@ -839,13 +839,13 @@ Deno.serve(async (req) => {
       const { data, error } = await sb.schema("aria_internal").from("mission_state")
         .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
         .eq("metadata->>project_id", project.id)
-        .order("updated_at", { ascending: false }).limit(100);
+        .order("updated_at", { ascending: false }).limit(limit);
       if (error) return json({ error: "project_missions_failed", detail: error.message, trace_id: trace }, 502);
       const owned = (data ?? []).filter((m:any) => {
         const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
         return (md.user_id === user.id || md.owner_user_id === user.id) && String(md.project_id || "").toLowerCase() === project.id;
       });
-      const missions = await Promise.all(owned.slice(0, limit).map((m:any) => enrichMission(m, sb)));
+      const missions = await Promise.all(owned.map((m:any) => enrichMission(m, sb, false)));
       return json({ ok: true, project: project, missions, queue: "canonical", trace_id: trace });
     }
     if (req.method === "GET" && path.endsWith("/missions")) { const overview = await meditationOverview(user.id); return json({ ok: true, source_of_truth: "aria_internal.mission_state", missions: overview.missions, active_mission: overview.active_mission, counts: overview.counts, trace_id: trace }); }

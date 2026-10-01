@@ -99,7 +99,8 @@ assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
 
 const projectApi = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-app-api-v3', 'index.ts'), 'utf8');
 assert.ok(projectApi.includes('.eq("metadata->>project_id", project.id)'), 'project missions must filter by project in Postgres');
-assert.ok(projectApi.includes('.order("updated_at", { ascending: false }).limit(100)'), 'project missions must use bounded ordered query');
+assert.ok(projectApi.includes('.order("updated_at", { ascending: false }).limit(limit)'), 'project missions must use bounded ordered query');
+assert.ok(projectApi.includes('enrichMission(m, sb, false)'), 'project mission list must skip ETA fanout');
 const projectIndexMigration = fs.readFileSync(
   path.join(__dirname, '..', 'supabase', 'migrations', '20260929124500_project_mission_query_index_v1.sql'),
   'utf8',
