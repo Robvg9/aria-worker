@@ -41,7 +41,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host 'DIAGNOSTIC_STAGE=runner-job-started'
+          Write-Host 'DIAGNOSTIC_STAGE=runner-job-started-v2'
           Write-Host ('JOB_ID=' + $env:GITHUB_JOB)
           Write-Host ('RUN_ID=' + $env:GITHUB_RUN_ID)
           Write-Host ('ATTEMPT=' + $env:GITHUB_RUN_ATTEMPT)
