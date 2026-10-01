@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.1';
+const VERSION = 'aria-pc-browser-rwht-v1.3.2';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -500,7 +500,7 @@ async function auditRoute(page, url, routeIndex, config) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
   await page.waitForTimeout(config.settle_ms);
 
-  const routeHash = new URL(url).hash.split('?')[0] || '#home';
+  const routeForReadiness = new URL(url).hash.split('?')[0] || '#home';
   const readinessSelector = routeHash === '#mission'
     ? '.dashboardScreen,.modalBackdrop'
     : routeHash === '#home'
@@ -588,7 +588,7 @@ async function auditRoute(page, url, routeIndex, config) {
     }).catch(() => {});
   }
 
-  const routeHash = new URL(url).hash.split('?')[0] || '#home';
+  const routeHash = routeForReadiness;
   const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
   for (let index = 0; index < maxControls; index += 1) {
     // Force a genuinely fresh SPA state before each control. Reusing the same
