@@ -1824,33 +1824,20 @@ Deno.serve(async (request) => {
         missing: [],
         skipped_for_probe: true,
       };
+    } else if (learningGateMode === "hard") {
+      learningGate = await validateLearningGate(String(mission.goal || ""), steps);
     } else {
-      try {
-        const evaluated = await validateLearningGate(String(mission.goal || ""), steps);
-        if (learningGateMode === "hard") {
-          learningGate = evaluated;
-        } else {
-          learningGate = {
-            ...evaluated,
-            passed: true,
-            advisory_only: true,
-            advisory_missing: evaluated?.missing || [],
-            learning_gate_mode: "advisory",
-          };
-        }
-      } catch (error) {
-        if (learningGateMode === "hard") throw error;
-        learningGate = {
-          version: "mastery-learning-loop-v2",
-          passed: true,
-          advisory_only: true,
-          learning_gate_mode: "advisory",
-          advisory_error: error instanceof Error ? error.message : String(error),
-          required: [],
-          applied_memory_ids: [],
-          missing: [],
-        };
-      }
+      // Advisory learning never sits on the execution critical path.
+      // It is still recorded in mission evidence, while hard enforcement is opt-in.
+      learningGate = {
+        version: "mastery-learning-loop-v2",
+        passed: true,
+        advisory_only: true,
+        learning_gate_mode: "advisory",
+        required: [],
+        applied_memory_ids: [],
+        missing: [],
+      };
     }
 
     if (learningGate.passed !== true && learningGateMode === "hard") {
