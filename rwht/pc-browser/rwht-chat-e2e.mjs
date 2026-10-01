@@ -275,8 +275,10 @@ async function run() {
       { expected: EXPECTED_AUTH_TEXT },
       { timeout: 60000 }
     );
-    const session = await ensureLiveSession(page);
+    const session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
+    const authStatus = await apiAuthStatus(page, session.accessToken);
+    if (authStatus !== 200) throw new Error('authenticated_session_not_accepted_by_aria_api_' + authStatus);
     authVerified = true;
 
     await page.goto(base + '#chat', { waitUntil: 'domcontentloaded', timeout: 30000 });
