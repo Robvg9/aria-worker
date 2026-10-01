@@ -542,13 +542,32 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
   return body.job || body;
 }
 
-async function deviceExecute(missionId: string, step: any) {
+async function deviceExecute(missionId: string, step: any, mission: any = null) {
   const operation = String(step.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) throw new Error(`device_operation_not_allowed:${operation}`);
   let attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
   let jobId = jobIdFor(missionId, String(step.id), attempt);
   let current = await getExecutionJob(jobId);
   let job = current.body?.job;
+
+  const previousVerificationRejected =
+    mission?.checkpoint?.results &&
+    typeof mission.checkpoint.results === "object" &&
+    mission.checkpoint.results[String(step.id)]?.__aria_verification_rejected === true;
+
+  // A job that physically succeeded but was rejected by the mission verifier
+  // must not be reused after re-planning. Allocate the next fresh attempt.
+  if (
+    previousVerificationRejected &&
+    job &&
+    String(job.status || "") === "succeeded" &&
+    attempt < MAX_STEP_ATTEMPTS
+  ) {
+    attempt += 1;
+    jobId = jobIdFor(missionId, String(step.id), attempt);
+    current = await getExecutionJob(jobId);
+    job = current.body?.job;
+  }
 
   // A previous terminal failure must never be reused as the next execution.
   // Move to a fresh idempotency key/job id (a2/a3) while staying within the
@@ -1330,7 +1349,7 @@ async function executeStep(missionId: string, step: any, auth: AuthContext, miss
   validateStep(step);
   const type = executorType(step);
   if (type === "connector") return connectorExecute(missionId, step, auth.token, mission);
-  if (type === "device") return deviceExecute(missionId, step);
+  if (type === "device") return deviceExecute(missionId, step, mission);
   if (type === "model") return modelExecute(missionId, step, auth);
   if (type === "agent") return agentExecute(missionId, step, auth);
   if (type === "eas") return easExecute(step);
@@ -2289,6 +2308,9 @@ Deno.serve(async (request) => {
           return { step, result, waiting: true, passed: false };
         }
 
+        if (String(result?.status || "") === "succeeded" && executorType(step) === "device") {
+          result.__aria_verification_rejected = true;
+        }
         await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || (String(result?.status || "") === "succeeded" ? "verification_failed" : (result?.status || "verification_failed")), result_status: result?.status ?? null, verification_status: result?.repair?.verification_status ?? result?.verification_status ?? null });
         return { step, result, passed: false, waiting: false };
       }));
