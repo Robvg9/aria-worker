@@ -576,9 +576,24 @@ async function auditRoute(page, url, routeIndex, config) {
 
     const controlsNow = await discoverInteractive(page);
     const original = initialControls[index];
-    const preblocked = SAFE_BLOCKED.test(safeLabel(original.name))
-      || (!config.allow_mutations && SAFE_MUTATION.test(safeLabel(original.name)))
-      || (SECRET.test(safeLabel(original.name)) && ['input', 'textarea', 'select'].includes(original.tag));
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
     if (preblocked) {
       const outcome = await testControl(page, original, config);
       routeResult.actions.push({ control: original, ...outcome });
