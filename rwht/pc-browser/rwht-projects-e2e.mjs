@@ -82,35 +82,34 @@ async function apiAuthStatus(page, accessToken) {
 
 async function signInViaAuthApi(page) {
   if (!EMAIL || !PASSWORD) return null;
-  const result = await page.evaluate(async ({ email, password, anon }) => {
-    const endpoints = [
-      '/auth/token?grant_type=password',
-      'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
-    ];
-    for (const endpoint of endpoints) {
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', apikey: anon, accept: 'application/json' },
-          body: JSON.stringify({ email: email.trim(), password }),
-          cache: 'no-store'
-        });
-        const body = await response.json().catch(() => null);
-        if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
-          return {
-            status: response.status,
-            access_token: body.access_token,
-            refresh_token: body.refresh_token,
-            user_id: body.user.id,
-            email: body.user.email || email,
-            expires_in: Number(body.expires_in || 3600),
-            endpoint
-          };
-        }
-      } catch {}
-    }
-    return null;
-  }, { email: EMAIL, password: PASSWORD, anon: ANON });
+  const endpoints = [
+    BASE_URL.replace(/\\/$/, '') + '/auth/token?grant_type=password',
+    'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
+  ];
+  let result = null;
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: ANON, accept: 'application/json' },
+        body: JSON.stringify({ email: EMAIL.trim(), password: PASSWORD }),
+        cache: 'no-store'
+      });
+      const body = await response.json().catch(() => null);
+      if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
+        result = {
+          status: response.status,
+          access_token: body.access_token,
+          refresh_token: body.refresh_token,
+          user_id: body.user.id,
+          email: body.user.email || EMAIL,
+          expires_in: Number(body.expires_in || 3600),
+          endpoint
+        };
+        break;
+      }
+    } catch {}
+  }
   if (!result) return null;
   const session = {
     accessToken: result.access_token,
