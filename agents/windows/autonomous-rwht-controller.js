@@ -9,7 +9,7 @@ try {
   ({ executeWindowsDesktop } = require('../../computer-use/windows-desktop-adapter'));
 }
 
-const VERSION = 'aria-windows-autonomous-rwht-v1.2.2';
+const VERSION = 'aria-windows-autonomous-rwht-v1.2.3';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
 
@@ -929,6 +929,7 @@ async function runAutonomousRwht(options) {
     full_pwa_coverage: fullPwaCoverageMode,
     required_routes_total: requiredRoutes.length,
     required_routes_visited: visitedRoutes.size,
+    route_gate_verified: routeCoverageComplete,
   };
 
   return {
