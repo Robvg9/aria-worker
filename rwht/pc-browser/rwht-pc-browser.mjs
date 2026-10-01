@@ -501,19 +501,19 @@ async function auditRoute(page, url, routeIndex, config) {
   await page.waitForTimeout(config.settle_ms);
 
   const routeForReadiness = new URL(url).hash.split('?')[0] || '#home';
-  const readinessSelector = routeHash === '#mission'
+  const readinessSelector = routeForReadiness === '#mission'
     ? '.dashboardScreen,.modalBackdrop'
-    : routeHash === '#home'
+    : routeForReadiness === '#home'
       ? '.dashboardScreen,.authScreen'
-      : routeHash === '#chat'
+      : routeForReadiness === '#chat'
         ? '.chatScreen,.authScreen'
-        : routeHash === '#projects'
+        : routeForReadiness === '#projects'
           ? '.projectShell,.authScreen'
-          : routeHash === '#meditation'
+          : routeForReadiness === '#meditation'
             ? '.meditationViewport,.authScreen'
-            : routeHash === '#capabilities'
+            : routeForReadiness === '#capabilities'
               ? '.capabilitiesViewport,.authScreen'
-              : routeHash === '#settings'
+              : routeForReadiness === '#settings'
                 ? '.settingsViewport,.authScreen'
                 : '.dashboardScreen,.authScreen';
   await page.waitForSelector(readinessSelector, {
