@@ -212,7 +212,11 @@ async function ariaPwaMasterMissionPlan(goal:string,context:any){
     .eq("status","available").order("agent_id").limit(20);
   const agents=Array.isArray(agentsRes.data)?agentsRes.data:[];
   const reviewer=agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||"")))||agents[0];
-  const coder=agents.find((a:any)=>/cod|developer|implement/i.test(String(a.role||"")))||agents.find((a:any)=>a.agent_id!=="aria-agent-reviewer-v1")||agents[0];
+  const coder=
+    agents.find((a:any)=>a.agent_id==="aria-agent-coding-v1" && !/android/i.test(String(a.agent_id||"")+" "+String(a.role||""))) ||
+    agents.find((a:any)=>/cod|developer|implement/i.test(String(a.role||"")) && !/android/i.test(String(a.agent_id||"")+" "+String(a.role||""))) ||
+    agents.find((a:any)=>a.agent_id!=="aria-agent-reviewer-v1" && !/android/i.test(String(a.agent_id||"")+" "+String(a.role||""))) ||
+    agents[0];
   const route=routes.find((x:any)=>x.provider_id==="openrouter")||routes[0];
   if(!reviewer||!coder||!route)return null;
   const evidenceContext=JSON.stringify({scope:"PWA ARIA Libro Maestro",goal:g,start_url:targetUrl,device_id:deviceId||null}).slice(0,7000);
