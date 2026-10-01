@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-09-30-canonical';
+export const TEST_CATALOG_VERSION = '2026-10-01-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "phase6-anti-regression",
@@ -2358,7 +2358,16 @@ export type TestCatalogStats = Readonly<{
   npmTest: number;
   catalogOnly: number;
   categoryCount: number;
-  categories: readonly string[];
+  categories: readonly string[  {
+    "id": "meditation-queue-state-machine",
+    "file": "tests/meditation-queue-state-machine.test.js",
+    "title": "Meditation Queue State Machine",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": false,
+    "how": "Comprueba que las continuaciones no terminales permanezcan reanudables, que no exista fan-out de cola y que el scheduler tenga timeout explícito.",
+    "capabilities": "Valida single-flight, reconciliación de cola, prioridad de objetivo principal, aceptación explícita del Idea Analyzer y recuperación de continuaciones."
+  },
+];
   catalogVersion: string;
 }>;
 
