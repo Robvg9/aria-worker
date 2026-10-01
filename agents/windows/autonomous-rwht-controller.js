@@ -9,7 +9,7 @@ try {
   ({ executeWindowsDesktop } = require('../../computer-use/windows-desktop-adapter'));
 }
 
-const VERSION = 'aria-windows-autonomous-rwht-v1.1.0';
+const VERSION = 'aria-windows-autonomous-rwht-v1.2.0';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
 
@@ -873,10 +873,16 @@ async function runAutonomousRwht(options) {
       break;
     }
 
-    if (executionVerified && safeNodes(current).every((node) =>
-      exercisedControls.has(controlKey(afterHash || beforeHash, node.id)) ||
-      blockedControls.has(controlKey(afterHash || beforeHash, node.id))
-    ) && noProgressStreak >= 2 && screensSeen.size > 1) {
+    if (
+      !fullPwaCoverageMode
+      && executionVerified
+      && safeNodes(current).every((node) =>
+        exercisedControls.has(controlKey(afterHash || beforeHash, node.id)) ||
+        blockedControls.has(controlKey(afterHash || beforeHash, node.id))
+      )
+      && noProgressStreak >= 2
+      && screensSeen.size > 1
+    ) {
       finishReason = 'coverage_complete';
       break;
     }
@@ -890,7 +896,8 @@ async function runAutonomousRwht(options) {
   const coverageRatio = discoveredControls.size
     ? Number((exercisedControls.size / discoveredControls.size).toFixed(3))
     : 0;
-  const complete = finishReason === 'coverage_complete' || finishReason === 'control_discovery_verified';
+  const routeCoverageComplete = !fullPwaCoverageMode || visitedRoutes.size >= requiredRoutes.length;
+  const complete = (finishReason === 'coverage_complete' || finishReason === 'control_discovery_verified') && routeCoverageComplete;
   const status = complete ? 'succeeded' : (verifiedActions.length ? 'partial' : 'failed');
 
   const summary = {
