@@ -145,7 +145,7 @@ if($null -ne $still){
           $agentSource=Get-Content -Raw $dstAgent
           $rwhtSource=Get-Content -Raw $dstRwht
           if($agentSource -notmatch 'computer\.use\.autonomous'){throw 'Reloaded Windows agent missing autonomous computer-use operation'}
-          if($rwhtSource -notmatch 'aria-windows-autonomous-rwht-v1\.2\.2'){throw 'Reloaded RWHT controller v1.2.2 marker missing'}
+          if($rwhtSource -notmatch 'aria-windows-autonomous-rwht-v1\.2\.3'){throw 'Reloaded RWHT controller v1.2.2 marker missing'}
           Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=PASS'
           Write-Host "WINDOWS_AGENT_PID=$pidNow"
 
