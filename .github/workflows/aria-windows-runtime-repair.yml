@@ -118,9 +118,15 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Autonomous RWHT controller syntax check failed'}
           $needsReload=$agentChanged -or $rwhtChanged
           if(-not $needsReload){Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=UNCHANGED';exit 0}
-          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$pid=0
-          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pid)}
-          if($pid -gt 0){$proc=Get-Process -Id $pid -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "WINDOWS_AGENT_RELOAD_PID=$agentPid";Stop-Process -Id $agentPid -Force}}
+          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$agentPidReload=0
+          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$agentPidReload)}
+          if($agentPidReload -gt 0){$proc=Get-Process -Id $agentPidReload -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "WINDOWS_AGENT_RELOAD_PID=$agentPidReload";try{Stop-Process -Id $agentPidReload -Force -ErrorAction Stop;Start-Sleep -Seconds 2}catch{Write-Warning "WINDOWS_AGENT_STOP_PROCESS_FAILED=$($_.Exception.Message)"}}}
+$still=if($agentPidReload -gt 0){Get-Process -Id $agentPidReload -ErrorAction SilentlyContinue}else{$null}
+if($null -ne $still){
+  Write-Host "WINDOWS_AGENT_PROCESS_STILL_RUNNING=$agentPidReload"
+  try{& sc.exe stop 'ARIA-WINDOWS' | Out-Host;Start-Sleep -Seconds 3}catch{Write-Warning "ARIA_WINDOWS_SERVICE_STOP_FAILED=$($_.Exception.Message)"}
+}
+
           Start-Sleep -Seconds 2
           $launcher='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
           if(-not(Test-Path $launcher)){throw 'Agent launcher missing after autonomous RWHT sync'}
@@ -139,7 +145,7 @@ jobs:
           $agentSource=Get-Content -Raw $dstAgent
           $rwhtSource=Get-Content -Raw $dstRwht
           if($agentSource -notmatch 'computer\.use\.autonomous'){throw 'Reloaded Windows agent missing autonomous computer-use operation'}
-          if($rwhtSource -notmatch 'aria-windows-autonomous-rwht-v1\.1\.0'){throw 'Reloaded RWHT controller version marker missing'}
+          if($rwhtSource -notmatch 'aria-windows-autonomous-rwht-v1\.2\.3'){throw 'Reloaded RWHT controller v1.2.2 marker missing'}
           Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=PASS'
           Write-Host "WINDOWS_AGENT_PID=$pidNow"
 

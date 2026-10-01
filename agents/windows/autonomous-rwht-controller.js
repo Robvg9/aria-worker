@@ -9,7 +9,7 @@ try {
   ({ executeWindowsDesktop } = require('../../computer-use/windows-desktop-adapter'));
 }
 
-const VERSION = 'aria-windows-autonomous-rwht-v1.1.0';
+const VERSION = 'aria-windows-autonomous-rwht-v1.2.3';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
 
@@ -520,13 +520,22 @@ async function runAutonomousRwht(options) {
     try {
       await chromeCdpCall('Page.navigate', { url });
       await new Promise((resolve) => setTimeout(resolve, 900));
+      const observedRoute = await currentRoute();
+      if (observedRoute === route) {
+        visitedRoutes.add(route);
+        return { status: 'succeeded', method: 'chrome-cdp', url, route, observed_route: observedRoute };
+      }
+    } catch {}
+    const fallback = await navigate(adapter, url);
+    if (fallback.status !== 'succeeded') return { ...fallback, route, url };
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const observedRoute = await currentRoute();
+    if (observedRoute === route) {
       visitedRoutes.add(route);
-      return { status: 'succeeded', method: 'chrome-cdp', url, route };
-    } catch {
-      const fallback = await navigate(adapter, url);
-      if (fallback.status === 'succeeded') visitedRoutes.add(route);
-      return { ...fallback, route, url };
+      return { ...fallback, status: 'succeeded', route, url, observed_route: observedRoute };
     }
+    return { ...fallback, status: 'failed', route, url, error: 'route_navigation_not_verified', observed_route: observedRoute };
+
   };
 
   const navigation = await (async () => {
@@ -690,7 +699,7 @@ async function runAutonomousRwht(options) {
     }
 
     if (decision.action === 'finish') {
-      if (pending.length === 0 && noProgressStreak >= 2 && screensSeen.size > 1) {
+      if ((!fullPwaCoverageMode || visitedRoutes.size >= requiredRoutes.length) && pending.length === 0 && noProgressStreak >= 2 && screensSeen.size > 1) {
         finishReason = 'coverage_complete';
         break;
       }
@@ -868,15 +877,21 @@ async function runAutonomousRwht(options) {
       break;
     }
 
-    if (controlDiscoveryVerify && exercisedControls.size >= 5 && screensSeen.size >= 2) {
+    if (!fullPwaCoverageMode && controlDiscoveryVerify && exercisedControls.size >= 5 && screensSeen.size >= 2) {
       finishReason = 'control_discovery_verified';
       break;
     }
 
-    if (executionVerified && safeNodes(current).every((node) =>
-      exercisedControls.has(controlKey(afterHash || beforeHash, node.id)) ||
-      blockedControls.has(controlKey(afterHash || beforeHash, node.id))
-    ) && noProgressStreak >= 2 && screensSeen.size > 1) {
+    if (
+      !fullPwaCoverageMode
+      && executionVerified
+      && safeNodes(current).every((node) =>
+        exercisedControls.has(controlKey(afterHash || beforeHash, node.id)) ||
+        blockedControls.has(controlKey(afterHash || beforeHash, node.id))
+      )
+      && noProgressStreak >= 2
+      && screensSeen.size > 1
+    ) {
       finishReason = 'coverage_complete';
       break;
     }
@@ -890,7 +905,8 @@ async function runAutonomousRwht(options) {
   const coverageRatio = discoveredControls.size
     ? Number((exercisedControls.size / discoveredControls.size).toFixed(3))
     : 0;
-  const complete = finishReason === 'coverage_complete' || finishReason === 'control_discovery_verified';
+  const routeCoverageComplete = !fullPwaCoverageMode || visitedRoutes.size >= requiredRoutes.length;
+  const complete = (finishReason === 'coverage_complete' || finishReason === 'control_discovery_verified') && routeCoverageComplete;
   const status = complete ? 'succeeded' : (verifiedActions.length ? 'partial' : 'failed');
 
   const summary = {
@@ -913,6 +929,7 @@ async function runAutonomousRwht(options) {
     full_pwa_coverage: fullPwaCoverageMode,
     required_routes_total: requiredRoutes.length,
     required_routes_visited: visitedRoutes.size,
+    route_gate_verified: routeCoverageComplete,
   };
 
   return {
