@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/pwa-headless
-          cat > /tmp/pwa-headless.mjs <<'NODE
+          cat > /tmp/pwa-headless.mjs <<NODE
           const { chromium } = require('playwright');
           const fs = require('node:fs');
           const crypto = require('node:crypto');
