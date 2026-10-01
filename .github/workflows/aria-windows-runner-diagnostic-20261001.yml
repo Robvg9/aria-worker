@@ -1,0 +1,160 @@
+name: ARIA Windows Runner Diagnostic 2026-10-01
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aria-windows-runner-diagnostic-20261001.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Host and runner diagnostics
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host '=== RUNNER ==='
+          Write-Host ('RUNNER_NAME=' + $env:RUNNER_NAME)
+          Write-Host ('RUNNER_OS=' + $env:RUNNER_OS)
+          Write-Host ('RUNNER_ARCH=' + $env:RUNNER_ARCH)
+          Write-Host ('WORKSPACE=' + $env:GITHUB_WORKSPACE)
+          Write-Host ('WHOAMI=' + (whoami))
+          Write-Host ('NODE=' + (& node --version))
+          Write-Host ('EDGE_PROCESS_COUNT=' + @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^msedge(\.exe)?$' }).Count)
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^msedge(\.exe)?$' } |
+            Select-Object ProcessId,CommandLine |
+            Format-List
+
+      - name: Queue execution baseline marker
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host 'DIAGNOSTIC_STAGE=runner-job-started'
+          Write-Host ('JOB_ID=' + $env:GITHUB_JOB)
+          Write-Host ('RUN_ID=' + $env:GITHUB_RUN_ID)
+          Write-Host ('ATTEMPT=' + $env:GITHUB_RUN_ATTEMPT)
+
+      - name: Check existing CDP
+        id: cdp
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            $v = Invoke-RestMethod -Uri 'http://127.0.0.1:9222/json/version' -TimeoutSec 4
+            Write-Host ('EXISTING_CDP=YES ' + ($v | ConvertTo-Json -Compress))
+            "existing=true" >> $env:GITHUB_OUTPUT
+          } catch {
+            Write-Host ('EXISTING_CDP=NO ' + $_.Exception.Message)
+            "existing=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Start isolated Edge CDP when needed
+        id: edge
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $started = $false
+          try {
+            Invoke-RestMethod -Uri 'http://127.0.0.1:9222/json/version' -TimeoutSec 2 | Out-Null
+          } catch {
+            $edgePath = (Get-Command msedge.exe -ErrorAction Stop).Source
+            $profile = Join-Path $env:TEMP ('aria-cdp-diag-' + $env:GITHUB_RUN_ID)
+            New-Item -ItemType Directory -Force -Path $profile | Out-Null
+            $args = @(
+              '--headless=new',
+              '--disable-gpu',
+              '--no-first-run',
+              '--no-default-browser-check',
+              '--remote-debugging-address=127.0.0.1',
+              '--remote-debugging-port=9222',
+              ('--user-data-dir=' + $profile),
+              'https://aria.robvg9.workers.dev/pwa/#home'
+            )
+            $p = Start-Process -FilePath $edgePath -ArgumentList $args -PassThru
+            Set-Content -LiteralPath (Join-Path $env:TEMP 'aria-cdp-diag-pid.txt') -Value $p.Id
+            $started = $true
+            Write-Host ('STARTED_ISOLATED_EDGE_PID=' + $p.Id)
+          }
+          $ok = $false
+          for($i=0;$i -lt 12;$i++){
+            try {
+              $v=Invoke-RestMethod -Uri 'http://127.0.0.1:9222/json/version' -TimeoutSec 2
+              Write-Host ('CDP_READY=YES attempt=' + ($i+1))
+              Write-Host ($v | ConvertTo-Json -Compress)
+              $ok=$true
+              break
+            } catch {
+              Start-Sleep -Seconds 1
+            }
+          }
+          if(-not $ok){ throw 'CDP_UNAVAILABLE_AFTER_START' }
+
+      - name: PWA HTTP baseline
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $h = Invoke-WebRequest -UseBasicParsing -Uri 'https://aria.robvg9.workers.dev/pwa/' -TimeoutSec 20
+          Write-Host ('PWA_HTTP_STATUS=' + [int]$h.StatusCode)
+          Write-Host ('PWA_HTTP_LENGTH=' + $h.RawContentLength)
+
+      - name: Deterministic CDP route probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nodeScript = @'
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const base = 'https://aria.robvg9.workers.dev/pwa/';
+const json = async url => { const r=await fetch(url); if(!r.ok) throw new Error('HTTP_'+r.status); return r.json(); };
+const tabs = await json('http://127.0.0.1:9222/json');
+const pages = tabs.filter(x=>x && x.type==='page' && x.webSocketDebuggerUrl);
+if (!pages.length) throw new Error('NO_CDP_PAGE');
+const page = pages.find(x=>String(x.url||'').includes('aria.robvg9.workers.dev')) || pages[0];
+console.log('CDP_PAGE=' + JSON.stringify({url:page.url,title:page.title}));
+const call = (method, params={}) => new Promise((resolve,reject)=>{
+  const ws = new WebSocket(page.webSocketDebuggerUrl);
+  let done=false;
+  const end=(fn,v)=>{ if(done)return; done=true; clearTimeout(timer); try{ws.close()}catch{}; fn(v); };
+  const timer=setTimeout(()=>end(reject,new Error('CDP_TIMEOUT')),12000);
+  ws.onopen=()=>ws.send(JSON.stringify({id:1,method,params}));
+  ws.onmessage=e=>{ try { const m=JSON.parse(String(e.data||'')); if(m.id!==1)return; m.error?end(reject,new Error(m.error.message||'CDP_ERROR')):end(resolve,m.result||{}); } catch(err){ end(reject,err); } };
+  ws.onerror=()=>end(reject,new Error('CDP_SOCKET_ERROR'));
+});
+const expr='({href:location.href,hash:location.hash||"#home",title:document.title,body:(document.body?.innerText||"").slice(0,300)})';
+const routes=['#home','#chat','#mission','#projects','#meditation','#capabilities','#settings'];
+const out=[];
+for(const route of routes){
+  await call('Page.navigate',{url:base+route});
+  await sleep(1200);
+  const ev=await call('Runtime.evaluate',{returnByValue:true,expression:expr});
+  const v=ev?.result?.value||{};
+  out.push({route,href:v.href,hash:v.hash,title:v.title,verified:v.hash===route});
+}
+console.log('DIRECT_CDP_ROUTES=' + JSON.stringify(out));
+console.log('DIRECT_CDP_ROUTE_COUNT=' + out.filter(x=>x.verified).length + '/7');
+if(out.filter(x=>x.verified).length!==7) process.exitCode=2;
+'@
+          $tmp=Join-Path $env:TEMP 'aria-direct-cdp-routes.mjs'
+          Set-Content -LiteralPath $tmp -Value $nodeScript -Encoding UTF8
+          & node $tmp
+          if($LASTEXITCODE -eq 2){ Write-Host 'CDP_ROUTE_BASELINE=PARTIAL' } elseif($LASTEXITCODE -ne 0){ throw "CDP_PROBE_EXIT=$LASTEXITCODE" } else { Write-Host 'CDP_ROUTE_BASELINE=PASS' }
+
+      - name: Cleanup isolated Edge when started
+        if: always()
+        shell: powershell
+        run: |
+          $pidFile=Join-Path $env:TEMP 'aria-cdp-diag-pid.txt'
+          if(Test-Path $pidFile){
+            $pid=[int](Get-Content $pidFile | Select-Object -First 1)
+            try { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Write-Host ('CLEANED_EDGE_PID=' + $pid) } catch {}
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+          }
