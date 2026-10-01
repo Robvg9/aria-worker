@@ -9,7 +9,7 @@ try {
   ({ executeWindowsDesktop } = require('../../computer-use/windows-desktop-adapter'));
 }
 
-const VERSION = 'aria-windows-autonomous-rwht-v1.2.0';
+const VERSION = 'aria-windows-autonomous-rwht-v1.2.1';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
 
@@ -520,13 +520,22 @@ async function runAutonomousRwht(options) {
     try {
       await chromeCdpCall('Page.navigate', { url });
       await new Promise((resolve) => setTimeout(resolve, 900));
+      const observedRoute = await currentRoute();
+      if (observedRoute === route) {
+        visitedRoutes.add(route);
+        return { status: 'succeeded', method: 'chrome-cdp', url, route, observed_route: observedRoute };
+      }
+    } catch {}
+    const fallback = await navigate(adapter, url);
+    if (fallback.status !== 'succeeded') return { ...fallback, route, url };
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const observedRoute = await currentRoute();
+    if (observedRoute === route) {
       visitedRoutes.add(route);
-      return { status: 'succeeded', method: 'chrome-cdp', url, route };
-    } catch {
-      const fallback = await navigate(adapter, url);
-      if (fallback.status === 'succeeded') visitedRoutes.add(route);
-      return { ...fallback, route, url };
+      return { ...fallback, status: 'succeeded', route, url, observed_route: observedRoute };
     }
+    return { ...fallback, status: 'failed', route, url, error: 'route_navigation_not_verified', observed_route: observedRoute };
+
   };
 
   const navigation = await (async () => {
