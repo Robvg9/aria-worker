@@ -42,9 +42,9 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/pwa-headless
           cat > /tmp/pwa-headless.mjs <<NODE
-          const { chromium } = require('playwright');
-          const fs = require('node:fs');
-          const crypto = require('node:crypto');
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
           const base='https://aria.robvg9.workers.dev/pwa/';
           const routes=['#home','#chat','#mission','#projects','#meditation','#capabilities','#settings'];
           const run_id='headless-'+Date.now();
