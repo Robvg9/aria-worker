@@ -151,3 +151,5 @@ assert.match(projectsWorkflow, /RWHT_PASSWORD/);
 assert.match(projectsWorkflow, /RWHT_STORAGE_STATE_B64/);
 
 // 2026-10-01 final-head authenticated RWHT recertification trigger.
+
+// Final universal RWHT certification trigger: Chat + Projects + Capabilities + PC.
