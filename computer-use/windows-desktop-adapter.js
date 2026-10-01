@@ -125,22 +125,33 @@ function spawnPowerShell(args, payload, timeoutMs) {
 
 function openDirectly(payload) {
   return new Promise((resolve) => {
-    const child = spawn(payload.path, [], { windowsHide: false, stdio: 'ignore' });
+    const value = String(payload.path || '');
+    const isUrl = /^https?:\/\//i.test(value);
+    const child = isUrl
+      ? spawn('cmd.exe', ['/c', 'start', '', value], { windowsHide: false, stdio: 'ignore' })
+      : spawn(value, [], { windowsHide: false, stdio: 'ignore' });
     let settled = false;
-    const finish = (value) => {
+    const finish = (result) => {
       if (settled) return;
       settled = true;
-      resolve(value);
+      resolve(result);
     };
-    const timer = setTimeout(() => finish({ status: 'failed', action: 'open', path: payload.path, error: 'desktop_open_timeout', version: VERSION }), 5000);
+    const timer = setTimeout(() => finish({ status: 'failed', action: 'open', path: value, error: 'desktop_open_timeout', version: VERSION }), 7000);
     child.once('error', (error) => {
       clearTimeout(timer);
-      finish({ status: 'failed', action: 'open', path: payload.path, error: String(error?.message || error), version: VERSION });
+      finish({ status: 'failed', action: 'open', path: value, error: String(error?.message || error), version: VERSION });
     });
     child.once('spawn', () => {
       clearTimeout(timer);
       child.unref();
-      finish({ status: 'succeeded', action: 'open', pid: child.pid, path: payload.path, version: VERSION, method: 'node_spawn' });
+      finish({
+        status: 'succeeded',
+        action: 'open',
+        pid: child.pid,
+        path: value,
+        version: VERSION,
+        method: isUrl ? 'cmd_start_url' : 'node_spawn',
+      });
     });
   });
 }
