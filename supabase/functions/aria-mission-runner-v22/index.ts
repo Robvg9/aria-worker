@@ -1327,6 +1327,7 @@ function planStrategySignature(steps:any[]) {
       model_id: step?.target?.model_id ?? null,
       project_id: step?.target?.project_id ?? null,
     },
+    strategy_key: step?.input?.strategy_key ?? step?.metadata?.strategy_key ?? null,
   })).sort((a:any,b:any) => a.id.localeCompare(b.id));
   return JSON.stringify(normalized);
 }
