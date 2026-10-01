@@ -7,6 +7,7 @@ const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = process.env.RWHT_STORAGE_STATE || '';
+const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const EXPECTED_AUTH_TEXT = String(process.env.RWHT_EXPECTED_AUTH_TEXT || 'Núcleo conectado');
 const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 90000);
 const SETTLE_MS = Number(process.env.RWHT_SETTLE_MS || 1500);
@@ -17,15 +18,27 @@ function waitFor(ms) {
 }
 
 async function login(page) {
-  if (STORAGE_STATE) return { mode: 'storage_state', status: 'authenticated' };
   await page.waitForFunction(
     () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('input[type="password"]')),
     null,
     { timeout: 30000 }
   );
+
+  if (STORAGE_STATE) {
+    const liveSession = await ensureLiveSession(page);
+    if (liveSession) return { mode: 'storage_state_refresh_or_validated', status: 'authenticated' };
+    await page.evaluate(() => localStorage.removeItem('aria_session_v2')).catch(() => {});
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await waitFor(1000);
+  }
+
   const dashboardVisible = await page.locator('.dashboardScreen').isVisible().catch(() => false);
-  if (dashboardVisible) return { mode: STORAGE_STATE ? 'storage_state' : 'existing_session', status: 'authenticated' };
-  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
+  if (dashboardVisible) {
+    const liveSession = await ensureLiveSession(page);
+    if (liveSession) return { mode: 'existing_session', status: 'authenticated' };
+  }
+
+  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
 
   const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
@@ -41,7 +54,9 @@ async function login(page) {
   else await password.press('Enter');
 
   await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
-  return { mode: 'password', status: 'submitted' };
+  const authenticated = await ensureLiveSession(page);
+  if (!authenticated) throw new Error('authenticated_session_not_verified_after_login');
+  return { mode: 'password', status: 'authenticated' };
 }
 
 async function readSession(page) {
@@ -49,13 +64,83 @@ async function readSession(page) {
     try {
       const raw = localStorage.getItem('aria_session_v2');
       const session = raw ? JSON.parse(raw) : null;
-      return session && typeof session.accessToken === 'string'
-        ? { accessToken: session.accessToken, userId: String(session.userId || ''), conversationId: null }
+      return session && typeof session.accessToken === 'string' && typeof session.refreshToken === 'string'
+        ? {
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken,
+            userId: String(session.userId || ''),
+            expiresAt: Number(session.expiresAt || 0),
+            email: session.email || null,
+            conversationId: null
+          }
         : null;
     } catch {
       return null;
     }
   });
+}
+
+async function apiAuthStatus(page, accessToken) {
+  return page.evaluate(async (token) => {
+    try {
+      const response = await fetch('/api/diagnostics/health', {
+        headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+        cache: 'no-store'
+      });
+      return response.status;
+    } catch {
+      return 0;
+    }
+  }, accessToken);
+}
+
+async function refreshStoredSession(page) {
+  const session = await readSession(page);
+  if (!session?.refreshToken) return null;
+  const result = await page.evaluate(async ({ refreshToken, anon }) => {
+    try {
+      const response = await fetch('/auth/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: anon, accept: 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        cache: 'no-store'
+      });
+      const body = await response.json().catch(() => null);
+      return {
+        status: response.status,
+        access_token: body?.access_token || null,
+        refresh_token: body?.refresh_token || null,
+        user_id: body?.user?.id || null,
+        expires_in: Number(body?.expires_in || 0)
+      };
+    } catch {
+      return { status: 0, access_token: null, refresh_token: null, user_id: null, expires_in: 0 };
+    }
+  }, { refreshToken: session.refreshToken, anon: ANON });
+  if (result.status !== 200 || !result.access_token || !result.user_id) return null;
+  const next = {
+    ...session,
+    accessToken: result.access_token,
+    refreshToken: result.refresh_token || session.refreshToken,
+    userId: result.user_id,
+    expiresAt: Date.now() + Math.max(60, result.expires_in || 3600) * 1000
+  };
+  await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), next);
+  return next;
+}
+
+async function ensureLiveSession(page) {
+  let session = await readSession(page);
+  if (!session?.accessToken) return null;
+  const status = await apiAuthStatus(page, session.accessToken);
+  if (status === 200) return session;
+  const refreshed = await refreshStoredSession(page);
+  if (refreshed) {
+    const refreshedStatus = await apiAuthStatus(page, refreshed.accessToken);
+    if (refreshedStatus === 200 || refreshedStatus === 204) return refreshed;
+    session = refreshed;
+  }
+  return null;
 }
 
 async function readServerConversation(page, accessToken) {
@@ -168,7 +253,7 @@ async function run() {
       { expected: EXPECTED_AUTH_TEXT },
       { timeout: 60000 }
     );
-    const session = await readSession(page);
+    const session = await ensureLiveSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
     authVerified = true;
 
