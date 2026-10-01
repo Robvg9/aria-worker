@@ -555,10 +555,30 @@ async function deviceExecute(missionId: string, step: any, mission: any = null) 
     typeof mission.checkpoint.results === "object" &&
     mission.checkpoint.results[String(step.id)]?.__aria_verification_rejected === true;
 
+  const persistedRwhtVerificationRejected =
+    operation === "computer.use.autonomous" &&
+    job &&
+    String(job.status || "") === "succeeded" &&
+    (() => {
+      try {
+        const raw = job.result?.result && typeof job.result.result === "object"
+          ? job.result.result
+          : job.result && typeof job.result === "object"
+            ? job.result
+            : {};
+        const total = Number(raw.required_routes_total || 0);
+        const visited = Number(raw.required_routes_visited || 0);
+        return Boolean(raw.full_pwa_coverage === true && total > 0 && visited < total);
+      } catch {
+        return false;
+      }
+    })();
+
   // A job that physically succeeded but was rejected by the mission verifier
-  // must not be reused after re-planning. Allocate the next fresh attempt.
+  // or itself proves incomplete Full-PWA coverage must not be reused after
+  // re-planning. Allocate the next fresh attempt.
   if (
-    previousVerificationRejected &&
+    (previousVerificationRejected || persistedRwhtVerificationRejected) &&
     job &&
     String(job.status || "") === "succeeded" &&
     attempt < MAX_STEP_ATTEMPTS
