@@ -41,6 +41,7 @@ for (const [name, nextName] of [
 test('Windows watchdog restarts a live agent whose process heartbeat becomes stale', () => {
   const watchdog = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'run-agent.ps1'), 'utf8');
   assert.match(watchdog, /ARIA_AGENT_HEARTBEAT_PATH/);
+  assert.match(watchdog, /\$env:ARIA_AGENT_HEARTBEAT_PATH = \$HeartbeatPath/);
   assert.match(watchdog, /AGENT_STALE_HEARTBEAT/);
   assert.match(watchdog, /AgentHeartbeatStaleSeconds/);
   assert.match(watchdog, /Stop-Process -Id \$process\.Id -Force/);
