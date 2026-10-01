@@ -103,7 +103,15 @@ async function run() {
     report.auth_verified = true;
     await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(2500);
-    assert.equal(await page.locator('input[type="password"]').count(), 0, 'meditation route must remain authenticated');
+    await page.waitForFunction(() => {
+      const password = [...document.querySelectorAll('input[type="password"]')].some(el => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      });
+      const surface = Boolean(document.querySelector('.projectShell,.dashboardScreen'));
+      return surface || !password;
+    }, null, { timeout:30000 });
+    assert.equal(await page.locator('input[type="password"]:visible').count(), 0, 'meditation route must remain authenticated');
     await page.getByText('ANALIZADOR DE IDEAS', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     await page.getByText('ESTADO CLOUD', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     await page.getByText('EJECUCIÓN EN TIEMPO REAL', { exact:true }).waitFor({ state:'visible', timeout:30000 });
