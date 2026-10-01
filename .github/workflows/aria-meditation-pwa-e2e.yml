@@ -75,3 +75,5 @@ jobs:
           name: aria-meditation-pwa-evidence
           path: rwht/pc-browser/meditation-e2e-artifacts
           if-no-files-found: warn
+
+# Final certification trigger 2026-10-01.
