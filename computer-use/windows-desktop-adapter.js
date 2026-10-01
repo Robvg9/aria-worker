@@ -6,7 +6,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { executeChromeSemanticAction } = require('./windows-chrome-semantic-action');
 
-const VERSION = 'aria-windows-desktop-v1.9';
+const VERSION = 'aria-windows-desktop-v1.9.1';
 const MAX_TEXT = 32 * 1024;
 const MAX_SCREENSHOT_B64 = 8 * 1024 * 1024;
 const MAX_HOTKEY_KEYS = 6;
@@ -81,6 +81,17 @@ function killProcessTree(pid) {
   } catch (_) {}
 }
 
+function parseJsonStdout(text) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return null;
+  try { return JSON.parse(normalized); } catch (_) {}
+  const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try { return JSON.parse(lines[index]); } catch (_) {}
+  }
+  return null;
+}
+
 function spawnPowerShell(args, payload, timeoutMs) {
   return new Promise((resolve) => {
     const child = spawn('powershell.exe', args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -108,16 +119,30 @@ function spawnPowerShell(args, payload, timeoutMs) {
     child.on('error', (error) => finish({ status: 'failed', action: payload.action, error: String(error?.message || error), version: VERSION }));
     child.on('close', (code) => {
       const text = stdout.trim();
-      if (text) {
-        try {
-          const result = JSON.parse(text);
-          const normalized = { ...result, action: result.action || payload.action, version: VERSION };
-          if (normalized.screenshot_base64 && normalized.screenshot_base64.length > MAX_SCREENSHOT_B64) return finish({ status: 'failed', action: payload.action, error: 'desktop_screenshot_too_large', version: VERSION });
-          if (normalized.status === 'succeeded' && code === 0) return finish(normalized);
-          return finish({ status: 'failed', action: payload.action, exit_code: code, error: normalized.error || stderr || ('powershell_exit_' + code), version: VERSION });
-        } catch (_) {}
+      const result = parseJsonStdout(text);
+      if (result) {
+        const normalized = { ...result, action: result.action || payload.action, version: VERSION };
+        if (normalized.screenshot_base64 && normalized.screenshot_base64.length > MAX_SCREENSHOT_B64) {
+          return finish({ status: 'failed', action: payload.action, error: 'desktop_screenshot_too_large', version: VERSION });
+        }
+        if (normalized.status === 'succeeded' && code === 0) return finish(normalized);
+        return finish({
+          status: 'failed',
+          action: payload.action,
+          exit_code: code,
+          error: normalized.error || stderr || ('powershell_exit_' + code),
+          version: VERSION,
+          stdout: text.slice(-4096),
+        });
       }
-      finish({ status: 'failed', action: payload.action, exit_code: code, error: stderr || 'desktop_invalid_result:empty_or_unparseable', stdout: text.slice(-4096), version: VERSION });
+      finish({
+        status: 'failed',
+        action: payload.action,
+        exit_code: code,
+        error: stderr || 'desktop_invalid_result:empty_or_unparseable',
+        stdout: text.slice(-4096),
+        version: VERSION,
+      });
     });
     child.stdin.end(JSON.stringify(payload));
   });
@@ -173,7 +198,7 @@ async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
     return { status: 'succeeded', action: 'wait', ms: payload.ms, elapsed_ms: Date.now() - startedAt, version: VERSION, method: 'node_timer' };
   }
   const args = payload.action === 'observe'
-    ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', UIA_SCRIPT]
+    ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', `& "${UIA_SCRIPT.replace(/"/g, '""')}"`]
     : payload.action === 'hotkey'
       ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', HOTKEY_SCRIPT]
       : ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', RUNNER];
