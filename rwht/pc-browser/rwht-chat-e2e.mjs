@@ -17,6 +17,7 @@ function waitFor(ms) {
 }
 
 async function login(page) {
+  if (STORAGE_STATE) return { mode: 'storage_state', status: 'authenticated' };
   await page.waitForFunction(
     () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('input[type="password"]')),
     null,
