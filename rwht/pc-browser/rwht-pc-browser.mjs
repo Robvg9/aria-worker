@@ -633,7 +633,7 @@ async function auditRoute(page, url, routeIndex, config) {
       const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
       if (missionMatch) {
         const missionNo = missionMatch[1].padStart(2, '0');
-        return controlsNow.find((control) => new RegExp('^Misión\\s+' + missionNo + '\\s+·', 'i').test(control.name));
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(('Misión ' + missionNo + ' ·').toLowerCase()));
       }
       const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
       if (priorityOpen) {
