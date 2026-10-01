@@ -116,6 +116,7 @@ while ($true) {
 
         $env:ARIA_DEVICE_ID = [string]$config.device_id
         $env:ARIA_DEVICE_TOKEN = $token
+        $env:ARIA_AGENT_HEARTBEAT_PATH = $HeartbeatPath
         $env:ARIA_DEVICE_GATEWAY_URL = [string]$config.gateway_url
         if (Test-Path $HeartbeatPath) { Remove-Item -Path $HeartbeatPath -Force -ErrorAction SilentlyContinue }
         if ($config.heartbeat_ms) { $env:ARIA_HEARTBEAT_MS = [string]$config.heartbeat_ms }
