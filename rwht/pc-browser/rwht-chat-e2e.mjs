@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.8';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.9';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -18,29 +18,17 @@ function waitFor(ms) {
 }
 
 async function login(page) {
-  const apiSession = await signInViaAuthApi(page);
-  if (apiSession) {
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    await waitFor(1500);
-    const persisted = await readSession(page).catch(() => null);
-    if (persisted?.accessToken && persisted.userId) {
-      return { mode: 'password_api', status: 'authenticated', attempts: 1, auth_endpoint: apiSession.authEndpoint };
-    }
-  }
-
-  const existing = await ensureLiveSession(page);
-  if (existing) return { mode: 'existing_session_or_refresh', status: 'authenticated', attempts: 0 };
+  await page.waitForFunction(
+    () => Boolean(localStorage.getItem('aria_session_v2')) || Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.authScreen')) || Boolean(document.querySelector('input[type="password"]')),
+    null,
+    { timeout: 30000 }
+  );
 
   const persisted = await readSession(page).catch(() => null);
   if (persisted?.accessToken && persisted.userId) {
-    return { mode: 'persisted_session', status: 'authenticated', attempts: 0 };
+    const live = await ensureLiveSession(page);
+    if (live) return { mode: 'preseeded_or_existing_session', status: 'authenticated', attempts: 0 };
   }
-
-  await page.waitForFunction(
-    () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.authScreen')) || Boolean(document.querySelector('input[type="password"]')),
-    null,
-    { timeout: 60000 }
-  );
 
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
 
@@ -51,7 +39,7 @@ async function login(page) {
   await email.fill(EMAIL);
   await password.fill(PASSWORD);
   await password.press('Enter');
-  await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
+  await page.waitForFunction(() => Boolean(localStorage.getItem('aria_session_v2')) && !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
   const authenticated = await ensureLiveSession(page);
   if (!authenticated) throw new Error('authenticated_session_not_verified_after_login');
   return { mode: 'password_ui_fallback', status: 'authenticated', attempts: 1 };
@@ -81,8 +69,8 @@ async function readSession(page) {
 async function apiAuthStatus(page, accessToken) {
   return page.evaluate(async (token) => {
     try {
-      const response = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/user', {
-        headers: { authorization: 'Bearer ' + token, apikey: '${ANON}', accept: 'application/json' },
+      const response = await fetch('/api/session', {
+        headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
         cache: 'no-store'
       });
       return response.status;
@@ -92,13 +80,12 @@ async function apiAuthStatus(page, accessToken) {
   }, accessToken);
 }
 
-async function signInViaAuthApi(page) {
+async function signInViaAuthApi() {
   if (!EMAIL || !PASSWORD) return null;
   const endpoints = [
     BASE_URL.replace(/\/$/, '') + '/auth/token?grant_type=password',
     'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
   ];
-  let result = null;
   for (const endpoint of endpoints) {
     try {
       const response = await fetch(endpoint, {
@@ -109,29 +96,18 @@ async function signInViaAuthApi(page) {
       });
       const body = await response.json().catch(() => null);
       if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
-        result = {
-          status: response.status,
-          access_token: body.access_token,
-          refresh_token: body.refresh_token,
-          user_id: body.user.id,
+        return {
+          accessToken: body.access_token,
+          refreshToken: body.refresh_token,
+          userId: body.user.id,
+          expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
           email: body.user.email || EMAIL,
-          expires_in: Number(body.expires_in || 3600),
-          endpoint
+          authEndpoint: endpoint
         };
-        break;
       }
     } catch {}
   }
-  if (!result) return null;
-  const session = {
-    accessToken: result.access_token,
-    refreshToken: result.refresh_token,
-    userId: result.user_id,
-    expiresAt: Date.now() + Math.max(60, result.expires_in) * 1000,
-    email: result.email
-  };
-  await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), session);
-  return { ...session, authEndpoint: result.endpoint };
+  return null;
 }
 
 async function refreshStoredSession(page) {
@@ -244,10 +220,16 @@ async function run() {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
+  const bootstrapSession = await signInViaAuthApi();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     ...(!EMAIL || !PASSWORD ? (STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) : {})
   });
+  if (bootstrapSession) {
+    await context.addInitScript((session) => {
+      localStorage.setItem('aria_session_v2', JSON.stringify(session));
+    }, bootstrapSession);
+  }
   const page = await context.newPage();
   const pageErrors = [];
   const failedResponses = [];
