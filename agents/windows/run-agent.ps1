@@ -19,6 +19,9 @@ $StagingTokenPath = Join-Path $ConfigDir 'token.staging'
 $LogPath = Join-Path $PublicDir 'watchdog.log'
 $PidPath = Join-Path $PublicDir 'agent.pid'
 $StatusPath = Join-Path $PublicDir 'status.json'
+$HeartbeatPath = Join-Path $PublicDir 'agent-heartbeat.json'
+$AgentHeartbeatStaleSeconds = 120
+$AgentStartupGraceSeconds = 45
 $WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
 $KillRequestPath = Join-Path $PublicDir 'kill-request'
 $DesktopTestRequestPath = Join-Path $PublicDir 'desktop-101-request.json'
@@ -114,6 +117,7 @@ while ($true) {
         $env:ARIA_DEVICE_ID = [string]$config.device_id
         $env:ARIA_DEVICE_TOKEN = $token
         $env:ARIA_DEVICE_GATEWAY_URL = [string]$config.gateway_url
+        if (Test-Path $HeartbeatPath) { Remove-Item -Path $HeartbeatPath -Force -ErrorAction SilentlyContinue }
         if ($config.heartbeat_ms) { $env:ARIA_HEARTBEAT_MS = [string]$config.heartbeat_ms }
         if ($config.poll_ms) { $env:ARIA_POLL_MS = [string]$config.poll_ms }
         if ($config.gateway_timeout_ms) { $env:ARIA_GATEWAY_TIMEOUT_MS = [string]$config.gateway_timeout_ms }
@@ -138,7 +142,19 @@ while ($true) {
             started_at = (Get-Date -Format o)
         }
 
+        $agentStartedAt = Get-Date
         while (-not $process.HasExited) {
+            if ((Get-Date) -lt $agentStartedAt.AddSeconds($AgentStartupGraceSeconds)) { }
+            elseif (-not (Test-Path $HeartbeatPath) -or ((Get-Date).ToUniversalTime() - (Get-Item $HeartbeatPath).LastWriteTimeUtc).TotalSeconds -gt $AgentHeartbeatStaleSeconds) {
+                Write-Log "AGENT_STALE_HEARTBEAT action=restart threshold_seconds=$AgentHeartbeatStaleSeconds"
+                try {
+                    Stop-Process -Id $process.Id -Force -ErrorAction Stop
+                    Write-Log "AGENT_KILLED_BY_WATCHDOG_STALE_HEARTBEAT pid=$($process.Id)"
+                } catch {
+                    Write-Log "AGENT_STALE_HEARTBEAT_KILL_FAILED $($_.Exception.Message)"
+                }
+                break
+            }
             if (Test-Path $DesktopTestRequestPath) {
                 try {
                     $request = Get-Content -Raw -Path $DesktopTestRequestPath | ConvertFrom-Json
