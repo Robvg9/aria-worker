@@ -371,8 +371,8 @@ async function testControl(page, control, config) {
 
     // Resolve labels whose visible text contains server-backed/dynamic values
     // from stable semantic prefixes instead of the exact stale snapshot.
-    const dynamicMission = label.match(/^Misión\\s+(\\d+)\\s+·/i);
-    const dynamicStat = label.match(/^\\d+\\s+(Modelos disponibles|Agentes disponibles|Dispositivos online|Conexiones)$/i);
+    const dynamicMission = label.match(/^Misión\s+(\d+)\s+·/i);
+    const dynamicStat = label.match(/^\d+\s+(Modelos disponibles|Agentes disponibles|Dispositivos online|Conexiones)$/i);
 
     // Settings toggles expose dynamic labels ("Activadas"/"Desactivadas",
     // "Activar avisos") but stable structural classes. Resolve those explicitly.
