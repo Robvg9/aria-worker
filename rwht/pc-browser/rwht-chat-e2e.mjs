@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.5';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.6';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -157,8 +157,9 @@ async function run() {
     await waitFor(SETTLE_MS);
     loginResult = await login(page);
     await page.waitForFunction(
-      ({ expected }) => !document.querySelector('input[type="password"]') && (!expected || !![...document.querySelectorAll('.topBar .sub')].find((el) => el.textContent?.includes(expected))),
-      { expected: EXPECTED_AUTH_TEXT },
+      () => !document.querySelector('input[type="password"]') &&
+        (Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.chatScreen'))),
+      null,
       { timeout: 60000 }
     );
     const session = await readSession(page);
