@@ -2351,6 +2351,16 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida el cableado Machine Layer → runtime sin depender de una sesión de chat concreta."
   },
 
+  {
+    "id": "mission-runner-v22-completed-progress-replan",
+    "file": "tests/mission-runner-v22-completed-progress-replan.test.js",
+    "title": "Mission Runner V22 Completed Progress + Replan",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Verifica que los steps ya completados y verificados sobrevivan a un replan y que la evidencia previa no recupere el step fallido.",
+    "capabilities": "Detecta regresiones de continuidad, recuperación, replan, persistencia de evidencia y prevención de reinicio desde step 0."
+  },
+
 ];
 
 export type TestCatalogStats = Readonly<{
