@@ -547,15 +547,28 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
 async function deviceExecute(missionId: string, step: any) {
   const operation = String(step.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) throw new Error(`device_operation_not_allowed:${operation}`);
-  const attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
-  const jobId = jobIdFor(missionId, String(step.id), attempt);
+  let attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
+  let jobId = jobIdFor(missionId, String(step.id), attempt);
   let current = await getExecutionJob(jobId);
-  if (!(current.response.ok && current.body?.ok && current.body.job)) {
-    await enqueueDeviceJob(missionId, step, jobId);
+  let job = current.body?.job;
+
+  // A previous terminal failure must never be reused as the next execution.
+  // Move to a fresh idempotency key/job id (a2/a3) while staying within the
+  // canonical per-step attempt budget.
+  if (job && ["failed", "timeout"].includes(String(job.status || "")) && attempt < MAX_STEP_ATTEMPTS) {
+    attempt += 1;
+    jobId = jobIdFor(missionId, String(step.id), attempt);
     current = await getExecutionJob(jobId);
+    job = current.body?.job;
   }
-  const job = current.body?.job;
-  if (!job) return { status: "waiting", executor_type: "device", operation, job_id: jobId };
+
+  if (!(current.response.ok && current.body?.ok && job)) {
+    await enqueueDeviceJob(missionId, { ...step, input: { ...(step.input || {}), __aria_attempt: attempt } }, jobId);
+    current = await getExecutionJob(jobId);
+    job = current.body?.job;
+  }
+
+  if (!job) return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: "queued", attempt };
   const status = String(job.status || "");
   if (["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
     return {
@@ -563,6 +576,7 @@ async function deviceExecute(missionId: string, step: any) {
       executor_type: "device",
       operation,
       job_id: jobId,
+      attempt,
       exit_code: job.exit_code,
       stdout: job.stdout,
       stderr: job.stderr,
@@ -571,7 +585,7 @@ async function deviceExecute(missionId: string, step: any) {
       error: job.error ?? null,
     };
   }
-  return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: status };
+  return { status: "waiting", executor_type: "device", operation, job_id: jobId, job_status: status, attempt };
 }
 
 async function githubExecute(step: any, token: string | null, mission: any = null) {
