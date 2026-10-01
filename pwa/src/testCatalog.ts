@@ -2414,4 +2414,4 @@ export function filterTestCatalog(query = '', category = 'Todas'): TestCatalogIt
   });
 }
 
-// Baseline trigger marker 2026-10-01. No runtime behavior change.
+// Baseline trigger marker 2026-10-01-v2. No runtime behavior change.
