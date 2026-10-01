@@ -2882,6 +2882,7 @@ export default function App() {
     return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
   }, []);
 
+  // Session boot: keep persisted credentials available while the refresh effect renews them.
   const [session, setSession] = useState<Session | null>(() => {
     try {
       const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
