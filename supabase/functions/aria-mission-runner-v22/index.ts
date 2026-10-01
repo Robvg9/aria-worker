@@ -349,19 +349,47 @@ function autonomousRwhtEvidence(result: any) {
   const controlsDiscovered = Number(source?.controls_discovered ?? result?.controls_discovered ?? 0);
   const controlsExercised = Number(source?.controls_exercised ?? result?.controls_exercised ?? 0);
   const evidenceCount = Number(source?.evidence_count ?? result?.evidence_count ?? 0);
+  const requiredRoutesTotal = Number(source?.required_routes_total ?? result?.required_routes_total ?? 0);
+  const requiredRoutesVisited = Number(source?.required_routes_visited ?? result?.required_routes_visited ?? 0);
+  const fullPwaCoverage = source?.full_pwa_coverage === true || requiredRoutesTotal >= 7;
   const verifiedFlag = source?.verified === true
     || result?.verified === true
     || verificationStatus === "verified"
-    || finishedReason === "control_discovery_verified";
+    || finishedReason === "coverage_complete";
+
+  const routeGate = fullPwaCoverage
+    ? requiredRoutesTotal >= 7 && requiredRoutesVisited >= requiredRoutesTotal
+    : finishedReason === "control_discovery_verified";
+
+  const ratioGate = fullPwaCoverage
+    ? Number(source?.coverage_ratio ?? result?.coverage_ratio ?? 0) >= 0.98
+    : true;
+
   const passed = status === "succeeded"
     && verifiedFlag
-    && finishedReason === "control_discovery_verified"
+    && routeGate
+    && ratioGate
     && actionsVerified >= 5
     && screensSeen >= 2
     && controlsDiscovered >= 5
     && controlsExercised >= 5
     && evidenceCount >= 5;
-  return { passed, status, verificationStatus, finishedReason, actionsVerified, screensSeen, controlsDiscovered, controlsExercised, evidenceCount };
+
+  return {
+    passed,
+    status,
+    verificationStatus,
+    finishedReason,
+    actionsVerified,
+    screensSeen,
+    controlsDiscovered,
+    controlsExercised,
+    evidenceCount,
+    fullPwaCoverage,
+    requiredRoutesTotal,
+    requiredRoutesVisited,
+    coverageRatio: Number(source?.coverage_ratio ?? result?.coverage_ratio ?? 0),
+  };
 }
 
 function verifyStep(step: any, result: any) {
