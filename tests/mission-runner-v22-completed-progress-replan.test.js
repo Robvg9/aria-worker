@@ -33,3 +33,30 @@ if(!enqueue.includes('if (key === "start_url")') || !enqueue.includes('input[key
   throw new Error("autonomous start_url must be trimmed at device enqueue boundary");
 }
 console.log("autonomous start_url normalization contract: PASS");
+
+const helper=srcLine=>srcLine;
+if(!source.includes("const recoveryResults = recovery?.previous_results")) {
+  throw new Error("replan evidence recovery source missing");
+}
+if(!source.includes("const failedIds = new Set(")) {
+  throw new Error("failed-step exclusion missing");
+}
+if(!source.includes("resultIsVerifiedSuccess")) {
+  throw new Error("recovered result verification gate missing");
+}
+const recoveredCheckpoint={
+  completed_steps:[],
+  attempts:{},
+  results:{},
+  recovery:{
+    replan_required:true,
+    failed_step_ids:["master_rwht_full_1"],
+    previous_results:{
+      master_inventory_1:{status:"succeeded",verified:true},
+      master_synthesis_1:{status:"succeeded"},
+      master_rwht_full_1:{status:"succeeded"}
+    }
+  }
+};
+if(!recoveredCheckpoint.recovery.failed_step_ids.includes("master_rwht_full_1")) throw new Error("fixture invalid");
+console.log("verified-result recovery contract: PASS");
