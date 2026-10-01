@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
 
+# 2026-10-01 transient DB/auth saturation recovery trigger
+
 jobs:
   restore:
     runs-on: ubuntu-latest
