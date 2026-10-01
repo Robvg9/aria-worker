@@ -487,10 +487,19 @@ function currentHumanGate(mission: any, step: any) {
   return gate;
 }
 
-function jobIdFor(missionId: string, stepId: string, attempt: number = 1) {
+function jobIdFor(missionId: string, stepId: string, attempt: number = 1, strategyKey: string = "") {
   const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 28);
   const safeAttempt = Math.max(1, Math.min(99, Number.isFinite(Number(attempt)) ? Number(attempt) : 1));
-  return `uo_${safe(missionId)}_${safe(stepId)}_a${safeAttempt}`;
+  const strategyFingerprint = (value: string) => {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  };
+  const strategy = strategyKey ? `_s${strategyFingerprint(strategyKey)}` : "";
+  return `uo_${safe(missionId)}_${safe(stepId)}_a${safeAttempt}${strategy}`;
 }
 
 async function getExecutionJob(jobId: string) {
@@ -546,7 +555,8 @@ async function deviceExecute(missionId: string, step: any, mission: any = null) 
   const operation = String(step.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) throw new Error(`device_operation_not_allowed:${operation}`);
   let attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
-  let jobId = jobIdFor(missionId, String(step.id), attempt);
+  const strategyKey = String(step?.input?.strategy_key || "");
+  let jobId = jobIdFor(missionId, String(step.id), attempt, strategyKey);
   let current = await getExecutionJob(jobId);
   let job = current.body?.job;
 
@@ -587,7 +597,7 @@ async function deviceExecute(missionId: string, step: any, mission: any = null) 
     const checkpointRejected = attempt === Math.max(1, Number(step?.input?.__aria_attempt || 1)) && previousVerificationRejected;
     if ((rejected || failedTerminal || checkpointRejected) && attempt < MAX_STEP_ATTEMPTS) {
       attempt += 1;
-      jobId = jobIdFor(missionId, String(step.id), attempt);
+      jobId = jobIdFor(missionId, String(step.id), attempt, strategyKey);
       current = await getExecutionJob(jobId);
       job = current.body?.job;
       continue;
