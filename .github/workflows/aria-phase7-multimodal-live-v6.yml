@@ -1,0 +1,48 @@
+name: ARIA Phase 7 Multimodal LIVE Provider E2E v6
+
+on:
+  push:
+    branches:
+      - fix/phase7-multimodal-live-e2e-20260930
+
+permissions:
+  contents: read
+
+jobs:
+  multimodal-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify certified PWA LIVE build
+        run: |
+          expected="af9c816a013d83e08675ba4486edab5b7b1f38b1"
+          version="$(curl --fail --silent --show-error --retry 3 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/version.json?persist-recovery=$expected")"
+          live_build="$(printf '%s' "$version" | python -c 'import json,sys; print(json.load(sys.stdin)["build"])')"
+          test "$live_build" = "$expected"
+          echo "MULTIMODAL_LIVE_BUILD_OK build=$live_build"
+      - name: Materialize authenticated browser state
+        env:
+          RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+        run: |
+          test -n "$RWHT_STORAGE_STATE_GZIP_B64"
+          printf '%s' "$RWHT_STORAGE_STATE_GZIP_B64" | base64 --decode | gzip -dc > "$RUNNER_TEMP/aria-phase7-storage-state.json"
+          chmod 600 "$RUNNER_TEMP/aria-phase7-storage-state.json"
+          echo "RWHT_STORAGE_STATE=$RUNNER_TEMP/aria-phase7-storage-state.json" >> "$GITHUB_ENV"
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Execute real multimodal provider E2E
+        working-directory: rwht/pc-browser
+        env:
+          RWHT_STORAGE_STATE: ${{ env.RWHT_STORAGE_STATE }}
+          RWHT_PWA_URL: https://aria.robvg9.workers.dev/pwa/
+          RWHT_API_BASE: https://aria.robvg9.workers.dev
+        run: node rwht-multimodal-live-provider-e2e-v3.cjs
+      - name: Remove temporary auth state
+        if: always()
+        run: rm -f "$RUNNER_TEMP/aria-phase7-storage-state.json"
