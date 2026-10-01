@@ -4,6 +4,15 @@ const {createFileStateStore,createMeditationController,fingerprintMission}=requi
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const gatewaySource=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-device-gateway','index.ts'),'utf8');
 const supervisorSource=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-autonomy-supervisor-v10','index.ts'),'utf8');
+const supervisorV5Source=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-autonomy-supervisor-v5','index.ts'),'utf8');
+const queueMigrationSource=fs.readFileSync(path.join(__dirname,'..','supabase','migrations','20261001080000_canonical_meditation_queue_state_machine_v1.sql'),'utf8');
+const priorityMigrationSource=fs.readFileSync(path.join(__dirname,'..','supabase','migrations','20261001090000_meditation_queue_priority_and_supervisor_decoupling_v1.sql'),'utf8');
+assert(supervisorV5Source.includes('waitUntil'),'Autonomy supervisor v5 must not couple response latency to long-running subsystems');
+assert(supervisorV5Source.includes('Promise.allSettled'),'Autonomy supervisor v5 must dispatch independent subsystems concurrently');
+assert(supervisorV5Source.includes('/v1/meditation/tick-service'),'Autonomy supervisor v5 must dispatch Meditation independently');
+assert(queueMigrationSource.includes('timeout_milliseconds := 60000'),'Canonical scheduler must use an explicit long request timeout');
+assert(priorityMigrationSource.includes("when 'primary' then 0"),'Meditation queue must prioritize primary objectives');
+assert(priorityMigrationSource.includes("when 'idea' then 90"),'Meditation queue must keep idea backlog below primary objectives');
 assert(gatewaySource.includes("p==='/v1/meditation/tick-service'"),'cloud Meditation tick service route missing');
 assert(gatewaySource.includes("last_cloud_tick_at"),'cloud Meditation tick must persist tick evidence');
 assert(supervisorSource.includes('/v1/meditation/tick-service'),'Meditation supervisor must invoke canonical cloud tick');
