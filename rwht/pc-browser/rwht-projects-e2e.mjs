@@ -288,7 +288,7 @@ async function run() {
     if (host && !internalHosts.has(host)) externalPreviewConsoleErrors.push(item);
     else consoleErrors.push(item);
   });
-  page.on('pageerror', (error) => pageErrors.push({ message: String(error?.message || error).slice(0, 1000), url: page.url() }));
+  page.on('pageerror', (error) => pageErrors.push({ message: String(error?.message || error).slice(0, 1000), stack: String(error?.stack || '').slice(0, 5000), url: page.url() }));
   page.on('response', (response) => {
     if (response.status() >= 500) failedResponses.push({ status: response.status(), method: response.request().method(), url: response.url().slice(0, 1200) });
   });
