@@ -161,3 +161,5 @@ if(url.pathname==="/pwa"||url.pathname.startsWith("/pwa/")){if(request.method!==
 
 // 2026-09-30: fresh Persistence/Recovery certification trigger after new Supabase Auth/DB recovery evidence; behavior unchanged.
 // 2026-10-01: final APP API GET cold-start timeout certification trigger; behavior unchanged.
+
+// 2026-10-01: final universal certification trigger; behavior unchanged.
