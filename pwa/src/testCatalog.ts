@@ -2225,6 +2225,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta problemas de accesibilidad, bridge, Termux, ejecución física y transporte en dispositivos."
   },
   {
+    "id": "windows-agent-lifecycle-telemetry",
+    "file": "tests/windows-agent-lifecycle-telemetry.test.js",
+    "title": "Windows Agent Lifecycle Telemetry",
+    "category": "Android / dispositivos",
+    "includedInNpmTest": false,
+    "how": "Verifica que el ciclo de vida del job Windows persista start/result antes de la telemetría no crítica.",
+    "capabilities": "Detecta bloqueos del agente, telemetría no crítica y pérdida de estados started/completed."
+  },
+  {
     "id": "world-model-change-risk.integration",
     "file": "tests/world-model-change-risk.integration.test.js",
     "title": "World Model Change Risk.Integration",
