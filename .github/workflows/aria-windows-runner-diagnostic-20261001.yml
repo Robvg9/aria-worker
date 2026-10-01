@@ -1,6 +1,9 @@
 name: ARIA Windows Runner Diagnostic 2026-10-01
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     paths:
       - '.github/workflows/aria-windows-runner-diagnostic-20261001.yml'
