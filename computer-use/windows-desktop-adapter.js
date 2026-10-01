@@ -121,11 +121,28 @@ function spawnPowerShell(args, payload, timeoutMs) {
       const text = stdout.trim();
       const result = parseJsonStdout(text);
       if (result) {
-          const normalized = { ...result, action: result.action || payload.action, version: VERSION };
-          if (normalized.screenshot_base64 && normalized.screenshot_base64.length > MAX_SCREENSHOT_B64) return finish({ status: 'failed', action: payload.action, error: 'desktop_screenshot_too_large', version: VERSION });
-          if (normalized.status === 'succeeded' && code === 0) return finish(normalized);
-          return finish({ status: 'failed', action: payload.action, exit_code: code, error: normalized.error || stderr || ('powershell_exit_' + code), version: VERSION });
-      finish({ status: 'failed', action: payload.action, exit_code: code, error: stderr || 'desktop_invalid_result:empty_or_unparseable', stdout: text.slice(-4096), version: VERSION });
+        const normalized = { ...result, action: result.action || payload.action, version: VERSION };
+        if (normalized.screenshot_base64 && normalized.screenshot_base64.length > MAX_SCREENSHOT_B64) {
+          return finish({ status: 'failed', action: payload.action, error: 'desktop_screenshot_too_large', version: VERSION });
+        }
+        if (normalized.status === 'succeeded' && code === 0) return finish(normalized);
+        return finish({
+          status: 'failed',
+          action: payload.action,
+          exit_code: code,
+          error: normalized.error || stderr || ('powershell_exit_' + code),
+          version: VERSION,
+          stdout: text.slice(-4096),
+        });
+      }
+      finish({
+        status: 'failed',
+        action: payload.action,
+        exit_code: code,
+        error: stderr || 'desktop_invalid_result:empty_or_unparseable',
+        stdout: text.slice(-4096),
+        version: VERSION,
+      });
     });
     child.stdin.end(JSON.stringify(payload));
   });
