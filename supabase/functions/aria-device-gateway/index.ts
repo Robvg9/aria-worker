@@ -331,19 +331,43 @@ async function androidAutonomousDecision(b:any,d:any){
 }
 function queueError(e:any){const m=String(e?.message||e||'queue_error');return m.replace(/^.*?\s*:\s*/,'').slice(0,500)}
 async function executionJobGatewayCall(kind:string,args:any){
-  // Critical device execution path: one governed Supabase RPC transport only.
-  // Claim, start and complete must use the same database/API path as the rest
-  // of the gateway; raw-Postgres transport is intentionally excluded here.
+  const dbUrl=Deno.env.get('SUPABASE_DB_URL')||'';
+  if(dbUrl){
+    const sql=postgres(dbUrl,{max:1,idle_timeout:5,connect_timeout:8});
+    try{
+      if(kind==='claim'){
+        const rows=await sql`select public.claim_execution_job_gateway(${String(args.deviceId)}) as data`;
+        return rows?.[0]?.data??null;
+      }
+      if(kind==='start'){
+        const rows=await sql`select public.start_execution_job_gateway(${String(args.jobId)},${String(args.deviceId)}) as data`;
+        return rows?.[0]?.data??null;
+      }
+      if(kind==='complete'){
+        const resultJson=JSON.stringify(args.result||{});
+        const rows=await sql`select public.complete_execution_job_gateway(
+          ${String(args.jobId)},
+          ${String(args.deviceId)},
+          ${String(args.status)},
+          ${Number.isInteger(args.exitCode)?args.exitCode:null},
+          ${typeof args.stdout==='string'?args.stdout:''},
+          ${typeof args.stderr==='string'?args.stderr:''},
+          ${resultJson}::jsonb
+        ) as data`;
+        return rows?.[0]?.data??null;
+      }
+      throw new Error('execution_job_call_unsupported');
+    }finally{
+      try{await sql.end({timeout:3});}catch{}
+    }
+  }
   if(kind==='claim'){
     const {data,error}=await supabase.rpc('claim_execution_job_gateway',{p_device_id:String(args.deviceId)});
     if(error)throw new Error(error.message||'claim_execution_job_failed');
     return data??null;
   }
   if(kind==='start'){
-    const {data,error}=await supabase.rpc('start_execution_job_gateway',{
-      p_job_id:String(args.jobId),
-      p_device_id:String(args.deviceId)
-    });
+    const {data,error}=await supabase.rpc('start_execution_job_gateway',{p_job_id:String(args.jobId),p_device_id:String(args.deviceId)});
     if(error)throw new Error(error.message||'start_execution_job_failed');
     return data??null;
   }
