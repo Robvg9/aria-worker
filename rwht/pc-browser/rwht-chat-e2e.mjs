@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.6';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.7';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -11,9 +11,40 @@ const EXPECTED_AUTH_TEXT = String(process.env.RWHT_EXPECTED_AUTH_TEXT || 'Núcle
 const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 90000);
 const SETTLE_MS = Number(process.env.RWHT_SETTLE_MS || 1500);
 const ARTIFACT_DIR = process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'chat-rwht-artifacts');
+const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 
 function waitFor(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function signInViaAuthApi() {
+  if (!EMAIL || !PASSWORD) return null;
+  const endpoints = [
+    BASE_URL.replace(/\/$/, '') + '/auth/token?grant_type=password',
+    'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
+  ];
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: ANON, accept: 'application/json' },
+        body: JSON.stringify({ email: EMAIL.trim(), password: PASSWORD }),
+        cache: 'no-store'
+      });
+      const body = await response.json().catch(() => null);
+      if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
+        return {
+          accessToken: body.access_token,
+          refreshToken: body.refresh_token,
+          userId: body.user.id,
+          expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
+          email: body.user.email || EMAIL,
+          authEndpoint: endpoint
+        };
+      }
+    } catch {}
+  }
+  return null;
 }
 
 async function login(page) {
@@ -112,10 +143,16 @@ async function run() {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
+  const bootstrapSession = await signInViaAuthApi();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
+    ...(!EMAIL || !PASSWORD ? (STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) : {})
   });
+  if (bootstrapSession) {
+    await context.addInitScript((session) => {
+      localStorage.setItem('aria_session_v2', JSON.stringify(session));
+    }, bootstrapSession);
+  }
   const page = await context.newPage();
   const pageErrors = [];
   const failedResponses = [];
