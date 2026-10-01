@@ -1806,24 +1806,55 @@ Deno.serve(async (request) => {
       return out({ok:false,status:"blocked",mission_id:missionId,runtime:V,block_details:{kind:objectiveGuard.kind,reason:objectiveGuard.reason,required:objectiveGuard.required,forbidden:objectiveGuard.forbidden,remediation:"El objetivo y el plan deben corresponder a la misma superficie antes de ejecutar."}});
     }
 
-    // MSP probes with fault_injection plans must not be rewritten by learning preflight.
+    // Learning is advisory by default. A mission must explicitly opt into a hard learning gate.
+    // This prevents broad historical failure-prevention memories from becoming permanent blockers.
+    const learningGateMode = String(mission?.metadata?.learning_gate_mode || "advisory").toLowerCase();
     const probeId = String(mission?.metadata?.probe || "");
     const isMspProbe = probeId.startsWith("msp_");
     const isRwhtProbe = String(mission?.goal || "").startsWith("RWHT_CONTROL_DISCOVERY_VERIFY");
     const hasFaultPlan = Array.isArray(steps) && steps.some((s: any) => typeof s?.input?.fault_injection === "string");
-    const learningGate = ((isMspProbe && hasFaultPlan) || isRwhtProbe)
-      ? {
-          version: "mastery-learning-loop-v1",
+
+    let learningGate: any;
+    if ((isMspProbe && hasFaultPlan) || isRwhtProbe) {
+      learningGate = {
+        version: "mastery-learning-loop-v2",
+        passed: true,
+        required: [],
+        applied_memory_ids: [],
+        missing: [],
+        skipped_for_probe: true,
+      };
+    } else {
+      try {
+        const evaluated = await validateLearningGate(String(mission.goal || ""), steps);
+        if (learningGateMode === "hard") {
+          learningGate = evaluated;
+        } else {
+          learningGate = {
+            ...evaluated,
+            passed: true,
+            advisory_only: true,
+            advisory_missing: evaluated?.missing || [],
+            learning_gate_mode: "advisory",
+          };
+        }
+      } catch (error) {
+        if (learningGateMode === "hard") throw error;
+        learningGate = {
+          version: "mastery-learning-loop-v2",
           passed: true,
+          advisory_only: true,
+          learning_gate_mode: "advisory",
+          advisory_error: error instanceof Error ? error.message : String(error),
           required: [],
           applied_memory_ids: [],
           missing: [],
-          ...(isMspProbe && hasFaultPlan ? { skipped_for_msp_probe: true } : {}),
-          ...(isRwhtProbe ? { skipped_for_rwht_probe: true } : {}),
-        }
-      : await validateLearningGate(String(mission.goal || ""), steps);
-    const previousLearningAttempts = Number(mission?.checkpoint?.learning_gate?.replan_attempts || 0);
-    if (learningGate.passed !== true) {
+        };
+      }
+    }
+
+    if (learningGate.passed !== true && learningGateMode === "hard") {
+      const previousLearningAttempts = Number(mission?.checkpoint?.learning_gate?.replan_attempts || 0);
       const nextAttempt = previousLearningAttempts + 1;
       const blockDetails = {
         kind: "learned_preflight_missing",
