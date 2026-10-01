@@ -559,7 +559,7 @@ async function runAutonomousRwht(options) {
     let decisionSource = 'qwen3';
     let modelError = null;
 
-    const fastCoverageMode = /RWHT PC E2E|RWHT_CONTROL_DISCOVERY_VERIFY|ARIA PWA/.test(goal);
+    const fastCoverageMode = /(RWHT\s+PC\s+E2E|RWHT_CONTROL_DISCOVERY_VERIFY|ARIA\s+PWA|PWA\s+LIVE(?:\s+de)?\s+ARIA)/i.test(goal);
     if (!fastCoverageMode) {
       try {
         decision = normalizeDecision(await model(
