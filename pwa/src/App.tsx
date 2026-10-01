@@ -503,7 +503,7 @@ async function api(path: string, token: string, init: RequestInit = {}) {
     headers.set('x-aria-pwa-build', BUILD);
     if (init.body) headers.set('content-type', 'application/json');
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), isRead ? 9000 : path.endsWith('/conversation') ? 75000 : 20000);
+    const timeout = window.setTimeout(() => controller.abort(), isRead ? 30000 : path.endsWith('/conversation') ? 150000 : 30000);
     try {
       const response = await fetch(API + path, { ...init, headers, cache: 'no-store', signal: controller.signal });
       const raw = await response.text();
@@ -3039,7 +3039,8 @@ export default function App() {
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}
     >
       <PwaNotificationCenter session={session} />
-      <MeditationBackgroundSync session={session} />
+      {/* Meditación IA sincroniza sus datos solo dentro de su propia pantalla.
+          No duplicar consultas pesadas en Chat/Proyectos durante segundo plano. */}
       {page === 'projects'
         ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
