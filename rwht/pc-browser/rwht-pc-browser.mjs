@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.4';
+const VERSION = 'aria-pc-browser-rwht-v1.3.5';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -62,9 +62,11 @@ async function discoverInteractive(page) {
       routeHash === '#meditation' ? '.meditationViewport' :
       null;
   }).catch(() => null);
-  const interactive = activeSurfaceSelector
+  const scopedInteractive = activeSurfaceSelector
     ? page.locator(activeSurfaceSelector).locator(selector)
     : page.locator(selector);
+  const scopedCount = await scopedInteractive.count().catch(() => 0);
+  const interactive = scopedCount > 0 ? scopedInteractive : page.locator(selector);
   return interactive.evaluateAll((elements) => elements
     .filter((el) => {
       const rect = el.getBoundingClientRect();
@@ -488,12 +490,21 @@ async function verifyAuthState(page, config) {
     })
   ).catch(() => false);
   if (visiblePassword) return { required: true, verified: false, reason: 'login_form_visible' };
+  const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
+  const routeSurface = routeHash === '#chat' ? '.chatScreen'
+    : routeHash === '#projects' ? '.projectShell'
+      : routeHash === '#meditation' ? '.meditationViewport'
+        : routeHash === '#capabilities' ? '.capabilitiesViewport'
+          : routeHash === '#settings' ? '.settingsViewport'
+            : '.dashboardScreen';
+  const surfaceVisible = await page.locator(routeSurface).first().isVisible().catch(() => false);
+  if (surfaceVisible) return { required: true, verified: true, reason: 'authenticated_route_surface_detected' };
   if (config.expected_auth_text) {
     const pattern = new RegExp(config.expected_auth_text, 'i');
     const matches = await page.getByText(pattern).count().catch(() => 0);
-    if (matches === 0) return { required: true, verified: false, reason: 'expected_authenticated_text_missing' };
+    if (matches > 0) return { required: true, verified: true, reason: 'expected_authenticated_text_detected' };
   }
-  return { required: true, verified: true, reason: 'authenticated_surface_detected' };
+  return { required: true, verified: false, reason: 'authenticated_surface_missing' };
 }
 
 async function auditRoute(page, url, routeIndex, config) {
