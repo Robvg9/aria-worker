@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const file = path.join(__dirname, '..', 'supabase', 'functions', 'aria-agent-runtime-v1', 'index.ts');
 const loopFile = path.join(__dirname, '..', 'supabase', 'functions', 'aria-agent-runtime-v1', 'tool-loop.ts');
+const executionRuntime = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-execution-runtime-v1', 'index.ts'), 'utf8');
 const source = fs.readFileSync(file, 'utf8');
 const loopSource = fs.readFileSync(loopFile, 'utf8');
 
@@ -16,6 +17,8 @@ assert.match(source, /aria-agent-security-v1/);
 assert.match(source, /aria-agent-memory-v1/);
 assert.match(source, /aria-agent-business-v1/);
 assert.match(source, /aria-agent-device-v1/);
+assert.match(executionRuntime, /"google\/gemini-3\.5-flash-direct":"gemini-3\.5-flash"/, 'execution runtime must map the agent catalog Gemini 3.5 Flash direct route');
+assert.match(executionRuntime, /"google\/gemini-3\.5-flash-lite-direct":"gemini-3\.5-flash-lite"/, 'execution runtime must retain the verified Lite route');
 assert.match(source, /operation.*delegate/);
 assert.match(source, /mutating_operation_required/, 'agent runtime must honor mutation policy');
 assert.match(source, /LOW_RISK_WRITE/, 'LOW_RISK_WRITE must activate governed repair mode');
