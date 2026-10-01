@@ -30,6 +30,12 @@ Implemented: internal adapter contracts, routing/capability negotiation, envelop
 
 Human action required: connect/authorize the external client account(s) that ARIA is intended to use.
 
+## 4. Human Gate Rejection Protocol
+
+Status: IMPLEMENTED.
+
+Implemented: Automated rejection logic for unauthorized protected Human Gate access attempts.
+
 ## Rule
 
 These gates do not block autonomous engineering work. When a gate is completed, its evidence must be promoted from this document into the relevant LIVE certification rather than merely changing a status label.
