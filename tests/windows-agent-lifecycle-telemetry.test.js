@@ -17,6 +17,8 @@ function functionBody(name, nextName) {
 test('Windows agent never awaits non-critical meditation telemetry', () => {
   assert.equal((source.match(/await meditationController\.event/g) || []).length, 0);
   assert.match(source, /function emitTelemetry\(message\)/);
+  assert.match(source, /ARIA_AGENT_HEARTBEAT_PATH/);
+  assert.match(source, /touchProcessHeartbeat\('attempt'\)/);
 });
 
 for (const [name, nextName] of [
@@ -35,3 +37,11 @@ for (const [name, nextName] of [
     assert.ok(result >= 0 && resultTelemetry > result, 'JOB RESULT telemetry must not precede /result');
   });
 }
+
+test('Windows watchdog restarts a live agent whose process heartbeat becomes stale', () => {
+  const watchdog = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'run-agent.ps1'), 'utf8');
+  assert.match(watchdog, /ARIA_AGENT_HEARTBEAT_PATH/);
+  assert.match(watchdog, /AGENT_STALE_HEARTBEAT/);
+  assert.match(watchdog, /AgentHeartbeatStaleSeconds/);
+  assert.match(watchdog, /Stop-Process -Id \$process\.Id -Force/);
+});
