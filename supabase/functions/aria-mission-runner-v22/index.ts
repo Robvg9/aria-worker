@@ -555,55 +555,44 @@ async function deviceExecute(missionId: string, step: any, mission: any = null) 
     typeof mission.checkpoint.results === "object" &&
     mission.checkpoint.results[String(step.id)]?.__aria_verification_rejected === true;
 
-  const persistedRwhtVerificationRejected =
-    operation === "computer.use.autonomous" &&
-    job &&
-    String(job.status || "") === "succeeded" &&
-    (() => {
-      try {
-        let raw:any =
-          job.result?.result && typeof job.result.result === "object"
-            ? job.result.result
-            : job.result && typeof job.result === "object"
-              ? job.result
-              : {};
-        if (typeof raw?.stdout === "string" && raw.stdout.trim()) {
-          try {
-            const parsed = JSON.parse(raw.stdout);
-            if (parsed && typeof parsed === "object") raw = parsed;
-          } catch {}
-        }
-        const total = Number(raw.required_routes_total || 0);
-        const visited = Number(raw.required_routes_visited || 0);
-        return Boolean(raw.full_pwa_coverage === true && total > 0 && visited < total);
-      } catch {
-        return false;
+  const isPersistedRwhtVerificationRejected = (candidate:any) => {
+    if (operation !== "computer.use.autonomous" || !candidate || String(candidate.status || "") !== "succeeded") return false;
+    try {
+      let raw:any =
+        candidate.result?.result && typeof candidate.result.result === "object"
+          ? candidate.result.result
+          : candidate.result && typeof candidate.result === "object"
+            ? candidate.result
+            : {};
+      if (typeof raw?.stdout === "string" && raw.stdout.trim()) {
+        try {
+          const parsed = JSON.parse(raw.stdout);
+          if (parsed && typeof parsed === "object") raw = parsed;
+        } catch {}
       }
-    })();
+      const total = Number(raw.required_routes_total || 0);
+      const visited = Number(raw.required_routes_visited || 0);
+      return Boolean(raw.full_pwa_coverage === true && total > 0 && visited < total);
+    } catch {
+      return false;
+    }
+  };
 
-  // A job that physically succeeded but was rejected by the mission verifier
-  // or itself proves incomplete Full-PWA coverage must not be reused after
-  // re-planning. Allocate the next fresh attempt.
-  if (
-    (previousVerificationRejected || persistedRwhtVerificationRejected) &&
-    job &&
-    String(job.status || "") === "succeeded" &&
-    attempt < MAX_STEP_ATTEMPTS
-  ) {
-    attempt += 1;
-    jobId = jobIdFor(missionId, String(step.id), attempt);
-    current = await getExecutionJob(jobId);
-    job = current.body?.job;
-  }
-
-  // A previous terminal failure must never be reused as the next execution.
-  // Move to a fresh idempotency key/job id (a2/a3) while staying within the
-  // canonical per-step attempt budget.
-  if (job && ["failed", "timeout"].includes(String(job.status || "")) && attempt < MAX_STEP_ATTEMPTS) {
-    attempt += 1;
-    jobId = jobIdFor(missionId, String(step.id), attempt);
-    current = await getExecutionJob(jobId);
-    job = current.body?.job;
+  // Advance across terminal failures or verifier-rejected physical successes,
+  // checking every selected job. This prevents accepting an incomplete a2 as
+  // the result merely because a1 was the original candidate.
+  for (let guard = 0; guard < MAX_STEP_ATTEMPTS && attempt < MAX_STEP_ATTEMPTS; guard += 1) {
+    const rejected = isPersistedRwhtVerificationRejected(job);
+    const failedTerminal = Boolean(job && ["failed", "timeout"].includes(String(job.status || "")));
+    const checkpointRejected = attempt === Math.max(1, Number(step?.input?.__aria_attempt || 1)) && previousVerificationRejected;
+    if ((rejected || failedTerminal || checkpointRejected) && attempt < MAX_STEP_ATTEMPTS) {
+      attempt += 1;
+      jobId = jobIdFor(missionId, String(step.id), attempt);
+      current = await getExecutionJob(jobId);
+      job = current.body?.job;
+      continue;
+    }
+    break;
   }
 
   if (!(current.response.ok && current.body?.ok && job)) {
