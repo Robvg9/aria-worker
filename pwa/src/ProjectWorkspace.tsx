@@ -30,7 +30,7 @@ async function api(path:string, token:string, init:RequestInit={}) {
   if (init.body) headers.set('content-type','application/json');
   const method=String(init.method||'GET').toUpperCase();
   const controller=new AbortController();
-  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?12000:path.endsWith('/conversation')?150000:30000);
+  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?45000:path.endsWith('/conversation')?150000:30000);
   try {
     const response = await fetch(API+path,{...init,headers,cache:'no-store',signal:controller.signal});
     const raw = await response.text();
