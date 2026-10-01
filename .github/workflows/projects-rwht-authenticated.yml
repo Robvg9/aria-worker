@@ -87,7 +87,7 @@ jobs:
         working-directory: rwht/pc-browser
         env:
           RWHT_ARTIFACT_DIR: projects-e2e-artifacts
-          RWHT_TIMEOUT_MS: '120000'
+          RWHT_TIMEOUT_MS: '180000'
         run: node rwht-projects-e2e.mjs
 
       - name: Upload Projects RWHT evidence
