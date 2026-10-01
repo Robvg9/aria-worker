@@ -65,7 +65,13 @@ async function discoverInteractive(page) {
   const interactive = activeSurfaceSelector
     ? page.locator(activeSurfaceSelector).locator(selector)
     : page.locator(selector);
-  return interactive.evaluateAll((elements) => elements.map((el, index) => {
+  return interactive.evaluateAll((elements) => elements
+    .filter((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    })
+    .map((el, index) => {
     const rect = el.getBoundingClientRect();
     const tag = el.tagName.toLowerCase();
     const role = el.getAttribute('role') || (tag === 'button' ? 'button' : tag === 'a' ? 'link' : tag);
