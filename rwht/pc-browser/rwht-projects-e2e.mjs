@@ -543,3 +543,5 @@ run().catch((error) => {
   console.error('[ARIA-PROJECTS-RWHT] fatal:', String(error?.message || error));
   process.exitCode = 1;
 });
+
+// Final universal certification trigger: authenticated Projects RWHT on canonical HEAD.

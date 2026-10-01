@@ -1062,3 +1062,5 @@ run().catch((error) => {
   console.error('[PC-RWHT] fatal:', error);
   process.exitCode = 1;
 });
+
+// Final universal certification trigger: PC RWHT on canonical HEAD.

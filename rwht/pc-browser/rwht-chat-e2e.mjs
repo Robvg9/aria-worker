@@ -451,3 +451,5 @@ run().catch((error) => {
 });
 
 // 2026-10-01: final-head authenticated RWHT certification trigger.
+
+// Final universal certification trigger: authenticated RWHT on canonical HEAD.

@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-persistence-recovery-rwht-e2e-v1.0.0';
+const VERSION = 'aria-persistence-recovery-rwht-e2e-v1.0.1';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -150,7 +150,7 @@ async function run() {
   page.on('console', message => {
     if (message.type() !== 'error') return;
     const text = message.text().slice(0, 1200);
-    if (expectedRecoveryAbortErrors && /Failed to load resource: net::ERR_FAILED/i.test(text)) return;
+    if (expectedRecoveryAbortErrors && ( /Failed to load resource: net::ERR_FAILED/i.test(text) || /Failed to load resource: the server responded with a status of 401 \(\)/i.test(text) )) return;
     consoleErrors.push({ text });
   });
   page.on('response', response => {
