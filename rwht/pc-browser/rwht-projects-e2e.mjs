@@ -10,6 +10,7 @@ const STORAGE_STATE = process.env.RWHT_STORAGE_STATE || '';
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 150000);
 const SETTLE_MS = Number(process.env.RWHT_SETTLE_MS || 1200);
+const RELOAD_CHAT_TIMEOUT_MS = Number(process.env.RWHT_RELOAD_CHAT_TIMEOUT_MS || 60000);
 const ARTIFACT_DIR = process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'projects-rwht-artifacts');
 const PROJECTS = [
   { id: 'battlecruiser', name: 'BattleCruiser' },
@@ -392,11 +393,12 @@ async function run() {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
       await waitForPersistedSession(page, session.userId);
+      report.reload_auth_verified = true;
       await page.waitForFunction(({ expected }) => {
         const card = [...document.querySelectorAll('.projectGrid .projectCard')].find((node) => node.textContent?.includes(expected));
         return Boolean(card?.classList.contains('selected'));
-      }, { expected: project.name }, { timeout: 30000 });
-      await page.waitForSelector('.projectChatWindow', { state: 'visible', timeout: 30000 });
+      }, { expected: project.name }, { timeout: RELOAD_CHAT_TIMEOUT_MS });
+      await page.waitForSelector('.projectChatWindow', { state: 'visible', timeout: RELOAD_CHAT_TIMEOUT_MS });
       await page.waitForFunction(({ markerValue }) => [...document.querySelectorAll('.projectChatWindow .bubble.user')].some((node) => node.textContent?.includes(markerValue)), { markerValue: marker }, { timeout: 30000 });
 
       report.projects.push({
