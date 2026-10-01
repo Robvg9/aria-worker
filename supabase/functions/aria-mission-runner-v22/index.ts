@@ -1055,7 +1055,9 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
         capability: String(step.operation),
         selected_route: route,
         authorization: authForRoute,
-        input: step.input || {},
+        input: {
+          payload: step.input && typeof step.input === "object" ? step.input : {},
+        },
         policy: step.policy || {},
         metadata: {
           mission_id: missionId,
