@@ -53,4 +53,4 @@ if (!app.includes("fetch('/auth/token?grant_type=refresh_token'")) throw new Err
 if (!app.includes('session.expiresAt - Date.now() - 60_000')) throw new Error('session refresh scheduler missing');
 
 if (!app.includes('15000')) throw new Error('direct auth timeout missing');
-if (!app.includes('20000')) throw new Error('proxy auth timeout missing');
+if (!app.includes('50000')) throw new Error('proxy auth timeout missing');
