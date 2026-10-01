@@ -287,7 +287,7 @@ async function run() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
+    ...(!EMAIL || !PASSWORD ? (STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) : {})
   });
   const page = await context.newPage();
   const consoleErrors = [];
