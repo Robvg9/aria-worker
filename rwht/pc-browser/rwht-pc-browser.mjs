@@ -294,7 +294,6 @@ async function testControl(page, control, config) {
   // certification is owned by settings-rwht-authenticated.yml; the global PC
   // regression re-checks that the controls remain present on the live surface.
   if (
-    new URL(page.url()).hash.split('?')[0] === '#settings' &&
     control.role === 'button' &&
     (/^Activadas$/i.test(label) || /^Desactivadas$/i.test(label) || /^Activar avisos$/i.test(label))
   ) {
@@ -370,6 +369,11 @@ async function testControl(page, control, config) {
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
     };
 
+    // Resolve labels whose visible text contains server-backed/dynamic values
+    // from stable semantic prefixes instead of the exact stale snapshot.
+    const dynamicMission = label.match(/^Misión\\s+(\\d+)\\s+·/i);
+    const dynamicStat = label.match(/^\\d+\\s+(Modelos disponibles|Agentes disponibles|Dispositivos online|Conexiones)$/i);
+
     // Settings toggles expose dynamic labels ("Activadas"/"Desactivadas",
     // "Activar avisos") but stable structural classes. Resolve those explicitly.
     if (new URL(page.url()).hash.split('?')[0] === '#settings' && control.role === 'button') {
@@ -381,7 +385,20 @@ async function testControl(page, control, config) {
         if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
       }
     }
-    if (control.selector_hint) {
+    if (dynamicMission) {
+      const missionNumber = dynamicMission[1];
+      const candidate = page.locator('button').filter({ hasText: new RegExp('^Misión\\\\s+' + missionNumber + '\\\\s+·', 'i') }).first();
+      if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+    }
+
+    if (dynamicStat) {
+      const statLabel = dynamicStat[1];
+      const candidate = page.locator('button.statButton').filter({ hasText: statLabel }).first();
+      if (await candidate.count() && await candidate.isVisible().catch(() => false)) locator = candidate;
+    }
+
+    const settingsDynamic = /^(Activadas|Desactivadas|Activar avisos)$/i.test(label);
+    if (!locator && !settingsDynamic && control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
       if (await hinted.count() && await hinted.isVisible().catch(() => false)) locator = hinted;
     }
