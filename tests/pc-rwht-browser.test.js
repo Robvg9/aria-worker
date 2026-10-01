@@ -149,3 +149,5 @@ assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
 assert.match(projectsWorkflow, /RWHT_EMAIL/);
 assert.match(projectsWorkflow, /RWHT_PASSWORD/);
 assert.match(projectsWorkflow, /RWHT_STORAGE_STATE_B64/);
+
+// 2026-10-01 final-head authenticated RWHT recertification trigger.
