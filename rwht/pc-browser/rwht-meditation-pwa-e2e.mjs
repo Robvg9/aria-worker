@@ -11,25 +11,38 @@ async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, m
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = String(process.env.RWHT_STORAGE_STATE || '');
+const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 
 async function login(page) {
-  if (STORAGE_STATE) return { mode:'storage_state', status:'authenticated', attempts:0 };
-  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
+  await page.waitForFunction(() => {
+    const form = document.querySelector('input[type="password"]');
+    const surface = document.querySelector('.projectShell,.dashboardScreen');
+    return Boolean(surface) || Boolean(form);
+  }, null, { timeout: 60000 }).catch(() => {});
+
+  if (STORAGE_STATE) {
+    const liveSession = await ensureLiveSession(page);
+    if (liveSession) return { mode:'storage_state_refresh_or_validated', status:'authenticated', attempts:0 };
+    await page.evaluate(() => localStorage.removeItem('aria_session_v2')).catch(() => {});
+    await page.reload({ waitUntil:'domcontentloaded', timeout:30000 }).catch(() => {});
+    await waitFor(1000);
+  }
+
+  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
   const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   const authenticatedSurface = page.locator('.projectShell,.dashboardScreen').first();
   await Promise.race([
     authForm.waitFor({ state:'visible', timeout:60000 }),
     authenticatedSurface.waitFor({ state:'visible', timeout:60000 })
   ]).catch(() => {});
-
   if (await authenticatedSurface.isVisible().catch(() => false)) {
-    return { mode:'existing_session', status:'authenticated', attempts:0 };
+    const liveSession = await ensureLiveSession(page);
+    if (liveSession) return { mode:'existing_session', status:'authenticated', attempts:0 };
   }
   if (!(await authForm.isVisible().catch(() => false))) throw new Error('meditation_auth_surface_not_visible');
 
   const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
   await password.waitFor({ state:'visible', timeout:30000 });
-
   const maxAttempts = Math.max(1, Math.min(3, Number(process.env.RWHT_AUTH_ATTEMPTS || 3)));
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -44,11 +57,11 @@ async function login(page) {
         const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
           const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
         });
-        const surface = !!document.querySelector('.projectShell,.dashboardScreen');
-        return surface || !pwd;
+        return !pwd;
       }, null, { timeout:60000 });
-      attempts.push({ attempt, status:'authenticated' });
-      return { mode:'password', status:'authenticated', attempts };
+      const liveSession = await ensureLiveSession(page);
+      if (liveSession) return { mode:'password', status:'authenticated', attempts:[...attempts,{attempt,status:'authenticated'}] };
+      throw new Error('authenticated_session_not_verified');
     } catch (error) {
       attempts.push({ attempt, status:'failed', error:String(error?.message || error).slice(0,300) });
       if (attempt < maxAttempts) {
@@ -57,7 +70,7 @@ async function login(page) {
       }
     }
   }
-  throw new Error('authenticated_login_failed_after_' + maxAttempts + '_attempts:' + JSON.stringify(attempts).slice(0,1200));
+  throw new Error('authenticated_login_failed_after_' + maxAttempts + ':' + JSON.stringify(attempts).slice(0,1200));
 }
 
 async function readSession(page) {
@@ -65,11 +78,75 @@ async function readSession(page) {
     try {
       const raw = localStorage.getItem('aria_session_v2');
       const session = raw ? JSON.parse(raw) : null;
-      return session && typeof session.accessToken === 'string'
-        ? { accessToken: session.accessToken, userId: String(session.userId || '') }
+      return session && typeof session.accessToken === 'string' && typeof session.refreshToken === 'string'
+        ? {
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken,
+            userId: String(session.userId || ''),
+            expiresAt: Number(session.expiresAt || 0),
+            email: session.email || null
+          }
         : null;
     } catch { return null; }
   });
+}
+
+async function apiAuthStatus(page, accessToken) {
+  return page.evaluate(async (token) => {
+    try {
+      const response = await fetch('/api/diagnostics/health', {
+        headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+        cache: 'no-store'
+      });
+      return response.status;
+    } catch { return 0; }
+  }, accessToken);
+}
+
+async function refreshStoredSession(page) {
+  const session = await readSession(page);
+  if (!session?.refreshToken) return null;
+  const result = await page.evaluate(async ({ refreshToken, anon }) => {
+    try {
+      const response = await fetch('/auth/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: anon, accept: 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        cache: 'no-store'
+      });
+      const body = await response.json().catch(() => null);
+      return {
+        status: response.status,
+        access_token: body?.access_token || null,
+        refresh_token: body?.refresh_token || null,
+        user_id: body?.user?.id || null,
+        expires_in: Number(body?.expires_in || 0)
+      };
+    } catch {
+      return { status: 0, access_token: null, refresh_token: null, user_id: null, expires_in: 0 };
+    }
+  }, { refreshToken: session.refreshToken, anon: ANON });
+  if (result.status !== 200 || !result.access_token || !result.user_id) return null;
+  const next = {
+    ...session,
+    accessToken: result.access_token,
+    refreshToken: result.refresh_token || session.refreshToken,
+    userId: result.user_id,
+    expiresAt: Date.now() + Math.max(60, result.expires_in || 3600) * 1000
+  };
+  await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), next);
+  return next;
+}
+
+async function ensureLiveSession(page) {
+  let session = await readSession(page);
+  if (!session?.accessToken) return null;
+  const status = await apiAuthStatus(page, session.accessToken);
+  if (status === 200 || status === 204) return session;
+  const refreshed = await refreshStoredSession(page);
+  if (!refreshed) return null;
+  const refreshedStatus = await apiAuthStatus(page, refreshed.accessToken);
+  return refreshedStatus === 200 || refreshedStatus === 204 ? refreshed : null;
 }
 
 async function expectApi(page, apiPath, token) {
@@ -98,7 +175,7 @@ async function run() {
     await page.waitForTimeout(1200);
     const loginResult = await login(page);
     assert.equal(loginResult.status, 'authenticated');
-    const persisted = await readSession(page);
+    const persisted = await ensureLiveSession(page);
     assert.ok(persisted?.accessToken, 'authenticated session was not persisted');
     report.auth_verified = true;
     await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
@@ -117,9 +194,8 @@ async function run() {
     await page.getByText('EJECUCIÓN EN TIEMPO REAL', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     await page.getByRole('button', { name:'ANALIZAR Y PROPONER' }).waitFor({ state:'visible', timeout:30000 });
     report.meditation_surface_verified = true;
-    const sessionRaw = await page.evaluate(() => localStorage.getItem('aria_session_v2'));
-    assert.ok(sessionRaw, 'aria session missing after login');
-    const session = JSON.parse(sessionRaw); assert.ok(session.accessToken, 'access token missing from persisted session');
+    const session = await ensureLiveSession(page);
+    assert.ok(session?.accessToken, 'aria session missing after login');
     const [overview, health, ideas, notifications] = await Promise.all([
       expectApi(page, '/meditation/overview', session.accessToken),
       expectApi(page, '/diagnostics/health', session.accessToken),
