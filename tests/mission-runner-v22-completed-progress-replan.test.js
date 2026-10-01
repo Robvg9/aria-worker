@@ -27,3 +27,9 @@ if(!source.includes("results: preservedBeforeReplan.results")) {
   throw new Error("step-failure replan resets verified results");
 }
 console.log("mission replan completed-progress preservation contract: PASS");
+
+const enqueue=fs.readFileSync(path.join(__dirname,"..","supabase/functions/aria-mission-runner-v22/forensic-continuity-fixes.ts"),"utf8");
+if(!enqueue.includes('if (key === "start_url")') || !enqueue.includes('input[key] = value.trim();')) {
+  throw new Error("autonomous start_url must be trimmed at device enqueue boundary");
+}
+console.log("autonomous start_url normalization contract: PASS");
