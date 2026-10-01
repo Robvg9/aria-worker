@@ -56,11 +56,11 @@ jobs:
             echo "::error title=Authenticated Chat RWHT blocked::Configure RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE_B64 as repository secrets."
             exit 1
           fi
-          if [[ "${has_password_auth}" != true && "${has_storage_auth}" == true ]]; then
+          if [[ "${has_storage_auth}" == true ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
-          elif [[ "${has_password_auth}" != true && "${has_storage_gzip_auth}" == true ]]; then
+          elif [[ "${has_storage_gzip_auth}" == true ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"

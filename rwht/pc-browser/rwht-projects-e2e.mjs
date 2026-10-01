@@ -30,18 +30,19 @@ async function login(page) {
     }
   }
 
+  const existing = await ensureLiveSession(page);
+  if (existing) return { mode: 'existing_session_or_refresh', status: 'authenticated', attempts: 0 };
+
+  const persisted = await readSession(page).catch(() => null);
+  if (persisted?.accessToken && persisted.userId) {
+    return { mode: 'persisted_session', status: 'authenticated', attempts: 0 };
+  }
+
   await page.waitForFunction(
     () => Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.authScreen')) || Boolean(document.querySelector('input[type="password"]')),
     null,
     { timeout: 60000 }
   );
-
-  const existing = await ensureLiveSession(page);
-  if (existing) return { mode: 'existing_session', status: 'authenticated', attempts: 0 };
-  const persisted = await readSession(page).catch(() => null);
-  if (persisted?.accessToken && persisted.userId && await page.locator('.dashboardScreen').isVisible().catch(() => false)) {
-    return { mode: 'persisted_session', status: 'authenticated', attempts: 0 };
-  }
 
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
 
