@@ -460,7 +460,12 @@ async function runAutonomousRwht(options) {
   const adapter = o.adapter || executeWindowsDesktop;
   const model = o.model || qwen;
   const captureScreenshots = o.capture_screenshots !== false;
-  const controlDiscoveryVerify = /RWHT_CONTROL_DISCOVERY_VERIFY|ARIA\s+PWA|PWA\s+LIVE(?:\s+de)?\s+ARIA/i.test(goal);
+  const controlDiscoveryVerify = /RWHT_CONTROL_DISCOVERY_VERIFY/i.test(goal);
+  const fullPwaCoverageMode = /(LIBRO\s+MAESTRO|ARIA\s+PWA|PWA\s+LIVE(?:\s+de)?\s+ARIA)/i.test(goal);
+  const requiredRoutes = fullPwaCoverageMode
+    ? ['#home', '#chat', '#mission', '#projects', '#meditation', '#capabilities', '#settings']
+    : [];
+  const visitedRoutes = new Set();
   const onProgress = typeof o.on_progress === 'function' ? o.on_progress : null;
   const started = Date.now();
 
@@ -496,15 +501,39 @@ async function runAutonomousRwht(options) {
     start_url: startUrl,
   });
 
+  const currentRoute = async () => {
+    try {
+      const response = await chromeCdpCall('Runtime.evaluate', {
+        returnByValue: true,
+        expression: 'location.hash || "#home"',
+      });
+      return String(response?.result?.value || '#home');
+    } catch {
+      return null;
+    }
+  };
+
+  const navigateToRoute = async (route) => {
+    if (!startUrl || !route) return { status: 'skipped', route };
+    const base = String(startUrl).split('#')[0];
+    const url = base + route;
+    try {
+      await chromeCdpCall('Page.navigate', { url });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      visitedRoutes.add(route);
+      return { status: 'succeeded', method: 'chrome-cdp', url, route };
+    } catch {
+      const fallback = await navigate(adapter, url);
+      if (fallback.status === 'succeeded') visitedRoutes.add(route);
+      return { ...fallback, route, url };
+    }
+  };
+
   const navigation = await (async () => {
     if (!startUrl) return { status: 'skipped' };
-    try {
-      await chromeCdpCall('Page.navigate', { url: startUrl });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      return { status: 'succeeded', method: 'chrome-cdp', url: startUrl };
-    } catch {
-      return navigate(adapter, startUrl);
-    }
+    const result = await navigateToRoute('#home');
+    if (result.status === 'succeeded') visitedRoutes.add('#home');
+    return result;
   })().catch((error) => ({
     status: 'failed',
     error: String(error && error.message || error),
@@ -513,6 +542,9 @@ async function runAutonomousRwht(options) {
   const observe = async (reason = 'initial') => {
     await emitProgress('computer_use_observation_started', {
       reason,
+      full_pwa_coverage: fullPwaCoverageMode,
+      required_routes_total: requiredRoutes.length,
+      required_routes_visited: visitedRoutes.size,
     });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
@@ -573,6 +605,11 @@ async function runAutonomousRwht(options) {
   }
 
   for (let step = 1; step <= maxActions && Date.now() - started < maxRuntimeMs; step += 1) {
+    const routeNow = await currentRoute();
+    if (fullPwaCoverageMode && routeNow && requiredRoutes.includes(routeNow)) {
+      visitedRoutes.add(routeNow);
+    }
+
     const screenHash = hash(compact(current));
     screensSeen.add(screenHash);
 
@@ -583,6 +620,33 @@ async function runAutonomousRwht(options) {
       const key = controlKey(screenHash, node.id);
       return !exercisedControls.has(key) && !blockedControls.has(key);
     });
+
+    if (fullPwaCoverageMode && pending.length === 0) {
+      const nextRoute = requiredRoutes.find((route) => !visitedRoutes.has(route));
+      if (nextRoute) {
+        const routeResult = await navigateToRoute(nextRoute);
+        evidence.push({
+          step,
+          kind: 'route_navigation',
+          route: nextRoute,
+          result_status: routeResult.status,
+          verified: routeResult.status === 'succeeded',
+          timestamp: new Date().toISOString(),
+        });
+        await emitProgress('computer_use_route_navigation_completed', {
+          step,
+          route: nextRoute,
+          status: routeResult.status,
+          required_routes_total: requiredRoutes.length,
+          required_routes_visited: visitedRoutes.size,
+        }, step);
+        if (routeResult.status === 'succeeded') {
+          current = await observe('ruta ' + nextRoute);
+          noProgressStreak = 0;
+          continue;
+        }
+      }
+    }
 
     let decision = null;
     let decisionSource = 'qwen3';
@@ -789,6 +853,21 @@ async function runAutonomousRwht(options) {
     }
 
     const verifiedActionCount = evidence.filter((item) => item.step && item.action && item.verified === true).length;
+    if (
+      fullPwaCoverageMode
+      && visitedRoutes.size >= requiredRoutes.length
+      && executionVerified
+      && safeNodes(current).every((node) =>
+        exercisedControls.has(controlKey(afterHash || beforeHash, node.id)) ||
+        blockedControls.has(controlKey(afterHash || beforeHash, node.id))
+      )
+      && noProgressStreak >= 2
+      && screensSeen.size > 1
+    ) {
+      finishReason = 'coverage_complete';
+      break;
+    }
+
     if (controlDiscoveryVerify && exercisedControls.size >= 5 && screensSeen.size >= 2) {
       finishReason = 'control_discovery_verified';
       break;
@@ -831,11 +910,17 @@ async function runAutonomousRwht(options) {
     blocked_controls: blocked.length,
     coverage_ratio: coverageRatio,
     evidence_count: evidence.length,
+    full_pwa_coverage: fullPwaCoverageMode,
+    required_routes_total: requiredRoutes.length,
+    required_routes_visited: visitedRoutes.size,
   };
 
   return {
     ...summary,
     verified: complete,
+    full_pwa_coverage: fullPwaCoverageMode,
+    required_routes_total: requiredRoutes.length,
+    required_routes_visited: visitedRoutes.size,
     verification_status: complete ? 'verified' : status,
     capability_awareness: capabilities,
     coverage: {
