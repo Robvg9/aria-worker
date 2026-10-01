@@ -497,7 +497,11 @@ async function verifyAuthState(page, config) {
         : routeHash === '#capabilities' ? '.capabilitiesViewport'
           : routeHash === '#settings' ? '.settingsViewport'
             : '.dashboardScreen';
-  const surfaceVisible = await page.locator(routeSurface).first().isVisible().catch(() => false);
+  const surfaceVisible = await page.locator(routeSurface).evaluateAll((items) => items.some((el) => {
+    const rect = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+  })).catch(() => false);
   if (surfaceVisible) return { required: true, verified: true, reason: 'authenticated_route_surface_detected' };
   if (config.expected_auth_text) {
     const pattern = new RegExp(config.expected_auth_text, 'i');
