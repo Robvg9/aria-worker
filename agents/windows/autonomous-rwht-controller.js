@@ -395,29 +395,58 @@ async function executeDecision(adapter, decision, ui) {
 async function navigate(adapter, url) {
   if (!url) return { status: 'skipped' };
 
-  const steps = [
-    { action: 'focus', process: 'chrome' },
+  const focusTargets = ['chrome', 'msedge'];
+  const results = [];
+  let focused = false;
+
+  for (const process of focusTargets) {
+    const focus = await adapter({ action: 'focus', process });
+    results.push({
+      action: 'focus',
+      process,
+      status: focus && focus.status || 'unknown',
+      error: focus && focus.error || null,
+    });
+    if (focus && focus.status === 'succeeded') {
+      focused = true;
+      break;
+    }
+  }
+
+  if (!focused) {
+    const launched = await adapter({ action: 'open', path: url });
+    results.push({
+      action: 'open',
+      status: launched && launched.status || 'unknown',
+      error: launched && launched.error || null,
+      url,
+    });
+    if (!launched || launched.status !== 'succeeded') {
+      return { status: 'failed', results };
+    }
+    await adapter({ action: 'wait', ms: 2500 });
+  }
+
+  const navigationSteps = [
     { action: 'hotkey', keys: ['CTRL', 'L'] },
     { action: 'type', text: url },
     { action: 'keypress', key: 'ENTER' },
-    { action: 'wait', ms: 1500 },
+    { action: 'wait', ms: 1800 },
   ];
 
-  const results = [];
-  for (const step of steps) {
+  for (const step of navigationSteps) {
     const result = await adapter(step);
     results.push({
       action: step.action,
       status: result && result.status || 'unknown',
       error: result && result.error || null,
     });
-    if (!result || result.status !== 'succeeded') break;
+    if (!result || result.status !== 'succeeded') {
+      return { status: 'failed', results };
+    }
   }
 
-  return {
-    status: results.every((item) => item.status === 'succeeded') ? 'succeeded' : 'failed',
-    results,
-  };
+  return { status: 'succeeded', results };
 }
 
 async function runAutonomousRwht(options) {
