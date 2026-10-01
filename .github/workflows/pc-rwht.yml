@@ -88,3 +88,5 @@ jobs:
           name: aria-pc-rwht-evidence
           path: rwht/pc-browser/rwht-artifacts
           if-no-files-found: warn
+
+# Final certification trigger 2026-10-01.

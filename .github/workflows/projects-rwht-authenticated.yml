@@ -110,3 +110,5 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+
+# Final certification trigger 2026-10-01.
