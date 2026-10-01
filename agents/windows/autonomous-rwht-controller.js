@@ -9,7 +9,7 @@ try {
   ({ executeWindowsDesktop } = require('../../computer-use/windows-desktop-adapter'));
 }
 
-const VERSION = 'aria-windows-autonomous-rwht-v1.2.1';
+const VERSION = 'aria-windows-autonomous-rwht-v1.2.2';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
 
@@ -699,7 +699,7 @@ async function runAutonomousRwht(options) {
     }
 
     if (decision.action === 'finish') {
-      if (pending.length === 0 && noProgressStreak >= 2 && screensSeen.size > 1) {
+      if ((!fullPwaCoverageMode || visitedRoutes.size >= requiredRoutes.length) && pending.length === 0 && noProgressStreak >= 2 && screensSeen.size > 1) {
         finishReason = 'coverage_complete';
         break;
       }
@@ -877,7 +877,7 @@ async function runAutonomousRwht(options) {
       break;
     }
 
-    if (controlDiscoveryVerify && exercisedControls.size >= 5 && screensSeen.size >= 2) {
+    if (!fullPwaCoverageMode && controlDiscoveryVerify && exercisedControls.size >= 5 && screensSeen.size >= 2) {
       finishReason = 'control_discovery_verified';
       break;
     }
