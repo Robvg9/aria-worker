@@ -882,81 +882,175 @@ async function processManualQueue(b:any,d:any){
   }
 }
 
+function meditationExecutionLaneRank(m:any){
+  switch(String(m?.metadata?.execution_lane||'').toLowerCase()){
+    case 'primary': return 0;
+    case 'repair': return 10;
+    case 'user': return 20;
+    case 'meditation': return 30;
+    case 'idea': return 90;
+    case 'test': return 100;
+    default: return 50;
+  }
+}
+
 async function resumeManualContinuation(b:any,d:any){
   const {data:rows,error}=await supabase.schema('aria_internal').from('meditation_queue')
     .select('queue_id,item_type,item_id,resolved_mission_id,status,position,updated_at,started_at')
     .eq('device_id',d.device_id)
     .in('status',['running','paused'])
-    .order('position',{ascending:true})
-    .order('updated_at',{ascending:true})
-    .limit(20);
+    .order('updated_at',{ascending:false})
+    .limit(50);
   if(error)throw new Error(error.message);
 
-  for(const q of rows||[]){
+  const inspected=await Promise.all((rows||[]).map(async(q:any)=>{
     const missionId=q.resolved_mission_id?String(q.resolved_mission_id):String(q.item_id);
-    if(!missionId)continue;
+    if(!missionId)return{q,m:null,error:null};
     const {data:m,error:me}=await supabase.schema('aria_internal').from('mission_state')
       .select('mission_id,status,goal,metadata,current_step,completed_steps,total_steps,next_action,lease_owner,lease_until,updated_at')
       .eq('mission_id',missionId).maybeSingle();
-    if(me)throw new Error(me.message);
+    return{q,m,error:me};
+  }));
+
+  const rankState=(m:any)=>{
+    switch(String(m?.status||'')){
+      case 'queued': return 0;
+      case 'planning': return 1;
+      case 'waiting': return 2;
+      case 'running': return 3;
+      case 'paused': return 4;
+      default: return 9;
+    }
+  };
+
+  inspected.sort((a,b)=>{
+    const lane=meditationExecutionLaneRank(a.m)-meditationExecutionLaneRank(b.m);
+    if(lane!==0)return lane;
+    const state=rankState(a.m)-rankState(b.m);
+    if(state!==0)return state;
+    const pos=Number(a.q?.position??999999)-Number(b.q?.position??999999);
+    if(pos!==0)return pos;
+    return String(b.q?.updated_at||'').localeCompare(String(a.q?.updated_at||''));
+  });
+
+  for(const item of inspected){
+    const q=item.q,m=item.m;
+    if(item.error)throw new Error(item.error.message);
+
+    const missionId=m?.mission_id
+      ? String(m.mission_id)
+      : (q.resolved_mission_id?String(q.resolved_mission_id):String(q.item_id));
+    if(!missionId)continue;
+
     if(!m){
-      await manualQueueSetStatus(q.queue_id,{status:'failed',last_error:'mission_not_found',completed_at:new Date().toISOString()});
+      await manualQueueSetStatus(q.queue_id,{
+        status:'failed',last_error:'mission_not_found',completed_at:new Date().toISOString()
+      });
       continue;
     }
+
     const ms=String(m.status||'');
     if(['succeeded','failed','blocked','cancelled'].includes(ms)){
       await manualQueueSetStatus(q.queue_id,{
-        status:ms==='succeeded'?'completed':ms,last_error:null,completed_at:new Date().toISOString()
+        status:ms==='succeeded'?'completed':ms,
+        last_error:null,
+        completed_at:new Date().toISOString()
       });
       continue;
     }
 
     const leaseAlive=Boolean(m.lease_until&&Date.parse(String(m.lease_until))>Date.now());
     const continuation=ms==='running' && String(m.next_action||'')==='next_ready_batch';
+
     if(q.status==='paused' && !continuation)continue;
     if(q.status==='running' && !continuation && !['queued','planning','waiting','paused'].includes(ms))continue;
 
     if(leaseAlive){
-      return{status:'running',manual_queue:true,queue_id:q.queue_id,mission_id:missionId,
-        active_mission_id:missionId,background:false,already_running:true};
+      return{
+        status:'running',
+        manual_queue:true,
+        queue_id:q.queue_id,
+        mission_id:missionId,
+        active_mission_id:missionId,
+        background:false,
+        already_running:true,
+        execution_lane:String(m.metadata?.execution_lane||'')
+      };
     }
 
     await manualQueueSetStatus(q.queue_id,{
-      status:'running',resolved_mission_id:missionId,last_error:null,completed_at:null
+      status:'running',
+      resolved_mission_id:missionId,
+      last_error:null,
+      completed_at:null
     });
+
     const background=(async()=>{
       try{
         const runtime=await runCanonicalMission(missionId,'meditation-ia-manual-resume');
         const status=String(runtime?.status||'unknown');
+
         if(status==='succeeded'){
-          await manualQueueSetStatus(q.queue_id,{status:'completed',last_error:null,completed_at:new Date().toISOString()});
+          await manualQueueSetStatus(q.queue_id,{
+            status:'completed',last_error:null,completed_at:new Date().toISOString()
+          });
           const {data:finished}=await supabase.schema('aria_internal').from('mission_state')
-            .select('mission_id,goal,status,metadata').eq('mission_id',missionId).maybeSingle();
+            .select('mission_id,goal,status,metadata')
+            .eq('mission_id',missionId).maybeSingle();
           await closeGoalOnMissionSuccess(finished);
         }else if(status==='blocked'||status==='failed'){
-          await manualQueueSetStatus(q.queue_id,{status,last_error:String(runtime?.error||status),completed_at:new Date().toISOString()});
+          await manualQueueSetStatus(q.queue_id,{
+            status,
+            last_error:String(runtime?.error||status),
+            completed_at:new Date().toISOString()
+          });
         }else if(status==='running'||status==='waiting'){
-          await manualQueueSetStatus(q.queue_id,{status:'running',last_error:null,completed_at:null});
+          await manualQueueSetStatus(q.queue_id,{
+            status:'running',
+            last_error:null,
+            completed_at:null
+          });
         }else if(status==='paused'){
-          await manualQueueSetStatus(q.queue_id,{status:'paused',last_error:String(runtime?.error||''),completed_at:null});
+          await manualQueueSetStatus(q.queue_id,{
+            status:'paused',
+            last_error:String(runtime?.error||''),
+            completed_at:null
+          });
         }else{
-          await manualQueueSetStatus(q.queue_id,{status:'running',last_error:String(runtime?.error||status),completed_at:null});
+          await manualQueueSetStatus(q.queue_id,{
+            status:'running',
+            last_error:String(runtime?.error||status),
+            completed_at:null
+          });
         }
         return runtime;
       }catch(error){
         const message=queueError(error);
-        await manualQueueSetStatus(q.queue_id,{status:'failed',last_error:message,completed_at:new Date().toISOString()}).catch(()=>{});
+        await manualQueueSetStatus(q.queue_id,{
+          status:'failed',
+          last_error:message,
+          completed_at:new Date().toISOString()
+        }).catch(()=>{});
         return{status:'failed',error:message};
       }
     })();
+
     const waitUntil=(globalThis as any).EdgeRuntime?.waitUntil;
     if(typeof waitUntil==='function')waitUntil(background);
-    return{status:'started',manual_queue:true,queue_id:q.queue_id,mission_id:missionId,
-      active_mission_id:missionId,background:true,resumed:true};
+
+    return{
+      status:'started',
+      manual_queue:true,
+      queue_id:q.queue_id,
+      mission_id:missionId,
+      active_mission_id:missionId,
+      background:true,
+      resumed:true,
+      execution_lane:String(m.metadata?.execution_lane||'')
+    };
   }
   return null;
 }
-
 async function meditationTick(b:any,d:any){const sessionId=String(b?.session_id||'').trim();const deviceId=String(d.device_id||'').trim();const lightweight=b?.lightweight===true;const recovered=lightweight?0:await recoverStale();const learning=lightweight?{skipped:true}:await learnRecent();const goalSync=lightweight?{skipped:true}:await syncGoalTerminalStates();const autonomyOnly=b?.autonomy_only===true;
 const queueChain:any[]=[];
 if(lightweight && !autonomyOnly){
