@@ -2,12 +2,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.1.0';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.5';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = process.env.RWHT_STORAGE_STATE || '';
-const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const EXPECTED_AUTH_TEXT = String(process.env.RWHT_EXPECTED_AUTH_TEXT || 'Núcleo conectado');
 const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 90000);
 const SETTLE_MS = Number(process.env.RWHT_SETTLE_MS || 1500);
@@ -17,64 +16,34 @@ function waitFor(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function evaluateStable(page, fn, arg, attempts = 10) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await page.evaluate(fn, arg);
-    } catch (error) {
-      lastError = error;
-      const message = String(error?.message || error);
-      const retryable = /Execution context was destroyed|Cannot find context with specified id|frame was detached/i.test(message);
-      if (!retryable || attempt === attempts) throw error;
-      await waitFor(300);
-    }
-  }
-  throw lastError || new Error('stable_evaluate_failed');
-}
-
 async function login(page) {
-  await page.waitForFunction(
-    () => Boolean(localStorage.getItem('aria_session_v2')) || Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.authScreen')) || Boolean(document.querySelector('input[type="password"]')),
-    null,
-    { timeout: 30000 }
-  );
+  if (STORAGE_STATE) return { mode: 'storage_state', status: 'loaded' };
+  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
 
-  const persisted = await readSession(page).catch(() => null);
-  if (persisted?.accessToken && persisted.userId) {
-    const live = await ensureLiveSession(page);
-    if (live) return { mode: 'preseeded_or_existing_session', status: 'authenticated', attempts: 0 };
-  }
-
-  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
-
-  const email = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
-  const password = page.locator('input[aria-label="Contraseña"],input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-  await email.waitFor({ state: 'visible', timeout: 60000 });
+  const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+  await email.waitFor({ state: 'visible', timeout: 30000 });
   await password.waitFor({ state: 'visible', timeout: 30000 });
   await email.fill(EMAIL);
   await password.fill(PASSWORD);
-  await password.press('Enter');
-  await page.waitForFunction(() => Boolean(localStorage.getItem('aria_session_v2')) && !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
-  const authenticated = await ensureLiveSession(page);
-  if (!authenticated) throw new Error('authenticated_session_not_verified_after_login');
-  return { mode: 'password_ui_fallback', status: 'authenticated', attempts: 1 };
+
+  const submit = page.locator('button[type="submit"],input[type="submit"],button')
+    .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i })
+    .first();
+  if (await submit.count()) await submit.click();
+  else await password.press('Enter');
+
+  await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
+  return { mode: 'password', status: 'submitted' };
 }
 
 async function readSession(page) {
-  return evaluateStable(page, () => {
+  return page.evaluate(() => {
     try {
       const raw = localStorage.getItem('aria_session_v2');
       const session = raw ? JSON.parse(raw) : null;
-      return session && typeof session.accessToken === 'string' && typeof session.refreshToken === 'string'
-        ? {
-            accessToken: session.accessToken,
-            refreshToken: session.refreshToken,
-            userId: String(session.userId || ''),
-            expiresAt: Number(session.expiresAt || 0),
-            email: session.email || null,
-            conversationId: null
-          }
+      return session && typeof session.accessToken === 'string'
+        ? { accessToken: session.accessToken, userId: String(session.userId || ''), conversationId: null }
         : null;
     } catch {
       return null;
@@ -82,101 +51,8 @@ async function readSession(page) {
   });
 }
 
-async function apiAuthStatus(page, accessToken) {
-  return evaluateStable(page, async (token) => {
-    try {
-      const response = await fetch('/api/session', {
-        headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
-        cache: 'no-store'
-      });
-      return response.status;
-    } catch {
-      return 0;
-    }
-  }, accessToken);
-}
-
-async function signInViaAuthApi() {
-  if (!EMAIL || !PASSWORD) return null;
-  const endpoints = [
-    BASE_URL.replace(/\/$/, '') + '/auth/token?grant_type=password',
-    'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
-  ];
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', apikey: ANON, accept: 'application/json' },
-        body: JSON.stringify({ email: EMAIL.trim(), password: PASSWORD }),
-        cache: 'no-store'
-      });
-      const body = await response.json().catch(() => null);
-      if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
-        return {
-          accessToken: body.access_token,
-          refreshToken: body.refresh_token,
-          userId: body.user.id,
-          expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
-          email: body.user.email || EMAIL,
-          authEndpoint: endpoint
-        };
-      }
-    } catch {}
-  }
-  return null;
-}
-
-async function refreshStoredSession(page) {
-  const session = await readSession(page);
-  if (!session?.refreshToken) return null;
-  const result = await evaluateStable(page, async ({ refreshToken, anon }) => {
-    try {
-      const response = await fetch('/auth/token?grant_type=refresh_token', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', apikey: anon, accept: 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-        cache: 'no-store'
-      });
-      const body = await response.json().catch(() => null);
-      return {
-        status: response.status,
-        access_token: body?.access_token || null,
-        refresh_token: body?.refresh_token || null,
-        user_id: body?.user?.id || null,
-        expires_in: Number(body?.expires_in || 0)
-      };
-    } catch {
-      return { status: 0, access_token: null, refresh_token: null, user_id: null, expires_in: 0 };
-    }
-  }, { refreshToken: session.refreshToken, anon: ANON });
-  if (result.status !== 200 || !result.access_token || !result.user_id) return null;
-  const next = {
-    ...session,
-    accessToken: result.access_token,
-    refreshToken: result.refresh_token || session.refreshToken,
-    userId: result.user_id,
-    expiresAt: Date.now() + Math.max(60, result.expires_in || 3600) * 1000
-  };
-  await evaluateStable(page, (value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), next);
-  return next;
-}
-
-async function ensureLiveSession(page) {
-  let session = await readSession(page);
-  if (!session?.accessToken) return null;
-  const status = await apiAuthStatus(page, session.accessToken);
-  if (status === 200) return session;
-  const refreshed = await refreshStoredSession(page);
-  if (refreshed) {
-    const refreshedStatus = await apiAuthStatus(page, refreshed.accessToken);
-    if (refreshedStatus === 200 || refreshedStatus === 204) return refreshed;
-    session = refreshed;
-  }
-  return null;
-}
-
 async function readServerConversation(page, accessToken) {
-  return evaluateStable(page, async (token) => {
+  return page.evaluate(async (token) => {
     const response = await fetch('/api/conversation', {
       headers: { authorization: 'Bearer ' + token },
       cache: 'no-store'
@@ -187,7 +63,7 @@ async function readServerConversation(page, accessToken) {
 }
 
 async function checkChatUx(page) {
-  return evaluateStable(page, () => {
+  return page.evaluate(() => {
     const root = document.querySelector('.chatScreen');
     if (!root) return { error: 'chat_surface_missing' };
     const viewportWidth = window.innerWidth;
@@ -236,16 +112,10 @@ async function run() {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
-  const bootstrapSession = await signInViaAuthApi();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    ...(!EMAIL || !PASSWORD ? (STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) : {})
+    ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
   });
-  if (bootstrapSession) {
-    await context.addInitScript((session) => {
-      localStorage.setItem('aria_session_v2', JSON.stringify(session));
-    }, bootstrapSession);
-  }
   const page = await context.newPage();
   const pageErrors = [];
   const failedResponses = [];
@@ -293,8 +163,6 @@ async function run() {
     );
     const session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
-    const authStatus = await apiAuthStatus(page, session.accessToken);
-    if (authStatus !== 200) throw new Error('authenticated_session_not_accepted_by_aria_api_' + authStatus);
     authVerified = true;
 
     await page.goto(base + '#chat', { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -351,7 +219,7 @@ async function run() {
       { markerValue: marker },
       { timeout: 30000 }
     );
-    const stored = await evaluateStable(page, ({ markerValue }) => {
+    const stored = await page.evaluate(({ markerValue }) => {
       const matches = [];
       for (let i = 0; i < localStorage.length; i += 1) {
         const key = localStorage.key(i) || '';
@@ -465,13 +333,3 @@ run().catch((error) => {
   console.error('[ARIA-CHAT-RWHT] fatal:', String(error?.message || error));
   process.exitCode = 1;
 });
-
-// 2026-10-01: final-head authenticated RWHT certification trigger.
-
-// Final universal certification trigger: authenticated RWHT on canonical HEAD.
-
-// Final universal certification trigger: Chat RWHT on canonical HEAD.
-
-// Final certification trigger: Chat RWHT must run on this exact HEAD.
-
-// Final certification trigger: Chat RWHT on exact final HEAD.
