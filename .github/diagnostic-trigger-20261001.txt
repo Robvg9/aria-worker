@@ -1,0 +1,1 @@
+Trigger only. Independent PWA headless baseline requested on 2026-10-01.
