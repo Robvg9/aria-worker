@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/pwa-headless
-          cat > /tmp/pwa-headless.cjs <<'NODE'
+          cat > /tmp/pwa-headless.mjs <<'NODE
           const { chromium } = require('playwright');
           const fs = require('node:fs');
           const crypto = require('node:crypto');
@@ -71,7 +71,7 @@ jobs:
           await browser.close();
           if(out.status!=='succeeded') process.exit(2);
           NODE
-          node /tmp/pwa-headless.cjs
+          node /tmp/pwa-headless.mjs
       - name: Upload PWA physical baseline artifact
         if: always()
         uses: actions/upload-artifact@v4
