@@ -374,6 +374,7 @@ const COMPUTER_USE_PROGRESS_TYPES = new Set([
   'computer_use_result_observed',
   'computer_use_verification_completed',
   'computer_use_action_blocked',
+  'computer_use_route_navigation_completed',
 ]);
 
 async function recordComputerUseProgress(jobId:string,deviceId:string,event:any){
