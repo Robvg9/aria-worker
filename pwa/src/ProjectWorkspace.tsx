@@ -307,12 +307,35 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const [missions,setMissions]=useState<any[]>([]);
   const [selectedMission,setSelectedMission]=useState<any|null>(null);
   const projectChatRef=useRef<HTMLTextAreaElement|null>(null);
+  const projectChatLoadRef=useRef<{projectId:string;promise:Promise<void>}|null>(null);
 
   useEffect(()=>{try{localStorage.setItem(PROJECT_KEY,project.id);localStorage.setItem(TAB_KEY(project.id),tab)}catch{}},[project.id,tab,session.userId]);
 
   async function loadMissions(){try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=100',session.accessToken);setMissions(d.missions||[])}catch(e){setError(e instanceof Error?e.message:'No se pudieron cargar las misiones.')}}
 
-  async function loadProjectChat(){setProjectChatReady(false);try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/conversation',session.accessToken);if(!d?.conversation_id)throw new Error('ARIA no confirmó la conversación del proyecto.');setConversationId(d.conversation_id);const rows=Array.isArray(d.conversation?.messages)?d.conversation.messages:[];setMessages(rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim()));setProjectChatReady(true)}catch(e){setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.')}}
+  async function loadProjectChat(){
+    const projectId=project.id;
+    const existing=projectChatLoadRef.current;
+    if(existing?.projectId===projectId)return existing.promise;
+    setProjectChatReady(false);
+    const promise=(async()=>{
+      try{
+        const d=await api('/projects/'+encodeURIComponent(projectId)+'/conversation',session.accessToken);
+        if(!d?.conversation_id)throw new Error('ARIA no confirmó la conversación del proyecto.');
+        if(projectId!==project.id)return;
+        setConversationId(d.conversation_id);
+        const rows=Array.isArray(d.conversation?.messages)?d.conversation.messages:[];
+        setMessages(rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim()));
+        setProjectChatReady(true);
+      }catch(e){
+        if(projectId===project.id)setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
+      }finally{
+        if(projectChatLoadRef.current?.projectId===projectId)projectChatLoadRef.current=null;
+      }
+    })();
+    projectChatLoadRef.current={projectId,promise};
+    return promise;
+  }
 
   useEffect(()=>{
     if(!sending){setProcessingElapsedMs(0);return;}
