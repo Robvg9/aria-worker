@@ -499,7 +499,7 @@ async function getExecutionJob(jobId: string) {
   try {
     const { data, error } = await sb.schema("aria_internal")
       .from("execution_jobs")
-      .select("job_id,status,exit_code,stdout,stderr,result,evidence,error,completed_at,started_at")
+      .select("job_id,status,exit_code,stdout,stderr,result,completed_at,started_at")
       .eq("job_id", jobId)
       .maybeSingle();
 
@@ -507,8 +507,6 @@ async function getExecutionJob(jobId: string) {
       const persisted = {
         ...data,
         result: data.result ?? null,
-        evidence: data.evidence ?? null,
-        error: data.error ?? null,
       };
       return {
         response: { ok: true, status: 200 },
