@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.1.2';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.3';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -83,7 +83,7 @@ async function apiAuthStatus(page, accessToken) {
 async function signInViaAuthApi(page) {
   if (!EMAIL || !PASSWORD) return null;
   const endpoints = [
-    BASE_URL.replace(/\\/$/, '') + '/auth/token?grant_type=password',
+    BASE_URL.replace(/\/$/, '') + '/auth/token?grant_type=password',
     'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
   ];
   let result = null;
