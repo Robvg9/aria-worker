@@ -70,7 +70,11 @@ export function buildDeviceEnqueuePayload(
       for (const key of ["goal", "mode", "start_url", "max_actions", "max_runtime_ms", "capture_screenshots"] as const) {
         const value = source[key];
         if (value === null || value === undefined) continue;
-        if (key === "start_url" && (typeof value !== "string" || value.trim() === "")) continue;
+        if (key === "start_url") {
+          if (typeof value !== "string" || value.trim() === "") continue;
+          input[key] = value.trim();
+          continue;
+        }
         input[key] = value;
       }
       payload.command = JSON.stringify(input);
