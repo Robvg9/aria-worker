@@ -561,11 +561,18 @@ async function deviceExecute(missionId: string, step: any, mission: any = null) 
     String(job.status || "") === "succeeded" &&
     (() => {
       try {
-        const raw = job.result?.result && typeof job.result.result === "object"
-          ? job.result.result
-          : job.result && typeof job.result === "object"
-            ? job.result
-            : {};
+        let raw:any =
+          job.result?.result && typeof job.result.result === "object"
+            ? job.result.result
+            : job.result && typeof job.result === "object"
+              ? job.result
+              : {};
+        if (typeof raw?.stdout === "string" && raw.stdout.trim()) {
+          try {
+            const parsed = JSON.parse(raw.stdout);
+            if (parsed && typeof parsed === "object") raw = parsed;
+          } catch {}
+        }
         const total = Number(raw.required_routes_total || 0);
         const visited = Number(raw.required_routes_visited || 0);
         return Boolean(raw.full_pwa_coverage === true && total > 0 && visited < total);
