@@ -240,7 +240,7 @@ async function chromeCdpCall(method, params = {}) {
 
 async function chromeCdpInteractiveNodes() {
   try {
-    const tabs = await (await fetch('http://127.0.0.1:9222/json')).json();
+    const tabs = await fetchJsonWithTimeout('http://127.0.0.1:9222/json', 5000);
     const page = tabs.find((t) => t && t.type === 'page' && String(t.url || '').includes('aria.robvg9.workers.dev/pwa'));
     if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') return [];
     const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -431,7 +431,7 @@ async function runAutonomousRwht(options) {
   const adapter = o.adapter || executeWindowsDesktop;
   const model = o.model || qwen;
   const captureScreenshots = o.capture_screenshots !== false;
-  const controlDiscoveryVerify = /RWHT_CONTROL_DISCOVERY_VERIFY/.test(goal);
+  const controlDiscoveryVerify = /RWHT_CONTROL_DISCOVERY_VERIFY|ARIA\s+PWA|PWA\s+LIVE(?:\s+de)?\s+ARIA/i.test(goal);
   const onProgress = typeof o.on_progress === 'function' ? o.on_progress : null;
   const started = Date.now();
 
