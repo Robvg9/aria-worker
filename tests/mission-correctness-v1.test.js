@@ -83,4 +83,10 @@ assert.match(hardBlockRecoveryMigration, /aria_reopen_recoverable_hard_blocks/);
 assert.match(hardBlockRecoveryMigration, /hard_block_reopened_after_recovery_epoch/);
 assert.match(runner, /aria_internal\.aria_reopen_recoverable_hard_blocks/);
 
-console.log("mission-correctness-v1: PASS");
+
+const plannerScopeSource=planner;
+assert.match(plannerScopeSource,/Mentioning BattleCruiser inside a broader ARIA\/PWA audit/);
+assert.match(plannerScopeSource,/explicitBattleCruiserTarget/);
+assert.match(plannerScopeSource,/broadAriaPwaScope/);
+assert.ok(plannerScopeSource.indexOf('const isBattleCruiser=explicitBattleCruiserTarget') > plannerScopeSource.indexOf('const broadAriaPwaScope'),'BattleCruiser routing must use explicit scoped intent');
+\nconsole.log("mission-correctness-v1: PASS");
