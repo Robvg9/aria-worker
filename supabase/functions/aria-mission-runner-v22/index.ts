@@ -456,9 +456,10 @@ function currentHumanGate(mission: any, step: any) {
   return gate;
 }
 
-function jobIdFor(missionId: string, stepId: string) {
+function jobIdFor(missionId: string, stepId: string, attempt: number = 1) {
   const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 28);
-  return `uo_${safe(missionId)}_${safe(stepId)}`;
+  const safeAttempt = Math.max(1, Math.min(99, Number.isFinite(Number(attempt)) ? Number(attempt) : 1));
+  return `uo_${safe(missionId)}_${safe(stepId)}_a${safeAttempt}`;
 }
 
 async function getExecutionJob(jobId: string) {
@@ -515,7 +516,8 @@ async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
 async function deviceExecute(missionId: string, step: any) {
   const operation = String(step.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) throw new Error(`device_operation_not_allowed:${operation}`);
-  const jobId = jobIdFor(missionId, String(step.id));
+  const attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
+  const jobId = jobIdFor(missionId, String(step.id), attempt);
   let current = await getExecutionJob(jobId);
   if (!(current.response.ok && current.body?.ok && current.body.job)) {
     await enqueueDeviceJob(missionId, step, jobId);
@@ -2212,6 +2214,7 @@ Deno.serve(async (request) => {
             ...(executionAuthorization ? { authorization: executionAuthorization } : {}),
             input: {
               ...(step.input || {}),
+              __aria_attempt: nextAttempt,
               dependency_results: dependencyEvidenceForStep(step, results),
             },
           };
