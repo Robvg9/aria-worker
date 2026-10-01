@@ -273,7 +273,7 @@ async function run() {
       const composer = page.locator('.projectShell textarea[placeholder^="Habla con ARIA sobre"]').first();
       await composer.fill(marker + ' responde con una confirmación breve y menciona únicamente el proyecto actual.');
       const send = page.getByRole('button', { name: 'Enviar mensaje' }).first();
-      await send.waitFor({state:'visible',timeout:30000});
+      await send.waitFor({state:'visible',timeout:TIMEOUT_MS});
       await expectEnabled(send, project.id);
       const postResponsePromise = page.waitForResponse((response) =>
         response.request().method() === 'POST' && /\/api\/conversation(?:\?|$)/.test(response.url())
