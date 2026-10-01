@@ -89,4 +89,5 @@ assert.match(plannerScopeSource,/Mentioning BattleCruiser inside a broader ARIA\
 assert.match(plannerScopeSource,/explicitBattleCruiserTarget/);
 assert.match(plannerScopeSource,/broadAriaPwaScope/);
 assert.ok(plannerScopeSource.indexOf('const isBattleCruiser=explicitBattleCruiserTarget') > plannerScopeSource.indexOf('const broadAriaPwaScope'),'BattleCruiser routing must use explicit scoped intent');
-\nconsole.log("mission-correctness-v1: PASS");
+
+console.log("mission-correctness-v1: PASS");
