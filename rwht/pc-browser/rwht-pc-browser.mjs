@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.3';
+const VERSION = 'aria-pc-browser-rwht-v1.3.4';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -633,13 +633,37 @@ async function auditRoute(page, url, routeIndex, config) {
       const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
       if (missionMatch) {
         const missionNo = missionMatch[1].padStart(2, '0');
-        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(('Misión ' + missionNo + ' ·').toLowerCase()));
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
       }
       const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
       if (priorityOpen) {
         const priorityNo = priorityOpen[1];
-        return controlsNow.find((control) => new RegExp('^Abrir\\s+' + priorityNo + '\\s+·\\s+PRIORIDAD
-
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
     if (!target) {
       routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
       routeResult.controls_failed += 1;

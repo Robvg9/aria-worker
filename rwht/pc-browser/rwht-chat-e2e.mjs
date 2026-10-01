@@ -457,3 +457,5 @@ run().catch((error) => {
 // Final universal certification trigger: Chat RWHT on canonical HEAD.
 
 // Final certification trigger: Chat RWHT must run on this exact HEAD.
+
+// Final certification trigger: Chat RWHT on exact final HEAD.

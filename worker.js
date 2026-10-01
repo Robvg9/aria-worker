@@ -169,3 +169,5 @@ if(url.pathname==="/pwa"||url.pathname.startsWith("/pwa/")){if(request.method!==
 // Final universal certification trigger: final green-light HEAD.
 
 // Final certification trigger: all universal gates must run on this exact HEAD.
+
+// Final certification trigger: universal gates on exact final HEAD.
