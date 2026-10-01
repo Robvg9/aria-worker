@@ -148,7 +148,7 @@ async function run() {
     await createButton.click(); const convertResponse = await convertPromise; assert.equal(convertResponse.status(),200,'idea conversion POST must return 200');
     const convertedBody = await convertResponse.json().catch(() => null); const convertedMissionId = convertedBody?.mission?.mission_id || convertedBody?.mission_id;
     assert.ok(convertedMissionId,'conversion response has no mission id'); report.mission_id = String(convertedMissionId);
-    await page.getByText('MISIÓN CREADA', { exact:true }).waitFor({ state:'visible', timeout:30000 });
+    await page.getByText('MISIÓN CREADA', { exact:true }).first().waitFor({ state:'visible', timeout:30000 });
     report.mission_conversion_verified = true;
     const missionOverview = await expectApi(page, '/meditation/overview', session.accessToken);
     assert.equal(missionOverview.status,200); assert.ok((missionOverview.body?.missions || []).some(m => String(m?.mission_id) === report.mission_id),'converted mission not persisted in overview');
@@ -157,7 +157,7 @@ async function run() {
     assert.equal(await page.locator('input[type="password"]').count(),0,'reload lost authentication');
     await page.getByText('ANALIZADOR DE IDEAS', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     const reloadedProposal = page.locator('.ideaProposalCard').filter({ hasText:marker }).first();
-    await reloadedProposal.waitFor({ state:'visible', timeout:30000 }); await reloadedProposal.getByText('MISIÓN CREADA', { exact:true }).waitFor({ state:'visible', timeout:15000 });
+    await reloadedProposal.waitFor({ state:'visible', timeout:30000 }); await reloadedProposal.getByText('MISIÓN CREADA', { exact:true }).first().waitFor({ state:'visible', timeout:15000 });
     report.reload_auth_verified = true;
     const missionCheck = await page.evaluate(async ({ id, token }) => { const r = await fetch('/api/missions/' + encodeURIComponent(id), { headers:{ Authorization:'Bearer '+token, Accept:'application/json' } }); return { status:r.status, body:await r.json().catch(()=>null) }; }, { id:report.mission_id, token:session.accessToken });
     assert.equal(missionCheck.status,200);
