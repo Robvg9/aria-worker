@@ -1,0 +1,32 @@
+name: ECC Phase 3 Drift Conflict
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-02-capability-registry
+    paths:
+      - 'scripts/ecc-drift-conflict.js'
+      - 'tests/ecc-drift-conflict.test.js'
+      - '.github/workflows/ecc-phase3-drift-conflict.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-03-drift-conflict'
+    paths:
+      - 'scripts/ecc-drift-conflict.js'
+      - 'tests/ecc-drift-conflict.test.js'
+      - '.github/workflows/ecc-phase3-drift-conflict.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: ECC Phase 3 / drift conflict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-drift-conflict.test.js
