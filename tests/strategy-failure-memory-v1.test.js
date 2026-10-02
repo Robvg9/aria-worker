@@ -36,5 +36,8 @@ assert.match(runner, /mission_replanned/);
 assert.match(runner, /recovery_attempted/);
 assert.match(runner, /recordFailureMemory/);
 assert.match(runner, /aria_internal\.record_strategy_failure/);
+assert.match(runner, /buildFailureMemoryDeterministicAlternative/);
+assert.match(runner, /persistent_failure_memory_deterministic_fallback/);
+assert.match(runner, /planner_bypassed: true/);
 
 console.log('STRATEGY FAILURE MEMORY V1: PASS');
