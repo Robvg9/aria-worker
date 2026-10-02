@@ -2,9 +2,6 @@ name: Apply lease fence
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/apply-lease-fence.yml'
 
 permissions:
   contents: write
@@ -123,7 +120,11 @@ jobs:
           PY
           git config user.name "aria-supervisor"
           git config user.email "aria@local"
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "Refusing to mutate main directly. Run this workflow from a dedicated branch and merge through a PR."
+            exit 1
+          fi
           git add supabase/functions/aria-mission-runner-v22/index.ts
           git status
           git commit -m "fix(runner-v22): per-invocation lease fence to stop concurrent re-entry races" || echo no_commit
-          git push origin HEAD:main
+          git push origin "HEAD:${GITHUB_REF_NAME}"
