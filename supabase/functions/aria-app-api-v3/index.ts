@@ -167,7 +167,11 @@ async function execute(step: any, prompt: string, conversationId: string, visual
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
   if (target.provider_id === "local_windows") {
-    const deviceId=String(target.device_id||target.account_id||"").trim();
+    let deviceId=String(target.device_id||"").trim();
+    if(!deviceId && target.provider_id==="local_windows"){
+      const route=(await conversationRoutes()).find((r:any)=>r.provider_id==="local_windows" && r.device_id);
+      if(route?.device_id) deviceId=String(route.device_id);
+    }
     if(!deviceId) throw new Error("local_windows_device_missing");
     const jobId=("chat_qwen_"+conversationId+"_"+crypto.randomUUID()).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
     const runtimeMissionId=("chat-runtime:"+conversationId).slice(0,220);
