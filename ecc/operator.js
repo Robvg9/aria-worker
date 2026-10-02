@@ -25,7 +25,14 @@ function buildNodeRunnerCode(args) {
     'const version="' + ECC_VERSION + '";',
     'const temp=fs.mkdtempSync(path.join(os.tmpdir(),"aria-ecc-"));',
     'try{',
-    'const npm=process.platform==="win32"?"npm.cmd":"npm";',
+    'const installArgs=["install","--no-save","--ignore-scripts","--no-package-lock","--silent","ecc-universal@"+version];
+    if(process.platform==="win32"){
+      const npmCli=path.join(path.dirname(process.execPath),"node_modules","npm","bin","npm-cli.js");
+      if(!fs.existsSync(npmCli)) throw new Error("windows_npm_cli_not_found");
+      cp.execFileSync(process.execPath,[npmCli,...installArgs],{cwd:temp,stdio:"inherit"});
+    }else{
+      cp.execFileSync("npm",installArgs,{cwd:temp,stdio:"inherit"});
+    }',
     'cp.execFileSync(npm,["install","--no-save","--ignore-scripts","--no-package-lock","--silent","ecc-universal@"+version],{cwd:temp,stdio:"inherit"});',
     'const pkgPath=path.join(temp,"node_modules","ecc-universal","package.json");',
     'const pkg=JSON.parse(fs.readFileSync(pkgPath,"utf8"));',
