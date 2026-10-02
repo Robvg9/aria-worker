@@ -344,7 +344,6 @@ async function executionJobGatewayCall(kind:string,args:any){
         return rows?.[0]?.data??null;
       }
       if(kind==='complete'){
-        const resultJson=JSON.stringify(args.result||{});
         const rows=await sql`select public.complete_execution_job_gateway(
           ${String(args.jobId)},
           ${String(args.deviceId)},
@@ -352,7 +351,7 @@ async function executionJobGatewayCall(kind:string,args:any){
           ${Number.isInteger(args.exitCode)?args.exitCode:null},
           ${typeof args.stdout==='string'?args.stdout:''},
           ${typeof args.stderr==='string'?args.stderr:''},
-          ${resultJson}::jsonb
+          ${JSON.stringify(args.result||{})}::jsonb
         ) as data`;
         return rows?.[0]?.data??null;
       }
@@ -361,30 +360,7 @@ async function executionJobGatewayCall(kind:string,args:any){
       try{await sql.end({timeout:3});}catch{}
     }
   }
-  if(kind==='claim'){
-    const {data,error}=await supabase.rpc('claim_execution_job_gateway',{p_device_id:String(args.deviceId)});
-    if(error)throw new Error(error.message||'claim_execution_job_failed');
-    return data??null;
-  }
-  if(kind==='start'){
-    const {data,error}=await supabase.rpc('start_execution_job_gateway',{p_job_id:String(args.jobId),p_device_id:String(args.deviceId)});
-    if(error)throw new Error(error.message||'start_execution_job_failed');
-    return data??null;
-  }
-  if(kind==='complete'){
-    const {data,error}=await supabase.rpc('complete_execution_job_gateway',{
-      p_job_id:String(args.jobId),
-      p_device_id:String(args.deviceId),
-      p_status:String(args.status),
-      p_exit_code:Number.isInteger(args.exitCode)?args.exitCode:null,
-      p_stdout:typeof args.stdout==='string'?args.stdout:'',
-      p_stderr:typeof args.stderr==='string'?args.stderr:'',
-      p_result:args.result||{}
-    });
-    if(error)throw new Error(error.message||'complete_execution_job_failed');
-    return data??null;
-  }
-  throw new Error('execution_job_call_unsupported');
+  throw new Error('device_gateway_db_unavailable');
 }
 
 const COMPUTER_USE_PROGRESS_TYPES = new Set([
