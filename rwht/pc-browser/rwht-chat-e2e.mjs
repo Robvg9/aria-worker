@@ -165,14 +165,17 @@ async function run() {
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push({ text: message.text().slice(0, 1000) });
   });
-  page.on('response', (response) => {
+  page.on('response', async (response) => {
     if (response.status() >= 500) {
       const failure = { status: response.status(), method: response.request().method(), url: response.url().slice(0, 1000) };
-      failedResponses.push(failure);
       if (failure.url.includes('/api/conversation')) {
+        try {
+          failure.body = (await response.text()).slice(0, 5000);
+        } catch {}
         conversation5xxError = failure;
         conversation5xxReject(new Error('chat_conversation_http_5xx'));
       }
+      failedResponses.push(failure);
     }
   });
 
