@@ -24,9 +24,13 @@ function startLoop(graph, options = {}) {
   const maxTicks = Number.isInteger(options.max_ticks) ? Math.max(1, Math.min(options.max_ticks, 100)) : 20;
 
   const nodeMap = indexNodes(graph);
+  const loopId = crypto.createHash('sha256')
+    .update(JSON.stringify([graph.graph_digest_sha256, maxRetries, maxTicks]), 'utf8')
+    .digest('hex');
+
   const state = {
     schema: 'aria.ecc-autonomous-loop.v1',
-    loop_id: crypto.randomUUID(),
+    loop_id: `loop.${loopId.slice(0, 24)}`,
     graph_digest_sha256: graph.graph_digest_sha256,
     state: 'READY',
     current_node: 'context',
