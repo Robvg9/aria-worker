@@ -12,6 +12,7 @@ const inventory = {
   entries: [
     { path: 'agents/a.md', type: 'blob', sha: 'aaa' },
     { path: 'skills/s/SKILL.md', type: 'blob', sha: 'bbb' },
+    { path: 'agents/a2.md', type: 'blob', sha: 'ccc' },
   ],
 };
 
