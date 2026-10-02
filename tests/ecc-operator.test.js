@@ -62,6 +62,6 @@ const execution = buildEccExecution({ action: 'doctor', target: 'codex' });
 assert.strictEqual(execution.tool_id, 'tool_ecc_operator');
 assert.strictEqual(execution.operation, 'ecc.execute');
 assert.strictEqual(execution.underlying_operation, 'shell.execute');
-assert.ok(execution.command.includes('doctor'));
+assert.ok(decodeEccCommand(execution.command).includes('"doctor","--target","codex"'));
 
 console.log('ecc-operator.test.js: PASS');
