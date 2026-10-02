@@ -59,7 +59,7 @@ assert.equal(capabilityId('skill', 'verification-loop', 'b'), capabilityId('skil
 assert.notEqual(capabilityId('skill', 'verification-loop', 'b'), capabilityId('skill', 'verification-loop', 'c'));
 
 (async () => {
-  await assert.rejects(
+  assert.throws(
     () => buildCapabilityRegistry({
       ...inventory,
       deterministic: false,
