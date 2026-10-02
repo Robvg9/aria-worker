@@ -34,7 +34,7 @@ function buildNodeRunnerCode(args: unknown[]) {
   return [
     'const fs=require("fs"),os=require("os"),path=require("path"),cp=require("child_process");',
     "const requestArgs=" + JSON.stringify(args) + ";",
-    "const version=\\"2.2.3\\";",
+    'const version="2.2.3";',
     'const temp=fs.mkdtempSync(path.join(os.tmpdir(),"aria-ecc-"));',
     "try{",
     'const npm=process.platform==="win32"?"npm.cmd":"npm";',
