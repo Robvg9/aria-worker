@@ -577,7 +577,7 @@ async function signInDirect(email: string, password: string) {
 
 async function signInProxy(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 50000);
+  const timer = window.setTimeout(() => controller.abort(), 20000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
