@@ -773,6 +773,46 @@ function applyOperationalLearning(requiredCaps:any[], learnings:any[]):{ordered:
   return {ordered,applied,retrieved};
 }
 
+async function localQwenRecoveryPlan(goal:string, context:any){
+  if(!(context?.recovery_strategy_required===true || context?.identical_strategy_detected===true)) return null;
+  const previousPlan=Array.isArray(context?.previous_plan)?context.previous_plan:[];
+  const failedId=String(context?.failed_step_id||context?.failed_step||"").trim();
+  const failed=previousPlan.find((x:any)=>String(x?.id||"")===failedId)||previousPlan[0]||{};
+  const failedExecutor=String(context?.failed_executor_type||failed?.executor_type||failed?.target?.type||"").toLowerCase();
+  const failedOperation=String(context?.failed_operation||failed?.operation||"").toLowerCase();
+  if(failedExecutor!=="model" && failedOperation!=="text_generation") return null;
+  const {data,error}=await db.from("device_registry")
+    .select("device_id,display_name,agent_type,status,capabilities,last_seen_at")
+    .eq("agent_type","windows-local")
+    .eq("status","online")
+    .order("last_seen_at",{ascending:false})
+    .limit(8);
+  if(error) throw new Error("local_qwen_device_lookup:"+error.message);
+  const device=(Array.isArray(data)?data:[]).find((d:any)=>Array.isArray(d?.capabilities)&&d.capabilities.map(String).includes("ollama.qwen3"));
+  if(!device) return null;
+  const startUrl=String(context?.start_url||"").trim()
+    || (String(goal).match(/https?:\/\/[^\s)]+/i)?.[0] || "https://aria.robvg9.workers.dev/pwa/");
+  return {
+    goal,
+    steps:[{
+      id:"local_qwen_recovery_1",
+      operation:"computer.use.autonomous",
+      executor_type:"device",
+      target:{type:"device",device_id:String(device.device_id)},
+      input:{mode:"rwht",goal:String(goal),start_url:startUrl,max_actions:120,max_runtime_ms:600000,capture_screenshots:true},
+      risk:"LOW_RISK_WRITE",
+      timeout_ms:660000,
+      policy:{tool_use:true,capability_aware:true,autonomous_ui_test:true,adaptive_replanning:true,destructive_actions_blocked:true,secret_input_blocked:true,recovery_route:"cloud_to_local_qwen"},
+      verify:{response_content_nonempty:true},
+      selection:{recovery_route:"cloud_to_local_qwen",failed_executor:failedExecutor,failed_operation:failedOperation,device_id:String(device.device_id),local_model:"qwen3:0.6b"}
+    }],
+    planner_version:"aria-planner-v11-local-qwen-recovery-v2",
+    recovery_route:"cloud_to_local_qwen",
+    alternative_strategy:true,
+    capability_awareness:{selected_device:{device_id:String(device.device_id),display_name:device.display_name,agent_type:device.agent_type,status:device.status,capabilities:device.capabilities},local_model:"qwen3:0.6b"}
+  };
+}
+
 async function tryCapabilityIntentPlan(goal:string, context:any){
   try{
     const extracted=await extractCapabilityIntent(goal);
@@ -834,7 +874,7 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
   }catch(_e){ return null; }
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
