@@ -2,13 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.7';
+const VERSION = 'aria-chat-rwht-e2e-v1.0.8';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = process.env.RWHT_STORAGE_STATE || '';
 const EXPECTED_AUTH_TEXT = String(process.env.RWHT_EXPECTED_AUTH_TEXT || 'Núcleo conectado');
-const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 90000);
+const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 135000);
 const SETTLE_MS = Number(process.env.RWHT_SETTLE_MS || 1500);
 const ARTIFACT_DIR = process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'chat-rwht-artifacts');
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
