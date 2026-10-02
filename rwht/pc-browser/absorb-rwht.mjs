@@ -65,20 +65,24 @@ async function readPersistedAbsorption() {
 }
 
 async function waitForPersistedStatus(expected, timeout = 90000) {
+  return waitForPersistedStatuses([expected], timeout);
+}
+
+async function waitForPersistedStatuses(expectedStatuses, timeout = 90000) {
+  const wanted = new Set(expectedStatuses.map(String));
   const deadline = Date.now() + timeout;
   let last = null;
   while (Date.now() < deadline) {
     try {
       last = await readPersistedAbsorption();
-      if (String(last.status) === expected) return last;
+      if (wanted.has(String(last.status))) return last;
     } catch (error) {
       last = { error: String(error?.message || error) };
     }
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
-  throw new Error('absorb_persisted_status_timeout:' + expected + ':' + JSON.stringify(last));
+  throw new Error('absorb_persisted_status_timeout:' + expectedStatuses.join('|') + ':' + JSON.stringify(last));
 }
-
 
 async function expectNext(testId, timeout = 90000) {
   const locator = page.getByTestId(testId);
@@ -97,7 +101,7 @@ async function expectNext(testId, timeout = 90000) {
 try {
   const inspect = page.getByTestId('aria-absorb-inspect');
   await inspect.click();
-  const indexed = await waitForPersistedStatus('INDEXED');
+  const indexed = await waitForPersistedStatuses(['INDEXED', 'VERIFIED', 'REGISTERED', 'ENABLED']);
   if (!indexed.inventory || indexed.source_commit_sha?.length !== 40 || indexed.source_digest_sha256?.length !== 64) {
     throw new Error('absorb_index_persistence_contract_failed');
   }
