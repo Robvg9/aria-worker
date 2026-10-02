@@ -231,7 +231,11 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   const seen=new Set<string>();
   if(step?.target) seen.add(String(step.target.provider_id)+"|"+String(step.target.account_id)+"|"+String(step.target.model_id));
 
-  for(const route of routes.slice(0,2)){
+  const localRoute=routes.find((route:any)=>route.provider_id==="local_windows") || null;
+  const cloudFallbacks=routes.filter((route:any)=>route.provider_id!=="local_windows").slice(0,1);
+  const candidateRoutes=[...cloudFallbacks,...(localRoute?[localRoute]:[])];
+
+  for(const route of candidateRoutes){
     const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
     if(seen.has(key)) continue;
     seen.add(key);
