@@ -163,7 +163,7 @@ async function conversationRoutes() {
   return routes;
 }
 
-async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null) {
+async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
   if (target.provider_id === "local_windows") {
@@ -173,7 +173,8 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       if(route?.device_id) deviceId=String(route.device_id);
     }
     if(!deviceId) throw new Error("local_windows_device_missing");
-    const jobId=("chat_qwen_"+conversationId+"_"+crypto.randomUUID()).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
+    const jobSeed=String(clientMessageId||crypto.randomUUID()).trim();
+    const jobId=("chat_qwen_"+conversationId+"_"+jobSeed).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
     const runtimeMissionId=("chat-runtime:"+conversationId).slice(0,220);
     const sb=serviceClient();
     const {error:runtimeMissionError}=await sb.schema("aria_internal").from("mission_state").upsert({
@@ -279,26 +280,26 @@ async function execute(step: any, prompt: string, conversationId: string, visual
   return x.b;
 }
 
-async function executeDebate(step:any,prompt:string,conversationId:string,visualContext:any=null){
+async function executeDebate(step:any,prompt:string,conversationId:string,visualContext:any=null,clientMessageId:string|null=null){
   const routes=await conversationRoutes();
   const first=step?.target||routes[0];
   const second=routes.find((route:any)=>String(route.model_id)!==String(first?.model_id)||String(route.provider_id)!==String(first?.provider_id));
   if(!first||!second) return null;
   const firstStep={...step,target:{...(step.target||{}),type:'model',provider_id:first.provider_id,account_id:first.account_id,model_id:first.model_id}};
-  const proposal=await execute(firstStep,prompt,conversationId,visualContext);
+  const proposal=await execute(firstStep,prompt,conversationId,visualContext,clientMessageId);
   const proposalText=typeof proposal?.response?.content==='string'?proposal.response.content.trim():'';
   if(!proposalText) return null;
   const criticStep={...step,target:{type:'model',provider_id:second.provider_id,account_id:second.account_id,model_id:second.model_id}};
-  const critique=await execute(criticStep,debatePrompt(prompt,proposalText),conversationId,visualContext);
+  const critique=await execute(criticStep,debatePrompt(prompt,proposalText),conversationId,visualContext,clientMessageId);
   return {result:critique,proposal,first:{provider_id:first.provider_id,model_id:first.model_id},second:{provider_id:second.provider_id,model_id:second.model_id}};
 }
 
 function isTransientModelFailure(error:any){const value=String(error instanceof Error?error.message:error||"").toLowerCase();return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502/.test(value);}
-async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null) {
+async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null) {
   const failures:any[]=[];
   if(step?.target){
     try{
-      const result=await execute(step,prompt,conversationId,visualContext);
+      const result=await execute(step,prompt,conversationId,visualContext,clientMessageId);
       return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
     }catch(error){
       failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
@@ -319,7 +320,7 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
     seen.add(key);
     try{
       const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,...(route.device_id?{device_id:route.device_id}: {})}};
-      const result=await execute(candidate,prompt,conversationId,visualContext);
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId);
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
       failures.push({provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,error:String(error instanceof Error?error.message:error)});
@@ -1073,6 +1074,7 @@ Deno.serve(async (req) => {
       const project = normalizeProjectContext(body);
       const visual_context = normalizeVisualContext(body);
       const attachments = normalizeAttachments(parts);
+      const clientMessageId = typeof body?.clientMessageId === "string" && body.clientMessageId.trim() ? body.clientMessageId.trim() : null;
       if (!text) return json({ error: "text_or_attachment_required", stage: "input", trace_id: trace }, 400);
       const requestStartedAt = Date.now();
       let conversationId = typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : crypto.randomUUID();
@@ -1257,9 +1259,9 @@ Deno.serve(async (req) => {
       let debate:any = null;
       try {
         if (shouldDebate(text, lane.lane)) {
-          try { debate = await executeDebate(step, prompt, conversationId, visual_context); } catch { debate = null; }
+          try { debate = await executeDebate(step, prompt, conversationId, visual_context, clientMessageId); } catch { debate = null; }
         }
-        execution = debate ? { result: debate.result, route: debate.second, fallback_count: 0, failures: [], debate: true } : await executeConversationWithFallback(step, prompt, conversationId, visual_context);
+        execution = debate ? { result: debate.result, route: debate.second, fallback_count: 0, failures: [], debate: true } : await executeConversationWithFallback(step, prompt, conversationId, visual_context, clientMessageId);
       } catch (e) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], processing_ms: Date.now() - requestStartedAt, model_ms: Date.now() - modelStartedAt, input_persistence_ms: initialPersistenceMs, persistence_warning: persistenceWarning, trace_id: trace }, 502);
       }
