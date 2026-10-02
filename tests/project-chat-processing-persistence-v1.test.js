@@ -12,6 +12,14 @@ assert(api.includes('processing_ms: Date.now() - requestStartedAt'));
 assert(api.includes('input_persistence_ms: initialPersistenceMs'));
 assert(api.includes('assistant_persistence_ms: assistantPersistenceMs'));
 assert(api.includes('persistenceWarning'));
+assert(api.includes('local_windows'));
+assert(api.includes('qwen3:0.6b'));
+assert(api.includes('ollama.qwen3'));
+assert(api.includes('enqueue_execution_job_gateway'));
+assert(api.includes('get_execution_job_gateway'));
+assert(api.includes('local_qwen_enqueue_failed'));
+assert(api.includes('local_fallback_used'));
+
 assert(api.includes('if (persistedUserMessage?.conversation_id) conversationId = String(persistedUserMessage.conversation_id)'));
 assert(project.includes('chatThinking'));
 assert(project.includes('Procesamiento en curso'));
