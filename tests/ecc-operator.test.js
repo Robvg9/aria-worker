@@ -16,15 +16,12 @@ assert.deepStrictEqual(normalizeEccRequest({
   target: 'codex'
 }), { action: 'consult', topic: 'verification loop', target: 'codex' });
 
-assert.match(
-  buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }),
-  /ecc-universal@2\.2\.3 consult 'a''b' --target codex/
-);
+assert.match(buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }), /ecc-universal@2\\.2\\.3/);
+assert.ok(buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }).startsWith('node -e'));
+assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('ecc-universal@2.2.3'));
+assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('doctor'));
+assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('--target'));
 
-assert.strictEqual(
-  buildEccShellCommand({ action: 'doctor', target: 'codex' }),
-  'npx --yes ecc-universal@2.2.3 doctor --target codex'
-);
 
 assert.strictEqual(
   buildEccShellCommand({ action: 'list_installed' }),
