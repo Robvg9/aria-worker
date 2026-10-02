@@ -152,10 +152,25 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     const deviceId=String(target.device_id||target.account_id||"").trim();
     if(!deviceId) throw new Error("local_windows_device_missing");
     const jobId=("chat_qwen_"+conversationId+"_"+crypto.randomUUID()).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
+    const runtimeMissionId=("chat-runtime:"+conversationId).slice(0,220);
     const sb=serviceClient();
+    const {error:runtimeMissionError}=await sb.schema("aria_internal").from("mission_state").upsert({
+      mission_id:runtimeMissionId,
+      goal:"Internal Chat execution context",
+      status:"succeeded",
+      current_step:0,
+      total_steps:0,
+      completed_steps:0,
+      attempt_count:0,
+      next_action:null,
+      finished_at:new Date().toISOString(),
+      checkpoint:{source:"aria-app-api-v3",chat_execution_context:true},
+      metadata:{source_application:"aria-app-api-v3",internal_only:true,chat_execution_context:true,conversation_id:conversationId}
+    },{onConflict:"mission_id"});
+    if(runtimeMissionError) throw new Error("chat_runtime_mission_context_failed:"+runtimeMissionError.message);
     const payload={prompt:String(prompt).slice(0,12000),model:String(target.model_id||"qwen3:0.6b"),timeout_ms:120000};
     const {data:queued,error:enqueueError}=await sb.rpc("enqueue_execution_job_gateway",{
-      p_job_id:jobId,p_mission_id:conversationId,p_device_id:deviceId,p_operation:"ollama.qwen3",
+      p_job_id:jobId,p_mission_id:runtimeMissionId,p_device_id:deviceId,p_operation:"ollama.qwen3",
       p_command:JSON.stringify(payload),p_cwd:null,p_timeout_ms:120000,p_policy:{},
       p_metadata:{source_application:"aria-app-api-v3",conversation_id:conversationId,local_fallback:true,model:payload.model}
     });
