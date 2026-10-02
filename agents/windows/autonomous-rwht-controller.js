@@ -1,6 +1,11 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
 let executeWindowsDesktop;
 try {
   ({ executeWindowsDesktop } = require('./windows-desktop-adapter'));
@@ -12,6 +17,8 @@ try {
 const VERSION = 'aria-windows-autonomous-rwht-v1.2.3';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = 'qwen3:4b';
+let CDP_BASE_URL = process.env.ARIA_CHROME_CDP_URL || 'http://127.0.0.1:9222';
+let managedBrowser = null;
 
 const INTERACTIVE_ROLES = new Set([
   'button', 'hyperlink', 'tab', 'menuitem', 'checkbox', 'radiobutton',
@@ -190,6 +197,101 @@ function capabilityProfile(deviceId) {
   };
 }
 
+function findBrowserExecutable() {
+  if (process.platform !== 'win32') return null;
+  const candidates = [
+    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    path.join(process.env.PROGRAMFILES || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    'C:\\Program Files\\TotalCommanderPlus\\Soft\\Principal\\Chrome\\chrome.exe',
+  ];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+}
+
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = address && typeof address === 'object' ? address.port : null;
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+}
+
+async function findCdpPage() {
+  try {
+    const tabs = await fetchJsonWithTimeout(CDP_BASE_URL + '/json', 2500);
+    return tabs.find((tab) => tab && tab.type === 'page' && String(tab.url || '').includes('aria.robvg9.workers.dev/pwa')) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureCdpBrowser(startUrl) {
+  const existing = await findCdpPage();
+  if (existing) return { ready: true, managed: false, page: existing };
+
+  if (managedBrowser && managedBrowser.child && !managedBrowser.child.killed) {
+    return { ready: false, managed: true, error: 'managed_browser_page_unavailable' };
+  }
+
+  const executable = findBrowserExecutable();
+  if (!executable) return { ready: false, error: 'browser_executable_not_found' };
+
+  let port;
+  try {
+    port = await findFreePort();
+  } catch (error) {
+    return { ready: false, error: 'cdp_port_unavailable:' + String(error && error.message || error) };
+  }
+
+  const userDataDir = path.join(os.tmpdir(), 'aria-rwht-cdp-' + process.pid + '-' + Date.now());
+  fs.mkdirSync(userDataDir, { recursive: true });
+
+  const child = spawn(executable, [
+    '--remote-debugging-port=' + port,
+    '--remote-debugging-address=127.0.0.1',
+    '--user-data-dir=' + userDataDir,
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--new-window',
+    startUrl || 'https://aria.robvg9.workers.dev/pwa/#home',
+  ], { windowsHide: false, stdio: 'ignore' });
+
+  managedBrowser = { child, userDataDir, port };
+  CDP_BASE_URL = 'http://127.0.0.1:' + port;
+
+  child.once('exit', () => {
+    if (managedBrowser && managedBrowser.child === child) managedBrowser = null;
+  });
+
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const page = await findCdpPage();
+    if (page) return { ready: true, managed: true, page };
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return { ready: false, managed: true, error: 'chrome_cdp_page_timeout' };
+}
+
+async function cleanupManagedBrowser() {
+  const browser = managedBrowser;
+  managedBrowser = null;
+  if (!browser || !browser.child || browser.child.killed) return;
+  try {
+    const killer = spawn('taskkill.exe', ['/PID', String(browser.child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    killer.unref();
+  } catch {}
+  try {
+    fs.rmSync(browser.userDataDir, { recursive: true, force: true });
+  } catch {}
+}
+
 async function fetchJsonWithTimeout(url, timeoutMs = 5000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
@@ -203,7 +305,7 @@ async function fetchJsonWithTimeout(url, timeoutMs = 5000) {
 }
 
 async function chromeCdpCall(method, params = {}) {
-  const tabs = await fetchJsonWithTimeout('http://127.0.0.1:9222/json', 5000);
+  const tabs = await fetchJsonWithTimeout(CDP_BASE_URL + '/json', 5000);
   const page = tabs.find((tab) => tab && tab.type === 'page' && String(tab.url || '').includes('aria.robvg9.workers.dev/pwa'));
   if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') {
     throw new Error('chrome_cdp_page_unavailable');
@@ -240,7 +342,7 @@ async function chromeCdpCall(method, params = {}) {
 
 async function chromeCdpInteractiveNodes() {
   try {
-    const tabs = await fetchJsonWithTimeout('http://127.0.0.1:9222/json', 5000);
+    const tabs = await fetchJsonWithTimeout('CDP_BASE_URL + '/json', 5000);
     const page = tabs.find((t) => t && t.type === 'page' && String(t.url || '').includes('aria.robvg9.workers.dev/pwa'));
     if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') return [];
     const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -538,6 +640,16 @@ async function runAutonomousRwht(options) {
 
   };
 
+  const cdpBootstrap = await ensureCdpBrowser(startUrl).catch((error) => ({
+    ready: false,
+    error: String(error && error.message || error),
+  }));
+  await emitProgress('computer_use_browser_ready', {
+    status: cdpBootstrap.ready ? 'succeeded' : 'failed',
+    managed_browser: cdpBootstrap.managed === true,
+    cdp_base_url: CDP_BASE_URL,
+    error: cdpBootstrap.error || null,
+  });
   const navigation = await (async () => {
     if (!startUrl) return { status: 'skipped' };
     const result = await navigateToRoute('#home');
@@ -549,6 +661,7 @@ async function runAutonomousRwht(options) {
   }));
 
   const observe = async (reason = 'initial') => {
+    await ensureCdpBrowser(startUrl).catch(() => null);
     await emitProgress('computer_use_observation_started', {
       reason,
       full_pwa_coverage: fullPwaCoverageMode,
@@ -931,6 +1044,8 @@ async function runAutonomousRwht(options) {
     required_routes_visited: visitedRoutes.size,
     route_gate_verified: routeCoverageComplete,
   };
+
+  await cleanupManagedBrowser();
 
   return {
     ...summary,
