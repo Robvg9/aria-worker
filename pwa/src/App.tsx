@@ -1082,11 +1082,6 @@ function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
   );
 }
 
-/section>
-    </div>
-  );
-}
-
 function CapabilityCenter({
   caps,
   userId,
