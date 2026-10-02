@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-chat-rwht-authenticated
+  group: aria-chat-rwht-authenticated-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
