@@ -14,10 +14,14 @@
       "name": "aria_context",
       "provider_id": "aria",
       "interface_type": "mcp",
-      "operations": ["read"],
+      "operations": [
+        "read"
+      ],
       "risk_level": "read",
       "status": "available",
-      "permission_refs": ["aria_context_read"],
+      "permission_refs": [
+        "aria_context_read"
+      ],
       "mcp_tool_name": "aria_context",
       "description": "Protected read of ChatBending context / retrieval. No memory write.",
       "metadata": {
@@ -31,10 +35,14 @@
       "name": "aria_memory_capture",
       "provider_id": "aria",
       "interface_type": "mcp",
-      "operations": ["write_candidate"],
+      "operations": [
+        "write_candidate"
+      ],
       "risk_level": "low_risk_write",
       "status": "available",
-      "permission_refs": ["aria_memory_write"],
+      "permission_refs": [
+        "aria_memory_write"
+      ],
       "mcp_tool_name": "aria_memory_capture",
       "description": "Submit memory candidate. Canonical write remains false; GATE human required.",
       "metadata": {
@@ -42,23 +50,67 @@
         "evidence": "Grok E2E aria_memory_capture → cb_memory_candidates status=pending",
         "notes": "WRITE candidate only. canonical_write=false. review_required=true. No auto-approve."
       }
+    },
+    {
+      "tool_id": "tool_ecc_operator",
+      "name": "ecc_operator",
+      "provider_id": "ecc",
+      "interface_type": "device-shell",
+      "operations": [
+        "consult",
+        "doctor",
+        "list_installed",
+        "install_preview"
+      ],
+      "risk_level": "read",
+      "status": "unknown",
+      "permission_refs": [
+        "ecc_local_execution_read"
+      ],
+      "mcp_tool_name": "ecc_operator",
+      "description": "Governed invocation of the official ECC CLI through ARIA's device executor. Read/preview actions only; no arbitrary shell and no installation apply.",
+      "metadata": {
+        "package": "ecc-universal",
+        "version": "2.2.3",
+        "source": "https://github.com/affan-m/ECC",
+        "verified_at": "2026-10-02",
+        "evidence": "Official ECC README command contract; ARIA adapter implemented; local device preflight pending."
+      }
     }
   ],
   "indexes": {
     "by_tool_id": {
       "tool_aria_context": "aria",
-      "tool_aria_memory_capture": "aria"
+      "tool_aria_memory_capture": "aria",
+      "tool_ecc_operator": "ecc"
     },
     "by_provider": {
-      "aria": ["tool_aria_context", "tool_aria_memory_capture"]
+      "aria": [
+        "tool_aria_context",
+        "tool_aria_memory_capture"
+      ],
+      "ecc": [
+        "tool_ecc_operator"
+      ]
     },
     "by_mcp_name": {
       "aria_context": "tool_aria_context",
-      "aria_memory_capture": "tool_aria_memory_capture"
+      "aria_memory_capture": "tool_aria_memory_capture",
+      "ecc_operator": "tool_ecc_operator"
     }
   },
-  "canonical_status": ["available", "unavailable", "unknown"],
-  "canonical_risk": ["read", "low_risk_write", "high_risk_write", "destructive", "unknown"],
+  "canonical_status": [
+    "available",
+    "unavailable",
+    "unknown"
+  ],
+  "canonical_risk": [
+    "read",
+    "low_risk_write",
+    "high_risk_write",
+    "destructive",
+    "unknown"
+  ],
   "rules": [
     "tool_id is unique and stable",
     "status unknown never treated as available",
