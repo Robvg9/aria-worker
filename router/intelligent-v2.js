@@ -130,7 +130,7 @@ function select(candidates,input={}){
     if(c.status!=='available'||!c.enabled)hard.push('model_unavailable');
     if(c.integration_status==='not_connected')hard.push('integration_not_connected');
     if(!c.capability_verified)hard.push('capability_not_verified');
-    if(c.account_status!=='active'||!c.account_enabled)hard.push('account_inactive');
+    if(!['active','available'].includes(c.account_status)||!c.account_enabled)hard.push('account_inactive');
     if(['unavailable','exhausted'].includes(c.quota_status)||['unavailable','exhausted'].includes(c.rate_limit_status))hard.push('capacity_unavailable');
     if(!c.live_verified)hard.push('live_not_verified');
     if(c.context_window!==null&&task.length>0){
