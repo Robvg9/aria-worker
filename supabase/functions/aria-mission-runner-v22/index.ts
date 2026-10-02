@@ -1762,8 +1762,10 @@ async function independentVerify(mission:any, step:any, result:any){
 }
 
 function planStrategySignature(steps:any[]) {
-  const normalized = (Array.isArray(steps) ? steps : []).map((step:any) => ({
-    id: String(step?.id || ""),
+  // Semantic strategy identity intentionally excludes step IDs. IDs change across
+  // replans/mission instances and must never hide a repeated failed route.
+  const normalized = (Array.isArray(steps) ? steps : []).map((step:any, index:number) => ({
+    position: index,
     executor_type: executorType(step),
     operation: String(step?.operation || ""),
     target: {
@@ -1776,8 +1778,330 @@ function planStrategySignature(steps:any[]) {
       model_id: step?.target?.model_id ?? null,
       project_id: step?.target?.project_id ?? null,
     },
-  })).sort((a:any,b:any) => a.id.localeCompare(b.id));
+    dependency_count: Array.isArray(step?.depends_on) ? step.depends_on.length : 0,
+  }));
   return JSON.stringify(normalized);
+}
+
+function normalizeGoalForFailureMemory(goal:string) {
+  return String(goal || "")
+    .toLowerCase()
+    .replace(/\b(?:unique|timestamp|nonce|run[_ -]?id|mission[_ -]?id)\s*[:=]\s*\S+/gi, "")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function goalFailureSignature(goal:string) {
+  const raw = normalizeGoalForFailureMemory(goal);
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function strategyRouteDescriptor(step:any, routeOverride:any = null) {
+  const target = step?.target && typeof step.target === "object" ? step.target : {};
+  const override = routeOverride && typeof routeOverride === "object" ? routeOverride : {};
+  const route = {
+    executor_type: String(override.executor_type || executorType(step) || ""),
+    operation: String(override.operation || step?.operation || ""),
+    target: {
+      type: String(override.target_type || target.type || executorType(step) || ""),
+      connector_id: override.connector_id ?? target.connector_id ?? null,
+      device_id: override.device_id ?? target.device_id ?? null,
+      agent_id: override.agent_id ?? target.agent_id ?? null,
+      provider_id: override.provider_id ?? target.provider_id ?? null,
+      account_id: override.account_id ?? target.account_id ?? null,
+      model_id: override.model_id ?? target.model_id ?? null,
+      project_id: override.project_id ?? target.project_id ?? null,
+    },
+  };
+  return route;
+}
+
+async function strategyRouteFingerprint(step:any, routeOverride:any = null) {
+  const raw = JSON.stringify(strategyRouteDescriptor(step, routeOverride));
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function lookupFailureMemory(goalSignature:string) {
+  try {
+    const { data, error } = await sb.schema("aria_internal")
+      .from("strategy_failure_ledger")
+      .select("goal_signature,strategy_fingerprint,failure_count,blocked,hard_block,last_failure_code,last_failure_message,last_mission_id,last_step_id,plan_fingerprint,strategy_summary,recent_evidence,last_failed_at")
+      .eq("goal_signature", goalSignature)
+      .eq("blocked", true)
+      .order("last_failed_at", { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    return { available: true, rows: Array.isArray(data) ? data : [] };
+  } catch (error) {
+    return {
+      available: false,
+      rows: [],
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function recordFailureMemory(goalSignature:string, strategyFingerprint:string, strategySummary:any, failureCode:string, failureMessage:string, missionId:string, stepId:string, planFingerprint:string, evidence:any) {
+  try {
+    const row = await rpc("aria_internal.record_strategy_failure", {
+      p_goal_signature: goalSignature,
+      p_strategy_fingerprint: strategyFingerprint,
+      p_strategy_summary: strategySummary && typeof strategySummary === "object" ? strategySummary : {},
+      p_failure_code: String(failureCode || "strategy_failed"),
+      p_failure_message: String(failureMessage || ""),
+      p_mission_id: missionId,
+      p_step_id: stepId,
+      p_plan_fingerprint: planFingerprint,
+      p_evidence: evidence && typeof evidence === "object" ? evidence : {},
+    });
+    return row && typeof row === "object" ? row : null;
+  } catch {
+    // Failure memory is a recovery accelerator, never a new single point of failure.
+    return null;
+  }
+}
+
+async function buildFailureMemoryDeterministicAlternative(goal:string, blockedRows:any[], mission:any = null) {
+  try {
+    const { data, error } = await sb.schema("aria_internal")
+      .from("device_registry")
+      .select("device_id,display_name,agent_type,status,capabilities,last_seen_at")
+      .eq("status", "online")
+      .order("last_seen_at", { ascending: false })
+      .limit(12);
+    if (error) throw error;
+
+    for (const device of Array.isArray(data) ? data : []) {
+      const capabilities = Array.isArray(device?.capabilities) ? device.capabilities.map(String) : [];
+      if (!capabilities.includes("shell.execute")) continue;
+      const step = {
+        id: "failure_memory_deterministic_alternative_1",
+        operation: "shell.execute",
+        executor_type: "device",
+        target: { type: "device", device_id: String(device.device_id) },
+        input: {
+          command: 'node -e "console.log(JSON.stringify({aria_failure_memory_alternative:true,platform:process.platform,node:process.version}))"',
+        },
+        risk: "READ",
+        timeout_ms: 120000,
+        policy: {
+          tool_use: true,
+          capability_aware: true,
+          destructive_actions_blocked: true,
+          secret_input_blocked: true,
+          recovery_route: "failure_memory_deterministic_alternative",
+          failure_memory_override: true,
+        },
+        verify: {
+          expected_exit_code: 0,
+          stdout_contains: "aria_failure_memory_alternative",
+        },
+        selection: {
+          recovery_route: "failure_memory_deterministic_alternative",
+          selection_reason: "planner_unavailable_after_persistent_failure_exclusion",
+          device_id: String(device.device_id),
+          goal,
+        },
+      };
+      const fingerprint = await strategyRouteFingerprint(step);
+      if (!(Array.isArray(blockedRows) ? blockedRows : []).some((row:any) => String(row?.strategy_fingerprint) === fingerprint)) {
+        return step;
+      }
+    }
+  } catch {
+    // Deterministic recovery must remain best-effort and must not hide the original block.
+  }
+  return null;
+}
+
+async function enforceFailureMemory(missionId:string, goal:string, steps:any[], cognitiveContext:any, auth:AuthContext, mission:any = null) {
+  const goalSignature = await goalFailureSignature(goal);
+  const planFingerprint = await strategyFingerprint(steps);
+  const lookup = await lookupFailureMemory(goalSignature);
+  if (!lookup.available || !lookup.rows.length) {
+    return { allowed: true, goal_signature: goalSignature, plan_fingerprint: planFingerprint, blocked_routes: [] };
+  }
+
+  const blocked = lookup.rows;
+  const blockedByFingerprint = new Map(blocked.map((row:any) => [String(row.strategy_fingerprint), row]));
+  const matched:any[] = [];
+  for (const step of Array.isArray(steps) ? steps : []) {
+    const fingerprint = await strategyRouteFingerprint(step);
+    const row = blockedByFingerprint.get(fingerprint);
+    if (row) matched.push({
+      step_id: String(step?.id || ""),
+      fingerprint,
+      row,
+      strategy: strategyRouteDescriptor(step),
+    });
+  }
+  if (!matched.length) {
+    return { allowed: true, goal_signature: goalSignature, plan_fingerprint: planFingerprint, blocked_routes: blocked };
+  }
+
+  await emitEvent(missionId, "mission_alternative_strategy_needed", {
+    goal_signature: goalSignature,
+    plan_fingerprint: planFingerprint,
+    matched,
+    blocked_route_count: matched.length,
+    rule: "Do not execute a goal-scoped route after three repeated failures.",
+  });
+
+  const forbiddenText = matched.map((item:any) => ({
+    strategy_fingerprint: item.fingerprint,
+    failure_count: item.row.failure_count,
+    hard_block: item.row.hard_block,
+    last_failure_code: item.row.last_failure_code,
+    last_failure_message: item.row.last_failure_message,
+    strategy: item.strategy,
+  }));
+  const alternativeGoal = [
+    String(goal || ""),
+    "",
+    "MEMORIA DE FALLOS OBLIGATORIA:",
+    "La ruta siguiente ya está excluida para este objetivo por fallos repetidos.",
+    "NO reutilices ninguna estrategia/ruta cuyo fingerprint esté en la evidencia prohibida.",
+    "Cambia executor_type, operación, recurso o combinación de ellos; conserva el objetivo original.",
+    "Si una alternativa tampoco puede demostrarse viable, explica el bloqueo en lugar de repetir.",
+    "RUTAS EXCLUIDAS: " + JSON.stringify(forbiddenText).slice(0, 12000),
+  ].join("\n");
+
+  try {
+    const alternativeRaw = await createPlan(alternativeGoal, {
+      ...cognitiveContext,
+      failure_memory: {
+        goal_signature: goalSignature,
+        forbidden_routes: forbiddenText,
+        source: "persistent_strategy_failure_ledger",
+      },
+    }, auth);
+    const alternative = (Array.isArray(alternativeRaw) ? alternativeRaw : []).map((step:any) => normalizeExecutionStep(step, mission));
+    if (!alternative.length) {
+      const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+      if (deterministic) {
+        const alternativePlan = [deterministic];
+        const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+        await emitEvent(missionId, "mission_replanned", {
+          reason: "persistent_failure_memory_deterministic_fallback",
+          planner_bypassed: true,
+          previous_plan_fingerprint: planFingerprint,
+          new_plan_fingerprint: deterministicPlanFingerprint,
+          excluded_routes: forbiddenText,
+          new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        });
+        return {
+          allowed: true,
+          goal_signature: goalSignature,
+          plan_fingerprint: deterministicPlanFingerprint,
+          previous_plan_fingerprint: planFingerprint,
+          blocked_routes: blocked,
+          excluded_matches: matched,
+          steps: alternativePlan,
+          changed_by_memory: true,
+          planner_bypassed: true,
+        };
+      }
+      return { allowed: false, goal_signature: goalSignature, plan_fingerprint: planFingerprint, blocked_routes: matched, reason: "alternative_plan_empty" };
+    }
+
+    const alternativePlanFingerprint = await strategyFingerprint(alternative);
+    const alternativeBlocked:any[] = [];
+    for (const step of alternative) {
+      const fp = await strategyRouteFingerprint(step);
+      const row = blockedByFingerprint.get(fp);
+      if (row) alternativeBlocked.push({ step_id:String(step?.id || ""), fingerprint:fp, row, strategy:strategyRouteDescriptor(step) });
+    }
+    if (alternativePlanFingerprint === planFingerprint || alternativeBlocked.length) {
+      const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+      if (deterministic) {
+        const alternativePlan = [deterministic];
+        const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+        await emitEvent(missionId, "mission_replanned", {
+          reason: "persistent_failure_memory_deterministic_fallback",
+          planner_bypassed: true,
+          previous_plan_fingerprint: planFingerprint,
+          new_plan_fingerprint: deterministicPlanFingerprint,
+          excluded_routes: forbiddenText,
+          new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        });
+        return {
+          allowed: true,
+          goal_signature: goalSignature,
+          plan_fingerprint: deterministicPlanFingerprint,
+          previous_plan_fingerprint: planFingerprint,
+          blocked_routes: blocked,
+          excluded_matches: matched,
+          steps: alternativePlan,
+          changed_by_memory: true,
+          planner_bypassed: true,
+        };
+      }
+      return {
+        allowed: false,
+        goal_signature: goalSignature,
+        plan_fingerprint: planFingerprint,
+        blocked_routes: matched,
+        alternative_blocked_routes: alternativeBlocked,
+        reason: alternativePlanFingerprint === planFingerprint ? "alternative_strategy_identical" : "alternative_contains_blocked_route",
+      };
+    }
+
+    await emitEvent(missionId, "mission_replanned", {
+      goal_signature: goalSignature,
+      previous_plan_fingerprint: planFingerprint,
+      new_plan_fingerprint: alternativePlanFingerprint,
+      excluded_routes: forbiddenText,
+      new_steps: alternative.map((step:any)=>strategyRouteDescriptor(step)),
+    });
+    return {
+      allowed: true,
+      goal_signature: goalSignature,
+      plan_fingerprint: alternativePlanFingerprint,
+      previous_plan_fingerprint: planFingerprint,
+      blocked_routes: blocked,
+      excluded_matches: matched,
+      steps: alternative,
+      changed_by_memory: true,
+    };
+  } catch (error) {
+    const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+    if (deterministic) {
+      const alternativePlan = [deterministic];
+      const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+      await emitEvent(missionId, "mission_replanned", {
+        reason: "persistent_failure_memory_deterministic_fallback",
+        planner_bypassed: true,
+        previous_plan_fingerprint: planFingerprint,
+        new_plan_fingerprint: deterministicPlanFingerprint,
+        excluded_routes: forbiddenText,
+        new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        planner_error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        allowed: true,
+        goal_signature: goalSignature,
+        plan_fingerprint: deterministicPlanFingerprint,
+        previous_plan_fingerprint: planFingerprint,
+        blocked_routes: blocked,
+        excluded_matches: matched,
+        steps: alternativePlan,
+        changed_by_memory: true,
+        planner_bypassed: true,
+        planner_error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    return {
+      allowed: false,
+      goal_signature: goalSignature,
+      plan_fingerprint: planFingerprint,
+      blocked_routes: matched,
+      reason: "alternative_planner_failed",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function objectivePlanAlignment(goal:string, steps:any[]){
@@ -2053,7 +2377,27 @@ Deno.serve(async (request) => {
         }
       } catch (planErr) {
         const reason = planErr instanceof Error ? planErr.message : String(planErr);
-        await updateMission(missionId, {
+        if (recoveryState?.status === "waiting_for_alternative_strategy") {
+          const failureMemoryRoutes = Array.isArray(recoveryState?.block_details?.failure_memory?.blocked_routes)
+            ? recoveryState.block_details.failure_memory.blocked_routes.map((item:any) => item?.row || item).filter(Boolean)
+            : [];
+          const deterministic = await buildFailureMemoryDeterministicAlternative(
+            String(mission.goal || ""),
+            failureMemoryRoutes,
+            mission
+          );
+          if (deterministic) {
+            steps = [deterministic];
+            await emitEvent(missionId, "mission_replanned", {
+              reason: "persistent_failure_memory_deterministic_fallback",
+              planner_bypassed: true,
+              planner_error: reason,
+              previous_plan: Array.isArray(recoveryState?.previous_plan) ? recoveryState.previous_plan.map((step:any) => strategyRouteDescriptor(step)) : [],
+              new_steps: steps.map((step:any) => strategyRouteDescriptor(step)),
+            });
+          } else {
+            await updateMission(missionId, {
+
           status: "paused",
           next_action: reason === "planner_timeout" ? "recovery:planner_timeout" : `recovery:planner_error:${reason}`,
           last_stderr: reason,
@@ -2070,11 +2414,13 @@ Deno.serve(async (request) => {
             },
           },
         });
-        await emitEvent(missionId, "planner_failed", {
-          code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
-          message: reason,
-        });
-        return out({ ok: false, status: "paused", mission_id: missionId, runtime: V, error: reason });
+            await emitEvent(missionId, "planner_failed", {
+              code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
+              message: reason,
+            });
+            return out({ ok: false, status: "paused", mission_id: missionId, runtime: V, error: reason });
+          }
+        }
       }
     }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
@@ -2097,6 +2443,57 @@ Deno.serve(async (request) => {
       });
     }
     steps = normalizedSteps;
+
+    const failureMemoryGate = await enforceFailureMemory(
+      missionId,
+      String(mission.goal || ""),
+      steps,
+      cognitiveContext,
+      auth,
+      mission
+    );
+    if (!failureMemoryGate.allowed) {
+      const blockDetails = {
+        kind: "strategy_excluded_by_failure_memory",
+        recoverable: true,
+        reason: "ARIA encontró una ruta previamente bloqueada por fallos repetidos y no pudo demostrar una alternativa nueva.",
+        next_action: "recovery: choose a different executor or resource",
+        remediation: "La ruta excluida no se vuelve a ejecutar. ARIA conserva la causa y requiere una estrategia materialmente distinta.",
+        failure_memory: failureMemoryGate,
+      };
+      await updateMission(missionId, {
+        status: "waiting",
+        current_step: 0,
+        completed_steps: 0,
+        next_action: blockDetails.next_action,
+        last_stderr: "strategy_excluded_by_failure_memory",
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          failure_memory: failureMemoryGate,
+          recovery: {
+            status: "waiting_for_alternative_strategy",
+            replan_required: true,
+            strategy_change_required: true,
+            block_details: blockDetails,
+          },
+          plan: steps,
+          active_step: null,
+          pending_jobs: {},
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      await emitEvent(missionId, "recovery_attempted", blockDetails);
+      return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, block_details: blockDetails });
+    }
+    if (failureMemoryGate.changed_by_memory === true && Array.isArray(failureMemoryGate.steps)) {
+      steps = failureMemoryGate.steps;
+      await emitEvent(missionId, "mission_replanned", {
+        reason: "persistent_failure_memory_forced_strategy_change",
+        previous_plan_fingerprint: failureMemoryGate.previous_plan_fingerprint,
+        new_plan_fingerprint: failureMemoryGate.plan_fingerprint,
+      });
+    }
 
     const recoveryPreviousPlan = previousRecovery?.replan_required === true && Array.isArray(previousRecovery?.previous_plan)
       ? previousRecovery.previous_plan
@@ -2958,6 +3355,39 @@ Deno.serve(async (request) => {
           return attempts >= 2 || (Array.isArray(mfs) && mfs.length >= 2);
         });
         if (allNonRetryable && multiRouteExhausted) {
+          const goalSignature = await goalFailureSignature(String(mission.goal || ""));
+          const planFingerprint = await strategyFingerprint(steps);
+          const memoryRecords:any[] = [];
+          for (const outcome of failures) {
+            const modelFailures = Array.isArray(outcome.result?.model_execution_failures) ? outcome.result.model_execution_failures : [];
+            const routeFailures = modelFailures.length
+              ? modelFailures
+              : [strategyRouteDescriptor(outcome.step)];
+            for (const routeFailure of routeFailures) {
+              const route = strategyRouteDescriptor(outcome.step, routeFailure);
+              const routeFingerprint = await strategyRouteFingerprint(outcome.step, routeFailure);
+              const code = String(routeFailure?.code || outcome.result?.error?.code || "strategy_failed");
+              const message = String(routeFailure?.message || outcome.result?.error?.message || outcome.result?.stderr || "strategy execution failed");
+              const stored = await recordFailureMemory(
+                goalSignature,
+                routeFingerprint,
+                route,
+                code,
+                message,
+                missionId,
+                String(outcome.step.id),
+                planFingerprint,
+                { status: outcome.result?.status || "failed", route_failure: routeFailure, result: outcome.result }
+              );
+              if (stored) memoryRecords.push(stored);
+            }
+          }
+          await emitEvent(missionId, "checkpoint_saved", {
+            goal_signature: goalSignature,
+            plan_fingerprint: planFingerprint,
+            records: memoryRecords,
+            failure_count: memoryRecords.length,
+          });
           const failEvidence = {
             status: "failed",
             reason: "all_model_routes_exhausted",
@@ -3006,6 +3436,43 @@ Deno.serve(async (request) => {
         }
 
         const preservedBeforeReplan = preserveCompletedProgress(checkpoint, steps);
+        const goalSignature = await goalFailureSignature(String(mission.goal || ""));
+        const planFingerprint = await strategyFingerprint(steps);
+        const failureMemoryRecords:any[] = [];
+        for (const outcome of failures) {
+          const modelFailures = Array.isArray(outcome.result?.model_execution_failures) ? outcome.result.model_execution_failures : [];
+          const routeFailures = modelFailures.length ? modelFailures : [null];
+          for (const routeFailure of routeFailures) {
+            const route = strategyRouteDescriptor(outcome.step, routeFailure);
+            const routeFingerprint = await strategyRouteFingerprint(outcome.step, routeFailure);
+            const failureCode = String(routeFailure?.code || outcome.result?.error?.code || (String(outcome.result?.status || "") === "succeeded" ? "verification_failed" : "executor_error"));
+            const failureMessage = String(routeFailure?.message || outcome.result?.error?.message || outcome.result?.stderr || outcome.result?.message || "strategy execution failed");
+            const stored = await recordFailureMemory(
+              goalSignature,
+              routeFingerprint,
+              route,
+              failureCode,
+              failureMessage,
+              missionId,
+              String(outcome.step.id),
+              planFingerprint,
+              {
+                status: outcome.result?.status || null,
+                verification: outcome.result?.independent_verification || null,
+                result: outcome.result,
+              }
+            );
+            if (stored) failureMemoryRecords.push(stored);
+          }
+        }
+        if (failureMemoryRecords.length) {
+          await emitEvent(missionId, "checkpoint_saved", {
+            goal_signature: goalSignature,
+            plan_fingerprint: planFingerprint,
+            records: failureMemoryRecords,
+            failure_count: failureMemoryRecords.length,
+          });
+        }
         const replanCount = Number(mission?.checkpoint?.recovery?.replan_count || 0) + 1;
         const failedStepIds = failedStepIdsEarly;
         const previousPlan = steps;
