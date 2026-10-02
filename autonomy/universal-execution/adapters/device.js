@@ -1,6 +1,6 @@
 'use strict';
 
-const SUPPORTED_OPERATIONS = Object.freeze(['shell.execute', 'ollama.qwen3', 'computer.use']);
+const SUPPORTED_OPERATIONS = Object.freeze(['shell.execute', 'ollama.qwen3', 'computer.use', 'ecc.execute']);
 
 function createDeviceAdapter({ deviceDispatcher } = {}) {
   const available = !!deviceDispatcher && typeof deviceDispatcher.execute === 'function';
