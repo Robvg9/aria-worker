@@ -834,7 +834,16 @@ async function finalGlobalReconcile(missionId: string, step: any, mission: any =
     .select("id,event_type,payload,created_at")
     .eq("id", rwhtGate.evidence_event_id)
     .maybeSingle();
-  if (rwhtEventError || !rwhtEvent || String(rwhtEvent.event_type) !== "mission_verified" || rwhtEvent?.payload?.verified !== true) {
+  const rwhtEventPayload = rwhtEvent?.payload && typeof rwhtEvent.payload === "object" ? rwhtEvent.payload : {};
+  const rwhtEventVerified = rwhtEventPayload?.verified === true
+    || String(rwhtEventPayload?.verification_status || "").toLowerCase() === "verified";
+  if (
+    rwhtEventError
+    || !rwhtEvent
+    || String(rwhtEvent.event_type) !== "mission_verified"
+    || rwhtEventVerified !== true
+    || rwhtEventPayload?.status !== "succeeded"
+  ) {
     throw new Error("global_reconcile_rwht_event_missing");
   }
 
