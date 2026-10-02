@@ -364,6 +364,11 @@ async function windowsPcRwhtPlan(goal:string,context:any){
     .order("last_seen_at",{ascending:false})
     .limit(8);
 
+  const recoveryRequested = context?.recovery_strategy_required === true || context?.identical_strategy_detected === true;
+  const previousPlan = Array.isArray(context?.previous_plan) ? context.previous_plan : [];
+  const previousFailedExecutor = String(context?.failed_executor_type || context?.failed_step?.executor_type || previousPlan?.[0]?.executor_type || "").toLowerCase();
+  const previousFailedOperation = String(context?.failed_operation || context?.failed_step?.operation || previousPlan?.[0]?.operation || "").toLowerCase();
+
   const candidates=(Array.isArray(devices)?devices:[]);
   // The registry capability list can lag behind the actual Windows runtime.
   // For RWHT we already require an online windows-local device plus the local
@@ -395,6 +400,46 @@ async function windowsPcRwhtPlan(goal:string,context:any){
 
   const maxActions=Math.max(20,Math.min(180,Number(context?.max_actions||120)));
   const maxRuntime=Math.max(120000,Math.min(900000,Number(context?.max_runtime_ms||600000)));
+  const localTarget={
+    device_id:String(device.device_id),
+    display_name:device.display_name,
+    agent_type:device.agent_type,
+    status:device.status,
+    capabilities:device.capabilities
+  };
+  if(recoveryRequested && (previousFailedExecutor==="model" || previousFailedOperation==="text_generation")){
+    const fallbackUrl=startUrl;
+    return out({ok:true,plan:{
+      goal,
+      steps:[{
+        id:"local_qwen_recovery_1",
+        operation:"computer.use.autonomous",
+        executor_type:"device",
+        target:{type:"device",device_id:String(device.device_id)},
+        input:{mode:"rwht",goal:String(goal),start_url:fallbackUrl,max_actions:maxActions,max_runtime_ms:maxRuntime,capture_screenshots:true},
+        risk:"LOW_RISK_WRITE",timeout_ms:maxRuntime+60000,
+        policy:{tool_use:true,capability_aware:true,autonomous_ui_test:true,adaptive_replanning:true,destructive_actions_blocked:true,secret_input_blocked:true,recovery_route:"cloud_to_local_qwen"},
+        verify:{response_content_nonempty:true}
+      }],
+      planner_version:"aria-planner-v11-local-qwen-recovery-v1",
+      recovery_route:"cloud_to_local_qwen",
+      alternative_strategy:true,
+      capability_awareness:{version:"capability-awareness-v1",selected_device:localTarget,decision_stack:[{operation:"computer.use.autonomous",purpose:"observe → decide → act → verify → adapt",requires:["computer.use","ollama.qwen3"]},{operation:"ollama.qwen3",purpose:"local structured UI decision model",model:"qwen3:0.6b"}]}
+    }});
+  }
+  if(recoveryRequested && previousFailedOperation==="computer.use.autonomous"){
+    return out({ok:true,plan:{
+      goal,
+      steps:[
+        {id:"deterministic_device_recovery_1",operation:"computer.use",executor_type:"device",target:{type:"device",device_id:String(device.device_id)},input:{action:"open",path:startUrl},risk:"READ",timeout_ms:30000,policy:{recovery_route:"local_qwen_to_deterministic_device",destructive_actions_blocked:true},verify:{response_content_nonempty:true}},
+        {id:"deterministic_device_recovery_2",operation:"computer.use",executor_type:"device",target:{type:"device",device_id:String(device.device_id)},input:{action:"screenshot"},risk:"READ",timeout_ms:30000,policy:{recovery_route:"local_qwen_to_deterministic_device"},depends_on:["deterministic_device_recovery_1"],verify:{response_content_nonempty:true}}
+      ],
+      planner_version:"aria-planner-v11-deterministic-device-recovery-v1",
+      recovery_route:"local_qwen_to_deterministic_device",
+      alternative_strategy:true
+    }});
+  }
+
   const capabilityAwareness={
     version:"capability-awareness-v1",
     selected_device:{
@@ -407,7 +452,7 @@ async function windowsPcRwhtPlan(goal:string,context:any){
     decision_stack:[
       {operation:"computer.use.autonomous",purpose:"observe → decide → act → verify → adapt",requires:["computer.use","ollama.qwen3"]},
       {operation:"computer.use",purpose:"real Windows UI actions",actions:["observe","screenshot","click","double_click","type","keypress","hotkey","scroll","focus","wait"]},
-      {operation:"ollama.qwen3",purpose:"local structured UI decision model",model:"qwen3:4b"}
+      {operation:"ollama.qwen3",purpose:"local structured UI decision model",model:"qwen3:0.6b"}
     ],
     policy:{
       destructive_controls_blocked:true,
