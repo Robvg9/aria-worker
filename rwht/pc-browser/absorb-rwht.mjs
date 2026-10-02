@@ -11,66 +11,51 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext(storage ? { storageState: storage } : {});
 const page = await context.newPage();
 
-async function authRequest(url, email, password) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
-      },
-      body: JSON.stringify({ email: email.trim(), password }),
-      signal: controller.signal
-    });
-    const payload = await response.json().catch(() => ({}));
-    return { ok: response.ok, status: response.status, payload };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function bootstrapSession() {
+async function ensureBrowserSession() {
   if (storage) return;
   const email = process.env.RWHT_EMAIL || '';
   const password = process.env.RWHT_PASSWORD || '';
   if (!email || !password) throw new Error('authenticated_session_missing');
 
-  const proxyUrl = new URL('/auth/token?grant_type=password', base).href;
-  let auth = null;
-  try {
-    auth = await authRequest(proxyUrl, email, password);
-  } catch (error) {
-    auth = { ok:false, status:0, payload:{ error: String(error?.message || error) } };
-  }
+  await page.goto(base + '/', { waitUntil:'domcontentloaded', timeout:60000 });
 
-  if (!auth.ok) {
-    try {
-      auth = await authRequest('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', email, password);
-    } catch (error) {
-      auth = { ok:false, status:0, payload:{ error: String(error?.message || error) } };
+  const passwordField = page.locator('input[type="password"]').first();
+  if (await passwordField.isVisible().catch(() => false)) {
+    await page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first().fill(email);
+    await passwordField.fill(password);
+
+    const submit = page.locator('button[type="submit"],button').filter({ hasText: /entrar|iniciar|acceder|continuar/i }).first();
+    const responsePromise = page.waitForResponse(
+      response => /\/auth\/token(?:\?|$)/.test(response.url()) || /supabase\.co\/auth\/v1\/token/.test(response.url()),
+      { timeout: 60000 }
+    );
+
+    if (await submit.count()) await submit.click();
+    else await passwordField.press('Enter');
+
+    const response = await responsePromise;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
+      throw new Error('auth_ui_failed:http_' + response.status() + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
     }
+
+    const session = {
+      accessToken: payload.access_token,
+      refreshToken: payload.refresh_token,
+      userId: payload.user.id,
+      expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
+      email: payload.user.email
+    };
+    await page.evaluate((session) => {
+      localStorage.setItem('aria_session_v2', JSON.stringify(session));
+    }, session);
+    await page.reload({ waitUntil:'domcontentloaded', timeout:60000 });
   }
 
-  if (!auth.ok || !auth.payload?.access_token || !auth.payload?.refresh_token || !auth.payload?.user?.id) {
-    throw new Error('auth_bootstrap_failed:http_' + auth.status + ':' + String(auth.payload?.error_description || auth.payload?.msg || auth.payload?.error || 'unknown'));
-  }
-
-  const session = {
-    accessToken: auth.payload.access_token,
-    refreshToken: auth.payload.refresh_token,
-    userId: auth.payload.user.id,
-    expiresAt: Date.now() + Math.max(60, Number(auth.payload.expires_in ?? 3600)) * 1000,
-    email: auth.payload.user.email
-  };
-  await context.addInitScript(({ session }) => {
-    localStorage.setItem('aria_session_v2', JSON.stringify(session));
-  }, { session });
+  await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
 }
 
-await bootstrapSession();
-
+await ensureBrowserSession();
 
 let opened = false;
 for (let attempt = 1; attempt <= 9; attempt++) {
