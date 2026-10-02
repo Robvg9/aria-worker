@@ -111,7 +111,25 @@ async function learnedContext(project:any){
 }
 
 async function conversationRoutes() {
-  if(conversationRouteCache && conversationRouteCache.expiresAt>Date.now()) return conversationRouteCache.routes;
+  if(conversationRouteCache && conversationRouteCache.expiresAt>Date.now()) {
+    const localDevices=await serviceClient().schema("aria_internal").from("device_registry")
+      .select("device_id,last_seen_at").eq("status","online").contains("capabilities",["ollama.qwen3"])
+      .order("last_seen_at",{ascending:false}).limit(1);
+    const cachedCloud=conversationRouteCache.routes.filter((route:any)=>route.provider_id!=="local_windows");
+    const onlineLocal=localDevices.data?.[0];
+    const refreshed=onlineLocal?.device_id ? [...cachedCloud,{
+      model_id:"qwen3:0.6b",
+      provider_id:"local_windows",
+      account_id:String(onlineLocal.device_id),
+      capability_status:"verified",
+      evidence_type:"device_registry",
+      evidence_ref:String(onlineLocal.device_id),
+      score:80,
+      device_id:String(onlineLocal.device_id)
+    }] : cachedCloud;
+    refreshed.sort((a:any,b:any)=>b.score-a.score || String(a.provider_id).localeCompare(String(b.provider_id)) || String(a.model_id).localeCompare(String(b.model_id)));
+    return refreshed;
+  }
   const [{data:models},{data:caps},{data:accounts}] = await Promise.all([
     serviceClient().schema("aria_internal").from("model_registry").select("model_id,provider_id,status,enabled"),
     serviceClient().schema("aria_internal").from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),
@@ -141,7 +159,7 @@ async function conversationRoutes() {
     });
   }
   routes.sort((a:any,b:any)=>b.score-a.score || String(a.provider_id).localeCompare(String(b.provider_id)) || String(a.model_id).localeCompare(String(b.model_id)));
-  conversationRouteCache={expiresAt:Date.now()+30000,routes};
+  conversationRouteCache={expiresAt:Date.now()+30000,routes:routes.filter((route:any)=>route.provider_id!=="local_windows")};
   return routes;
 }
 
