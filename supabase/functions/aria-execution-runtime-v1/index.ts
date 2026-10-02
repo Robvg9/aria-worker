@@ -80,7 +80,55 @@ if(typeof _fault==="string"&&_eref.startsWith("live-resilience-inject:")){
   if(_fault==="http_500")return out({status:"failed",error:{code:"provider_error",message:"provider returned HTTP 500",provider_status:500,injected:true},metadata:{runtime:"aria-execution-runtime-v1",fault_injection:"http_500"}});
   if(_fault==="invalid_response")return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response",injected:true},metadata:{runtime:"aria-execution-runtime-v1",fault_injection:"invalid_response"}});
   if(_fault==="partial_empty")return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response",injected:true,partial:true},metadata:{runtime:"aria-execution-runtime-v1",fault_injection:"partial_empty"}});
-}if(route.provider_id==="google")return directGemini(route,input);if(route.provider_id==="xai")return xaiResponses(route,input);if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});const freeOpenRouterModels=new Set([
+}async function mistralChat(route:any,input:any){
+  if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});
+  if(route.account_id!=="acct_mistral_primary")return out({status:"blocked",reason:"route_not_selectable"});
+  if(route.model_id!=="mistral/mistral-small-latest")return out({status:"blocked",reason:"model_not_verified"});
+  const sec=await secret("mistral/mistral_primary");
+  if(!sec)return out({status:"failed",error:{code:"credential_unavailable",message:"mistral credential unavailable"}});
+  const p=input?.payload??{};
+  const messages=Array.isArray(p.messages)&&p.messages.length?p.messages:(typeof p.prompt==="string"&&p.prompt.length?[{role:"user",content:p.prompt}]:null);
+  if(!messages)return out({status:"blocked",reason:"input_missing"});
+  const body:any={model:"mistral-small-latest",messages};
+  if(typeof p.max_tokens==="number")body.max_tokens=p.max_tokens;
+  if(typeof p.temperature==="number")body.temperature=p.temperature;
+  if(typeof p.top_p==="number")body.top_p=p.top_p;
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);
+  let res:Response;
+  try{
+    res=await fetch("https://api.mistral.ai/v1/chat/completions",{
+      method:"POST",
+      headers:{Authorization:`Bearer ${sec}`,"Content-Type":"application/json"},
+      body:JSON.stringify(body),
+      signal:controller.signal
+    });
+  }catch(error){
+    return out({status:"failed",error:{code:error instanceof Error&&error.name==="AbortError"?"transport_timeout":"transport_error",message:error instanceof Error&&error.name==="AbortError"?"provider request timed out":"transport failure"}});
+  }finally{clearTimeout(timeout)}
+  const json=await res.json().catch(()=>null);
+  if(!res.ok)return out({status:"failed",error:{code:"provider_error",message:sanitize(json?.error?.message||`provider returned HTTP ${res.status}`),provider_status:res.status}});
+  const content=json?.choices?.[0]?.message?.content;
+  if(typeof content!=="string"||!content.trim())return out({status:"failed",error:{code:"invalid_response",message:"no text content in provider response"}});
+  const u=json?.usage;
+  return out({
+    status:"succeeded",
+    response:{
+      modality:"text",
+      content,
+      provider_response_id:typeof json?.id==="string"?json.id:null,
+      finish_reason:typeof json?.choices?.[0]?.finish_reason==="string"?json.choices[0].finish_reason:null,
+      provider_model:typeof json?.model==="string"?json.model:route.model_id
+    },
+    usage:{
+      status:"reported",
+      prompt_tokens:typeof u?.prompt_tokens==="number"?u.prompt_tokens:null,
+      completion_tokens:typeof u?.completion_tokens==="number"?u.completion_tokens:null,
+      total_tokens:typeof u?.total_tokens==="number"?u.total_tokens:null
+    },
+    metadata:{runtime:"aria-execution-runtime-v1",adapter_id:"mistral_chat_completions",provider_id:"mistral",route_type:"direct",attempt:1,canonical_write:false,memory_authority:"none"}
+  });
+}
+if(route.provider_id==="google")return directGemini(route,input);if(route.provider_id==="xai")return xaiResponses(route,input);if(route.provider_id==="mistral")return mistralChat(route,input);if(route.provider_id!=="openrouter")return out({status:"blocked",reason:"adapter_unavailable"});if(route.capability!=="text_generation")return out({status:"blocked",reason:"capability_missing"});if(route.account_id!=="acct_openrouter_primary")return out({status:"blocked",reason:"route_not_selectable"});const freeOpenRouterModels=new Set([
 "nvidia/nemotron-3-ultra-550b-a55b:free",
 "poolside/laguna-s-2.1:free",
 "inclusionai/ling-3.0-flash-fin:free",
