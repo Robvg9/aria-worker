@@ -123,6 +123,7 @@ while ($true) {
         if ($config.poll_ms) { $env:ARIA_POLL_MS = [string]$config.poll_ms }
         if ($config.gateway_timeout_ms) { $env:ARIA_GATEWAY_TIMEOUT_MS = [string]$config.gateway_timeout_ms }
         if ($config.gateway_retries) { $env:ARIA_GATEWAY_RETRIES = [string]$config.gateway_retries }
+        $env:ARIA_OLLAMA_ENABLED = if ($config.ollama_enabled -eq $true) { 'true' } else { 'false' }
 
         $node = [string]$config.node_path
         if (-not (Test-Path $node)) {
