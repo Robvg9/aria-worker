@@ -135,7 +135,7 @@ const directModels = modelsOfAccount(DIRECT_ID);
 ok(directModels.includes(DIRECT_MODEL), 'TEST 9j: direct modelsOfAccount includes live direct model');
 const directModel = modelLookup.getModel(DIRECT_MODEL);
 ok(directModel && directModel.provider_id === DIRECT_PROVIDER, 'TEST 9k: direct model resolves to Google provider');
-ok(directModel && directModel.status === 'available', 'TEST 9l: direct model is available after LIVE certification');
+ok(directModel && directModel.status === 'unavailable', 'TEST 9l: direct model is unavailable while LIVE provider capacity is blocked');
 
 ok(modelLookup.providerOf(SEED_MODEL) === SEED_PROVIDER, 'TEST 10: mediated model still points to openrouter');
 ok(modelLookup.providerOf(DIRECT_MODEL) === DIRECT_PROVIDER, 'TEST 10b: direct model points to google');
