@@ -30,3 +30,13 @@ jobs:
           node-version: 22
       - name: Contract test
         run: node tests/ecc-mcp-bridge.test.js
+      - name: Verify locked ECC MCP configuration LIVE
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const { fetchLockedMcpConfig } = require('./scripts/ecc-mcp-bridge');
+          const lock = JSON.parse(fs.readFileSync('ecc/source-lock.json', 'utf8'));
+          fetchLockedMcpConfig({ commit_sha: lock.upstream.commit_sha, tag: lock.upstream.tag })
+            .then(x => console.log(JSON.stringify({ schema: x.schema, source: x.source, summary: x.summary, digest: x.inventory_digest_sha256 }, null, 2)))
+            .catch(err => { console.error(err); process.exit(1); });
+          NODE
