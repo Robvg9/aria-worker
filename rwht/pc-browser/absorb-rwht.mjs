@@ -179,11 +179,7 @@ try {
   fs.writeFileSync(path.join(artifactDir, 'absorb-live-e2e-failure.json'), JSON.stringify(failure, null, 2));
   await page.screenshot({ path: path.join(artifactDir, 'absorb-live-e2e-failure.png'), fullPage:true }).catch(() => {});
   throw error;
-} finally {
-  await context.close().catch(() => {});
-  await browser.close().catch(() => {});
 }
-
 
 const evidence = {
   url: page.url(),
@@ -192,4 +188,8 @@ const evidence = {
   timestamp: new Date().toISOString()
 };
 fs.writeFileSync(path.join(artifactDir, 'absorb-live-e2e.json'), JSON.stringify(evidence, null, 2));
+await page.screenshot({ path: path.join(artifactDir, 'absorb-live-e2e.png'), fullPage:true }).catch(() => {});
+await context.close().catch(() => {});
+await browser.close().catch(() => {});
+console.log('ABSORB LIVE E2E: PASS target=' + base);
 
