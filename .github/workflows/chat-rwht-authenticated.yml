@@ -36,6 +36,7 @@ jobs:
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
       RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      RWHT_TIMEOUT_MS: '150000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
