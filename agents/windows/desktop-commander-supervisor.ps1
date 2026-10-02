@@ -88,7 +88,7 @@ function Find-ExistingDesktopCommander {
 function Start-DesktopCommander {
     $npx = Resolve-Npx
     $npxEscaped = $npx.Replace("'", "''")
-    $command = "& '$npxEscaped' --yes '@wonderwhy-er/desktop-commander@$DcVersion' remote"
+    $command = "$env:NODE_OPTIONS='--dns-result-order=ipv4first'; & '$npxEscaped' --yes '@wonderwhy-er/desktop-commander@$DcVersion' remote"
 
     $stdout = Join-Path $LogDir 'desktop-commander.stdout.log'
     $stderr = Join-Path $LogDir 'desktop-commander.stderr.log'
