@@ -971,7 +971,13 @@ function QuickCatalogModal({ title, items, onClose }: { title: string; items: an
           })}
           {!items.length && <div className='emptyState'>Todavía no hay datos disponibles para este inventario.</div>}
         </div>
-      function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
+      </section>
+    </div>
+  );
+}
+
+
+function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
   const [records, setRecords] = useState<AbsorptionRecord[]>([]);
   const [sourceUrl, setSourceUrl] = useState('https://github.com/affaan-m/ECC');
   const [ref, setRef] = useState('v2.2.3');
