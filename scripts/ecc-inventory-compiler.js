@@ -212,9 +212,10 @@ async function fetchLockedTree({ fetchImpl = globalThis.fetch, lock }) {
 
 async function compileEccInventory({
   lockPath = DEFAULT_LOCK,
+  lock: suppliedLock = null,
   fetchImpl = globalThis.fetch,
 } = {}) {
-  const lock = readJson(lockPath);
+  const lock = suppliedLock || readJson(lockPath);
   if (lock.schema !== 'aria.ecc-source-lock.v1') {
     throw new Error(`Unsupported ECC source-lock schema: ${lock.schema}`);
   }
