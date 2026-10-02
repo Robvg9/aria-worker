@@ -60,7 +60,7 @@ function buildHookEventCatalog(metadata, provenance) {
 
   const hooks = [];
   for (const [eventType, entries] of Object.entries(metadata.entries)) {
-    if (!EVENT_TYPES.has(eventType)) continue;
+    if (!EVENT_TYPES.has(eventType)) throw new Error(`Unsupported hook event type: ${eventType}`);
     for (const entry of entries || []) {
       hooks.push(normalizeHook({ ...entry, event_type: eventType }, provenance));
     }
