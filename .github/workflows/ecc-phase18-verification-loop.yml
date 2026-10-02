@@ -3,7 +3,7 @@ name: ECC Phase 18 Verification Loop
 on:
   pull_request:
     branches:
-      - aria/ecc-phase-17-hook-adapter
+      - aria/ecc-phase-17-hook-events
     paths:
       - 'scripts/ecc-verification-loop.js'
       - 'tests/ecc-verification-loop.test.js'
