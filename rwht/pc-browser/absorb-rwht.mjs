@@ -30,7 +30,7 @@ async function loginIfNeeded() {
     }
   }, null, { timeout:60000 });
   await page.goto(base + '/#capabilities', { waitUntil:'domcontentloaded', timeout:60000 });
-  await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:60000 });
+  await page.waitForSelector('.appShell', { state:'visible', timeout:60000 });
 }
 
 let opened = false;
@@ -48,10 +48,35 @@ if (!opened) throw new Error('live_target_not_reached');
 await page.waitForTimeout(1500);
 await loginIfNeeded();
 
-const absorbTab = page.getByRole('button', { name: 'ABSORB' }).first();
-await absorbTab.waitFor({ state:'visible', timeout:30000 });
-await absorbTab.click();
-await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
+async function openCapabilities() {
+  const absorbTab = page.getByRole('button', { name: 'ABSORB' }).first();
+  let lastUrl = page.url();
+  let lastBody = '';
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      if (!page.url().includes('#capabilities')) {
+        await page.goto(base + '/#capabilities', { waitUntil:'domcontentloaded', timeout:30000 });
+      }
+      await page.waitForSelector('.appShell', { state:'visible', timeout:20000 });
+      await page.waitForTimeout(1500);
+      if (!page.url().includes('#capabilities')) {
+        await page.evaluate(() => { window.location.hash = '#capabilities'; });
+        await page.waitForTimeout(1500);
+      }
+      await absorbTab.waitFor({ state:'visible', timeout:10000 });
+      await absorbTab.click();
+      await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:15000 });
+      return;
+    } catch (error) {
+      lastUrl = page.url();
+      lastBody = (await page.locator('body').innerText().catch(() => '')).slice(-3000);
+      if (attempt === 6) throw new Error('absorb_capabilities_not_reached:url=' + lastUrl + ':body=' + lastBody);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+}
+
+await openCapabilities();
 
 async function readPersistedAbsorption() {
   const result = await page.evaluate(async () => {
