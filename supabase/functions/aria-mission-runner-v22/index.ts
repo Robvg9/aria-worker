@@ -355,10 +355,15 @@ function preserveCompletedProgress(checkpoint: any, nextSteps: any[]) {
     if (result?.verified === false) return false;
     return !result?.error;
   };
-  const recovered = (Array.isArray(nextSteps) ? nextSteps : [])
+  const recoveredFromResults = (Array.isArray(nextSteps) ? nextSteps : [])
+    .map((step:any) => String(step?.id || ""))
+    .filter((id) => id && !completed.includes(id))
+    .filter((id) => Object.prototype.hasOwnProperty.call(resultsSource, id) && resultIsVerifiedSuccess(resultsSource[id]));
+  const recoveredFromHistory = (Array.isArray(nextSteps) ? nextSteps : [])
     .map((step:any) => String(step?.id || ""))
     .filter((id) => id && !completed.includes(id) && !failedIds.has(id))
     .filter((id) => Object.prototype.hasOwnProperty.call(recoveryResults, id) && resultIsVerifiedSuccess(recoveryResults[id]));
+  const recovered = [...new Set([...recoveredFromResults, ...recoveredFromHistory])];
   const preserved = [...new Set([...completed, ...recovered])].filter((id) => validIds.has(id));
   const attempts: Record<string, number> = {};
   const results: Record<string, unknown> = {};
