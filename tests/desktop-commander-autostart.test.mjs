@@ -9,9 +9,9 @@ const installer = fs.readFileSync(path.join(root, 'agents', 'windows', 'install-
 const docs = fs.readFileSync(path.join(root, 'agents', 'windows', 'DESKTOP_COMMANDER_AUTOSTART.md'), 'utf8');
 
 test('DC supervisor uses pinned remote package version', () => {
-  assert.match(supervisor, /\\$DcVersion = '0\.2\.52'/);
-  assert.match(supervisor, /@wonderwhy-er\\/desktop-commander@\\$DcVersion/);
-  assert.doesNotMatch(supervisor, /@wonderwhy-er\\/desktop-commander@latest/);
+  assert.ok(supervisor.includes("$DcVersion = '0.2.52'"));
+  assert.ok(supervisor.includes("@wonderwhy-er/desktop-commander@$DcVersion"));
+  assert.ok(!supervisor.includes("@wonderwhy-er/desktop-commander@latest"));
 });
 
 test('DC supervisor preserves authentication as a human gate', () => {
