@@ -11,7 +11,7 @@ on:
       - 'rwht/pc-browser/absorb-rwht.mjs'
       - '.github/workflows/aria-absorb.yml'
   push:
-    branches: [main]
+    branches: [main, 'feat/absorb-live-e2e-check-20261002']
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: aria-absorb-${{ github.ref }}
+  group: aria-absorb-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -50,6 +50,7 @@ jobs:
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -60,23 +61,38 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            slug="${GITHUB_HEAD_REF//\//-}"
-            echo "RWHT_URL=https://${slug}-aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
+            echo "RWHT_URL=https://aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
+            echo "ABSORB_E2E_TARGET=production" >> "$GITHUB_ENV"
           else
             echo "RWHT_URL=${RWHT_URL}" >> "$GITHUB_ENV"
+            echo "ABSORB_E2E_TARGET=production" >> "$GITHUB_ENV"
           fi
       - name: Require authenticated session source
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ]] && [[ -z "${RWHT_STORAGE_STATE_B64}" ]]; then
-            echo "::error title=ABSORB LIVE E2E blocked::Configure RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE_B64."
+          has_password_auth=false
+          has_storage_auth=false
+          has_storage_gzip_auth=false
+          if [[ -n "${RWHT_EMAIL}" && -n "${RWHT_PASSWORD}" ]]; then has_password_auth=true; fi
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then has_storage_auth=true; fi
+          if [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then has_storage_gzip_auth=true; fi
+          if [[ "${has_password_auth}" != true && "${has_storage_auth}" != true && "${has_storage_gzip_auth}" != true ]]; then
+            echo "::error title=ABSORB LIVE E2E blocked::Configure RWHT_EMAIL + RWHT_PASSWORD, RWHT_STORAGE_STATE_B64, or RWHT_STORAGE_STATE_GZIP_B64."
             exit 1
           fi
-          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+          if [[ "${has_storage_auth}" == true ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_AUTH_STATE_SOURCE=raw-storage-state" >> "${GITHUB_ENV}"
             echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          elif [[ "${has_storage_gzip_auth}" == true ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_AUTH_STATE_SOURCE=gzip-storage-state" >> "${GITHUB_ENV}"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          elif [[ "${has_password_auth}" == true ]]; then
+            echo "RWHT_AUTH_STATE_SOURCE=password" >> "${GITHUB_ENV}"
           fi
       - name: Install Playwright
         working-directory: rwht/pc-browser
@@ -94,25 +110,18 @@ jobs:
           path: rwht/pc-browser/absorb-artifacts
           if-no-files-found: warn
       - name: Persist production E2E result
-        if: always() && github.event_name != 'pull_request'
+        if: always() && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: "818"
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
-          if [[ -f absorb-artifacts/absorb-live-e2e.json ]]; then
-            evidence_line="$(python3 - <<'PY'
-import json
-p='absorb-artifacts/absorb-live-e2e.json'
-d=json.load(open(p))
-print('url=' + str(d.get('url','')) + ' timestamp=' + str(d.get('timestamp','')))
-PY
-)"
+          if [[ -f rwht/pc-browser/absorb-artifacts/absorb-live-e2e.json ]]; then
+            evidence_line="$(jq -r '"url=" + (.url // "") + " timestamp=" + (.timestamp // "")' rwht/pc-browser/absorb-artifacts/absorb-live-e2e.json)"
           else
-            evidence_line="absorb-live-e2e.json not produced"
+            evidence_line="rwht/pc-browser/absorb-artifacts/absorb-live-e2e.json not produced"
           fi
-          body="$(jq -n --arg status "$JOB_STATUS" --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" --arg workflow "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --arg evidence "$evidence_line" '{body:("## ARIA ABSORB production E2E\n\nStatus: **"+$status+"**\nCommit: `"+$commit+"`\nRun: "+$workflow+"\nEvidence: "+$evidence)}')"
           curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
