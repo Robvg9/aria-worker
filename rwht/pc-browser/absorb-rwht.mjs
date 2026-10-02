@@ -25,31 +25,23 @@ async function ensureBrowserSession() {
     await passwordField.fill(password);
 
     const submit = page.locator('button[type="submit"],button').filter({ hasText: /entrar|iniciar|acceder|continuar/i }).first();
-    const responsePromise = page.waitForResponse(
-      response => /\/auth\/token(?:\?|$)/.test(response.url()) || /supabase\.co\/auth\/v1\/token/.test(response.url()),
-      { timeout: 60000 }
-    );
-
     if (await submit.count()) await submit.click();
     else await passwordField.press('Enter');
 
-    const response = await responsePromise;
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
-      throw new Error('auth_ui_failed:http_' + response.status() + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
-    }
+    await page.waitForFunction(() => {
+      try {
+        const raw = localStorage.getItem('aria_session_v2');
+        const session = raw ? JSON.parse(raw) : null;
+        return Boolean(session?.accessToken && session?.refreshToken && session?.userId);
+      } catch {
+        return false;
+      }
+    }, null, { timeout: 60000 }).catch(async () => {
+      const body = await page.locator('body').innerText().catch(() => '');
+      throw new Error('auth_ui_session_timeout:' + body.slice(-2500));
+    });
 
-    const session = {
-      accessToken: payload.access_token,
-      refreshToken: payload.refresh_token,
-      userId: payload.user.id,
-      expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
-      email: payload.user.email
-    };
-    await page.evaluate((session) => {
-      localStorage.setItem('aria_session_v2', JSON.stringify(session));
-    }, session);
-    await page.reload({ waitUntil:'domcontentloaded', timeout:60000 });
+    await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
   }
 
   await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
