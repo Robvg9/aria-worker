@@ -2377,7 +2377,27 @@ Deno.serve(async (request) => {
         }
       } catch (planErr) {
         const reason = planErr instanceof Error ? planErr.message : String(planErr);
-        await updateMission(missionId, {
+        if (recoveryState?.status === "waiting_for_alternative_strategy") {
+          const failureMemoryRoutes = Array.isArray(recoveryState?.block_details?.failure_memory?.blocked_routes)
+            ? recoveryState.block_details.failure_memory.blocked_routes.map((item:any) => item?.row || item).filter(Boolean)
+            : [];
+          const deterministic = await buildFailureMemoryDeterministicAlternative(
+            String(mission.goal || ""),
+            failureMemoryRoutes,
+            mission
+          );
+          if (deterministic) {
+            steps = [deterministic];
+            await emitEvent(missionId, "mission_replanned", {
+              reason: "persistent_failure_memory_deterministic_fallback",
+              planner_bypassed: true,
+              planner_error: reason,
+              previous_plan: Array.isArray(recoveryState?.previous_plan) ? recoveryState.previous_plan.map((step:any) => strategyRouteDescriptor(step)) : [],
+              new_steps: steps.map((step:any) => strategyRouteDescriptor(step)),
+            });
+          } else {
+            await updateMission(missionId, {
+
           status: "paused",
           next_action: reason === "planner_timeout" ? "recovery:planner_timeout" : `recovery:planner_error:${reason}`,
           last_stderr: reason,
@@ -2394,11 +2414,13 @@ Deno.serve(async (request) => {
             },
           },
         });
-        await emitEvent(missionId, "planner_failed", {
-          code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
-          message: reason,
-        });
-        return out({ ok: false, status: "paused", mission_id: missionId, runtime: V, error: reason });
+            await emitEvent(missionId, "planner_failed", {
+              code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
+              message: reason,
+            });
+            return out({ ok: false, status: "paused", mission_id: missionId, runtime: V, error: reason });
+          }
+        }
       }
     }
     if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
