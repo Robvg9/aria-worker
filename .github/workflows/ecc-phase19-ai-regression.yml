@@ -1,0 +1,32 @@
+name: ECC Phase 19 AI Regression
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-18-verification-loop
+    paths:
+      - 'scripts/ecc-ai-regression.js'
+      - 'tests/ecc-ai-regression.test.js'
+      - '.github/workflows/ecc-phase19-ai-regression.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-19-ai-regression'
+    paths:
+      - 'scripts/ecc-ai-regression.js'
+      - 'tests/ecc-ai-regression.test.js'
+      - '.github/workflows/ecc-phase19-ai-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: ECC Phase 19 / AI regression and independent review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-ai-regression.test.js
