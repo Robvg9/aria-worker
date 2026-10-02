@@ -202,9 +202,13 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       });
       queued=attempt.data;
       enqueueError=attempt.error;
-      if(!enqueueError&&queued) break;
-      // Reconcile both transport/RPC errors and the rarer HTTP-200/null-data case:
-      // the gateway can commit the INSERT while returning no row payload.
+      // A successful gateway call is authoritative even when PostgREST returns no body:
+      // the enqueue function may have committed the execution_jobs row but serialized null.
+      if(!enqueueError){
+        queued=queued ?? {job_id:jobId,status:"queued",provisional:true};
+        break;
+      }
+      // Reconcile transport/RPC failures by checking the exact idempotent job before retrying.
       if(!queued){
         // Allow a brief visibility window after a committed INSERT before retrying the same job id.
         for(let reconcileAttempt=0;reconcileAttempt<5&&!queued;reconcileAttempt++){
