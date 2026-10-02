@@ -38,7 +38,7 @@ begin
       if v_key not in ('prompt','model','timeout_ms') then raise exception 'ollama.qwen3 payload contains unsupported fields'; end if;
     end loop;
     if not (v_payload ? 'prompt') or jsonb_typeof(v_payload->'prompt') <> 'string' or length(trim(v_payload->>'prompt')) = 0 then raise exception 'ollama.qwen3 prompt required'; end if;
-    if v_payload ? 'model' and v_payload->>'model' <> 'qwen3:4b' then raise exception 'ollama.qwen3 model must be qwen3:4b'; end if;
+    if v_payload ? 'model' and v_payload->>'model' <> 'qwen3:0.6b' then raise exception 'ollama.qwen3 model must be qwen3:0.6b'; end if;
     if v_payload ? 'timeout_ms' and (jsonb_typeof(v_payload->'timeout_ms') <> 'number' or (v_payload->>'timeout_ms')::numeric < 1000 or (v_payload->>'timeout_ms')::numeric > 3600000 or (v_payload->>'timeout_ms')::numeric <> trunc((v_payload->>'timeout_ms')::numeric)) then raise exception 'ollama.qwen3 timeout_ms must be an integer between 1000 and 3600000'; end if;
     if p_cwd is not null then raise exception 'ollama.qwen3 does not accept cwd'; end if;
   end if;

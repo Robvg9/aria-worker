@@ -1431,8 +1431,17 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
     capability: String(step.operation),
   };
   const fallbackRoutes = await verifiedModelFallbackRoutes({ ...primary, risk: step.risk }, String(step.operation));
-  const routes = [primary, ...fallbackRoutes.filter((r:any) => r.provider_id !== primary.provider_id || r.account_id !== primary.account_id || r.model_id !== primary.model_id)].slice(0,4);
-  const failures:any[] = [];
+  const filteredFallbackRoutes = fallbackRoutes.filter((r:any) => r.provider_id !== primary.provider_id || r.account_id !== primary.account_id || r.model_id !== primary.model_id);
+  const localFallback = filteredFallbackRoutes.find((r:any) => r.provider_id === "local_windows") || null;
+  const cloudFallbacks = filteredFallbackRoutes.filter((r:any) => r.provider_id !== "local_windows");
+  // Reserve one route slot for an online verified local executor. Cloud fallbacks
+  // can never crowd the local recovery route out of the route budget.
+  const routes = [
+    primary,
+    ...cloudFallbacks.slice(0, 2),
+    ...(localFallback ? [localFallback] : []),
+  ].slice(0, 4);
+    const failures:any[] = [];
   const authorization = step.authorization && typeof step.authorization === "object"
     ? step.authorization
     : { status: "approved", risk_class: step.risk || "READ", evidence_ref: `mission:${missionId}` };
