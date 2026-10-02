@@ -1,0 +1,124 @@
+name: ARIA Supabase Provider Recovery Gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: aria-supabase-provider-recovery-gate
+  cancel-in-progress: true
+
+jobs:
+  provider-recovery-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read official Supabase incident
+        id: status
+        shell: bash
+        run: |
+          set -euo pipefail
+          json="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            https://status.supabase.com/api/v2/incidents.json)"
+
+          STATUS_JSON="$json" python - <<'PY'
+          import json
+          import os
+
+          incident_id = "w91bvbjhqf0f"
+          data = json.loads(os.environ["STATUS_JSON"])
+          incident = next((item for item in data.get("incidents", []) if item.get("id") == incident_id), None)
+
+          if incident is None:
+              raise SystemExit(f"Supabase incident {incident_id} not found; refusing automatic dispatch.")
+
+          status = str(incident.get("status") or "")
+          resolved_at = str(incident.get("resolved_at") or "")
+          print(f"SUPABASE_INCIDENT_NAME={incident.get('name')}")
+          print(f"SUPABASE_INCIDENT_STATUS={status}")
+          print(f"SUPABASE_INCIDENT_RESOLVED_AT={resolved_at}")
+          print(f"active={'true' if status != 'resolved' else 'false'}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"active={'true' if status != 'resolved' else 'false'}\\n")
+              out.write(f"resolved_at={resolved_at}\\n")
+              out.write(f"status={status}\\n")
+              out.write(f"name={incident.get('name', '')}\\n")
+          PY
+
+      - name: Stop while provider incident is unresolved
+        if: steps.status.outputs.active == 'true'
+        run: |
+          echo "::warning title=3/9 blocked by Supabase::${{ steps.status.outputs.name }} remains ${{ steps.status.outputs.status }}."
+          echo "No authenticated RWHT is launched during the provider incident."
+
+      - name: Check for an already-dispatched post-resolution certification
+        id: guard
+        if: steps.status.outputs.active == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESOLVED_AT: ${{ steps.status.outputs.resolved_at }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs="$(curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/persistence-recovery-rwht-authenticated.yml/runs?branch=main&per_page=30")"
+
+          RUNS_JSON="$runs" RESOLVED_AT="$RESOLVED_AT" python - <<'PY'
+          import json
+          import os
+          from datetime import datetime
+
+          resolved = datetime.fromisoformat(os.environ["RESOLVED_AT"].replace("Z", "+00:00"))
+          runs = json.loads(os.environ["RUNS_JSON"]).get("workflow_runs", [])
+
+          post_resolution = [
+              run for run in runs
+              if datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00")) >= resolved
+          ]
+
+          already = bool(post_resolution)
+          newest = post_resolution[0] if post_resolution else None
+
+          print(f"POST_RESOLUTION_RUN_EXISTS={str(already).lower()}")
+          if newest:
+              print(f"POST_RESOLUTION_RUN_ID={newest.get('id')}")
+              print(f"POST_RESOLUTION_RUN_STATUS={newest.get('status')}")
+              print(f"POST_RESOLUTION_RUN_CONCLUSION={newest.get('conclusion')}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"already_dispatched={'true' if already else 'false'}\\n")
+          PY
+
+      - name: Dispatch one canonical 3/9 certification
+        if: steps.status.outputs.active == 'false' && steps.guard.outputs.already_dispatched == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/persistence-recovery-rwht-authenticated.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "DISPATCHED: canonical 3/9 Persistence + Recovery RWHT"
+
+      - name: Record gate decision
+        shell: bash
+        run: |
+          if [[ "${{ steps.status.outputs.active }}" == "true" ]]; then
+            echo "PROVIDER_GATE=BLOCKED incident=${{ steps.status.outputs.name }} status=${{ steps.status.outputs.status }}"
+          elif [[ "${{ steps.guard.outputs.already_dispatched || 'false' }}" == "true" ]]; then
+            echo "PROVIDER_GATE=ALREADY_DISPATCHED resolved_at=${{ steps.status.outputs.resolved_at }}"
+          else
+            echo "PROVIDER_GATE=DISPATCHED resolved_at=${{ steps.status.outputs.resolved_at }}"
+          fi

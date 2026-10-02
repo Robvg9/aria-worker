@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'pwa', 'src', 'App.tsx'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'rwht', 'pc-browser', 'rwht-persistence-recovery-e2e.mjs'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
+const providerGate = fs.readFileSync(path.join(root, '.github', 'workflows', 'supabase-provider-recovery-gate.yml'), 'utf8');
 
 for (const fragment of [
   "SESSION_KEY = 'aria_session_v2'",
@@ -58,6 +59,17 @@ for (const fragment of [
   'npx playwright install chromium'
 ]) {
   assert.ok(workflow.includes(fragment), fragment);
+}
+
+for (const fragment of [
+  'status.supabase.com/api/v2/incidents.json',
+  'w91bvbjhqf0f',
+  'persistence-recovery-rwht-authenticated.yml/dispatches',
+  'already_dispatched',
+  'actions: write',
+  'No authenticated RWHT is launched during the provider incident'
+]) {
+  assert.ok(providerGate.includes(fragment), fragment);
 }
 
 assert.doesNotMatch(runner, /console\.(log|error)\([^\n]*(password|refreshToken|accessToken)/i);
