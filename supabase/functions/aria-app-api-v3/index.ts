@@ -208,7 +208,7 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       await new Promise(resolve=>setTimeout(resolve,1200));
     } while(Date.now()<enqueueDeadline);
     if(enqueueError||!queued) throw new Error("local_qwen_enqueue_failed:"+(enqueueError?.message||"empty"));
-    const deadline=Date.now()+45000;
+    // Local Windows Qwen may legitimately take longer than the former 45s polling window; keep the API boundary below the 120s execution-job contract.\n    const deadline=Date.now()+110000;
     while(Date.now()<deadline){
       await new Promise(resolve=>setTimeout(resolve,1200));
       const {data:job,error:jobError}=await sb.rpc("get_execution_job_gateway",{p_job_id:jobId});
