@@ -1864,6 +1864,59 @@ async function recordFailureMemory(goalSignature:string, strategyFingerprint:str
   }
 }
 
+async function buildFailureMemoryDeterministicAlternative(goal:string, blockedRows:any[], mission:any = null) {
+  try {
+    const { data, error } = await sb.schema("aria_internal")
+      .from("device_registry")
+      .select("device_id,display_name,agent_type,status,capabilities,last_seen_at")
+      .eq("status", "online")
+      .order("last_seen_at", { ascending: false })
+      .limit(12);
+    if (error) throw error;
+
+    for (const device of Array.isArray(data) ? data : []) {
+      const capabilities = Array.isArray(device?.capabilities) ? device.capabilities.map(String) : [];
+      if (!capabilities.includes("shell.execute")) continue;
+      const step = {
+        id: "failure_memory_deterministic_alternative_1",
+        operation: "shell.execute",
+        executor_type: "device",
+        target: { type: "device", device_id: String(device.device_id) },
+        input: {
+          command: 'node -e "console.log(JSON.stringify({aria_failure_memory_alternative:true,platform:process.platform,node:process.version}))"',
+        },
+        risk: "READ",
+        timeout_ms: 120000,
+        policy: {
+          tool_use: true,
+          capability_aware: true,
+          destructive_actions_blocked: true,
+          secret_input_blocked: true,
+          recovery_route: "failure_memory_deterministic_alternative",
+          failure_memory_override: true,
+        },
+        verify: {
+          expected_exit_code: 0,
+          stdout_contains: "aria_failure_memory_alternative",
+        },
+        selection: {
+          recovery_route: "failure_memory_deterministic_alternative",
+          selection_reason: "planner_unavailable_after_persistent_failure_exclusion",
+          device_id: String(device.device_id),
+          goal,
+        },
+      };
+      const fingerprint = await strategyRouteFingerprint(step);
+      if (!(Array.isArray(blockedRows) ? blockedRows : []).some((row:any) => String(row?.strategy_fingerprint) === fingerprint)) {
+        return step;
+      }
+    }
+  } catch {
+    // Deterministic recovery must remain best-effort and must not hide the original block.
+  }
+  return null;
+}
+
 async function enforceFailureMemory(missionId:string, goal:string, steps:any[], cognitiveContext:any, auth:AuthContext, mission:any = null) {
   const goalSignature = await goalFailureSignature(goal);
   const planFingerprint = await strategyFingerprint(steps);
@@ -1927,6 +1980,30 @@ async function enforceFailureMemory(missionId:string, goal:string, steps:any[], 
     }, auth);
     const alternative = (Array.isArray(alternativeRaw) ? alternativeRaw : []).map((step:any) => normalizeExecutionStep(step, mission));
     if (!alternative.length) {
+      const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+      if (deterministic) {
+        const alternativePlan = [deterministic];
+        const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+        await emitEvent(missionId, "mission_replanned", {
+          reason: "persistent_failure_memory_deterministic_fallback",
+          planner_bypassed: true,
+          previous_plan_fingerprint: planFingerprint,
+          new_plan_fingerprint: deterministicPlanFingerprint,
+          excluded_routes: forbiddenText,
+          new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        });
+        return {
+          allowed: true,
+          goal_signature: goalSignature,
+          plan_fingerprint: deterministicPlanFingerprint,
+          previous_plan_fingerprint: planFingerprint,
+          blocked_routes: blocked,
+          excluded_matches: matched,
+          steps: alternativePlan,
+          changed_by_memory: true,
+          planner_bypassed: true,
+        };
+      }
       return { allowed: false, goal_signature: goalSignature, plan_fingerprint: planFingerprint, blocked_routes: matched, reason: "alternative_plan_empty" };
     }
 
@@ -1938,6 +2015,30 @@ async function enforceFailureMemory(missionId:string, goal:string, steps:any[], 
       if (row) alternativeBlocked.push({ step_id:String(step?.id || ""), fingerprint:fp, row, strategy:strategyRouteDescriptor(step) });
     }
     if (alternativePlanFingerprint === planFingerprint || alternativeBlocked.length) {
+      const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+      if (deterministic) {
+        const alternativePlan = [deterministic];
+        const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+        await emitEvent(missionId, "mission_replanned", {
+          reason: "persistent_failure_memory_deterministic_fallback",
+          planner_bypassed: true,
+          previous_plan_fingerprint: planFingerprint,
+          new_plan_fingerprint: deterministicPlanFingerprint,
+          excluded_routes: forbiddenText,
+          new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        });
+        return {
+          allowed: true,
+          goal_signature: goalSignature,
+          plan_fingerprint: deterministicPlanFingerprint,
+          previous_plan_fingerprint: planFingerprint,
+          blocked_routes: blocked,
+          excluded_matches: matched,
+          steps: alternativePlan,
+          changed_by_memory: true,
+          planner_bypassed: true,
+        };
+      }
       return {
         allowed: false,
         goal_signature: goalSignature,
@@ -1966,6 +2067,32 @@ async function enforceFailureMemory(missionId:string, goal:string, steps:any[], 
       changed_by_memory: true,
     };
   } catch (error) {
+    const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+    if (deterministic) {
+      const alternativePlan = [deterministic];
+      const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+      await emitEvent(missionId, "mission_replanned", {
+        reason: "persistent_failure_memory_deterministic_fallback",
+        planner_bypassed: true,
+        previous_plan_fingerprint: planFingerprint,
+        new_plan_fingerprint: deterministicPlanFingerprint,
+        excluded_routes: forbiddenText,
+        new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        planner_error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        allowed: true,
+        goal_signature: goalSignature,
+        plan_fingerprint: deterministicPlanFingerprint,
+        previous_plan_fingerprint: planFingerprint,
+        blocked_routes: blocked,
+        excluded_matches: matched,
+        steps: alternativePlan,
+        changed_by_memory: true,
+        planner_bypassed: true,
+        planner_error: error instanceof Error ? error.message : String(error),
+      };
+    }
     return {
       allowed: false,
       goal_signature: goalSignature,
