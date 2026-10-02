@@ -79,7 +79,16 @@ async function absorbInspect(userId:string, body:any){
   const capabilities=buildCapabilityIndex(inventory);
   const plan=buildAbsorptionPlan({source:inventory.source,requestedCapabilities:Array.isArray(body?.requested_capabilities)?body.requested_capabilities:[]});
   const identity=await buildAbsorptionIdentity(inventory,capabilities);
-  const {data,error}=await serviceClient().schema("aria_internal").from("capability_absorptions").insert({
+  const sb=serviceClient();
+  const {data:existing,error:lookupError}=await sb.schema("aria_internal").from("capability_absorptions")
+    .select("absorption_id,status,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,capabilities,absorption_plan,verification,enabled,runtime_binding,created_at,updated_at")
+    .eq("user_id",userId).eq("source_type","github").eq("source_owner",inventory.source.owner).eq("source_repo",inventory.source.repo)
+    .eq("source_requested_ref",inventory.source.ref).eq("source_commit_sha",inventory.source.commit_sha).limit(1).maybeSingle();
+  if(lookupError) throw new Error("absorb_inspect_lookup_failed:"+lookupError.message);
+  if(existing && existing.source_digest_sha256===inventory.inventory_digest_sha256){
+    return existing;
+  }
+  const {data,error}=await sb.schema("aria_internal").from("capability_absorptions").insert({
     user_id:userId,source_type:"github",source_ref:inventory.source.canonical_url,source_owner:inventory.source.owner,
     source_repo:inventory.source.repo,source_requested_ref:inventory.source.ref,source_commit_sha:inventory.source.commit_sha,
     source_digest_sha256:inventory.inventory_digest_sha256,resource_name:inventory.repository.full_name,status:"INDEXED",enabled:false,
