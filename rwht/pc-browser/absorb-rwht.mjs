@@ -7,6 +7,8 @@ const base = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa
 const artifactDir = path.resolve(process.cwd(), 'absorb-artifacts');
 fs.mkdirSync(artifactDir, { recursive: true });
 const storage = process.env.RWHT_STORAGE_STATE || '';
+const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
+const SUPABASE_AUTH = 'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password';
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext(storage ? { storageState: storage } : {});
 const page = await context.newPage();
@@ -17,33 +19,27 @@ async function ensureBrowserSession() {
   const password = process.env.RWHT_PASSWORD || '';
   if (!email || !password) throw new Error('authenticated_session_missing');
 
-  await page.goto(base + '/', { waitUntil:'domcontentloaded', timeout:60000 });
-
-  const passwordField = page.locator('input[type="password"]').first();
-  if (await passwordField.isVisible().catch(() => false)) {
-    await page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first().fill(email);
-    await passwordField.fill(password);
-
-    const submit = page.locator('button[type="submit"],button').filter({ hasText: /entrar|iniciar|acceder|continuar/i }).first();
-    if (await submit.count()) await submit.click();
-    else await passwordField.press('Enter');
-
-    await page.waitForFunction(() => {
-      try {
-        const raw = localStorage.getItem('aria_session_v2');
-        const session = raw ? JSON.parse(raw) : null;
-        return Boolean(session?.accessToken && session?.refreshToken && session?.userId);
-      } catch {
-        return false;
-      }
-    }, null, { timeout: 60000 }).catch(async () => {
-      const body = await page.locator('body').innerText().catch(() => '');
-      throw new Error('auth_ui_session_timeout:' + body.slice(-2500));
-    });
-
-    await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
+  const authResponse = await context.request.post(SUPABASE_AUTH, {
+    headers: { 'content-type': 'application/json', apikey: ANON },
+    data: { email: email.trim(), password }
+  });
+  const payload = await authResponse.json().catch(() => ({}));
+  if (!authResponse.ok() || !payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
+    throw new Error('auth_api_failed:http_' + authResponse.status() + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
   }
 
+  const session = {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token,
+    userId: payload.user.id,
+    expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
+    email: payload.user.email
+  };
+  await page.goto(base + '/', { waitUntil:'domcontentloaded', timeout:60000 });
+  await page.evaluate((session) => {
+    localStorage.setItem('aria_session_v2', JSON.stringify(session));
+  }, session);
+  await page.reload({ waitUntil:'domcontentloaded', timeout:60000 });
   await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
 }
 
