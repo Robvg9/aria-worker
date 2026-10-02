@@ -11,7 +11,7 @@ for (const needle of [
   "data-testid='aria-absorb-enable'",
   'https://github.com/affaan-m/ECC',
   'tool_ecc_operator',
-  'No ejecuta código externo',
+  'Ningún código externo fue ejecutado',
   "tab === 'absorb'"
 ]) {
   assert.ok(app.includes(needle), 'missing PWA ABSORB contract: ' + needle);
