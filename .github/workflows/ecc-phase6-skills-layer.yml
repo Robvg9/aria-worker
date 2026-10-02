@@ -1,0 +1,32 @@
+name: ECC Phase 6 Skills Layer
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-05-context-resolver
+    paths:
+      - 'scripts/ecc-skills-layer.js'
+      - 'tests/ecc-skills-layer.test.js'
+      - '.github/workflows/ecc-phase6-skills-layer.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-06-skills-layer'
+    paths:
+      - 'scripts/ecc-skills-layer.js'
+      - 'tests/ecc-skills-layer.test.js'
+      - '.github/workflows/ecc-phase6-skills-layer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  skills:
+    name: ECC Phase 6 / skills layer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-skills-layer.test.js

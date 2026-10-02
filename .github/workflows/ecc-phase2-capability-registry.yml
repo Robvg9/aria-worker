@@ -1,0 +1,41 @@
+name: ECC Phase 2 Capability Registry
+
+on:
+  pull_request:
+    branches:
+      - main
+      - aria/ecc-phase-01-live-inventory
+    paths:
+      - 'ecc/source-lock.json'
+      - 'scripts/ecc-inventory-compiler.js'
+      - 'scripts/ecc-capability-registry.js'
+      - 'tests/ecc-inventory-compiler.test.js'
+      - 'tests/ecc-capability-registry.test.js'
+      - '.github/workflows/ecc-phase2-capability-registry.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-02-capability-registry'
+    paths:
+      - 'ecc/source-lock.json'
+      - 'scripts/ecc-inventory-compiler.js'
+      - 'scripts/ecc-capability-registry.js'
+      - 'tests/ecc-inventory-compiler.test.js'
+      - 'tests/ecc-capability-registry.test.js'
+      - '.github/workflows/ecc-phase2-capability-registry.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  registry:
+    name: ECC Phase 2 / capability registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-capability-registry.test.js
+      - name: Build registry from locked ECC inventory
+        run: node scripts/ecc-capability-registry.js

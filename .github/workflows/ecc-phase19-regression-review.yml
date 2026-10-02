@@ -1,0 +1,32 @@
+name: ECC Phase 19 Regression Independent Review
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-18-verification-loop
+    paths:
+      - 'scripts/ecc-regression-review.js'
+      - 'tests/ecc-regression-review.test.js'
+      - '.github/workflows/ecc-phase19-regression-review.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-19-regression-review'
+    paths:
+      - 'scripts/ecc-regression-review.js'
+      - 'tests/ecc-regression-review.test.js'
+      - '.github/workflows/ecc-phase19-regression-review.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: ECC Phase 19 / regression independent review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-regression-review.test.js

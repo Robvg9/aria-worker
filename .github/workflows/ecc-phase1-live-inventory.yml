@@ -1,0 +1,37 @@
+name: ECC Phase 1 Live Inventory
+
+on:
+  pull_request:
+    branches:
+      - main
+      - aria/ecc-phase-00-source-lock
+    paths:
+      - 'ecc/source-lock.json'
+      - 'scripts/ecc-inventory-compiler.js'
+      - 'tests/ecc-inventory-compiler.test.js'
+      - '.github/workflows/ecc-phase1-live-inventory.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-01-live-inventory'
+    paths:
+      - 'ecc/source-lock.json'
+      - 'scripts/ecc-inventory-compiler.js'
+      - 'tests/ecc-inventory-compiler.test.js'
+      - '.github/workflows/ecc-phase1-live-inventory.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: ECC Phase 1 / live inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-inventory-compiler.test.js
+      - name: Build live inventory from locked ECC release
+        run: node scripts/ecc-inventory-compiler.js --summary

@@ -1,0 +1,32 @@
+name: ECC Phase 14 Session Contract
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-13-unified-memory
+    paths:
+      - 'scripts/ecc-session-contract.js'
+      - 'tests/ecc-session-contract.test.js'
+      - '.github/workflows/ecc-phase14-session-contract.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-14-session-contract'
+    paths:
+      - 'scripts/ecc-session-contract.js'
+      - 'tests/ecc-session-contract.test.js'
+      - '.github/workflows/ecc-phase14-session-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  session:
+    name: ECC Phase 14 / session contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-session-contract.test.js
