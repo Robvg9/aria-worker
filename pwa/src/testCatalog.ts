@@ -2407,6 +2407,16 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida acciones permitidas de ECC, targets permitidos, generación determinista de comandos, dry-run y rechazo de shell arbitrario."
   },
   {
+    "id": "mission-runner-v22-job-id-isolation",
+    "file": "tests/mission-runner-v22-job-id-isolation.test.js",
+    "title": "Mission Runner V22 Job ID Isolation",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que los identificadores de trabajos de ejecución permanecen aislados entre misiones incluso cuando comparten el mismo prefijo.",
+    "capabilities": "Evita que dos misiones o dispositivos reutilicen accidentalmente el mismo job_id y mezclen resultados de ejecución."
+  },
+
+  {
     "id": "strategy-failure-memory-v1",
     "file": "tests/strategy-failure-memory-v1.test.js",
     "title": "Strategy Failure Memory V1",
