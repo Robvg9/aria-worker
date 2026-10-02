@@ -10,7 +10,8 @@ const sanitize = (m: unknown) => String(m ?? "error").replace(/Bearer\s+[A-Za-z0
 Deno.serve(async (request) => {
   if (request.method !== "GET") return out({ error: "method_not_allowed" }, 405);
   const parsedUrl = new globalThis.URL(request.url);
-  const nonce = parsedUrl.searchParams.get("nonce") ?? "";\n  const requestedModel = parsedUrl.searchParams.get("model") ?? "google/gemini-3.5-flash-lite-direct";
+  const nonce = parsedUrl.searchParams.get("nonce") ?? "";
+  const requestedModel = parsedUrl.searchParams.get("model") ?? "google/gemini-3.5-flash-lite-direct";
   if (!nonce) return out({ error: "nonce_required" }, 400);
   const nonceHash = await hash(nonce);
   const { data: rows, error } = await sb.rpc("aria_consume_diagnostic_nonce", { p_nonce_name: "gemini_direct_live_check", p_nonce_hash: nonceHash });
@@ -20,7 +21,14 @@ Deno.serve(async (request) => {
   const started = Date.now();
   let response: Response;
   try {
-    const modelMap: Record<string,string> = {\n      "google/gemini-3.5-flash-lite-direct": "gemini-3.5-flash-lite",\n      "google/gemini-3.5-flash-direct": "gemini-3.5-flash",\n      "google/gemini-3.1-flash-lite-direct": "gemini-3.1-flash-lite"\n    };\n    const upstreamModel = modelMap[requestedModel];\n    if (!upstreamModel) return out({ ok: false, provider: "google", route: "direct", status: "failed", reason: "model_not_verified" }, 400);\n    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${upstreamModel}:generateContent`, {
+    const modelMap: Record<string,string> = {
+      "google/gemini-3.5-flash-lite-direct": "gemini-3.5-flash-lite",
+      "google/gemini-3.5-flash-direct": "gemini-3.5-flash",
+      "google/gemini-3.1-flash-lite-direct": "gemini-3.1-flash-lite"
+    };
+    const upstreamModel = modelMap[requestedModel];
+    if (!upstreamModel) return out({ ok: false, provider: "google", route: "direct", status: "failed", reason: "model_not_verified" }, 400);
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${upstreamModel}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": GOOGLE_API_KEY },
       body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Reply exactly: ARIA_GEMINI_DIRECT_LIVE_OK" }] }], generationConfig: { maxOutputTokens: 20 } })
