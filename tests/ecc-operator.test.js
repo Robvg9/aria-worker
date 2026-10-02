@@ -35,6 +35,14 @@ assert.ok(consultSource.includes('const npmCli=path.join(path.dirname(process.ex
 assert.ok(consultSource.includes('cp.execFileSync(process.execPath,[npmCli,...installArgs]'));
 assert.ok(consultSource.includes('cp.execFileSync("npm",installArgs'));
 assert.equal(consultSource.includes('npm.cmd'), false, 'Windows runner must not depend on npm.cmd spawn');
+const canonicalOperatorSource = require('fs').readFileSync(
+  require('path').join(__dirname, '..', 'supabase', 'functions', 'aria-mission-runner-v22', 'ecc-operator.ts'),
+  'utf8'
+);
+assert.equal(canonicalOperatorSource.includes('npm.cmd'), false, 'canonical ECC adapter must not depend on npm.cmd');
+assert.ok(canonicalOperatorSource.includes('const npmCli=path.join(path.dirname(process.execPath),"node_modules","npm","bin","npm-cli.js")'));
+assert.ok(canonicalOperatorSource.includes('cp.execFileSync(process.execPath,[npmCli,...installArgs]'));
+
 
 
 const doctorSource = decodeEccCommand(buildEccShellCommand({ action: 'doctor', target: 'codex' }));
