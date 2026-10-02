@@ -9,7 +9,7 @@ if (!worker.includes('async function proxyPasswordSignIn')) throw new Error('mis
 if (!worker.includes('["password","refresh_token"]')) throw new Error('auth proxy must support refresh_token grant');
 if (worker.includes('SUPABASE_PUBLISHABLE_KEY')) throw new Error('publishable key must not be embedded in worker');
 if (!worker.includes('request.headers.get("apikey")')) throw new Error('worker must accept browser publishable key');
-if (!worker.includes('grantType==="refresh_token"?60000:45000')) throw new Error('missing grant-specific auth timeout');
+if (!worker.includes('grantType==="refresh_token"?60000:20000')) throw new Error('password auth proxy timeout must be bounded at 20s');
 if (!worker.includes('if(url.pathname==="/api"||url.pathname.startsWith("/api/"))')) throw new Error('missing same-origin app api proxy');
 if (!worker.includes('async function proxyAppApi')) throw new Error('missing app api proxy implementation');
 if (!app.includes("const API = '/api';")) throw new Error('PWA must use same-origin app api');
@@ -53,4 +53,4 @@ if (!app.includes("fetch('/auth/token?grant_type=refresh_token'")) throw new Err
 if (!app.includes('session.expiresAt - Date.now() - 60_000')) throw new Error('session refresh scheduler missing');
 
 if (!app.includes('15000')) throw new Error('direct auth timeout missing');
-if (!app.includes('50000')) throw new Error('proxy auth timeout missing');
+if (!app.includes('20000')) throw new Error('proxy auth timeout must be bounded at 20s');
