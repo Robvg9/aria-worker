@@ -1786,9 +1786,9 @@ function planStrategySignature(steps:any[]) {
 function normalizeGoalForFailureMemory(goal:string) {
   return String(goal || "")
     .toLowerCase()
-    .replace(/\\b(?:unique|timestamp|nonce|run[_ -]?id|mission[_ -]?id)\\s*[:=]\\s*\\S+/gi, "")
-    .replace(/\\b[0-9a-f]{8}-[0-9a-f-]{27,}\\b/gi, "")
-    .replace(/\\s+/g, " ")
+    .replace(/\b(?:unique|timestamp|nonce|run[_ -]?id|mission[_ -]?id)\s*[:=]\s*\S+/gi, "")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -1864,7 +1864,7 @@ async function recordFailureMemory(goalSignature:string, strategyFingerprint:str
   }
 }
 
-async function enforceFailureMemory(missionId:string, goal:string, steps:any[], cognitiveContext:any, auth:AuthContext) {
+async function enforceFailureMemory(missionId:string, goal:string, steps:any[], cognitiveContext:any, auth:AuthContext, mission:any = null) {
   const goalSignature = await goalFailureSignature(goal);
   const planFingerprint = await strategyFingerprint(steps);
   const lookup = await lookupFailureMemory(goalSignature);
@@ -1925,7 +1925,7 @@ async function enforceFailureMemory(missionId:string, goal:string, steps:any[], 
         source: "persistent_strategy_failure_ledger",
       },
     }, auth);
-    const alternative = (Array.isArray(alternativeRaw) ? alternativeRaw : []).map((step:any) => normalizeExecutionStep(step, null));
+    const alternative = (Array.isArray(alternativeRaw) ? alternativeRaw : []).map((step:any) => normalizeExecutionStep(step, mission));
     if (!alternative.length) {
       return { allowed: false, goal_signature: goalSignature, plan_fingerprint: planFingerprint, blocked_routes: matched, reason: "alternative_plan_empty" };
     }
@@ -2300,7 +2300,8 @@ Deno.serve(async (request) => {
       String(mission.goal || ""),
       steps,
       cognitiveContext,
-      auth
+      auth,
+      mission
     );
     if (!failureMemoryGate.allowed) {
       const blockDetails = {
