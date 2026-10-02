@@ -16,7 +16,8 @@ async function directGemini(route:any,input:any){
     // verified capability evidence. Keep the public ARIA route id mapped to
     // the concrete Google Generative Language model id.
     "google/gemini-3.5-flash-lite-direct":"gemini-3.5-flash-lite",
-    "google/gemini-3.5-flash-direct":"gemini-3.5-flash"
+    "google/gemini-3.5-flash-direct":"gemini-3.5-flash",
+    "google/gemini-3.1-flash-lite-direct":"gemini-3.1-flash-lite"
   };
   const model=googleModels[route.model_id];
   if(!model)return out({status:"blocked",reason:"model_not_verified"});
