@@ -31,9 +31,9 @@ assert.match(signature, /target/);
 
 assert.match(runner, /async function goalFailureSignature/);
 assert.match(runner, /strategy_failure_ledger/);
-assert.match(runner, /strategy_excluded_from_memory/);
-assert.match(runner, /strategy_changed_by_failure_memory/);
-assert.match(runner, /recovery_blocked_by_failure_memory/);
+assert.match(runner, /mission_alternative_strategy_needed/);
+assert.match(runner, /mission_replanned/);
+assert.match(runner, /recovery_attempted/);
 assert.match(runner, /recordFailureMemory/);
 assert.match(runner, /aria_internal\.record_strategy_failure/);
 
