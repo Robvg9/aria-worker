@@ -10,22 +10,36 @@ const {
 
 assert.strictEqual(ECC_VERSION, '2.2.3');
 
+function decodeEccCommand(command) {
+  const match = String(command).match(/Buffer\.from\('([^']+)'/);
+  assert.ok(match, 'ECC command must use encoded Node runner source');
+  return Buffer.from(match[1], 'base64').toString('utf8');
+}
+
 assert.deepStrictEqual(normalizeEccRequest({
   action: 'consult',
   topic: 'verification loop',
   target: 'codex'
 }), { action: 'consult', topic: 'verification loop', target: 'codex' });
 
-assert.ok(buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }).includes('ecc-universal@2.2.3'));
-assert.ok(buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }).startsWith('node -e'));
-assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('ecc-universal@2.2.3'));
-assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('doctor'));
-assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('--target'));
+const consultCommand = buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' });
+const consultSource = decodeEccCommand(consultCommand);
+assert.ok(consultCommand.startsWith('node -e'));
+assert.ok(consultSource.includes('const version="2.2.3"'));
+assert.ok(consultSource.includes('ecc-universal@" + version'));
+assert.ok(consultSource.includes('"consult",requestArgs') || consultSource.includes('requestArgs='));
+assert.ok(consultSource.includes(""a'b""));
+assert.ok(consultSource.includes('"--target","codex"'));
 
+const doctorSource = decodeEccCommand(buildEccShellCommand({ action: 'doctor', target: 'codex' }));
+assert.ok(doctorSource.includes('const version="2.2.3"'));
+assert.ok(doctorSource.includes('"doctor","--target","codex"'));
 
-assert.ok(buildEccShellCommand({ action: 'list_installed' }).includes('list-installed'));
+const listSource = decodeEccCommand(buildEccShellCommand({ action: 'list_installed' }));
+assert.ok(listSource.includes('"list-installed"'));
 
-assert.ok(buildEccShellCommand({ action: 'install_preview', profile: 'core', target: 'codex' }).includes('--dry-run'));
+const previewSource = decodeEccCommand(buildEccShellCommand({ action: 'install_preview', profile: 'core', target: 'codex' }));
+assert.ok(previewSource.includes('"install","--profile","core","--target","codex","--dry-run"'));
 
 assert.throws(
   () => normalizeEccRequest({ action: 'run', command: 'whoami' }),
