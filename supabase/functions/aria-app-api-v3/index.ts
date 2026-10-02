@@ -123,7 +123,24 @@ async function conversationRoutes() {
     if(!account)return null;
     const providerBoost=m.provider_id==="google"?12:m.provider_id==="xai"?8:0;
     return {model_id:m.model_id,provider_id:m.provider_id,account_id:account.account_id,capability_status:cap?.status ?? "unknown",evidence_type:cap?.evidence_type ?? "unknown",evidence_ref:cap?.evidence_ref ?? null,score:(cap?.status==="verified"?100:50)+providerBoost};
-  }).filter(Boolean).sort((a:any,b:any)=>b.score-a.score);
+  }).filter(Boolean);
+  const localDevices=await serviceClient().schema("aria_internal").from("device_registry")
+    .select("device_id,last_seen_at").eq("status","online").contains("capabilities",["ollama.qwen3"])
+    .order("last_seen_at",{ascending:false}).limit(1);
+  const onlineLocal=localDevices.data?.[0];
+  if(onlineLocal?.device_id){
+    routes.push({
+      model_id:"qwen3:0.6b",
+      provider_id:"local_windows",
+      account_id:String(onlineLocal.device_id),
+      capability_status:"verified",
+      evidence_type:"device_registry",
+      evidence_ref:String(onlineLocal.device_id),
+      score:80,
+      device_id:String(onlineLocal.device_id)
+    });
+  }
+  routes.sort((a:any,b:any)=>b.score-a.score || String(a.provider_id).localeCompare(String(b.provider_id)) || String(a.model_id).localeCompare(String(b.model_id)));
   conversationRouteCache={expiresAt:Date.now()+30000,routes};
   return routes;
 }
@@ -131,6 +148,38 @@ async function conversationRoutes() {
 async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
+  if (target.provider_id === "local_windows") {
+    const deviceId=String(target.device_id||target.account_id||"").trim();
+    if(!deviceId) throw new Error("local_windows_device_missing");
+    const jobId=("chat_qwen_"+conversationId+"_"+crypto.randomUUID()).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
+    const sb=serviceClient();
+    const payload={prompt:String(prompt).slice(0,12000),model:String(target.model_id||"qwen3:0.6b"),timeout_ms:120000};
+    const {data:queued,error:enqueueError}=await sb.rpc("enqueue_execution_job_gateway",{
+      p_job_id:jobId,p_mission_id:conversationId,p_device_id:deviceId,p_operation:"ollama.qwen3",
+      p_command:JSON.stringify(payload),p_cwd:null,p_timeout_ms:120000,p_policy:{},
+      p_metadata:{source_application:"aria-app-api-v3",conversation_id:conversationId,local_fallback:true,model:payload.model}
+    });
+    if(enqueueError||!queued) throw new Error("local_qwen_enqueue_failed:"+(enqueueError?.message||"empty"));
+    const deadline=Date.now()+45000;
+    while(Date.now()<deadline){
+      await new Promise(resolve=>setTimeout(resolve,1200));
+      const {data:job,error:jobError}=await sb.rpc("get_execution_job_gateway",{p_job_id:jobId});
+      if(jobError) throw new Error("local_qwen_job_read_failed:"+jobError.message);
+      const status=String(job?.status||"");
+      if(status==="succeeded"){
+        const content=String(job?.stdout??"").trim();
+        if(!content) throw new Error("local_qwen_empty_response");
+        return {status:"succeeded",response:{content},stdout:content,stderr:String(job?.stderr??""),
+          exit_code:Number(job?.exit_code??0),operation:"text_generation",provider_id:"local_windows",
+          account_id:deviceId,model_id:payload.model,local_fallback_used:true,
+          local_fallback_source:"windows_ollama",local_fallback_device_id:deviceId,job_id:jobId};
+      }
+      if(["failed","timeout","cancelled","blocked"].includes(status)){
+        throw new Error("local_qwen_job_"+status+":"+(job?.error||job?.stderr||"execution_failed"));
+      }
+    }
+    throw new Error("local_qwen_job_timeout");
+  }
   let payload:any={prompt,max_tokens:512,temperature:0.3};
   let multimodal=false;
   if(visualContext?.image_path && target.provider_id==="google"){
