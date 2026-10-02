@@ -43,7 +43,6 @@ jobs:
           npm run build
 
   live-e2e:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -56,6 +55,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Resolve LIVE E2E target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            slug="${GITHUB_HEAD_REF//\//-}"
+            echo "RWHT_URL=https://${slug}-aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
+          else
+            echo "RWHT_URL=${RWHT_URL}" >> "$GITHUB_ENV"
+          fi
       - name: Require authenticated session source
         shell: bash
         run: |
