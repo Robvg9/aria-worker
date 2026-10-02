@@ -26,6 +26,7 @@ const EAS_TOKEN = Deno.env.get('EXPO_TOKEN') ?? '';
 const EAS_PROJECT_ID = '1b23b091-f7b6-4dc2-b328-c8e5ec07de57';
 const LEASE_FOR = "00:15:00";
 const MAX_STEP_ATTEMPTS = 3;
+const ECC_POLL_BUDGET_MS = 45_000;
 // Historical contract marker retained for compatibility. Phase 4 uses explicit
 // same-strategy thresholds (3 => change strategy, 5 => hard block) instead of
 // using a finite global replan count as the recovery authority.
@@ -754,7 +755,7 @@ async function deviceExecute(missionId: string, step: any) {
 
   let status = String(job.status || "");
   if (["ollama.qwen3", "ecc.execute"].includes(operation) && !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
-    const deadline = Date.now() + (operation === "ecc.execute" ? 180_000 : 35_000);
+    const deadline = Date.now() + (operation === "ecc.execute" ? ECC_POLL_BUDGET_MS : 35_000);
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(() => resolve(undefined), 1500));
       current = await getExecutionJob(jobId);
