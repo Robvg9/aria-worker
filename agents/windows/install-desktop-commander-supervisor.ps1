@@ -17,9 +17,41 @@ if (-not (Test-Path $SupervisorSource)) {
     throw "Desktop Commander supervisor not found: $SupervisorSource"
 }
 
-$npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
-if (-not $npx) {
-    throw 'npx.cmd not found. Install Node.js/npm first.'
+$nodePath = 'D:\Databank\node.exe'
+if (-not (Test-Path $nodePath)) {
+    $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) { throw 'node.exe no encontrado. Instala Node.js antes del bootstrap.' }
+    $nodePath = $nodeCommand.Source
+}
+
+$toolRoot = Join-Path $RuntimeRoot 'Tools\DesktopCommanderRemote'
+$toolCache = Join-Path $toolRoot 'npm-cache'
+$dcEntry = Join-Path $toolRoot 'node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
+
+New-Item -ItemType Directory -Force -Path $toolRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $toolCache | Out-Null
+
+if (-not (Test-Path $dcEntry)) {
+    Write-Host '=== INSTALL DESKTOP COMMANDER FIXED RUNTIME ==='
+    $previousCache = $env:NPM_CONFIG_CACHE
+    $env:NPM_CONFIG_CACHE = $toolCache
+    try {
+        & (Join-Path (Split-Path $nodePath) 'npm.cmd') install --prefix $toolRoot --no-save "@wonderwhy-er/desktop-commander@0.2.52"
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE" }
+    }
+    finally {
+        $env:NPM_CONFIG_CACHE = $previousCache
+    }
+}
+
+if (-not (Test-Path $dcEntry)) {
+    throw "Desktop Commander fixed runtime missing after install: $dcEntry"
+}
+
+$versionFile = Join-Path $toolRoot 'node_modules\@wonderwhy-er\desktop-commander\package.json'
+$installed = Get-Content -Raw $versionFile | ConvertFrom-Json
+if ([string]$installed.version -ne '0.2.52') {
+    throw "Desktop Commander version mismatch: expected 0.2.52, found $($installed.version)"
 }
 
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
