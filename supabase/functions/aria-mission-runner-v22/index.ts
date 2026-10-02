@@ -685,10 +685,16 @@ function currentHumanGate(mission: any, step: any) {
   return gate;
 }
 
-function jobIdFor(missionId: string, stepId: string, attempt: number = 1) {
+async function jobIdFor(missionId: string, stepId: string, attempt: number = 1) {
   const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 28);
   const safeAttempt = Math.max(1, Math.min(99, Number.isFinite(Number(attempt)) ? Number(attempt) : 1));
-  return `uo_${safe(missionId)}_${safe(stepId)}_a${safeAttempt}`;
+  const raw = `${missionId}\\0${stepId}\\0${safeAttempt}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  const suffix = Array.from(new Uint8Array(digest))
+    .slice(0, 8)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `uo_${safe(missionId)}_${safe(stepId)}_a${safeAttempt}_${suffix}`;
 }
 
 async function getExecutionJob(jobId: string) {
@@ -737,7 +743,7 @@ async function deviceExecute(missionId: string, step: any) {
   const operation = String(step.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) throw new Error(`device_operation_not_allowed:${operation}`);
   const attempt = Math.max(1, Number(step?.input?.__aria_attempt || 1));
-  const jobId = jobIdFor(missionId, String(step.id), attempt);
+  const jobId = await jobIdFor(missionId, String(step.id), attempt);
   let current = await getExecutionJob(jobId);
   if (!(current.response.ok && current.body?.ok && current.body.job)) {
     await enqueueDeviceJob(missionId, step, jobId);
