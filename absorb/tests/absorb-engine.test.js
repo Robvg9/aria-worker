@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 
 (async () => {
-  const absorb = await import('../supabase/functions/_shared/absorb-engine.mjs');
+  const absorb = await import('../../supabase/functions/_shared/absorb-engine.mjs');
 
   assert.equal(absorb.ABSORB_VERSION, '1.0.0');
   assert.equal(absorb.ABSORB_STAGES.length, 14);
