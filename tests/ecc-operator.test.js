@@ -26,7 +26,7 @@ const consultCommand = buildEccShellCommand({ action: 'consult', topic: "a'b", t
 const consultSource = decodeEccCommand(consultCommand);
 assert.ok(consultCommand.startsWith('node -e'));
 assert.ok(consultSource.includes('const version="2.2.3"'));
-assert.ok(consultSource.includes('ecc-universal@" + version'));
+assert.ok(consultSource.includes('ecc-universal@"+version'));
 assert.ok(consultSource.includes('"consult",requestArgs') || consultSource.includes('requestArgs='));
 assert.ok(consultSource.includes("a'b"));
 assert.ok(consultSource.includes('"--target","codex"'));
