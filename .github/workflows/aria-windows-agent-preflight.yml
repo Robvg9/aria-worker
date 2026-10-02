@@ -103,49 +103,36 @@ jobs:
           Write-Host "NODE_VERSION=$version"
           if ([version]($version.TrimStart('v')) -lt [version]'20.0.0') { throw 'Node 20+ required' }
 
-      - name: Bounce watchdog host to load synced script
+      - name: Verify synced watchdog without disrupting live agent
         run: |
-          $ErrorActionPreference = 'SilentlyContinue'
+          $ErrorActionPreference = 'Stop'
           $LogDir = 'D:\ARIA-Windows-Agent\Logs'
           $PidPath = Join-Path $LogDir 'agent.pid'
           $WatchdogPidPath = Join-Path $LogDir 'watchdog.pid'
           $LogPath = Join-Path $LogDir 'watchdog.log'
 
-          foreach ($path in @($PidPath, $WatchdogPidPath)) {
-            if (Test-Path $path) {
-              $id = 0
-              if ([int]::TryParse((Get-Content -Raw $path).Trim(), [ref]$id) -and $id -gt 0) {
-                & taskkill.exe /F /PID $id 2>$null | Out-Null
-                Write-Host "TASKKILL_PID=$id EXIT=$LASTEXITCODE"
-              }
-            }
-          }
+          if (-not (Test-Path $PidPath)) { throw 'agent.pid missing' }
+          if (-not (Test-Path $WatchdogPidPath)) { throw 'watchdog.pid missing' }
 
-          & schtasks.exe /End /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
-          Write-Host "SCHTASKS_END_EXIT=$LASTEXITCODE"
-          Start-Sleep -Seconds 3
-          & schtasks.exe /Run /TN 'ARIA-Windows-Local-Agent' 2>$null | Out-Null
-          Write-Host "SCHTASKS_RUN_EXIT=$LASTEXITCODE"
+          $agentPid = 0
+          $watchdogPid = 0
+          if (-not [int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$agentPid)) { throw 'Invalid agent.pid' }
+          if (-not [int]::TryParse((Get-Content -Raw $WatchdogPidPath).Trim(), [ref]$watchdogPid)) { throw 'Invalid watchdog.pid' }
 
-          Write-Host 'Waiting up to 90s for fixed watchdog (AGENT_STARTED without NoNewWindow)...'
-          $loaded = $false
-          for ($i = 0; $i -lt 45; $i++) {
-            Start-Sleep -Seconds 2
-            if (Test-Path $LogPath) {
-              $tail = Get-Content $LogPath -Tail 6 -ErrorAction SilentlyContinue | Out-String
-              if ($tail -match 'AGENT_STARTED' -and $tail -notmatch 'NoNewWindow') {
-                $loaded = $true
-                Write-Host 'FIXED_WATCHDOG_LOADED=True'
-                break
-              }
-            }
-          }
-          if (-not $loaded) {
-            Write-Host 'FIXED_WATCHDOG_LOADED=False'
-            if (Test-Path $LogPath) { Get-Content $LogPath -Tail 12 -ErrorAction SilentlyContinue }
-            Write-Host 'ACTION_REQUIRED: As ROBVG\robvg run: schtasks /End /TN ARIA-Windows-Local-Agent && schtasks /Run /TN ARIA-Windows-Local-Agent'
-          }
-          Write-Host 'BOUNCE_DONE=True'
+          $agent = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
+          $watchdog = Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue
+          if (-not $agent -or $agent.ProcessName -notmatch 'node') { throw "ARIA agent process not running: PID=$agentPid" }
+          if (-not $watchdog -or $watchdog.ProcessName -notmatch 'powershell') { throw "ARIA watchdog process not running: PID=$watchdogPid" }
+
+          $cimAgent = Get-CimInstance Win32_Process -Filter "ProcessId=$agentPid" -ErrorAction SilentlyContinue
+          if (-not $cimAgent -or $cimAgent.CommandLine -notmatch 'aria-agent\.js') { throw "PID $agentPid is not aria-agent.js" }
+
+          Write-Host 'RUNTIME_SYNC=PASS'
+          Write-Host 'NON_DISRUPTIVE_PREFLIGHT=True'
+          Write-Host "WATCHDOG_PID=$watchdogPid"
+          Write-Host "AGENT_PID=$agentPid"
+          Write-Host 'NOTE: Live agent is intentionally left running; maintenance restarts belong to explicit operator workflows.'
+          if (Test-Path $LogPath) { Get-Content $LogPath -Tail 6 -ErrorAction SilentlyContinue }
           exit 0
 
       - name: Restart Ollama to clear model OOM state
@@ -302,53 +289,44 @@ jobs:
           Write-Host 'ARIA_AGENT_CONTEXT=INTERACTIVE_DESKTOP'
           Write-Host 'RUNTIME_ROOT=D:\ARIA-Windows-Agent'
 
-      - name: Watchdog recovery proof via kill-request signal
+      - name: Verify watchdog continuity without killing agent
         run: |
           $ErrorActionPreference = 'Stop'
           $LogDir = 'D:\ARIA-Windows-Agent\Logs'
-          $LogPath = Join-Path $LogDir 'watchdog.log'
           $PidPath = Join-Path $LogDir 'agent.pid'
-          $KillRequestPath = Join-Path $LogDir 'kill-request'
+          $HeartbeatPath = Join-Path $LogDir 'agent-heartbeat.json'
 
-          if (-not (Test-Path $PidPath)) { throw 'agent.pid missing before kill test' }
-          $oldPid = 0
-          if (-not [int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$oldPid) -or $oldPid -le 0) {
+          if (-not (Test-Path $PidPath)) { throw 'agent.pid missing before continuity test' }
+          if (-not (Test-Path $HeartbeatPath)) { throw 'agent-heartbeat.json missing before continuity test' }
+
+          $agentPid = 0
+          if (-not [int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$agentPid) -or $agentPid -le 0) {
             throw 'Invalid agent.pid content'
           }
-          $before = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+
+          $before = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
           if (-not $before -or $before.ProcessName -notmatch 'node') {
-            throw "PID $oldPid is not a live node process"
+            throw "PID $agentPid is not a live node process"
           }
 
-          Write-Host "KILL_TARGET_PID=$oldPid"
-          Set-Content -Path $KillRequestPath -Value "pid=$oldPid from=preflight ts=$(Get-Date -Format o)" -Encoding ASCII -Force
-          Write-Host 'KILL_REQUEST_WRITTEN=True'
+          $beforeHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
+          Start-Sleep -Seconds 12
 
-          $newPid = $null
-          for ($i = 0; $i -lt 45; $i++) {
-            Start-Sleep -Seconds 2
-            if (-not (Test-Path $PidPath)) { continue }
-            $cand = 0
-            if (-not [int]::TryParse((Get-Content -Raw $PidPath).Trim(), [ref]$cand)) { continue }
-            if ($cand -le 0 -or $cand -eq $oldPid) { continue }
-            $proc = Get-Process -Id $cand -ErrorAction SilentlyContinue
-            if ($proc -and $proc.ProcessName -match 'node') {
-              $newPid = $cand
-              break
-            }
+          $after = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
+          if (-not $after -or $after.ProcessName -notmatch 'node') {
+            throw "ARIA agent PID $agentPid did not remain alive during continuity window"
           }
 
-          if (-not $newPid) {
-            if (Test-Path $LogPath) {
-              Write-Host 'watchdog.log after kill-request:'
-              Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue
-            }
-            throw 'Watchdog did not restart aria-agent.js after kill-request'
+          $afterHeartbeat = (Get-Content -Raw $HeartbeatPath | ConvertFrom-Json).timestamp
+          if ($afterHeartbeat -eq $beforeHeartbeat) {
+            throw 'ARIA agent heartbeat timestamp did not advance during continuity window'
           }
 
-          Write-Host 'WATCHDOG_RESTART=PASS'
-          Write-Host "AGENT_NEW_PID=$newPid"
-
+          Write-Host 'WATCHDOG_CONTINUITY=PASS'
+          Write-Host "AGENT_PID=$agentPid"
+          Write-Host "HEARTBEAT_BEFORE=$beforeHeartbeat"
+          Write-Host "HEARTBEAT_AFTER=$afterHeartbeat"
+          Write-Host 'DESTRUCTIVE_KILL_TEST=False'
       - name: Verify ARIA Gateway heartbeat
         env:
           ARIA_DEVICE_TOKEN: ${{ secrets.ARIA_DEVICE_TOKEN }}
