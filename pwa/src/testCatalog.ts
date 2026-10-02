@@ -2385,17 +2385,7 @@ export type TestCatalogStats = Readonly<{
   total: number;
   npmTest: number;
   catalogOnly: number;
-  categoryCount: number;
-  categories: readonly string[  {
-    "id": "meditation-queue-state-machine",
-    "file": "tests/meditation-queue-state-machine.test.js",
-    "title": "Meditation Queue State Machine",
-    "category": "Ejecución / misiones",
-    "includedInNpmTest": false,
-    "how": "Comprueba que las continuaciones no terminales permanezcan reanudables, que no exista fan-out de cola y que el scheduler tenga timeout explícito.",
-    "capabilities": "Valida single-flight, reconciliación de cola, prioridad de objetivo principal, aceptación explícita del Idea Analyzer y recuperación de continuaciones."
-  },
-];
+  categories: readonly string[];
   catalogVersion: string;
 }>;
 
