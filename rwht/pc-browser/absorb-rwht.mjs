@@ -228,3 +228,5 @@ await context.close().catch(() => {});
 await browser.close().catch(() => {});
 console.log('ABSORB LIVE E2E: PASS target=' + base);
 
+
+// ABSORB certification trigger checkpoint: final E2E must pass before merge.
