@@ -85,10 +85,23 @@ const fakeFetch = async (url) => {
 };
 
 (async () => {
-  const inventory = await compileEccInventory({ lockPath: undefined, fetchImpl: fakeFetch });
+  const inventory = await compileEccInventory({ lock: mockLock, fetchImpl: fakeFetch });
   assert.equal(inventory.source.commit_sha, 'commit-sha');
   assert.equal(inventory.complete_tree, true);
   assert.equal(inventory.summary.total_entries, 2);
   assert.equal(inventory.digest_sha256.length, 64);
+
+  await assert.rejects(
+    () => compileEccInventory({
+      lock: mockLock,
+      fetchImpl: async (url) => {
+        if (url.includes('/git/commits/')) {
+          return new Response(JSON.stringify({ sha: 'commit-sha', tree: { sha: 'tree-sha' } }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ sha: 'tree-sha', truncated: true, tree: [] }), { status: 200 });
+      },
+    }),
+    /truncated/,
+  );
   console.log('ECC INVENTORY COMPILER TEST: PASS');
 })();
