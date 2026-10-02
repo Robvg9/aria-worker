@@ -587,6 +587,7 @@ async function runAutonomousRwht(options) {
   const history = [];
   const evidence = [];
   const blocked = [];
+  const decisionSourceCounts = {};
   const screensSeen = new Set();
   const discoveredControls = new Set();
   const exercisedControls = new Set();
@@ -839,6 +840,7 @@ async function runAutonomousRwht(options) {
       }
     }
 
+    decisionSourceCounts[decisionSource] = (decisionSourceCounts[decisionSource] || 0) + 1;
     await emitProgress('computer_use_decision_made', {
       step,
       action: decision.action,
@@ -1049,6 +1051,8 @@ async function runAutonomousRwht(options) {
     required_routes_total: requiredRoutes.length,
     required_routes_visited: visitedRoutes.size,
     route_gate_verified: routeCoverageComplete,
+    decision_source_counts: decisionSourceCounts,
+    qwen_decisions: Number(decisionSourceCounts.qwen3 || 0),
   };
 
   await cleanupManagedBrowser();
