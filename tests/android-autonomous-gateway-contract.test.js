@@ -26,11 +26,13 @@ assert.match(source, /destructive/);
 console.log('ANDROID AUTONOMOUS GATEWAY CONTRACT: PASS');
 
 assert.ok(source.includes('executionJobGatewayCall'));
-assert.ok(source.includes("supabase.rpc('claim_execution_job_gateway'"));
-assert.ok(source.includes("supabase.rpc('start_execution_job_gateway'"));
-assert.ok(source.includes("supabase.rpc('complete_execution_job_gateway'"));
+assert.ok(source.includes("SUPABASE_DB_URL"));
+assert.ok(source.includes("postgres(dbUrl"));
+assert.ok(source.includes("claim_execution_job_gateway"));
+assert.ok(source.includes("start_execution_job_gateway"));
+assert.ok(source.includes("complete_execution_job_gateway"));
 
 const jobPath = source.slice(source.indexOf("if(req.method==='POST'&&p==='/v1/jobs/claim')"));
+assert.ok(jobPath.includes("executionJobGatewayCall('claim'"));
 assert.ok(jobPath.includes("transport:'supabase-rpc'"));
-assert.ok(!jobPath.includes("transport:'postgres'"));
 assert.ok(!jobPath.includes("transport:'postgrest-fallback'"));
