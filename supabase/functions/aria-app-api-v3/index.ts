@@ -191,11 +191,22 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     },{onConflict:"mission_id"});
     if(runtimeMissionError) throw new Error("chat_runtime_mission_context_failed:"+runtimeMissionError.message);
     const payload={prompt:String(prompt).slice(0,12000),model:String(target.model_id||"qwen3:0.6b"),timeout_ms:120000};
-    const {data:queued,error:enqueueError}=await sb.rpc("enqueue_execution_job_gateway",{
-      p_job_id:jobId,p_mission_id:runtimeMissionId,p_device_id:deviceId,p_operation:"ollama.qwen3",
-      p_command:JSON.stringify(payload),p_cwd:null,p_timeout_ms:120000,p_policy:{},
-      p_metadata:{source_application:"aria-app-api-v3",conversation_id:conversationId,local_fallback:true,model:payload.model}
-    });
+    let queued:any=null;
+    let enqueueError:any=null;
+    const enqueueDeadline=Date.now()+18000;
+    do {
+      const attempt=await sb.rpc("enqueue_execution_job_gateway",{
+        p_job_id:jobId,p_mission_id:runtimeMissionId,p_device_id:deviceId,p_operation:"ollama.qwen3",
+        p_command:JSON.stringify(payload),p_cwd:null,p_timeout_ms:120000,p_policy:{},
+        p_metadata:{source_application:"aria-app-api-v3",conversation_id:conversationId,local_fallback:true,model:payload.model}
+      });
+      queued=attempt.data;
+      enqueueError=attempt.error;
+      if(!enqueueError&&queued) break;
+      const message=String(enqueueError?.message||"");
+      if(!/execution_backpressure_device/.test(message) || Date.now()>=enqueueDeadline) break;
+      await new Promise(resolve=>setTimeout(resolve,1200));
+    } while(Date.now()<enqueueDeadline);
     if(enqueueError||!queued) throw new Error("local_qwen_enqueue_failed:"+(enqueueError?.message||"empty"));
     const deadline=Date.now()+45000;
     while(Date.now()<deadline){
