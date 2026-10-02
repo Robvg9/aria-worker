@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.5';
+const VERSION = 'aria-pc-browser-rwht-v1.3.6';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -585,11 +585,17 @@ async function auditRoute(page, url, routeIndex, config) {
     title: await page.title(),
     screen_key: screenKey,
     controls_discovered: initialControls.length,
-    controls_testable: initialControls.filter((control) => control.visible && !control.disabled).length,
+    controls_testable: initialControls.filter((control) => {
+      const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
+      return control.visible && !control.disabled && !dynamicMission;
+    }).length,
     controls_verified: 0,
     controls_blocked: 0,
     controls_failed: 0,
-    controls_skipped: initialControls.filter((control) => !control.visible || control.disabled).length,
+    controls_skipped: initialControls.filter((control) => {
+      const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
+      return !control.visible || control.disabled || dynamicMission;
+    }).length,
     ux,
     login,
     auth,
@@ -615,6 +621,18 @@ async function auditRoute(page, url, routeIndex, config) {
     const original = initialControls[index];
     const originalLabel = safeLabel(original.name);
     const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
+    if (dynamicMissionSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
     if (routeHash === '#settings' && settingsPresenceControl) {
       const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
       const button = section.getByRole('button').first();

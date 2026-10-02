@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-01-canonical';
+export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "phase6-anti-regression",
@@ -2434,7 +2434,224 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba el contrato de memoria de fallos de estrategia y sus defensas de no-regresión.",
     "capabilities": "Detecta regresiones relacionadas con registrar estrategias fallidas, recuperar evidencia y evitar repetir rutas conocidas."
+  },,
+
+  {
+    "id": "ecc-agent-adapter-layer",
+    "file": "tests/ecc-agent-adapter-layer.test.js",
+    "title": "ECC Agent Adapter Layer",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
   },
+  {
+    "id": "ecc-agentshield",
+    "file": "tests/ecc-agentshield.test.js",
+    "title": "ECC AgentShield",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-autonomous-loop",
+    "file": "tests/ecc-autonomous-loop.test.js",
+    "title": "ECC Autonomous Loop",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-capability-compiler",
+    "file": "tests/ecc-capability-compiler.test.js",
+    "title": "ECC Capability Compiler",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-capability-registry",
+    "file": "tests/ecc-capability-registry.test.js",
+    "title": "ECC Capability Registry",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-context-resolver",
+    "file": "tests/ecc-context-resolver.test.js",
+    "title": "ECC Context Resolver",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-device-ownership",
+    "file": "tests/ecc-device-ownership.test.js",
+    "title": "ECC Device Ownership",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-drift-conflict",
+    "file": "tests/ecc-drift-conflict.test.js",
+    "title": "ECC Drift Conflict",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-failure-memory",
+    "file": "tests/ecc-failure-memory.test.js",
+    "title": "ECC Failure Memory",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-final-certification",
+    "file": "tests/ecc-final-certification.test.js",
+    "title": "ECC Final Certification",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-harness-audit",
+    "file": "tests/ecc-harness-audit.test.js",
+    "title": "ECC Harness Audit",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-hook-event-adapter",
+    "file": "tests/ecc-hook-event-adapter.test.js",
+    "title": "ECC Hook Event Adapter",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-inventory-compiler",
+    "file": "tests/ecc-inventory-compiler.test.js",
+    "title": "ECC Inventory Compiler",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-learning-adapter",
+    "file": "tests/ecc-learning-adapter.test.js",
+    "title": "ECC Learning Adapter",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-mcp-bridge",
+    "file": "tests/ecc-mcp-bridge.test.js",
+    "title": "ECC MCP Bridge",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-mission-graph",
+    "file": "tests/ecc-mission-graph.test.js",
+    "title": "ECC Mission Graph",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-plan-canvas",
+    "file": "tests/ecc-plan-canvas.test.js",
+    "title": "ECC Plan Canvas",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-regression-review",
+    "file": "tests/ecc-regression-review.test.js",
+    "title": "ECC Regression Review",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-session-contract",
+    "file": "tests/ecc-session-contract.test.js",
+    "title": "ECC Session Contract",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-skills-layer",
+    "file": "tests/ecc-skills-layer.test.js",
+    "title": "ECC Skills Layer",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-source-lock",
+    "file": "tests/ecc-source-lock.test.js",
+    "title": "ECC Source Lock",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": true,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-specialist-selection",
+    "file": "tests/ecc-specialist-selection.test.js",
+    "title": "ECC Specialist Selection",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-unified-memory",
+    "file": "tests/ecc-unified-memory.test.js",
+    "title": "ECC Unified Memory",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  },
+  {
+    "id": "ecc-verification-loop",
+    "file": "tests/ecc-verification-loop.test.js",
+    "title": "ECC Verification Loop",
+    "category": "ECC / ejecución / gobierno",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
+    "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
+  }
 ];
 
 export type TestCatalogStats = Readonly<{

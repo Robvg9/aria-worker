@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.3.5/);
+assert.match(runner, /aria-pc-browser-rwht-v1.3.6/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -60,9 +60,9 @@ assert.match(runner, /RWHT_EXPECTED_AUTH_TEXT/);
 assert.match(runner, /auth_verified/);
 
 assert.match(pwaIndex, /aria-test-catalog-version/);
-assert.match(pwaIndex, /2026-10-01-canonical/);
+assert.match(pwaIndex, /2026-10-02-canonical/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
-assert.match(pwaIndex, /content='264'/);
+assert.match(pwaIndex, /content='293'/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
