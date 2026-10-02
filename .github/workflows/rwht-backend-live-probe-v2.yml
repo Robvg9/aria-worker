@@ -1,0 +1,31 @@
+name: RWHT Backend Live Probe V2
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Invoke restricted RWHT probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 180             -X POST -H 'content-type: application/json'             --data '{"mission_id":"mission_rwht_final_20260920_02"}'             'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway/v1/rwht-final-probe'             | tee /tmp/probe.json
+      - name: Print result
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('/tmp/probe.json').read_text())
+          print(json.dumps({
+            "ok":p.get("ok"),"status":p.get("status"),
+            "mission_id":p.get("mission_id"),"runtime":p.get("runtime"),
+            "completed_steps":p.get("completed_steps"),
+            "failed_steps":p.get("failed_steps"),"error":p.get("error")
+          },indent=2))
+          PY
