@@ -35,6 +35,14 @@ const { createAriaRuntime } = require('../activation/bootstrap');
   });
   assert.strictEqual(deviceResult.status, 'succeeded');
   assert.strictEqual(calls[1].device, 'android-termux-test');
+  const eccDeviceResult = await universal.execute({
+    missionId: 'm1',
+    step: { id: 's2-ecc', operation: 'ecc.execute', executor_type: 'device', target: { type: 'device', device_id: 'windows-ecc-test' }, input: { action: 'doctor', target: 'codex' } }
+  });
+  assert.strictEqual(eccDeviceResult.status, 'succeeded');
+  assert.strictEqual(calls[2].device, 'windows-ecc-test');
+  assert.strictEqual(calls[2].step.operation, 'ecc.execute');
+
 
   const universalAgent = createUniversalExecutor({
     activation,
