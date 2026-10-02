@@ -1083,10 +1083,12 @@ function QuickCatalogModal({ title, items, onClose }: { title: string; items: an
 
 function CapabilityCenter({
   caps,
-  userId
+  userId,
+  token
 }: {
   caps: CapabilityCatalog | null;
   userId: string;
+  token: string;
 }) {
   const CAP_TAB_KEY='aria_capabilities_tab_v3:'+userId;
   const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections' | 'tests' | 'absorb'>(() => {
@@ -1135,7 +1137,7 @@ function CapabilityCenter({
             )}
           </div>
 
-          {tab === 'absorb' ? <AbsorbCenter userId={userId} token={token} /> : {tab === 'overview' ? (
+          {tab === 'absorb' ? <AbsorbCenter userId={userId} token={token} /> : tab === 'overview' ? (
             caps ? (
               <div className='capGrid'>
                 <button className='capTile' onClick={() => saveTab('models')}><span>MODELOS</span><strong>{caps.summary.models ?? 0}</strong><small>{caps.summary.models_available ?? 0} disponibles</small></button>
