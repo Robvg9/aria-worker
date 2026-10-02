@@ -2397,6 +2397,24 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida que Mistral quede conectado al Execution Engine sin inventar cuentas, cuotas o rutas seleccionables."
   },
 
+  {
+    "id": "ecc-operator",
+    "file": "tests/ecc-operator.test.js",
+    "title": "ECC Operator",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba la interfaz gobernada que traduce acciones permitidas de ECC a la frontera de ejecución de dispositivos de ARIA.",
+    "capabilities": "Valida acciones permitidas de ECC, targets permitidos, generación determinista de comandos, dry-run y rechazo de shell arbitrario."
+  },
+  {
+    "id": "strategy-failure-memory-v1",
+    "file": "tests/strategy-failure-memory-v1.test.js",
+    "title": "Strategy Failure Memory V1",
+    "category": "Memoria / evaluación",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato de memoria de fallos de estrategia y sus defensas de no-regresión.",
+    "capabilities": "Detecta regresiones relacionadas con registrar estrategias fallidas, recuperar evidencia y evitar repetir rutas conocidas."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
