@@ -50,6 +50,7 @@ jobs:
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,12 +72,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ]] && [[ -z "${RWHT_STORAGE_STATE_B64}" ]]; then
-            echo "::error title=ABSORB LIVE E2E blocked::Configure RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE_B64."
+          has_password_auth=false
+          has_storage_auth=false
+          has_storage_gzip_auth=false
+          if [[ -n "${RWHT_EMAIL}" && -n "${RWHT_PASSWORD}" ]]; then has_password_auth=true; fi
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then has_storage_auth=true; fi
+          if [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then has_storage_gzip_auth=true; fi
+          if [[ "${has_password_auth}" != true && "${has_storage_auth}" != true && "${has_storage_gzip_auth}" != true ]]; then
+            echo "::error title=ABSORB LIVE E2E blocked::Configure RWHT_EMAIL + RWHT_PASSWORD, RWHT_STORAGE_STATE_B64, or RWHT_STORAGE_STATE_GZIP_B64."
             exit 1
           fi
-          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+          if [[ "${has_storage_auth}" == true ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          elif [[ "${has_storage_gzip_auth}" == true ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
             echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
           fi
