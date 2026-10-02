@@ -403,24 +403,50 @@ async function chromeCdpAct(node, action, text) {
 function promptFor(goal, ui, capabilities, history, screenHash, exercised) {
   const available = safeNodes(ui)
     .filter((node) => !exercised.has(controlKey(screenHash, node.id)))
-    .slice(0, 80);
+    .slice(0, 24);
 
   return [
     'ARIA WINDOWS RWHT CONTROLLER.',
     'OBJETIVO: ' + goal,
-    'CAPACIDADES REALES: ' + JSON.stringify(capabilities),
-    'REGLAS: usa solo nodos observados; prioriza cobertura real; no destructivos; no secretos; observa después de cada acción; NO finalices mientras existan controles seguros sin ejercitar.',
-    'ACCIONES: click,double_click,type,scroll,back,wait,screenshot,finish.',
-    'RESPUESTA: solo JSON válido. Ejemplo click: {"action":"click","node_id":"ID","reason":"..."}',
-    'Ejemplo type: {"action":"type","node_id":"ID","text":"ARIA_RWHT_TEST","reason":"..."}',
-    'CONTROLES SEGUROS PENDIENTES: ' + JSON.stringify(available.map((node) => ({
+    'REGLAS: selecciona solo un control seguro observado. No secretos. No destructivos.',
+    'RESPONDE SOLO CON JSON DE UNA ACCIÓN CLICK.',
+    'FORMATO EXACTO: {"action":"click","node_id":"ID","reason":"motivo corto"}',
+    'CONTROLES: ' + JSON.stringify(available.map((node, index) => ({
+      n: index + 1,
       id: node.id,
-      role: node.role,
       label: nodeLabel(node),
     }))),
-    'OBSERVACIÓN ACTUAL: ' + JSON.stringify(compact(ui)),
-    'HISTORIAL: ' + JSON.stringify(history.slice(-8)),
   ].join('\n');
+}
+
+function promptForTinySelector(goal, ui, screenHash, exercised) {
+  const available = safeNodes(ui)
+    .filter((node) => !exercised.has(controlKey(screenHash, node.id)))
+    .slice(0, 8);
+  return {
+    available,
+    prompt: [
+      'Elige un control seguro de la interfaz.',
+      'RESPONDE SOLO CON UN NÚMERO DEL 1 AL ' + Math.max(1, available.length) + '.',
+      available.map((node, index) => String(index + 1) + '. ' + nodeLabel(node)).join('\n'),
+    ].join('\n'),
+  };
+}
+
+function decisionFromTinySelection(raw, ui, screenHash, exercised) {
+  const { available } = promptForTinySelector('', ui, screenHash, exercised);
+  const match = String(raw || '').match(/^\s*([1-8])(?:[.)]|\s|$)/);
+  const index = match ? Number(match[1]) - 1 : -1;
+  if (index < 0 || index >= available.length) return null;
+  const node = available[index];
+  return {
+    action: 'click',
+    node_id: String(node.id),
+    text: 'ARIA_RWHT_TEST',
+    delta: 650,
+    ms: 1000,
+    reason: 'Qwen local selected safe control #' + String(index + 1),
+  };
 }
 
 function normalizeDecision(raw) {
@@ -783,10 +809,10 @@ async function runAutonomousRwht(options) {
     const fastCoverageMode = /(RWHT\s+PC\s+E2E|RWHT_CONTROL_DISCOVERY_VERIFY|ARIA\s+PWA|PWA\s+LIVE(?:\s+de)?\s+ARIA)/i.test(goal);
     if (!fastCoverageMode) {
       try {
-        decision = normalizeDecision(await model(
-          promptFor(goal, current, capabilities, history, screenHash, exercisedControls),
-          5000
-        ));
+        const tiny = promptForTinySelector(goal, current, screenHash, exercisedControls);
+        const rawModel = await model(tiny.prompt, 30000);
+        decision = decisionFromTinySelection(rawModel, current, screenHash, exercisedControls)
+          || normalizeDecision(parseJson(rawModel));
       } catch (error) {
         decisionSource = 'fallback';
         modelError = String(error && error.message || error);
