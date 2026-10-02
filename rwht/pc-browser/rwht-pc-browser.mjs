@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.7';
+const VERSION = 'aria-pc-browser-rwht-v1.3.8';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -596,7 +596,15 @@ async function auditRoute(page, url, routeIndex, config) {
     };
   }
   const ux = await checkUx(page);
-  const initialControls = await discoverInteractive(page);
+
+  // Authentication is a hard boundary for authenticated RWHT. Never audit
+  // stale login controls as if they were dashboard controls when authentication
+  // failed or the session was lost during reload.
+  const authenticationBoundaryFailed = config.require_auth && !auth.verified;
+  const initialControls = authenticationBoundaryFailed
+    ? []
+    : await discoverInteractive(page);
+
   const screenKey = sha({
     url: page.url(),
     title: await page.title(),
@@ -638,6 +646,16 @@ async function auditRoute(page, url, routeIndex, config) {
   }
 
   const routeHash = routeForReadiness;
+  if (authenticationBoundaryFailed) {
+    routeResult.controls_failed = 1;
+    routeResult.actions.push({
+      outcome: 'failed',
+      action: 'authenticate',
+      reason: auth?.reason || login?.error || 'authenticated_surface_missing'
+    });
+    return routeResult;
+  }
+
   const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
   for (let index = 0; index < maxControls; index += 1) {
     // Force a genuinely fresh SPA state before each control. Reusing the same

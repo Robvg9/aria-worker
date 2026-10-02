@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.3.7/);
+assert.match(runner, /aria-pc-browser-rwht-v1.3.8/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -58,6 +58,9 @@ console.log('PC BROWSER RWHT CONTRACT: PASS');
 assert.match(runner, /RWHT_REQUIRE_AUTH/);
 assert.match(runner, /RWHT_EXPECTED_AUTH_TEXT/);
 assert.match(runner, /auth_verified/);
+assert.match(runner, /authenticationBoundaryFailed/);
+assert.match(runner, /Authenticated RWHT.*hard boundary|Authentication is a hard boundary/);
+assert.match(runner, /authenticated_surface_missing/);
 
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /2026-10-02-canonical/);
