@@ -1,0 +1,32 @@
+name: ECC Phase 20 AgentShield
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-19-regression-review
+    paths:
+      - 'scripts/ecc-agentshield.js'
+      - 'tests/ecc-agentshield.test.js'
+      - '.github/workflows/ecc-phase20-agentshield.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-20-agentshield'
+    paths:
+      - 'scripts/ecc-agentshield.js'
+      - 'tests/ecc-agentshield.test.js'
+      - '.github/workflows/ecc-phase20-agentshield.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  shield:
+    name: ECC Phase 20 / AgentShield
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-agentshield.test.js
