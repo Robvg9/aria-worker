@@ -19,14 +19,23 @@ async function ensureBrowserSession() {
   if (!email || !password) throw new Error('authenticated_session_missing');
 
   const authOrigin = new URL(base).origin;
-  const authResponse = await context.request.post(authOrigin + '/auth/token?grant_type=password', {
-    timeout: 120000,
-    headers: { 'content-type': 'application/json', apikey: ANON },
-    data: { email: email.trim(), password }
-  });
-  const payload = await authResponse.json().catch(() => ({}));
-  if (!authResponse.ok() || !payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
-    throw new Error('auth_proxy_failed:http_' + authResponse.status() + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
+  let payload = {};
+  let authStatus = 0;
+  let authError = 'unknown';
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const authResponse = await context.request.post(authOrigin + '/auth/token?grant_type=password', {
+      timeout: 30000,
+      headers: { 'content-type': 'application/json', apikey: ANON },
+      data: { email: email.trim(), password }
+    });
+    authStatus = authResponse.status();
+    payload = await authResponse.json().catch(() => ({}));
+    if (authResponse.ok() && payload?.access_token && payload?.refresh_token && payload?.user?.id) break;
+    authError = String(payload?.error_description || payload?.msg || payload?.error || 'unknown');
+    if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 5000 * attempt));
+  }
+  if (!payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
+    throw new Error('auth_proxy_failed:http_' + authStatus + ':' + authError);
   }
 
   const session = {
