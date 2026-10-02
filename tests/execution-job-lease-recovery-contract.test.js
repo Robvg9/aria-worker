@@ -52,4 +52,14 @@ assert.ok(forensic.includes("resolved_device_id: resolvedDeviceId || step.target
 
 console.log('governed-device-reroute PASS');
 
+
+const missionProgressSource = runner;
+assert.ok(missionProgressSource.includes("const recoveredFromResults"));
+assert.ok(missionProgressSource.includes("resultsSource[id]"));
+assert.ok(missionProgressSource.includes("resultIsVerifiedSuccess(resultsSource[id])"));
+assert.ok(missionProgressSource.includes("const recoveredFromHistory"));
+assert.ok(missionProgressSource.includes("const recovered = [...new Set([...recoveredFromResults, ...recoveredFromHistory])];"));
+
+console.log('mission-progress-preservation PASS');
+
 console.log('execution-job-lease-recovery PASS');
