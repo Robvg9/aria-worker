@@ -56,9 +56,9 @@ assert.throws(
 
 assert.throws(
   () => buildHookEventCatalog({
-    entries: { PreToolUse: [{ id: 'x' }] },
+    entries: { PreToolUse: [{}] },
   }, { tag: 'v2.2.3', commit_sha: 'commit', path: 'x', sha: 'sha' }),
-  /Unsupported hook event type/,
+  /Hook id is required/,
 );
 
 assert.throws(
