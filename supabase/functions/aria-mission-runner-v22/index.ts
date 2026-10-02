@@ -143,7 +143,13 @@ async function resolveDeviceTarget(missionId: string, step: any): Promise<Device
         : "no_device_requested_selected_online_capable_device",
   };
 
-  await emitEvent(missionId, "device_target_resolved", resolution);
+  const resolutionEventType = operation.startsWith("computer.use")
+    ? "computer_use_device_confirmed"
+    : "executor_selected";
+  await emitEvent(missionId, resolutionEventType, {
+    ...resolution,
+    reason: resolution.reason || "device_target_resolved",
+  });
   return resolution;
 }
 
@@ -2081,7 +2087,10 @@ Deno.serve(async (request) => {
         lease_owner: null,
         lease_until: null,
       });
-      await emitEvent(missionId, "mission_alternative_strategy_needed", identicalRecovery);
+      await emitEvent(missionId, "recovery_attempted", {
+        ...identicalRecovery,
+        recovery_event: "alternative_strategy_needed",
+      });
       return out({
         ok: true,
         status: "waiting",
