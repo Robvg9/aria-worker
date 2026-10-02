@@ -146,6 +146,7 @@ async function run() {
   const failedResponses = [];
   const requestFailures = [];
   const authRefreshResponses = [];
+  const conversationPostRequests = [];
   let expectedRecoveryAbortErrors = false;
 
   page.on('pageerror', error => pageErrors.push({ message: String(error?.message || error).slice(0, 1200) }));
@@ -154,6 +155,19 @@ async function run() {
     const text = message.text().slice(0, 1200);
     if (expectedRecoveryAbortErrors && ( /Failed to load resource: net::ERR_FAILED/i.test(text) || /Failed to load resource: the server responded with a status of 401 \(\)/i.test(text) )) return;
     consoleErrors.push({ text });
+  });
+  page.on('request', request => {
+    const requestUrl = new URL(request.url());
+    if (request.method() === 'POST' && requestUrl.pathname.replace(/\/+$/, '') === '/api/conversation') {
+      let body = null;
+      try { body = request.postDataJSON(); } catch {}
+      conversationPostRequests.push({
+        url: request.url().slice(0, 1200),
+        conversationId: typeof body?.conversationId === 'string' ? body.conversationId : null,
+        clientMessageId: typeof body?.clientMessageId === 'string' ? body.clientMessageId : null,
+        text: Array.isArray(body?.parts) ? body.parts.filter(part => part?.type === 'text').map(part => String(part.text || '')).join('\n').slice(0, 500) : ''
+      });
+    }
   });
   page.on('response', response => {
     const responseUrl = new URL(response.url());
@@ -444,6 +458,7 @@ async function run() {
   report.failed_responses = failedResponses.slice(0, 100);
   report.request_failures = requestFailures.slice(0, 100);
   report.auth_refresh_responses = authRefreshResponses.slice(0, 20);
+  report.conversation_post_requests = conversationPostRequests.slice(0, 20);
 
   fs.writeFileSync(path.join(ARTIFACT_DIR, 'persistence-recovery-rwht-report.json'), JSON.stringify(report, null, 2));
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'persistence-recovery-final.png'), fullPage: true }).catch(() => {});
@@ -464,7 +479,8 @@ async function run() {
     console_errors: report.console_errors.length,
     failed_responses: report.failed_responses.length,
     failure: report.failure,
-    auth_refresh_responses: report.auth_refresh_responses
+    auth_refresh_responses: report.auth_refresh_responses,
+    conversation_post_requests: report.conversation_post_requests
   }, null, 2));
 
   if (!report.verified) process.exitCode = 2;
