@@ -19,9 +19,11 @@
       "availability": "restricted",
       "metadata": {
         "access_path": "mistral_chat_completions",
-        "verified_at": "2026-10-01",
-        "evidence": "Mistral official model documentation + provider adapter contract",
-        "notes": "Model is registered for governed discovery only. It remains non-selectable until a real Mistral account/credential exists and LIVE health, execution, response and E2E evidence are recorded."
+        "verified_at": "2026-10-02",
+        "evidence": "Mistral /v1/models LIVE 200; Chat Completions LIVE 429",
+        "notes": "Credential and API access are valid, but Chat Completions is currently rate/usage limited by Mistral; route remains non-selectable until a successful LIVE completion is observed.",
+        "live_api_models_ok": true,
+        "live_chat_status": 429
       },
       "capability_refs": [
         "text_generation"
