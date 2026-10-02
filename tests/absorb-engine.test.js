@@ -26,8 +26,8 @@ const assert = require('node:assert/strict');
     if (url.endsWith('/repos/acme/tool')) return new Response(JSON.stringify({
       full_name: 'acme/tool', default_branch: 'main', visibility: 'public', archived: false, license: { spdx_id: 'MIT' }
     }), { status: 200 });
-    if (url.endsWith('/git/ref/heads/main')) return new Response(JSON.stringify({
-      object: { sha: '0123456789abcdef0123456789abcdef01234567' }
+    if (url.endsWith('/commits/main')) return new Response(JSON.stringify({
+      sha: '0123456789abcdef0123456789abcdef01234567'
     }), { status: 200 });
     if (url.includes('/git/trees/0123456789abcdef0123456789abcdef01234567')) return new Response(JSON.stringify({
       truncated: false,
