@@ -200,12 +200,16 @@ function capabilityProfile(deviceId) {
 function findBrowserExecutable() {
   if (process.platform !== 'win32') return null;
   const candidates = [
-    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(process.env.PROGRAMFILES || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
     path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
     'C:\\Program Files\\TotalCommanderPlus\\Soft\\Principal\\Chrome\\chrome.exe',
   ];
   return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
@@ -661,7 +665,21 @@ async function runAutonomousRwht(options) {
   }));
 
   const observe = async (reason = 'initial') => {
-    await ensureCdpBrowser(startUrl).catch(() => null);
+    const browserReady = await ensureCdpBrowser(startUrl).catch((error) => ({
+      ready: false,
+      error: String(error && error.message || error),
+    }));
+    if (!browserReady.ready) {
+      await emitProgress('computer_use_browser_ready', {
+        status: 'failed',
+        managed_browser: browserReady.managed === true,
+        cdp_base_url: CDP_BASE_URL,
+        error: browserReady.error || 'browser_unavailable',
+      });
+      if (fullPwaCoverageMode) {
+        throw new Error('chrome_cdp_bootstrap_failed:' + String(browserReady.error || 'browser_unavailable'));
+      }
+    }
     await emitProgress('computer_use_observation_started', {
       reason,
       full_pwa_coverage: fullPwaCoverageMode,
