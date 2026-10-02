@@ -158,4 +158,4 @@ jobs:
       - name: Remove temporary authentication state
         if: always()
         run: rm -f "${RUNNER_TEMP}/aria-persistence-recovery-auth-state.json"
-# Operational certification rerun: fresh-user persistence/reload/continuity E2E after APP API v134 20261002
+# Operational certification rerun: fresh-user persistence/reload/continuity E2E after APP API v135 20261002
