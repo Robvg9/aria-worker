@@ -113,7 +113,7 @@ async function learnedContext(project:any){
 async function conversationRoutes() {
   if(conversationRouteCache && conversationRouteCache.expiresAt>Date.now()) {
     const localDevices=await serviceClient().schema("aria_internal").from("device_registry")
-      .select("device_id,last_seen_at").eq("status","online").contains("capabilities",["ollama.qwen3"])
+      .select("device_id,last_seen_at").eq("status","online").contains("capabilities",'["ollama.qwen3"]')
       .order("last_seen_at",{ascending:false}).limit(1);
     const cachedCloud=conversationRouteCache.routes.filter((route:any)=>route.provider_id!=="local_windows");
     const onlineLocal=localDevices.data?.[0];
@@ -143,7 +143,7 @@ async function conversationRoutes() {
     return {model_id:m.model_id,provider_id:m.provider_id,account_id:account.account_id,capability_status:cap?.status ?? "unknown",evidence_type:cap?.evidence_type ?? "unknown",evidence_ref:cap?.evidence_ref ?? null,score:(cap?.status==="verified"?100:50)+providerBoost};
   }).filter(Boolean);
   const localDevices=await serviceClient().schema("aria_internal").from("device_registry")
-    .select("device_id,last_seen_at").eq("status","online").contains("capabilities",["ollama.qwen3"])
+    .select("device_id,last_seen_at").eq("status","online").contains("capabilities",'["ollama.qwen3"]')
     .order("last_seen_at",{ascending:false}).limit(1);
   const onlineLocal=localDevices.data?.[0];
   if(onlineLocal?.device_id){
