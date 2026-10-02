@@ -86,28 +86,26 @@ function Find-ExistingDesktopCommander {
 }
 
 function Start-DesktopCommander {
-    $npx = Resolve-Npx
-    $npxEscaped = $npx.Replace("'", "''")
-    $command = "$env:NODE_OPTIONS='--dns-result-order=ipv4first'; & '$npxEscaped' --yes '@wonderwhy-er/desktop-commander@$DcVersion' remote"
+    $dc = Resolve-DesktopCommander
+    $node = $dc.node
+    $entry = $dc.entry
+    $toolRoot = $dc.tool_root
 
+    $env:NODE_OPTIONS = '--dns-result-order=ipv4first'
     $stdout = Join-Path $LogDir 'desktop-commander.stdout.log'
     $stderr = Join-Path $LogDir 'desktop-commander.stderr.log'
 
-    Write-Log "START_REQUEST version=$DcVersion npx=$npx"
+    Write-Log "START_REQUEST version=$DcVersion node=$node entry=$entry"
 
-    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-Command', $command
-    ) -WorkingDirectory $env:USERPROFILE -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+    $process = Start-Process -FilePath $node -ArgumentList @($entry, 'remote') -WorkingDirectory $toolRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 
     Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force
     Write-Log "STARTED pid=$($process.Id) version=$DcVersion"
     Write-Status @{
         state = 'starting'
         pid = $process.Id
-        npx = $npx
+        node = $node
+        entry = $entry
         last_start = (Get-Date -Format o)
         auth_required = $false
         error = $null
