@@ -1486,6 +1486,9 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
           provider_id: route.provider_id,
           account_id: route.account_id,
           model_id: route.model_id,
+          response: {
+            content: String(localResult?.stdout ?? localResult?.response?.content ?? localResult?.result ?? "").trim(),
+          },
           model_fallback_used: true,
           model_fallback_source: "windows_ollama",
           model_fallback_device_id: route.device_id,
