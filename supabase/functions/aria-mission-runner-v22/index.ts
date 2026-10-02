@@ -953,7 +953,8 @@ async function finalGlobalReconcile(missionId: string, step: any, mission: any =
 async function connectorExecute(missionId: string, step: any, token: string | null, mission: any = null) {
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
-  if (connector === "supabase" && operation === "global_final_reconcile") return finalGlobalReconcile(missionId, step, mission);\n  if (connector === "supabase" && operation === "health") {
+  if (connector === "supabase" && operation === "global_final_reconcile") return finalGlobalReconcile(missionId, step, mission);
+  if (connector === "supabase" && operation === "health") {
     return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: { ok: true } };
   }
   if (connector === "supabase" && operation === "mission_read") {
