@@ -124,8 +124,9 @@ test('ECC unknown tool is never available before LIVE verification', () => {
 
 test('toolsByRisk read returns aria_context', () => {
   const list = tools.toolsByRisk('read');
-  assert.strictEqual(list.length, 1);
-  assert.strictEqual(list[0].tool_id, 'tool_aria_context');
+  assert.strictEqual(list.length, 2);
+  assert.ok(list.some(t => t.tool_id === 'tool_aria_context'));
+  assert.ok(list.some(t => t.tool_id === 'tool_ecc_operator'));
 });
 
 test('toolsByRisk low_risk_write returns aria_memory_capture', () => {
