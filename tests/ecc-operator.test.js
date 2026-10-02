@@ -33,6 +33,10 @@ assert.ok(consultSource.includes('"--target","codex"'));
 assert.ok(consultSource.includes('if(process.platform==="win32")'));
 assert.ok(consultSource.includes('const npmCli=path.join(path.dirname(process.execPath),"node_modules","npm","bin","npm-cli.js")'));
 assert.ok(consultSource.includes('cp.execFileSync(process.execPath,[npmCli,...installArgs]'));
+assert.ok(consultSource.includes('npm_config_cache:path.join(temp,"npm-cache")'));
+assert.ok(consultSource.includes('npm_config_userconfig:path.join(temp,".npmrc")'));
+assert.ok(consultSource.includes('env:npmEnv'), 'ECC npm install must use the isolated npm environment');
+
 assert.ok(consultSource.includes('cp.execFileSync("npm",installArgs'));
 assert.equal(consultSource.includes('npm.cmd'), false, 'Windows runner must not depend on npm.cmd spawn');
 const canonicalOperatorSource = require('fs').readFileSync(
