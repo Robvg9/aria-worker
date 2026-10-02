@@ -326,14 +326,16 @@ async function run() {
 
     const chatPostResponse = await chatPostResponsePromise;
     const chatPostBody = await chatPostResponse.json().catch(() => null);
-    const canonicalAssistantText = typeof chatPostBody?.parts?.find?.(part => part?.type === 'text')?.text === 'string'
+    const postAssistantText = typeof chatPostBody?.parts?.find?.(part => part?.type === 'text')?.text === 'string'
       ? chatPostBody.parts.find(part => part.type === 'text').text.trim()
       : '';
+    report.chat.ui_response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
+    if (!report.chat.ui_response_text) throw new Error('chat_response_empty');
+    const asyncProcessingAccepted = Boolean(chatPostBody?.processing || chatPostBody?.visualState === 'processing');
+    const canonicalAssistantText = postAssistantText || (asyncProcessingAccepted ? report.chat.ui_response_text : '');
     if (!canonicalAssistantText) throw new Error('chat_post_response_missing_assistant_text');
 
     report.chat.response_text = canonicalAssistantText;
-    report.chat.ui_response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
-    if (!report.chat.ui_response_text) throw new Error('chat_response_empty');
 
     report.chat.post_response = {
       status: chatPostResponse.status(),
