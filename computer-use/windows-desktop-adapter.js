@@ -198,7 +198,7 @@ async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
     return { status: 'succeeded', action: 'wait', ms: payload.ms, elapsed_ms: Date.now() - startedAt, version: VERSION, method: 'node_timer' };
   }
   const args = payload.action === 'observe'
-    ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', `& "${UIA_SCRIPT.replace(/"/g, '""')}"`]
+    ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', UIA_SCRIPT]
     : payload.action === 'hotkey'
       ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', HOTKEY_SCRIPT]
       : ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', RUNNER];

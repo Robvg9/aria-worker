@@ -149,25 +149,60 @@ if($null -ne $still){
           Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=PASS'
           Write-Host "WINDOWS_AGENT_PID=$pidNow"
 
-      - name: Sync Computer Use runtime to D
+      - name: Sync Computer Use runtime to D and reload Agent when changed
         run: |
           $ErrorActionPreference='Stop'
           $src=Join-Path $env:GITHUB_WORKSPACE 'computer-use'
           $dst='D:\ARIA-Windows-Agent\Runtime\windows'
           if(-not(Test-Path $src)){throw 'computer-use source missing'}
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
-          $files=Get-ChildItem -LiteralPath $src -File
-          foreach($f in $files){
+          $changedAny=$false
+          foreach($f in (Get-ChildItem -LiteralPath $src -File)){
             $target=Join-Path $dst $f.Name
             $changed=$true
             if(Test-Path $target){
               $changed=((Get-FileHash $f.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $target -Algorithm SHA256).Hash)
             }
-            if($changed){Copy-Item -LiteralPath $f.FullName -Destination $target -Force;Write-Host "COMPUTER_USE_SYNC=$($f.Name)"}
+            if($changed){
+              Copy-Item -LiteralPath $f.FullName -Destination $target -Force
+              Write-Host "COMPUTER_USE_SYNC=$($f.Name)"
+              $changedAny=$true
+            }
           }
-          $js=Get-ChildItem -LiteralPath $src -Filter '*.js' -File
-          foreach($f in $js){& node --check $f.FullName;if($LASTEXITCODE -ne 0){throw "computer-use syntax failed: $($f.Name)"}}
+          foreach($f in (Get-ChildItem -LiteralPath $src -Filter '*.js' -File)){
+            & node --check $f.FullName
+            if($LASTEXITCODE -ne 0){throw "computer-use syntax failed: $($f.Name)"}
+          }
+          Write-Host "COMPUTER_USE_RUNTIME_CHANGED=$changedAny"
+          if(-not $changedAny){
+            Write-Host 'COMPUTER_USE_RUNTIME_SYNC=UNCHANGED'
+            exit 0
+          }
+
+          $ap='D:\ARIA-Windows-Agent\Logs\agent.pid'
+          $agentPid=0
+          if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$agentPid)}
+          if($agentPid -gt 0){
+            $proc=Get-Process -Id $agentPid -ErrorAction SilentlyContinue
+            if($null -ne $proc){
+              Write-Host "COMPUTER_USE_AGENT_RELOAD_PID=$agentPid"
+              Stop-Process -Id $agentPid -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          $ok=$false
+          for($i=0;$i-lt30;$i++){
+            Start-Sleep -Seconds 1
+            $pidNow=0
+            if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$pidNow)}
+            if($pidNow -gt 0 -and $pidNow -ne $agentPid){
+              $procNow=Get-Process -Id $pidNow -ErrorAction SilentlyContinue
+              if($null -ne $procNow){$ok=$true;break}
+            }
+          }
+          if(-not $ok){throw 'Windows agent did not reload after computer-use runtime sync'}
           Write-Host 'COMPUTER_USE_RUNTIME_SYNC=PASS'
+          Write-Host "COMPUTER_USE_AGENT_RELOAD_NEW_PID=$pidNow"
 
       - name: Enforce singleton Agent and singleton watchdog without restart
         run: |
