@@ -192,7 +192,9 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       p_command:JSON.stringify(payload),p_cwd:null,p_timeout_ms:120000,p_policy:{},
       p_metadata:{source_application:"aria-app-api-v3",conversation_id:conversationId,local_fallback:true,model:payload.model}
     });
-    if(enqueueError||!queued) throw new Error("local_qwen_enqueue_failed:"+(enqueueError?.message||"empty"));
+    if(enqueueError||!queued) {
+      throw new Error("local_qwen_enqueue_failed:device="+deviceId+":rpc="+(enqueueError?.message||"empty"));
+    }
     const deadline=Date.now()+45000;
     while(Date.now()<deadline){
       await new Promise(resolve=>setTimeout(resolve,1200));
