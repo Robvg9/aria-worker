@@ -71,10 +71,10 @@ function Get-TrackedProcess {
 
 function Find-ExistingDesktopCommander {
     try {
-        $procs = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop
+        $procs = Get-CimInstance Win32_Process -ErrorAction Stop
         foreach ($proc in $procs) {
             $cmd = [string]$proc.CommandLine
-            if ($cmd -match '(?i)desktop-commander' -and $cmd -match '(?i)(^|[\s"''])(remote)([\s"'']|$)') {
+            if ($cmd -match '(?i)desktop-commander' -and $cmd -match '(?i)remote') {
                 return $proc.ProcessId
             }
         }
