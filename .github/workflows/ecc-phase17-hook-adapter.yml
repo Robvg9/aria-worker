@@ -1,0 +1,40 @@
+name: ECC Phase 17 Hook Event Adapter
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-16-mcp-bridge
+    paths:
+      - 'scripts/ecc-hook-event-adapter.js'
+      - 'tests/ecc-hook-event-adapter.test.js'
+      - '.github/workflows/ecc-phase17-hook-adapter.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-17-hook-adapter'
+    paths:
+      - 'scripts/ecc-hook-event-adapter.js'
+      - 'tests/ecc-hook-event-adapter.test.js'
+      - '.github/workflows/ecc-phase17-hook-adapter.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  hooks:
+    name: ECC Phase 17 / hook event adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-hook-event-adapter.test.js
+      - name: Verify locked ECC hook sources LIVE
+        run: |
+          node - <<'NODE'
+          const { buildLiveHookAdapter } = require('./scripts/ecc-hook-event-adapter');
+          buildLiveHookAdapter()
+            .then(x => console.log(JSON.stringify({ schema: x.schema, summary: x.summary, digest: x.adapter_digest_sha256 }, null, 2)))
+            .catch(err => { console.error(err); process.exit(1); });
+          NODE

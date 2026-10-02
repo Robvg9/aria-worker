@@ -1,0 +1,32 @@
+name: ECC Phase 21 Plan Canvas Review
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-20-agentshield
+    paths:
+      - 'scripts/ecc-plan-canvas.js'
+      - 'tests/ecc-plan-canvas.test.js'
+      - '.github/workflows/ecc-phase21-plan-canvas.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-21-plan-canvas-review'
+    paths:
+      - 'scripts/ecc-plan-canvas.js'
+      - 'tests/ecc-plan-canvas.test.js'
+      - '.github/workflows/ecc-phase21-plan-canvas.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  plan-canvas:
+    name: ECC Phase 21 / plan canvas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-plan-canvas.test.js

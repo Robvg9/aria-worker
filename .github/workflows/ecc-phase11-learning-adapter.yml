@@ -1,0 +1,32 @@
+name: ECC Phase 11 Continuous Learning Adapter
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-10-autonomous-loop
+    paths:
+      - 'scripts/ecc-learning-adapter.js'
+      - 'tests/ecc-learning-adapter.test.js'
+      - '.github/workflows/ecc-phase11-learning-adapter.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-11-learning-adapter'
+    paths:
+      - 'scripts/ecc-learning-adapter.js'
+      - 'tests/ecc-learning-adapter.test.js'
+      - '.github/workflows/ecc-phase11-learning-adapter.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  learning:
+    name: ECC Phase 11 / learning adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-learning-adapter.test.js

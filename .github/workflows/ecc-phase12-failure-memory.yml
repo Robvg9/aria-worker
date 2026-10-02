@@ -1,0 +1,32 @@
+name: ECC Phase 12 Failure Memory
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-11-learning-adapter
+    paths:
+      - 'scripts/ecc-failure-memory.js'
+      - 'tests/ecc-failure-memory.test.js'
+      - '.github/workflows/ecc-phase12-failure-memory.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-12-failure-memory'
+    paths:
+      - 'scripts/ecc-failure-memory.js'
+      - 'tests/ecc-failure-memory.test.js'
+      - '.github/workflows/ecc-phase12-failure-memory.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  failure-memory:
+    name: ECC Phase 12 / failure memory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-failure-memory.test.js

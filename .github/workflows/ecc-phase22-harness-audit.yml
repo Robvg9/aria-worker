@@ -1,0 +1,32 @@
+name: ECC Phase 22 Harness Audit
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-21-plan-canvas-review
+    paths:
+      - 'scripts/ecc-harness-audit.js'
+      - 'tests/ecc-harness-audit.test.js'
+      - '.github/workflows/ecc-phase22-harness-audit.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-22-harness-audit'
+    paths:
+      - 'scripts/ecc-harness-audit.js'
+      - 'tests/ecc-harness-audit.test.js'
+      - '.github/workflows/ecc-phase22-harness-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: ECC Phase 22 / harness audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-harness-audit.test.js
