@@ -1,0 +1,83 @@
+name: ARIA ABSORB Contract and LIVE E2E
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/absorb-engine.mjs'
+      - 'supabase/functions/aria-app-api-v3/index.ts'
+      - 'supabase/migrations/*_aria_absorb_v1.sql'
+      - 'pwa/**'
+      - 'tests/absorb-*'
+      - 'tests/pwa-absorb-ui-contract.test.js'
+      - 'rwht/pc-browser/absorb-rwht.mjs'
+      - '.github/workflows/aria-absorb.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: aria-absorb-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Node contracts
+        run: |
+          node tests/absorb-engine.test.js
+          node tests/absorb-app-api-contract.test.js
+          node tests/pwa-absorb-ui-contract.test.js
+      - name: PWA build
+        working-directory: pwa
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+  live-e2e:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Require authenticated session source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ]] && [[ -z "${RWHT_STORAGE_STATE_B64}" ]]; then
+            echo "::error title=ABSORB LIVE E2E blocked::Configure RWHT_EMAIL + RWHT_PASSWORD or RWHT_STORAGE_STATE_B64."
+            exit 1
+          fi
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          fi
+      - name: Install Playwright
+        working-directory: rwht/pc-browser
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run ABSORB LIVE E2E
+        working-directory: rwht/pc-browser
+        run: node absorb-rwht.mjs
+      - name: Upload ABSORB evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-absorb-live-evidence
+          path: rwht/pc-browser/absorb-artifacts
+          if-no-files-found: warn
