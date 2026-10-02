@@ -698,7 +698,7 @@ async function deviceExecute(missionId: string, step: any) {
 async function githubExecute(step: any, token: string | null, mission: any = null) {
   const operation = String(step.operation || "");
   const input = step.input && typeof step.input === "object" ? step.input : {};
-  const readOps = new Set(["repo_read", "file_read", "pr_find", "pr_read", "pr_checks", "main_workflow_runs"]);
+  const readOps = new Set(["repo_read", "file_read", "ref_read", "pr_find", "pr_read", "pr_checks", "main_workflow_runs"]);
   const writeOps = new Set(["create_branch", "file_write", "open_pr", "pr_merge"]);
   if (!readOps.has(operation) && !writeOps.has(operation)) {
     throw new Error(`github_operation_not_allowed:${operation}`);
@@ -754,10 +754,207 @@ async function githubExecute(step: any, token: string | null, mission: any = nul
   };
 }
 
+async function finalGlobalReconcile(missionId: string, step: any, mission: any = null) {
+  const dependencyResults = Array.isArray(step?.input?.dependency_results) ? step.input.dependency_results : [];
+  const parsed: Record<string, any> = {};
+  for (const item of dependencyResults) {
+    const id = String(item?.step_id || "");
+    if (!id) continue;
+    try {
+      parsed[id] = typeof item?.evidence === "string" ? JSON.parse(item.evidence) : item?.evidence ?? null;
+    } catch {
+      parsed[id] = item?.evidence ?? null;
+    }
+  }
+
+  const required = ["master_inventory_1", "master_synthesis_1", "master_rwht_1", "master_implementation_1"];
+  const missing = required.filter((id) => !parsed[id]);
+  if (missing.length) throw new Error("global_reconcile_missing_dependencies:" + missing.join(","));
+
+  const dependencyGate = required.map((id) => ({
+    step_id: id,
+    status: String(parsed[id]?.status || ""),
+    verified: parsed[id]?.verified !== false,
+    error: parsed[id]?.error || null,
+  }));
+  if (dependencyGate.some((x) => x.status !== "succeeded" || x.verified === false || x.error)) {
+    throw new Error("global_reconcile_dependency_not_verified");
+  }
+
+  const rwht = parsed.master_rwht_1;
+  const rwhtGate = {
+    verified: rwht?.verified === true,
+    device_id: String(rwht?.device_id || ""),
+    required_routes_total: Number(rwht?.required_routes_total || 0),
+    required_routes_visited: Number(rwht?.required_routes_visited || 0),
+    coverage_ratio: Number(rwht?.coverage_ratio || 0),
+    actions_verified: Number(rwht?.actions_verified || 0),
+    evidence_event_id: Number(rwht?.evidence_event_id || 0),
+    rwht_mission_id: String(rwht?.rwht_mission_id || ""),
+  };
+  if (
+    !rwhtGate.verified
+    || rwhtGate.device_id !== "windows-lacueva-780886"
+    || rwhtGate.required_routes_total < 7
+    || rwhtGate.required_routes_visited < rwhtGate.required_routes_total
+    || rwhtGate.coverage_ratio < 0.98
+    || rwhtGate.actions_verified < 5
+    || !rwhtGate.evidence_event_id
+    || !rwhtGate.rwht_mission_id
+  ) {
+    throw new Error("global_reconcile_rwht_evidence_invalid");
+  }
+
+  const impl = parsed.master_implementation_1;
+  const implementationGate = {
+    verified: impl?.verified === true,
+    pr: Number(impl?.pr || 0),
+    main_sha: String(impl?.main_sha || ""),
+    ci: String(impl?.ci || ""),
+    workers_build: String(impl?.workers_build || ""),
+    supabase_deploy: String(impl?.supabase_deploy || ""),
+    delivery_gate: String(impl?.delivery_gate || ""),
+    live_reroute_probe: String(impl?.live_reroute_probe || ""),
+  };
+  if (
+    !implementationGate.verified
+    || implementationGate.pr !== 738
+    || !implementationGate.main_sha
+    || implementationGate.ci !== "success"
+    || implementationGate.workers_build !== "success"
+    || implementationGate.supabase_deploy !== "success"
+    || implementationGate.delivery_gate !== "success"
+    || implementationGate.live_reroute_probe !== "job-reroute-probe-20261002"
+  ) {
+    throw new Error("global_reconcile_implementation_evidence_invalid");
+  }
+
+  const { data: rwhtEvent, error: rwhtEventError } = await sb.schema("aria_internal")
+    .from("mission_events")
+    .select("id,event_type,payload,created_at")
+    .eq("id", rwhtGate.evidence_event_id)
+    .maybeSingle();
+  if (rwhtEventError || !rwhtEvent || String(rwhtEvent.event_type) !== "mission_verified" || rwhtEvent?.payload?.verified !== true) {
+    throw new Error("global_reconcile_rwht_event_missing");
+  }
+
+  const { data: rerouteJob, error: rerouteJobError } = await sb.schema("aria_internal")
+    .from("execution_jobs")
+    .select("job_id,status,exit_code,result,evidence,error,completed_at")
+    .eq("job_id", implementationGate.live_reroute_probe)
+    .maybeSingle();
+  if (
+    rerouteJobError
+    || !rerouteJob
+    || String(rerouteJob.status) !== "succeeded"
+    || Number(rerouteJob.exit_code) !== 0
+    || rerouteJob.error
+  ) {
+    throw new Error("global_reconcile_reroute_probe_invalid");
+  }
+
+  const { data: device, error: deviceError } = await sb.schema("aria_internal")
+    .from("device_registry")
+    .select("device_id,status,capabilities,last_seen_at")
+    .eq("device_id","windows-lacueva-780886")
+    .maybeSingle();
+  if (deviceError || !device || String(device.status) !== "online" || !deviceSupportsOperation(device.capabilities,"computer.use.autonomous")) {
+    throw new Error("global_reconcile_windows_device_not_ready");
+  }
+
+  const mainRef = await githubExecute({
+    operation: "ref_read",
+    risk: "READ",
+    target: { connector_id: "github" },
+    input: { owner: "Robvg9", repo: "aria-worker", branch: "main" },
+    authorization: { status: "approved", risk_class: "READ", evidence_ref: "mission:" + missionId },
+  }, null, mission);
+  const currentMainSha = String(mainRef?.data?.sha || "");
+  if (!currentMainSha) throw new Error("global_reconcile_main_ref_unavailable");
+
+  const sourceRef = await githubExecute({
+    operation: "file_read",
+    risk: "READ",
+    target: { connector_id: "github" },
+    input: { owner: "Robvg9", repo: "aria-worker", path: "supabase/functions/aria-mission-runner-v22/index.ts", branch: "main" },
+    authorization: { status: "approved", risk_class: "READ", evidence_ref: "mission:" + missionId },
+  }, null, mission);
+  const encoded = String(sourceRef?.data?.content || "").replace(/\s+/g, "");
+  let sourceText = "";
+  try {
+    sourceText = new TextDecoder().decode(Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0)));
+  } catch {}
+  const liveCodeMarkers = {
+    recoveredFromResults: sourceText.includes("const recoveredFromResults"),
+    resolveDeviceTarget: sourceText.includes("resolveDeviceTarget"),
+    globalFinalReconcile: sourceText.includes("globalFinalReconcile"),
+  };
+  if (!liveCodeMarkers.recoveredFromResults || !liveCodeMarkers.resolveDeviceTarget || !liveCodeMarkers.globalFinalReconcile) {
+    throw new Error("global_reconcile_main_code_markers_missing");
+  }
+
+  const pwaUrl = "https://aria.robvg9.workers.dev/pwa/";
+  const pwaResponse = await fetch(pwaUrl, { method: "GET", redirect: "follow" });
+  const pwaBody = await pwaResponse.text().catch(() => "");
+  const pwaGate = {
+    url: pwaUrl,
+    http_status: pwaResponse.status,
+    ok: pwaResponse.ok,
+    content_type: pwaResponse.headers.get("content-type") || "",
+    nonempty: pwaBody.length > 0,
+  };
+  if (!pwaResponse.ok || !pwaGate.nonempty) throw new Error("global_reconcile_pwa_live_unavailable");
+
+  const evidence = {
+    certificate: "aria-libro-maestro-global-final-reconcile-v1",
+    verified: true,
+    scope: "mission_closure_evidence_reconciliation",
+    note: "Model-generated inventory/synthesis are retained as advisory backlog; certification relies on persisted executable evidence and LIVE checks.",
+    mission_id: missionId,
+    checked_at: new Date().toISOString(),
+    dependencies: dependencyGate,
+    rwht: rwhtGate,
+    implementation: implementationGate,
+    persisted_rwht_event: {
+      id: rwhtEvent.id,
+      event_type: rwhtEvent.event_type,
+      created_at: rwhtEvent.created_at,
+    },
+    reroute_probe: {
+      job_id: rerouteJob.job_id,
+      status: rerouteJob.status,
+      exit_code: rerouteJob.exit_code,
+      completed_at: rerouteJob.completed_at,
+    },
+    windows_device: {
+      device_id: device.device_id,
+      status: device.status,
+      last_seen_at: device.last_seen_at,
+    },
+    main: {
+      branch: "main",
+      sha: currentMainSha,
+      code_markers: liveCodeMarkers,
+    },
+    pwa_live: pwaGate,
+  };
+  await emitEvent(missionId, "global_final_reconciled", evidence);
+  return {
+    status: "succeeded",
+    executor_type: "connector",
+    connector_id: "supabase",
+    operation: "global_final_reconcile",
+    verified: true,
+    __aria_verified_by_runner: true,
+    __aria_verification_evidence: evidence,
+    verification_evidence: evidence,
+  };
+}
+
 async function connectorExecute(missionId: string, step: any, token: string | null, mission: any = null) {
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
-  if (connector === "supabase" && operation === "health") {
+  if (connector === "supabase" && operation === "global_final_reconcile") return finalGlobalReconcile(missionId, step, mission);\n  if (connector === "supabase" && operation === "health") {
     return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: { ok: true } };
   }
   if (connector === "supabase" && operation === "mission_read") {
