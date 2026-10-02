@@ -435,7 +435,7 @@ function promptForTinySelector(goal, ui, screenHash, exercised) {
 
 function decisionFromTinySelection(raw, ui, screenHash, exercised) {
   const { available } = promptForTinySelector('', ui, screenHash, exercised);
-  const match = String(raw || '').match(/(?:^|\\s)([1-8])(?:\\s|$)/);
+  const match = String(raw || '').match(/^\s*([1-8])(?:[.)]|\s|$)/);
   const index = match ? Number(match[1]) - 1 : -1;
   if (index < 0 || index >= available.length) return null;
   const node = available[index];
