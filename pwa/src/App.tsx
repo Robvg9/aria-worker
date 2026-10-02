@@ -67,6 +67,7 @@ type CapabilityCatalog = {
 };
 type Mission = any;
 type MissionEvent = any;
+type AbsorptionRecord = any;
 type AppPage = 'aria' | 'meditation' | 'capabilities' | 'projects' | 'settings';
 
 type NavigationState = {
@@ -970,7 +971,112 @@ function QuickCatalogModal({ title, items, onClose }: { title: string; items: an
           })}
           {!items.length && <div className='emptyState'>Todavía no hay datos disponibles para este inventario.</div>}
         </div>
-      </section>
+      <function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
+  const [records, setRecords] = useState<AbsorptionRecord[]>([]);
+  const [sourceUrl, setSourceUrl] = useState('https://github.com/affaan-m/ECC');
+  const [ref, setRef] = useState('v2.2.3');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const d: any = await api('/absorb', token);
+      setRecords(Array.isArray(d?.absorptions) ? d.absorptions : []);
+    } catch {}
+  }
+
+  useEffect(() => { void load(); }, [token]);
+
+  async function inspect() {
+    setBusy(true);
+    setMessage('Inspeccionando fuente sin ejecutar código externo…');
+    try {
+      const d: any = await api('/absorb/inspect', token, {
+        method: 'POST',
+        body: JSON.stringify({ source: { url: sourceUrl.trim(), ref: ref.trim() }, requested_capabilities: [] })
+      });
+      if (!d?.absorption) throw new Error('ARIA no devolvió el registro de absorción.');
+      setRecords((current) => [d.absorption, ...current.filter((x:any) => x.absorption_id !== d.absorption.absorption_id)]);
+      setSelected(d.absorption.absorption_id);
+      setMessage('Fuente inspeccionada e indexada. Ningún código externo fue ejecutado.');
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'No se pudo inspeccionar la fuente.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function action(kind: 'verify' | 'register' | 'enable', absorptionId: string) {
+    setBusy(true);
+    setMessage(kind === 'verify' ? 'Reverificando procedencia y digest…' : kind === 'register' ? 'Registrando binding gobernado…' : 'Comprobando evidencia LIVE antes de habilitar…');
+    try {
+      const body: any = { absorption_id: absorptionId };
+      if (kind === 'register') body.binding = { binding_id: 'tool_ecc_operator' };
+      const d: any = await api('/absorb/' + kind, token, { method: 'POST', body: JSON.stringify(body) });
+      if (!d?.absorption) throw new Error(d?.error || 'ARIA no devolvió el nuevo estado.');
+      setRecords((current) => current.map((x:any) => x.absorption_id === absorptionId ? { ...x, ...d.absorption } : x));
+      setMessage(kind === 'enable' ? 'Capacidad habilitada mediante un binding previamente permitido y con evidencia runtime.' : 'Paso completado.');
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'La operación no pudo completarse.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const current = selected ? records.find((x:any) => x.absorption_id === selected) : records[0];
+
+  return (
+    <section className='panel' data-testid='aria-absorb-center'>
+      <div className='panelTitle'>🧬 ARIA ABSORB · v1.0</div>
+      <p className='muted'>Adquisición gobernada de capacidades. ARIA inspecciona primero, no ejecuta código externo y solo habilita bindings certificados.</p>
+
+      <div className='settingsOption'>
+        <div><strong>Fuente GitHub</strong><small>URL https://github.com/&lt;owner&gt;/&lt;repo&gt; · usa una referencia inmutable cuando sea posible.</small></div>
+        <input aria-label='Fuente GitHub ABSORB' value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder='https://github.com/owner/repo' />
+      </div>
+      <div className='settingsOption'>
+        <div><strong>Ref / tag / branch</strong><small>ABSORB fijará además el commit SHA real.</small></div>
+        <input aria-label='Ref GitHub ABSORB' value={ref} onChange={e => setRef(e.target.value)} placeholder='main o v1.0.0' />
+      </div>
+      <div className='actions'>
+        <button className='primary' data-testid='aria-absorb-inspect' disabled={busy || !sourceUrl.trim()} onClick={() => void inspect()}>Inspeccionar e indexar</button>
+        {current?.status === 'INDEXED' && <button className='ghost' data-testid='aria-absorb-verify' disabled={busy} onClick={() => void action('verify', current.absorption_id)}>Verificar fuente</button>}
+        {current?.status === 'VERIFIED' && <button className='ghost' data-testid='aria-absorb-register' disabled={busy || !(current.source_owner === 'affaan-m' && current.source_repo === 'ECC' && current.source_requested_ref === 'v2.2.3')} onClick={() => void action('register', current.absorption_id)}>Registrar binding ECC</button>}
+        {current?.status === 'REGISTERED' && <button className='primary' data-testid='aria-absorb-enable' disabled={busy} onClick={() => void action('enable', current.absorption_id)}>Habilitar capacidad</button>}
+      </div>
+      {message && <div className='notice' role='status'>{message}</div>}
+
+      <div className='testCatalogList'>
+        {records.map((record:any) => {
+          const count = Array.isArray(record.capabilities) ? record.capabilities.length : 0;
+          return <button type='button' className='testCatalogRow' key={record.absorption_id} onClick={() => setSelected(record.absorption_id)}>
+            <div className='testCatalogMain'>
+              <div><strong>{record.resource_name || (record.source_owner + '/' + record.source_repo)}</strong><small>{record.source_requested_ref || 'ref no especificada'} · {record.source_commit_sha || 'commit pendiente'}</small></div>
+              <div className='testCatalogMeta'><span className={'pill ' + tone(String(record.status || ''))}>{statusLabel(String(record.status || ''))}</span><span className='pill'>{count} capacidades indexadas</span></div>
+            </div>
+            <span>›</span>
+          </button>;
+        })}
+        {!records.length && <div className='emptyState'>Todavía no hay absorciones registradas.</div>}
+      </div>
+
+      {current && <div className='panel' style={{ marginTop: 12 }}>
+        <div className='panelTitle'>REGISTRO CANÓNICO</div>
+        <div className='humanSummaryGrid'>
+          <div><strong>Fuente</strong><p>{current.source_ref}</p></div>
+          <div><strong>Commit</strong><p>{current.source_commit_sha}</p></div>
+          <div><strong>Digest</strong><p>{current.source_digest_sha256}</p></div>
+          <div><strong>Estado runtime</strong><p>{current.enabled ? 'HABILITADO' : 'NO HABILITADO'}</p></div>
+          <div><strong>Verificación</strong><p>{current.verification?.verification_level || 'Pendiente'}</p></div>
+          <div><strong>Ejecución externa</strong><p>PROHIBIDA durante adquisición.</p></div>
+        </div>
+      </div>}
+    </section>
+  );
+}
+
+/section>
     </div>
   );
 }
@@ -983,7 +1089,7 @@ function CapabilityCenter({
   userId: string;
 }) {
   const CAP_TAB_KEY='aria_capabilities_tab_v3:'+userId;
-  const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections' | 'tests'>(() => {
+  const [tab, setTab] = useState<'overview' | 'models' | 'agents' | 'devices' | 'executors' | 'connections' | 'tests' | 'absorb'>(() => {
     try {
       const saved = localStorage.getItem(CAP_TAB_KEY);
       return (saved as any) || 'overview';
@@ -1022,14 +1128,14 @@ function CapabilityCenter({
           </div>
 
           <div className='capTabs'>
-            {(['overview','models','agents','devices','executors','connections','tests'] as const).map(t =>
+            {(['overview','models','agents','devices','executors','connections','tests','absorb'] as const).map(t =>
               <button key={t} className={'tabButton ' + (tab === t ? 'selected' : '')} onClick={() => saveTab(t)}>
-                {t === 'overview' ? 'Resumen' : t === 'models' ? 'Modelos' : t === 'agents' ? 'Agentes' : t === 'devices' ? 'Dispositivos' : t === 'executors' ? 'Executors' : t === 'connections' ? 'Conexiones' : 'Pruebas'}
+                {t === 'overview' ? 'Resumen' : t === 'models' ? 'Modelos' : t === 'agents' ? 'Agentes' : t === 'devices' ? 'Dispositivos' : t === 'executors' ? 'Executors' : t === 'connections' ? 'Conexiones' : t === 'tests' ? 'Pruebas' : 'ABSORB'}
               </button>
             )}
           </div>
 
-          {tab === 'overview' ? (
+          {tab === 'absorb' ? <AbsorbCenter userId={userId} token={token} /> : {tab === 'overview' ? (
             caps ? (
               <div className='capGrid'>
                 <button className='capTile' onClick={() => saveTab('models')}><span>MODELOS</span><strong>{caps.summary.models ?? 0}</strong><small>{caps.summary.models_available ?? 0} disponibles</small></button>
@@ -1037,7 +1143,7 @@ function CapabilityCenter({
                 <button className='capTile' onClick={() => saveTab('devices')}><span>DISPOSITIVOS</span><strong>{caps.summary.devices ?? 0}</strong><small>{caps.summary.devices_online ?? 0} online</small></button>
                 <button className='capTile' onClick={() => saveTab('executors')}><span>EXECUTORS</span><strong>{caps.summary.executors ?? 0}</strong><small>rutas gobernadas</small></button>
                 <button className='capTile' onClick={() => saveTab('connections')}><span>CONEXIONES</span><strong>{caps.summary.connections ?? 0}</strong><small>estado no sensible</small></button>
-                <button className='capTile' onClick={() => saveTab('tests')}><span>PRUEBAS</span><strong>{TEST_CATALOG_STATS.total}</strong><small>{TEST_CATALOG_STATS.npmTest} en npm test</small></button>
+                <button className='capTile' onClick={() => saveTab('tests')}><span>PRUEBAS</span><strong>{TEST_CATALOG_STATS.total}</strong><small>{TEST_CATALOG_STATS.npmTest} en npm test</small></button><button className='capTile' onClick={() => saveTab('absorb')}><span>ABSORB</span><strong>v1</strong><small>adquisición gobernada</small></button>
               </div>
             ) : <div className='emptyState'>No se pudo cargar el inventario.</div>
           ) : tab === 'tests' ? (
@@ -2781,7 +2887,7 @@ function Capabilities({ session }: { session: Session }) {
       writeCached('capabilities', session.userId, d.capabilities);
     }
   }, session.accessToken, 60000);
-  return <CapabilityCenter caps={caps} userId={session.userId} />;
+  return <CapabilityCenter caps={caps} userId={session.userId} token={session.accessToken} />;
 }
 
 function MeditationBackgroundSync({ session }: { session: Session }) {
