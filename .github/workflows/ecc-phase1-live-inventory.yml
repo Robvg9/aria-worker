@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - aria/ecc-phase-00-source-lock
     paths:
       - 'ecc/source-lock.json'
       - 'scripts/ecc-inventory-compiler.js'
