@@ -8,7 +8,6 @@ const artifactDir = path.resolve(process.cwd(), 'absorb-artifacts');
 fs.mkdirSync(artifactDir, { recursive: true });
 const storage = process.env.RWHT_STORAGE_STATE || '';
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
-const SUPABASE_AUTH = 'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password';
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext(storage ? { storageState: storage } : {});
 const page = await context.newPage();
@@ -19,7 +18,8 @@ async function ensureBrowserSession() {
   const password = process.env.RWHT_PASSWORD || '';
   if (!email || !password) throw new Error('authenticated_session_missing');
 
-  const authResponse = await context.request.post(base + '/auth/token?grant_type=password', {
+  const authOrigin = new URL(base).origin;
+  const authResponse = await context.request.post(authOrigin + '/auth/token?grant_type=password', {
     timeout: 120000,
     headers: { 'content-type': 'application/json', apikey: ANON },
     data: { email: email.trim(), password }
