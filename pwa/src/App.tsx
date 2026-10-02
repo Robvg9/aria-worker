@@ -1588,56 +1588,21 @@ function Chat({
       }
       setFile(null);
       const activeConversationId = conversationId ?? crypto.randomUUID();
-      const clientMessageId = crypto.randomUUID();
       setConversationId(activeConversationId);
-      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId }) });
-      let responseData = d;
-      if (d?.processing && d?.job_id) {
-        const deadline = Date.now() + 130000;
-        let recovered = false;
-        while (Date.now() < deadline) {
-          await new Promise(resolve => window.setTimeout(resolve, 2000));
-          const latest = await api('/conversation', session.accessToken);
-          const restored = Array.isArray(latest?.conversation?.messages)
-            ? latest.conversation.messages
-                .map((m: any) => ({
-                  id: String(m.message_id ?? crypto.randomUUID()),
-                  role: m.role === 'assistant' ? 'aria' : 'user',
-                  text: String(m.content ?? '')
-                }))
-                .filter((m: any) => m.text.trim())
-            : [];
-          const markerIndex = [...restored].map((m: any) => m.text).lastIndexOf(clean);
-          const assistant = markerIndex >= 0
-            ? restored.slice(markerIndex + 1).find((m: any) => m.role === 'aria' && m.text.trim())
-            : null;
-          setConversationId(typeof latest?.conversation_id === 'string' ? latest.conversation_id : activeConversationId);
-          if (assistant) {
-            responseData = {
-              ...d,
-              parts: [{ type: 'text', text: assistant.text }],
-              cognitive: { ...(d?.cognitive ?? {}), processing_ms: Date.now() - (processingStartedAtRef.current || Date.now()) }
-            };
-            setMessages(current => mergeRestoredChatMessages(restored, current));
-            recovered = true;
-            break;
-          }
-        }
-        if (!recovered) throw new Error('ARIA sigue procesando la respuesta local. Actualiza el chat para recuperar el resultado.');
-      }
-      const p = responseData.parts?.find((x: any) => x.type === 'text');
-      const serverProcessingMs = Number(responseData?.cognitive?.processing_ms);
+      const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId: crypto.randomUUID(), conversationId: activeConversationId }) });
+      const p = d.parts?.find((x: any) => x.type === 'text');
+      const serverProcessingMs = Number(d?.cognitive?.processing_ms);
       if (Number.isFinite(serverProcessingMs) && serverProcessingMs >= 0) setLastProcessingMs(serverProcessingMs);
       else if (processingStartedAtRef.current) setLastProcessingMs(Date.now() - processingStartedAtRef.current);
       if (p?.text) setMessages(m => [...m, { id: crypto.randomUUID(), role: 'aria', text: p.text, processingMs: Number.isFinite(serverProcessingMs) ? serverProcessingMs : undefined }]);
-      if (responseData?.mission_confirmation_required && responseData?.pending_mission?.goal) {
+      if (d?.mission_confirmation_required && d?.pending_mission?.goal) {
         setPendingMissionConfirmation({
           goal: String(d.pending_mission.goal),
           conversationId: String(d.conversationId || activeConversationId)
         });
       } else {
         setPendingMissionConfirmation(null);
-        if (responseData.mission?.mission_id) void trackMission(responseData.mission.mission_id);
+        if (d.mission?.mission_id) void trackMission(d.mission.mission_id);
       }
     } catch (x) {
       setError(x instanceof Error ? x.message : 'Error comunicando con ARIA.');

@@ -1,0 +1,32 @@
+name: ECC Phase 7 Agent Adapter
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-06-skills-layer
+    paths:
+      - 'scripts/ecc-agent-adapter-layer.js'
+      - 'tests/ecc-agent-adapter-layer.test.js'
+      - '.github/workflows/ecc-phase7-agent-adapter.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-07-agent-adapter'
+    paths:
+      - 'scripts/ecc-agent-adapter-layer.js'
+      - 'tests/ecc-agent-adapter-layer.test.js'
+      - '.github/workflows/ecc-phase7-agent-adapter.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agents:
+    name: ECC Phase 7 / agent adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-agent-adapter-layer.test.js

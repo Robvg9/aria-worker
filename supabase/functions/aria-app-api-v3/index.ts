@@ -163,7 +163,7 @@ async function conversationRoutes() {
   return routes;
 }
 
-async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
+async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
   if (target.provider_id === "local_windows") {
@@ -234,20 +234,6 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       await new Promise(resolve=>setTimeout(resolve,1200));
     } while(Date.now()<enqueueDeadline);
     if(enqueueError||!queued) throw new Error("local_qwen_enqueue_failed:"+(enqueueError?.message||"empty"));
-    if(!waitForLocal){
-      return {
-        status:"processing",
-        response:{content:""},
-        operation:"text_generation",
-        provider_id:"local_windows",
-        account_id:deviceId,
-        model_id:payload.model,
-        local_fallback_used:true,
-        local_fallback_source:"windows_ollama",
-        local_fallback_device_id:deviceId,
-        job_id:jobId
-      };
-    }
     // Local Windows Qwen may legitimately take longer than the former 45s polling window; keep the API boundary below the 120s execution-job contract.\n    const deadline=Date.now()+110000;
     while(Date.now()<deadline){
       await new Promise(resolve=>setTimeout(resolve,1200));
@@ -294,79 +280,26 @@ async function execute(step: any, prompt: string, conversationId: string, visual
   return x.b;
 }
 
-async function executeDebate(step:any,prompt:string,conversationId:string,visualContext:any=null,clientMessageId:string|null=null,waitForLocal:boolean=true){
+async function executeDebate(step:any,prompt:string,conversationId:string,visualContext:any=null,clientMessageId:string|null=null){
   const routes=await conversationRoutes();
   const first=step?.target||routes[0];
   const second=routes.find((route:any)=>String(route.model_id)!==String(first?.model_id)||String(route.provider_id)!==String(first?.provider_id));
   if(!first||!second) return null;
   const firstStep={...step,target:{...(step.target||{}),type:'model',provider_id:first.provider_id,account_id:first.account_id,model_id:first.model_id}};
-  const proposal=await execute(firstStep,prompt,conversationId,visualContext,clientMessageId,waitForLocal);
+  const proposal=await execute(firstStep,prompt,conversationId,visualContext,clientMessageId);
   const proposalText=typeof proposal?.response?.content==='string'?proposal.response.content.trim():'';
   if(!proposalText) return null;
   const criticStep={...step,target:{type:'model',provider_id:second.provider_id,account_id:second.account_id,model_id:second.model_id}};
-  const critique=await execute(criticStep,debatePrompt(prompt,proposalText),conversationId,visualContext,clientMessageId,waitForLocal);
+  const critique=await execute(criticStep,debatePrompt(prompt,proposalText),conversationId,visualContext,clientMessageId);
   return {result:critique,proposal,first:{provider_id:first.provider_id,model_id:first.model_id},second:{provider_id:second.provider_id,model_id:second.model_id}};
 }
 
-async function completeLocalChatInBackground(userId:string,conversationId:string,jobId:string,traceId:string,providerId:string,modelId:string,title:string,project:any){
-  const deadline=Date.now()+140000;
-  let lastError:string|null=null;
-  while(Date.now()<deadline){
-    await new Promise(resolve=>setTimeout(resolve,1200));
-    const {data:job,error}=await serviceClient().rpc("get_execution_job_gateway",{p_job_id:jobId});
-    if(error){ lastError=error.message; continue; }
-    const status=String(job?.status||"");
-    if(status==="succeeded"){
-      const content=String(job?.stdout??"").trim();
-      if(!content){ lastError="local_qwen_empty_response"; break; }
-      try{
-        await persistConversationMessage(
-          userId,
-          conversationId,
-          "assistant",
-          content,
-          [{type:"text",text:content}],
-          traceId,
-          "success",
-          providerId,
-          modelId,
-          title,
-          project
-        );
-      }catch(e){
-        lastError=String((e as any)?.message??e);
-        break;
-      }
-      return;
-    }
-    if(["failed","timeout","cancelled","blocked"].includes(status)){
-      lastError="local_qwen_job_"+status+":"+(job?.error||job?.stderr||"execution_failed");
-      break;
-    }
-  }
-  try{
-    const content="ARIA no pudo completar la respuesta local en el tiempo disponible. La ejecución quedó registrada para diagnóstico.";
-    await persistConversationMessage(
-      userId,
-      conversationId,
-      "assistant",
-      content,
-      [{type:"text",text:content}],
-      traceId,
-      "error",
-      providerId,
-      modelId,
-      title,
-      project
-    );
-  }catch{}
-}
 function isTransientModelFailure(error:any){const value=String(error instanceof Error?error.message:error||"").toLowerCase();return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502/.test(value);}
-async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
+async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null) {
   const failures:any[]=[];
   if(step?.target){
     try{
-      const result=await execute(step,prompt,conversationId,visualContext,clientMessageId,waitForLocal);
+      const result=await execute(step,prompt,conversationId,visualContext,clientMessageId);
       return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
     }catch(error){
       failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
@@ -387,7 +320,7 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
     seen.add(key);
     try{
       const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,...(route.device_id?{device_id:route.device_id}: {})}};
-      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId,waitForLocal);
+      const result=await execute(candidate,prompt,conversationId,visualContext,clientMessageId);
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
       failures.push({provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,error:String(error instanceof Error?error.message:error)});
@@ -1326,50 +1259,13 @@ Deno.serve(async (req) => {
       let debate:any = null;
       try {
         if (shouldDebate(text, lane.lane)) {
-          try { debate = await executeDebate(step, prompt, conversationId, visual_context, clientMessageId, true); } catch { debate = null; }
+          try { debate = await executeDebate(step, prompt, conversationId, visual_context, clientMessageId); } catch { debate = null; }
         }
-        execution = debate ? { result: debate.result, route: debate.second, fallback_count: 0, failures: [], debate: true } : await executeConversationWithFallback(step, prompt, conversationId, visual_context, clientMessageId, false);
+        execution = debate ? { result: debate.result, route: debate.second, fallback_count: 0, failures: [], debate: true } : await executeConversationWithFallback(step, prompt, conversationId, visual_context, clientMessageId);
       } catch (e) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], processing_ms: Date.now() - requestStartedAt, model_ms: Date.now() - modelStartedAt, input_persistence_ms: initialPersistenceMs, persistence_warning: persistenceWarning, trace_id: trace }, 502);
       }
       const result=execution.result;
-      if(result?.status==="processing" && result?.job_id){
-        const title=project?.name ? project.name+" · Chat" : "ARIA · Chat";
-        EdgeRuntime.waitUntil(
-          completeLocalChatInBackground(
-            user.id,
-            conversationId,
-            String(result.job_id),
-            trace,
-            String(result.provider_id||"local_windows"),
-            String(result.model_id||"qwen3:0.6b"),
-            title,
-            project
-          )
-        );
-        return json({
-          ok:true,
-          conversationId,
-          visualState:"processing",
-          processing:true,
-          job_id:String(result.job_id),
-          parts:[],
-          cognitive:{
-            recall_count:memory.length,
-            provider_id:result.provider_id,
-            model_id:result.model_id,
-            fallback_count:execution.fallback_count,
-            fast_lane:lane.lane,
-            fast_lane_reason:lane.reason,
-            debate_used:false,
-            processing_ms:Date.now()-requestStartedAt,
-            input_persistence_ms:initialPersistenceMs,
-            assistant_persistence_ms:null,
-            persistence_warning:persistenceWarning
-          },
-          trace_id:trace
-        });
-      }
       const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
       if (!content) {
         return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: "empty_conversation_response", processing_ms: Date.now() - requestStartedAt, model_ms: Date.now() - modelStartedAt, trace_id: trace }, 502);

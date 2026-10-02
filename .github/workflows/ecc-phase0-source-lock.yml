@@ -1,0 +1,38 @@
+name: ECC Phase 0 Source Lock
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'ecc/source-lock.json'
+      - 'ecc/source-lock.md'
+      - 'tests/ecc-source-lock.test.js'
+      - '.github/workflows/ecc-phase0-source-lock.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-00-source-lock'
+    paths:
+      - 'ecc/source-lock.json'
+      - 'ecc/source-lock.md'
+      - 'tests/ecc-source-lock.test.js'
+      - '.github/workflows/ecc-phase0-source-lock.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-lock:
+    name: ECC Phase 0 / source-lock contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run ECC source-lock contract
+        run: node tests/ecc-source-lock.test.js

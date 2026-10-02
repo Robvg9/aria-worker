@@ -1,0 +1,32 @@
+name: ECC Phase 23 Final Certification
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-22-harness-audit
+    paths:
+      - 'scripts/ecc-final-certification.js'
+      - 'tests/ecc-final-certification.test.js'
+      - '.github/workflows/ecc-phase23-final-certification.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-23-ecc2-certification'
+    paths:
+      - 'scripts/ecc-final-certification.js'
+      - 'tests/ecc-final-certification.test.js'
+      - '.github/workflows/ecc-phase23-final-certification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  certification:
+    name: ECC Phase 23 / ECC2 final certification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-final-certification.test.js

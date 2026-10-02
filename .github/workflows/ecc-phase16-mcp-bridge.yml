@@ -1,0 +1,42 @@
+name: ECC Phase 16 MCP Bridge
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-15-multi-device-ownership
+    paths:
+      - 'scripts/ecc-mcp-bridge.js'
+      - 'tests/ecc-mcp-bridge.test.js'
+      - '.github/workflows/ecc-phase16-mcp-bridge.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-16-mcp-bridge'
+    paths:
+      - 'scripts/ecc-mcp-bridge.js'
+      - 'tests/ecc-mcp-bridge.test.js'
+      - '.github/workflows/ecc-phase16-mcp-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mcp:
+    name: ECC Phase 16 / MCP inventory bridge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-mcp-bridge.test.js
+      - name: Verify locked ECC MCP configuration LIVE
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const { fetchLockedMcpConfig } = require('./scripts/ecc-mcp-bridge');
+          const lock = JSON.parse(fs.readFileSync('ecc/source-lock.json', 'utf8'));
+          fetchLockedMcpConfig({ commit_sha: lock.upstream.commit_sha, tag: lock.upstream.tag })
+            .then(x => console.log(JSON.stringify({ schema: x.schema, source: x.source, summary: x.summary, digest: x.inventory_digest_sha256 }, null, 2)))
+            .catch(err => { console.error(err); process.exit(1); });
+          NODE

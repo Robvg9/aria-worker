@@ -103,7 +103,7 @@ if(!plannerConfig.includes('"imports"'))throw new Error('planner v11 deno.json i
 console.log('aria-app-api-v3-contract.test.js: PASS');
 
 for (const fragment of [
-  "trackMission(responseData.mission.mission_id)",
+  "void trackMission(d.mission.mission_id)",
   "Background mission tracking must never block the conversational channel.",
   "function missionResultText(mission: any)",
   "function missionHumanSummary(mission: any)",
