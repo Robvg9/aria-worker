@@ -1937,6 +1937,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
   },
   {
+    "id": "router-vision-v1",
+    "file": "tests/router-vision-v1.test.js",
+    "title": "Router Vision V1",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba la ruta primaria LIVE, la preparación de un segundo proveedor como fallback y las barreras contra proveedores no verificados.",
+    "capabilities": "Valida selección determinista, fallback multi-proveedor, bloqueo de Mistral sin generación LIVE y gobernanza explícita de rate limits."
+  },
+  {
     "id": "security-v2",
     "file": "tests/security-v2.test.js",
     "title": "Security V",
