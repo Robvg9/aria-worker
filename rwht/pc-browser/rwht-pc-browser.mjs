@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.6';
+const VERSION = 'aria-pc-browser-rwht-v1.3.7';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -511,9 +511,35 @@ async function verifyAuthState(page, config) {
   return { required: true, verified: false, reason: 'authenticated_surface_missing' };
 }
 
+async function waitForPwaBoot(page, config) {
+  const readState = async () => page.evaluate(() => ({
+    mounted: document.documentElement.dataset.ariaMounted === 'true',
+    error: document.querySelector('#aria-boot[data-state="error"]')?.textContent || ''
+  }));
+  let state = await readState().catch(() => ({ mounted: false, error: '' }));
+  if (!state.mounted && !state.error) {
+    try {
+      await page.waitForFunction(() =>
+        document.documentElement.dataset.ariaMounted === 'true' ||
+        Boolean(document.querySelector('#aria-boot[data-state="error"]')),
+      null, { timeout: config.navigation_timeout_ms });
+    } catch {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+      await page.waitForFunction(() =>
+        document.documentElement.dataset.ariaMounted === 'true' ||
+        Boolean(document.querySelector('#aria-boot[data-state="error"]')),
+      null, { timeout: config.navigation_timeout_ms });
+    }
+    state = await readState().catch(() => ({ mounted: false, error: '' }));
+  }
+  if (state.error && !state.mounted) throw new Error('pwa_boot_error:' + safeLabel(state.error));
+  if (!state.mounted) throw new Error('pwa_boot_not_ready');
+}
+
 async function auditRoute(page, url, routeIndex, config) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms });
   await page.waitForTimeout(config.settle_ms);
+  await waitForPwaBoot(page, config);
 
   const routeForReadiness = new URL(url).hash.split('?')[0] || '#home';
   const readinessSelector = routeForReadiness === '#mission'
@@ -553,6 +579,8 @@ async function auditRoute(page, url, routeIndex, config) {
     : { attempted: false, status: 'not_needed' };
 
   await page.waitForTimeout(config.settle_ms);
+  await waitForPwaBoot(page, config);
+  await page.waitForSelector(readinessSelector, { state: 'visible', timeout: config.navigation_timeout_ms });
 
   const routeAuthConfig = routeIndex === 0 ? config : { ...config, expected_auth_text: '' };
   let auth = await verifyAuthState(page, routeAuthConfig);
