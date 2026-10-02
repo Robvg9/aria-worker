@@ -61,12 +61,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            slug="${GITHUB_HEAD_REF//\//-}"
-            echo "RWHT_URL=https://${slug}-aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
-          elif [[ "$GITHUB_REF_NAME" == "feat/absorb-live-e2e-check-20261002" ]]; then
-            echo "RWHT_URL=https://feat-absorb-live-e2e-check-20261002-aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
+            echo "RWHT_URL=https://aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
+            echo "ABSORB_E2E_TARGET=production" >> "$GITHUB_ENV"
           else
             echo "RWHT_URL=${RWHT_URL}" >> "$GITHUB_ENV"
+            echo "ABSORB_E2E_TARGET=production" >> "$GITHUB_ENV"
           fi
       - name: Require authenticated session source
         shell: bash
