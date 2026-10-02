@@ -135,7 +135,9 @@ async function run() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
+    // Fresh-user certification must prefer a password login when current credentials are present.
+    // A persisted storage snapshot is a fallback for environments that do not provide credentials.
+    ...((!EMAIL || !PASSWORD) && STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
   });
   const page = await context.newPage();
 
