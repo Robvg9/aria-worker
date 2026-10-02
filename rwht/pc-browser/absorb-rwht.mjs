@@ -44,22 +44,47 @@ await absorbTab.waitFor({ state:'visible', timeout:30000 });
 await absorbTab.click();
 await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
 
-const inspect = page.getByTestId('aria-absorb-inspect');
-await inspect.click();
-await page.waitForFunction(() => /Fuente inspeccionada e indexada|REGISTRO CANÓNICO|absorb_inspect/.test(document.body.innerText), null, { timeout:90000 });
+async function expectNext(testId, timeout = 90000) {
+  const locator = page.getByTestId(testId);
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await locator.isVisible().catch(() => false)) return;
+    const body = await page.locator('body').innerText().catch(() => '');
+    if (/absorb_[a-z_]+|No se pudo|no pudo completarse|error del/i.test(body)) {
+      throw new Error('absorb_ui_error:' + body.slice(-2500));
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error('absorb_next_state_timeout:' + testId + ':\n' + (await page.locator('body').innerText()).slice(-2500));
+}
 
-await page.getByTestId('aria-absorb-verify').click();
-await page.waitForFunction(() => /Paso completado|Verificación|VERIFIED/.test(document.body.innerText), null, { timeout:90000 });
+try {
+  const inspect = page.getByTestId('aria-absorb-inspect');
+  await inspect.click();
+  await expectNext('aria-absorb-verify');
 
-const register = page.getByTestId('aria-absorb-register');
-await register.waitFor({ state:'visible', timeout:30000 });
-await register.click();
-await page.waitForFunction(() => /Paso completado|binding gobernado|REGISTERED|Registrado/.test(document.body.innerText), null, { timeout:30000 });
+  await page.getByTestId('aria-absorb-verify').click();
+  await expectNext('aria-absorb-register');
 
-const enable = page.getByTestId('aria-absorb-enable');
-await enable.waitFor({ state:'visible', timeout:30000 });
-await enable.click();
-await page.waitForFunction(() => /Capacidad habilitada|HABILITADO|ENABLED/.test(document.body.innerText), null, { timeout:30000 });
+  const register = page.getByTestId('aria-absorb-register');
+  await register.click();
+  await expectNext('aria-absorb-enable');
+
+  const enable = page.getByTestId('aria-absorb-enable');
+  await enable.click();
+  await page.waitForFunction(() => document.body.innerText.includes('HABILITADO'), null, { timeout:30000 });
+} catch (error) {
+  const failure = {
+    url: page.url(),
+    title: await page.title(),
+    error: String(error?.stack || error),
+    body: (await page.locator('body').innerText().catch(() => '')).slice(-12000),
+    timestamp: new Date().toISOString()
+  };
+  fs.writeFileSync(path.join(artifactDir, 'absorb-live-e2e-failure.json'), JSON.stringify(failure, null, 2));
+  await page.screenshot({ path: path.join(artifactDir, 'absorb-live-e2e-failure.png'), fullPage:true }).catch(() => {});
+  throw error;
+}
 
 const evidence = {
   url: page.url(),
