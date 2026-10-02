@@ -25,8 +25,14 @@ function buildNodeRunnerCode(args) {
     'const version="' + ECC_VERSION + '";',
     'const temp=fs.mkdtempSync(path.join(os.tmpdir(),"aria-ecc-"));',
     'try{',
-    'const npm=process.platform==="win32"?"npm.cmd":"npm";',
-    'cp.execFileSync(npm,["install","--no-save","--ignore-scripts","--no-package-lock","--silent","ecc-universal@"+version],{cwd:temp,stdio:"inherit"});',
+    'const installArgs=["install","--no-save","--ignore-scripts","--no-package-lock","--silent","ecc-universal@"+version];',
+    'if(process.platform==="win32"){',
+    'const npmCli=path.join(path.dirname(process.execPath),"node_modules","npm","bin","npm-cli.js");',
+    'if(!fs.existsSync(npmCli)) throw new Error("windows_npm_cli_not_found");',
+    'cp.execFileSync(process.execPath,[npmCli,...installArgs],{cwd:temp,stdio:"inherit"});',
+    '}else{',
+    'cp.execFileSync("npm",installArgs,{cwd:temp,stdio:"inherit"});',
+    '}',
     'const pkgPath=path.join(temp,"node_modules","ecc-universal","package.json");',
     'const pkg=JSON.parse(fs.readFileSync(pkgPath,"utf8"));',
     'const bin=typeof pkg.bin==="string"?pkg.bin:(pkg.bin&&(pkg.bin["ecc-universal"]||Object.values(pkg.bin)[0]));',
@@ -39,7 +45,6 @@ function buildNodeRunnerCode(args) {
     '}finally{try{fs.rmSync(temp,{recursive:true,force:true});}catch{}}'
   ].join('');
 }
-
 function buildEccShellCommand(input = {}) {
   const request = normalizeEccRequest(input);
   const args = request.action === 'consult' ? ['consult', request.topic, '--target', request.target] : request.action === 'doctor' ? ['doctor', '--target', request.target] : request.action === 'list_installed' ? ['list-installed'] : ['install', '--profile', request.profile, '--target', request.target, '--dry-run'];
