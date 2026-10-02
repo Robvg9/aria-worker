@@ -2370,6 +2370,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones de continuidad, recuperación, replan, persistencia de evidencia y prevención de reinicio desde step 0."
   },
   {
+    "id": "meditation-queue-state-machine",
+    "file": "tests/meditation-queue-state-machine.test.js",
+    "title": "Meditation Queue State Machine",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": false,
+    "how": "Comprueba que las continuaciones no terminales permanezcan reanudables, que no exista fan-out de cola y que el scheduler tenga timeout explícito.",
+    "capabilities": "Valida single-flight, reconciliación de cola, prioridad de objetivo principal, aceptación explícita del Idea Analyzer y recuperación de continuaciones."
+  },
+  {
     "id": "mistral-adapter",
     "file": "tests/mistral-adapter.test.js",
     "title": "Mistral Direct Provider Adapter",
@@ -2385,17 +2394,7 @@ export type TestCatalogStats = Readonly<{
   total: number;
   npmTest: number;
   catalogOnly: number;
-  categoryCount: number;
-  categories: readonly string[  {
-    "id": "meditation-queue-state-machine",
-    "file": "tests/meditation-queue-state-machine.test.js",
-    "title": "Meditation Queue State Machine",
-    "category": "Ejecución / misiones",
-    "includedInNpmTest": false,
-    "how": "Comprueba que las continuaciones no terminales permanezcan reanudables, que no exista fan-out de cola y que el scheduler tenga timeout explícito.",
-    "capabilities": "Valida single-flight, reconciliación de cola, prioridad de objetivo principal, aceptación explícita del Idea Analyzer y recuperación de continuaciones."
-  },
-];
+  categories: readonly string[];
   catalogVersion: string;
 }>;
 
