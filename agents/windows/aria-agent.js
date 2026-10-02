@@ -22,7 +22,60 @@ function touchProcessHeartbeat(network='unknown'){if(!AGENT_HEARTBEAT_PATH)retur
 function normalizeQwenResponse(value){return typeof value==='string'?value.replace(/<think>[\s\S]*?<\/think>/gi,'').trim().slice(0,MAX_OUTPUT):''}
 if(!GATEWAY_URL||!DEVICE_TOKEN||!DEVICE_ID){console.error('ARIA agent requires ARIA_DEVICE_GATEWAY_URL, ARIA_DEVICE_TOKEN and ARIA_DEVICE_ID');process.exit(2)}
 function endpoint(p){return`${GATEWAY_URL.replace(/\/$/,'')}${p}`} function headers(){return{'content-type':'application/json',authorization:`Bearer ${DEVICE_TOKEN}`,'x-aria-device-id':DEVICE_ID}}
-async function api(p,options={}){let lastError=null;for(let attempt=0;attempt<=GATEWAY_RETRIES;attempt++){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),GATEWAY_TIMEOUT_MS);try{const response=await fetch(endpoint(p),{...options,headers:{...headers(),...(options.headers||{})},signal:controller.signal});const text=await response.text();let body=null;try{body=text?JSON.parse(text):null}catch{body={raw:text}}if(response.ok)return body;const error=new Error(`gateway ${response.status}: ${body?.error||'request failed'}`);error.status=response.status;lastError=error;const retryable=response.status===408||response.status===429||response.status>=500;if(!retryable||attempt>=GATEWAY_RETRIES)throw error}catch(error){lastError=error;const retryable=error?.name==='AbortError'||!Number.isInteger(error?.status)||error.status===408||error.status===429||error.status>=500;if(!retryable||attempt>=GATEWAY_RETRIES)throw error}finally{clearTimeout(timer)}await sleep(Math.min(5_000,750*Math.pow(2,attempt))+Math.floor(Math.random()*500))}throw lastError||new Error('gateway_request_failed')}
+const https = require('node:https');
+function nativeGatewayRequest(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const requestBody = typeof options.body === 'string' ? options.body : '';
+    const req = https.request({
+      hostname: u.hostname,
+      port: u.port ? Number(u.port) : 443,
+      path: u.pathname + u.search,
+      method: options.method || 'GET',
+      family: 4,
+      headers: {
+        ...(options.headers || {}),
+        ...(requestBody ? { 'content-length': Buffer.byteLength(requestBody) } : {}),
+      },
+    }, res => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { text += chunk; });
+      res.on('end', () => resolve({ status: Number(res.statusCode || 0), text }));
+    });
+    req.setTimeout(GATEWAY_TIMEOUT_MS, () => {
+      req.destroy(new Error('gateway_timeout'));
+    });
+    req.on('error', reject);
+    if (requestBody) req.write(requestBody);
+    req.end();
+  });
+}
+async function api(p,options={}){
+  let lastError=null;
+  for(let attempt=0;attempt<=GATEWAY_RETRIES;attempt++){
+    try{
+      const response=await nativeGatewayRequest(endpoint(p),{
+        ...options,
+        headers:{...headers(),...(options.headers||{})}
+      });
+      let body=null;
+      try{body=response.text?JSON.parse(response.text):null}catch{body={raw:response.text}}
+      if(response.status>=200&&response.status<300)return body;
+      const error=new Error(`gateway ${response.status}: ${body?.error||'request failed'}`);
+      error.status=response.status;
+      lastError=error;
+      const retryable=response.status===408||response.status===429||response.status>=500;
+      if(!retryable||attempt>=GATEWAY_RETRIES)throw error;
+    }catch(error){
+      lastError=error;
+      if(attempt>=GATEWAY_RETRIES)throw error;
+    }
+    await sleep(Math.min(5000,750*Math.pow(2,attempt))+Math.floor(Math.random()*500));
+  }
+  throw lastError||new Error('gateway_request_failed');
+}
+
 function parseAutonomousRwhtPayload(job){
   if(!job||job.device_id!==DEVICE_ID||job.operation!==AUTONOMOUS_COMPUTER_OPERATION)throw new Error('unsupported_job');
   if(typeof job.command!=='string'||!job.command.trim())throw new Error('autonomous_rwht_payload_required');
