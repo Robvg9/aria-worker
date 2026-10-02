@@ -203,8 +203,9 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       queued=attempt.data;
       enqueueError=attempt.error;
       if(!enqueueError&&queued) break;
-      // A gateway/RPC response can be lost after the INSERT commits. Re-read this exact job before declaring enqueue failure.
-      if(enqueueError){
+      // Reconcile both transport/RPC errors and the rarer HTTP-200/null-data case:
+      // the gateway can commit the INSERT while returning no row payload.
+      if(!queued){
         const confirmed=await sb.rpc("get_execution_job_gateway",{p_job_id:jobId});
         if(!confirmed.error&&confirmed.data){
           queued=confirmed.data;
