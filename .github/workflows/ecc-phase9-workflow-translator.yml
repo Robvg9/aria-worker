@@ -1,0 +1,32 @@
+name: ECC Phase 9 Workflow Translator
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-08-specialist-selection
+    paths:
+      - 'scripts/ecc-mission-graph.js'
+      - 'tests/ecc-mission-graph.test.js'
+      - '.github/workflows/ecc-phase9-workflow-translator.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-09-workflow-translator'
+    paths:
+      - 'scripts/ecc-mission-graph.js'
+      - 'tests/ecc-mission-graph.test.js'
+      - '.github/workflows/ecc-phase9-workflow-translator.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  graph:
+    name: ECC Phase 9 / workflow translator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-mission-graph.test.js
