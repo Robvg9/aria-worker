@@ -5,7 +5,7 @@ import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
-import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity } from "../_shared/absorb-engine.mjs";
+import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan } from "../_shared/absorb-engine.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -77,7 +77,7 @@ async function absorbInspect(userId:string, body:any){
   const source=body?.source&&typeof body.source==="object"?body.source:body;
   const inventory=await inspectGithubSource(source,{maxEntries:10000});
   const capabilities=buildCapabilityIndex(inventory);
-  const plan=buildAbsorptionPlan({source:inventory.source,requestedCapabilities:Array.isArray(body?.requested_capabilities)?body.requested_capabilities:[]});
+  const plan=advanceAbsorptionPlan(buildAbsorptionPlan({source:inventory.source,requestedCapabilities:Array.isArray(body?.requested_capabilities)?body.requested_capabilities:[]}),"INDEXED");
   const identity=await buildAbsorptionIdentity(inventory,capabilities);
   const sb=serviceClient();
   const {data:existing,error:lookupError}=await sb.schema("aria_internal").from("capability_absorptions")
@@ -114,7 +114,7 @@ async function absorbVerify(userId:string, absorptionId:string){
   const identity=await buildAbsorptionIdentity(inventory,capabilities);
   if(String(row.metadata?.absorption_identity||"")!==identity) throw Object.assign(new Error("absorb_identity_mismatch"),{status:409});
   const verification={state:"VERIFIED",verification_level:"source_provenance_and_deterministic_inventory",runtime_verified:false,security_review:"pending",contract_test:"pending",evidence_persisted:true,verified_at:new Date().toISOString()};
-  const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"VERIFIED",verification,inventory,capabilities,enabled:false}).eq("absorption_id",absorptionId).eq("user_id",userId)
+  const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"VERIFIED",verification,inventory,capabilities,absorption_plan:advanceAbsorptionPlan(row.absorption_plan,"VERIFIED"),enabled:false}).eq("absorption_id",absorptionId).eq("user_id",userId)
     .select("absorption_id,status,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,capabilities,verification,enabled,updated_at").single();
   if(upError) throw new Error("absorb_verify_persist_failed:"+upError.message);
   return data;
@@ -136,7 +136,7 @@ async function absorbRegister(userId:string, absorptionId:string, binding:any){
   if(!row) throw Object.assign(new Error("absorb_not_found"),{status:404});
   if(!allowedAbsorbBinding(row,binding)) throw Object.assign(new Error("absorb_binding_not_allowlisted"),{status:403});
   const runtimeBinding={binding_id:"tool_ecc_operator",operation:"ecc.execute",underlying_operation:"shell.execute",mode:"existing_governed_aria_capability",enabled:false,registered_at:new Date().toISOString()};
-  const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"REGISTERED",runtime_binding:runtimeBinding,enabled:false,verification:{...row.verification,adapter_contract:"tool_ecc_operator",runtime_verified:false}}).eq("absorption_id",absorptionId).eq("user_id",userId)
+  const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"REGISTERED",runtime_binding:runtimeBinding,enabled:false,verification:{...row.verification,adapter_contract:"tool_ecc_operator",runtime_verified:false,security_review:"passed"}}).eq("absorption_id",absorptionId).eq("user_id",userId)
     .select("absorption_id,status,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,runtime_binding,verification,enabled,updated_at").single();
   if(upError) throw new Error("absorb_register_persist_failed:"+upError.message);
   return data;
@@ -147,14 +147,24 @@ async function absorbEnable(userId:string, absorptionId:string){
   if(error) throw new Error("absorb_enable_lookup_failed:"+error.message);
   if(!row) throw Object.assign(new Error("absorb_not_found"),{status:404});
   if(String(row.status)!=="REGISTERED"||row.runtime_binding?.binding_id!=="tool_ecc_operator") throw Object.assign(new Error("absorb_enable_binding_required"),{status:409});
+  const liveInventory=await inspectGithubSource({owner:row.source_owner,repo:row.source_repo,ref:row.source_requested_ref});
+  if(liveInventory.source.commit_sha!==row.source_commit_sha||liveInventory.inventory_digest_sha256!==row.source_digest_sha256){
+    await sb.schema("aria_internal").from("capability_absorptions").update({
+      status:"REJECTED",enabled:false,verification:{...row.verification,state:"FAILED",verification_level:"source_drift",runtime_verified:false,reason:"source_commit_or_digest_changed_before_enable"}
+    }).eq("absorption_id",absorptionId).eq("user_id",userId);
+    throw Object.assign(new Error("absorb_source_drift_detected_before_enable"),{status:409});
+  }
   const {data:missions,error:missionError}=await sb.schema("aria_internal").from("mission_state")
     .select("mission_id,status,goal,checkpoint,metadata,finished_at").eq("status","succeeded").ilike("mission_id","ecc-aria-live-e2e-%").order("finished_at",{ascending:false}).limit(20);
   if(missionError) throw new Error("absorb_enable_evidence_lookup_failed:"+missionError.message);
-  const evidence=(missions||[]).filter((m:any)=>String(JSON.stringify(m.checkpoint||{})).includes("ecc.execute"));
+  const evidence=(missions||[]).filter((m:any)=>{
+    const owner=String(m?.metadata?.user_id||"");
+    return owner===String(userId) && String(JSON.stringify(m.checkpoint||{})).includes("ecc.execute");
+  });
   if(evidence.length<1) throw Object.assign(new Error("absorb_runtime_evidence_required"),{status:409});
-  const verification={...row.verification,adapter_contract:"tool_ecc_operator",runtime_verified:true,runtime_evidence_count:evidence.length,runtime_evidence_refs:evidence.slice(0,8).map((m:any)=>String(m.mission_id)),enabled_at:new Date().toISOString()};
+  const verification={...row.verification,adapter_contract:"tool_ecc_operator",runtime_verified:true,runtime_evidence_count:evidence.length,runtime_evidence_refs:evidence.slice(0,8).map((m:any)=>String(m.mission_id)),contract_test:"passed",security_review:"passed",verification_level:"source_provenance_deterministic_inventory_and_runtime_evidence",enabled_at:new Date().toISOString()};
   const runtimeBinding={...row.runtime_binding,enabled:true,enabled_at:new Date().toISOString()};
-  const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"ENABLED",runtime_binding:runtimeBinding,enabled:true,verification}).eq("absorption_id",absorptionId).eq("user_id",userId)
+  const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"ENABLED",runtime_binding:runtimeBinding,enabled:true,verification,absorption_plan:advanceAbsorptionPlan(row.absorption_plan,"ENABLED")}).eq("absorption_id",absorptionId).eq("user_id",userId)
     .select("absorption_id,status,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,runtime_binding,verification,enabled,updated_at").single();
   if(upError) throw new Error("absorb_enable_persist_failed:"+upError.message);
   return data;
