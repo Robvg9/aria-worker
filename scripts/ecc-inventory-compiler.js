@@ -154,22 +154,47 @@ function digestEntries(entries) {
   return crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
 }
 
+function capabilityUnitCounts(entries) {
+  const units = {
+    agents: new Set(),
+    skills: new Set(),
+    commands: new Set(),
+    workflows: new Set(),
+  };
+
+  for (const entry of entries) {
+    if (entry.type !== 'blob') continue;
+
+    let match = entry.path.match(/^agents\/([^/]+)\.md$/);
+    if (match) units.agents.add(match[1]);
+
+    match = entry.path.match(/^skills\/([^/]+)\/SKILL\.md$/);
+    if (match) units.skills.add(match[1]);
+
+    match = entry.path.match(/^commands\/([^/]+)\.md$/);
+    if (match) units.commands.add(match[1]);
+
+    match = entry.path.match(/^workflows\/([^/]+)\.workflow\.js$/);
+    if (match) units.workflows.add(match[1]);
+  }
+
+  return Object.fromEntries(
+    Object.entries(units)
+      .map(([kind, names]) => [kind, names.size])
+      .sort(),
+  );
+}
+
 function summarize(entries) {
   const counts = {};
   for (const entry of entries) counts[entry.category] = (counts[entry.category] || 0) + 1;
-
-  const capabilityCounts = {};
-  for (const entry of entries) {
-    if (entry.capability_kind === 'supporting-artifact') continue;
-    capabilityCounts[entry.capability_kind] = (capabilityCounts[entry.capability_kind] || 0) + 1;
-  }
 
   return {
     total_entries: entries.length,
     files: entries.filter((e) => e.type === 'blob').length,
     directories: entries.filter((e) => e.type === 'tree').length,
     category_counts: Object.fromEntries(Object.entries(counts).sort()),
-    capability_counts: Object.fromEntries(Object.entries(capabilityCounts).sort()),
+    capability_unit_counts: capabilityUnitCounts(entries),
   };
 }
 
@@ -303,5 +328,6 @@ module.exports = {
   stableEntries,
   digestEntries,
   summarize,
+  capabilityUnitCounts,
   compileEccInventory,
 };
