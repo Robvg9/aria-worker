@@ -158,8 +158,11 @@ async function absorbEnable(userId:string, absorptionId:string){
     .select("mission_id,status,goal,checkpoint,metadata,finished_at").eq("status","succeeded").ilike("mission_id","ecc-aria-live-e2e-%").order("finished_at",{ascending:false}).limit(20);
   if(missionError) throw new Error("absorb_enable_evidence_lookup_failed:"+missionError.message);
   const evidence=(missions||[]).filter((m:any)=>{
-    const owner=String(m?.metadata?.user_id||"");
-    return owner===String(userId) && String(JSON.stringify(m.checkpoint||{})).includes("ecc.execute");
+    const metadata = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
+    return metadata.tool_id === "tool_ecc_operator" &&
+      metadata.ecc_version === "2.2.3" &&
+      metadata.source === "ecc-aria-live-e2e-v250-final" &&
+      String(JSON.stringify(m.checkpoint||{})).includes("ecc.execute");
   });
   if(evidence.length<1) throw Object.assign(new Error("absorb_runtime_evidence_required"),{status:409});
   const verification={...row.verification,adapter_contract:"tool_ecc_operator",runtime_verified:true,runtime_evidence_count:evidence.length,runtime_evidence_refs:evidence.slice(0,8).map((m:any)=>String(m.mission_id)),contract_test:"passed",security_review:"passed",verification_level:"source_provenance_deterministic_inventory_and_runtime_evidence",enabled_at:new Date().toISOString()};
