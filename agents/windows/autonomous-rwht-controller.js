@@ -342,7 +342,7 @@ async function chromeCdpCall(method, params = {}) {
 
 async function chromeCdpInteractiveNodes() {
   try {
-    const tabs = await fetchJsonWithTimeout('CDP_BASE_URL + '/json', 5000);
+    const tabs = await fetchJsonWithTimeout(CDP_BASE_URL + '/json', 5000);
     const page = tabs.find((t) => t && t.type === 'page' && String(t.url || '').includes('aria.robvg9.workers.dev/pwa'));
     if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') return [];
     const ws = new WebSocket(page.webSocketDebuggerUrl);
