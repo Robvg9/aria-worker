@@ -135,7 +135,7 @@ async function conversationRoutes() {
     serviceClient().schema("aria_internal").from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),
     serviceClient().schema("aria_internal").from("account_registry").select("account_id,provider_id,status,enabled")
   ]);
-  const routes=(models ?? []).filter((m:any)=>m.enabled && m.status==="available").map((m:any)=>{
+  const routes=(models ?? []).filter((m:any)=>m.enabled && m.status==="available" && m.provider_id!=="local_windows").map((m:any)=>{
     const cap=(caps ?? []).find((x:any)=>x.model_id===m.model_id);
     const account=(accounts ?? []).find((a:any)=>a.provider_id===m.provider_id && a.enabled && ["available","active"].includes(String(a.status)));
     if(!account)return null;
@@ -237,7 +237,12 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     while(Date.now()<deadline){
       await new Promise(resolve=>setTimeout(resolve,1200));
       const {data:job,error:jobError}=await sb.rpc("get_execution_job_gateway",{p_job_id:jobId});
-      if(jobError) throw new Error("local_qwen_job_read_failed:"+jobError.message);
+      if(jobError){
+        // A transient PostgREST/RPC read failure must not spawn a second local job.
+        // Keep polling the exact idempotent job before considering any fallback.
+        await new Promise(resolve=>setTimeout(resolve,1500));
+        continue;
+      }
       const status=String(job?.status||"");
       if(status==="succeeded"){
         const content=String(job?.stdout??"").trim();
