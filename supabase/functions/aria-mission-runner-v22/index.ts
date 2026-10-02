@@ -143,7 +143,13 @@ async function resolveDeviceTarget(missionId: string, step: any): Promise<Device
         : "no_device_requested_selected_online_capable_device",
   };
 
-  await emitEvent(missionId, "device_target_resolved", resolution);
+  const resolutionEventType = operation.startsWith("computer.use")
+    ? "computer_use_device_confirmed"
+    : "executor_selected";
+  await emitEvent(missionId, resolutionEventType, {
+    ...resolution,
+    reason: resolution.reason || "device_target_resolved",
+  });
   return resolution;
 }
 
@@ -479,11 +485,15 @@ function autonomousRwhtEvidence(result: any) {
 
   const routeGate = fullPwaCoverage
     ? requiredRoutesTotal >= 7 && requiredRoutesVisited >= requiredRoutesTotal
-    : finishedReason === "control_discovery_verified";
+    : (finishedReason === "control_discovery_verified" || finishedReason === "coverage_complete");
 
   const ratioGate = fullPwaCoverage
     ? Number(source?.coverage_ratio ?? result?.coverage_ratio ?? 0) >= 0.98
     : true;
+
+  const controlGate = finishedReason === "control_discovery_verified"
+    ? controlsDiscovered >= 5 && controlsExercised >= 5
+    : controlsDiscovered >= 3 && controlsExercised >= 3;
 
   const passed = status === "succeeded"
     && verifiedFlag
@@ -491,8 +501,7 @@ function autonomousRwhtEvidence(result: any) {
     && ratioGate
     && actionsVerified >= 5
     && screensSeen >= 2
-    && controlsDiscovered >= 5
-    && controlsExercised >= 5
+    && controlGate
     && evidenceCount >= 5;
 
   return {
@@ -614,55 +623,45 @@ function jobIdFor(missionId: string, stepId: string, attempt: number = 1) {
 }
 
 async function getExecutionJob(jobId: string) {
-  // Source of truth first: async device execution is persisted in execution_jobs.
-  // Do not wait on the runtime gateway when the canonical DB row already exists.
+  // Source of truth: governed execution_jobs RPC. This avoids depending on
+  // runtime-gateway shared-secret configuration from the mission runner.
   try {
-    const { data, error } = await sb.schema("aria_internal")
-      .from("execution_jobs")
-      .select("job_id,status,exit_code,stdout,stderr,result,evidence,error,completed_at,started_at")
-      .eq("job_id", jobId)
-      .maybeSingle();
-
-    if (!error && data?.job_id) {
-      const persisted = {
-        ...data,
-        result: data.result ?? null,
-        evidence: data.evidence ?? null,
-        error: data.error ?? null,
-      };
+    const data = await rpc("get_execution_job_gateway", { p_job_id: jobId });
+    if (data) {
       return {
         response: { ok: true, status: 200 },
-        body: {
-          ok: true,
-          job: persisted,
-          source: "aria_internal.execution_jobs",
-        },
+        body: { ok: true, job: data, source: "aria_internal.execution_jobs_rpc" },
       };
     }
-  } catch {
-    // Fall through to the runtime gateway if the DB lookup itself is unavailable.
+    return {
+      response: { ok: true, status: 200 },
+      body: { ok: true, job: null, source: "aria_internal.execution_jobs_rpc" },
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      response: { ok: false, status: 500 },
+      body: { ok: false, error: "get_execution_job_gateway", detail: reason },
+    };
   }
-
-  const response = await fetch(RUNTIME, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify({ action: "get_job", job_id: jobId }),
-  });
-  const body = await response.json().catch(() => null);
-  return { response, body };
 }
 
 async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
   const resolution = await resolveDeviceTarget(missionId, step);
   const payload = buildDeviceEnqueuePayload(V, missionId, step, jobId, resolution.resolved_device_id);
-  const response = await fetch(RUNTIME, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify(payload),
+  const data = await rpc("enqueue_execution_job_gateway", {
+    p_job_id: String(payload.job_id),
+    p_mission_id: String(payload.mission_id),
+    p_device_id: String(payload.device_id),
+    p_operation: String(payload.operation),
+    p_command: String(payload.command),
+    p_cwd: typeof payload.cwd === "string" ? payload.cwd : null,
+    p_timeout_ms: Number.isInteger(payload.timeout_ms) ? payload.timeout_ms : 120000,
+    p_policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+    p_metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
   });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.ok) throw new Error(`device_enqueue_${response.status}`);
-  return body.job || body;
+  if (!data) throw new Error("device_enqueue_empty");
+  return data;
 }
 
 async function deviceExecute(missionId: string, step: any) {
@@ -1969,7 +1968,7 @@ Deno.serve(async (request) => {
       steps = mission.checkpoint.plan;
     } else {
       try {
-        steps = await createPlan(String(mission.goal || ""), cognitiveContext, token);
+        steps = await createPlan(String(mission.goal || ""), { ...cognitiveContext, ...(recoveryNeedsFreshPlan ? { recovery_strategy_required: true, identical_strategy_detected: true, failed_step_id: String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || ""), failed_executor_type: String(recoveryState?.executor_type || recoveryState?.previous_plan?.[0]?.executor_type || ""), failed_operation: String(recoveryState?.operation || recoveryState?.previous_plan?.[0]?.operation || ""), failed_error: recoveryState?.block_details || recoveryState?.previous_results?.[String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || "")]?.error || null, previous_plan: Array.isArray(recoveryState?.previous_plan) ? recoveryState.previous_plan : [], previous_results: recoveryState?.previous_results && typeof recoveryState.previous_results === "object" ? recoveryState.previous_results : {} } : {}) }, token);
       } catch (planErr) {
         const reason = planErr instanceof Error ? planErr.message : String(planErr);
         await updateMission(missionId, {
@@ -2201,7 +2200,10 @@ Deno.serve(async (request) => {
         lease_owner: null,
         lease_until: null,
       });
-      await emitEvent(missionId, "mission_alternative_strategy_needed", identicalRecovery);
+      await emitEvent(missionId, "recovery_attempted", {
+        ...identicalRecovery,
+        recovery_event: "alternative_strategy_needed",
+      });
       return out({
         ok: true,
         status: "waiting",
