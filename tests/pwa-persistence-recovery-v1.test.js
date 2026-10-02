@@ -23,7 +23,10 @@ for (const fragment of [
   "clearCache",
   "const sessionSnapshot = localStorage.getItem(SESSION_KEY)",
   "useLiveSync",
-  "selectLiveMission"
+  "selectLiveMission",
+  "clientMessageId",
+  "d?.processing",
+  "page.reload"
 ]) {
   assert.ok(app.includes(fragment), fragment);
 }
@@ -58,6 +61,25 @@ for (const fragment of [
   'npx playwright install chromium'
 ]) {
   assert.ok(workflow.includes(fragment), fragment);
+}
+
+for (const fragment of [
+  "clientMessageId",
+  "conversation_post_requests"
+]) {
+  assert.ok(runner.includes(fragment), fragment);
+}
+
+const api = fs.readFileSync(path.join(root, 'supabase', 'functions', 'aria-app-api-v3', 'index.ts'), 'utf8');
+for (const fragment of [
+  "clientMessageId:string|null=null",
+  "const jobSeed=String(clientMessageId||crypto.randomUUID()).trim();",
+  "waitForLocal:boolean=true",
+  'EdgeRuntime.waitUntil(',
+  'visualState:"processing"',
+  'completeLocalChatInBackground'
+]) {
+  assert.ok(api.includes(fragment), fragment);
 }
 
 assert.doesNotMatch(runner, /console\.(log|error)\([^\n]*(password|refreshToken|accessToken)/i);
