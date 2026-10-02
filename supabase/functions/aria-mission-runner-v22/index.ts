@@ -750,7 +750,7 @@ async function deviceExecute(missionId: string, step: any) {
   if (["ollama.qwen3", "ecc.execute"].includes(operation) && !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
     const deadline = Date.now() + (operation === "ecc.execute" ? 180_000 : 35_000);
     while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(() => resolve(undefined), 1500));
       current = await getExecutionJob(jobId);
       job = current.body?.job;
       if (!job) continue;
