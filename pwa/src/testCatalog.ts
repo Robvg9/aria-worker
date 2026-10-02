@@ -2407,6 +2407,16 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida acciones permitidas de ECC, targets permitidos, generación determinista de comandos, dry-run y rechazo de shell arbitrario."
   },
   {
+    "id": "ecc-source-lock",
+    "file": "tests/ecc-source-lock.test.js",
+    "title": "ECC Source Lock",
+    "category": "Gobernanza / ECC",
+    "includedInNpmTest": true,
+    "how": "Comprueba que ARIA consume una fuente ECC firmada y versionada de forma reproducible, con hashes y contrato de procedencia.",
+    "capabilities": "Protege la procedencia del ecosistema ECC antes de activar nuevas capabilities."
+  },
+
+  {
     "id": "mission-runner-v22-ecc-async-poll-budget",
     "file": "tests/mission-runner-v22-ecc-async-poll-budget.test.js",
     "title": "Mission Runner V22 ECC Async Poll Budget",

@@ -1,0 +1,67 @@
+{
+  "schema": "aria.ecc-source-lock.v1",
+  "upstream": {
+    "name": "Everything Claude Code (ECC)",
+    "repository": "https://github.com/affaan-m/ECC",
+    "tag": "v2.2.3",
+    "tag_sha": "93f9f6154d164ccb9f4dc38858a2bc2d5dcab222",
+    "commit_sha": "c05b2d6614f62f6db0047669aa4eefb223d478f9",
+    "tag_signature_verified": true,
+    "license": "MIT"
+  },
+  "snapshot": {
+    "captured_at": "2026-10-02T10:01:00-04:00",
+    "authority": "signed-github-release-tag",
+    "files": {
+      "package.json": {
+        "version": "2.2.3",
+        "git_blob_sha": "983370b3af5f1d12a8fe7b41ab1e3aee74923367"
+      },
+      "agent.yaml": {
+        "version": "2.2.3",
+        "git_blob_sha": "11df81720cafdad60a11f8ae583c8ec4a76771d5"
+      },
+      "VERSION": {
+        "version": "2.2.3",
+        "git_blob_sha": "585940699b5b99df6541c819a773ef738985a956"
+      },
+      "docs/architecture/cross-harness.md": {
+        "git_blob_sha": "768414b72432115fe885fecdd9ef72751a6b9742"
+      }
+    }
+  },
+  "registry_observation": {
+    "package": "ecc-universal",
+    "published_version_verified": "2.2.3",
+    "verification_source": "https://www.npmjs.com/package/ecc-universal",
+    "role": "external observation only; Git tag remains ARIA source of truth"
+  },
+  "reconciliation": {
+    "previous_research_note": "A prior fetch observed stale/inconsistent version surfaces.",
+    "current_live_result": "Re-verified on 2026-10-02 at signed v2.2.3: package.json, agent.yaml and VERSION all report 2.2.3 and GitHub latest release is v2.2.3.",
+    "status": "RESOLVED_AT_LOCKED_RELEASE"
+  },
+  "aria_binding": {
+    "repository": "https://github.com/Robvg9/aria-worker",
+    "main_at_lock": "0216a0a8e5249b247c112963b7665f441de533af",
+    "existing_capability": "tool_ecc_operator",
+    "existing_operation": "ecc.execute",
+    "policy": "ECC supplies capabilities; ARIA retains authority over permissions, execution, devices, evidence and promotion."
+  },
+  "verification_contract": {
+    "required": [
+      "v2.2.3 tag exists and points to c05b2d6614f62f6db0047669aa4eefb223d478f9",
+      "GitHub reports the v2.2.3 tag signature as verified",
+      "package.json version is 2.2.3",
+      "agent.yaml version is 2.2.3",
+      "VERSION content is 2.2.3",
+      "locked source paths exist",
+      "lock changes arrive through dedicated branch + PR + CI"
+    ],
+    "not_yet_certified": [
+      "automated upstream drift checker",
+      "full ECC filesystem inventory",
+      "capability registry population"
+    ]
+  }
+}
