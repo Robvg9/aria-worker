@@ -19,13 +19,14 @@ async function ensureBrowserSession() {
   const password = process.env.RWHT_PASSWORD || '';
   if (!email || !password) throw new Error('authenticated_session_missing');
 
-  const authResponse = await context.request.post(SUPABASE_AUTH, {
+  const authResponse = await context.request.post(base + '/auth/token?grant_type=password', {
+    timeout: 120000,
     headers: { 'content-type': 'application/json', apikey: ANON },
     data: { email: email.trim(), password }
   });
   const payload = await authResponse.json().catch(() => ({}));
   if (!authResponse.ok() || !payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
-    throw new Error('auth_api_failed:http_' + authResponse.status() + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
+    throw new Error('auth_proxy_failed:http_' + authResponse.status() + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
   }
 
   const session = {
