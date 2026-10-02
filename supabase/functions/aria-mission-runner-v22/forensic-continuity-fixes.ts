@@ -1,3 +1,4 @@
+import { buildEccExecution } from "../../../ecc/operator.js";
 /**
  * Forensic Continuity structural fixes for mission-runner-v22.
  * - Planner timeout via AbortController
@@ -6,7 +7,7 @@
  * - Strict Computer Use enqueue payload normalization by executor contract
  */
 export const PLANNER_TIMEOUT_MS = 45_000;
-export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "ollama.qwen3"]);
+export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "ollama.qwen3", "ecc.execute"]);
 
 export async function createPlanWithTimeout(
   plannerUrl: string,
@@ -86,6 +87,23 @@ export function buildDeviceEnqueuePayload(
       model: typeof source.model === "string" ? source.model : "qwen3:0.6b",
       timeout_ms: Number.isInteger(source.timeout_ms) ? source.timeout_ms : 120000,
     });
+  } else if (operation === "ecc.execute") {
+    const source = step.input && typeof step.input === "object" ? step.input : {};
+    const execution = buildEccExecution(source);
+    payload.operation = "shell.execute";
+    payload.command = execution.command;
+    payload.cwd = null;
+    payload.timeout_ms = Number.isInteger(step.timeout_ms)
+      ? Math.min(Math.max(step.timeout_ms, 30000), 300000)
+      : 180000;
+    payload.metadata = {
+      ...(payload.metadata as Record<string, unknown>),
+      tool_id: execution.tool_id,
+      tool_operation: execution.operation,
+      underlying_operation: execution.underlying_operation,
+      ecc_action: execution.request.action,
+      ecc_target: execution.request.target,
+    };
   } else if (operation === "computer.use" || operation === "computer.use.autonomous" || operation === "computer.use.android") {
     // The runtime gateway persists device payloads in execution_jobs.command.
     // Each device contract is strict, so never forward arbitrary planner fields.
