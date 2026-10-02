@@ -137,7 +137,7 @@ function run() {
   );
   assert.equal(mistralOnly.status, 'no_route');
   assert.match(
-    JSON.stringify(mistralOnly.rejected_candidates),
+    JSON.stringify(mistralOnly.rejected),
     /live_not_verified|model_unavailable/
   );
   console.log('PASS: Mistral cannot become a route without LIVE completion evidence');
