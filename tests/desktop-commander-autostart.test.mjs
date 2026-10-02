@@ -8,9 +8,11 @@ const supervisor = fs.readFileSync(path.join(root, 'agents', 'windows', 'desktop
 const installer = fs.readFileSync(path.join(root, 'agents', 'windows', 'install-desktop-commander-supervisor.ps1'), 'utf8');
 const docs = fs.readFileSync(path.join(root, 'agents', 'windows', 'DESKTOP_COMMANDER_AUTOSTART.md'), 'utf8');
 
-test('DC supervisor uses pinned remote package version', () => {
+test('DC supervisor uses the fixed Desktop Commander runtime', () => {
   assert.ok(supervisor.includes("$DcVersion = '0.2.52'"));
-  assert.ok(supervisor.includes("@wonderwhy-er/desktop-commander@$DcVersion"));
+  assert.ok(supervisor.includes("Tools\\DesktopCommanderRemote"));
+  assert.ok(supervisor.includes("desktop-commander\\dist\\index.js"));
+  assert.ok(supervisor.includes("NODE_OPTIONS = '--dns-result-order=ipv4first'"));
   assert.ok(!supervisor.includes("@wonderwhy-er/desktop-commander@latest"));
 });
 
