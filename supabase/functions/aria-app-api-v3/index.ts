@@ -218,6 +218,12 @@ async function execute(step: any, prompt: string, conversationId: string, visual
         }
         if(queued) break;
       }
+      // HTTP 200 with null data is a valid ambiguous-commit result. The execution_jobs
+      // row is the source of truth; continue to status polling for this exact job_id.
+      if(!enqueueError && !queued){
+        queued={job_id:jobId,status:"queued",provisional:true};
+        break;
+      }
       const message=String(enqueueError?.message||"");
       if(!/execution_backpressure_device/.test(message) || Date.now()>=enqueueDeadline) break;
       await new Promise(resolve=>setTimeout(resolve,1200));
