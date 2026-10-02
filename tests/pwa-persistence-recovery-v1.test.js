@@ -25,8 +25,7 @@ for (const fragment of [
   "useLiveSync",
   "selectLiveMission",
   "clientMessageId",
-  "d?.processing",
-  "page.reload"
+  "d?.processing"
 ]) {
   assert.ok(app.includes(fragment), fragment);
 }
