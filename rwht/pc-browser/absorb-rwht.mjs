@@ -24,7 +24,18 @@ async function loginIfNeeded() {
   await page.waitForSelector('.dashboardScreen,.capabilitiesViewport', { state:'visible', timeout:60000 });
 }
 
-await page.goto(base + '/#capabilities', { waitUntil:'domcontentloaded', timeout:60000 });
+let opened = false;
+for (let attempt = 1; attempt <= 9; attempt++) {
+  try {
+    await page.goto(base + '/#capabilities', { waitUntil:'domcontentloaded', timeout:20000 });
+    opened = true;
+    break;
+  } catch (error) {
+    if (attempt === 9) throw error;
+    await new Promise(resolve => setTimeout(resolve, 10000));
+  }
+}
+if (!opened) throw new Error('live_target_not_reached');
 await page.waitForTimeout(1500);
 await loginIfNeeded();
 
@@ -61,4 +72,4 @@ await page.screenshot({ path: path.join(artifactDir, 'absorb-live-e2e.png'), ful
 
 await context.close();
 await browser.close();
-console.log('ABSORB LIVE E2E: PASS');
+console.log('ABSORB LIVE E2E: PASS target=' + base);
