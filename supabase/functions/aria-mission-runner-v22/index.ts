@@ -938,7 +938,7 @@ async function finalGlobalReconcile(missionId: string, step: any, mission: any =
     },
     pwa_live: pwaGate,
   };
-  await emitEvent(missionId, "global_final_reconciled", evidence);
+  await emitEvent(missionId, "checkpoint_saved", { kind: "global_final_reconciled", ...evidence });
   return {
     status: "succeeded",
     executor_type: "connector",
