@@ -98,64 +98,89 @@ async function expectNext(testId, timeout = 90000) {
   throw new Error('absorb_next_state_timeout:' + testId + ':\n' + (await page.locator('body').innerText()).slice(-2500));
 }
 
+let finalAbsorption = null;
 try {
-  const inspect = page.getByTestId('aria-absorb-inspect');
-  await inspect.click();
-  const indexed = await waitForPersistedStatuses(['INDEXED', 'VERIFIED', 'REGISTERED', 'ENABLED']);
-  if (!indexed.inventory || indexed.source_commit_sha?.length !== 40 || indexed.source_digest_sha256?.length !== 64) {
+  let current = await readPersistedAbsorption().catch(() => null);
+
+  if (!current) {
+    await page.getByTestId('aria-absorb-inspect').click();
+    current = await waitForPersistedStatus('INDEXED');
+  }
+  if (!current.inventory || current.source_commit_sha?.length !== 40 || current.source_digest_sha256?.length !== 64) {
     throw new Error('absorb_index_persistence_contract_failed');
   }
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:30000 });
-  await page.getByRole('button', { name: 'ABSORB' }).first().click();
-  await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
-  await page.getByTestId('aria-absorb-verify').click();
-  const verified = await waitForPersistedStatus('VERIFIED');
-  if (verified.verification?.state !== 'VERIFIED' || verified.verification?.evidence_persisted !== true) {
-    throw new Error('absorb_verify_persistence_contract_failed');
+
+  if (String(current.status) === 'INDEXED') {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:30000 });
+    await page.getByRole('button', { name: 'ABSORB' }).first().click();
+    await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
+    await page.getByTestId('aria-absorb-verify').click();
+    current = await waitForPersistedStatus('VERIFIED');
+    if (current.verification?.state !== 'VERIFIED' || current.verification?.evidence_persisted !== true) {
+      throw new Error('absorb_verify_persistence_contract_failed');
+    }
   }
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:30000 });
-  await page.getByRole('button', { name: 'ABSORB' }).first().click();
-  await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
-  await page.getByTestId('aria-absorb-register').click();
-  const registered = await waitForPersistedStatus('REGISTERED');
-  if (registered.runtime_binding?.binding_id !== 'tool_ecc_operator' || registered.enabled !== false) {
-    throw new Error('absorb_register_persistence_contract_failed');
+
+  if (String(current.status) === 'VERIFIED') {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:30000 });
+    await page.getByRole('button', { name: 'ABSORB' }).first().click();
+    await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
+    await page.getByTestId('aria-absorb-register').click();
+    current = await waitForPersistedStatus('REGISTERED');
+    if (current.runtime_binding?.binding_id !== 'tool_ecc_operator' || current.enabled !== false) {
+      throw new Error('absorb_register_persistence_contract_failed');
+    }
   }
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:30000 });
-  await page.getByRole('button', { name: 'ABSORB' }).first().click();
-  await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
-  const enable = page.getByTestId('aria-absorb-enable');
-  await enable.waitFor({ state:'visible', timeout:30000 });
-  await enable.click();
-  const enabled = await waitForPersistedStatus('ENABLED');
-  if (
-    enabled.enabled !== true ||
-    enabled.runtime_binding?.binding_id !== 'tool_ecc_operator' ||
-    enabled.runtime_binding?.operation !== 'ecc.execute' ||
-    enabled.verification?.runtime_verified !== true ||
-    Number(enabled.verification?.runtime_evidence_count || 0) < 1
-  ) {
-    throw new Error('absorb_enable_persistence_contract_failed');
+
+  if (String(current.status) === 'REGISTERED') {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:30000 });
+    await page.getByRole('button', { name: 'ABSORB' }).first().click();
+    await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
+    await page.getByTestId('aria-absorb-enable').waitFor({ state:'visible', timeout:30000 });
+    await page.getByTestId('aria-absorb-enable').click();
+    current = await waitForPersistedStatus('ENABLED');
   }
+
+  if (String(current.status) !== 'ENABLED' ||
+      current.enabled !== true ||
+      current.runtime_binding?.binding_id !== 'tool_ecc_operator' ||
+      current.runtime_binding?.operation !== 'ecc.execute' ||
+      current.verification?.runtime_verified !== true ||
+      Number(current.verification?.runtime_evidence_count || 0) < 1) {
+    throw new Error('absorb_enable_persistence_contract_failed:' + JSON.stringify(current));
+  }
+
+  finalAbsorption = current;
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:30000 });
   await page.getByRole('button', { name: 'ABSORB' }).first().click();
   await page.getByTestId('aria-absorb-center').waitFor({ state:'visible', timeout:30000 });
   await page.getByText('HABILITADO', { exact: true }).waitFor({ state:'visible', timeout:30000 });
+} catch (error) {
+  const failure = {
+    url: page.url(),
+    title: await page.title(),
+    error: String(error?.stack || error),
+    body: (await page.locator('body').innerText().catch(() => '')).slice(-12000),
+    timestamp: new Date().toISOString()
+  };
+  fs.writeFileSync(path.join(artifactDir, 'absorb-live-e2e-failure.json'), JSON.stringify(failure, null, 2));
+  await page.screenshot({ path: path.join(artifactDir, 'absorb-live-e2e-failure.png'), fullPage:true }).catch(() => {});
+  throw error;
+} finally {
+  await context.close().catch(() => {});
+  await browser.close().catch(() => {});
 }
+
 
 const evidence = {
   url: page.url(),
   title: await page.title(),
-  body: (await page.locator('body').innerText()).slice(-12000),
+  persisted_absorption: finalAbsorption,
   timestamp: new Date().toISOString()
 };
 fs.writeFileSync(path.join(artifactDir, 'absorb-live-e2e.json'), JSON.stringify(evidence, null, 2));
-await page.screenshot({ path: path.join(artifactDir, 'absorb-live-e2e.png'), fullPage:true });
 
-await context.close();
-await browser.close();
-console.log('ABSORB LIVE E2E: PASS target=' + base);
