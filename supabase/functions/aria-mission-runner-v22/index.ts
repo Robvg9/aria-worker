@@ -1889,7 +1889,7 @@ async function enforceFailureMemory(missionId:string, goal:string, steps:any[], 
     return { allowed: true, goal_signature: goalSignature, plan_fingerprint: planFingerprint, blocked_routes: blocked };
   }
 
-  await emitEvent(missionId, "strategy_excluded_from_memory", {
+  await emitEvent(missionId, "mission_alternative_strategy_needed", {
     goal_signature: goalSignature,
     plan_fingerprint: planFingerprint,
     matched,
@@ -1948,7 +1948,7 @@ async function enforceFailureMemory(missionId:string, goal:string, steps:any[], 
       };
     }
 
-    await emitEvent(missionId, "strategy_changed_by_failure_memory", {
+    await emitEvent(missionId, "mission_replanned", {
       goal_signature: goalSignature,
       previous_plan_fingerprint: planFingerprint,
       new_plan_fingerprint: alternativePlanFingerprint,
@@ -2334,7 +2334,7 @@ Deno.serve(async (request) => {
         lease_owner: null,
         lease_until: null,
       });
-      await emitEvent(missionId, "recovery_blocked_by_failure_memory", blockDetails);
+      await emitEvent(missionId, "recovery_attempted", blockDetails);
       return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, block_details: blockDetails });
     }
     if (failureMemoryGate.changed_by_memory === true && Array.isArray(failureMemoryGate.steps)) {
@@ -3233,7 +3233,7 @@ Deno.serve(async (request) => {
               if (stored) memoryRecords.push(stored);
             }
           }
-          await emitEvent(missionId, "strategy_failure_memory_recorded", {
+          await emitEvent(missionId, "checkpoint_saved", {
             goal_signature: goalSignature,
             plan_fingerprint: planFingerprint,
             records: memoryRecords,
@@ -3317,7 +3317,7 @@ Deno.serve(async (request) => {
           }
         }
         if (failureMemoryRecords.length) {
-          await emitEvent(missionId, "strategy_failure_memory_recorded", {
+          await emitEvent(missionId, "checkpoint_saved", {
             goal_signature: goalSignature,
             plan_fingerprint: planFingerprint,
             records: failureMemoryRecords,
