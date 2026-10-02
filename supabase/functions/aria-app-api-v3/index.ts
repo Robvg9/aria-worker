@@ -203,6 +203,15 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       queued=attempt.data;
       enqueueError=attempt.error;
       if(!enqueueError&&queued) break;
+      // A gateway/RPC response can be lost after the INSERT commits. Re-read this exact job before declaring enqueue failure.
+      if(enqueueError){
+        const confirmed=await sb.rpc("get_execution_job_gateway",{p_job_id:jobId});
+        if(!confirmed.error&&confirmed.data){
+          queued=confirmed.data;
+          enqueueError=null;
+          break;
+        }
+      }
       const message=String(enqueueError?.message||"");
       if(!/execution_backpressure_device/.test(message) || Date.now()>=enqueueDeadline) break;
       await new Promise(resolve=>setTimeout(resolve,1200));
