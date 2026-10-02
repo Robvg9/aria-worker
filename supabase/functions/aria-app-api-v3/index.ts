@@ -206,12 +206,17 @@ async function execute(step: any, prompt: string, conversationId: string, visual
       // Reconcile both transport/RPC errors and the rarer HTTP-200/null-data case:
       // the gateway can commit the INSERT while returning no row payload.
       if(!queued){
-        const confirmed=await sb.rpc("get_execution_job_gateway",{p_job_id:jobId});
-        if(!confirmed.error&&confirmed.data){
-          queued=confirmed.data;
-          enqueueError=null;
-          break;
+        // Allow a brief visibility window after a committed INSERT before retrying the same job id.
+        for(let reconcileAttempt=0;reconcileAttempt<5&&!queued;reconcileAttempt++){
+          const confirmed=await sb.rpc("get_execution_job_gateway",{p_job_id:jobId});
+          if(!confirmed.error&&confirmed.data){
+            queued=confirmed.data;
+            enqueueError=null;
+            break;
+          }
+          if(reconcileAttempt<4) await new Promise(resolve=>setTimeout(resolve,500));
         }
+        if(queued) break;
       }
       const message=String(enqueueError?.message||"");
       if(!/execution_backpressure_device/.test(message) || Date.now()>=enqueueDeadline) break;
