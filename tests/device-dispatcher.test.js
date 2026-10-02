@@ -62,7 +62,8 @@ const { createDeviceDispatcher } = require('../execution/device-dispatcher');
   const encoded = String(eccJob.command).match(/Buffer\.from\('([^']+)'/);
   assert.ok(encoded);
   const decoded = Buffer.from(encoded[1], 'base64').toString('utf8');
-  assert.match(decoded, /ecc-universal@2\.2\.3 doctor --target codex/);
+  assert.match(decoded, /const requestArgs=\["doctor","--target","codex"\]/);
+  assert.match(decoded, /const version="2\.2\.3"/);
   assert.strictEqual(eccJob.metadata.tool_id, 'tool_ecc_operator');
   assert.strictEqual(eccJob.metadata.tool_operation, 'ecc.execute');
 
