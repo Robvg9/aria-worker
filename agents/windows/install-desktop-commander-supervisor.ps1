@@ -8,7 +8,10 @@ $SupervisorSource = Join-Path $AgentRoot 'desktop-commander-supervisor.ps1'
 $SupervisorTarget = Join-Path $RuntimeDir 'desktop-commander-supervisor.ps1'
 $TaskXmlPath = Join-Path $RuntimeRoot 'ARIA-Desktop-Commander-Remote.xml'
 $TaskName = 'ARIA-Desktop-Commander-Remote'
-$taskUser = "$env:COMPUTERNAME\$env:USERNAME"
+$taskUser = (& whoami).Trim()
+if ([string]::IsNullOrWhiteSpace($taskUser) -or $taskUser -notmatch '\\') {
+    throw "No se pudo resolver una identidad Windows valida para Task Scheduler: '$taskUser'"
+}
 
 if (-not (Test-Path $SupervisorSource)) {
     throw "Desktop Commander supervisor not found: $SupervisorSource"
