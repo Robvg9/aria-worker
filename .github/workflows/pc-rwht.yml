@@ -77,7 +77,7 @@ jobs:
           done
           test -n "$html"
           (grep -q "name='aria-test-catalog-version' content='2026-10-01-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-01-canonical"' <<<"$html")
-          (grep -q "name='aria-test-catalog-total' content='264'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="264"' <<<"$html")
+          (grep -q "name='aria-test-catalog-total' content='293'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="293"' <<<"$html")
           echo CANONICAL_TEST_CATALOG_LIVE_OK
       - name: Execute full PC PWA RWHT
         working-directory: rwht/pc-browser
