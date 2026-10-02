@@ -1971,7 +1971,19 @@ Deno.serve(async (request) => {
       steps = mission.checkpoint.plan;
     } else {
       try {
-        steps = await createPlan(String(mission.goal || ""), { ...cognitiveContext, ...(recoveryNeedsFreshPlan ? { recovery_strategy_required: true, identical_strategy_detected: true, failed_step_id: String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || ""), failed_executor_type: String(recoveryState?.executor_type || recoveryState?.previous_plan?.[0]?.executor_type || ""), failed_operation: String(recoveryState?.operation || recoveryState?.previous_plan?.[0]?.operation || ""), failed_error: recoveryState?.block_details || recoveryState?.previous_results?.[String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || "")]?.error || null, previous_plan: Array.isArray(recoveryState?.previous_plan) ? recoveryState.previous_plan : [], previous_results: recoveryState?.previous_results && typeof recoveryState.previous_results === "object" ? recoveryState.previous_results : {} } : {}) }, token);
+        const directLocalRecovery = recoveryNeedsFreshPlan ? await buildLocalQwenRecoveryStep(mission, recoveryState) : null;
+        if (directLocalRecovery) {
+          steps = [directLocalRecovery];
+          await emitEvent(missionId, "recovery_attempted", {
+            recovery_route: "cloud_to_local_qwen",
+            planner_bypassed: true,
+            step_id: directLocalRecovery.id,
+            device_id: directLocalRecovery.target.device_id,
+            local_model: "qwen3:0.6b",
+          });
+        } else {
+          steps = await createPlan(String(mission.goal || ""), { ...cognitiveContext, ...(recoveryNeedsFreshPlan ? { recovery_strategy_required: true, identical_strategy_detected: true, failed_step_id: String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || ""), failed_executor_type: String(recoveryState?.executor_type || recoveryState?.previous_plan?.[0]?.executor_type || ""), failed_operation: String(recoveryState?.operation || recoveryState?.previous_plan?.[0]?.operation || ""), failed_error: recoveryState?.block_details || recoveryState?.previous_results?.[String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || "")]?.error || null, previous_plan: Array.isArray(recoveryState?.previous_plan) ? recoveryState.previous_plan : [], previous_results: recoveryState?.previous_results && typeof recoveryState.previous_results === "object" ? recoveryState.previous_results : {} } : {}) }, token);
+        }
       } catch (planErr) {
         const reason = planErr instanceof Error ? planErr.message : String(planErr);
         await updateMission(missionId, {
