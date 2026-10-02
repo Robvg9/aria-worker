@@ -97,6 +97,73 @@ function deviceSupportsOperation(capabilities: unknown, operation: string) {
   return Array.isArray(capabilities) && capabilities.some((capability) => String(capability) === operation);
 }
 
+async function buildLocalQwenRecoveryStep(mission: any, recovery: any) {
+  if (!recovery?.replan_required) return null;
+  const previous = Array.isArray(recovery?.previous_plan) ? recovery.previous_plan : [];
+  const failedId = String(recovery?.failed_step_ids?.[0] || recovery?.failed_step_id || "").trim();
+  const failed = previous.find((step:any) => String(step?.id || "") === failedId) || previous[0] || {};
+  const failedExecutor = String(failed?.executor_type || failed?.target?.type || recovery?.executor_type || "").toLowerCase();
+  const failedOperation = String(failed?.operation || recovery?.operation || "").toLowerCase();
+  if (failedExecutor !== "model" && failedOperation !== "text_generation") return null;
+
+  const { data, error } = await sb.schema("aria_internal")
+    .from("device_registry")
+    .select("device_id,display_name,agent_type,status,capabilities,last_seen_at")
+    .eq("agent_type", "windows-local")
+    .eq("status", "online")
+    .order("last_seen_at", { ascending: false })
+    .limit(8);
+  if (error) throw new Error("local_qwen_recovery_device_lookup:" + error.message);
+
+  const device = (Array.isArray(data) ? data : []).find((d:any) =>
+    Array.isArray(d?.capabilities) && d.capabilities.map(String).includes("ollama.qwen3")
+  );
+  if (!device) return null;
+
+  const goal = String(mission?.goal || "");
+  const startUrl = String(
+    recovery?.start_url ||
+    mission?.checkpoint?.cognitive_context?.start_url ||
+    mission?.metadata?.start_url ||
+    "https://aria.robvg9.workers.dev/pwa/"
+  ).trim();
+
+  return {
+    id: "local_qwen_recovery_1",
+    operation: "computer.use.autonomous",
+    executor_type: "device",
+    target: { type: "device", device_id: String(device.device_id) },
+    input: {
+      mode: "rwht",
+      goal,
+      start_url: startUrl,
+      max_actions: 120,
+      max_runtime_ms: 600000,
+      capture_screenshots: true
+    },
+    risk: "LOW_RISK_WRITE",
+    timeout_ms: 660000,
+    policy: {
+      tool_use: true,
+      capability_aware: true,
+      autonomous_ui_test: true,
+      adaptive_replanning: true,
+      destructive_actions_blocked: true,
+      secret_input_blocked: true,
+      recovery_route: "cloud_to_local_qwen"
+    },
+    verify: { response_content_nonempty: true },
+    selection: {
+      recovery_route: "cloud_to_local_qwen",
+      failed_step_id: failedId || null,
+      failed_executor_type: failedExecutor || null,
+      failed_operation: failedOperation || null,
+      local_model: "qwen3:0.6b",
+      device_id: String(device.device_id)
+    }
+  };
+}
+
 async function resolveDeviceTarget(missionId: string, step: any): Promise<DeviceTargetResolution> {
   const operation = String(step?.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) {
