@@ -131,6 +131,31 @@ export function buildAbsorptionPlan({source,requestedCapabilities=[]} = {}) {
   return Object.freeze({schema:ABSORB_SCHEMA,plan_version:"aria-absorb-plan-v1",source,requested_capabilities:[...requestedCapabilities].map(String).slice(0,64),external_code_execution:false,stages:defs.map((d,i)=>Object.freeze({index:i+1,stage:d[0],description:d[1],risk:d[2],state:i===0?"DONE":"PENDING",auto_execute:false})),governance:{safe_default:true,least_privilege:true,reversible:true,provenance_required:true,runtime_binding_allowlist_required:true,human_gate_for_enable_write:true}});
 }
 
+export function absorptionStageState(status, stage) {
+  const rank = {
+    DISCOVERED: 1, INSPECTED: 2, INDEXED: 4, SANDBOXED: 6,
+    VERIFIED: 8, REGISTERED: 9, ENABLED: 10, DISABLED: 0, REJECTED: 0, DEPRECATED: 14
+  };
+  const stageRank = {
+    DISCOVER: 1, INSPECT: 2, UNDERSTAND: 3, INDEX: 4, ISOLATE: 5,
+    ADAPT: 6, TEST: 7, VERIFY: 8, REGISTER: 9, ENABLE: 10,
+    LEARN: 11, USE: 12, MONITOR: 13, REPLACE_OR_RETIRE: 14
+  };
+  if (status === "REJECTED" || status === "DEPRECATED" || status === "DISABLED") return "PENDING";
+  return (stageRank[stage] || 99) <= (rank[status] || 0) ? "DONE" : "PENDING";
+}
+
+export function advanceAbsorptionPlan(plan, status) {
+  if (!plan || plan.schema !== ABSORB_SCHEMA || !Array.isArray(plan.stages)) throw new Error("absorb_plan_invalid");
+  return Object.freeze({
+    ...plan,
+    stages: plan.stages.map(stage => Object.freeze({
+      ...stage,
+      state: absorptionStageState(status, stage.stage)
+    }))
+  });
+}
+
 export function transitionStatus(current,next) {
   if (!ALLOWED_STATUS.has(current) || !ALLOWED_STATUS.has(next)) throw new Error("absorb_status_invalid");
   const allowed={DISCOVERED:["INSPECTED","REJECTED"],INSPECTED:["INDEXED","SANDBOXED","REJECTED"],INDEXED:["SANDBOXED","VERIFIED","REJECTED"],SANDBOXED:["VERIFIED","REJECTED"],VERIFIED:["REGISTERED","DISABLED","REJECTED"],REGISTERED:["ENABLED","DISABLED","DEPRECATED"],ENABLED:["DISABLED","DEPRECATED"],DISABLED:["REGISTERED","DEPRECATED"],REJECTED:[],DEPRECATED:[]};
