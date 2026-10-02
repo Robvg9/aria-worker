@@ -36,6 +36,7 @@ jobs:
       RWHT_HEADLESS: 'true'
       RWHT_ARTIFACT_DIR: rwht-artifacts
       RWHT_MAX_CONTROLS_PER_ROUTE: '40'
+      RWHT_AUTH_ATTEMPTS: '1'
       RWHT_NO_SCREENSHOTS: 'false'
       RWHT_REQUIRE_AUTH: ${{ (secrets.RWHT_EMAIL != '' && secrets.RWHT_PASSWORD != '') || secrets.RWHT_STORAGE_STATE_B64 != '' }}
       RWHT_EXPECTED_AUTH_TEXT: 'Lista para actuar'
