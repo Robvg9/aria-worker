@@ -1,0 +1,62 @@
+'use strict';
+
+const assert = require('assert');
+const {
+  ECC_VERSION,
+  normalizeEccRequest,
+  buildEccShellCommand,
+  buildEccExecution,
+} = require('../ecc/operator');
+
+assert.strictEqual(ECC_VERSION, '2.2.3');
+
+assert.deepStrictEqual(normalizeEccRequest({
+  action: 'consult',
+  topic: 'verification loop',
+  target: 'codex'
+}), { action: 'consult', topic: 'verification loop', target: 'codex' });
+
+assert.match(
+  buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }),
+  /ecc-universal@2\.2\.3 consult 'a''b' --target codex/
+);
+
+assert.strictEqual(
+  buildEccShellCommand({ action: 'doctor', target: 'codex' }),
+  'npx --yes ecc-universal@2.2.3 doctor --target codex'
+);
+
+assert.strictEqual(
+  buildEccShellCommand({ action: 'list_installed' }),
+  'npx --yes ecc-universal@2.2.3 list-installed'
+);
+
+assert.strictEqual(
+  buildEccShellCommand({ action: 'install_preview', profile: 'core', target: 'codex' }),
+  'npx --yes ecc-universal@2.2.3 install --profile core --target codex --dry-run'
+);
+
+assert.throws(
+  () => normalizeEccRequest({ action: 'run', command: 'whoami' }),
+  /ecc_action_not_allowed/
+);
+assert.throws(
+  () => normalizeEccRequest({ action: 'consult', topic: 'x', target: 'powershell' }),
+  /ecc_target_not_allowed/
+);
+assert.throws(
+  () => normalizeEccRequest({ action: 'consult', topic: '' }),
+  /ecc_consult_topic_invalid/
+);
+assert.throws(
+  () => normalizeEccRequest({ action: 'install_preview', profile: 'full' }),
+  /ecc_profile_not_allowed/
+);
+
+const execution = buildEccExecution({ action: 'doctor', target: 'codex' });
+assert.strictEqual(execution.tool_id, 'tool_ecc_operator');
+assert.strictEqual(execution.operation, 'ecc.execute');
+assert.strictEqual(execution.underlying_operation, 'shell.execute');
+assert.ok(execution.command.includes('doctor'));
+
+console.log('ecc-operator.test.js: PASS');

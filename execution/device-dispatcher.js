@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { DEVICE_JOB_OPERATIONS, validateDeviceJobOperation } = require('./device-job-contract');
+const { buildEccExecution } = require('../ecc/operator');
 
 const DEFAULT_POLL_MS = 1500;
 const DEFAULT_WAIT_MS = 120000;
@@ -22,10 +23,14 @@ function createDeviceDispatcher({ enqueue, get, sleep = ms => new Promise(resolv
   async function execute({ missionId, step, attempt = 1 }) {
     if (!missionId || !step || !step.id) throw new Error('missionId and step.id required');
     const operation = step.operation;
-    const command = [DEVICE_JOB_OPERATIONS.OLLAMA_QWEN3, DEVICE_JOB_OPERATIONS.COMPUTER_USE].includes(operation)
-      ? JSON.stringify(step.input || step.command)
-      : (step.command || step.input?.command);
-    const validation = validateDeviceJobOperation(operation, command);
+    const eccExecution = operation === 'ecc.execute' ? buildEccExecution(step.input || {}) : null;
+    const effectiveOperation = eccExecution ? DEVICE_JOB_OPERATIONS.SHELL_EXECUTE : operation;
+    const command = eccExecution
+      ? eccExecution.command
+      : [DEVICE_JOB_OPERATIONS.OLLAMA_QWEN3, DEVICE_JOB_OPERATIONS.COMPUTER_USE].includes(operation)
+        ? JSON.stringify(step.input || step.command)
+        : (step.command || step.input?.command);
+    const validation = validateDeviceJobOperation(effectiveOperation, command);
     if (!validation.ok) throw new Error(validation.error);
 
     const deviceId = step.target?.device_id || step.policy?.device_id;
@@ -36,12 +41,22 @@ function createDeviceDispatcher({ enqueue, get, sleep = ms => new Promise(resolv
       job_id: id,
       mission_id: missionId,
       device_id: deviceId,
-      operation,
+      operation: effectiveOperation,
       command,
-      cwd: operation === DEVICE_JOB_OPERATIONS.SHELL_EXECUTE ? (step.cwd || step.input?.cwd || null) : null,
+      cwd: effectiveOperation === DEVICE_JOB_OPERATIONS.SHELL_EXECUTE ? (step.cwd || step.input?.cwd || null) : null,
       timeout_ms: Number.isInteger(step.timeout_ms) ? step.timeout_ms : 120000,
       policy: step.policy || {},
-      metadata: { mission_step_id: step.id, attempt }
+      metadata: {
+        mission_step_id: step.id,
+        attempt,
+        ...(eccExecution ? {
+          tool_id: eccExecution.tool_id,
+          tool_operation: eccExecution.operation,
+          underlying_operation: eccExecution.underlying_operation,
+          ecc_action: eccExecution.request.action,
+          ecc_target: eccExecution.request.target,
+        } : {})
+      }
     });
 
     if (!created) throw new Error('device job enqueue returned empty result');

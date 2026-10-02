@@ -25,9 +25,9 @@ test('version is aria-tool-registry-v1.0.0', () => {
   assert.strictEqual(tools.version, 'aria-tool-registry-v1.0.0');
 });
 
-test('listTools returns exactly 2 verified tools', () => {
+test('listTools returns the 2 verified tools plus ECC as unknown until LIVE preflight', () => {
   const list = tools.listTools();
-  assert.strictEqual(list.length, 2);
+  assert.strictEqual(list.length, 3);
 });
 
 test('listToolIds contains stable ids', () => {
@@ -59,6 +59,17 @@ test('getTool unknown id returns null', () => {
   assert.strictEqual(tools.getTool('tool_nonexistent'), null);
   assert.strictEqual(tools.getTool(null), null);
   assert.strictEqual(tools.getTool(''), null);
+});
+
+test('getTool returns ECC operator as unknown read-only device tool', () => {
+  const t = tools.getTool('tool_ecc_operator');
+  assert.ok(t);
+  assert.strictEqual(t.name, 'ecc_operator');
+  assert.strictEqual(t.provider_id, 'ecc');
+  assert.strictEqual(t.interface_type, 'device-shell');
+  assert.strictEqual(t.risk_level, 'read');
+  assert.strictEqual(t.status, 'unknown');
+  assert.deepStrictEqual(t.operations, ['consult', 'doctor', 'list_installed', 'install_preview']);
 });
 
 test('getToolByMcpName resolves aria_context', () => {
@@ -101,10 +112,21 @@ test('toolsByProvider unknown returns empty', () => {
   assert.strictEqual(tools.toolsByProvider('nonexistent').length, 0);
 });
 
+test('toolsByProvider ecc returns ECC operator', () => {
+  const list = tools.toolsByProvider('ecc');
+  assert.strictEqual(list.length, 1);
+  assert.strictEqual(list[0].tool_id, 'tool_ecc_operator');
+});
+
+test('ECC unknown tool is never available before LIVE verification', () => {
+  assert.strictEqual(tools.isAvailable('tool_ecc_operator'), false);
+});
+
 test('toolsByRisk read returns aria_context', () => {
   const list = tools.toolsByRisk('read');
-  assert.strictEqual(list.length, 1);
-  assert.strictEqual(list[0].tool_id, 'tool_aria_context');
+  assert.strictEqual(list.length, 2);
+  assert.ok(list.some(t => t.tool_id === 'tool_aria_context'));
+  assert.ok(list.some(t => t.tool_id === 'tool_ecc_operator'));
 });
 
 test('toolsByRisk low_risk_write returns aria_memory_capture', () => {
