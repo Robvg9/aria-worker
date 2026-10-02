@@ -19,6 +19,9 @@ assert(api.includes('enqueue_execution_job_gateway'));
 assert(api.includes('get_execution_job_gateway'));
 assert(api.includes('local_qwen_enqueue_failed'));
 assert(api.includes('local_fallback_used'));
+assert(api.includes('localRoute'));
+assert(api.includes('cloudFallbacks'));
+assert(api.includes('candidateRoutes'));
 
 assert(api.includes('if (persistedUserMessage?.conversation_id) conversationId = String(persistedUserMessage.conversation_id)'));
 assert(project.includes('chatThinking'));
