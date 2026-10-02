@@ -94,7 +94,9 @@ type DeviceTargetResolution = {
 };
 
 function deviceSupportsOperation(capabilities: unknown, operation: string) {
-  return Array.isArray(capabilities) && capabilities.some((capability) => String(capability) === operation);
+  if (!Array.isArray(capabilities)) return false;
+  if (operation === "ecc.execute") return capabilities.some((capability) => String(capability) === "shell.execute");
+  return capabilities.some((capability) => String(capability) === operation);
 }
 
 async function buildLocalQwenRecoveryStep(mission: any, recovery: any) {
@@ -745,8 +747,8 @@ async function deviceExecute(missionId: string, step: any) {
   if (!job) return { status: "waiting", executor_type: "device", operation, job_id: jobId };
 
   let status = String(job.status || "");
-  if (operation === "ollama.qwen3" && !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
-    const deadline = Date.now() + 35_000;
+  if (["ollama.qwen3", "ecc.execute"].includes(operation) && !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
+    const deadline = Date.now() + (operation === "ecc.execute" ? 180_000 : 35_000);
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       current = await getExecutionJob(jobId);
