@@ -1,5 +1,5 @@
 {
-  "version": "aria-model-registry-v1.0.4",
+  "version": "aria-model-registry-v1.0.5",
   "mission": "10.2+10.3+10.14",
   "kind": "model_registry",
   "memory_authority": false,
@@ -140,6 +140,103 @@
       "capability_refs": [
         "text_generation"
       ]
+    },
+    {
+      "model_id": "deepseek-ai/deepseek-v4.1-flash",
+      "provider_id": "nvidia",
+      "canonical_name": "DeepSeek V4.1 Flash via NVIDIA NIM",
+      "upstream_model": "deepseek-ai/deepseek-v4.1-flash",
+      "upstream_provider_id": "deepseek-ai",
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {
+        "access_path": "nvidia_nim_api_catalog",
+        "nvidia_free_endpoint": true,
+        "catalog_verified_at": "2026-10-02",
+        "live_verified": false,
+        "integration_status": "not_connected",
+        "notes": "Current NVIDIA Free Endpoint. ARIA will not select this route until credential, capability and LIVE completion are verified."
+      },
+      "context_window": 1000000,
+      "capability_refs": [
+        "text_generation",
+        "reasoning",
+        "coding",
+        "multimodal"
+      ]
+    },
+    {
+      "model_id": "z-ai/glm-5-3-flash",
+      "provider_id": "nvidia",
+      "canonical_name": "GLM-5.3 Flash via NVIDIA NIM",
+      "upstream_model": "z-ai/glm-5-3-flash",
+      "upstream_provider_id": "z-ai",
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {
+        "access_path": "nvidia_nim_api_catalog",
+        "nvidia_free_endpoint": true,
+        "catalog_verified_at": "2026-10-02",
+        "live_verified": false,
+        "integration_status": "not_connected",
+        "notes": "Current NVIDIA Free Endpoint; catalog advertises reasoning and tool use. ARIA will not select this route until credential, capability and LIVE completion are verified."
+      },
+      "context_window": 1000000,
+      "capability_refs": [
+        "text_generation",
+        "reasoning",
+        "tool_use",
+        "multimodal"
+      ]
+    },
+    {
+      "model_id": "moonshotai/kimi-k3",
+      "provider_id": "nvidia",
+      "canonical_name": "Kimi K3 via NVIDIA NIM",
+      "upstream_model": "moonshotai/kimi-k3",
+      "upstream_provider_id": "moonshotai",
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {
+        "access_path": "nvidia_nim_api_catalog",
+        "nvidia_free_endpoint": true,
+        "catalog_verified_at": "2026-10-02",
+        "live_verified": false,
+        "integration_status": "not_connected",
+        "notes": "Current NVIDIA Free Endpoint; catalog advertises long-horizon coding and agentic tool use. ARIA will not select this route until credential, capability and LIVE completion are verified."
+      },
+      "context_window": 1000000,
+      "capability_refs": [
+        "text_generation",
+        "reasoning",
+        "coding",
+        "tool_use",
+        "multimodal"
+      ]
+    },
+    {
+      "model_id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "provider_id": "nvidia",
+      "canonical_name": "Nemotron 3.5 Lightning 30B A3B via NVIDIA NIM",
+      "upstream_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "upstream_provider_id": "nvidia",
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {
+        "access_path": "nvidia_nim_api_catalog",
+        "nvidia_free_endpoint": true,
+        "catalog_verified_at": "2026-10-02",
+        "live_verified": false,
+        "integration_status": "not_connected",
+        "notes": "Current NVIDIA Free Endpoint; catalog positions it for specialized agentic tasks. ARIA will not select this route until credential, capability and LIVE completion are verified."
+      },
+      "context_window": 1000000,
+      "capability_refs": [
+        "text_generation",
+        "reasoning",
+        "coding",
+        "tool_use"
+      ]
     }
   ],
   "indexes": {
@@ -157,6 +254,12 @@
       ],
       "mistral": [
         "mistral/mistral-small-latest"
+      ],
+      "nvidia": [
+        "deepseek-ai/deepseek-v4.1-flash",
+        "z-ai/glm-5-3-flash",
+        "moonshotai/kimi-k3",
+        "nvidia/nemotron-3.5-lightning-30b-a3b"
       ]
     },
     "by_model_id": {
@@ -164,7 +267,11 @@
       "google/gemini-3.5-flash-lite-direct": "google",
       "google/gemini-3.5-flash-direct": "google",
       "google/gemini-3.1-flash-lite-direct": "google",
-      "xai/grok-4.6": "xai"
+      "xai/grok-4.6": "xai",
+      "deepseek-ai/deepseek-v4.1-flash": "nvidia",
+      "z-ai/glm-5-3-flash": "nvidia",
+      "moonshotai/kimi-k3": "nvidia",
+      "nvidia/nemotron-3.5-lightning-30b-a3b": "nvidia"
     }
   },
   "rules": [

@@ -136,10 +136,36 @@ function createGoogleGeminiApiAdapter({ credentialConfigured = false } = {}) {
   });
 }
 
+function createNvidiaNimApiAdapter({ credentialConfigured = false } = {}) {
+  return Object.freeze({
+    provider: 'nvidia',
+    capabilities: ['nvidia_api_key', 'text_generation', 'health'],
+    bootstrap: () => ({
+      human_gate: !credentialConfigured,
+      steps: [
+        'create a NVIDIA Developer / build.nvidia.com API key',
+        'store the credential only in the ARIA secret store',
+        'bind it to a governed NVIDIA model/account route'
+      ]
+    }),
+    async provision() {
+      if (!credentialConfigured) return { status: 'human_gate', reason: 'nvidia_api_key_required' };
+      return { status: 'configured', secret_ref: 'secret://nvidia/nim_primary', expires_at: null };
+    },
+    async renew() {
+      return { status: 'unavailable', reason: 'nvidia_api_key_rotation_requires_provider_operation' };
+    },
+    async health() {
+      return { ok: Boolean(credentialConfigured), state: credentialConfigured ? 'healthy' : 'bootstrap_required' };
+    }
+  });
+}
+
 module.exports = {
   createGitHubAppAdapter,
   createCloudflareApiAdapter,
   createSupabaseOAuthAdapter,
   createGoogleGeminiApiAdapter,
-  createMistralApiAdapter
+  createMistralApiAdapter,
+  createNvidiaNimApiAdapter
 };
