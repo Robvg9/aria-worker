@@ -12,45 +12,92 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext(storage ? { storageState: storage } : {});
 const page = await context.newPage();
 
-async function ensureBrowserSession() {
-  if (storage) return;
+async function bootstrapPasswordSession() {
   const email = process.env.RWHT_EMAIL || '';
   const password = process.env.RWHT_PASSWORD || '';
   if (!email || !password) throw new Error('authenticated_session_missing');
-
   const authOrigin = new URL(base).origin;
   let payload = {};
   let authStatus = 0;
   let authError = 'unknown';
   for (let attempt = 1; attempt <= 4; attempt++) {
-    const authResponse = await context.request.post(authOrigin + '/auth/token?grant_type=password', {
-      timeout: 30000,
-      headers: { 'content-type': 'application/json', apikey: ANON },
-      data: { email: email.trim(), password }
-    });
-    authStatus = authResponse.status();
-    payload = await authResponse.json().catch(() => ({}));
-    if (authResponse.ok() && payload?.access_token && payload?.refresh_token && payload?.user?.id) break;
-    authError = String(payload?.error_description || payload?.msg || payload?.error || 'unknown');
+    try {
+      const authResponse = await context.request.post(authOrigin + '/auth/token?grant_type=password', {
+        timeout: 30000,
+        headers: { 'content-type': 'application/json', apikey: ANON },
+        data: { email: email.trim(), password }
+      });
+      authStatus = authResponse.status();
+      payload = await authResponse.json().catch(() => ({}));
+      if (authResponse.ok() && payload?.access_token && payload?.refresh_token && payload?.user?.id) break;
+      authError = String(payload?.error_description || payload?.msg || payload?.error || 'unknown');
+    } catch (error) {
+      authError = String(error?.message || error).slice(0, 500);
+    }
     if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 5000 * attempt));
   }
   if (!payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
     throw new Error('auth_proxy_failed:http_' + authStatus + ':' + authError);
   }
-
-  const session = {
+  return {
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
     userId: payload.user.id,
     expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
     email: payload.user.email
   };
+}
+
+async function ensureBrowserSession() {
   await page.goto(base + '/', { waitUntil:'domcontentloaded', timeout:60000 });
-  await page.evaluate((session) => {
-    localStorage.setItem('aria_session_v2', JSON.stringify(session));
-  }, session);
+
+  const existing = await page.evaluate(() => {
+    try {
+      const raw = localStorage.getItem('aria_session_v2');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }).catch(() => null);
+
+  if (existing?.refreshToken) {
+    const authOrigin = new URL(base).origin;
+    let refreshed = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await context.request.post(authOrigin + '/auth/token?grant_type=refresh_token', {
+          timeout: 30000,
+          headers: { 'content-type': 'application/json', apikey: ANON },
+          data: { refresh_token: String(existing.refreshToken) }
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok() && payload?.access_token && payload?.refresh_token) {
+          refreshed = {
+            ...existing,
+            accessToken: payload.access_token,
+            refreshToken: payload.refresh_token,
+            userId: payload.user?.id || existing.userId,
+            expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
+            email: payload.user?.email || existing.email
+          };
+          break;
+        }
+      } catch {}
+      if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 4000 * attempt));
+    }
+    if (refreshed) {
+      await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), refreshed);
+      await page.reload({ waitUntil:'domcontentloaded', timeout:60000 });
+      await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
+      return { source: 'refresh_token', session: refreshed };
+    }
+  }
+
+  const session = await bootstrapPasswordSession();
+  await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), session);
   await page.reload({ waitUntil:'domcontentloaded', timeout:60000 });
   await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
+  return { source: 'password', session };
 }
 
 await ensureBrowserSession();
