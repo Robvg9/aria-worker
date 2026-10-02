@@ -1,0 +1,94 @@
+name: ECC Full Integration Certification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'ecc/**'
+      - 'scripts/ecc-*.js'
+      - 'tests/ecc-*.test.js'
+      - '.github/workflows/ecc-*.yml'
+      - '.github/workflows/ecc-full-certification.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-23-ecc2-certification'
+    paths:
+      - 'ecc/**'
+      - 'scripts/ecc-*.js'
+      - 'tests/ecc-*.test.js'
+      - '.github/workflows/ecc-*.yml'
+      - '.github/workflows/ecc-full-certification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-certification:
+    name: ECC 0→23 / full contract certification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Phase 0 — source lock
+        run: node tests/ecc-source-lock.test.js
+      - name: Phase 1 — live inventory
+        run: node tests/ecc-inventory-compiler.test.js
+      - name: Phase 2 — capability registry
+        run: node tests/ecc-capability-registry.test.js
+      - name: Phase 3 — drift/conflict
+        run: node tests/ecc-drift-conflict.test.js
+      - name: Phase 4 — capability compiler
+        run: node tests/ecc-capability-compiler.test.js
+      - name: Phase 5 — context resolver
+        run: node tests/ecc-context-resolver.test.js
+      - name: Phase 6 — skills layer
+        run: node tests/ecc-skills-layer.test.js
+      - name: Phase 7 — agent adapter
+        run: node tests/ecc-agent-adapter-layer.test.js
+      - name: Phase 8 — specialist selection
+        run: node tests/ecc-specialist-selection.test.js
+      - name: Phase 9 — mission graph
+        run: node tests/ecc-mission-graph.test.js
+      - name: Phase 10 — autonomous loop
+        run: node tests/ecc-autonomous-loop.test.js
+      - name: Phase 11 — learning adapter
+        run: node tests/ecc-learning-adapter.test.js
+      - name: Phase 12 — failure memory
+        run: node tests/ecc-failure-memory.test.js
+      - name: Phase 13 — unified memory
+        run: node tests/ecc-unified-memory.test.js
+      - name: Phase 14 — session contract
+        run: node tests/ecc-session-contract.test.js
+      - name: Phase 15 — multi-device ownership
+        run: node tests/ecc-device-ownership.test.js
+      - name: Phase 16 — MCP bridge
+        run: node tests/ecc-mcp-bridge.test.js
+      - name: Phase 17 — hook events
+        run: node tests/ecc-hook-event-adapter.test.js
+      - name: Phase 18 — verification loop
+        run: node tests/ecc-verification-loop.test.js
+      - name: Phase 19 — independent regression review
+        run: node tests/ecc-regression-review.test.js
+      - name: Phase 20 — AgentShield
+        run: node tests/ecc-agentshield.test.js
+      - name: Phase 21 — Plan Canvas
+        run: node tests/ecc-plan-canvas.test.js
+      - name: Phase 22 — harness audit
+        run: node tests/ecc-harness-audit.test.js
+      - name: Phase 23 — final certification
+        run: node tests/ecc-final-certification.test.js
+
+      - name: Certification summary
+        run: |
+          echo "ECC FULL INTEGRATION CERTIFICATION: PASS"
+          echo "Source lock: v2.2.3"
+          echo "Phases: 0-23"
+          echo "ECC2 runtime activation remains disabled by contract"
