@@ -25,6 +25,9 @@ assert(api.includes('candidateRoutes'));
 assert(api.includes('chat-runtime:'));
 assert(api.includes('chat_execution_context'));
 assert(api.includes('chat_runtime_mission_context_failed'));
+assert(api.includes('cachedCloud'));
+assert(api.includes('refreshed'));
+assert(api.includes('routes:routes.filter((route:any)=>route.provider_id!=="local_windows")'));
 
 assert(api.includes('if (persistedUserMessage?.conversation_id) conversationId = String(persistedUserMessage.conversation_id)'));
 assert(project.includes('chatThinking'));
