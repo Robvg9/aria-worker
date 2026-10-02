@@ -84,6 +84,69 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
   return data;
 };
 
+
+type DeviceTargetResolution = {
+  requested_device_id: string | null;
+  resolved_device_id: string;
+  operation: string;
+  fallback: boolean;
+  reason: string;
+};
+
+function deviceSupportsOperation(capabilities: unknown, operation: string) {
+  return Array.isArray(capabilities) && capabilities.some((capability) => String(capability) === operation);
+}
+
+async function resolveDeviceTarget(missionId: string, step: any): Promise<DeviceTargetResolution> {
+  const operation = String(step?.operation || "shell.execute");
+  if (!DEVICE_OPS_ALLOWLIST.has(operation)) {
+    throw new Error(`device_operation_not_allowed:${operation}`);
+  }
+
+  const requested = typeof step?.target?.device_id === "string" && step.target.device_id.trim() !== ""
+    ? step.target.device_id.trim()
+    : null;
+
+  const { data, error } = await sb.schema("aria_internal")
+    .from("device_registry")
+    .select("device_id,display_name,agent_type,status,capabilities,last_seen_at")
+    .eq("status", "online");
+
+  if (error) throw new Error(`device_target_lookup:${error.message}`);
+
+  const candidates = (Array.isArray(data) ? data : [])
+    .filter((device) => deviceSupportsOperation(device.capabilities, operation))
+    .sort((a, b) => {
+      const aTime = Date.parse(String(a.last_seen_at || "")) || 0;
+      const bTime = Date.parse(String(b.last_seen_at || "")) || 0;
+      return bTime - aTime || String(a.device_id).localeCompare(String(b.device_id));
+    });
+
+  const exact = requested
+    ? candidates.find((device) => String(device.device_id) === requested)
+    : null;
+  const selected = exact || candidates[0];
+
+  if (!selected?.device_id) {
+    throw new Error(`device_target_unavailable:${operation}`);
+  }
+
+  const resolution: DeviceTargetResolution = {
+    requested_device_id: requested,
+    resolved_device_id: String(selected.device_id),
+    operation,
+    fallback: !exact,
+    reason: exact
+      ? "requested_device_online_and_capable"
+      : requested
+        ? "requested_device_missing_offline_or_incompatible"
+        : "no_device_requested_selected_online_capable_device",
+  };
+
+  await emitEvent(missionId, "device_target_resolved", resolution);
+  return resolution;
+}
+
 async function authorized(request: Request) {
   const token = tokenOf(request);
   if (token && SECRET && constantTimeEqual(token, SECRET)) return true;
@@ -585,7 +648,8 @@ async function getExecutionJob(jobId: string) {
 }
 
 async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
-  const payload = buildDeviceEnqueuePayload(V, missionId, step, jobId);
+  const resolution = await resolveDeviceTarget(missionId, step);
+  const payload = buildDeviceEnqueuePayload(V, missionId, step, jobId, resolution.resolved_device_id);
   const response = await fetch(RUNTIME, {
     method: "POST",
     headers: internalHeaders(),
