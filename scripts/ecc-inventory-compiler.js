@@ -64,6 +64,25 @@ function targetSurfaces(filePath) {
 function classifyPath(filePath) {
   const p = filePath.replace(/^\.\//, '');
 
+  const rootCategories = {
+    agents: 'agents',
+    skills: 'skills',
+    commands: 'commands',
+    rules: 'rules',
+    hooks: 'hooks',
+    'mcp-configs': 'mcp',
+    manifests: 'manifests',
+    workflows: 'workflows',
+    scripts: 'scripts',
+    tests: 'tests',
+    schemas: 'schemas',
+    integrations: 'integrations',
+    scaffolds: 'scaffolds',
+    docs: 'docs',
+    config: 'config',
+    ecc2: 'ecc2',
+  };
+  if (rootCategories[p]) return rootCategories[p];
   if (/^ecc2\//.test(p)) return 'ecc2';
   if (/^agents\//.test(p)) return 'agents';
   if (/^skills\//.test(p)) return 'skills';
