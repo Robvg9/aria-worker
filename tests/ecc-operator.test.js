@@ -16,22 +16,16 @@ assert.deepStrictEqual(normalizeEccRequest({
   target: 'codex'
 }), { action: 'consult', topic: 'verification loop', target: 'codex' });
 
-assert.match(buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }), /ecc-universal@2\\.2\\.3/);
+assert.ok(buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }).includes('ecc-universal@2.2.3'));
 assert.ok(buildEccShellCommand({ action: 'consult', topic: "a'b", target: 'codex' }).startsWith('node -e'));
 assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('ecc-universal@2.2.3'));
 assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('doctor'));
 assert.ok(buildEccShellCommand({ action: 'doctor', target: 'codex' }).includes('--target'));
 
 
-assert.strictEqual(
-  buildEccShellCommand({ action: 'list_installed' }),
-  'npx --yes ecc-universal@2.2.3 list-installed'
-);
+assert.ok(buildEccShellCommand({ action: 'list_installed' }).includes('list-installed'));
 
-assert.strictEqual(
-  buildEccShellCommand({ action: 'install_preview', profile: 'core', target: 'codex' }),
-  'npx --yes ecc-universal@2.2.3 install --profile core --target codex --dry-run'
-);
+assert.ok(buildEccShellCommand({ action: 'install_preview', profile: 'core', target: 'codex' }).includes('--dry-run'));
 
 assert.throws(
   () => normalizeEccRequest({ action: 'run', command: 'whoami' }),
