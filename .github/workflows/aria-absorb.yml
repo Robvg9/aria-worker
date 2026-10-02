@@ -11,7 +11,7 @@ on:
       - 'rwht/pc-browser/absorb-rwht.mjs'
       - '.github/workflows/aria-absorb.yml'
   push:
-    branches: [main]
+    branches: [main, 'feat/absorb-live-e2e-check-20261002']
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: aria-absorb-${{ github.ref }}
+  group: aria-absorb-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -62,6 +62,8 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             slug="${GITHUB_HEAD_REF//\//-}"
             echo "RWHT_URL=https://${slug}-aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF_NAME" == "feat/absorb-live-e2e-check-20261002" ]]; then
+            echo "RWHT_URL=https://feat-absorb-live-e2e-check-20261002-aria.robvg9.workers.dev/pwa/" >> "$GITHUB_ENV"
           else
             echo "RWHT_URL=${RWHT_URL}" >> "$GITHUB_ENV"
           fi
@@ -94,7 +96,7 @@ jobs:
           path: rwht/pc-browser/absorb-artifacts
           if-no-files-found: warn
       - name: Persist production E2E result
-        if: always() && github.event_name != 'pull_request'
+        if: always() && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: "818"
