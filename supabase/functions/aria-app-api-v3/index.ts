@@ -147,10 +147,20 @@ async function absorbEnable(userId:string, absorptionId:string){
   if(error) throw new Error("absorb_enable_lookup_failed:"+error.message);
   if(!row) throw Object.assign(new Error("absorb_not_found"),{status:404});
   if(String(row.status)!=="REGISTERED"||row.runtime_binding?.binding_id!=="tool_ecc_operator") throw Object.assign(new Error("absorb_enable_binding_required"),{status:409});
+  const liveInventory=await inspectGithubSource({owner:row.source_owner,repo:row.source_repo,ref:row.source_requested_ref});
+  if(liveInventory.source.commit_sha!==row.source_commit_sha||liveInventory.inventory_digest_sha256!==row.source_digest_sha256){
+    await sb.schema("aria_internal").from("capability_absorptions").update({
+      status:"REJECTED",enabled:false,verification:{...row.verification,state:"FAILED",verification_level:"source_drift",runtime_verified:false,reason:"source_commit_or_digest_changed_before_enable"}
+    }).eq("absorption_id",absorptionId).eq("user_id",userId);
+    throw Object.assign(new Error("absorb_source_drift_detected_before_enable"),{status:409});
+  }
   const {data:missions,error:missionError}=await sb.schema("aria_internal").from("mission_state")
     .select("mission_id,status,goal,checkpoint,metadata,finished_at").eq("status","succeeded").ilike("mission_id","ecc-aria-live-e2e-%").order("finished_at",{ascending:false}).limit(20);
   if(missionError) throw new Error("absorb_enable_evidence_lookup_failed:"+missionError.message);
-  const evidence=(missions||[]).filter((m:any)=>String(JSON.stringify(m.checkpoint||{})).includes("ecc.execute"));
+  const evidence=(missions||[]).filter((m:any)=>{
+    const owner=String(m?.metadata?.user_id||"");
+    return owner===String(userId) && String(JSON.stringify(m.checkpoint||{})).includes("ecc.execute");
+  });
   if(evidence.length<1) throw Object.assign(new Error("absorb_runtime_evidence_required"),{status:409});
   const verification={...row.verification,adapter_contract:"tool_ecc_operator",runtime_verified:true,runtime_evidence_count:evidence.length,runtime_evidence_refs:evidence.slice(0,8).map((m:any)=>String(m.mission_id)),contract_test:"passed",security_review:"passed",verification_level:"source_provenance_deterministic_inventory_and_runtime_evidence",enabled_at:new Date().toISOString()};
   const runtimeBinding={...row.runtime_binding,enabled:true,enabled_at:new Date().toISOString()};
