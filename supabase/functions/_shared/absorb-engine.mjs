@@ -85,9 +85,8 @@ export async function inspectGithubSource(input, {fetchImpl = fetch, maxEntries 
   const repository = await githubJson(fetchImpl, "/repos/"+source.owner+"/"+source.repo);
   const selectedRef = source.ref || String(repository.default_branch || "main");
   if (!GITHUB_REF_RE.test(selectedRef)) throw new Error("github_default_ref_invalid");
-  const refPath = selectedRef.split("/").map(encodeURIComponent).join("/");
-  const reference = await githubJson(fetchImpl, "/repos/"+source.owner+"/"+source.repo+"/git/ref/heads/"+refPath);
-  const commitSha = String(reference?.object?.sha || "").trim();
+  const resolvedCommit = await githubJson(fetchImpl, "/repos/"+source.owner+"/"+source.repo+"/commits/"+encodeURIComponent(selectedRef));
+  const commitSha = String(resolvedCommit?.sha || "").trim();
   if (!/^[0-9a-f]{40}$/i.test(commitSha)) throw new Error("github_commit_sha_invalid");
   const tree = await githubJson(fetchImpl, "/repos/"+source.owner+"/"+source.repo+"/git/trees/"+encodeURIComponent(commitSha)+"?recursive=1");
   if (!Array.isArray(tree?.tree) || tree.truncated === true) throw new Error("github_tree_incomplete");
