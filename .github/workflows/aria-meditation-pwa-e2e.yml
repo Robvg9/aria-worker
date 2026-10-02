@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: aria-authenticated-pwa-rwht
+  cancel-in-progress: false
+
 jobs:
   live-e2e:
     runs-on: ubuntu-latest
@@ -28,6 +32,7 @@ jobs:
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
       RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
       RWHT_LOGIN_WAIT_MS: '40000'
+      RWHT_AUTH_ATTEMPTS: '1'
       RWHT_ARTIFACT_DIR: meditation-e2e-artifacts
     steps:
       - uses: actions/checkout@v4
