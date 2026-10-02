@@ -2407,6 +2407,16 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida acciones permitidas de ECC, targets permitidos, generación determinista de comandos, dry-run y rechazo de shell arbitrario."
   },
   {
+    "id": "mission-runner-v22-ecc-async-poll-budget",
+    "file": "tests/mission-runner-v22-ecc-async-poll-budget.test.js",
+    "title": "Mission Runner V22 ECC Async Poll Budget",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que ECC no bloquea el request HTTP esperando más allá del presupuesto por tick y que el trabajo puede continuar mediante estado reanudable.",
+    "capabilities": "Protege la ejecución de ECC frente a timeouts del transporte y conserva el polling de trabajos largos como continuación gobernada."
+  },
+
+  {
     "id": "mission-runner-v22-job-id-isolation",
     "file": "tests/mission-runner-v22-job-id-isolation.test.js",
     "title": "Mission Runner V22 Job ID Isolation",
