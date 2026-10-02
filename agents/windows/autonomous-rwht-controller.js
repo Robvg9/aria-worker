@@ -810,7 +810,7 @@ async function runAutonomousRwht(options) {
     if (!fastCoverageMode) {
       try {
         const tiny = promptForTinySelector(goal, current, screenHash, exercisedControls);
-        const rawModel = await model(tiny.prompt, 5000);
+        const rawModel = await model(tiny.prompt, 30000);
         decision = decisionFromTinySelection(rawModel, current, screenHash, exercisedControls)
           || normalizeDecision(parseJson(rawModel));
       } catch (error) {
