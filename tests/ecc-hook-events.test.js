@@ -51,7 +51,7 @@ assert.throws(
   () => buildHookEventCatalog({
     entries: { UnknownEvent: [{ id: 'x' }] },
   }, { tag: 'v2.2.3', commit_sha: 'commit', path: 'x', sha: 'sha' }),
-  /entries are required/,
+  /Unsupported hook event type/,
 );
 
 assert.throws(
