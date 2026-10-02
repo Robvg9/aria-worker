@@ -40,6 +40,29 @@ const { createDeviceDispatcher } = require('../execution/device-dispatcher');
   assert.strictEqual(failed.status, 'failed');
   assert.strictEqual(failed.exit_code, 7);
 
+  const eccJobs = new Map();
+  const eccDispatcher = createDeviceDispatcher({
+    enqueue: async job => { eccJobs.set(job.job_id, { ...job, status: 'succeeded', exit_code: 0, stdout: 'ECC_OK', result: { duration_ms: 8 } }); return eccJobs.get(job.job_id); },
+    get: async id => eccJobs.get(id),
+    sleep: async () => {}
+  });
+  const eccResult = await eccDispatcher.execute({
+    missionId: 'm-ecc',
+    step: {
+      id: 'ecc-doctor',
+      operation: 'ecc.execute',
+      target: { device_id: 'windows-ecc-test' },
+      input: { action: 'doctor', target: 'codex' }
+    },
+    attempt: 1
+  });
+  const eccJob = [...eccJobs.values()][0];
+  assert.strictEqual(eccResult.status, 'succeeded');
+  assert.strictEqual(eccJob.operation, 'shell.execute');
+  assert.match(eccJob.command, /ecc-universal@2\.2\.3 doctor --target codex/);
+  assert.strictEqual(eccJob.metadata.tool_id, 'tool_ecc_operator');
+  assert.strictEqual(eccJob.metadata.tool_operation, 'ecc.execute');
+
   const waitTimeout = createDeviceDispatcher({
     enqueue: async job => ({ ...job, status: 'queued' }),
     get: async () => ({ status: 'running' }),
