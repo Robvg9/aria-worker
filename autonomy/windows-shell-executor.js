@@ -7,6 +7,17 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 3_600_000;
 const MAX_OUTPUT_BYTES = 512 * 1024;
 
+function killProcessTree(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    const killer = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    killer.unref();
+  } catch (_) {}
+}
+
 const WINDOWS_SHELL_BLOCKLIST = [
   /\b(format-volume|remove-partition|clear-disk)\b/i,
   /\b(shutdown|restart-computer|stop-computer)\b/i,
@@ -99,7 +110,7 @@ function executePowerShell({ script, cwd, timeout_ms: timeoutMs, dry_run: dryRun
     };
 
     const timer = setTimeout(() => {
-      try { child.kill(); } catch (_) {}
+      killProcessTree(child.pid);
       finish({
         status: 'timeout',
         exit_code: null,
