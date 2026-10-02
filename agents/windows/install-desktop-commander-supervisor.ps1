@@ -74,7 +74,7 @@ $xml = @"
 
 Set-Content -Path $TaskXmlPath -Value $xml -Encoding Unicode -Force
 
-& schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
+& cmd.exe /c "schtasks.exe /Delete /TN ""$TaskName"" /F >nul 2>&1"
 $result = & schtasks.exe /Create /TN $TaskName /XML $TaskXmlPath /F 2>&1
 if ($LASTEXITCODE -ne 0) {
     throw ("No se pudo registrar la tarea {0}. ExitCode={1} {2}" -f $TaskName, $LASTEXITCODE, ($result -join [Environment]::NewLine))
