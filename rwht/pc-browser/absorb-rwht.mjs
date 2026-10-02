@@ -24,7 +24,7 @@ async function loginIfNeeded() {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        apikey: 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0MPw'
+        apikey: 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
       },
       body: JSON.stringify({ email: email.trim(), password }),
       cache: 'no-store'
