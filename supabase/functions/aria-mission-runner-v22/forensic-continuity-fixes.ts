@@ -6,7 +6,7 @@
  * - Strict Computer Use enqueue payload normalization by executor contract
  */
 export const PLANNER_TIMEOUT_MS = 45_000;
-export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android"]);
+export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "ollama.qwen3"]);
 
 export async function createPlanWithTimeout(
   plannerUrl: string,
@@ -69,6 +69,23 @@ export function buildDeviceEnqueuePayload(
   if (operation === "shell.execute") {
     payload.command = String(step.input?.command || "echo ARIA_UO_LIVE");
     payload.cwd = typeof step.input?.cwd === "string" ? step.input.cwd : null;
+  } else if (operation === "ollama.qwen3") {
+    const source = step.input && typeof step.input === "object" ? step.input : {};
+    const prompt = typeof source.prompt === "string"
+      ? source.prompt
+      : Array.isArray(source.messages)
+        ? source.messages.map((message: any) => {
+            const role = typeof message?.role === "string" ? message.role : "user";
+            const content = typeof message?.content === "string" ? message.content : "";
+            return role + ": " + content;
+          }).filter(Boolean).join("\n")
+        : "";
+    if (!prompt.trim()) throw new Error("ollama_prompt_missing");
+    payload.command = JSON.stringify({
+      prompt: prompt.slice(0, 12000),
+      model: typeof source.model === "string" ? source.model : "qwen3:0.6b",
+      timeout_ms: Number.isInteger(source.timeout_ms) ? source.timeout_ms : 120000,
+    });
   } else if (operation === "computer.use" || operation === "computer.use.autonomous" || operation === "computer.use.android") {
     // The runtime gateway persists device payloads in execution_jobs.command.
     // Each device contract is strict, so never forward arbitrary planner fields.
