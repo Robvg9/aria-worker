@@ -3112,3 +3112,4 @@ export default function App() {
 }
 
 // RWHT persistence/recovery certification trigger marker.
+// 2026-10-02 PWA certification closeout build marker; no runtime behavior change.
