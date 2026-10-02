@@ -16,7 +16,7 @@ try {
 
 const VERSION = 'aria-windows-autonomous-rwht-v1.2.3';
 const OLLAMA_URL = 'http://127.0.0.1:11434';
-const OLLAMA_MODEL = 'qwen3:4b';
+const OLLAMA_MODEL = process.env.ARIA_OLLAMA_MODEL || 'qwen3:0.6b';
 let CDP_BASE_URL = process.env.ARIA_CHROME_CDP_URL || 'http://127.0.0.1:9222';
 let managedBrowser = null;
 
@@ -150,7 +150,7 @@ async function qwen(prompt, timeoutMs) {
     const response = await fetch(OLLAMA_URL + '/api/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false }),
+      body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false, think: false, options: { temperature: 0, num_predict: 64 } }),
       signal: controller.signal,
     });
     const body = await response.json().catch(() => null);
