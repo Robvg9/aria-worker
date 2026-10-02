@@ -43,7 +43,7 @@ async function login(page) {
 
   const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
   await password.waitFor({ state:'visible', timeout:30000 });
-  const maxAttempts = Math.max(1, Math.min(3, Number(process.env.RWHT_AUTH_ATTEMPTS || 3)));
+  const maxAttempts = Math.max(1, Math.min(1, Number(process.env.RWHT_AUTH_ATTEMPTS || 1)));
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await authForm.fill(EMAIL);
@@ -59,9 +59,11 @@ async function login(page) {
         });
         return !pwd;
       }, null, { timeout:60000 });
-      const liveSession = await ensureLiveSession(page);
-      if (liveSession) return { mode:'password', status:'authenticated', attempts:[...attempts,{attempt,status:'authenticated'}] };
-      throw new Error('authenticated_session_not_verified');
+      const session = await readSession(page);
+      if (session?.accessToken && session?.userId) {
+        return { mode:'password', status:'authenticated', attempts:[...attempts,{attempt,status:'authenticated'}] };
+      }
+      throw new Error('authenticated_session_not_persisted');
     } catch (error) {
       attempts.push({ attempt, status:'failed', error:String(error?.message || error).slice(0,300) });
       if (attempt < maxAttempts) {
@@ -175,8 +177,8 @@ async function run() {
     await page.waitForTimeout(1200);
     const loginResult = await login(page);
     assert.equal(loginResult.status, 'authenticated');
-    const persisted = await ensureLiveSession(page);
-    assert.ok(persisted?.accessToken, 'authenticated session was not persisted');
+    const persisted = await readSession(page);
+    assert.ok(persisted?.accessToken && persisted?.userId, 'authenticated session was not persisted');
     report.auth_verified = true;
     await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(2500);
@@ -194,8 +196,8 @@ async function run() {
     await page.getByText('EJECUCIÓN EN TIEMPO REAL', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     await page.getByRole('button', { name:'ANALIZAR Y PROPONER' }).waitFor({ state:'visible', timeout:30000 });
     report.meditation_surface_verified = true;
-    const session = await ensureLiveSession(page);
-    assert.ok(session?.accessToken, 'aria session missing after login');
+    const session = await readSession(page);
+    assert.ok(session?.accessToken && session?.userId, 'aria session missing after login');
     const [overview, health, ideas, notifications] = await Promise.all([
       expectApi(page, '/meditation/overview', session.accessToken),
       expectApi(page, '/diagnostics/health', session.accessToken),

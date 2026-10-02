@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-persistence-recovery-rwht-${{ github.sha }}
+  group: aria-authenticated-pwa-rwht
   cancel-in-progress: false
 
 jobs:
@@ -28,6 +28,7 @@ jobs:
       RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_AUTH_ATTEMPTS: '1'
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
       RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
       RWHT_HEADLESS: 'true'
