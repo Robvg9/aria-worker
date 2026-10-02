@@ -614,55 +614,45 @@ function jobIdFor(missionId: string, stepId: string, attempt: number = 1) {
 }
 
 async function getExecutionJob(jobId: string) {
-  // Source of truth first: async device execution is persisted in execution_jobs.
-  // Do not wait on the runtime gateway when the canonical DB row already exists.
+  // Source of truth: governed execution_jobs RPC. This avoids depending on
+  // runtime-gateway shared-secret configuration from the mission runner.
   try {
-    const { data, error } = await sb.schema("aria_internal")
-      .from("execution_jobs")
-      .select("job_id,status,exit_code,stdout,stderr,result,evidence,error,completed_at,started_at")
-      .eq("job_id", jobId)
-      .maybeSingle();
-
-    if (!error && data?.job_id) {
-      const persisted = {
-        ...data,
-        result: data.result ?? null,
-        evidence: data.evidence ?? null,
-        error: data.error ?? null,
-      };
+    const data = await rpc("get_execution_job_gateway", { p_job_id: jobId });
+    if (data) {
       return {
         response: { ok: true, status: 200 },
-        body: {
-          ok: true,
-          job: persisted,
-          source: "aria_internal.execution_jobs",
-        },
+        body: { ok: true, job: data, source: "aria_internal.execution_jobs_rpc" },
       };
     }
-  } catch {
-    // Fall through to the runtime gateway if the DB lookup itself is unavailable.
+    return {
+      response: { ok: true, status: 200 },
+      body: { ok: true, job: null, source: "aria_internal.execution_jobs_rpc" },
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      response: { ok: false, status: 500 },
+      body: { ok: false, error: "get_execution_job_gateway", detail: reason },
+    };
   }
-
-  const response = await fetch(RUNTIME, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify({ action: "get_job", job_id: jobId }),
-  });
-  const body = await response.json().catch(() => null);
-  return { response, body };
 }
 
 async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
   const resolution = await resolveDeviceTarget(missionId, step);
   const payload = buildDeviceEnqueuePayload(V, missionId, step, jobId, resolution.resolved_device_id);
-  const response = await fetch(RUNTIME, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify(payload),
+  const data = await rpc("enqueue_execution_job_gateway", {
+    p_job_id: String(payload.job_id),
+    p_mission_id: String(payload.mission_id),
+    p_device_id: String(payload.device_id),
+    p_operation: String(payload.operation),
+    p_command: String(payload.command),
+    p_cwd: typeof payload.cwd === "string" ? payload.cwd : null,
+    p_timeout_ms: Number.isInteger(payload.timeout_ms) ? payload.timeout_ms : 120000,
+    p_policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+    p_metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
   });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.ok) throw new Error(`device_enqueue_${response.status}`);
-  return body.job || body;
+  if (!data) throw new Error("device_enqueue_empty");
+  return data;
 }
 
 async function deviceExecute(missionId: string, step: any) {
