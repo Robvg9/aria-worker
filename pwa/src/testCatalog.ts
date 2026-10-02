@@ -2369,6 +2369,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Verifica que los steps ya completados y verificados sobrevivan a un replan y que la evidencia previa no recupere el step fallido.",
     "capabilities": "Detecta regresiones de continuidad, recuperación, replan, persistencia de evidencia y prevención de reinicio desde step 0."
   },
+  {
+    "id": "mistral-adapter",
+    "file": "tests/mistral-adapter.test.js",
+    "title": "Mistral Direct Provider Adapter",
+    "category": "Multi-IA / proveedores",
+    "includedInNpmTest": true,
+    "how": "Comprueba el contrato de request/response, autenticación Bearer, normalización de uso y no filtrado de secretos del adaptador Mistral Direct.",
+    "capabilities": "Valida que Mistral quede conectado al Execution Engine sin inventar cuentas, cuotas o rutas seleccionables."
+  },
 
 ];
 

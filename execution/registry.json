@@ -50,21 +50,36 @@
       "adapter_id": "openrouter_chat_completions",
       "provider_id": "openrouter",
       "interface_type": "http_json",
-      "operations": ["text_generation"],
+      "operations": [
+        "text_generation"
+      ],
       "status": "registered"
     },
     {
       "adapter_id": "google_gemini_generate_content",
       "provider_id": "google",
       "interface_type": "http_json",
-      "operations": ["text_generation"],
+      "operations": [
+        "text_generation"
+      ],
       "status": "registered"
     },
     {
       "adapter_id": "xai_responses",
       "provider_id": "xai",
       "interface_type": "http_json",
-      "operations": ["text_generation"],
+      "operations": [
+        "text_generation"
+      ],
+      "status": "registered"
+    },
+    {
+      "adapter_id": "mistral_chat_completions",
+      "provider_id": "mistral",
+      "interface_type": "http_json",
+      "operations": [
+        "text_generation"
+      ],
       "status": "registered"
     }
   ],

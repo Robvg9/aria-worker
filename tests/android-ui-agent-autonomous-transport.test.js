@@ -47,8 +47,10 @@ assert.ok(serviceIpc.includes('root.refresh()'), 'Accessibility evidence capture
 assert.ok(service.includes('val browserTarget = targetPackage?.let { approvedBrowsers.contains(it) } == true'), 'browser clicks must use the bounded gesture path first');
 assert.ok(service.includes('gestureClick(node) || node.performAction(AccessibilityNodeInfo.ACTION_CLICK)'), 'browser click fallback must remain available');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
-assert.ok(gateway.includes('executionJobGatewayCall'), 'gateway must use the governed RPC job transport');
-assert.ok(gateway.includes("supabase.rpc('claim_execution_job_gateway'"), 'gateway claim must use governed RPC');
+assert.ok(gateway.includes('executionJobGatewayCall'), 'gateway must use the governed database job transport');
+assert.ok(gateway.includes('SUPABASE_DB_URL'), 'gateway must use the configured Supabase database transport');
+assert.ok(gateway.includes('postgres(dbUrl'), 'gateway must use the governed Postgres client transport');
+assert.ok(gateway.includes('claim_execution_job_gateway'), 'gateway claim must call the governed claim routine');
 assert.ok(agent.includes("timeoutMs:8_000"), 'agent claim request must have a bounded transport timeout');
 
 // CI revalidation marker: exercise Android RWHT workflow on the current main toolchain.\nconsole.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');

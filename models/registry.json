@@ -10,6 +10,24 @@
   },
   "models": [
     {
+      "model_id": "mistral/mistral-small-latest",
+      "provider_id": "mistral",
+      "canonical_name": "Mistral Small 4 (direct API)",
+      "upstream_model": "mistral-small-latest",
+      "upstream_provider_id": "mistral",
+      "status": "unavailable",
+      "availability": "restricted",
+      "metadata": {
+        "access_path": "mistral_chat_completions",
+        "verified_at": "2026-10-01",
+        "evidence": "Mistral official model documentation + provider adapter contract",
+        "notes": "Model is registered for governed discovery only. It remains non-selectable until a real Mistral account/credential exists and LIVE health, execution, response and E2E evidence are recorded."
+      },
+      "capability_refs": [
+        "text_generation"
+      ]
+    },
+    {
       "model_id": "google/gemini-2.5-flash-lite",
       "provider_id": "openrouter",
       "canonical_name": "Gemini 2.5 Flash Lite via OpenRouter",
@@ -93,6 +111,9 @@
       ],
       "xai": [
         "xai/grok-4.6"
+      ],
+      "mistral": [
+        "mistral/mistral-small-latest"
       ]
     },
     "by_model_id": {
