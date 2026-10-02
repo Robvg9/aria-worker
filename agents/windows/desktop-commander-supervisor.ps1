@@ -36,19 +36,19 @@ function Write-Status([hashtable]$Fields) {
     } catch {}
 }
 
-function Resolve-Npx {
-    $cmd = Get-Command npx.cmd -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-
-    $candidates = @(
-        (Join-Path $env:APPDATA 'npm\npx.cmd'),
-        'C:\Program Files\nodejs\npx.cmd',
-        'C:\Program Files (x86)\nodejs\npx.cmd'
-    )
-    foreach ($candidate in $candidates) {
-        if ($candidate -and (Test-Path $candidate)) { return $candidate }
+function Resolve-DesktopCommander {
+    $node = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $node) {
+        $candidate = 'D:\Databank\node.exe'
+        if (Test-Path $candidate) { $node = Get-Command $candidate -ErrorAction Stop }
+        else { throw 'node.exe no encontrado. Desktop Commander Remote no puede arrancar.' }
     }
-    throw 'npx.cmd no encontrado. Desktop Commander Remote requiere Node.js/npm en esta PC.'
+
+    $toolRoot = Join-Path $RuntimeRoot 'Tools\DesktopCommanderRemote'
+    $entry = Join-Path $toolRoot 'node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
+    if (-not (Test-Path $entry)) { throw "Desktop Commander persistent install missing: $entry" }
+
+    return @{ node = $node.Source; entry = $entry; tool_root = $toolRoot }
 }
 
 function Get-TrackedProcess {
