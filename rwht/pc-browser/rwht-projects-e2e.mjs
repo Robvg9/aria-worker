@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.1.6';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.7';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -390,14 +390,13 @@ async function run() {
       const conversationId = String(conversation.body?.conversation_id || '');
       if (!conversationId) throw new Error('project_conversation_id_missing_' + project.id);
 
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
       await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
       await waitForPersistedSession(page, session.userId);
       report.reload_auth_verified = true;
-      await page.waitForFunction(({ expected }) => {
-        const card = [...document.querySelectorAll('.projectGrid .projectCard')].find((node) => node.textContent?.includes(expected));
-        return Boolean(card?.classList.contains('selected'));
-      }, { expected: project.name }, { timeout: RELOAD_CHAT_TIMEOUT_MS });
+      const selectedProject = page.locator('.projectGrid .projectCard.selected').filter({ hasText: project.name }).first();
+      await selectedProject.waitFor({ state: 'visible', timeout: RELOAD_CHAT_TIMEOUT_MS });
       await page.waitForSelector('.projectChatWindow', { state: 'visible', timeout: RELOAD_CHAT_TIMEOUT_MS });
       await page.waitForFunction(({ markerValue }) => [...document.querySelectorAll('.projectChatWindow .bubble.user')].some((node) => node.textContent?.includes(markerValue)), { markerValue: marker }, { timeout: 30000 });
 
