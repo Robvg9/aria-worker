@@ -1,0 +1,50 @@
+name: Multi-device Git guard
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  branch-policy:
+    name: Branch and integration policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR targets main
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$BASE" = "main"
+
+      - name: Validate dedicated development branch
+        env:
+          HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          case "$HEAD" in
+            pc-lacueva/*|pc-otra/*|android/*|aria/*|feat/*|fix/*|chore/*|refactor/*|docs/*|test/*|ops/*|hotfix/*)
+              echo "Accepted development lane: $HEAD"
+              ;;
+            *)
+              echo "Rejected branch name: $HEAD"
+              echo "Use a dedicated lane such as pc-lacueva/<scope>, pc-otra/<scope>, android/<scope>, feat/<scope>, fix/<scope>, or aria/<scope>."
+              exit 1
+              ;;
+          esac
+
+      - name: Reject PR from main
+        env:
+          HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          test "$HEAD" != "main"
+
+      - name: Governance summary
+        run: |
+          echo "main is an integration/certification branch."
+          echo "PCs and Android-specific source work use dedicated branches."
+          echo "Android runtime verification is tracked as execution evidence."
