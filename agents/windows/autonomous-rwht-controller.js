@@ -560,6 +560,9 @@ async function runAutonomousRwht(options) {
   const maxActions = Math.max(5, Math.min(250, Number(o.max_actions) || 120));
   const maxRuntimeMs = Math.max(30000, Math.min(900000, Number(o.max_runtime_ms) || 600000));
   const adapter = o.adapter || executeWindowsDesktop;
+  // Injected adapters are deterministic/unit-test boundaries: never hijack a live
+  // Chrome CDP page unless the caller explicitly opts into CDP control.
+  const cdpEnabled = o.use_cdp === true || o.adapter == null;
   const model = o.model || qwen;
   const captureScreenshots = o.capture_screenshots !== false;
   const controlDiscoveryVerify = /RWHT_CONTROL_DISCOVERY_VERIFY/i.test(goal);
@@ -604,6 +607,7 @@ async function runAutonomousRwht(options) {
   });
 
   const currentRoute = async () => {
+    if (!cdpEnabled) return null;
     try {
       const response = await chromeCdpCall('Runtime.evaluate', {
         returnByValue: true,
@@ -616,7 +620,7 @@ async function runAutonomousRwht(options) {
   };
 
   const navigateToRoute = async (route) => {
-    if (!startUrl || !route) return { status: 'skipped', route };
+    if (!startUrl || !route || !cdpEnabled) return { status: 'skipped', route };
     const base = String(startUrl).split('#')[0];
     const url = base + route;
     try {
@@ -640,10 +644,12 @@ async function runAutonomousRwht(options) {
 
   };
 
-  const cdpBootstrap = await ensureCdpBrowser(startUrl).catch((error) => ({
-    ready: false,
-    error: String(error && error.message || error),
-  }));
+  const cdpBootstrap = cdpEnabled
+    ? await ensureCdpBrowser(startUrl).catch((error) => ({
+      ready: false,
+      error: String(error && error.message || error),
+    }))
+    : { ready: false, managed: false, error: null };
   await emitProgress('computer_use_browser_ready', {
     status: cdpBootstrap.ready ? 'succeeded' : 'failed',
     managed_browser: cdpBootstrap.managed === true,
@@ -661,7 +667,7 @@ async function runAutonomousRwht(options) {
   }));
 
   const observe = async (reason = 'initial') => {
-    await ensureCdpBrowser(startUrl).catch(() => null);
+    if (cdpEnabled) await ensureCdpBrowser(startUrl).catch(() => null);
     await emitProgress('computer_use_observation_started', {
       reason,
       full_pwa_coverage: fullPwaCoverageMode,
@@ -670,7 +676,7 @@ async function runAutonomousRwht(options) {
     });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
-        const cdpNodes = await chromeCdpInteractiveNodes();
+        const cdpNodes = cdpEnabled ? await chromeCdpInteractiveNodes() : [];
         if (cdpNodes.length) {
           const sanitized = sanitize({
             surface: 'windows-chrome',
