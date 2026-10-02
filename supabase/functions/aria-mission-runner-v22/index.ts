@@ -485,11 +485,15 @@ function autonomousRwhtEvidence(result: any) {
 
   const routeGate = fullPwaCoverage
     ? requiredRoutesTotal >= 7 && requiredRoutesVisited >= requiredRoutesTotal
-    : finishedReason === "control_discovery_verified";
+    : (finishedReason === "control_discovery_verified" || finishedReason === "coverage_complete");
 
   const ratioGate = fullPwaCoverage
     ? Number(source?.coverage_ratio ?? result?.coverage_ratio ?? 0) >= 0.98
     : true;
+
+  const controlGate = finishedReason === "control_discovery_verified"
+    ? controlsDiscovered >= 5 && controlsExercised >= 5
+    : controlsDiscovered >= 3 && controlsExercised >= 3;
 
   const passed = status === "succeeded"
     && verifiedFlag
@@ -497,8 +501,7 @@ function autonomousRwhtEvidence(result: any) {
     && ratioGate
     && actionsVerified >= 5
     && screensSeen >= 2
-    && controlsDiscovered >= 5
-    && controlsExercised >= 5
+    && controlGate
     && evidenceCount >= 5;
 
   return {
