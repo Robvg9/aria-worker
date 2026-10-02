@@ -21,7 +21,16 @@ async function loginIfNeeded() {
   await password.fill(passwordValue);
   const submit = page.locator('button[type="submit"],button').filter({ hasText: /entrar|iniciar|acceder|continuar/i }).first();
   if (await submit.count()) await submit.click(); else await password.press('Enter');
-  await page.waitForSelector('.dashboardScreen,.capabilitiesViewport', { state:'visible', timeout:60000 });
+  await page.waitForFunction(() => {
+    try {
+      const session = JSON.parse(localStorage.getItem('aria_session_v2') || 'null');
+      return Boolean(session?.accessToken && session?.refreshToken && session?.userId);
+    } catch {
+      return false;
+    }
+  }, null, { timeout:60000 });
+  await page.goto(base + '/#capabilities', { waitUntil:'domcontentloaded', timeout:60000 });
+  await page.getByRole('button', { name: 'ABSORB' }).first().waitFor({ state:'visible', timeout:60000 });
 }
 
 let opened = false;
