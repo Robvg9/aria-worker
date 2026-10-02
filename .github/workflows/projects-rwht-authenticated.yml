@@ -83,8 +83,8 @@ jobs:
           html=""
           for attempt in $(seq 1 60); do
             html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/?probe=${GITHUB_SHA}-projects-catalog-${attempt}" 2>/dev/null || true)"
-            if (grep -q "name='aria-test-catalog-version' content='2026-10-01-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-01-canonical"' <<<"$html") &&
-               (grep -q "name='aria-test-catalog-total' content='264'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="264"' <<<"$html"); then break; fi
+            if (grep -q "name='aria-test-catalog-version' content='2026-10-02-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-02-canonical"' <<<"$html") &&
+               (grep -q "name='aria-test-catalog-total' content='293'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="293"' <<<"$html"); then break; fi
             test "$attempt" -lt 60 && sleep 2
           done
           test -n "$html"
