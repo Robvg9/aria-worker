@@ -1,0 +1,32 @@
+name: ECC Phase 16 MCP Bridge
+
+on:
+  pull_request:
+    branches:
+      - aria/ecc-phase-15-multi-device-ownership
+    paths:
+      - 'scripts/ecc-mcp-bridge.js'
+      - 'tests/ecc-mcp-bridge.test.js'
+      - '.github/workflows/ecc-phase16-mcp-bridge.yml'
+  push:
+    branches:
+      - 'aria/ecc-phase-16-mcp-bridge'
+    paths:
+      - 'scripts/ecc-mcp-bridge.js'
+      - 'tests/ecc-mcp-bridge.test.js'
+      - '.github/workflows/ecc-phase16-mcp-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mcp:
+    name: ECC Phase 16 / MCP inventory bridge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Contract test
+        run: node tests/ecc-mcp-bridge.test.js
