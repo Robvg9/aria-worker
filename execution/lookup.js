@@ -10,10 +10,11 @@ const credentials = require('./credentials.js');
 const openrouterAdapter = require('./adapters/openrouter.js');
 const googleGeminiDirectAdapter = require('./adapters/google-gemini-direct.js');
 const xaiAdapter = require('./adapters/xai.js');
+const mistralAdapter = require('./adapters/mistral.js');
 const registry = require('./registry.json');
 const SUCCEEDED='succeeded', FAILED='failed', BLOCKED='blocked';
 const CREDENTIAL_RESOLVER_NOTE=credentials.CREDENTIAL_RESOLVER_NOTE;
-const ADAPTERS=Object.freeze({[openrouterAdapter.descriptor.provider_id]:openrouterAdapter,[googleGeminiDirectAdapter.descriptor.provider_id]:googleGeminiDirectAdapter,[xaiAdapter.descriptor.provider_id]:xaiAdapter});
+const ADAPTERS=Object.freeze({[openrouterAdapter.descriptor.provider_id]:openrouterAdapter,[googleGeminiDirectAdapter.descriptor.provider_id]:googleGeminiDirectAdapter,[xaiAdapter.descriptor.provider_id]:xaiAdapter,[mistralAdapter.descriptor.provider_id]:mistralAdapter});
 const SECRET_PATTERNS=[/Bearer\s+[A-Za-z0-9._\-]+/g,/\bsk-[A-Za-z0-9_\-]{8,}/g,/\bor-v1-[A-Za-z0-9_\-]{8,}/g,/AIza[A-Za-z0-9_\-]{20,}/g,/(api[_-]?key|token|secret|password)\s*[=:]\s*\S+/gi];
 function realDeps(){return{resolveRoute:fallback.resolve,candidateSelectable:fallback.candidateSelectable,capacityAllows:router.capacityAllows,isAccountActive:accountLookup.isAccountActive,supports:capLookup.supports,getModel:modelLookup.getModel,credentialRefOf:accountLookup.credentialRefOf,credentialResolver:credentials.nullCredentialResolver,adapters:ADAPTERS,transport:defaultTransport,onEvent:null};}
 function mergeDeps(overrides){const base=realDeps();return overrides&&typeof overrides==='object'?Object.assign(base,overrides):base;}
