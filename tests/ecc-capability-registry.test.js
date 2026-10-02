@@ -58,12 +58,14 @@ assert.equal(registry.capabilities.length, reversed.capabilities.length);
 assert.equal(capabilityId('skill', 'verification-loop', 'b'), capabilityId('skill', 'verification-loop', 'b'));
 assert.notEqual(capabilityId('skill', 'verification-loop', 'b'), capabilityId('skill', 'verification-loop', 'c'));
 
-await assert.rejects(
-  () => buildCapabilityRegistry({
-    ...inventory,
-    deterministic: false,
-  }),
-  /complete deterministic inventory/,
-);
+(async () => {
+  await assert.rejects(
+    () => buildCapabilityRegistry({
+      ...inventory,
+      deterministic: false,
+    }),
+    /complete deterministic inventory/,
+  );
 
-console.log('ECC CAPABILITY REGISTRY TEST: PASS');
+  console.log('ECC CAPABILITY REGISTRY TEST: PASS');
+})();
