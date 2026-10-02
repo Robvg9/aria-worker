@@ -11,46 +11,37 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext(storage ? { storageState: storage } : {});
 const page = await context.newPage();
 
-async function loginIfNeeded() {
-  const passwordField = page.locator('input[type="password"]').first();
-  if (!(await passwordField.isVisible().catch(() => false))) return;
-
-  const emailValue = process.env.RWHT_EMAIL || '';
-  const passwordValue = process.env.RWHT_PASSWORD || '';
-  if (!emailValue || !passwordValue) throw new Error('authenticated_session_missing');
-
-  const auth = await page.evaluate(async ({ email, password }) => {
-    const response = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
-      },
-      body: JSON.stringify({ email: email.trim(), password }),
-      cache: 'no-store'
-    });
-    const payload = await response.json().catch(() => ({}));
-    return { ok: response.ok, status: response.status, payload };
-  }, { email: emailValue, password: passwordValue });
-
-  if (!auth.ok || !auth.payload?.access_token || !auth.payload?.user?.id) {
-    throw new Error('auth_bootstrap_failed:http_' + auth.status + ':' + String(auth.payload?.error_description || auth.payload?.msg || auth.payload?.error || 'unknown'));
+async function bootstrapSession() {
+  if (storage) return;
+  const email = process.env.RWHT_EMAIL || '';
+  const password = process.env.RWHT_PASSWORD || '';
+  if (!email || !password) throw new Error('authenticated_session_missing');
+  const response = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      apikey: 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
+    },
+    body: JSON.stringify({ email: email.trim(), password }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
+    throw new Error('auth_bootstrap_failed:http_' + response.status + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
   }
-
-  await page.evaluate((payload) => {
-    const session = {
-      accessToken: payload.access_token,
-      refreshToken: payload.refresh_token,
-      userId: payload.user.id,
-      expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
-      email: payload.user.email
-    };
+  const session = {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token,
+    userId: payload.user.id,
+    expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
+    email: payload.user.email
+  };
+  await context.addInitScript(({ session }) => {
     localStorage.setItem('aria_session_v2', JSON.stringify(session));
-  }, auth.payload);
-
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForSelector('.appShell', { state:'visible', timeout:60000 });
+  }, { session });
 }
+
+await bootstrapSession();
+
 
 let opened = false;
 for (let attempt = 1; attempt <= 9; attempt++) {
@@ -65,8 +56,6 @@ for (let attempt = 1; attempt <= 9; attempt++) {
 }
 if (!opened) throw new Error('live_target_not_reached');
 await page.waitForTimeout(1500);
-await loginIfNeeded();
-
 async function openCapabilities() {
   const absorbTab = page.getByRole('button', { name: 'ABSORB' }).first();
   let lastUrl = page.url();
