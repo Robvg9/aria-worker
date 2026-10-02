@@ -43,6 +43,7 @@ export function buildDeviceEnqueuePayload(
   missionId: string,
   step: any,
   jobId: string,
+  resolvedDeviceId?: string | null,
 ): Record<string, unknown> {
   const operation = String(step.operation || "shell.execute");
   if (!DEVICE_OPS_ALLOWLIST.has(operation)) {
@@ -52,11 +53,18 @@ export function buildDeviceEnqueuePayload(
     action: "enqueue_device_job",
     job_id: jobId,
     mission_id: missionId,
-    device_id: step.target.device_id,
+    device_id: resolvedDeviceId || step.target?.device_id,
     operation,
     timeout_ms: Number.isInteger(step.timeout_ms) ? step.timeout_ms : 30000,
     policy: step.policy || {},
-    metadata: { runner: V, executor_type: "device", idempotency_key: jobId, operation },
+    metadata: {
+      runner: V,
+      executor_type: "device",
+      idempotency_key: jobId,
+      operation,
+      requested_device_id: typeof step.target?.device_id === "string" ? step.target.device_id : null,
+      resolved_device_id: resolvedDeviceId || step.target?.device_id || null,
+    },
   };
   if (operation === "shell.execute") {
     payload.command = String(step.input?.command || "echo ARIA_UO_LIVE");
