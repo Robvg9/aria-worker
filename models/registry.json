@@ -25,7 +25,9 @@
         "live_api_models_ok": true,
         "live_chat_status": 429
       },
-      "capability_refs": ["text_generation"]
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "google/gemini-2.5-flash-lite",
@@ -42,7 +44,9 @@
         "notes": "Registered route is not currently selectable. Restore routability only after real account capacity is available and a new LIVE probe succeeds.",
         "last_probe": "HTTP 402 insufficient OpenRouter credits for requested completion"
       },
-      "capability_refs": ["text_generation"]
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "google/gemini-3.5-flash-lite-direct",
@@ -50,16 +54,18 @@
       "canonical_name": "Gemini 3.5 Flash Lite (direct API)",
       "upstream_model": "gemini-3.5-flash-lite",
       "upstream_provider_id": "google",
-      "status": "available",
-      "availability": "public",
+      "status": "unavailable",
+      "availability": "restricted",
       "metadata": {
         "access_path": "google_gemini_direct",
-        "verified_at": "2026-09-18",
-        "evidence": "LIVE E2E model probe via Mission 5",
-        "live_verified": true,
-        "notes": "Direct Google Gemini route; Free Tier credential in ARIA secret boundary. Runtime adapter supports this route."
+        "verified_at": "2026-10-02",
+        "evidence": "Fresh LIVE certification attempt: provider did not return a valid completion",
+        "live_verified": false,
+        "notes": "Route remains non-selectable until a fresh LIVE completion succeeds."
       },
-      "capability_refs": ["text_generation"]
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "google/gemini-3.5-flash-direct",
@@ -67,16 +73,18 @@
       "canonical_name": "Gemini 3.5 Flash (direct API)",
       "upstream_model": "gemini-3.5-flash",
       "upstream_provider_id": "google",
-      "status": "available",
-      "availability": "public",
+      "status": "unavailable",
+      "availability": "restricted",
       "metadata": {
         "access_path": "google_gemini_direct",
-        "verified_at": "2026-09-18",
-        "evidence": "LIVE E2E model probe via Mission 5",
-        "live_verified": true,
-        "notes": "Direct Google Gemini route; same verified Free Tier account as Gemini 3.5 Flash Lite. Runtime adapter supports this route."
+        "verified_at": "2026-10-02",
+        "evidence": "Fresh LIVE certification attempt: provider did not return a valid completion",
+        "live_verified": false,
+        "notes": "Route remains non-selectable until a fresh LIVE completion succeeds."
       },
-      "capability_refs": ["text_generation"]
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "google/gemini-3.1-flash-lite-direct",
@@ -84,16 +92,18 @@
       "canonical_name": "Gemini 3.1 Flash Lite (direct API)",
       "upstream_model": "gemini-3.1-flash-lite",
       "upstream_provider_id": "google",
-      "status": "available",
-      "availability": "public",
+      "status": "unavailable",
+      "availability": "restricted",
       "metadata": {
         "access_path": "google_gemini_direct",
-        "verified_at": "2026-09-18",
-        "evidence": "LIVE E2E model probe via Mission 5",
-        "live_verified": true,
-        "notes": "Direct Google Gemini route; verified in Supabase control-plane. Runtime adapter mapping is now aligned."
+        "verified_at": "2026-10-02",
+        "evidence": "Fresh LIVE certification attempt: provider did not return a valid completion",
+        "live_verified": false,
+        "notes": "Route remains non-selectable until a fresh LIVE completion succeeds."
       },
-      "capability_refs": ["text_generation"]
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "google/gemini-2.5-flash-lite-direct",
@@ -109,7 +119,9 @@
         "evidence": "Google provider response",
         "notes": "Retired from Direct routing after Google rejected the model for this new-user account."
       },
-      "capability_refs": ["text_generation"]
+      "capability_refs": [
+        "text_generation"
+      ]
     },
     {
       "model_id": "xai/grok-4.6",
@@ -125,19 +137,27 @@
         "evidence": "Live credential reachability audit: credential_secret_not_found",
         "notes": "Adapter remains registered, but no xAI credential exists in ARIA secret store; route intentionally not selectable until a real credential is installed."
       },
-      "capability_refs": ["text_generation"]
+      "capability_refs": [
+        "text_generation"
+      ]
     }
   ],
   "indexes": {
     "by_provider": {
-      "openrouter": ["google/gemini-2.5-flash-lite"],
+      "openrouter": [
+        "google/gemini-2.5-flash-lite"
+      ],
       "google": [
         "google/gemini-3.5-flash-lite-direct",
         "google/gemini-3.5-flash-direct",
         "google/gemini-3.1-flash-lite-direct"
       ],
-      "xai": ["xai/grok-4.6"],
-      "mistral": ["mistral/mistral-small-latest"]
+      "xai": [
+        "xai/grok-4.6"
+      ],
+      "mistral": [
+        "mistral/mistral-small-latest"
+      ]
     },
     "by_model_id": {
       "google/gemini-2.5-flash-lite": "openrouter",
