@@ -675,9 +675,21 @@ async function deviceExecute(missionId: string, step: any) {
     await enqueueDeviceJob(missionId, step, jobId);
     current = await getExecutionJob(jobId);
   }
-  const job = current.body?.job;
+  let job = current.body?.job;
   if (!job) return { status: "waiting", executor_type: "device", operation, job_id: jobId };
-  const status = String(job.status || "");
+
+  let status = String(job.status || "");
+  if (operation === "ollama.qwen3" && !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
+    const deadline = Date.now() + 35_000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      current = await getExecutionJob(jobId);
+      job = current.body?.job;
+      if (!job) continue;
+      status = String(job.status || "");
+      if (["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) break;
+    }
+  }
   if (["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(status)) {
     return {
       status,
@@ -1309,9 +1321,8 @@ async function verifyPendingMutation(missionId: string, step: any, result: any, 
 async function verifiedModelFallbackRoutes(original: any, operation: string) {
   if (operation !== "text_generation") return [];
   const primaryProvider = String(original?.provider_id || "");
-  // Allow fallback from any primary (openrouter OR google) so unauthorized/invalid
-  // Google direct routes can recover via other verified routes. Never retry the same route.
-  if (primaryProvider !== "openrouter" && primaryProvider !== "google") return [];
+  // Allow local Windows/Ollama recovery from any cloud text route. Never retry the same route.
+  if (!["openrouter", "google", "mistral", "xai"].includes(primaryProvider)) return [];
   const risk = String(original?.risk || "READ").toUpperCase();
   if (risk !== "READ") return [];
 
@@ -1374,7 +1385,40 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
     String(a.model_id).localeCompare(String(b.model_id))
   );
 
-  return out.map(({_verified_at,_provider_priority,...route}:any) => route);
+  const { data: localDevices, error: localDevicesError } = await sb.schema("aria_internal")
+    .from("device_registry")
+    .select("device_id,status,capabilities,last_seen_at")
+    .eq("status", "online");
+
+  if (!localDevicesError) {
+    const localCandidates = (Array.isArray(localDevices) ? localDevices : [])
+      .filter((device: any) => deviceSupportsOperation(device.capabilities, "ollama.qwen3"))
+      .sort((a: any, b: any) => {
+        const aTime = Date.parse(String(a.last_seen_at || "")) || 0;
+        const bTime = Date.parse(String(b.last_seen_at || "")) || 0;
+        return bTime - aTime || String(a.device_id).localeCompare(String(b.device_id));
+      });
+
+    for (const device of localCandidates) {
+      out.push({
+        status: "selected",
+        provider_id: "local_windows",
+        account_id: String(device.device_id),
+        model_id: "qwen3:0.6b",
+        capability: operation,
+        device_id: String(device.device_id),
+        _verified_at: device.last_seen_at || null,
+        _provider_priority: 9,
+      });
+    }
+  }
+
+  return out
+    .sort((a:any,b:any) =>
+      Number(a._provider_priority ?? 9) - Number(b._provider_priority ?? 9) ||
+      String(b._verified_at || "").localeCompare(String(a._verified_at || "")) ||
+      String(a.model_id).localeCompare(String(b.model_id)))
+    .map(({_verified_at,_provider_priority,...route}:any) => route);
 }
 
 async function modelExecute(missionId: string, step: any, auth: AuthContext) {
@@ -1395,6 +1439,63 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
   const injectFault = typeof step?.input?.fault_injection === "string" ? String(step.input.fault_injection) : "";
   const injectAll = step?.input?.fault_all_routes === true;
   for (const route of routes) {
+    if (route.provider_id === "local_windows") {
+      const source = step.input && typeof step.input === "object" ? step.input : {};
+      const localPrompt = typeof source.prompt === "string"
+        ? source.prompt
+        : Array.isArray(source.messages)
+          ? source.messages.map((message: any) => {
+              const role = typeof message?.role === "string" ? message.role : "user";
+              const content = typeof message?.content === "string" ? message.content : "";
+              return role + ": " + content;
+            }).filter(Boolean).join("\n")
+          : typeof source.payload?.prompt === "string"
+            ? source.payload.prompt
+            : "";
+      const localStep = {
+        ...step,
+        executor_type: "device",
+        operation: "ollama.qwen3",
+        target: {
+          ...(step.target || {}),
+          type: "device",
+          device_id: route.device_id,
+        },
+        input: {
+          prompt: localPrompt,
+          model: route.model_id,
+          timeout_ms: 120000,
+        },
+      };
+      const localResult = await deviceExecute(missionId, localStep);
+      if (localResult?.status === "succeeded") {
+        return {
+          ...localResult,
+          status: "succeeded",
+          executor_type: "model",
+          operation: step.operation,
+          provider_id: route.provider_id,
+          account_id: route.account_id,
+          model_id: route.model_id,
+          model_fallback_used: true,
+          model_fallback_source: "windows_ollama",
+          model_fallback_device_id: route.device_id,
+          model_fallback_attempts: failures.length,
+        };
+      }
+      failures.push({
+        provider_id: route.provider_id,
+        account_id: route.account_id,
+        model_id: route.model_id,
+        device_id: route.device_id,
+        http_status: null,
+        code: String(localResult?.error?.code || localResult?.status || "local_model_failed"),
+        message: String(localResult?.error?.message || localResult?.stderr || "local model execution failed"),
+        provider_status: null,
+      });
+      continue;
+    }
+
     const isPrimary = route.provider_id === primary.provider_id && route.account_id === primary.account_id && route.model_id === primary.model_id;
     const doInject = injectFault && (injectAll || isPrimary);
     const authForRoute = doInject
