@@ -86,6 +86,31 @@ function createSupabaseOAuthAdapter({ clientConfigured = false } = {}) {
   });
 }
 
+function createMistralApiAdapter({ credentialConfigured = false } = {}) {
+  return Object.freeze({
+    provider: 'mistral',
+    capabilities: ['mistral_api_key', 'text_generation', 'health'],
+    bootstrap: () => ({
+      human_gate: !credentialConfigured,
+      steps: [
+        'create a Mistral API key in Studio',
+        'store the credential only in the ARIA secret store',
+        'bind it to the selected Mistral account/model route'
+      ]
+    }),
+    async provision() {
+      if (!credentialConfigured) return { status: 'human_gate', reason: 'mistral_api_key_required' };
+      return { status: 'configured', secret_ref: 'secret://mistral/mistral_primary', expires_at: null };
+    },
+    async renew() {
+      return { status: 'unavailable', reason: 'mistral_api_key_rotation_requires_provider_operation' };
+    },
+    async health() {
+      return { ok: Boolean(credentialConfigured), state: credentialConfigured ? 'healthy' : 'bootstrap_required' };
+    }
+  });
+}
+
 function createGoogleGeminiApiAdapter({ credentialConfigured = false } = {}) {
   return Object.freeze({
     provider: 'google',
@@ -115,5 +140,6 @@ module.exports = {
   createGitHubAppAdapter,
   createCloudflareApiAdapter,
   createSupabaseOAuthAdapter,
-  createGoogleGeminiApiAdapter
+  createGoogleGeminiApiAdapter,
+  createMistralApiAdapter
 };
