@@ -12,24 +12,43 @@ const context = await browser.newContext(storage ? { storageState: storage } : {
 const page = await context.newPage();
 
 async function loginIfNeeded() {
-  const password = page.locator('input[type="password"]').first();
-  if (!(await password.isVisible().catch(() => false))) return;
+  const passwordField = page.locator('input[type="password"]').first();
+  if (!(await passwordField.isVisible().catch(() => false))) return;
+
   const emailValue = process.env.RWHT_EMAIL || '';
   const passwordValue = process.env.RWHT_PASSWORD || '';
   if (!emailValue || !passwordValue) throw new Error('authenticated_session_missing');
-  await page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first().fill(emailValue);
-  await password.fill(passwordValue);
-  const submit = page.locator('button[type="submit"],button').filter({ hasText: /entrar|iniciar|acceder|continuar/i }).first();
-  if (await submit.count()) await submit.click(); else await password.press('Enter');
-  await page.waitForFunction(() => {
-    try {
-      const session = JSON.parse(localStorage.getItem('aria_session_v2') || 'null');
-      return Boolean(session?.accessToken && session?.refreshToken && session?.userId);
-    } catch {
-      return false;
-    }
-  }, null, { timeout:60000 });
-  await page.goto(base + '/#capabilities', { waitUntil:'domcontentloaded', timeout:60000 });
+
+  const auth = await page.evaluate(async ({ email, password }) => {
+    const response = await fetch('https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        apikey: 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0MPw'
+      },
+      body: JSON.stringify({ email: email.trim(), password }),
+      cache: 'no-store'
+    });
+    const payload = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, payload };
+  }, { email: emailValue, password: passwordValue });
+
+  if (!auth.ok || !auth.payload?.access_token || !auth.payload?.user?.id) {
+    throw new Error('auth_bootstrap_failed:http_' + auth.status + ':' + String(auth.payload?.error_description || auth.payload?.msg || auth.payload?.error || 'unknown'));
+  }
+
+  await page.evaluate((payload) => {
+    const session = {
+      accessToken: payload.access_token,
+      refreshToken: payload.refresh_token,
+      userId: payload.user.id,
+      expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
+      email: payload.user.email
+    };
+    localStorage.setItem('aria_session_v2', JSON.stringify(session));
+  }, auth.payload);
+
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForSelector('.appShell', { state:'visible', timeout:60000 });
 }
 
