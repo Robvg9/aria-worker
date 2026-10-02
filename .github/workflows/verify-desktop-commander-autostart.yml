@@ -1,0 +1,23 @@
+name: verify-desktop-commander-autostart
+
+on:
+  pull_request:
+    paths:
+      - 'agents/windows/desktop-commander-supervisor.ps1'
+      - 'agents/windows/install-desktop-commander-supervisor.ps1'
+      - 'agents/windows/DESKTOP_COMMANDER_AUTOSTART.md'
+      - 'tests/desktop-commander-autostart.test.mjs'
+      - '.github/workflows/verify-desktop-commander-autostart.yml'
+  push:
+    branches:
+      - 'ops/desktop-commander-autostart-v1'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/desktop-commander-autostart.test.mjs
