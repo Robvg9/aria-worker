@@ -22,6 +22,7 @@ assert(api.includes('local_fallback_used'));
 assert(api.includes('localRoute'));
 assert(api.includes('cloudFallbacks'));
 assert(api.includes('candidateRoutes'));
+assert(api.includes('(route.device_id?{device_id:route.device_id}: {})'));
 assert(api.includes('chat-runtime:'));
 assert(api.includes('chat_execution_context'));
 assert(api.includes('chat_runtime_mission_context_failed'));

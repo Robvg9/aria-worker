@@ -273,7 +273,7 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
     if(seen.has(key)) continue;
     seen.add(key);
     try{
-      const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id}};
+      const candidate={...step,target:{...(step.target||{}),type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id,...(route.device_id?{device_id:route.device_id}: {})}};
       const result=await execute(candidate,prompt,conversationId,visualContext);
       return {result,route,fallback_count:failures.length,failures};
     }catch(error){
