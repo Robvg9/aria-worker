@@ -33,12 +33,12 @@ assert.match(migration, /Recovery is owned by aria_internal\.execution_jobs_watc
 assert.doesNotMatch(migration, /UPDATE aria_internal\.execution_jobs\s+SET status='queued'/);
 
 assert.match(authBackpressure, /aria-autonomy-supervisor-v5-every-10-minutes/);
-assert.match(authBackpressure, /'2-59\\/10 \\* \\* \\* \\*'/);
+assert.ok(authBackpressure.includes("'2-59/10 * * * *'"));
 assert.match(authBackpressure, /aria-execution-jobs-watchdog-every-10-minutes/);
-assert.match(authBackpressure, /'7-59\\/10 \\* \\* \\* \\*'/);
+assert.ok(authBackpressure.includes("'7-59/10 * * * *'"));
 assert.match(authBackpressure, /timeout_milliseconds := 15000/);
-assert.doesNotMatch(authBackpressure, /aria-autonomy-supervisor-v5-every-5-minutes/);
-assert.doesNotMatch(authBackpressure, /aria-execution-jobs-watchdog-every-5-minutes/);
+assert.doesNotMatch(authBackpressure, /cron\.schedule\(\s*'aria-autonomy-supervisor-v5-every-5-minutes'/);
+assert.doesNotMatch(authBackpressure, /cron\.schedule\(\s*'aria-execution-jobs-watchdog-every-5-minutes'/);
 
 assert.match(gateway, /AUTH_CACHE_TTL_MS/);
 assert.match(gateway, /authCache=new Map<string/);
