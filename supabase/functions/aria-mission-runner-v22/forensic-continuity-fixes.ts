@@ -1,4 +1,4 @@
-import { buildEccExecution } from "../../../ecc/operator.js";
+import { buildEccExecution } from "../../../ecc/operator.ts";
 /**
  * Forensic Continuity structural fixes for mission-runner-v22.
  * - Planner timeout via AbortController
