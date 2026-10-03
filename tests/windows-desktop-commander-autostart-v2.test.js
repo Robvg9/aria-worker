@@ -38,7 +38,7 @@ test('Supervisor retries instead of terminating ARIA when DC is unavailable', ()
 });
 
 test('Supervisor prevents duplicate instances with a named mutex', () => {
-  assert.match(supervisor, /Global\\ARIA-DesktopCommander-Supervisor-v2/);
-  assert.match(supervisor, /$created = $false/);
-  assert.match(supervisor, /if (-not $created) { exit 0 }/);
+  assert.ok(supervisor.includes("Global\\\\ARIA-DesktopCommander-Supervisor-v2"));
+  assert.ok(supervisor.includes("$created = $false"));
+  assert.ok(supervisor.includes("if (-not $created) { exit 0 }"));
 });
