@@ -52,3 +52,49 @@ jobs:
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
+
+  windows-live-bootstrap:
+    if: github.event_name == 'push'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Identify physical runner
+        run: |
+          Write-Host "COMPUTERNAME=$env:COMPUTERNAME"
+          Write-Host "USERNAME=$env:USERNAME"
+          Write-Host "WHOAMI=$(& whoami)"
+      - name: Bootstrap Desktop Commander supervisor
+        run: |
+          $ErrorActionPreference='Stop'
+          $installer = Join-Path $env:GITHUB_WORKSPACE 'agents\windows\install-desktop-commander-supervisor.ps1'
+          if(-not(Test-Path $installer)){throw "Installer missing: $installer"}
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
+          if($LASTEXITCODE -ne 0){throw "Supervisor bootstrap failed: $LASTEXITCODE"}
+      - name: Verify supervisor task
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'ARIA-Desktop-Commander-Remote' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'ARIA-Desktop-Commander-Remote' -ErrorAction Stop
+          Write-Host "TASK_STATE=$($task.State)"
+          Write-Host "LAST_RUN=$($info.LastRunTime)"
+          Write-Host "LAST_RESULT=$($info.LastTaskResult)"
+      - name: Verify fixed Desktop Commander runtime
+        run: |
+          $ErrorActionPreference='Stop'
+          $entry='D:\ARIA-Windows-Agent\Tools\DesktopCommanderRemote\node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
+          if(-not(Test-Path $entry)){throw "Fixed Desktop Commander runtime missing: $entry"}
+          $pkg=Get-Content -Raw 'D:\ARIA-Windows-Agent\Tools\DesktopCommanderRemote\node_modules\@wonderwhy-er\desktop-commander\package.json'|ConvertFrom-Json
+          Write-Host "DC_VERSION=$($pkg.version)"
+          if($pkg.version -ne '0.2.52'){throw "Unexpected Desktop Commander version: $($pkg.version)"}
+      - name: Wait for DC online process
+        run: |
+          $deadline=(Get-Date).AddMinutes(3)
+          do {
+            $p=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match '(?i)desktop-commander' -and $_.CommandLine -match '(?i)remote' })
+            Write-Host "DC_REMOTE_PROCESSES=$($p.Count)"
+            if($p.Count -ge 1){ exit 0 }
+            Start-Sleep -Seconds 10
+          } while((Get-Date) -lt $deadline)
+          Write-Error 'Desktop Commander remote process not observed within 3 minutes.'
+          exit 1
