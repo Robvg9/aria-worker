@@ -2266,9 +2266,10 @@ function Meditation({ session }: { session: Session }) {
       <section className='panel meditationToolsPanel'>
         <div className='meditationToolHeader'>
           <div>
-            <div className='panelTitle'>IDEAS ANALIZADAS</div>
+            <div className='panelTitle'>ANALIZADOR DE IDEAS</div>
             <h3>{ideaProposals.length ? ideaProposals.length + ' ideas guardadas' : 'Sin ideas guardadas'}</h3>
             <p className='muted'>Son sugerencias creadas a partir de tus ideas. No se ejecutan solas.</p>
+            <span className='pill neutral'>NO AUTOENCOLADA</span>
           </div>
           <button className='ghost' onClick={() => setIdeasOpen(true)}>Ver ideas y crear misión</button>
         </div>
@@ -2368,7 +2369,7 @@ function Meditation({ session }: { session: Session }) {
                       </div>
                       <div className='ideaModalComposer'>
                         <textarea className='ideaAnalyzerInput' aria-label='Idea para analizar' value={ideaText} maxLength={4000} onChange={e => setIdeaText(e.target.value)} placeholder='Escribe una nueva idea…' rows={3} />
-                        <button className='primary' disabled={ideaBusy || !ideaText.trim()} onClick={() => void analyzeIdea()}>{ideaBusy ? 'ANALIZANDO…' : 'Analizar idea'}</button>
+                        <button className='primary' disabled={ideaBusy || !ideaText.trim()} onClick={() => void analyzeIdea()}>{ideaBusy ? 'ANALIZANDO…' : 'ANALIZAR Y PROPONER'}</button>
                       </div>
                       {ideaError && <div className='errorBox'>{ideaError}</div>}
                       <div className='ideaModalIntro'>
