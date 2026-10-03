@@ -21,6 +21,9 @@ test('Desktop Commander runtime is pinned and installed on D:', () => {
   assert.match(installer, /0\.2\.52/);
   assert.match(installer, /NPM_CONFIG_CACHE/);
   assert.match(installer, /D:\\ARIA-Windows-Agent/);
+  assert.match(installer, /D:\\Databank\\node\.exe/);
+  assert.match(installer, /D:\\Databank\\node\\node\.exe/);
+  assert.match(installer, /Node\.js not found/);
 });
 
 test('Supervisor launches fixed runtime directly with network-family workaround', () => {
@@ -41,4 +44,16 @@ test('Supervisor prevents duplicate instances with a named mutex', () => {
   assert.ok(supervisor.includes("Global\\ARIA-DesktopCommander-Supervisor-v2"));
   assert.ok(supervisor.includes("$created = $false"));
   assert.ok(supervisor.includes("if (-not $created) { exit 0 }"));
+});
+
+
+test('Installer preserves canonical device identity and does not reuse legacy id', () => {
+  assert.match(installer, /ARIA_DEVICE_ID/);
+  assert.match(installer, /ExistingDeviceId/);
+  assert.match(installer, /refusing to invent or reuse a legacy device id/);
+  assert.doesNotMatch(installer, /windows-fe722cc6681e4f9c9cc35f5ebbb0a089/);
+});
+
+test('Logon bootstrap waits briefly for Windows networking', () => {
+  assert.match(installer, /<Delay>PT30S<\\/Delay>/);
 });
