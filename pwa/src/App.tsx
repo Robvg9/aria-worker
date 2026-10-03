@@ -1894,7 +1894,7 @@ function Chat({
                   </>
                 ) : (
                   <>
-                    <h3>No hay una misión ejecutándose ahora</h3>
+                    <h3>Ninguna misión se está ejecutando</h3>
                     <p className='muted'>Las misiones y su progreso se controlan desde Meditación IA.</p>
                   </>
                 )}
