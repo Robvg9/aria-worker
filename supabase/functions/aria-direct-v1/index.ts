@@ -66,6 +66,44 @@ async function resolveMeditationDevice(metadata: Record<string, unknown>) {
   return data?.[0] ?? null;
 }
 
+async function kickCanonicalRunner(missionId: string, reason: string) {
+  try {
+    const { data, error } = await sb.rpc("runner_tick_for_mission");
+    if (error) {
+      return {
+        status: "kick_failed",
+        mission_id: missionId,
+        reason,
+        error: error.message
+      };
+    }
+    return {
+      status: "kick_requested",
+      mission_id: missionId,
+      reason,
+      runner_request_id: data ?? null
+    };
+  } catch (error) {
+    return {
+      status: "kick_failed",
+      mission_id: missionId,
+      reason,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function scheduleCanonicalRunnerKick(missionId: string, reason: string) {
+  const promise = kickCanonicalRunner(missionId, reason)
+    .then((result) => console.log("[aria-direct] canonical runner dispatch", JSON.stringify(result)))
+    .catch((error) => console.error("[aria-direct] canonical runner dispatch error", String(error)));
+  try {
+    EdgeRuntime.waitUntil(promise);
+  } catch {
+    void promise;
+  }
+}
+
 async function recall(goal: string) {
   if (!SHARED_SECRET) return [];
   try {
@@ -162,16 +200,15 @@ Deno.serve(async (request) => {
     status: "not_requested",
     reason: shouldQueue ? "mission_missing" : "non_user_direct_submission",
   };
+  let dispatch: Record<string, unknown> = {
+    status: "not_requested",
+    reason: shouldQueue ? "mission_missing" : "non_user_direct_submission",
+  };
 
   if (upstream.ok && missionIdOut && shouldQueue) {
     try {
       const device = await resolveMeditationDevice(metadata);
-      if (!device?.device_id) {
-        queue = {
-          status: "awaiting_device",
-          reason: "no_online_android_termux_device",
-        };
-      } else {
+      if (device?.device_id) {
         const { data, error } = await sb.rpc("meditation_queue_add", {
           p_device_id: String(device.device_id),
           p_item_type: "mission",
@@ -186,12 +223,35 @@ Deno.serve(async (request) => {
           item_type: data?.item_type ?? "mission",
           item_id: data?.item_id ?? missionIdOut,
         };
+      } else {
+        queue = {
+          status: "not_required",
+          reason: "canonical_runner_is_execution_authority",
+          detail: "No online Android Meditation queue consumer was available; canonical mission runner dispatch does not require Android."
+        };
       }
+
+      dispatch = {
+        status: "scheduled",
+        authority: "aria_internal.runner_tick_for_mission",
+        reason: "user_mission_immediate_dispatch",
+        mission_id: missionIdOut,
+        queue_status: queue.status,
+      };
+      scheduleCanonicalRunnerKick(missionIdOut, "user_mission_immediate_dispatch");
     } catch (error) {
       queue = {
         status: "enqueue_failed",
         error: error instanceof Error ? error.message : String(error),
       };
+      dispatch = {
+        status: "scheduled",
+        authority: "aria_internal.runner_tick_for_mission",
+        reason: "user_mission_immediate_dispatch_after_queue_error",
+        mission_id: missionIdOut,
+        queue_status: queue.status,
+      };
+      scheduleCanonicalRunnerKick(missionIdOut, "user_mission_immediate_dispatch_after_queue_error");
     }
   }
 
@@ -201,6 +261,7 @@ Deno.serve(async (request) => {
     canonical_runtime: "aria-canonical-runtime-v1",
     memory_recall: { count: memoryContext.length },
     queue,
+    dispatch,
     ...payload
   }, upstream.status);
 });

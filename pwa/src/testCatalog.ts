@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "aria-direct-mission-dispatch-contract",
+    "file": "tests/aria-direct-mission-dispatch-contract.test.js",
+    "title": "ARIA Direct Mission Dispatch Contract",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que las misiones de usuario soliciten el runner canónico aunque Android no esté disponible.",
+    "capabilities": "Detecta regresiones donde una misión creada quede esperando un dispositivo sin iniciar el runtime canónico."
+  },
+  {
     "id": "phase6-anti-regression",
     "file": "tests/phase6-anti-regression.test.js",
     "title": "Phase 6 Anti-Regresión Final",
