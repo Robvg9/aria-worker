@@ -688,6 +688,7 @@ async function auditRoute(page, url, routeIndex, config) {
         certification: 'server_backed_dynamic_content'
       });
       routeResult.controls_skipped += 1;
+      routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
       continue;
     }
     if (routeHash === '#settings' && settingsPresenceControl) {
