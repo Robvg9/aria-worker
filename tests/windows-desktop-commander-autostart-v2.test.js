@@ -40,6 +40,12 @@ test('Supervisor retries instead of terminating ARIA when DC is unavailable', ()
   assert.match(supervisor, /CHILD_EXITED/);
 });
 
+test('Supervisor does not overwrite PowerShell automatic PID variable', () => {
+  assert.doesNotMatch(supervisor, /function Write-Status\([^\n]*\$Pid\b/i);
+  assert.doesNotMatch(supervisor, /(^|\n)\s*\$pid\s*=/i);
+  assert.match(supervisor, /\$desktopCommanderPid = Find-DesktopCommander/);
+});
+
 test('Supervisor prevents duplicate instances with a named mutex', () => {
   assert.ok(supervisor.includes("Global\\ARIA-DesktopCommander-Supervisor-v2"));
   assert.ok(supervisor.includes("$created = $false"));
