@@ -91,7 +91,7 @@ function Start-DesktopCommander {
     $entry = $dc.entry
     $toolRoot = $dc.tool_root
 
-    $env:NODE_OPTIONS = '--dns-result-order=ipv4first'
+    $env:NODE_OPTIONS = '--dns-result-order=ipv4first --no-network-family-autoselection'
     $stdout = Join-Path $LogDir 'desktop-commander.stdout.log'
     $stderr = Join-Path $LogDir 'desktop-commander.stderr.log'
 
