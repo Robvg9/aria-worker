@@ -26,6 +26,10 @@ $WatchdogPidPath = Join-Path $PublicDir 'watchdog.pid'
 $KillRequestPath = Join-Path $PublicDir 'kill-request'
 $DesktopTestRequestPath = Join-Path $PublicDir 'desktop-101-request.json'
 $DesktopTestResultPath = Join-Path $PublicDir 'desktop-101-result.json'
+$DesktopCommanderSupervisorPath = Join-Path $AgentRoot 'desktop-commander-supervisor.ps1'
+$DesktopCommanderSupervisorPidPath = Join-Path $PublicDir 'desktop-commander-supervisor.pid'
+$DesktopCommanderCheckSeconds = 10
+
 
 New-Item -ItemType Directory -Force -Path $PublicDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -47,6 +51,49 @@ function Write-Status([hashtable]$Fields) {
         foreach ($key in $Fields.Keys) { $payload[$key] = $Fields[$key] }
         ($payload | ConvertTo-Json -Compress) | Set-Content -Path $StatusPath -Encoding UTF8 -Force
     } catch {}
+}
+
+
+function Find-DesktopCommanderSupervisor {
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($proc in $procs) {
+            $cmd = [string]$proc.CommandLine
+            if ($cmd -match '(?i)desktop-commander-supervisor\.ps1') {
+                return [int]$proc.ProcessId
+            }
+        }
+    } catch {
+        Write-Log "DC_SUPERVISOR_SCAN_ERROR $($_.Exception.Message)"
+    }
+    return 0
+}
+
+function Ensure-DesktopCommanderSupervisor {
+    if (-not (Test-Path $DesktopCommanderSupervisorPath)) {
+        Write-Log "DC_SUPERVISOR_MISSING path=$DesktopCommanderSupervisorPath"
+        return
+    }
+
+    $existingPid = Find-DesktopCommanderSupervisor
+    if ($existingPid -gt 0) {
+        try { Set-Content -Path $DesktopCommanderSupervisorPidPath -Value $existingPid -Encoding ASCII -Force } catch {}
+        return
+    }
+
+    try {
+        $child = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-WindowStyle', 'Hidden',
+            '-File', $DesktopCommanderSupervisorPath
+        ) -WorkingDirectory $AgentRoot -PassThru -WindowStyle Hidden
+
+        Set-Content -Path $DesktopCommanderSupervisorPidPath -Value $child.Id -Encoding ASCII -Force
+        Write-Log "DC_SUPERVISOR_STARTED pid=$($child.Id)"
+    } catch {
+        Write-Log "DC_SUPERVISOR_START_FAILED $($_.Exception.Message)"
+    }
 }
 
 function Protect-MachineToken([string]$Token) {
@@ -102,6 +149,8 @@ function Resolve-Token {
 try { Set-Content -Path $WatchdogPidPath -Value $PID -Encoding ASCII -Force } catch {}
 Write-Log "WATCHDOG_START agentRoot=$AgentRoot publicDir=$PublicDir pid=$PID mutex=ARIA-Windows-Agent-Watchdog-v1"
 Write-Status @{ state = 'watchdog_alive'; agent_pid = $null }
+Ensure-DesktopCommanderSupervisor
+$lastDesktopCommanderCheck = Get-Date
 
 $consecutiveErrors = 0
 $maxConsecutiveErrors = 6
@@ -146,6 +195,10 @@ while ($true) {
 
         $agentStartedAt = Get-Date
         while (-not $process.HasExited) {
+            if (((Get-Date) - $lastDesktopCommanderCheck).TotalSeconds -ge $DesktopCommanderCheckSeconds) {
+                Ensure-DesktopCommanderSupervisor
+                $lastDesktopCommanderCheck = Get-Date
+            }
             if ((Get-Date) -lt $agentStartedAt.AddSeconds($AgentStartupGraceSeconds)) { }
             elseif (-not (Test-Path $HeartbeatPath) -or ((Get-Date).ToUniversalTime() - (Get-Item $HeartbeatPath).LastWriteTimeUtc).TotalSeconds -gt $AgentHeartbeatStaleSeconds) {
                 Write-Log "AGENT_STALE_HEARTBEAT action=restart threshold_seconds=$AgentHeartbeatStaleSeconds"
