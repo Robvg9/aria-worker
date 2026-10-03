@@ -12,7 +12,7 @@ test('DC supervisor uses the fixed Desktop Commander runtime', () => {
   assert.ok(supervisor.includes("$DcVersion = '0.2.52'"));
   assert.ok(supervisor.includes("Tools\\DesktopCommanderRemote"));
   assert.ok(supervisor.includes("desktop-commander\\dist\\index.js"));
-  assert.ok(supervisor.includes("NODE_OPTIONS = '--dns-result-order=ipv4first'"));
+  assert.ok(supervisor.includes("NODE_OPTIONS = '--dns-result-order=ipv4first --no-network-family-autoselection'"));
   assert.ok(!supervisor.includes("@wonderwhy-er/desktop-commander@latest"));
 });
 
