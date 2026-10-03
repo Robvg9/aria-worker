@@ -14,12 +14,12 @@ That watchdog launches and supervises:
 
 ## Runtime layout
 
-- ARIA runtime: `D:\ARIA-Windows-Agent\Runtime\windows`
-- Desktop Commander fixed install: `D:\ARIA-Windows-Agent\Tools\DesktopCommanderRemote`
+- ARIA runtime: `D:\\ARIA-Windows-Agent\\Runtime\\windows`
+- Desktop Commander fixed install: `D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote`
 - Desktop Commander package: `@wonderwhy-er/desktop-commander@0.2.52`
-- Entrypoint: `...\node_modules\@wonderwhy-er\desktop-commander\dist\index.js`
-- Node: `D:\Databank\node.exe`
-- DC logs: `D:\ARIA-Windows-Agent\Logs\desktop-commander-*.log`
+- Entrypoint: `...\\node_modules\\@wonderwhy-er\\desktop-commander\\dist\\index.js`
+- Node: resolved from `Data\\config.json` `node_path`, with fixed fallbacks `D:\\Databank\\node.exe` and `D:\\Databank\\node\\node.exe`
+- DC logs: `D:\\ARIA-Windows-Agent\\Logs\\desktop-commander-*.log`
 
 ## Startup chain
 
@@ -28,7 +28,7 @@ Windows interactive logon
 → `run-agent.ps1`
 → `Ensure-DesktopCommanderSupervisor`
 → `desktop-commander-supervisor.ps1`
-→ fixed Node runtime
+→ resolved Node runtime
 → Desktop Commander Remote
 
 No manual PowerShell is required after the one-time installation.
