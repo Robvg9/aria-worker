@@ -35,6 +35,7 @@ test('Supervisor resolves Node from canonical config path with fixed D: fallback
   assert.match(supervisor, /desktop-commander\\dist\\index\.js/);
   assert.match(supervisor, /--dns-result-order=ipv4first/);
   assert.match(supervisor, /--no-network-family-autoselection/);
+  assert.match(supervisor, /MCP_SERVER_URL/);
   assert.doesNotMatch(supervisor, /npx\.cmd/);
 });
 
