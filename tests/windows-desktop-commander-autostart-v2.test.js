@@ -55,5 +55,5 @@ test('Installer preserves canonical device identity and does not reuse legacy id
 });
 
 test('Logon bootstrap waits briefly for Windows networking', () => {
-  assert.match(installer, /<Delay>PT30S<\\/Delay>/);
+  assert.match(installer, /<Delay>PT30S<\/Delay>/);
 });
