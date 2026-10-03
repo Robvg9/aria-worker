@@ -6,6 +6,7 @@ on:
     paths:
       - 'absorb/omniroute/**'
       - 'tests/omniroute-absorb-contract.test.js'
+      - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
       - '.github/workflows/omniroute-absorb-contract.yml'
   push:
     branches:
