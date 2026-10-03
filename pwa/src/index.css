@@ -280,6 +280,7 @@ button{touch-action:manipulation;}
 .technicalDetailsOpen{overflow:hidden;}
 .technicalDetailsTitle{padding:11px 14px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:900;letter-spacing:1px;}
 .visualBoardPanel{max-width:100%;box-sizing:border-box;overflow:visible;}
+.visualComposerDock{display:grid;gap:6px;margin-top:10px;}
 .canvasWrap{overflow:auto;max-width:100%;}
 .canvasWrap canvas{min-width:0 !important;width:100%;height:auto;max-width:100%;display:block;aspect-ratio:1100/650;}
 .visualInstruction{height:58px;min-height:58px;max-height:80px;resize:none;box-sizing:border-box;}
@@ -341,6 +342,22 @@ button{touch-action:manipulation;}
   .projectHero .muted{font-size:10px;line-height:1.35;}
   .projectTabs .tabButton{padding:8px 5px;font-size:10px;}
   .projectBodyViewport{padding-top:4px;}
+  .visualComposerDock{
+    position:sticky;
+    bottom:0;
+    z-index:9;
+    padding:8px 0 calc(8px + env(safe-area-inset-bottom));
+    background:linear-gradient(180deg,rgba(18,14,29,.78),#120e1d 28%);
+    backdrop-filter:blur(10px);
+  }
+  .visualComposerDock .notice{margin-top:4px;}
+  .visualComposerDock .modalActions{
+    position:sticky;
+    bottom:0;
+    padding:4px 0 0;
+    background:#120e1d;
+    z-index:10;
+  }
   .missionCreateRow{position:sticky;top:0;z-index:5;background:#120e1d;padding-bottom:6px;}
   .missionCreateRow textarea{min-height:54px;max-height:84px;resize:none;}
   .drawToolbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;}

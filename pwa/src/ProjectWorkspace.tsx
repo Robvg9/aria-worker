@@ -280,9 +280,11 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       {!livePreviewUrl && <div className='muted' style={{position:'absolute',inset:0,display:'grid',placeItems:'center',padding:24,textAlign:'center'}}>No hay una PWA LIVE configurada para este proyecto. La capa visual de referencia no sustituye una previsualización real.</div>}
       {previewFullscreen && <button type='button' className='artiaFullscreenExit' onClick={()=>void togglePreviewFullscreen()} aria-label='Salir de pantalla completa'>↙ Salir</button>}
     </div>
-    <textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Describe qué debe cambiar. Lo escrito + lo pintado se convierten en contexto de ARIA y pueden saltar directamente como misión.'/><div className='muted visualHint'>Anotaciones: {actions.length} · {previewPaused?'La vista está pausada; las anotaciones quedan sobre la referencia.':'Pausa la vista para habilitar el lienzo.'}</div>
-    {notice&&<div className='notice'>{notice}</div>}
-    <div className='modalActions'><button className='ghost' disabled={busy||!previewPaused} onClick={()=>void send(false)}>Enviar a chat</button><button className='primary' disabled={busy||!previewPaused||(!instruction.trim()&&!actions.length)} onClick={()=>void send(true)}>Crear misión con este diseño</button></div>
+    <div className='visualComposerDock'>
+      <textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Describe qué debe cambiar. Lo escrito + lo pintado se convierten en contexto de ARIA y pueden saltar directamente como misión.'/><div className='muted visualHint'>Anotaciones: {actions.length} · {previewPaused?'La vista está pausada; las anotaciones quedan sobre la referencia.':'Pausa la vista para habilitar el lienzo.'}</div>
+      {notice&&<div className='notice'>{notice}</div>}
+      <div className='modalActions'><button className='ghost' disabled={busy||!previewPaused} onClick={()=>void send(false)}>Enviar a chat</button><button className='primary' disabled={busy||!previewPaused||(!instruction.trim()&&!actions.length)} onClick={()=>void send(true)}>Crear misión con este diseño</button></div>
+    </div>
   </section>;
 }
 

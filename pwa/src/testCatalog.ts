@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "artia-mobile-viewport-contract",
+    "file": "tests/artia-mobile-viewport-contract.test.js",
+    "title": "ARTIA Mobile Viewport Contract",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba que instrucción y CTAs del workspace ARTIA sigan siendo alcanzables en móvil.",
+    "capabilities": "Detecta regresiones de viewport, safe-area, sticky dock y acciones finales de ARTIA."
+  },
+  {
     "id": "phase6-anti-regression",
     "file": "tests/phase6-anti-regression.test.js",
     "title": "Phase 6 Anti-Regresión Final",
