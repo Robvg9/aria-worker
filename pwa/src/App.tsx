@@ -1883,7 +1883,7 @@ function Chat({
                 </div>
               </div>
               <section className='panel homeMissionCard'>
-                <div className='panelTitle'>MISIÓN ACTUAL</div>
+                <div className='panelTitle'>MISIÓN</div>
                 {mission ? (
                   <>
                     <h3>{missionHumanTitle(mission)}</h3>
