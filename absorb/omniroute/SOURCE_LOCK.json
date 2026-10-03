@@ -19,7 +19,7 @@
   "artifact_digest": {
     "sha256": null,
     "status": "PENDING_SANDBOX_CAPTURE",
-    "reason": "No authorized Windows sandbox is currently online; no release artifact digest is invented."
+    "reason": "LaCueva is online, but the exact locked source archive could not be fetched from GitHub in the current Windows environment; no release artifact digest is invented."
   },
   "execution_policy": {
     "external_code_execution": false,
@@ -29,6 +29,6 @@
   "gates": {
     "phase_1_source_lock": "PASS_COMMIT_LOCKED",
     "phase_2_audit": "PASS_STATIC_AUDIT",
-    "phase_3_sandbox": "BLOCKED_DEVICE_OFFLINE"
+    "phase_3_sandbox": "BLOCKED_ENVIRONMENT_NETWORK"
   }
 }
