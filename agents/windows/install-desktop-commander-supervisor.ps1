@@ -91,6 +91,7 @@ $xml = @"
     <LogonTrigger>
       <Enabled>true</Enabled>
       <UserId>$escapedUser</UserId>
+      <Delay>PT30S</Delay>
     </LogonTrigger>
   </Triggers>
   <Principals>
