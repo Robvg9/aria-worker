@@ -2278,7 +2278,7 @@ function Meditation({ session }: { session: Session }) {
             <div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div>
             <div className='emptyState'>
               <strong>No hay una misión activa ni esperando ejecución</strong>
-              <span>Cuando ARIA tenga una misión ejecutándose o esperando su turno, aparecerá aquí con su estado real.</span>
+              <span>ARIA está disponible y la ejecución en tiempo real aparecerá aquí cuando una misión pase a ejecución.</span>
             </div>
           </section>}
       {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (
