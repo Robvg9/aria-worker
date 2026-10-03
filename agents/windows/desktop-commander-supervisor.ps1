@@ -76,6 +76,20 @@ function Get-TrackedProcess {
     return $null
 }
 
+function Test-RemotePrerequisites {
+    $url = 'https://mcp.desktopcommander.app/api/mcp-info'
+    $oldOptions = $env:NODE_OPTIONS
+    $env:NODE_OPTIONS = '--dns-result-order=ipv4first --no-network-family-autoselection'
+    try {
+        $result = & $NodePath -e "fetch('$url').then(r=>{if(r.ok){process.stdout.write('READY')}else{process.exit(2)}}).catch(()=>process.exit(1))" 2>$null
+        return ($result -eq 'READY')
+    } catch {
+        return $false
+    } finally {
+        $env:NODE_OPTIONS = $oldOptions
+    }
+}
+
 function Find-ExistingDesktopCommander {
     try {
         $procs = Get-CimInstance Win32_Process -ErrorAction Stop
@@ -138,6 +152,18 @@ while ($true) {
             Write-Log "ADOPT_EXISTING pid=$existingPid"
             Write-Status @{ state = 'adopted_existing'; pid = $existingPid; auth_required = $false; error = $null }
             Start-Sleep -Seconds 10
+            continue
+        }
+
+        if (-not (Test-RemotePrerequisites)) {
+            Write-Log 'NETWORK_NOT_READY remote MCP prerequisite check failed; delaying DC start'
+            Write-Status @{
+                state = 'waiting_for_network'
+                pid = $null
+                auth_required = $false
+                error = 'mcp-info unreachable'
+            }
+            Start-Sleep -Seconds 20
             continue
         }
 
