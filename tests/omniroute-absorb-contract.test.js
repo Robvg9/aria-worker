@@ -40,6 +40,10 @@ testCase('artifact digest is never fabricated while sandbox is blocked', () => {
   assert.strictEqual(lock.artifact_digest.status, 'PENDING_SANDBOX_CAPTURE');
 });
 
+testCase('phase 3 blocker reflects the current environment', () => {
+  assert.strictEqual(lock.gates.phase_3_sandbox, 'BLOCKED_ENVIRONMENT_NETWORK');
+});
+
 testCase('phase ordering is preserved', () => {
   const expected = 'Source Lock → Audit → Sandbox → Standalone → Provider → Adapter → Router → Resilience → Recovery → Security → E2E → Negative → Evaluation → Registration';
   assert.ok(contract.includes(expected));
