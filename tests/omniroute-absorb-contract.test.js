@@ -9,6 +9,8 @@ const lock = JSON.parse(fs.readFileSync(path.join(root, 'absorb/omniroute/SOURCE
 const contract = fs.readFileSync(path.join(root, 'absorb/omniroute/INTEGRATION_CONTRACT.md'), 'utf8');
 const phase3Contract = fs.readFileSync(path.join(root, 'absorb/omniroute/PHASE_3_SANDBOX_CONTRACT.md'), 'utf8');
 const phase3Script = fs.readFileSync(path.join(root, 'scripts/absorb/omniroute-phase3-sandbox.ps1'), 'utf8');
+const phase4Contract = fs.readFileSync(path.join(root, 'absorb/omniroute/PHASE_4_STANDALONE_CONTRACT.md'), 'utf8');
+const phase4Runner = fs.readFileSync(path.join(root, 'scripts/absorb/omniroute-phase4-standalone-smoke.mjs'), 'utf8');
 
 let passed = 0;
 function testCase(name, fn) {
@@ -86,6 +88,26 @@ testCase('phase 3 sandbox contract is prepared and fail-closed', () => {
   assert.ok(phase3Contract.includes('Phase 3 — SANDBOX = BLOCKED / NOT CERTIFIED.'));
 });
 
+testCase('phase 4 standalone contract stays after phase 3', () => {
+  assert.ok(phase4Contract.includes('Status: PREPARED / NOT CERTIFIED'));
+  assert.ok(phase4Contract.includes('/api/health'));
+  assert.ok(phase4Contract.includes('/api/health/ping'));
+  assert.ok(phase4Contract.includes('/v1/models'));
+  assert.ok(phase4Contract.includes('non-streaming chat completion'));
+  assert.ok(phase4Contract.includes('Streaming chat completion'));
+  assert.ok(phase4Contract.includes('restart/persistence'));
+  assert.ok(phase4Contract.includes('Phase 4 — STANDALONE SMOKE = PREPARED / NOT CERTIFIED.'));
+});
+
+testCase('phase 4 runner is fail-closed and never certifies missing prerequisites', () => {
+  assert.ok(phase4Runner.includes("OMNIROUTE_API_KEY"));
+  assert.ok(phase4Runner.includes("OMNIROUTE_SMOKE_MODEL"));
+  assert.ok(phase4Runner.includes("'NOT_CERTIFIED'"));
+  assert.ok(phase4Runner.includes("'/v1/models'"));
+  assert.ok(phase4Runner.includes("'/v1/chat/completions'"));
+  assert.ok(phase4Runner.includes("'[DONE]'"));
+});
+
 testCase('phase 3 runner is locked to the exact source and isolated resources', () => {
   assert.ok(phase3Script.includes("release/v3.8.52"));
   assert.ok(phase3Script.includes("3e66ff2e8cc94821b093fe57dad667b585230cd1"));
@@ -105,4 +127,4 @@ testCase('runtime adapter gate remains closed before phases 3-5', () => {
   assert.ok(contract.includes('Phase 5 OmniRoute → Ollama → Qwen is LIVE PASS'));
 });
 
-console.log('\nOmniRoute ABSORB Phase 1-3 contract: ' + passed + ' passed, 0 failed');
+console.log('\nOmniRoute ABSORB Phase 1-4 contract: ' + passed + ' passed, 0 failed');
