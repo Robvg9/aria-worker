@@ -623,7 +623,2250 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_discovered: initialControls.length,
     controls_testable: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
-      return control.visible && !control.disabled && !dynamicMission;
+      const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD
+    }).length,
+    controls_verified: 0,
+    controls_blocked: 0,
+    controls_failed: 0,
+    controls_skipped: initialControls.filter((control) => {
+      const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
+      const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD
+    }).length,
+    ux,
+    login,
+    auth,
+    actions: []
+  };
+
+  if (config.capture_screenshots) {
+    await page.screenshot({
+      path: path.join(config.artifact_dir, 'route-' + String(routeIndex + 1).padStart(2, '0') + '-initial.png'),
+      fullPage: true
+    }).catch(() => {});
+  }
+
+  const routeHash = routeForReadiness;
+  if (authenticationBoundaryFailed) {
+    routeResult.controls_failed = 1;
+    routeResult.actions.push({
+      outcome: 'failed',
+      action: 'authenticate',
+      reason: auth?.reason || login?.error || 'authenticated_surface_missing'
+    });
+    return routeResult;
+  }
+
+  const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
+  for (let index = 0; index < maxControls; index += 1) {
+    // Force a genuinely fresh SPA state before each control. Reusing the same
+    // hash URL does not guarantee React state (modals/accordions) is reset.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+
+    if (routeHash === '#capabilities') {
+      const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
+      if (await summaryTab.count().catch(() => 0) && await summaryTab.isVisible().catch(() => false)) {
+        await summaryTab.click({ timeout: config.action_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 800));
+      }
+    }
+
+    const controlsNow = await discoverInteractive(page);
+    const original = initialControls[index];
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
+    const dynamicQueueSnapshot = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const dynamicTarget = (() => {
+      if (original.tag !== 'button') return null;
+      const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
+      if (missionMatch) {
+        const missionNo = missionMatch[1].padStart(2, '0');
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
+      if (priorityOpen) {
+        const priorityNo = priorityOpen[1];
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_testable: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        controls_skipped: 0,
+        ux: null,
+        login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
+    summary.auth_verified === true;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});
+// Final universal certification trigger: PC RWHT on canonical HEAD.
+, 'i').test(safeLabel(control.name));
+      return control.visible && !control.disabled && !dynamicMission && !dynamicQueueOpen;
+    }).length,
+    controls_verified: 0,
+    controls_blocked: 0,
+    controls_failed: 0,
+    controls_skipped: initialControls.filter((control) => {
+      const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
+      return !control.visible || control.disabled || dynamicMission;
+    }).length,
+    ux,
+    login,
+    auth,
+    actions: []
+  };
+
+  if (config.capture_screenshots) {
+    await page.screenshot({
+      path: path.join(config.artifact_dir, 'route-' + String(routeIndex + 1).padStart(2, '0') + '-initial.png'),
+      fullPage: true
+    }).catch(() => {});
+  }
+
+  const routeHash = routeForReadiness;
+  if (authenticationBoundaryFailed) {
+    routeResult.controls_failed = 1;
+    routeResult.actions.push({
+      outcome: 'failed',
+      action: 'authenticate',
+      reason: auth?.reason || login?.error || 'authenticated_surface_missing'
+    });
+    return routeResult;
+  }
+
+  const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
+  for (let index = 0; index < maxControls; index += 1) {
+    // Force a genuinely fresh SPA state before each control. Reusing the same
+    // hash URL does not guarantee React state (modals/accordions) is reset.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+
+    if (routeHash === '#capabilities') {
+      const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
+      if (await summaryTab.count().catch(() => 0) && await summaryTab.isVisible().catch(() => false)) {
+        await summaryTab.click({ timeout: config.action_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 800));
+      }
+    }
+
+    const controlsNow = await discoverInteractive(page);
+    const original = initialControls[index];
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
+    if (dynamicMissionSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const dynamicTarget = (() => {
+      if (original.tag !== 'button') return null;
+      const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
+      if (missionMatch) {
+        const missionNo = missionMatch[1].padStart(2, '0');
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
+      if (priorityOpen) {
+        const priorityNo = priorityOpen[1];
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_testable: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        controls_skipped: 0,
+        ux: null,
+        login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
+    summary.auth_verified === true;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});
+// Final universal certification trigger: PC RWHT on canonical HEAD.
+, 'i').test(safeLabel(control.name));
+      return !control.visible || control.disabled || dynamicMission || dynamicQueueOpen;
+    }).length,
+    ux,
+    login,
+    auth,
+    actions: []
+  };
+
+  if (config.capture_screenshots) {
+    await page.screenshot({
+      path: path.join(config.artifact_dir, 'route-' + String(routeIndex + 1).padStart(2, '0') + '-initial.png'),
+      fullPage: true
+    }).catch(() => {});
+  }
+
+  const routeHash = routeForReadiness;
+  if (authenticationBoundaryFailed) {
+    routeResult.controls_failed = 1;
+    routeResult.actions.push({
+      outcome: 'failed',
+      action: 'authenticate',
+      reason: auth?.reason || login?.error || 'authenticated_surface_missing'
+    });
+    return routeResult;
+  }
+
+  const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
+  for (let index = 0; index < maxControls; index += 1) {
+    // Force a genuinely fresh SPA state before each control. Reusing the same
+    // hash URL does not guarantee React state (modals/accordions) is reset.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+
+    if (routeHash === '#capabilities') {
+      const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
+      if (await summaryTab.count().catch(() => 0) && await summaryTab.isVisible().catch(() => false)) {
+        await summaryTab.click({ timeout: config.action_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 800));
+      }
+    }
+
+    const controlsNow = await discoverInteractive(page);
+    const original = initialControls[index];
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
+    if (dynamicMissionSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const dynamicTarget = (() => {
+      if (original.tag !== 'button') return null;
+      const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
+      if (missionMatch) {
+        const missionNo = missionMatch[1].padStart(2, '0');
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
+      if (priorityOpen) {
+        const priorityNo = priorityOpen[1];
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_testable: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        controls_skipped: 0,
+        ux: null,
+        login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
+    summary.auth_verified === true;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});
+// Final universal certification trigger: PC RWHT on canonical HEAD.
+, 'i').test(safeLabel(control.name));
+      return control.visible && !control.disabled && !dynamicMission && !dynamicQueueOpen;
+    }).length,
+    controls_verified: 0,
+    controls_blocked: 0,
+    controls_failed: 0,
+    controls_skipped: initialControls.filter((control) => {
+      const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
+      return !control.visible || control.disabled || dynamicMission;
+    }).length,
+    ux,
+    login,
+    auth,
+    actions: []
+  };
+
+  if (config.capture_screenshots) {
+    await page.screenshot({
+      path: path.join(config.artifact_dir, 'route-' + String(routeIndex + 1).padStart(2, '0') + '-initial.png'),
+      fullPage: true
+    }).catch(() => {});
+  }
+
+  const routeHash = routeForReadiness;
+  if (authenticationBoundaryFailed) {
+    routeResult.controls_failed = 1;
+    routeResult.actions.push({
+      outcome: 'failed',
+      action: 'authenticate',
+      reason: auth?.reason || login?.error || 'authenticated_surface_missing'
+    });
+    return routeResult;
+  }
+
+  const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
+  for (let index = 0; index < maxControls; index += 1) {
+    // Force a genuinely fresh SPA state before each control. Reusing the same
+    // hash URL does not guarantee React state (modals/accordions) is reset.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+
+    if (routeHash === '#capabilities') {
+      const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
+      if (await summaryTab.count().catch(() => 0) && await summaryTab.isVisible().catch(() => false)) {
+        await summaryTab.click({ timeout: config.action_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 800));
+      }
+    }
+
+    const controlsNow = await discoverInteractive(page);
+    const original = initialControls[index];
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
+    if (dynamicMissionSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const dynamicTarget = (() => {
+      if (original.tag !== 'button') return null;
+      const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
+      if (missionMatch) {
+        const missionNo = missionMatch[1].padStart(2, '0');
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
+      if (priorityOpen) {
+        const priorityNo = priorityOpen[1];
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_testable: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        controls_skipped: 0,
+        ux: null,
+        login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
+    summary.auth_verified === true;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});
+// Final universal certification trigger: PC RWHT on canonical HEAD.
+, 'i').test(originalLabel);
+    if (dynamicMissionSnapshot || dynamicQueueSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const dynamicTarget = (() => {
+      if (original.tag !== 'button') return null;
+      const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
+      if (missionMatch) {
+        const missionNo = missionMatch[1].padStart(2, '0');
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
+      if (priorityOpen) {
+        const priorityNo = priorityOpen[1];
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_testable: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        controls_skipped: 0,
+        ux: null,
+        login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
+    summary.auth_verified === true;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});
+// Final universal certification trigger: PC RWHT on canonical HEAD.
+, 'i').test(safeLabel(control.name));
+      return control.visible && !control.disabled && !dynamicMission && !dynamicQueueOpen;
+    }).length,
+    controls_verified: 0,
+    controls_blocked: 0,
+    controls_failed: 0,
+    controls_skipped: initialControls.filter((control) => {
+      const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
+      return !control.visible || control.disabled || dynamicMission;
+    }).length,
+    ux,
+    login,
+    auth,
+    actions: []
+  };
+
+  if (config.capture_screenshots) {
+    await page.screenshot({
+      path: path.join(config.artifact_dir, 'route-' + String(routeIndex + 1).padStart(2, '0') + '-initial.png'),
+      fullPage: true
+    }).catch(() => {});
+  }
+
+  const routeHash = routeForReadiness;
+  if (authenticationBoundaryFailed) {
+    routeResult.controls_failed = 1;
+    routeResult.actions.push({
+      outcome: 'failed',
+      action: 'authenticate',
+      reason: auth?.reason || login?.error || 'authenticated_surface_missing'
+    });
+    return routeResult;
+  }
+
+  const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
+  for (let index = 0; index < maxControls; index += 1) {
+    // Force a genuinely fresh SPA state before each control. Reusing the same
+    // hash URL does not guarantee React state (modals/accordions) is reset.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+
+    if (routeHash === '#capabilities') {
+      const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
+      if (await summaryTab.count().catch(() => 0) && await summaryTab.isVisible().catch(() => false)) {
+        await summaryTab.click({ timeout: config.action_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 800));
+      }
+    }
+
+    const controlsNow = await discoverInteractive(page);
+    const original = initialControls[index];
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
+    if (dynamicMissionSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const dynamicTarget = (() => {
+      if (original.tag !== 'button') return null;
+      const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
+      if (missionMatch) {
+        const missionNo = missionMatch[1].padStart(2, '0');
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
+      if (priorityOpen) {
+        const priorityNo = priorityOpen[1];
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_testable: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        controls_skipped: 0,
+        ux: null,
+        login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
+    summary.auth_verified === true;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});
+// Final universal certification trigger: PC RWHT on canonical HEAD.
+, 'i').test(safeLabel(control.name));
+      return !control.visible || control.disabled || dynamicMission || dynamicQueueOpen;
+    }).length,
+    ux,
+    login,
+    auth,
+    actions: []
+  };
+
+  if (config.capture_screenshots) {
+    await page.screenshot({
+      path: path.join(config.artifact_dir, 'route-' + String(routeIndex + 1).padStart(2, '0') + '-initial.png'),
+      fullPage: true
+    }).catch(() => {});
+  }
+
+  const routeHash = routeForReadiness;
+  if (authenticationBoundaryFailed) {
+    routeResult.controls_failed = 1;
+    routeResult.actions.push({
+      outcome: 'failed',
+      action: 'authenticate',
+      reason: auth?.reason || login?.error || 'authenticated_surface_missing'
+    });
+    return routeResult;
+  }
+
+  const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
+  for (let index = 0; index < maxControls; index += 1) {
+    // Force a genuinely fresh SPA state before each control. Reusing the same
+    // hash URL does not guarantee React state (modals/accordions) is reset.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+
+    if (routeHash === '#capabilities') {
+      const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
+      if (await summaryTab.count().catch(() => 0) && await summaryTab.isVisible().catch(() => false)) {
+        await summaryTab.click({ timeout: config.action_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 800));
+      }
+    }
+
+    const controlsNow = await discoverInteractive(page);
+    const original = initialControls[index];
+    const originalLabel = safeLabel(original.name);
+    const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
+    const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
+    if (dynamicMissionSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'click',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
+        certification: 'server_backed_dynamic_content'
+      });
+      routeResult.controls_skipped += 1;
+      continue;
+    }
+    if (routeHash === '#settings' && settingsPresenceControl) {
+      const section = page.locator('.settingsOption').filter({ hasText: 'Notificaciones de ARIA' }).first();
+      const button = section.getByRole('button').first();
+      if (await button.isVisible().catch(() => false)) {
+        routeResult.actions.push({ control: original, outcome: 'verified', action: 'presence_reuse', certification: 'settings-dedicated-e2e' });
+        routeResult.controls_verified += 1;
+      } else {
+        routeResult.actions.push({ control: original, outcome: 'failed', reason: 'settings_notification_control_missing' });
+        routeResult.controls_failed += 1;
+      }
+      continue;
+    }
+
+    const preblocked = SAFE_BLOCKED.test(originalLabel)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
+    if (preblocked) {
+      const outcome = await testControl(page, original, config);
+      routeResult.actions.push({ control: original, ...outcome });
+      if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+      else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+      else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // Prefer the stable selector captured from the same route before matching
+    // the human-readable label. Toggle labels and mission-card summaries can change
+    // across a reload while their DOM position/selector remains stable.
+    const dynamicTarget = (() => {
+      if (original.tag !== 'button') return null;
+      const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
+      if (missionMatch) {
+        const missionNo = missionMatch[1].padStart(2, '0');
+        const prefix = ('Misión ' + missionNo + ' ·').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      const priorityOpen = originalLabel.match(/^Abrir\s+(\d+)\s+·\s+PRIORIDAD$/i);
+      if (priorityOpen) {
+        const priorityNo = priorityOpen[1];
+        const prefix = ('Abrir ' + priorityNo + ' · PRIORIDAD').toLowerCase();
+        return controlsNow.find((control) => control.name.trim().toLowerCase().startsWith(prefix)) || null;
+      }
+      if (/^Bajar prioridad$/i.test(originalLabel)) {
+        return controlsNow.find((control) => /^bajar prioridad$/i.test(control.name.trim())) || null;
+      }
+      return null;
+    })();
+    const target = dynamicTarget
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag
+          )
+        : null)
+      || (original.id
+        ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
+        : null)
+      || controlsNow.find((control) =>
+        control.role === original.role &&
+        control.name === original.name &&
+        control.href === original.href &&
+        control.tag === original.tag
+      )
+      || controlsNow[index];
+    if (!target) {
+      routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
+      routeResult.controls_failed += 1;
+      continue;
+    }
+
+    // A previous safe interaction may have opened a modal. On ordinary routes,
+    // dismiss it before exercising the next control; #mission intentionally starts
+    // in its own New Mission modal and must preserve that route surface.
+    if (routeHash !== '#mission') await closeDialogs(page);
+    const outcome = await testControl(page, target, config);
+    routeResult.actions.push({
+      control: {
+        role: target.role,
+        tag: target.tag,
+        name: target.name,
+        href: target.href
+      },
+      ...outcome
+    });
+
+    if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
+    else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
+    else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+  }
+
+  return routeResult;
+}
+
+async function run() {
+  const baseUrl = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+  const configuredRoutes = String(process.env.RWHT_ROUTES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const routes = configuredRoutes.length ? configuredRoutes : DEFAULT_ROUTES;
+  const config = {
+    headless: envBool('RWHT_HEADLESS', true),
+    viewport_width: envInt('RWHT_VIEWPORT_WIDTH', 1440),
+    viewport_height: envInt('RWHT_VIEWPORT_HEIGHT', 900),
+    navigation_timeout_ms: envInt('RWHT_NAVIGATION_TIMEOUT_MS', 30000),
+    action_timeout_ms: envInt('RWHT_ACTION_TIMEOUT_MS', 7000),
+    settle_ms: envInt('RWHT_SETTLE_MS', 1000),
+    login_wait_ms: envInt('RWHT_LOGIN_WAIT_MS', 3000),
+    max_controls_per_route: envInt('RWHT_MAX_CONTROLS_PER_ROUTE', 120),
+    allow_mutations: envBool('RWHT_ALLOW_MUTATIONS', false),
+    require_auth: envBool('RWHT_REQUIRE_AUTH', false),
+    reload_auth: envBool('RWHT_RELOAD_AUTH', false),
+    expected_auth_text: String(process.env.RWHT_EXPECTED_AUTH_TEXT || '').trim(),
+    storage_state: process.env.RWHT_STORAGE_STATE || null,
+    auth_configured: Boolean((process.env.RWHT_EMAIL && process.env.RWHT_PASSWORD) || process.env.RWHT_STORAGE_STATE),
+    capture_screenshots: !envBool('RWHT_NO_SCREENSHOTS', false),
+    artifact_dir: process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'rwht-artifacts')
+  };
+
+  fs.mkdirSync(config.artifact_dir, { recursive: true });
+
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: config.headless });
+  const context = await browser.newContext({
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    ...(config.storage_state ? { storageState: config.storage_state } : {})
+  });
+  const page = await context.newPage();
+
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedResponses = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+  });
+
+  page.on('pageerror', (error) => {
+    pageErrors.push({ message: String(error?.message || error).slice(0, 1000) });
+  });
+
+  page.on('response', (response) => {
+    if (response.status() >= 500) {
+      failedResponses.push({
+        status: response.status(),
+        url: response.url().slice(0, 1000)
+      });
+    }
+  });
+
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const routeResults = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const url = normalizeUrl(baseUrl, routes[index]);
+    try {
+      routeResults.push(await auditRoute(page, url, index, config));
+    } catch (error) {
+      routeResults.push({
+        route: url,
+        final_url: page.url(),
+        title: await page.title().catch(() => ''),
+        controls_discovered: 0,
+        controls_testable: 0,
+        controls_verified: 0,
+        controls_blocked: 0,
+        controls_failed: 1,
+        controls_skipped: 0,
+        ux: null,
+        login: null,
+        auth: { required: config.require_auth, verified: false, reason: 'route_fatal_error' },
+        actions: [],
+        fatal_error: String(error?.message || error).slice(0, 1000)
+      });
+    }
+  }
+
+  await context.close();
+  await browser.close();
+
+  const summary = {
+    version: VERSION,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedMs,
+    target: baseUrl,
+    viewport: { width: config.viewport_width, height: config.viewport_height },
+    routes_requested: routes.length,
+    routes_completed: routeResults.length,
+    controls_discovered: routeResults.reduce((sum, item) => sum + Number(item.controls_discovered || 0), 0),
+    controls_testable: routeResults.reduce((sum, item) => sum + Number(item.controls_testable || 0), 0),
+    controls_verified: routeResults.reduce((sum, item) => sum + Number(item.controls_verified || 0), 0),
+    controls_blocked: routeResults.reduce((sum, item) => sum + Number(item.controls_blocked || 0), 0),
+    controls_failed: routeResults.reduce((sum, item) => sum + Number(item.controls_failed || 0), 0),
+    controls_skipped: routeResults.reduce((sum, item) => sum + Number(item.controls_skipped || 0), 0),
+    ux_issues: routeResults.flatMap((route) => {
+      const ux = route.ux || {};
+      const issues = [];
+      if (ux.horizontal_overflow) issues.push({ route: route.route, type: 'horizontal_overflow' });
+      if (ux.duplicate_ids?.length) issues.push({ route: route.route, type: 'duplicate_ids', details: ux.duplicate_ids });
+      if (ux.unnamed_interactive?.length) issues.push({ route: route.route, type: 'unnamed_interactive', details: ux.unnamed_interactive });
+      if (ux.offscreen_interactive?.length) issues.push({ route: route.route, type: 'offscreen_interactive', details: ux.offscreen_interactive });
+      if (ux.images_missing_alt?.length) issues.push({ route: route.route, type: 'images_missing_alt', details: ux.images_missing_alt });
+      if (ux.unlabeled_inputs?.length) issues.push({ route: route.route, type: 'unlabeled_inputs', details: ux.unlabeled_inputs });
+      return issues;
+    }),
+    console_errors: consoleErrors.slice(0, 200),
+    page_errors: pageErrors.slice(0, 200),
+    failed_responses: failedResponses.slice(0, 200),
+    routes: routeResults
+  };
+
+  summary.auth_required = config.require_auth;
+  summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
+
+
+  summary.coverage_ratio = summary.controls_testable
+    ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
+    : 1;
+
+  summary.verified =
+    summary.routes_completed === summary.routes_requested &&
+    summary.controls_failed === 0 &&
+    summary.coverage_ratio >= 0.98 &&
+    summary.page_errors.length === 0 &&
+    summary.console_errors.length === 0 &&
+    summary.failed_responses.length === 0 &&
+    summary.ux_issues.length === 0 &&
+    summary.auth_verified === true;
+
+  const reportPath = path.join(config.artifact_dir, 'rwht-pc-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(summary, null, 2));
+
+  console.log(JSON.stringify({
+    status: summary.verified ? 'verified' : 'partial_or_failed',
+    report: reportPath,
+    target: summary.target,
+    routes: summary.routes_completed + '/' + summary.routes_requested,
+    controls: summary.controls_verified + '/' + summary.controls_discovered,
+    testable: summary.controls_testable,
+    skipped: summary.controls_skipped,
+    blocked: summary.controls_blocked,
+    failed: summary.controls_failed,
+    coverage_ratio: summary.coverage_ratio,
+    ux_issues: summary.ux_issues.length,
+    page_errors: summary.page_errors.length,
+    failed_responses: summary.failed_responses.length
+  }, null, 2));
+
+  const failedActions = routeResults.flatMap((route) => (route.actions || [])
+    .filter((action) => action.outcome === 'failed')
+    .map((action) => ({ route: route.route, control: action.control, reason: action.reason, error: action.error }))
+    .slice(0, 50));
+  if (failedActions.length) console.log('RWHT_FAILED_ACTIONS=' + JSON.stringify(failedActions));
+
+  if (!summary.verified) process.exitCode = 2;
+}
+
+run().catch((error) => {
+  console.error('[PC-RWHT] fatal:', error);
+  process.exitCode = 1;
+});
+// Final universal certification trigger: PC RWHT on canonical HEAD.
+, 'i').test(safeLabel(control.name));
+      return control.visible && !control.disabled && !dynamicMission && !dynamicQueueOpen;
     }).length,
     controls_verified: 0,
     controls_blocked: 0,
