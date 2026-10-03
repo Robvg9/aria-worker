@@ -23,11 +23,11 @@ function Write-Log([string]$Message) {
     try { Add-Content -Path $LogPath -Value "[ARIA-DC] $(Get-Date -Format o) $Message" -Encoding UTF8 -ErrorAction SilentlyContinue } catch {}
 }
 
-function Write-Status([string]$State,[int]$Pid=0,[string]$ErrorText=$null) {
+function Write-Status([string]$State,[int]$ProcessId=0,[string]$ErrorText=$null) {
     $obj = [ordered]@{
         updated_at = (Get-Date -Format o)
         state = $State
-        pid = if($Pid -gt 0){$Pid}else{$null}
+        pid = if($ProcessId -gt 0){$ProcessId}else{$null}
         version = $DcVersion
         node = $NodePath
         entry = $DcEntry
@@ -64,20 +64,20 @@ Write-Status 'supervisor_alive'
 
 while ($true) {
     try {
-        $pid = Find-DesktopCommander
-        if ($pid -gt 0) {
-            Write-Status 'running' $pid
+        $desktopCommanderPid = Find-DesktopCommander
+        if ($desktopCommanderPid -gt 0) {
+            Write-Status 'running' $desktopCommanderPid
             Start-Sleep -Seconds 10
             continue
         }
 
         Start-DesktopCommander
         Start-Sleep -Seconds 20
-        $pid = Find-DesktopCommander
+        $desktopCommanderPid = Find-DesktopCommander
 
-        if ($pid -gt 0) {
-            Write-Log "CHILD_CONFIRMED pid=$pid"
-            Write-Status 'running' $pid
+        if ($desktopCommanderPid -gt 0) {
+            Write-Log "CHILD_CONFIRMED pid=$desktopCommanderPid"
+            Write-Status 'running' $desktopCommanderPid
             Start-Sleep -Seconds 10
             continue
         }
