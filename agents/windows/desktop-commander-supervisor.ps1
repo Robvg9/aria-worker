@@ -81,9 +81,12 @@ function Test-RemotePrerequisites {
     $oldOptions = $env:NODE_OPTIONS
     $env:NODE_OPTIONS = '--dns-result-order=ipv4first --no-network-family-autoselection'
     try {
-        $result = & $NodePath -e "fetch('$url').then(r=>{if(r.ok){process.stdout.write('READY')}else{process.exit(2)}}).catch(()=>process.exit(1))" 2>$null
+        $dc = Resolve-DesktopCommander
+        $node = $dc.node
+        $result = & $node -e "fetch('$url').then(r=>{if(r.ok || r.status -eq 401 -or r.status -eq 403){process.stdout.write('READY')}else{process.exit(2)}}).catch(()=>process.exit(1))" 2>$null
         return ($result -eq 'READY')
     } catch {
+        Write-Log "REMOTE_PREREQ_ERROR $($_.Exception.Message)"
         return $false
     } finally {
         $env:NODE_OPTIONS = $oldOptions
