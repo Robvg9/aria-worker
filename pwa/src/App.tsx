@@ -2270,6 +2270,7 @@ function Meditation({ session }: { session: Session }) {
             <h3>{ideaProposals.length ? ideaProposals.length + ' ideas guardadas' : 'Sin ideas guardadas'}</h3>
             <p className='muted'>Son sugerencias creadas a partir de tus ideas. No se ejecutan solas.</p>
             <span className='pill neutral'>NO AUTOENCOLADA</span>
+            <span className='pill neutral'>NO AUTOEJECUTA</span>
           </div>
           <button className='ghost' onClick={() => setIdeasOpen(true)}>Ver ideas y crear misión</button>
         </div>
