@@ -10,12 +10,51 @@ $ConfigPath = Join-Path $DataDir 'config.json'
 $TokenPath = Join-Path $DataDir 'device-token.dpapi'
 $TaskXmlPath = Join-Path $RuntimeRoot 'ARIA-Windows-Local-Agent.xml'
 $DesktopSmokePath = Join-Path $LogDir 'desktop-smoke.json'
+$DesktopCommanderRoot = Join-Path $RuntimeRoot 'Tools\DesktopCommanderRemote'
+$DesktopCommanderCache = Join-Path $DesktopCommanderRoot 'npm-cache'
+$DesktopCommanderPackage = Join-Path $DesktopCommanderRoot 'node_modules\@wonderwhy-er\desktop-commander'
+$DesktopCommanderEntry = Join-Path $DesktopCommanderPackage 'dist\index.js'
+$DesktopCommanderVersion = '0.2.52'
+
 $TaskName = 'ARIA-Windows-Local-Agent'
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
 $DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
 
-foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir, $DesktopCommanderRoot, $DesktopCommanderCache)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+
+$desktopSupervisorSource = Join-Path $AgentRoot 'desktop-commander-supervisor.ps1'
+$desktopSupervisorTarget = Join-Path $RuntimeDir 'desktop-commander-supervisor.ps1'
+if (-not (Test-Path $desktopSupervisorSource)) { throw "Desktop Commander supervisor source missing: $desktopSupervisorSource" }
+Copy-Item -Path $desktopSupervisorSource -Destination $desktopSupervisorTarget -Force
+
+$npmCommand = Join-Path (Split-Path $NodePath -Parent) 'npm.cmd'
+if (-not (Test-Path $npmCommand)) {
+    $npmFallback = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if ($npmFallback) { $npmCommand = $npmFallback.Source }
+}
+if (-not (Test-Path $npmCommand)) { throw 'npm.cmd not found next to Node.js; cannot bootstrap Desktop Commander.' }
+
+if (-not (Test-Path $DesktopCommanderEntry)) {
+    Write-Host '=== DESKTOP COMMANDER RUNTIME INSTALL ==='
+    $previousCache = $env:NPM_CONFIG_CACHE
+    $env:NPM_CONFIG_CACHE = $DesktopCommanderCache
+    try {
+        & $npmCommand install --prefix $DesktopCommanderRoot --no-save "@wonderwhy-er/desktop-commander@$DesktopCommanderVersion"
+        if ($LASTEXITCODE -ne 0) { throw "Desktop Commander npm install failed. ExitCode=$LASTEXITCODE" }
+    }
+    finally {
+        $env:NPM_CONFIG_CACHE = $previousCache
+    }
+}
+
+if (-not (Test-Path $DesktopCommanderEntry)) { throw "Desktop Commander runtime missing: $DesktopCommanderEntry" }
+$dcPackageJson = Join-Path $DesktopCommanderPackage 'package.json'
+$dcPackage = Get-Content -Raw $dcPackageJson | ConvertFrom-Json
+if ([string]$dcPackage.version -ne $DesktopCommanderVersion) {
+    throw "Desktop Commander version mismatch. Expected $DesktopCommanderVersion, found $($dcPackage.version)"
+}
+Write-Host "DESKTOP_COMMANDER_RUNTIME=PASS version=$($dcPackage.version)"
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
@@ -141,3 +180,7 @@ Write-Host 'RestartOnFailure: 999 / 1 minuto'
 Write-Host 'Shell executor: installed'
 Write-Host 'Desktop computer-use: installed'
 Write-Host 'Desktop UI Automation observer: installed'
+Write-Host "Desktop Commander runtime: $DesktopCommanderRoot"
+Write-Host "Desktop Commander entry: $DesktopCommanderEntry"
+Write-Host 'Desktop Commander startup: managed by ARIA Windows watchdog'
+Write-Host 'Desktop Commander DNS: IPv4-first + network-family autoselection disabled'
