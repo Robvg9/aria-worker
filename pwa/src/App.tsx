@@ -1320,6 +1320,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
+  const [ideasOpen, setIdeasOpen] = useState(false);
   const [ideaText, setIdeaText] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [ideaError, setIdeaError] = useState('');
@@ -1873,60 +1874,49 @@ function Chat({
       <div className='screenViewport'>
         <div className={'screenTrack screen-' + screen}>
           <section className='appScreen dashboardScreen'>
-            <section className='heroPanel'>
-              <div className='heroLeft'>
+            <section className='homeEssential'>
+              <div className='homeBrand'>
                 <div className='heroOrb'>ARIA</div>
                 <div>
-                  <div className='eyebrow'>ESTADO REAL</div>
+                  <div className='eyebrow'>CENTRO DE MANDO</div>
                   <h2>{mission ? statusLabel(String(mission.status)) : 'Lista para actuar'}</h2>
-                  <p>{mission ? mission.goal : 'Dashboard principal: estado real, capacidades, misiones y acceso rápido al núcleo.'}</p>
+                  <p>{mission ? mission.goal : 'Aquí solo verás lo esencial para saber si ARIA está lista y qué misión está atendiendo.'}</p>
                 </div>
               </div>
-              <div className='statsGrid'>
-                <button className='statCard statButton' onClick={() => setQuickView({ title: 'Modelos disponibles', items: (caps?.models ?? []).filter((m:any) => m.enabled && m.status === 'available') })}>
-                  <div className='statValue violet'>{caps?.summary.models_available ?? '—'}</div>
-                  <div className='statLabel'>Modelos disponibles</div>
-                </button>
-                <button className='statCard statButton' onClick={() => setQuickView({ title: 'Agentes disponibles', items: (caps?.agents ?? []).filter((a:any) => a.status === 'available') })}>
-                  <div className='statValue cyan'>{caps?.summary.agents_available ?? '—'}</div>
-                  <div className='statLabel'>Agentes disponibles</div>
-                </button>
-                <button className='statCard statButton' onClick={() => setQuickView({ title: 'Dispositivos online', items: (caps?.devices ?? []).filter((d:any) => d.status === 'online') })}>
-                  <div className='statValue green'>{caps?.summary.devices_online ?? '—'}</div>
-                  <div className='statLabel'>Dispositivos online</div>
-                </button>
-                <button className='statCard statButton' onClick={() => setQuickView({ title: 'Conexiones', items: caps?.connections ?? [] })}>
-                  <div className='statValue gold'>{caps?.summary.connections ?? '—'}</div>
-                  <div className='statLabel'>Conexiones</div>
-                </button>
+
+              <section className='panel homeMissionCard'>
+                <div className='panelTitle'>MISIÓN ACTUAL</div>
+                {mission ? (
+                  <>
+                    <h3>{missionHumanTitle(mission)}</h3>
+                    <p className='muted'>{missionActivityLabel(mission)} · {statusLabel(String(mission.status))}</p>
+                    <div className='progressBar'>
+                      <span style={{ width: (Math.max(0, Math.min(100, Number(mission.completed_steps ?? 0) / Math.max(1, Number(mission.total_steps ?? 1)) * 100)) + '%') }} />
+                    </div>
+                    <small className='muted'>Paso {mission.completed_steps ?? 0} de {mission.total_steps ?? mission.steps?.length ?? '—'}</small>
+                    <button className='ghost wideHomeAction' onClick={() => setShowMission(true)}>Ver misión</button>
+                  </>
+                ) : (
+                  <>
+                    <h3>No hay una misión ejecutándose ahora</h3>
+                    <p className='muted'>Las misiones y su progreso se controlan desde Meditación IA.</p>
+                  </>
+                )}
+              </section>
+
+              {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (
+                <div className='homeOperationalWarning' role='status'>
+                  <strong>ARIA necesita atención</strong>
+                  <span>{String(operationalHealth.next_actions?.[0] || operationalHealth.message || 'Hay una condición operativa que revisar.')}</span>
+                </div>
+              )}
+
+              <div className='homeQuickActions'>
+                <button className='primary' onClick={() => setShowNewMission(true)}>＋ Nueva misión</button>
+                <button className='ghost' onClick={onMeditation}>◌ Ver ejecución</button>
+                <button className='ghost' onClick={() => setScreen(1)}>💬 Hablar con ARIA</button>
               </div>
             </section>
-            <OperationalHealthPanel health={operationalHealth} />
-
-            {mission && (
-              <section className='panel livePanel'>
-                <div className='panelHeading'>
-                  <div>
-                    <div className='panelTitle'>EJECUCIÓN ACTUAL</div>
-                    <h2>{mission.goal}</h2>
-                  </div>
-                  <button className={'pill ' + tone(String(mission.status))} onClick={() => setShowMission(true)}>
-                    {statusLabel(String(mission.status))}
-                  </button>
-                </div>
-                <div className='muted'>{mission.phase?.index ?? 1}/6 · {mission.phase?.label ?? statusLabel(String(mission.status))}</div>
-                <div className='progressBar'>
-                  <span style={{ width: (Math.max(0, Math.min(100, Number(mission.completed_steps ?? 0) / Math.max(1, Number(mission.total_steps ?? 1)) * 100)) + '%') }} />
-                </div>
-                <div className='muted'>Paso {mission.completed_steps ?? 0} de {mission.total_steps ?? mission.steps?.length ?? '—'} · {mission.next_action ?? 'sin siguiente acción'}</div>
-                <div className='detailTimeline'>
-                  <div className='panelTitle'>TRABAJO EN VIVO</div>
-                  {events.slice(-6).map((e: any, i: number) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small></div></div>)}
-                  {!events.length && <div className='muted'>ARIA aún está iniciando la misión…</div>}
-                </div>
-              </section>
-            )}
-
           </section>
 
           <section className='appScreen chatScreen'>
@@ -2266,85 +2256,24 @@ function Meditation({ session }: { session: Session }) {
   }
 
   const m = o?.active_mission;
+  const nextQueuedMission = meditationQueueItems(o, null)[0] ?? null;
+  const displayMission = m ?? nextQueuedMission;
 
   return (
     <main className='appShell'>
       
       <div className='pageBodyViewport meditationViewport'>
-      <section className='panel ideaAnalyzerPanel'>
-        <div className='panelTitle'>ANALIZADOR DE IDEAS</div>
-        <h2>Convierte una idea en una propuesta gobernada</h2>
-        <p className='muted'>ARIA analiza la idea, detecta dependencias, riesgos y Human Gate, y prepara misiones sin autoencolarlas ni autoejecutarlas.</p>
-        <textarea
-          className='ideaAnalyzerInput'
-          aria-label='Idea para analizar'
-          value={ideaText}
-          maxLength={4000}
-          onChange={e => setIdeaText(e.target.value)}
-          placeholder='Escribe una idea que quieras convertir en una ruta de misiones…'
-          rows={4}
-        />
-        <div className='ideaAnalyzerToolbar'>
-          <button className='primary' disabled={ideaBusy || !ideaText.trim()} onClick={() => void analyzeIdea()}>
-            {ideaBusy ? 'ANALIZANDO…' : 'ANALIZAR Y PROPONER'}
-          </button>
-          <span className='pill neutral'>NO AUTOENCOLADA</span>
-          <span className='pill neutral'>NO AUTOEJECUTA</span>
-        </div>
-        {ideaError && <div className='errorBox'>{ideaError}</div>}
-        <div className='ideaProposalList'>
-          {!ideaProposals.length
-            ? <div className='emptyState ideaEmpty'>Todavía no hay ideas analizadas.</div>
-            : ideaProposals.slice(0, 8).map((proposal: any) => (
-              <article className='ideaProposalCard' key={proposal.proposal_id}>
-                <div className='ideaProposalTop'>
-                  <div>
-                    <div className='eyebrow'>IDEA ANALIZADA</div>
-                    <strong>{proposal.input?.idea || 'Idea sin texto'}</strong>
-                  </div>
-                  <span className={'pill ' + tone(String(proposal.status))}>{ideaStateLabel(proposal.status)}</span>
-                </div>
-                <div className='ideaMetaGrid'>
-                  <span><b>Viabilidad</b>{ideaStateLabel(proposal.classification?.viability)}</span>
-                  <span><b>Estado</b>{ideaStateLabel(proposal.classification?.execution_state)}</span>
-                  <span><b>Misiones</b>{Array.isArray(proposal.missions) ? proposal.missions.length : 0}</span>
-                  <span><b>Human Gate</b>{proposal.summary?.human_gate_required ? 'Sí' : 'No'}</span>
-                </div>
-                {(proposal.blockers || []).length > 0 && (
-                  <div className='ideaBlockerBox'>
-                    <b>Bloqueos detectados</b>
-                    {(proposal.blockers || []).slice(0, 4).map((b: any, i: number) => <small key={i}>{b?.reason || b?.code || 'Bloqueo detectado'}</small>)}
-                  </div>
-                )}
-                {proposal.status === 'proposed' && (
-                  <div className='actions'>
-                    <button className='primary' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'accept')}>Aceptar propuesta</button>
-                    <button className='ghost' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'reject')}>Rechazar</button>
-                  </div>
-                )}
-                {['accepted','converted'].includes(String(proposal.status)) && Array.isArray(proposal.missions) && (
-                  <div className='ideaMissionTemplates'>
-                    {proposal.missions.map((template: any) => {
-                      const converted = convertedTemplate(proposal, template.mission_id);
-                      return (
-                        <div className='ideaMissionTemplate' key={template.mission_id}>
-                          <div>
-                            <strong>{template.title}</strong>
-                            <small>{template.goal}</small>
-                          </div>
-                          {converted
-                            ? <span className='pill good'>MISIÓN CREADA</span>
-                            : <button className='ghost' disabled={ideaBusy || proposal.status === 'rejected'} onClick={() => void convertIdeaMission(String(proposal.proposal_id), String(template.mission_id))}>Crear misión</button>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </article>
-            ))}
+      <section className='panel meditationToolsPanel'>
+        <div className='meditationToolHeader'>
+          <div>
+            <div className='panelTitle'>IDEAS ANALIZADAS</div>
+            <h3>{ideaProposals.length ? ideaProposals.length + ' ideas guardadas' : 'Sin ideas guardadas'}</h3>
+            <p className='muted'>Son sugerencias creadas a partir de tus ideas. No se ejecutan solas.</p>
+          </div>
+          <button className='ghost' onClick={() => setIdeasOpen(true)}>Ver ideas y crear misión</button>
         </div>
       </section>
-      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
+      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión visible: {displayMission ? displayMission.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
       <OperationalHealthPanel health={operationalHealth} />
       {m
         ? <MeditationLiveExecution mission={m} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => void openMission(String(m.mission_id))} onCancel={() => cancelMission(String(m.mission_id))} />
@@ -2371,38 +2300,35 @@ function Meditation({ session }: { session: Session }) {
 
       <details className='panel collapsiblePanel'>
         <summary><span>BLOQUEADAS</span><b>{(o?.blocked ?? []).length}</b></summary>
-        {(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
-        {!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}
-      </details>
-
-      {(() => {
-        const queue = meditationQueueItems(o, m);
-        const reorderable = queue.filter((item: any, index: number) => index > 0 || !['running','waiting','planning'].includes(String(item?.status)));
-        const moveQueue = async (missionId: string, direction: -1 | 1) => {
-          const queued = queue.filter((item: any) => String(item?.status) === 'queued').map((item: any) => String(item.mission_id));
-          const index = queued.indexOf(String(missionId));
-          if (index < 0) return;
-          const nextIndex = Math.max(0, Math.min(queued.length - 1, index + direction));
-          if (nextIndex === index) return;
-          const next = queued.slice();
-          const [item] = next.splice(index, 1);
-          next.splice(nextIndex, 0, item);
-          setError('');
-          try {
-            await api('/meditation/queue/reorder', session.accessToken, {
-              method: 'POST',
-              body: JSON.stringify({ ordered_mission_ids: next })
-            });
-            await load();
-          } catch (x) {
-            setError(x instanceof Error ? x.message : 'No se pudo reorganizar la cola.');
-          }
-        };
-        return <details className='panel collapsiblePanel' open={false}>
-          <summary><span>EN COLA</span><b>{queue.length}</b></summary>
-          {queue.length ? queue.slice(0, 20).map((r: any, index: number) => (
-            <div className={'queueMissionRow ' + tone(String(r.status))} key={r.mission_id}>
-              <button className='queueMissionMain' onClick={() => void openMission(r.mission_id)} aria-label={'Abrir ' + queueLabel(r,index)}>
+        {(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_t      {displayMission
+        ? <MeditationLiveExecution mission={displayMission} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => void openMission(String(displayMission.mission_id))} onCancel={() => cancelMission(String(displayMission.mission_id))} />
+        : <section className='panel livePanel noActiveMissionPanel'>
+            <div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div>
+            <div className='emptyState'>
+              <strong>No hay una misión activa ni esperando ejecución</strong>
+              <span>Cuando ARIA tenga una misión ejecutándose o esperando su turno, aparecerá aquí con su estado real.</span>
+            </div>
+          </section>}
+      {operationalHealth && ['healthy',''].indexOf(String(operationalHealth.status ?? '').toLowerCase()) < 0 && (
+        <div className='meditationHealthWarning' role='status'>
+          <strong>⚠️ Atención operativa</strong>
+          <span>{String(operationalHealth.next_actions?.[0] || operationalHealth.message || 'ARIA detectó una condición que necesita revisión.')}</span>
+        </div>
+      )}
+      <section className='statePanel'>
+        <div>
+          <div className='panelTitle'>ESTADO DE ARIA</div>
+          <div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div>
+          <div className='muted'>Misión visible: {displayMission ? displayMission.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div>
+        </div>
+        <div className='actions'>
+          <button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button>
+          <button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button>
+          <button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button>
+        </div>
+      </section>
+      {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
+_id)} aria-label={'Abrir ' + queueLabel(r,index)}>
                 <span className={'dot ' + tone(String(r.status))} />
                 <div>
                   <strong>{queueLabel(r, index)}</strong>
@@ -2426,6 +2352,92 @@ function Meditation({ session }: { session: Session }) {
         <summary><span>HISTORIAL</span><b>{(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).length}</b></summary>
         {(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).slice(0, 12).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
       </details>
+      {ideasOpen && (
+        <div className='modalBackdrop' onClick={() => setIdeasOpen(false)}>
+          <section className='detailModal ideaModal' onClick={e => e.stopPropagation()}>
+            <div className='detailTop'>
+              <div>
+                <div className='eyebrow'>MEDITACIÓN IA</div>
+                <h2>Ideas analizadas</h2>
+                <div className='muted'>ARIA analiza una idea, explica qué significa y puede preparar una misión para que tú decidas cuándo crearla.</div>
+              </div>
+              <button className='ghost' onClick={() => setIdeasOpen(false)}>Cerrar</button>
+            </div>
+            <div className='ideaModalComposer'>
+              <textarea className='ideaAnalyzerInput' aria-label='Idea para analizar' value={ideaText} maxLength={4000} onChange={e => setIdeaText(e.target.value)} placeholder='Escribe una nueva idea…' rows={3} />
+              <button className='primary' disabled={ideaBusy || !ideaText.trim()} onClick={() => void analyzeIdea()}>{ideaBusy ? 'ANALIZANDO…' : 'Analizar idea'}</button>
+            </div>
+            {ideaError && <div className='errorBox'>{ideaError}</div>}
+            <div className='ideaModalIntro'>
+              <strong>¿Qué es una idea analizada?</strong>
+              <span>Es una propuesta, no una misión ejecutándose. ARIA estudia tu idea, revisa su viabilidad y prepara posibles misiones. Tú decides si aceptar y crear una.</span>
+            </div>
+            <div className='ideaProposalList'>
+              {!ideaProposals.length
+                ? <div className='emptyState ideaEmpty'>Todavía no hay ideas analizadas.</div>
+                : ideaProposals.slice(0, 20).map((proposal: any) => (
+                  <article className='ideaProposalCard' key={proposal.proposal_id}>
+                    <div className='ideaProposalTop'>
+                      <div>
+                        <div className='eyebrow'>IDEA ANALIZADA</div>
+                        <strong>{proposal.input?.idea || 'Idea sin texto'}</strong>
+                      </div>
+                      <span className={'pill ' + tone(String(proposal.status))}>{ideaStateLabel(proposal.status)}</span>
+                    </div>
+                    <div className='ideaMeaning'>
+                      <b>Qué significa</b>
+                      <span>
+                        {proposal.summary?.human_explanation
+                          || proposal.summary?.explanation
+                          || (proposal.summary?.human_gate_required
+                            ? 'Esta idea necesita una decisión o intervención humana antes de poder ejecutarse.'
+                            : proposal.classification?.viability === 'high'
+                              ? 'ARIA la considera viable y ya preparó posibles misiones.'
+                              : proposal.classification?.viability
+                                ? 'ARIA revisó su viabilidad y dejó el resultado registrado antes de proponer misiones.'
+                                : 'ARIA analizó la idea y dejó registrada una propuesta de trabajo.')}
+                      </span>
+                    </div>
+                    <div className='ideaMetaGrid'>
+                      <span><b>Viabilidad</b>{ideaStateLabel(proposal.classification?.viability)}</span>
+                      <span><b>Estado</b>{ideaStateLabel(proposal.classification?.execution_state)}</span>
+                      <span><b>Misiones</b>{Array.isArray(proposal.missions) ? proposal.missions.length : 0}</span>
+                      <span><b>Human Gate</b>{proposal.summary?.human_gate_required ? 'Sí' : 'No'}</span>
+                    </div>
+                    {(proposal.blockers || []).length > 0 && (
+                      <div className='ideaBlockerBox'>
+                        <b>Qué la bloquea</b>
+                        {(proposal.blockers || []).slice(0, 4).map((b: any, i: number) => <small key={i}>{b?.reason || b?.code || 'Bloqueo detectado'}</small>)}
+                      </div>
+                    )}
+                    {proposal.status === 'proposed' && (
+                      <div className='actions'>
+                        <button className='primary' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'accept')}>Aceptar propuesta</button>
+                        <button className='ghost' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'reject')}>Rechazar</button>
+                      </div>
+                    )}
+                    {['accepted','converted'].includes(String(proposal.status)) && Array.isArray(proposal.missions) && (
+                      <div className='ideaMissionTemplates'>
+                        {proposal.missions.map((template: any) => {
+                          const converted = convertedTemplate(proposal, template.mission_id);
+                          return (
+                            <div className='ideaMissionTemplate' key={template.mission_id}>
+                              <div><strong>{template.title}</strong><small>{template.goal}</small></div>
+                              {converted
+                                ? <span className='pill good'>MISIÓN CREADA</span>
+                                : <button className='ghost' disabled={ideaBusy || proposal.status === 'rejected'} onClick={() => void convertIdeaMission(String(proposal.proposal_id), String(template.mission_id))}>Crear misión</button>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </article>
+                ))}
+            </div>
+          </section>
+        </div>
+      )}
+
       {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} diagnostic={missionDiagnostic} onRetry={() => retryMission(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); setMissionDiagnostic(null); }} />}
       </div>
     </main>
