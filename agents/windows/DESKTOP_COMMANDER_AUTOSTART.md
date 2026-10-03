@@ -15,7 +15,7 @@ The existing ARIA Windows Local Agent already runs as an interactive Scheduled T
 - Desktop Commander package: pinned to @wonderwhy-er/desktop-commander@0.2.52
 - Command: npx --yes @wonderwhy-er/desktop-commander@0.2.52 remote
 
-The bootstrap installs Desktop Commander once into a dedicated runtime/cache on D:. The supervisor never invokes `npx` for normal operation.
+The bootstrap installs Desktop Commander once into a dedicated runtime/cache on D:. The supervisor never invokes `npx` for normal operation. It also starts Node with IPv4-first DNS ordering and disables Node's network-family autoselection because the target Windows network can expose an unreachable IPv6 route.
 
 The supervisor:
 
