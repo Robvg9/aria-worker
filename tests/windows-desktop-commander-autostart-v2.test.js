@@ -45,6 +45,12 @@ test('Supervisor prevents duplicate instances with a named mutex', () => {
   assert.ok(supervisor.includes("$created = $false"));
   assert.ok(supervisor.includes("if (-not $created) { exit 0 }"));
 });
+test('Watchdog uses supervisor PID as a single-flight guard', () => {
+  assert.match(runAgent, /DesktopCommanderSupervisorPidPath/);
+  assert.match(runAgent, /Test-DesktopCommanderSupervisorPid/);
+  assert.match(runAgent, /PID file is the primary single-flight guard/);
+  assert.match(runAgent, /Remove-Item -Path \$DesktopCommanderSupervisorPidPath/);
+});
 
 
 test('Installer preserves canonical device identity and does not reuse legacy id', () => {
