@@ -27,9 +27,16 @@ test('DC supervisor avoids duplicate instances', () => {
   assert.match(supervisor, /Global\\ARIA-DesktopCommander-Remote-Supervisor-v1/);
 });
 
+test('supervisor waits for remote MCP before starting DC', () => {
+  assert.ok(supervisor.includes("Test-RemotePrerequisites"));
+  assert.ok(supervisor.includes("waiting_for_network"));
+  assert.ok(supervisor.includes("https://mcp.desktopcommander.app/api/mcp-info"));
+});
+
 test('installer registers an interactive logon task with automatic restart', () => {
   assert.match(installer, /ARIA-Desktop-Commander-Remote/);
   assert.match(installer, /<LogonTrigger>/);
+  assert.match(installer, /<Delay>PT30S<\\/Delay>/);
   assert.match(installer, /<LogonType>InteractiveToken<\/LogonType>/);
   assert.match(installer, /<RestartOnFailure>/);
   assert.match(installer, /<ExecutionTimeLimit>PT0S<\/ExecutionTimeLimit>/);
