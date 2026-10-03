@@ -37,18 +37,25 @@ function Write-Status([hashtable]$Fields) {
 }
 
 function Resolve-DesktopCommander {
-    $node = Get-Command node.exe -ErrorAction SilentlyContinue
-    if (-not $node) {
-        $candidate = 'D:\Databank\node.exe'
-        if (Test-Path $candidate) { $node = Get-Command $candidate -ErrorAction Stop }
-        else { throw 'node.exe no encontrado. Desktop Commander Remote no puede arrancar.' }
+    $candidates = @(
+        'D:\Databank\node.exe',
+        'D:\Databank\node\node.exe'
+    )
+
+    $nodePath = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $nodePath) {
+        $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+        if ($nodeCommand) { $nodePath = $nodeCommand.Source }
+    }
+    if (-not $nodePath) {
+        throw 'node.exe no encontrado. Desktop Commander Remote no puede arrancar.'
     }
 
     $toolRoot = Join-Path $RuntimeRoot 'Tools\DesktopCommanderRemote'
     $entry = Join-Path $toolRoot 'node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
     if (-not (Test-Path $entry)) { throw "Desktop Commander persistent install missing: $entry" }
 
-    return @{ node = $node.Source; entry = $entry; tool_root = $toolRoot }
+    return @{ node = $nodePath; entry = $entry; tool_root = $toolRoot }
 }
 
 function Get-TrackedProcess {
