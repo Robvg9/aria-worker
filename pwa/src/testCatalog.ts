@@ -155,6 +155,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones responsive, overflow, controles pequeños, navegación móvil, teclado y layout."
   },
   {
+    "id": "pwa-command-center-ux",
+    "file": "tests/pwa-command-center-ux.test.js",
+    "title": "PWA Command Center UX",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba que Meditación IA muestre la misión que está en ejecución o esperando ejecución, que las ideas analizadas estén en una ventana separada y que Inicio permanezca reducido a lo esencial.",
+    "capabilities": "Detecta regresiones de visibilidad de misión, exceso de contenido en Inicio, ideas analizadas ocupando espacio permanente y paneles operativos sin utilidad visible."
+  },
+  {
     "id": "account-manager",
     "file": "tests/account-manager.test.js",
     "title": "Account Manager",

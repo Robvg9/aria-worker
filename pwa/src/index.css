@@ -534,3 +534,45 @@ button{touch-action:manipulation;}
 }
 .objectiveStatusBanner strong { font-size: .95rem; }
 .objectiveStatusBanner span { opacity: .78; line-height: 1.4; }
+
+/* ARIA command-center UX cleanup */
+.homeEssential{height:100%;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:12px 2px 22px;overflow:hidden}
+.homeBrand{display:flex;align-items:center;gap:14px;padding:2px 4px}
+.homeBrand h2{font-size:clamp(25px,5vw,38px);margin:4px 0}
+.homeBrand p{margin:0;color:var(--muted);line-height:1.45;max-width:700px}
+.homeMissionCard{padding:18px}
+.homeMissionCard h3{margin:5px 0 4px;font-size:20px}
+.wideHomeAction{width:100%;margin-top:12px}
+.homeQuickActions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.homeQuickActions button{min-height:44px}
+.homeOperationalWarning,.meditationHealthWarning{display:flex;gap:9px;align-items:center;padding:11px 13px;border:1px solid rgba(255,120,149,.28);border-radius:15px;background:rgba(255,120,149,.07);color:#ffd7df;font-size:12px;line-height:1.4}
+.homeOperationalWarning strong,.meditationHealthWarning strong{white-space:nowrap}
+.meditationToolsPanel{padding:13px 14px}
+.meditationToolHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.meditationToolHeader h3{margin:3px 0 2px;font-size:17px}
+.meditationToolHeader p{margin:0;max-width:640px}
+.meditationToolHeader button{flex:0 0 auto}
+.ideaModal{width:min(820px,100%);max-height:90vh}
+.ideaModalComposer{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:14px;align-items:end}
+.ideaModalComposer .ideaAnalyzerInput{margin:0;min-height:78px}
+.ideaModalComposer .primary{min-height:78px}
+.ideaModalIntro{display:flex;flex-direction:column;gap:4px;margin-top:12px;padding:11px 12px;border:1px solid rgba(97,217,255,.14);border-radius:14px;background:rgba(97,217,255,.04);font-size:11px;line-height:1.45;color:var(--muted)}
+.ideaModalIntro strong{color:var(--text);font-size:12px}
+.ideaMeaning{display:grid;gap:4px;margin-top:11px;padding:10px 11px;border-radius:13px;background:rgba(159,124,255,.06);border:1px solid rgba(159,124,255,.12);font-size:11px;line-height:1.45}
+.ideaMeaning b{color:var(--text)}
+.ideaMeaning span{color:var(--muted)}
+@media(max-width:700px){
+  .homeEssential{justify-content:flex-start;padding-top:6px}
+  .homeBrand{align-items:flex-start}
+  .homeQuickActions{grid-template-columns:1fr}
+  .homeQuickActions button{width:100%}
+  .homeOperationalWarning,.meditationHealthWarning{align-items:flex-start;flex-direction:column}
+  .homeOperationalWarning strong,.meditationHealthWarning strong{white-space:normal}
+  .meditationToolHeader{align-items:flex-start;flex-direction:column}
+  .meditationToolHeader button{width:100%}
+  .ideaModalComposer{grid-template-columns:1fr}
+  .ideaModalComposer .primary{min-height:44px;width:100%}
+}
+.meditationMoreDetails{margin-top:2px}
+.meditationMoreDetails>summary{display:flex;align-items:center;justify-content:space-between}
+.meditationSecondary{display:grid;gap:12px;margin-top:12px}
