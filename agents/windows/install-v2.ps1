@@ -17,9 +17,35 @@ $DesktopCommanderEntry = Join-Path $DesktopCommanderPackage 'dist\index.js'
 $DesktopCommanderVersion = '0.2.52'
 
 $TaskName = 'ARIA-Windows-Local-Agent'
-$NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
-$DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+
+# Prefer the known fixed Node installations used by ARIA on Windows. Fall back to PATH only if needed.
+$NodeCandidates = @(
+    'D:\Databank\node.exe',
+    'D:\Databank\node\node.exe'
+)
+$NodePath = $NodeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $NodePath) {
+    $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    if ($nodeCommand) { $NodePath = $nodeCommand.Source }
+}
+if (-not $NodePath) { throw 'Node.js not found. Expected D:\Databank\node.exe or D:\Databank\node\node.exe, or node on PATH.' }
+
+# Never overwrite a previously provisioned canonical device id with a legacy hard-coded id.
+$ExistingDeviceId = $null
+if (Test-Path $ConfigPath) {
+    try {
+        $existingConfig = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
+        $ExistingDeviceId = [string]$existingConfig.device_id
+    } catch {}
+}
+$DeviceId = if (-not [string]::IsNullOrWhiteSpace($env:ARIA_DEVICE_ID)) {
+    [string]$env:ARIA_DEVICE_ID
+} elseif (-not [string]::IsNullOrWhiteSpace($ExistingDeviceId)) {
+    $ExistingDeviceId
+} else {
+    throw 'ARIA_DEVICE_ID is required on first installation; refusing to invent or reuse a legacy device id.'
+}
 
 foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir, $DesktopCommanderRoot, $DesktopCommanderCache)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
@@ -143,7 +169,7 @@ $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Author>$taskUser</Author><Description>ARIA Windows Local Agent</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$taskUser</UserId></LogonTrigger></Triggers>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$taskUser</UserId><Delay>PT30S</Delay></LogonTrigger></Triggers>
   <Principals><Principal id="Author"><UserId>$taskUser</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
