@@ -12,6 +12,10 @@ on:
       - 'supabase/migrations/*meditation*'
   workflow_dispatch:
 
+concurrency:
+  group: aria-authenticated-pwa-rwht
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

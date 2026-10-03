@@ -6,7 +6,11 @@ const gatewaySource=fs.readFileSync(path.join(__dirname,'..','supabase','functio
 const supervisorSource=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-autonomy-supervisor-v10','index.ts'),'utf8');
 const supervisorV5Source=fs.readFileSync(path.join(__dirname,'..','supabase','functions','aria-autonomy-supervisor-v5','index.ts'),'utf8');
 const queueMigrationSource=fs.readFileSync(path.join(__dirname,'..','supabase','migrations','20261001080000_canonical_meditation_queue_state_machine_v1.sql'),'utf8');
+const meditationPwaE2E=fs.readFileSync(path.join(__dirname,'..','rwht','pc-browser','rwht-meditation-pwa-e2e.mjs'),'utf8');
 const priorityMigrationSource=fs.readFileSync(path.join(__dirname,'..','supabase','migrations','20261001090000_meditation_queue_priority_and_supervisor_decoupling_v1.sql'),'utf8');
+assert(meditationPwaE2E.includes("Math.min(1, Number(process.env.RWHT_AUTH_ATTEMPTS || 1))"),'Meditation PWA E2E must use one governed Auth attempt');
+assert(meditationPwaE2E.includes("authenticated_session_not_persisted"),'Meditation PWA E2E auth proof must use persisted session state');
+assert(meditationPwaE2E.includes("const persisted = await readSession(page)"),'Meditation PWA E2E must verify persisted session independently of diagnostics health');
 assert(supervisorV5Source.includes('waitUntil'),'Autonomy supervisor v5 must not couple response latency to long-running subsystems');
 assert(supervisorV5Source.includes('Promise.allSettled'),'Autonomy supervisor v5 must dispatch independent subsystems concurrently');
 assert(supervisorV5Source.includes('/v1/meditation/tick-service'),'Autonomy supervisor v5 must dispatch Meditation independently');
