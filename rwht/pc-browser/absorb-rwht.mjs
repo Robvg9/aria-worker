@@ -19,28 +19,24 @@ async function ensureBrowserSession() {
   const password = process.env.RWHT_PASSWORD || '';
   if (!email || !password) throw new Error('authenticated_session_missing');
 
-  const authResponse = await context.request.post(SUPABASE_AUTH, {
-    headers: { 'content-type': 'application/json', apikey: ANON },
-    data: { email: email.trim(), password }
-  });
-  const payload = await authResponse.json().catch(() => ({}));
-  if (!authResponse.ok() || !payload?.access_token || !payload?.refresh_token || !payload?.user?.id) {
-    throw new Error('auth_api_failed:http_' + authResponse.status() + ':' + String(payload?.error_description || payload?.msg || payload?.error || 'unknown'));
-  }
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await page.goto(base + '/', { waitUntil:'domcontentloaded', timeout:60000 }).catch(() => {});
+    if (await page.locator('.appShell').isVisible().catch(() => false)) return;
 
-  const session = {
-    accessToken: payload.access_token,
-    refreshToken: payload.refresh_token,
-    userId: payload.user.id,
-    expiresAt: Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000,
-    email: payload.user.email
-  };
-  await page.goto(base + '/', { waitUntil:'domcontentloaded', timeout:60000 });
-  await page.evaluate((session) => {
-    localStorage.setItem('aria_session_v2', JSON.stringify(session));
-  }, session);
-  await page.reload({ waitUntil:'domcontentloaded', timeout:60000 });
-  await page.waitForSelector('.appShell', { state:'visible', timeout:30000 });
+    await page.getByLabel('Correo').first().waitFor({ state:'visible', timeout:30000 });
+    await page.getByLabel('Correo').first().fill(email.trim());
+    await page.getByLabel('Contraseña').first().fill(password);
+    await page.getByRole('button', { name:'ENTRAR EN ARIA' }).click();
+
+    try {
+      await page.waitForSelector('.appShell', { state:'visible', timeout:50000 });
+      return;
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await page.waitForTimeout(5000);
+    }
+  }
+  throw new Error('authenticated_session_unavailable');
 }
 
 await ensureBrowserSession();
