@@ -131,6 +131,15 @@ try {
         Fail 'OmniRoute did not reach /api/health = 200.'
     }
 
+    Write-Host 'HEALTH=PASS'
+    Write-Host 'STOP=1'
+    & taskkill.exe /PID $Server.Id /T /F | Out-Null
+    Start-Sleep -Seconds 2
+
+    if (Get-Process -Id $Server.Id -ErrorAction SilentlyContinue) {
+        Fail "OmniRoute process tree did not stop cleanly (PID $($Server.Id))."
+    }
+
     $Capture = [ordered]@{
         schema = 'aria.absorb.omniroute.phase3.capture.v1'
         status = 'PASS_SANDBOX_EXECUTION'
@@ -147,19 +156,11 @@ try {
         port = 20128
         health_url = 'http://127.0.0.1:20128/api/health'
         health_status = 200
+        stop_status = 'PASS'
         arias_canonical_runtime_touched = $false
         captured_at_utc = (Get-Date).ToUniversalTime().ToString('o')
     }
     $Capture | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -Path $CapturePath
-
-    Write-Host 'HEALTH=PASS'
-    Write-Host 'STOP=1'
-    & taskkill.exe /PID $Server.Id /T /F | Out-Null
-    Start-Sleep -Seconds 2
-
-    if (Get-Process -Id $Server.Id -ErrorAction SilentlyContinue) {
-        Fail "OmniRoute process tree did not stop cleanly (PID $($Server.Id))."
-    }
 
     if ($Cleanup) {
         Remove-Item -Recurse -Force $SourceDir, $ExtractRoot -ErrorAction SilentlyContinue
@@ -170,5 +171,8 @@ try {
     Write-Host "CAPTURE=$CapturePath"
 }
 finally {
+    if ($Server -and -not $Server.HasExited) {
+        & taskkill.exe /PID $Server.Id /T /F | Out-Null
+    }
     Pop-Location
 }
