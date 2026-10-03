@@ -2225,6 +2225,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta problemas de accesibilidad, bridge, Termux, ejecución física y transporte en dispositivos."
   },
   {
+    "id": "windows-desktop-commander-autostart-v2",
+    "file": "tests/windows-desktop-commander-autostart-v2.test.js",
+    "title": "Windows Desktop Commander Autostart V2",
+    "category": "Windows / runtime / autostart",
+    "includedInNpmTest": false,
+    "how": "Comprueba el contrato del supervisor de Desktop Commander, runtime fijo, identidad del dispositivo, anti-duplicados y arranque al iniciar sesión.",
+    "capabilities": "Detecta regresiones de autostart, supervisor, runtime DC, Node fijo, device identity y bootstrap de Windows."
+  },
+  {
     "id": "windows-shell-executor",
     "file": "tests/windows-shell-executor.test.js",
     "title": "Windows Shell Executor",
