@@ -573,3 +573,6 @@ button{touch-action:manipulation;}
   .ideaModalComposer{grid-template-columns:1fr}
   .ideaModalComposer .primary{min-height:44px;width:100%}
 }
+.meditationMoreDetails{margin-top:2px}
+.meditationMoreDetails>summary{display:flex;align-items:center;justify-content:space-between}
+.meditationSecondary{display:grid;gap:12px;margin-top:12px}
