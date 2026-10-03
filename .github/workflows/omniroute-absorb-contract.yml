@@ -1,0 +1,29 @@
+name: ARIA ABSORB OmniRoute Contract Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'absorb/omniroute/**'
+      - 'tests/omniroute-absorb-contract.test.js'
+      - '.github/workflows/omniroute-absorb-contract.yml'
+  push:
+    branches:
+      - 'absorb/omniroute-v1-certification-20261003'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: OmniRoute ABSORB Phase 1-2 contract
+        run: node tests/omniroute-absorb-contract.test.js
