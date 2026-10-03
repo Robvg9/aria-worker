@@ -93,7 +93,7 @@ testCase('phase 4 standalone contract stays after phase 3', () => {
   assert.ok(phase4Contract.includes('/api/health'));
   assert.ok(phase4Contract.includes('/api/health/ping'));
   assert.ok(phase4Contract.includes('/v1/models'));
-  assert.ok(phase4Contract.includes('non-streaming chat completion'));
+  assert.ok(phase4Contract.includes('Non-streaming chat completion'));
   assert.ok(phase4Contract.includes('Streaming chat completion'));
   assert.ok(phase4Contract.includes('restart/persistence'));
   assert.ok(phase4Contract.includes('Phase 4 — STANDALONE SMOKE = PREPARED / NOT CERTIFIED.'));
