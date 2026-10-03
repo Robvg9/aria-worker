@@ -26,8 +26,12 @@ test('Desktop Commander runtime is pinned and installed on D:', () => {
   assert.match(installer, /Node\.js not found/);
 });
 
-test('Supervisor launches fixed runtime directly with network-family workaround', () => {
+test('Supervisor resolves Node from canonical config path with fixed D: fallbacks', () => {
+  assert.match(supervisor, /config\.json/);
+  assert.match(supervisor, /ConfiguredNodePath/);
   assert.match(supervisor, /D:\\Databank\\node\.exe/);
+  assert.match(supervisor, /D:\\Databank\\node\\node\.exe/);
+  assert.match(supervisor, /NodePath = \$NodeCandidates \| Where-Object \{ Test-Path \$_ \}/);
   assert.match(supervisor, /desktop-commander\\dist\\index\.js/);
   assert.match(supervisor, /--dns-result-order=ipv4first/);
   assert.match(supervisor, /--no-network-family-autoselection/);
@@ -59,7 +63,6 @@ test('Watchdog uses supervisor PID as a single-flight guard', () => {
   assert.match(runAgent, /IndexOf\('desktop-commander-supervisor\.ps1',\[System\.StringComparison\]::OrdinalIgnoreCase\)/);
   assert.doesNotMatch(runAgent, /desktop-commander-supervisor\\\\\.ps1/);
 });
-
 
 test('Installer preserves canonical device identity and does not reuse legacy id', () => {
   assert.match(installer, /ARIA_DEVICE_ID/);
