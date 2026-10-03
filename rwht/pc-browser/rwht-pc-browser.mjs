@@ -623,14 +623,16 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_discovered: initialControls.length,
     controls_testable: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
-      return control.visible && !control.disabled && !dynamicMission;
+      const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
+      return control.visible && !control.disabled && !dynamicMission && !dynamicQueueOpen;
     }).length,
     controls_verified: 0,
     controls_blocked: 0,
     controls_failed: 0,
     controls_skipped: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
-      return !control.visible || control.disabled || dynamicMission;
+      const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
+      return !control.visible || control.disabled || dynamicMission || dynamicQueueOpen;
     }).length,
     ux,
     login,
@@ -676,7 +678,8 @@ async function auditRoute(page, url, routeIndex, config) {
     const originalLabel = safeLabel(original.name);
     const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
     const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
-    if (dynamicMissionSnapshot) {
+    const dynamicQueueSnapshot = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(originalLabel);
+    if (dynamicMissionSnapshot || dynamicQueueSnapshot) {
       routeResult.actions.push({
         control: original,
         outcome: 'skipped',
