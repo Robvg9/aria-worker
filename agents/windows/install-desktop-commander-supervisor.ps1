@@ -17,8 +17,12 @@ if (-not (Test-Path $SupervisorSource)) {
     throw "Desktop Commander supervisor not found: $SupervisorSource"
 }
 
-$nodePath = 'D:\Databank\node.exe'
-if (-not (Test-Path $nodePath)) {
+$nodeCandidates = @(
+    'D:\Databank\node.exe',
+    'D:\Databank\node\node.exe'
+)
+$nodePath = $nodeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $nodePath) {
     $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
     if (-not $nodeCommand) { throw 'node.exe no encontrado. Instala Node.js antes del bootstrap.' }
     $nodePath = $nodeCommand.Source
@@ -36,7 +40,18 @@ if (-not (Test-Path $dcEntry)) {
     $previousCache = $env:NPM_CONFIG_CACHE
     $env:NPM_CONFIG_CACHE = $toolCache
     try {
-        & (Join-Path (Split-Path $nodePath) 'npm.cmd') install --prefix $toolRoot --no-save "@wonderwhy-er/desktop-commander@0.2.52"
+        $npmCandidates = @(
+            (Join-Path (Split-Path $nodePath) 'npm.cmd'),
+            'D:\Databank\npm.cmd'
+        )
+        $npmPath = $npmCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $npmPath) {
+            $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+            if ($npmCommand) { $npmPath = $npmCommand.Source }
+        }
+        if (-not $npmPath) { throw 'npm.cmd no encontrado para instalar Desktop Commander.' }
+
+        & $npmPath install --prefix $toolRoot --no-save "@wonderwhy-er/desktop-commander@0.2.52"
         if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE" }
     }
     finally {
