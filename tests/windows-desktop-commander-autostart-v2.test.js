@@ -50,6 +50,8 @@ test('Watchdog uses supervisor PID as a single-flight guard', () => {
   assert.match(runAgent, /Test-DesktopCommanderSupervisorPid/);
   assert.match(runAgent, /PID file is the primary single-flight guard/);
   assert.match(runAgent, /Remove-Item -Path \$DesktopCommanderSupervisorPidPath/);
+  assert.match(runAgent, /IndexOf\('desktop-commander-supervisor\.ps1',\[System\.StringComparison\]::OrdinalIgnoreCase\)/);
+  assert.doesNotMatch(runAgent, /desktop-commander-supervisor\\\\\.ps1/);
 });
 
 
