@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "mission-execution-observation-watchdog",
+    "file": "tests/mission-execution-observation-watchdog.test.js",
+    "title": "Mission Execution Observation Watchdog",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que una misión activa exponga si ya existe evidencia de ejecución o si permanece sin ejecución observable más allá de la ventana inicial.",
+    "capabilities": "Detecta misiones queued/planning/running sin plan, paso activo o resultados, evitando ocultar el estado real del dispatcher y executor."
+  },
+  {
     "id": "phase6-anti-regression",
     "file": "tests/phase6-anti-regression.test.js",
     "title": "Phase 6 Anti-Regresión Final",

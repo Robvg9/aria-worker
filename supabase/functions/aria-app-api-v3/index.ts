@@ -503,6 +503,55 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   throw error;
 }
 
+const EXECUTION_OBSERVATION_GRACE_MS = 90_000;
+
+function executionObservation(m:any) {
+  const status=String(m?.status||"");
+  if(!["queued","planning","running"].includes(status)) {
+    return { status: "not_applicable", observed: false, reason: "mission_not_in_execution_window" };
+  }
+  const created=Date.parse(String(m?.created_at||m?.updated_at||""));
+  const age_ms=Number.isFinite(created) ? Math.max(0,Date.now()-created) : 0;
+  const plan=Array.isArray(m?.checkpoint?.plan) ? m.checkpoint.plan : [];
+  const results=m?.checkpoint?.results && typeof m.checkpoint.results==="object" ? m.checkpoint.results : {};
+  const activeStep=m?.checkpoint?.active_step && typeof m.checkpoint.active_step==="object" ? m.checkpoint.active_step : null;
+  const completed=Number(m?.completed_steps||0);
+  const hasStepEvidence=Object.keys(results).length>0 || Boolean(activeStep) || completed>0;
+  if(hasStepEvidence) {
+    return {
+      status: "execution_observed",
+      observed: true,
+      age_ms,
+      plan_steps: plan.length,
+      completed_steps: completed,
+      active_step_id: activeStep?.step_id ?? null
+    };
+  }
+  if(age_ms < EXECUTION_OBSERVATION_GRACE_MS) {
+    return {
+      status: "awaiting_execution_observation",
+      observed: false,
+      age_ms,
+      grace_ms: EXECUTION_OBSERVATION_GRACE_MS,
+      reason: "mission_is_within_initial_execution_observation_window",
+      plan_steps: plan.length,
+      completed_steps: completed
+    };
+  }
+  return {
+    status: "NO_EXECUTION_OBSERVED",
+    observed: false,
+    age_ms,
+    grace_ms: EXECUTION_OBSERVATION_GRACE_MS,
+    reason: status==="queued"
+      ? "mission_remains_queued_without_plan_or_step_execution_evidence"
+      : status==="planning"
+        ? "mission_remains_planning_without_step_execution_evidence"
+        : "mission_is_running_without_step_results_or_active_step_evidence",
+    next_action: "inspect canonical runner dispatch, claim, planner and execution evidence before retrying"
+  };
+}
+
 function missionPhase(m:any) {
   const status=String(m?.status||"");
   const done=Number(m?.completed_steps||0);
@@ -528,8 +577,10 @@ async function enrichMission(m:any, sb:any, includeEta=true) {
   const eta=includeEta ? await etaFor(sb,steps) : {eta_seconds:null,basis:"overview_fast",samples:0};
   const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
   const queuePriority = Number(md.queue_priority);
+  const execution_observation = executionObservation(m);
   return {
     ...m,
+    execution_observation,
     project_id: md.project_id ?? null,
     project_name: md.project_name ?? null,
     queue_priority: Number.isFinite(queuePriority) ? queuePriority : 0,
