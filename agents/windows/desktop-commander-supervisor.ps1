@@ -9,7 +9,24 @@ $ToolRoot = Join-Path $RuntimeRoot 'Tools\DesktopCommanderRemote'
 $LogDir = Join-Path $RuntimeRoot 'Logs'
 $LogPath = Join-Path $LogDir 'desktop-commander-supervisor.log'
 $StatusPath = Join-Path $LogDir 'desktop-commander-supervisor.json'
-$NodePath = 'D:\Databank\node.exe'
+$ConfigPath = Join-Path $RuntimeRoot 'Data\config.json'
+$NodeCandidates = @(
+    'D:\Databank\node.exe',
+    'D:\Databank\node\node.exe'
+)
+$ConfiguredNodePath = $null
+if (Test-Path $ConfigPath) {
+    try {
+        $cfg = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
+        $ConfiguredNodePath = [string]$cfg.node_path
+    } catch {}
+}
+$NodeCandidates = @($ConfiguredNodePath) + $NodeCandidates |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Select-Object -Unique
+$NodePath = $NodeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $NodePath) { $NodePath = $NodeCandidates[0] }
+
 $DcEntry = Join-Path $ToolRoot 'node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
 $DcVersion = '0.2.52'
 $MutexName = 'Global\ARIA-DesktopCommander-Supervisor-v2'
@@ -43,7 +60,7 @@ function Find-DesktopCommander {
             $cmd = [string]$proc.CommandLine
             if ($cmd -match '(?i)desktop-commander' -and $cmd -match '(?i)remote') { return [int]$proc.ProcessId }
         }
-    } catch { Write-Log "PROCESS_SCAN_ERROR $($_.Exception.Message)" }
+    } catch { Write-Log "PROCESS_SCAN_ERROR $(($_.Exception).Message)" }
     return 0
 }
 
@@ -53,13 +70,13 @@ function Start-DesktopCommander {
     $env:NODE_OPTIONS = '--dns-result-order=ipv4first --no-network-family-autoselection'
     $stdout = Join-Path $LogDir 'desktop-commander.stdout.log'
     $stderr = Join-Path $LogDir 'desktop-commander.stderr.log'
-    Write-Log "START_REQUEST version=$DcVersion entry=$DcEntry"
+    Write-Log "START_REQUEST version=$DcVersion node=$NodePath entry=$DcEntry"
     $p = Start-Process -FilePath $NodePath -ArgumentList @($DcEntry,'remote') -WorkingDirectory $ToolRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     Write-Log "STARTED pid=$($p.Id)"
     Write-Status 'starting' $p.Id
 }
 
-Write-Log "SUPERVISOR_START version=$DcVersion user=$env:USERNAME computer=$env:COMPUTERNAME"
+Write-Log "SUPERVISOR_START version=$DcVersion user=$env:USERNAME computer=$env:COMPUTERNAME node=$NodePath"
 Write-Status 'supervisor_alive'
 
 while ($true) {
@@ -90,7 +107,7 @@ while ($true) {
         Start-Sleep -Seconds 30
     }
     catch {
-        Write-Log "SUPERVISOR_ERROR $($_.Exception.Message)"
+        Write-Log "SUPERVISOR_ERROR $(($_.Exception).Message)"
         Write-Status 'error' 0 $_.Exception.Message
         Start-Sleep -Seconds 30
     }
