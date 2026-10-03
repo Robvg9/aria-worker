@@ -59,7 +59,7 @@ function Find-DesktopCommanderSupervisor {
         $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
         foreach ($proc in $procs) {
             $cmd = [string]$proc.CommandLine
-            if ($cmd -match '(?i)desktop-commander-supervisor\.ps1') {
+            if ($cmd.IndexOf('desktop-commander-supervisor.ps1',[System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
                 return [int]$proc.ProcessId
             }
         }
@@ -75,7 +75,7 @@ function Test-DesktopCommanderSupervisorPid([int]$CandidatePid) {
         $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$CandidatePid" -ErrorAction Stop
         if (-not $proc) { return 0 }
         $cmd = [string]$proc.CommandLine
-        if ($cmd -match '(?i)desktop-commander-supervisor\\.ps1') { return $CandidatePid }
+        if ($cmd.IndexOf('desktop-commander-supervisor.ps1',[System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $CandidatePid }
     } catch {}
     return 0
 }
