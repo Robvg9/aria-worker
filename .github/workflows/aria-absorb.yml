@@ -108,6 +108,7 @@ jobs:
           else
             evidence_line="rwht/pc-browser/absorb-artifacts/absorb-live-e2e.json not produced"
           fi
+          body="$(jq -n --arg status "$JOB_STATUS" --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" --arg workflow "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --arg evidence "$evidence_line" '{body:("## ARIA ABSORB production E2E\n\nStatus: **"+$status+"**\nCommit: `"+$commit+"`\nRun: "+$workflow+"\nEvidence: "+$evidence)}')"
           curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
