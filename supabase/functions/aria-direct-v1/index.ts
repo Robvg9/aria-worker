@@ -68,7 +68,7 @@ async function resolveMeditationDevice(metadata: Record<string, unknown>) {
 
 async function kickCanonicalRunner(missionId: string, reason: string) {
   try {
-    const { data, error } = await sb.rpc("run_mission_runner_tick_v1");
+    const { data, error } = await sb.rpc("runner_tick_for_mission");
     if (error) {
       return {
         status: "kick_failed",
@@ -233,7 +233,7 @@ Deno.serve(async (request) => {
 
       dispatch = {
         status: "scheduled",
-        authority: "aria_internal.run_mission_runner_tick_v1",
+        authority: "aria_internal.runner_tick_for_mission",
         reason: "user_mission_immediate_dispatch",
         mission_id: missionIdOut,
         queue_status: queue.status,
@@ -246,7 +246,7 @@ Deno.serve(async (request) => {
       };
       dispatch = {
         status: "scheduled",
-        authority: "aria_internal.run_mission_runner_tick_v1",
+        authority: "aria_internal.runner_tick_for_mission",
         reason: "user_mission_immediate_dispatch_after_queue_error",
         mission_id: missionIdOut,
         queue_status: queue.status,
