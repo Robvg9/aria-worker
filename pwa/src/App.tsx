@@ -1320,7 +1320,6 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
-  const [ideasOpen, setIdeasOpen] = useState(false);
   const [ideaText, setIdeaText] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [ideaError, setIdeaError] = useState('');
@@ -2036,6 +2035,7 @@ function Meditation({ session }: { session: Session }) {
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [ideaError, setIdeaError] = useState('');
   const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
+  const [ideasOpen, setIdeasOpen] = useState(false);
 
 
   async function loadIdeas() {
