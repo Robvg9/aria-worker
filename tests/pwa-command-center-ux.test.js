@@ -11,6 +11,8 @@ assert.match(app,/const displayMission = m \?\? nextQueuedMission/);
 assert.match(app,/MeditationLiveExecution mission=\{displayMission\}/);
 assert.match(app,/IDEAS ANALIZADAS/);
 assert.match(app,/Ver ideas y crear misión/);
+assert.match(app,/ANALIZAR Y PROPONER/);
+assert.match(app,/NO AUTOENCOLADA/);
 assert.match(app,/ideasOpen &&/);
 assert.match(app,/¿Qué es una idea analizada\?/);
 assert.match(app,/Crear misión/);
