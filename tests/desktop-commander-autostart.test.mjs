@@ -34,12 +34,12 @@ test('supervisor waits for remote MCP before starting DC', () => {
 });
 
 test('installer registers an interactive logon task with automatic restart', () => {
-  assert.match(installer, /ARIA-Desktop-Commander-Remote/);
-  assert.match(installer, /<LogonTrigger>/);
-  assert.match(installer, /<Delay>PT30S<\\/Delay>/);
-  assert.match(installer, /<LogonType>InteractiveToken<\/LogonType>/);
-  assert.match(installer, /<RestartOnFailure>/);
-  assert.match(installer, /<ExecutionTimeLimit>PT0S<\/ExecutionTimeLimit>/);
+  assert.ok(installer.includes('ARIA-Desktop-Commander-Remote'));
+  assert.ok(installer.includes('<LogonTrigger>'));
+  assert.ok(installer.includes('<Delay>PT30S</Delay>'));
+  assert.ok(installer.includes('<LogonType>InteractiveToken</LogonType>'));
+  assert.ok(installer.includes('<RestartOnFailure>'));
+  assert.ok(installer.includes('<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>'));
 });
 
 test('documentation defines the live close gate', () => {
