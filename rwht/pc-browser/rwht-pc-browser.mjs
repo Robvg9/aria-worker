@@ -663,6 +663,14 @@ async function auditRoute(page, url, routeIndex, config) {
     await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
     await page.waitForTimeout(Math.min(config.settle_ms, 1500));
 
+    if (routeHash === '#capabilities') {
+      const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
+      if (await summaryTab.count().catch(() => 0) && await summaryTab.isVisible().catch(() => false)) {
+        await summaryTab.click({ timeout: config.action_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 800));
+      }
+    }
+
     const controlsNow = await discoverInteractive(page);
     const original = initialControls[index];
     const originalLabel = safeLabel(original.name);
@@ -673,7 +681,7 @@ async function auditRoute(page, url, routeIndex, config) {
         control: original,
         outcome: 'skipped',
         action: 'click',
-        reason: 'dynamic_mission_snapshot',
+        reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
         certification: 'server_backed_dynamic_content'
       });
       routeResult.controls_skipped += 1;
