@@ -985,11 +985,17 @@ function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
   const [message, setMessage] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
 
-  async function load() {
+  async function load(attempt = 1) {
     try {
       const d: any = await api('/absorb', token);
-      setRecords(Array.isArray(d?.absorptions) ? d.absorptions : []);
-    } catch {}
+      const rows = Array.isArray(d?.absorptions) ? d.absorptions : [];
+      setRecords(rows);
+      setSelected((current) => current && rows.some((x:any) => x.absorption_id === current) ? current : (rows[0]?.absorption_id ?? null));
+    } catch {
+      if (attempt < 4) {
+        window.setTimeout(() => { void load(attempt + 1); }, attempt * 2500);
+      }
+    }
   }
 
   useEffect(() => { void load(); }, [token]);
