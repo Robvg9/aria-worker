@@ -29,6 +29,7 @@ if (-not $NodePath) { $NodePath = $NodeCandidates[0] }
 
 $DcEntry = Join-Path $ToolRoot 'node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
 $DcVersion = '0.2.52'
+$McpServerUrl = 'https://mcp.desktopcommander.app'
 $MutexName = 'Global\ARIA-DesktopCommander-Supervisor-v2'
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -68,6 +69,7 @@ function Start-DesktopCommander {
     if (-not (Test-Path $NodePath)) { throw "NODE_NOT_FOUND:$NodePath" }
     if (-not (Test-Path $DcEntry)) { throw "DC_RUNTIME_NOT_FOUND:$DcEntry" }
     $env:NODE_OPTIONS = '--dns-result-order=ipv4first --no-network-family-autoselection'
+    $env:MCP_SERVER_URL = $McpServerUrl
     $stdout = Join-Path $LogDir 'desktop-commander.stdout.log'
     $stderr = Join-Path $LogDir 'desktop-commander.stderr.log'
     Write-Log "START_REQUEST version=$DcVersion node=$NodePath entry=$DcEntry"
