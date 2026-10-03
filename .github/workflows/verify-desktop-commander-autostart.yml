@@ -57,6 +57,9 @@ jobs:
     if: github.event_name == 'push'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
       - name: Identify physical runner
