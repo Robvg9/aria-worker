@@ -7,6 +7,8 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'absorb/omniroute/SOURCE_LOCK.json'), 'utf8'));
 const contract = fs.readFileSync(path.join(root, 'absorb/omniroute/INTEGRATION_CONTRACT.md'), 'utf8');
+const phase3Contract = fs.readFileSync(path.join(root, 'absorb/omniroute/PHASE_3_SANDBOX_CONTRACT.md'), 'utf8');
+const phase3Script = fs.readFileSync(path.join(root, 'scripts/absorb/omniroute-phase3-sandbox.ps1'), 'utf8');
 
 let passed = 0;
 function testCase(name, fn) {
@@ -71,6 +73,27 @@ testCase('loopback endpoint is configuration-only until real health evidence exi
   assert.ok(contract.includes('Availability is proven exclusively by a real health probe'));
 });
 
+testCase('phase 3 sandbox contract is prepared and fail-closed', () => {
+  assert.ok(phase3Contract.includes('Status: PREPARED / NOT CERTIFIED'));
+  assert.ok(phase3Contract.includes('OmniRoute-v3.8.52'));
+  assert.ok(phase3Contract.includes('HOST=127.0.0.1'));
+  assert.ok(phase3Contract.includes('npm ci'));
+  assert.ok(phase3Contract.includes('GET /api/health'));
+  assert.ok(phase3Contract.includes('Phase 3 — SANDBOX = BLOCKED / NOT CERTIFIED.'));
+});
+
+testCase('phase 3 runner is locked to the exact source and isolated resources', () => {
+  assert.ok(phase3Script.includes("release/v3.8.52"));
+  assert.ok(phase3Script.includes("3e66ff2e8cc94821b093fe57dad667b585230cd1"));
+  assert.ok(phase3Script.includes('archive/$Commit.zip'));
+  assert.ok(phase3Script.includes("$env:HOST = '127.0.0.1'"));
+  assert.ok(phase3Script.includes("$env:PORT = '20128'"));
+  assert.ok(phase3Script.includes('$env:DATA_DIR = $DataDir'));
+  assert.ok(phase3Script.includes('$env:NPM_CONFIG_CACHE = $CacheDir'));
+  assert.ok(phase3Script.includes('taskkill.exe /PID $Server.Id /T /F'));
+  assert.ok(phase3Script.includes('PHASE3_SANDBOX_EXECUTION=PASS'));
+});
+
 testCase('runtime adapter gate remains closed before phases 3-5', () => {
   assert.ok(contract.includes('Phase 6+ runtime implementation is prohibited until'));
   assert.ok(contract.includes('Phase 3 isolated installation is PASS'));
@@ -78,4 +101,4 @@ testCase('runtime adapter gate remains closed before phases 3-5', () => {
   assert.ok(contract.includes('Phase 5 OmniRoute → Ollama → Qwen is LIVE PASS'));
 });
 
-console.log('\nOmniRoute ABSORB Phase 1-2 gate: ' + passed + ' passed, 0 failed');
+console.log('\nOmniRoute ABSORB Phase 1-3 contract: ' + passed + ' passed, 0 failed');
