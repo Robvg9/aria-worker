@@ -69,12 +69,40 @@ function Find-DesktopCommanderSupervisor {
     return 0
 }
 
+function Test-DesktopCommanderSupervisorPid([int]$CandidatePid) {
+    if ($CandidatePid -le 0) { return 0 }
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$CandidatePid" -ErrorAction Stop
+        if (-not $proc) { return 0 }
+        $cmd = [string]$proc.CommandLine
+        if ($cmd -match '(?i)desktop-commander-supervisor\\.ps1') { return $CandidatePid }
+    } catch {}
+    return 0
+}
+
 function Ensure-DesktopCommanderSupervisor {
     if (-not (Test-Path $DesktopCommanderSupervisorPath)) {
         Write-Log "DC_SUPERVISOR_MISSING path=$DesktopCommanderSupervisorPath"
         return
     }
 
+    # PID file is the primary single-flight guard. Process scan is a fallback only.
+    if (Test-Path $DesktopCommanderSupervisorPidPath) {
+        try {
+            $filePid = [int](Get-Content -Raw -Path $DesktopCommanderSupervisorPidPath).Trim()
+            $livePid = Test-DesktopCommanderSupervisorPid $filePid
+            if ($livePid -gt 0) { return }
+        } catch {}
+        Remove-Item -Path $DesktopCommanderSupervisorPidPath -Force -ErrorAction SilentlyContinue
+    }
+
+    $existingPid = Find-DesktopCommanderSupervisor
+    if ($existingPid -gt 0) {
+        try { Set-Content -Path $DesktopCommanderSupervisorPidPath -Value $existingPid -Encoding ASCII -Force } catch {}
+        return
+    }
+
+    # Final short race guard: re-check immediately before spawning.
     $existingPid = Find-DesktopCommanderSupervisor
     if ($existingPid -gt 0) {
         try { Set-Content -Path $DesktopCommanderSupervisorPidPath -Value $existingPid -Encoding ASCII -Force } catch {}
