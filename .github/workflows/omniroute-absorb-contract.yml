@@ -7,6 +7,8 @@ on:
       - 'absorb/omniroute/**'
       - 'tests/omniroute-absorb-contract.test.js'
       - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
+      - 'absorb/omniroute/PHASE_4_STANDALONE_CONTRACT.md'
+      - 'scripts/absorb/omniroute-phase4-standalone-smoke.mjs'
       - '.github/workflows/omniroute-absorb-contract.yml'
   push:
     branches:
@@ -36,3 +38,6 @@ jobs:
           $content = Get-Content -Raw -LiteralPath $path
           [void][scriptblock]::Create($content)
           Write-Host "PASS PowerShell parse: $path"
+      - name: Phase 4 Node syntax
+        shell: bash
+        run: node --check scripts/absorb/omniroute-phase4-standalone-smoke.mjs
