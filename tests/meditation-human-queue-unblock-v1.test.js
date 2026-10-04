@@ -28,6 +28,9 @@ assert.doesNotMatch(app,/Trace: \{String\(diagnostic\.correlation/);
 assert.doesNotMatch(app,/Runtime: \{String\(diagnostic\.versions/);
 assert.match(app,/diagnosticHumanSummary/);
 assert.match(app,/Ver evidencia técnica/);
+assert.match(app,/const compact: PwaNotificationItem\[\] = \[\]/);
+assert.match(app,/compactKeys/);
+assert.match(app,/setUnread\(compact\.filter/);
 
 // Runner fairness: queued work wins over stale recovery rows within the same execution lane.
 const queuedOrder=migration.indexOf("when 'queued' then 0");
@@ -35,5 +38,13 @@ const runningOrder=migration.indexOf("when 'running' then 4");
 assert.ok(queuedOrder>=0 && runningOrder>queuedOrder);
 assert.match(migration,/case lower\(coalesce\(m\.metadata->>'execution_lane',''\)\)/);
 assert.match(migration,/for update skip locked/);
+
+const orphan=fs.readFileSync(path.join(root,'supabase/migrations/20261004014000_orphaned_retry_reconciliation_v1.sql'),'utf8');
+assert.match(orphan,/aria_reconcile_orphaned_retry_missions/);
+assert.match(orphan,/status='running'/);
+assert.match(orphan,/lease_owner is null/);
+assert.match(orphan,/retry_scheduled/);
+assert.match(orphan,/status='failed'/);
+console.log('MEDITATION ORPHAN RETRY RECONCILIATION CONTRACT: PASS');
 
 console.log('MEDITATION HUMAN + QUEUE UNBLOCK CONTRACT: PASS');
