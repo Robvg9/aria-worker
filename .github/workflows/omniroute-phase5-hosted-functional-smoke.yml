@@ -102,7 +102,7 @@ jobs:
           '@
           $stdout="$sandbox\capture\omniroute.stdout.log"
           $stderr="$sandbox\capture\omniroute.stderr.log"
-          $p=Start-Process -FilePath node -ArgumentList 'scripts/dev/run-next.mjs','dev' -WorkingDirectory (Get-Location) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+          $p=Start-Process -FilePath node -ArgumentList 'scripts/dev/run-next.mjs','start' -WorkingDirectory (Get-Location) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
           "OMNIROUTE_PID=$($p.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $capture=Join-Path $sandbox 'capture'
           "PHASE5_CAPTURE_DIR=$capture" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
