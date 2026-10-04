@@ -34,7 +34,7 @@ console.log('MEDITATION MISSION CANCELLATION CONTRACT: PASS');
 assert.match(app,/MeditationLiveExecution/);
 assert.match(app,/EJECUCIÓN EN TIEMPO REAL/);
 assert.match(app,/AHORA/);
-assert.match(app,/Lo que ARIA acaba de hacer|Lo que ARIA acaba de hacer/);
+assert.match(app,/Última actividad/);
 assert.match(app,/executionHumanNow/);
 assert.match(app,/executionHumanLog/);
 assert.match(app,/executionOutcome/);
