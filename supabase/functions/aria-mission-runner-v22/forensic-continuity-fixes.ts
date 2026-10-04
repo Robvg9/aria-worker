@@ -122,7 +122,54 @@ export function buildDeviceEnqueuePayload(
       }
       payload.command = JSON.stringify(input);
     } else {
-      const input = step.input && typeof step.input === "object" ? { ...step.input } : {};
+      const source = step.input && typeof step.input === "object" ? step.input : {};
+      const input: Record<string, unknown> = {};
+
+      // The runner adds internal bookkeeping fields (__aria_attempt and
+      // dependency_results) to every execution step. Never forward those
+      // internal fields across a governed device boundary.
+      const allowedKeys = operation === "computer.use.android"
+        ? [
+            "operation",
+            "action",
+            "target_package",
+            "allow_any_app",
+            "allowed_hosts",
+            "secret_ref",
+            "mode",
+            "goal",
+            "history",
+            "observation",
+            "mission_id",
+            "request_id",
+            "start_url",
+            "start_app",
+            "max_steps",
+          ]
+        : [
+            "action",
+            "x",
+            "y",
+            "x1",
+            "y1",
+            "x2",
+            "y2",
+            "button",
+            "text",
+            "key",
+            "keys",
+            "delta",
+            "path",
+            "process",
+            "ms",
+            "duration_ms",
+          ];
+
+      for (const key of allowedKeys) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+          input[key] = (source as Record<string, unknown>)[key];
+        }
+      }
 
       // Android observe historically appeared as { action: "observe" } while the
       // governed DB contract expects { operation: "observe" }. Normalize the
