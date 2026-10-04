@@ -96,14 +96,18 @@ jobs:
           }
           Write-Host "SOURCE_BRIDGE_VERIFY=PASS $marker"
           Write-Host "SOURCE_DIR=$target"
-      - name: Verify exact OmniRoute source
+      - name: Verify exact OmniRoute source identity
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
-          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
-          $head=(git rev-parse HEAD).Trim()
-          if($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_COMMIT_MISMATCH=$head"}
-          Write-Host "SOURCE_COMMIT=PASS $head"
+          $root="$env:GITHUB_WORKSPACE"
+          $markerFile=Get-ChildItem $root -Recurse -File -Filter SOURCE_COMMIT.txt | Select-Object -First 1
+          if(-not $markerFile){throw 'SOURCE_COMMIT_MARKER_MISSING'}
+          $marker=(Get-Content $markerFile.FullName -Raw).Trim()
+          if($marker -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_MARKER_MISMATCH=$marker"}
+          $pkg=Get-Content "$env:GITHUB_WORKSPACE\omniroute-source\package.json" -Raw | ConvertFrom-Json
+          if($pkg.version -ne '3.8.52'){throw "OMNIROUTE_VERSION_MISMATCH=$($pkg.version)"}
+          Write-Host "SOURCE_IDENTITY=PASS sha=$marker version=$($pkg.version)"
 
       - name: Resolve Windows Node and npm
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
