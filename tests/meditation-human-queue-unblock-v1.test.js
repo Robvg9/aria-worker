@@ -10,7 +10,7 @@ const migration=fs.readFileSync(path.join(root,'supabase/migrations/202610040130
 assert.match(app,/function selectLiveMission/);
 assert.match(app,/function selectForegroundMission/);
 assert.match(app,/activeMissionRank\(m\.status,m\.lease_owner,m\.lease_until\)\s*>=\s*45/);
-assert.match(app,/const displayMission = m ?? nextQueuedMission/);
+assert.match(app,/const displayMission = m \?\? nextQueuedMission/);
 assert.match(api,/const rawActive=rawLive/);
 assert.match(api,/foreground_mission:foreground/);
 assert.match(api,/const active=live;/);
