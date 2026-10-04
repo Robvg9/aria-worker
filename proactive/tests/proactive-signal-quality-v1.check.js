@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {VERSION,canonical,sha256,fingerprint}=require('../fingerprint-v1');
+const core=require('../engine-v1');
+const trend=require('../trend-v1');
+const crypto=require('node:crypto');
+assert.equal(VERSION,'aria-proactive-fingerprint-v1.0.0');
+assert.equal(sha256({a:1,b:2}),sha256({b:2,a:1}));
+assert.equal(fingerprint({hello:'world'}),crypto.createHash('sha256').update(canonical({hello:'world'})).digest('hex'));
+assert.equal(core.sha256({x:1}),sha256({x:1}));
+assert.equal(trend.sha256({x:1}),sha256({x:1}));
+const coreSource=require('node:fs').readFileSync(require.resolve('../engine-v1'),'utf8');
+const trendSource=require('node:fs').readFileSync(require.resolve('../trend-v1'),'utf8');
+assert.doesNotMatch(coreSource,/node:crypto/);
+assert.doesNotMatch(trendSource,/node:crypto/);
+assert.doesNotMatch(coreSource,/md5/i);
+assert.doesNotMatch(trendSource,/md5/i);
+console.log('PROACTIVE SIGNAL QUALITY V1: PASS — shared canonical SHA-256 utility, consistent Core/Trend identity, legacy hashes remain explicit');
