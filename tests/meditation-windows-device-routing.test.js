@@ -21,6 +21,16 @@ assert.match(
 );
 assert.match(
   source,
+  /return caps\.includes\("ollama\.qwen3"\) \|\| caps\.includes\("computer\.use\.autonomous"\)/,
+  'Windows RWHT must remain runnable when the heartbeat advertises autonomous UI but omits the optional qwen capability.',
+);
+assert.match(
+  source,
+  /requires:\["computer\.use"\]/,
+  'Autonomous Windows UI must not require qwen to be present in the registry capability list.',
+);
+assert.match(
+  source,
   /if\(\(!isRwht \|\| !isPc\) && !explicitWindowsDevice\)return null;/,
   'Windows RWHT planner must accept explicit Windows device intent even without lexical PC/RWHT wording.',
 );
