@@ -7,6 +7,9 @@ on:
       - 'scripts/absorb/omniroute-phase4-standalone-smoke.mjs'
       - 'absorb/omniroute/**'
       - '.github/workflows/omniroute-phase4-standalone-hosted.yml'
+  push:
+    branches:
+      - 'feat/omniroute-v1-certification-20261004-final'
   workflow_dispatch:
 
 permissions:
