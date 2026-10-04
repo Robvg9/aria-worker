@@ -68,7 +68,7 @@ async function resolveMeditationDevice(metadata: Record<string, unknown>) {
 
 async function kickCanonicalRunner(missionId: string, reason: string) {
   try {
-    const { data, error } = await sb.rpc("runner_tick_for_mission", {
+    const { data, error } = await sb.schema("aria_internal").rpc("runner_tick_for_mission", {
       p_mission_id: missionId,
     });
     if (error) {
