@@ -1904,6 +1904,59 @@ function Chat({
                   </>
                 )}
               </section>
+              {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (
+                <div className='homeOperationalWarning' role='status'>
+                  <strong>ARIA necesita atención</strong>
+                  <span>{String(operationalHealth.next_actions?.[0] || operationalHealth.message || 'Hay una condición operativa que revisar.')}</span>
+                </div>
+              )}
+              <div className='homeQuickActions'>
+                <button className='primary' onClick={() => setShowNewMission(true)}>＋ Nueva misión</button>
+                <button className='ghost' onClick={onMeditation}>◌ Ver ejecución</button>
+                <button className='ghost' onClick={() => setScreen(1)}>💬 Hablar con ARIA</button>
+              </div>
+            </section>
+          </section>
+
+          <section className='appScreen chatScreen'>
+            <section className='panel chatPanel'>
+              <div className='panelHeading'>
+                <div>
+                  <div className='panelTitle'>SEGUNDA PANTALLA</div>
+                  <h2>CONVERSACIÓN DIRECTA</h2>
+                </div>
+
+              </div>
+              <div ref={chatWindowRef} className='chatWindow' data-testid='chat-window' aria-live='polite' aria-atomic='false'>
+                {messages.length
+                  ? messages.map(m => <div key={m.id} className={'bubble ' + m.role}><div className='markdownBody'>{renderMarkdown(m.text)}</div>{m.role === 'aria' && m.processingMs != null && <small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>)
+                  : <div className='emptyState'>Habla con ARIA. Ella decide si conversa, recuerda, planifica o ejecuta una misión.</div>}
+              </div>
+              {pendingMissionConfirmation && (
+                <div className='missionConfirmation' role='dialog' aria-label='Confirmar inicio de misión'>
+                  <div>
+                    <div className='panelTitle'>CONFIRMAR MISIÓN</div>
+                    <strong>¿Quieres que comience una misión para esto?</strong>
+                    <p>{pendingMissionConfirmation.goal}</p>
+                    <small>La misión entrará en la cola de Meditación IA. Si solo querías preguntar o conversar, puedes cancelar.</small>
+                  </div>
+                  <div className='missionConfirmationActions'>
+                    <button className='ghost' disabled={sending} onClick={dismissPendingMission}>No, solo conversar</button>
+                    <button className='primary' disabled={sending} onClick={() => void confirmPendingMission()}>{sending ? 'Confirmando…' : 'Sí, comenzar misión'}</button>
+                  </div>
+                </div>
+              )}
+              {sending && (
+                <div className='chatThinking' role='status' aria-live='polite'>
+                  <span className='thinkingOrb' aria-hidden='true'>🧠</span>
+                  <div className='thinkingCopy'>
+                    <strong>{processingLabel(processingElapsedMs)}</strong>
+                    <small>Procesamiento en curso · {formatProcessingTime(processingElapsedMs)}</small>
+                  </div>
+                  <span className='thinkingDots' aria-hidden='true'>•••</span>
+                </div>
+              )}
+              {file && <div className='fileChip'>{file.name}<button aria-label='Quitar archivo adjunto' onClick={() => setFile(null)}>×</button></div>}
               {error && <div className='errorBox'>{error}</div>}
               <div className='composer'>
                 <input type='file' ref={fileRef} hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
