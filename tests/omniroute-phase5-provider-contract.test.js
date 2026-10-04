@@ -7,6 +7,6 @@ const contract = fs.readFileSync(path.join(root, 'absorb/omniroute/PHASE_5_PROVI
 const smoke = fs.readFileSync(path.join(root, 'scripts/absorb/omniroute-phase5-ollama-qwen.mjs'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/omniroute-phase5-ollama-qwen-selfhosted.yml'), 'utf8');
 for (const token of ['Status: PREPARED / NOT CERTIFIED','Ollama','qwen3:4b','OMNIROUTE_QWEN_LIVE_OK','20130','3e66ff2e8cc94821b093fe57dad667b585230cd1']) assert.ok(contract.includes(token), token);
-for (const token of ['/v1/chat/completions','x-omniroute-provider','x-omniroute-decision','ollama/qwen3:4b','OMNIROUTE_QWEN_LIVE_OK']) assert.ok(smoke.includes(token), token);
+for (const token of ['/v1/chat/completions','x-omniroute-routed-by','x-omniroute-route-decision','ollama/qwen3:4b','OMNIROUTE_QWEN_LIVE_OK']) assert.ok(smoke.includes(token), token);
 for (const token of ['runs-on: [self-hosted, Windows, X64]','diegosouzapw/OmniRoute','3e66ff2e8cc94821b093fe57dad667b585230cd1','http://127.0.0.1:11434','qwen3:4b','npm ci','npm run build','Run real OmniRoute → Ollama → Qwen smoke','aria-omniroute-phase5-evidence']) assert.ok(workflow.includes(token), token);
 console.log('OmniRoute Phase 5 provider contract: PASS');
