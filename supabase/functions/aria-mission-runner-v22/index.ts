@@ -2211,6 +2211,17 @@ function dependencyEvidenceForStep(step: any, results: Record<string, unknown>) 
 }
 
 
+function scheduleMissionRetryKick(missionId: string, reason: string) {
+  const promise = rpc("runner_tick_for_mission", { p_mission_id: missionId })
+    .then((requestId) => console.log("[aria-runner] retry dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null })))
+    .catch((error) => console.error("[aria-runner] retry dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) })));
+  try {
+    EdgeRuntime.waitUntil(promise);
+  } catch {
+    void promise;
+  }
+}
+
 async function chainNextMeditationMission(depth: number) {
   if (depth >= 8) return { status: "chain_limit_reached", depth };
   const next = await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
@@ -3344,6 +3355,7 @@ Deno.serve(async (request) => {
             lease_until: null,
           });
           await emitEvent(missionId, "step_retrying", { step_id: retryStepId, executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[retryStepId]) + 1 });
+          scheduleMissionRetryKick(missionId, "retry_scheduled");
           return out({
             ok: true,
             status: "running",
