@@ -30,13 +30,21 @@ jobs:
         with:
           path: aria-worker
 
-      - name: Checkout exact OmniRoute
-        uses: actions/checkout@v4
-        with:
-          repository: diegosouzapw/OmniRoute
-          ref: 3e66ff2e8cc94821b093fe57dad667b585230cd1
-          fetch-depth: 1
-          path: omniroute-source
+      - name: Acquire exact OmniRoute source via partial Git fetch
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $source="$env:GITHUB_WORKSPACE\omniroute-source"
+          Remove-Item $source -Recurse -Force -ErrorAction SilentlyContinue
+          git -c http.version=HTTP/1.1 clone --filter=blob:none --depth 1 --no-checkout https://github.com/diegosouzapw/OmniRoute.git $source
+          git -C $source fetch --depth=1 origin 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          Remove-Item "$source\.git\index.lock" -Force -ErrorAction SilentlyContinue
+          git -C $source sparse-checkout init --cone
+          git -C $source sparse-checkout set src open-sse public bin scripts config packages/browser-pool package.json package-lock.json next.config.mjs tsconfig.json source.config.ts postcss.config.mjs
+          git -C $source checkout --detach 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          $head=(git -C $source rev-parse HEAD).Trim()
+          if($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_COMMIT_MISMATCH=$head"}
+          Write-Host "SOURCE_ACQUISITION=PASS $head"
 
       - name: Verify exact OmniRoute source
         shell: powershell
