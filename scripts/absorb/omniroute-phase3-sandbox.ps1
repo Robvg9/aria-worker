@@ -19,8 +19,16 @@ $Commit = '3e66ff2e8cc94821b093fe57dad667b585230cd1'
 $ArchiveUrl = "https://github.com/$Repo/archive/$Commit.zip"
 $ArchivePath = Join-Path $SandboxRoot "omniroute-$Commit.zip"
 
-$NodePath = 'D:\Databank\node.exe'
-$NpmPath = 'D:\Databank\npm.cmd'
+$NodeCandidates = @(
+    'D:\Databank\node.exe',
+    'D:\Databank\node\node.exe'
+)
+$NpmCandidates = @(
+    'D:\Databank\npm.cmd',
+    'D:\Databank\node\npm.cmd'
+)
+$NodePath = $NodeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+$NpmPath = $NpmCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 function Fail([string]$Message) {
     throw "[PHASE3-BLOCKED] $Message"
@@ -48,8 +56,8 @@ Ensure-Dir $SandboxRoot
 Ensure-Dir $DataDir
 Ensure-Dir $CacheDir
 
-if (-not (Test-Path $NodePath)) { Fail "Node.js executable not found: $NodePath" }
-if (-not (Test-Path $NpmPath)) { Fail "npm.cmd executable not found: $NpmPath" }
+if (-not $NodePath) { Fail 'Node.js executable not found in expected ARIA D: locations.' }
+if (-not $NpmPath) { Fail 'npm.cmd executable not found next to expected ARIA D: Node locations.' }
 if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { Fail 'curl.exe is required.' }
 
 $NodeVersion = (& $NodePath --version 2>&1 | Out-String).Trim()
