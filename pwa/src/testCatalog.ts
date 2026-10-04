@@ -2661,6 +2661,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
   }
+  {
+    "id": "proactive-intelligence-v1",
+    "file": "tests/proactive-intelligence-v1.test.js",
+    "title": "Proactive Intelligence V1",
+    "category": "Proactividad / observabilidad",
+    "includedInNpmTest": true,
+    "how": "Analiza snapshots operativos de forma determinista y genera recomendaciones de atención sin conceder autoridad de ejecución.",
+    "capabilities": "Detecta dispositivos con trabajo y estado stale/offline, colas sin executor evidenciado, recursos degradados, evidencia vencida, deriva de runtime y diagnósticos críticos."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
