@@ -27,6 +27,9 @@ defaults:
 
 jobs:
   repair:
+    # Physical maintenance must never execute from an arbitrary PR on a shared Windows runner.
+    # It runs only after merge to main or explicit manual dispatch; identity guard still gates the machine.
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
     steps:
