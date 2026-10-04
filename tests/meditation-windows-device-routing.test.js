@@ -49,6 +49,11 @@ assert.match(
   /if\(explicitRequestedDevice\.startsWith\("windows-"\)\)[\\s\\S]*?const windowsFastPath=await windowsPcRwhtPlan\(goal,context\);/,
   'Explicit Windows missions must take the Windows fast-path before expensive generic planning routes.',
 );
+assert.ok(
+  source.indexOf('if(explicitRequestedDevice.startsWith("windows-"))') <
+    source.indexOf('const learned=await learningContextForGoal(goal);'),
+  'Explicit Windows fast-path must run before learning/recall work.'
+);
 
 assert.match(
   source,
