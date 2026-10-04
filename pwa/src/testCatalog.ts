@@ -1397,6 +1397,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Comprueba sincronización, notificaciones, ideas→misiones, recursos y flujos de Meditación IA."
   },
   {
+    "id": "meditation-human-queue-unblock-v1",
+    "file": "tests/meditation-human-queue-unblock-v1.test.js",
+    "title": "Meditation Human Queue Unblock V1",
+    "category": "Meditación IA",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la ejecución LIVE, la cola y la interfaz humana permanezcan separadas y recuperables.",
+    "capabilities": "Comprueba estado de ejecución, cola, recuperación de misiones y presentación humana en Meditación IA."
+  },
+  {
     "id": "meditation-sync-contract-v1",
     "file": "tests/meditation-sync-contract-v1.test.js",
     "title": "Meditation Sync Contract V",
