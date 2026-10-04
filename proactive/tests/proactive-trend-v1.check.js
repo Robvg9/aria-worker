@@ -1,0 +1,23 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {VERSION,ACTION_MODE,buildTrendDigest}=require('../trend-v1');
+const NOW='2026-10-04T08:00:00.000Z';
+(()=>{
+ assert.equal(VERSION,'aria-proactive-trend-intelligence-v1.0.0');
+ assert.equal(ACTION_MODE,'recommendation_only');
+ assert.equal(buildTrendDigest([],{now:NOW}).trend_count,0);
+ const single={digest_id:'d1',observed_at:'2026-10-04T07:00:00.000Z',recommendations:[{id:'r1',kind:'diagnostic_attention',fingerprint:'fp1'}]};
+ const one=buildTrendDigest([single],{now:NOW});
+ assert.equal(one.trend_count,1); assert.equal(one.new_count,1); assert.equal(one.trends[0].state,'new');
+ const recurring=buildTrendDigest([single,{digest_id:'d2',observed_at:'2026-10-04T07:30:00.000Z',recommendations:[{id:'r1',kind:'diagnostic_attention',fingerprint:'fp1'}]}],{now:NOW,minOccurrences:3});
+ assert.equal(recurring.trend_count,1); assert.equal(recurring.recurring_count,1); assert.equal(recurring.trends[0].occurrence_count,2);
+ const persistent=buildTrendDigest([single,{digest_id:'d2',observed_at:'2026-10-04T07:30:00.000Z',recommendations:[{id:'r1',kind:'diagnostic_attention',fingerprint:'fp1'}]},{digest_id:'d3',observed_at:'2026-10-04T07:45:00.000Z',recommendations:[{id:'r1',kind:'diagnostic_attention',fingerprint:'fp1'}]}],{now:NOW,minOccurrences:3});
+ assert.equal(persistent.persistent_count,1); assert.equal(persistent.trends[0].state,'persistent');
+ const dup=buildTrendDigest([{digest_id:'d4',observed_at:'2026-10-04T07:20:00.000Z',recommendations:[{id:'r1',kind:'diagnostic_attention',fingerprint:'fp1'},{id:'r1',kind:'diagnostic_attention',fingerprint:'fp1'}]}],{now:NOW});
+ assert.equal(dup.trends[0].occurrence_count,1);
+ const stale=buildTrendDigest([{digest_id:'old',observed_at:'2026-09-01T00:00:00.000Z',recommendations:[{id:'r1',kind:'diagnostic_attention',fingerprint:'fp1'}]}],{now:NOW,maxAgeMs:86400000});
+ assert.equal(stale.trend_count,0);
+ const a=buildTrendDigest([single],{now:NOW}),b=buildTrendDigest([single],{now:NOW});
+ assert.deepEqual(a,b); assert.equal(a.fingerprint,b.fingerprint); assert.equal(Object.isFrozen(a),true); assert.equal(Object.isFrozen(a.trends),true); assert.equal(Object.isFrozen(a.trends[0]),true);
+ console.log('PROACTIVE TREND INTELLIGENCE V1: PASS — recurrence/persistence, bounded history, dedupe and deterministic fingerprints');
+})();
