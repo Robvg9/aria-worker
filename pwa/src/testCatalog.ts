@@ -2261,6 +2261,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta bloqueos del agente, telemetría no crítica y pérdida de estados started/completed."
   },
   {
+    "id": "windows-agent-resource-guard",
+    "file": "tests/windows-agent-resource-guard.test.js",
+    "title": "Windows Agent Resource Guard",
+    "category": "Windows / rendimiento",
+    "includedInNpmTest": true,
+    "how": "Verifica que el agente Windows clasifique nodos débiles como worker-light y bloquee inferencia local cuando los recursos son insuficientes.",
+    "capabilities": "Protege RAM/CPU, evita carga Ollama/Qwen indebida y comprueba que el instalador y runtime conserven la identidad Windows canónica."
+  },
+  {
     "id": "world-model-change-risk.integration",
     "file": "tests/world-model-change-risk.integration.test.js",
     "title": "World Model Change Risk.Integration",
