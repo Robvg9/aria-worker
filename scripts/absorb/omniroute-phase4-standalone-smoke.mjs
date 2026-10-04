@@ -4,6 +4,8 @@ import path from 'node:path';
 
 const baseUrl = (process.env.OMNIROUTE_BASE_URL || 'http://127.0.0.1:20128').replace(/\/+$/, '');
 const apiKey = process.env.OMNIROUTE_API_KEY || '';
+const catalogApiKey = process.env.OMNIROUTE_CATALOG_API_KEY || '';
+const managementCliToken = process.env.OMNIROUTE_CLI_TOKEN || '';
 const smokeModel = process.env.OMNIROUTE_SMOKE_MODEL || '';
 const timeoutMs = Number(process.env.OMNIROUTE_SMOKE_TIMEOUT_MS || 10000);
 const root = process.env.OMNIROUTE_PHASE4_CAPTURE_ROOT || path.resolve(process.cwd(), 'phase4-capture');
@@ -32,7 +34,10 @@ try {
   record('health', health.response.status === 200, 'HTTP ' + health.response.status);
   const ping = await fetchText('/api/health/ping');
   record('readiness', ping.response.status === 200, 'HTTP ' + ping.response.status);
-  const authHeaders = { [String.fromCharCode(65,117,116,104,111,114,105,122,97,116,105,111,110)]: ['Bear','er'].join(' ') + apiKey };
+  const authHeaders = { Authorization: 'Bearer ' + catalogApiKey };
+  const managementHeaders = managementCliToken
+    ? { 'x-omniroute-cli-token': managementCliToken }
+    : {};
   const models = await fetchText('/v1/models', { headers: authHeaders });
   const modelCount = Array.isArray(models.body?.data) ? models.body.data.length : 0;
   record('models', models.response.status === 200 && modelCount > 0, 'HTTP ' + models.response.status + ', ' + modelCount + ' models');
@@ -44,6 +49,10 @@ try {
     record('chat completion', false, 'OMNIROUTE_API_KEY and OMNIROUTE_SMOKE_MODEL are required');
     record('stream completion', false, 'OMNIROUTE_API_KEY and OMNIROUTE_SMOKE_MODEL are required');
     record('status api', false, 'chat-gate prerequisites missing');
+  } else if (!catalogApiKey || !managementCliToken) {
+    record('chat completion', false, 'standalone auth prerequisites missing: catalog API key or local CLI token');
+    record('stream completion', false, 'standalone auth prerequisites missing: catalog API key or local CLI token');
+    record('status api', false, 'standalone auth prerequisites missing: catalog API key or local CLI token');
   } else {
     const headers = { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' };
     const payload = { model: smokeModel, messages: [{ role: 'user', content: 'Reply with exactly: OK' }], max_tokens: 5 };
@@ -66,7 +75,7 @@ try {
     }
     const hasDelta = streamText.includes('"delta"') && /"content"\s*:\s*"[^"\\]+/.test(streamText);
     record('stream completion', streamResponse.status === 200 && contentType.toLowerCase().includes('text/event-stream') && hasDelta && streamText.includes('[DONE]'), 'HTTP ' + streamResponse.status + ', ' + contentType);
-    const status = await fetchText('/api/omniroute/status', { headers: authHeaders });
+    const status = await fetchText('/api/omniroute/status', { headers: managementHeaders });
     record('status api', status.response.status === 200, 'HTTP ' + status.response.status);
   }
   const summary = { schema: 'aria.absorb.omniroute.phase4.capture.v1', status: results.every((x) => x.pass) ? 'PASS_STANDALONE_SMOKE' : 'NOT_CERTIFIED', base_url: baseUrl, smoke_model: smokeModel || null, checks: results, captured_at_utc: new Date().toISOString() };
