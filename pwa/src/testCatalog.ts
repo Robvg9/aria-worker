@@ -2660,7 +2660,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
-  }
+  },
   {
     "id": "proactive-intelligence-v1",
     "file": "tests/proactive-intelligence-v1.test.js",
