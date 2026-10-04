@@ -107,6 +107,18 @@ function analyzeQueue(snapshot) {
   const online = numberOrNull(snapshot.queue?.online_executors);
   if (queued <= 0 || (eligible !== null && eligible > 0) || (eligible === null && online !== null && online > 0)) return [];
 
+  if (eligible === null && online === null) {
+    return [makeRecommendation({
+      kind: 'queue_state_unknown',
+      priority: 'normal',
+      title: 'No hay evidencia suficiente sobre los executors de la cola',
+      reason: `${queued} trabajo(s) están encolados, pero no existe una medición válida de executors elegibles u online.`,
+      nextAction: 'Obtener un snapshot actual de los executors antes de concluir que la cola está bloqueada o disponible.',
+      sourceRefs: [snapshot.queue?.evidence_ref],
+      fields: { queued_jobs: queued, eligible_online_executors: null, online_executors: null }
+    })];
+  }
+
   return [makeRecommendation({
     kind: 'queue_blocked',
     priority: 'high',
