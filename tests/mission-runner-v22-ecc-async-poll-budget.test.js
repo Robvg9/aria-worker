@@ -30,3 +30,12 @@ assert.match(migration, /Never roll back a successfully completed execution job/
 assert.match(migration, /mission\\.continuation_tick_failed/);
 
 console.log('MISSION EXECUTION JOB -> MISSION CONTINUATION: PASS');
+ 
+const followUpMigration = fs.readFileSync(
+  'supabase/migrations/20261004011500_fix_mission_continuation_tick_error_fallback_v1.sql',
+  'utf8'
+);
+assert.match(followUpMigration, /schedule_mission_runner_after_execution_job\(\s*p_mission_id text,\s*p_job_status text,\s*p_job_id text,\s*p_device_id text/s);
+assert.match(followUpMigration, /VALUES \(\s*p_job_id,\s*p_device_id,\s*'mission\.continuation_tick_failed'/s);
+assert.match(followUpMigration, /PERFORM aria_internal\.schedule_mission_runner_after_execution_job\(\s*v_mission_id,\s*p_status,\s*p_job_id,\s*p_device_id/s);
+console.log('MISSION CONTINUATION ERROR FALLBACK: PASS');
