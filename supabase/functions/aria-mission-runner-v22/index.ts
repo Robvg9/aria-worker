@@ -2642,10 +2642,12 @@ Deno.serve(async (request) => {
                 }
               ],
             },
+          });
+          await emitEvent(missionId, "mission_replanned", autoRecovery);
+          await updateMission(missionId, {
             lease_owner: null,
             lease_until: null,
           });
-          await emitEvent(missionId, "mission_replanned", autoRecovery);
           await scheduleMissionContinuationKick(missionId, "automatic_strategy_recovery");
           return out({
             ok: true,
@@ -3366,10 +3368,12 @@ Deno.serve(async (request) => {
               },
               active_step: null,
             },
+          });
+          await emitEvent(missionId, "step_retrying", { step_id: retryStepId, executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[retryStepId]) + 1 });
+          await updateMission(missionId, {
             lease_owner: null,
             lease_until: null,
           });
-          await emitEvent(missionId, "step_retrying", { step_id: retryStepId, executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[retryStepId]) + 1 });
           await scheduleMissionRetryKick(missionId, "retry_scheduled");
           return out({
             ok: true,
