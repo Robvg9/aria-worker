@@ -51,13 +51,22 @@ jobs:
           Remove-Item .git,.github,docs,tests,changelog.d,CONTRIBUTING.md,ROADMAP.md,AGENTS.md,CLAUDE.md,GEMINI.md -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item .i18n-state.json,.mailmap,.gitattributes,.gitignore,.gitleaks.toml,.markdownlint.json,.prettierignore,.vale.ini,.zizmor.yml -Force -ErrorAction SilentlyContinue
           Write-Host "SOURCE_RUNTIME_TRIM=PASS"
+      - name: Archive exact source bridge as one file
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          $src="$env:GITHUB_WORKSPACE\omniroute-source"
+          $archive="$env:GITHUB_WORKSPACE\omniroute-source-3e66ff2e.tar.gz"
+          Remove-Item $archive -Force -ErrorAction SilentlyContinue
+          tar.exe -czf $archive -C $src .
+          if($LASTEXITCODE -ne 0){throw "SOURCE_ARCHIVE_FAILED=$LASTEXITCODE"}
+          Get-Item $archive | Select-Object FullName,Length
       - name: Upload exact source bridge
         id: upload_source
         uses: actions/upload-artifact@v4
         with:
           name: omniroute-source-3e66ff2e
-          path: |
-            omniroute-source
+          path: ${{ github.workspace }}\omniroute-source-3e66ff2e.tar.gz
 
   phase5-provider:
     needs: source-bridge
@@ -69,33 +78,31 @@ jobs:
         with:
           path: aria-worker
 
-      - name: Download exact OmniRoute source bridge by artifact ID
+      - name: Download exact OmniRoute source archive
         uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.source-bridge.outputs.artifact_id }}
           path: ${{ github.workspace }}
 
-      - name: Normalize bridged OmniRoute source
+      - name: Extract and verify exact OmniRoute source
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           $root="$env:GITHUB_WORKSPACE"
-          $markerFile=Get-ChildItem "$root\omniroute-source" -Recurse -File -Filter SOURCE_COMMIT.txt -ErrorAction SilentlyContinue | Select-Object -First 1
+          $archive="$env:GITHUB_WORKSPACE\omniroute-source-3e66ff2e.tar.gz"
+          $target="$env:GITHUB_WORKSPACE\omniroute-source"
+          if(-not (Test-Path $archive)){throw 'SOURCE_ARCHIVE_MISSING'}
+          Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          tar.exe -xzf $archive -C $target
+          if($LASTEXITCODE -ne 0){throw "SOURCE_ARCHIVE_EXTRACT_FAILED=$LASTEXITCODE"}
+          $markerFile=Get-Item "$target\SOURCE_COMMIT.txt" -ErrorAction SilentlyContinue
           if(-not $markerFile){throw 'SOURCE_COMMIT_MARKER_MISSING'}
           $marker=(Get-Content $markerFile.FullName -Raw).Trim()
           if($marker -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_MARKER_MISMATCH=$marker"}
-          $pkg=Get-ChildItem "$root\omniroute-source" -Recurse -File -Filter package.json -ErrorAction SilentlyContinue | Select-Object -First 1
-          if(-not $pkg){throw 'OMNIROUTE_SOURCE_PACKAGE_MISSING'}
-          $src=$pkg.Directory.FullName
-          $target=Join-Path $root 'omniroute-source'
-          if((Resolve-Path $src).Path -ne (Resolve-Path $target).Path){
-            $tmp=Join-Path $root '__omniroute_source_tmp'
-            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-            Move-Item $src $tmp
-            Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
-            Move-Item $tmp $target
-          }
-          Write-Host "SOURCE_BRIDGE_VERIFY=PASS $marker"
+          $pkg=Get-Content "$target\package.json" -Raw | ConvertFrom-Json
+          if($pkg.version -ne '3.8.52'){throw "OMNIROUTE_VERSION_MISMATCH=$($pkg.version)"}
+          Write-Host "SOURCE_ARCHIVE_VERIFY=PASS sha=$marker version=$($pkg.version)"
       - name: Resolve Windows Node and npm
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
