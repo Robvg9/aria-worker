@@ -119,9 +119,17 @@ async function buildLocalQwenRecoveryStep(mission: any, recovery: any) {
     .limit(8);
   if (error) throw new Error("local_qwen_recovery_device_lookup:" + error.message);
 
-  const device = (Array.isArray(data) ? data : []).find((d:any) =>
+  const qwenCandidates = (Array.isArray(data) ? data : []).filter((d:any) =>
     Array.isArray(d?.capabilities) && d.capabilities.map(String).includes("ollama.qwen3")
   );
+  const requestedLocalDeviceId = String(
+    mission?.metadata?.device_id || recovery?.device_id || recovery?.resolved_device_id || ""
+  ).trim();
+  const device = requestedLocalDeviceId
+    ? qwenCandidates.find((d:any) => String(d?.device_id || "") === requestedLocalDeviceId) || null
+    : qwenCandidates.length === 1
+      ? qwenCandidates[0]
+      : null;
   if (!device) return null;
 
   const goal = String(mission?.goal || "");
