@@ -169,17 +169,17 @@ async function qwen(prompt, timeoutMs) {
 }
 
 function capabilityProfile(deviceId) {
-  return {
-    version: 'capability-awareness-v1',
-    device_id: deviceId,
-    capabilities: [
-      {
-        id: 'computer.use',
-        operation: 'computer.use',
-        purpose: 'control real Windows desktop UI',
-        actions: ['observe', 'screenshot', 'click', 'double_click', 'type', 'keypress', 'hotkey', 'scroll', 'focus', 'wait'],
-        verification: 'observe after action',
-      },
+  const capabilities = [
+    {
+      id: 'computer.use',
+      operation: 'computer.use',
+      purpose: 'control real Windows desktop UI',
+      actions: ['observe', 'screenshot', 'click', 'double_click', 'type', 'keypress', 'hotkey', 'scroll', 'focus', 'wait'],
+      verification: 'observe after action',
+    },
+  ];
+  if (RESOURCE_PROFILE.local_llm_eligible) {
+    capabilities.push(
       {
         id: 'ollama.qwen3',
         operation: 'ollama.qwen3',
@@ -192,12 +192,18 @@ function capabilityProfile(deviceId) {
         purpose: 'observe -> decide -> act -> verify -> adapt',
         requires: ['computer.use', 'ollama.qwen3'],
       },
-    ],
+    );
+  }
+  return {
+    version: 'capability-awareness-v1',
+    device_id: deviceId,
+    capabilities,
     constraints: [
       'destructive controls blocked by default',
       'secret-like input blocked',
       'every action followed by observation',
       'mission is not successful until coverage-complete',
+      'capabilities are constrained by current hardware resource profile',
     ],
   };
 }
