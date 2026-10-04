@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "omniroute-phase5-provider-contract",
+    "file": "tests/omniroute-phase5-provider-contract.test.js",
+    "title": "OmniRoute Phase 5 Provider Contract",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba la ruta real OmniRoute → Ollama → Qwen sin habilitar todavía el runtime ARIA.",
+    "capabilities": "Valida source lock, proveedor local, Qwen, atribución y frontera de autoridad."
+  },
+  {
     "id": "omniroute-absorb-contract",
     "file": "tests/omniroute-absorb-contract.test.js",
     "title": "OmniRoute ABSORB Contract",
