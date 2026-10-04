@@ -699,9 +699,17 @@ async function signIn(email: string, password: string) {
 function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): number {
   const value = String(status ?? '').toLowerCase();
   const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
-  const ranks: Record<string, number> = { running: leased ? 100 : 90, waiting: leased ? 85 : 80, planning: 70, queued: 60, paused: 50, succeeded: 40, failed: 35, blocked: 30, cancelled: 25 };
-  return ranks[value] ?? 0;
+  if (value === 'running' && leased) return 60;
+  if (value === 'waiting' && leased) return 45;
+  // Sin lease vigente, running/waiting no se consideran ejecución LIVE.
+  if (value === 'planning') return 30;
+  if (value === 'queued') return 20;
+  if (value === 'paused') return 10;
+  if (value === 'succeeded') return 5;
+  if (value === 'failed' || value === 'blocked' || value === 'cancelled') return 4;
+  return 0;
 }
+
 function selectLiveMission(overview: any): any | null {
   const candidates=[...(Array.isArray(overview?.missions)?overview.missions:[]),overview?.active_mission].filter(Boolean);
   const unique=Array.from(new Map(candidates.map((m:any)=>[String(m.mission_id),m])).values());
@@ -2648,6 +2656,15 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
 }) {
   if(!mission)return <section className='executionHero executionHeroEmpty'><div className='executionHeroTop'><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>Sin misión activa</div><div className='muted'>Cuando ARIA tome una misión, aquí verás qué está haciendo y el resultado.</div></div><span className='pill neutral'>SIN MISIÓN</span></div></section>;
   const status=String(mission.status??'unknown').toLowerCase(), terminal=['succeeded','failed','blocked','cancelled'].includes(status), latest=events.length?events[events.length-1]:null;
+  const sessionSnapshot = {
+    mission_id: String(mission.mission_id ?? ''),
+    status,
+    updated_at: mission.updated_at ?? null,
+    last_event_at: latest?.created_at ?? null,
+    event_count: events.length
+  };
+  const latestEventFresh = !latest || (Number.isFinite(Date.parse(String(latest.created_at))) && Date.now() - Date.parse(String(latest.created_at)) < 15000);
+
   const steps=Array.isArray(mission.steps)?mission.steps:[], latestStepId=String(latest?.payload?.step_id??'').trim();
   const currentStep=steps.find((s:any)=>String(s.status)==='running')??(latestStepId?steps.find((s:any)=>String(s.id)===latestStepId):null)??steps.find((s:any)=>Number(s.index)===Number(mission.current_step)+1)??steps.find((s:any)=>!['succeeded','skipped'].includes(String(s.status)))??null;
   const total=Number(mission.total_steps??mission.step_count??steps.length), completed=Math.max(Number(mission.completed_steps??0),steps.filter((s:any)=>['succeeded','skipped'].includes(String(s.status))).length), currentIndex=Number(currentStep?.index??0)||0;
@@ -2657,7 +2674,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const recentEvents=events.slice(-6).reverse(), verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified');
   return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
     <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{statusLabel(status)}</div><div className='executionGoal'>{mission.goal}</div></div></div>
-    <div className='executionHeroActions'><span className={'pill '+tone(status)}>{statusLabel(status)}</span><span className='executionSyncText'>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
+    <div className='executionHeroActions'><span className={'pill '+tone(status)}>{statusLabel(status)}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
     <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>
     <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{nowText}</strong><small>{currentStep&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
     <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Lo que ARIA acaba de hacer</strong></div><button className='ghost executionDetailsButton' onClick={onOpen}>Detalles técnicos</button></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>Esperando la primera actividad real del runtime…</div>}</div>
