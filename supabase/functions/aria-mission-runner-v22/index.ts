@@ -2213,7 +2213,8 @@ function dependencyEvidenceForStep(step: any, results: Record<string, unknown>) 
 
 async function scheduleMissionRetryKick(missionId: string, reason: string) {
   try {
-    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
+    const { data: requestId, error } = await sb.schema("aria_internal").rpc("runner_tick_for_mission", { p_mission_id: missionId });
+    if (error) throw new Error(`runner_tick_for_mission:${error.message}`);
     console.log("[aria-runner] retry dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
     return { status: "kick_requested", request_id: requestId ?? null };
   } catch (error) {
@@ -2224,7 +2225,8 @@ async function scheduleMissionRetryKick(missionId: string, reason: string) {
 
 async function scheduleMissionContinuationKick(missionId: string, reason: string) {
   try {
-    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
+    const { data: requestId, error } = await sb.schema("aria_internal").rpc("runner_tick_for_mission", { p_mission_id: missionId });
+    if (error) throw new Error(`runner_tick_for_mission:${error.message}`);
     console.log("[aria-runner] continuation dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
     return { status: "kick_requested", request_id: requestId ?? null };
   } catch (error) {
