@@ -38,8 +38,9 @@ test('installer no longer hard-codes the legacy Windows identity', () => {
   assert.match(installer, /resource-profile\.js/);
   const agent = fs.readFileSync(require.resolve('../agents/windows/aria-agent.js'), 'utf8');
   const autonomous = fs.readFileSync(require.resolve('../agents/windows/autonomous-rwht-controller.js'), 'utf8');
-  assert.match(agent, /const capabilities=\[SHELL_OPERATION,COMPUTER_OPERATION\]/);
-  assert.match(agent, /if\(OLLAMA_ENABLED\)\{capabilities\.unshift\(AUTONOMOUS_COMPUTER_OPERATION\)/);
+  assert.match(agent, /const capabilities=\[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION\]/);
+  assert.match(agent, /if\(OLLAMA_ENABLED\)capabilities\.unshift\(OLLAMA_OPERATION\)/);
+  assert.match(agent, /const deterministicPwaRwht=.*PWA\\s\+LIVE/);
   assert.match(agent, /local_llm_resource_guard/);
   assert.match(autonomous, /local_llm_resource_guard/);
 });
