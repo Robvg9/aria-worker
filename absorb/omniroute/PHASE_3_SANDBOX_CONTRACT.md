@@ -1,6 +1,6 @@
 # OmniRoute Phase 3 — Windows Sandbox Contract
 
-Status: PREPARED / NOT CERTIFIED
+Status: PASS — HOSTED WINDOWS CERTIFIED
 
 ## Purpose
 
@@ -15,7 +15,7 @@ The sandbox must be completely isolated from ARIA's canonical runtime, state, se
 - Commit: \`3e66ff2e8cc94821b093fe57dad667b585230cd1\`
 - No \`latest\` or floating ref is allowed.
 
-The Phase 3 runner downloads an archive addressed by the exact commit SHA and records the resulting SHA-256 locally as capture evidence.
+Phase 3 may use either an exact commit-addressed source checkout or an exact commit-addressed archive. The hosted Windows gate uses an exact Git checkout and verifies the commit before installation.
 
 ## Windows isolation floor
 
@@ -56,7 +56,7 @@ Execute the sandbox installation/start/health/stop sequence:
 
 \`powershell -NoProfile -File scripts/absorb/omniroute-phase3-sandbox.ps1 -Run\`
 
-The script:
+The certification sequence:
 
 1. validates the expected Node major/minor range;
 2. creates the isolated sandbox directories;
@@ -66,12 +66,12 @@ The script:
 6. builds the exact source tree;
 7. starts OmniRoute directly with loopback binding;
 8. probes \`GET /api/health\`;
-9. records source/installation capture metadata and the archive SHA-256;
+9. records source identity and installation/build/health evidence;
 10. stops the spawned process tree.
 
 ## Fail-closed behavior
 
-The script must stop without declaring Phase 3 PASS when:
+The certification must stop without declaring Phase 3 PASS when:
 
 - the locked archive cannot be downloaded;
 - Node is outside the supported range;

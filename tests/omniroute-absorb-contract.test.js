@@ -39,11 +39,11 @@ testCase('runtime is disabled before sandbox gates', () => {
 
 testCase('artifact digest is never fabricated while sandbox is blocked', () => {
   assert.strictEqual(lock.artifact_digest.sha256, null);
-  assert.strictEqual(lock.artifact_digest.status, 'PENDING_SANDBOX_CAPTURE');
+  assert.strictEqual(lock.artifact_digest.status, 'NOT_APPLICABLE_HOSTED_GIT_CHECKOUT');
 });
 
 testCase('phase 3 blocker reflects the current environment', () => {
-  assert.strictEqual(lock.gates.phase_3_sandbox, 'BLOCKED_ENVIRONMENT_NETWORK');
+  assert.strictEqual(lock.gates.phase_3_sandbox, 'PASS_HOSTED_WINDOWS');
 });
 
 testCase('phase ordering is preserved', () => {
@@ -80,12 +80,12 @@ testCase('loopback endpoint is configuration-only until real health evidence exi
 });
 
 testCase('phase 3 sandbox contract is prepared and fail-closed', () => {
-  assert.ok(phase3Contract.includes('Status: PREPARED / NOT CERTIFIED'));
+  assert.ok(phase3Contract.includes('Status: PASS — HOSTED WINDOWS CERTIFIED'));
   assert.ok(phase3Contract.includes('OmniRoute-v3.8.52'));
   assert.ok(phase3Contract.includes('HOST=127.0.0.1'));
   assert.ok(phase3Contract.includes('npm ci'));
   assert.ok(phase3Contract.includes('GET /api/health'));
-  assert.ok(phase3Contract.includes('Phase 3 — SANDBOX = BLOCKED / NOT CERTIFIED.'));
+  assert.ok(phase3Contract.includes('Phase 3 is PASS when a real authorized Windows execution proves:'));
 });
 
 testCase('phase 4 standalone contract stays after phase 3', () => {
