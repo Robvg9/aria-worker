@@ -2424,6 +2424,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida single-flight, reconciliación de cola, prioridad de objetivo principal, aceptación explícita del Idea Analyzer y recuperación de continuaciones."
   },
   {
+    "id": "meditation-rwht-bounded-coverage-close",
+    "file": "tests/meditation-rwht-bounded-coverage-close.test.js",
+    "title": "Meditation RWHT Bounded Coverage Close",
+    "category": "Meditación IA / RWHT",
+    "includedInNpmTest": false,
+    "how": "Comprueba que una corrida acotada que ya completó cobertura y verificación no termine falsamente como bounded_run_exhausted.",
+    "capabilities": "Protege el cierre terminal de Meditation IA cuando la cobertura PWA y la evidencia ya están completas."
+  },
+  {
     "id": "mistral-adapter",
     "file": "tests/mistral-adapter.test.js",
     "title": "Mistral Direct Provider Adapter",
