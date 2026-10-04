@@ -53,3 +53,8 @@ test('Windows agent advertises deterministic autonomous RWHT without requiring q
   assert.match(source, /const deterministicPwaRwht=.*RWHT_CONTROL_DISCOVERY_VERIFY.*ARIA\\\\s\\+PWA/);
   assert.doesNotMatch(source, /async function executeAutonomousRwhtJob\\(job\\)\\{if\\(!OLLAMA_ENABLED\\)/);
 });
+
+
+test('Windows deterministic RWHT recognizes canonical PWA LIVE goal wording', () => {
+  assert.match(source, /deterministicPwaRwht=.*PWA\\s\\+LIVE/);
+});
