@@ -57,6 +57,8 @@ assert.match(runner,/function scheduleMissionRetryKick\(missionId: string, reaso
 assert.match(runner,/rpc\(\"runner_tick_for_mission\", \{ p_mission_id: missionId \}\)/);
 assert.match(runner,/async function scheduleMissionRetryKick/);
 assert.match(runner,/await scheduleMissionRetryKick\(missionId, "retry_scheduled"\)/);
+assert.equal((runner.match(/sb\.schema\("aria_internal"\)\.rpc\("runner_tick_for_mission"/g) || []).length,2);
+assert.equal((direct.match(/sb\.schema\("aria_internal"\)\.rpc\("runner_tick_for_mission"/g) || []).length,1);
 assert.match(runner,/async function scheduleMissionContinuationKick\(missionId: string, reason: string\)/);
 assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "retry_exhausted_replan"\)/);
 assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "next_ready_batch"\)/);
