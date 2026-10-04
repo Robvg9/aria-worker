@@ -98,12 +98,17 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $root="$env:GITHUB_WORKSPACE"
-          $archive="$env:GITHUB_WORKSPACE\omniroute-source-3e66ff2e.tar.gz"
-          $target="$env:GITHUB_WORKSPACE\omniroute-source"
-          if(-not (Test-Path $archive)){throw 'SOURCE_ARCHIVE_MISSING'}
-          Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+          $artifactZip="$root\omniroute-artifact.zip"
+          $unpack="$root\omniroute-artifact-unpacked"
+          $target="$root\omniroute-source"
+          if(-not (Test-Path "$root\omniroute-source-3e66ff2e.tar.gz")){throw 'SOURCE_ARTIFACT_ARCHIVE_MISSING'}
+          Move-Item "$root\omniroute-source-3e66ff2e.tar.gz" $artifactZip -Force
+          Remove-Item $unpack,$target -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $artifactZip -DestinationPath $unpack -Force
+          $inner=Get-ChildItem $unpack -Recurse -File -Filter '*.tar.gz' | Select-Object -First 1
+          if(-not $inner){throw 'SOURCE_INNER_TARGZ_MISSING'}
           New-Item -ItemType Directory -Force -Path $target | Out-Null
-          tar.exe -xzf $archive -C $target
+          tar.exe -xzf $inner.FullName -C $target
           if($LASTEXITCODE -ne 0){throw "SOURCE_ARCHIVE_EXTRACT_FAILED=$LASTEXITCODE"}
           $markerFile=Get-Item "$target\SOURCE_COMMIT.txt" -ErrorAction SilentlyContinue
           if(-not $markerFile){throw 'SOURCE_COMMIT_MARKER_MISSING'}
