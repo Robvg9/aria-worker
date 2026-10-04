@@ -43,6 +43,14 @@ jobs:
           if($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_COMMIT_MISMATCH=$head"}
           Set-Content -Path "${{ github.workspace }}\SOURCE_COMMIT.txt" -Value $head -Encoding utf8
           Write-Host "SOURCE_BRIDGE=PASS $head"
+      - name: Trim source bridge to runtime files
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
+          Remove-Item .git,.github,docs,tests,changelog.d,CONTRIBUTING.md,ROADMAP.md,AGENTS.md,CLAUDE.md,GEMINI.md -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item .i18n-state.json,.mailmap,.gitattributes,.gitignore,.gitleaks.toml,.markdownlint.json,.prettierignore,.vale.ini,.zizmor.yml -Force -ErrorAction SilentlyContinue
+          Write-Host "SOURCE_RUNTIME_TRIM=PASS"
       - name: Upload exact source bridge
         id: upload_source
         uses: actions/upload-artifact@v4
