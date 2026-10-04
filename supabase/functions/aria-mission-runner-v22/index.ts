@@ -2211,14 +2211,14 @@ function dependencyEvidenceForStep(step: any, results: Record<string, unknown>) 
 }
 
 
-function scheduleMissionRetryKick(missionId: string, reason: string) {
-  const promise = rpc("runner_tick_for_mission", { p_mission_id: missionId })
-    .then((requestId) => console.log("[aria-runner] retry dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null })))
-    .catch((error) => console.error("[aria-runner] retry dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) })));
+async function scheduleMissionRetryKick(missionId: string, reason: string) {
   try {
-    EdgeRuntime.waitUntil(promise);
-  } catch {
-    void promise;
+    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
+    console.log("[aria-runner] retry dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
+    return { status: "kick_requested", request_id: requestId ?? null };
+  } catch (error) {
+    console.error("[aria-runner] retry dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
+    return { status: "kick_failed", error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -3355,7 +3355,7 @@ Deno.serve(async (request) => {
             lease_until: null,
           });
           await emitEvent(missionId, "step_retrying", { step_id: retryStepId, executor_type: executorType(retryableFailure.step), next_attempt: Number(attempts[retryStepId]) + 1 });
-          scheduleMissionRetryKick(missionId, "retry_scheduled");
+          await scheduleMissionRetryKick(missionId, "retry_scheduled");
           return out({
             ok: true,
             status: "running",
