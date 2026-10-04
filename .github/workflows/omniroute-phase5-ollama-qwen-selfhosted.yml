@@ -31,7 +31,7 @@ jobs:
           path: aria-worker
 
       - name: Acquire exact OmniRoute source via partial Git fetch
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           $source="$env:GITHUB_WORKSPACE\omniroute-source"
@@ -47,7 +47,7 @@ jobs:
           Write-Host "SOURCE_ACQUISITION=PASS $head"
 
       - name: Verify exact OmniRoute source
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
@@ -56,7 +56,7 @@ jobs:
           Write-Host "SOURCE_COMMIT=PASS $head"
 
       - name: Resolve Windows Node and npm
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           $node='D:\Databank\node\node.exe'
@@ -67,7 +67,7 @@ jobs:
           "ARIA_NPM_PATH=$npm" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Verify native Ollama and Qwen model
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           if(-not (Test-Path 'D:\Databank\Ollama\ollama.exe')){throw 'OLLAMA_NOT_FOUND'}
@@ -77,7 +77,7 @@ jobs:
           Write-Host 'QWEN3_4B=PASS'
 
       - name: Direct Qwen inference baseline
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           $body=@{model='qwen3:4b';messages=@(@{role='user';content='Return exactly OMNIROUTE_QWEN_LIVE_OK'});stream=$false;temperature=0;options=@{temperature=0;num_predict=32}} | ConvertTo-Json -Depth 8
@@ -87,14 +87,14 @@ jobs:
           if($content -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'DIRECT_QWEN_MARKER_MISSING'}
 
       - name: Ensure isolated Phase 5 port is free
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           if(Get-NetTCPConnection -LocalPort 20130 -State Listen -ErrorAction SilentlyContinue){throw 'PHASE5_PORT_20130_OCCUPIED'}
           Write-Host 'PHASE5_PORT=FREE'
 
       - name: Install exact OmniRoute
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         working-directory: omniroute-source
         run: |
           $ErrorActionPreference='Stop'
@@ -104,7 +104,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "NPM_CI_FAILED=$LASTEXITCODE"}
 
       - name: Build exact OmniRoute
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         working-directory: omniroute-source
         env:
           OMNIROUTE_USE_TURBOPACK: '0'
@@ -116,7 +116,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "BUILD_FAILED=$LASTEXITCODE"}
 
       - name: Start isolated OmniRoute
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         working-directory: omniroute-source
         run: |
           $ErrorActionPreference='Stop'
@@ -148,7 +148,7 @@ jobs:
           Write-Host 'OMNIROUTE_PHASE5_START=PASS'
 
       - name: Run real OmniRoute → Ollama → Qwen smoke
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           Set-Location "$env:GITHUB_WORKSPACE\aria-worker"
@@ -157,7 +157,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "PHASE5_SMOKE_FAILED=$LASTEXITCODE"}
 
       - name: Persist Phase 5 evidence
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           $receipt=Join-Path $env:PHASE5_CAPTURE_DIR 'PHASE5_SMOKE_RECEIPT.json'
@@ -168,7 +168,7 @@ jobs:
 
       - name: Cleanup OmniRoute
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='SilentlyContinue'
           if($env:OMNIROUTE_PID){& taskkill.exe /PID ([int]$env:OMNIROUTE_PID) /T /F | Out-Null}
