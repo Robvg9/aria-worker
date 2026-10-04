@@ -72,6 +72,8 @@ jobs:
           if(-not (Test-Path $ollama)){throw "OLLAMA_BINARY_NOT_FOUND=$ollama"}
           "OLLAMA_BINARY=$ollama"
           & $ollama --version
+          "$env:LOCALAPPDATA\Programs\Ollama" | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          "OLLAMA_EXE=$ollama" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Start Ollama service
         shell: powershell
@@ -90,8 +92,8 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          ollama pull qwen3:4b
-          ollama list
+          & $env:OLLAMA_EXE pull qwen3:4b
+          & $env:OLLAMA_EXE list
 
       - name: Verify direct Qwen baseline
         shell: powershell
