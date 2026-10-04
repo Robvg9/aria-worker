@@ -20,6 +20,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta stale device, deploy drift, contract mismatch, duplicate job, lease expirado, timeout, fallo de verificación, estado stale de UI, proveedor/ejecutor no disponible y saturación."
   },
   {
+    "id": "lacueva-recovery-contract",
+    "file": "tests/lacueva-recovery-contract.test.js",
+    "title": "LaCueva Recovery Contract",
+    "category": "Windows / recursos / recuperación",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la recuperación de LaCueva mantenga el nodo como worker ligero, deshabilite Ollama y use únicamente la tarea canónica del agente.",
+    "capabilities": "Detecta regresiones de identidad, autostart, Ollama, recuperación y protección de nodos Windows de bajos recursos."
+  },
+  {
     "id": "autonomous-windows-rwht-controller",
     "file": "tests/autonomous-windows-rwht-controller.test.js",
     "title": "Autonomous Windows RWHT Controller",
@@ -2259,6 +2268,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Verifica que el ciclo de vida del job Windows persista start/result antes de la telemetría no crítica.",
     "capabilities": "Detecta bloqueos del agente, telemetría no crítica y pérdida de estados started/completed."
+  },
+  {
+    "id": "windows-agent-resource-guard",
+    "file": "tests/windows-agent-resource-guard.test.js",
+    "title": "Windows Agent Resource Guard",
+    "category": "Windows / rendimiento",
+    "includedInNpmTest": true,
+    "how": "Verifica que el agente Windows clasifique nodos débiles como worker-light y bloquee inferencia local cuando los recursos son insuficientes.",
+    "capabilities": "Protege RAM/CPU, evita carga Ollama/Qwen indebida y comprueba que el instalador y runtime conserven la identidad Windows canónica."
   },
   {
     "id": "world-model-change-risk.integration",

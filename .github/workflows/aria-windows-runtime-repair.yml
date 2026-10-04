@@ -9,13 +9,8 @@ on:
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/**'
       - '.github/workflows/aria-windows-runtime-repair.yml'
-  pull_request:
-    paths:
-      - 'agents/windows/**'
-      - 'autonomy/meditation-ia-controller.js'
-      - 'autonomy/windows-shell-executor.js'
-      - 'computer-use/**'
-      - '.github/workflows/aria-windows-runtime-repair.yml'
+  # Physical runtime repair is intentionally NOT triggered by pull_request.
+  # PR code must never execute implicitly on a persistent self-hosted Windows runner.
   workflow_dispatch:
 
 permissions:
@@ -27,11 +22,26 @@ defaults:
 
 jobs:
   repair:
+    # Physical maintenance must never execute from an arbitrary PR on a shared Windows runner.
+    # It runs only after merge to main or explicit manual dispatch; identity guard still gates the machine.
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
     steps:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
+
+      - name: Guard physical runner identity before maintenance
+        run: |
+          $ErrorActionPreference='Stop'
+          $configPath='D:\ARIA-Windows-Agent\Data\config.json'
+          if(-not(Test-Path $configPath)){throw "LaCueva runner identity guard failed: missing $configPath"}
+          $config=Get-Content -Raw -Path $configPath | ConvertFrom-Json
+          $expected='windows-lacueva-780886'
+          $actual=[string]$config.device_id
+          if($actual -ne $expected){throw "WRONG_RUNNER_IDENTITY: expected=$expected actual=$actual. No maintenance will run on this runner."}
+          if(-not (Get-CimInstance Win32_ComputerSystem)){throw 'LaCueva runner identity guard failed: hardware probe unavailable'}
+          Write-Host "RUNNER_IDENTITY_GUARD=PASS DEVICE_ID=$actual COMPUTERNAME=$env:COMPUTERNAME"
 
       - name: Safe C cleanup and relocate ARIA caches to D
         run: |
@@ -102,28 +112,35 @@ jobs:
           $srcAgent=Join-Path $env:GITHUB_WORKSPACE 'agents\windows\aria-agent.js'
           $srcRwht=Join-Path $env:GITHUB_WORKSPACE 'agents\windows\autonomous-rwht-controller.js'
           $srcShell=Join-Path $env:GITHUB_WORKSPACE 'autonomy\windows-shell-executor.js'
+          $srcProfile=Join-Path $env:GITHUB_WORKSPACE 'agents\windows\resource-profile.js'
           $dstAgent='D:\ARIA-Windows-Agent\Runtime\windows\aria-agent.js'
           $dstRwht='D:\ARIA-Windows-Agent\Runtime\windows\autonomous-rwht-controller.js'
           $dstShell='D:\ARIA-Windows-Agent\Runtime\windows\windows-shell-executor.js'
-          foreach($p in @($srcAgent,$srcRwht,$srcShell)){if(-not(Test-Path $p)){throw "Windows runtime source missing: $p"}}
+          $dstProfile='D:\ARIA-Windows-Agent\Runtime\windows\resource-profile.js'
+          foreach($p in @($srcAgent,$srcRwht,$srcShell,$srcProfile)){if(-not(Test-Path $p)){throw "Windows runtime source missing: $p"}}
           New-Item -ItemType Directory -Force -Path (Split-Path $dstAgent),(Split-Path $dstRwht)|Out-Null
-          $agentChanged=$true;$rwhtChanged=$true;$shellChanged=$true
+          $agentChanged=$true;$rwhtChanged=$true;$shellChanged=$true;$profileChanged=$true
           if(Test-Path $dstAgent){$agentChanged=((Get-FileHash $srcAgent -Algorithm SHA256).Hash -ne (Get-FileHash $dstAgent -Algorithm SHA256).Hash)}
           if(Test-Path $dstRwht){$rwhtChanged=((Get-FileHash $srcRwht -Algorithm SHA256).Hash -ne (Get-FileHash $dstRwht -Algorithm SHA256).Hash)}
           if(Test-Path $dstShell){$shellChanged=((Get-FileHash $srcShell -Algorithm SHA256).Hash -ne (Get-FileHash $dstShell -Algorithm SHA256).Hash)}
+          if(Test-Path $dstProfile){$profileChanged=((Get-FileHash $srcProfile -Algorithm SHA256).Hash -ne (Get-FileHash $dstProfile -Algorithm SHA256).Hash)}
           Write-Host "WINDOWS_AGENT_CHANGED=$agentChanged"
           Write-Host "WINDOWS_RWHT_CONTROLLER_CHANGED=$rwhtChanged"
           Write-Host "WINDOWS_SHELL_EXECUTOR_CHANGED=$shellChanged"
+          Write-Host "WINDOWS_RESOURCE_PROFILE_CHANGED=$profileChanged"
           if($agentChanged){Copy-Item -LiteralPath $srcAgent -Destination $dstAgent -Force}
           if($rwhtChanged){Copy-Item -LiteralPath $srcRwht -Destination $dstRwht -Force}
           if($shellChanged){Copy-Item -LiteralPath $srcShell -Destination $dstShell -Force}
+          if($profileChanged){Copy-Item -LiteralPath $srcProfile -Destination $dstProfile -Force}
           & node --check $dstAgent
           if($LASTEXITCODE -ne 0){throw 'Windows agent syntax check failed'}
           & node --check $dstRwht
           if($LASTEXITCODE -ne 0){throw 'Autonomous RWHT controller syntax check failed'}
           & node --check $dstShell
           if($LASTEXITCODE -ne 0){throw 'Windows shell executor syntax check failed'}
-          $needsReload=$agentChanged -or $rwhtChanged -or $shellChanged
+          & node --check $dstProfile
+          if($LASTEXITCODE -ne 0){throw 'Windows resource profile syntax check failed'}
+          $needsReload=$agentChanged -or $rwhtChanged -or $shellChanged -or $profileChanged
           if(-not $needsReload){Write-Host 'WINDOWS_AUTONOMOUS_RWHT_RUNTIME_SYNC=UNCHANGED';exit 0}
           $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$agentPidReload=0
           if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$agentPidReload)}

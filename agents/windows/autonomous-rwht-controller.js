@@ -15,6 +15,8 @@ try {
 }
 
 const VERSION = 'aria-windows-autonomous-rwht-v1.2.3';
+const { getWindowsResourceProfile } = require('./resource-profile');
+const RESOURCE_PROFILE = getWindowsResourceProfile();
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.ARIA_OLLAMA_MODEL || 'qwen3:0.6b';
 let CDP_BASE_URL = process.env.ARIA_CHROME_CDP_URL || 'http://127.0.0.1:9222';
@@ -144,6 +146,9 @@ function parseJson(text) {
 }
 
 async function qwen(prompt, timeoutMs) {
+  if (!RESOURCE_PROFILE.local_llm_eligible) {
+    throw new Error('local_llm_resource_guard:' + RESOURCE_PROFILE.guard_reason);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs || 120000));
   try {
@@ -164,17 +169,17 @@ async function qwen(prompt, timeoutMs) {
 }
 
 function capabilityProfile(deviceId) {
-  return {
-    version: 'capability-awareness-v1',
-    device_id: deviceId,
-    capabilities: [
-      {
-        id: 'computer.use',
-        operation: 'computer.use',
-        purpose: 'control real Windows desktop UI',
-        actions: ['observe', 'screenshot', 'click', 'double_click', 'type', 'keypress', 'hotkey', 'scroll', 'focus', 'wait'],
-        verification: 'observe after action',
-      },
+  const capabilities = [
+    {
+      id: 'computer.use',
+      operation: 'computer.use',
+      purpose: 'control real Windows desktop UI',
+      actions: ['observe', 'screenshot', 'click', 'double_click', 'type', 'keypress', 'hotkey', 'scroll', 'focus', 'wait'],
+      verification: 'observe after action',
+    },
+  ];
+  if (RESOURCE_PROFILE.local_llm_eligible) {
+    capabilities.push(
       {
         id: 'ollama.qwen3',
         operation: 'ollama.qwen3',
@@ -187,12 +192,18 @@ function capabilityProfile(deviceId) {
         purpose: 'observe -> decide -> act -> verify -> adapt',
         requires: ['computer.use', 'ollama.qwen3'],
       },
-    ],
+    );
+  }
+  return {
+    version: 'capability-awareness-v1',
+    device_id: deviceId,
+    capabilities,
     constraints: [
       'destructive controls blocked by default',
       'secret-like input blocked',
       'every action followed by observation',
       'mission is not successful until coverage-complete',
+      'capabilities are constrained by current hardware resource profile',
     ],
   };
 }
@@ -578,6 +589,17 @@ async function navigate(adapter, url) {
 }
 
 async function runAutonomousRwht(options) {
+  if (!RESOURCE_PROFILE.local_llm_eligible) {
+    return {
+      status: 'failed',
+      verified: false,
+      error: 'local_llm_resource_guard:' + RESOURCE_PROFILE.guard_reason,
+      metadata: {
+        resource_profile: RESOURCE_PROFILE,
+        guard: 'worker-light',
+      },
+    };
+  }
   const o = options || {};
   const missionId = o.mission_id || ('rwht-' + Date.now());
   const goal = o.goal || 'Ejecutar RWHT autónomo desde PC.';

@@ -1,3 +1,7 @@
+param(
+    [string]$DeviceId = $env:ARIA_DEVICE_ID
+)
+
 $ErrorActionPreference = 'Stop'
 
 $AgentRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -13,12 +17,13 @@ $DesktopSmokePath = Join-Path $LogDir 'desktop-smoke.json'
 $TaskName = 'ARIA-Windows-Local-Agent'
 $NodePath = (Get-Command node -ErrorAction Stop).Source
 $GatewayUrl = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-device-gateway'
-$DeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+if ([string]::IsNullOrWhiteSpace($DeviceId)) { throw 'ARIA_DEVICE_ID is required. Pass -DeviceId or set ARIA_DEVICE_ID; installer no longer uses a hard-coded device identity.' }
 
 foreach ($dir in @($RuntimeRoot, $RuntimeDir, $DataDir, $LogDir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
 $requiredSources = @{
     'aria-agent.js' = Join-Path $AgentRoot 'aria-agent.js'
+    'resource-profile.js' = Join-Path $AgentRoot 'resource-profile.js'
     'autonomous-rwht-controller.js' = Join-Path $AgentRoot 'autonomous-rwht-controller.js'
     'run-agent.ps1' = Join-Path $AgentRoot 'run-agent.ps1'
     'windows-shell-executor.js' = Join-Path $RepoRoot 'autonomy\windows-shell-executor.js'
@@ -62,6 +67,13 @@ else {
 }
 if (-not (Test-Path $TokenPath)) { throw "ARIA token store was not created: $TokenPath" }
 
+$cs = Get-CimInstance Win32_ComputerSystem
+$cpuInfo = Get-CimInstance Win32_Processor | Select-Object -First 1
+$ramBytes = [uint64]$cs.TotalPhysicalMemory
+$logicalCpuCount = [int]$cpuInfo.NumberOfLogicalProcessors
+$localLlmEligible = ($ramBytes -ge 8GB -and $logicalCpuCount -ge 4)
+$baseCapabilities = @('shell.execute','computer.use','desktop.screenshot','desktop.uia')
+$capabilities = if ($localLlmEligible) { @('ollama.qwen3') + $baseCapabilities } else { $baseCapabilities }
 $config = [ordered]@{
     device_id = $DeviceId
     gateway_url = $GatewayUrl
@@ -75,9 +87,21 @@ $config = [ordered]@{
     poll_ms = 12000
     gateway_timeout_ms = 15000
     gateway_retries = 1
-    capabilities = @('ollama.qwen3','shell.execute','computer.use','desktop.screenshot','desktop.uia')
+    capabilities = $capabilities
+    ollama_enabled = $localLlmEligible
+    hardware_profile = [ordered]@{
+        ram_gb = [math]::Round($ramBytes / 1GB, 2)
+        logical_cpus = $logicalCpuCount
+        local_llm_eligible = $localLlmEligible
+        profile = if ($localLlmEligible) { 'standard' } else { 'worker-light' }
+    }
 }
-$config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
+$config | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
+if (-not $localLlmEligible) {
+    Write-Host "RESOURCE_GUARD: local LLM disabled for this Windows node (RAM=$([math]::Round($ramBytes / 1GB,2))GB, logical_cpus=$logicalCpuCount)."
+    Disable-ScheduledTask -TaskName 'ARIA-Ollama-Local' -ErrorAction SilentlyContinue | Out-Null
+    Get-Process -Name ollama -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host '=== DESKTOP ACCESS SMOKE TEST ==='
 $smokeScript = "const { executeWindowsDesktop } = require('D:\\ARIA-Windows-Agent\\Runtime\\windows\\windows-desktop-adapter.js'); (async()=>{const r=await executeWindowsDesktop({action:'screenshot'},{timeout_ms:20000}); console.log(JSON.stringify({status:r.status,action:r.action,width:r.width||null,height:r.height||null,version:r.version||null,capture_method:r.capture_method||null,apartment:r.apartment||null,error:r.error||null})); if(r.status!=='succeeded') process.exit(1)})().catch(e=>{console.error(e);process.exit(2)})"
