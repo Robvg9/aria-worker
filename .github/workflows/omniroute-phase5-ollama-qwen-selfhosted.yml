@@ -164,7 +164,9 @@ jobs:
           $ErrorActionPreference='Stop'
           $env:NPM_CONFIG_CACHE='D:\ARIA-Windows-Agent\Sandbox\OmniRoute-Phase5\npm-cache'
           New-Item -ItemType Directory -Force -Path $env:NPM_CONFIG_CACHE | Out-Null
-          & $env:ARIA_NPM_PATH ci --no-audit --no-fund
+          $env:NPM_CONFIG_CACHE='D:\Databank\npm-cache'
+          New-Item -ItemType Directory -Force -Path $env:NPM_CONFIG_CACHE | Out-Null
+          & $env:ARIA_NPM_PATH ci --prefer-offline --no-audit --no-fund --cache $env:NPM_CONFIG_CACHE
           if($LASTEXITCODE -ne 0){throw "NPM_CI_FAILED=$LASTEXITCODE"}
 
       - name: Build exact OmniRoute
