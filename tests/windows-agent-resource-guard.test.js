@@ -34,7 +34,8 @@ test('installer no longer hard-codes the legacy Windows identity', () => {
   assert.match(installer, /param\(\s*\[string\]\$DeviceId\s*=\s*\$env:ARIA_DEVICE_ID/s);
   assert.match(installer, /ARIA_DEVICE_ID is required/);
   assert.doesNotMatch(installer, /windows-fe722cc6681e4f9c9cc35f5ebbb0a089/);
-  assert.match(installer, /ollama_enabled = \$localLlmEligible/);
+  assert.match(installer, /ollama_enabled\s*=\s*\$localLlmEligible/);
+  assert.match(installer, /resource-profile\.js/);
 });
 
 assert.ok(MIN_LOCAL_LLM_RAM_BYTES > 0);
