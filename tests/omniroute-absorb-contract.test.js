@@ -117,7 +117,7 @@ testCase('phase 3 runner is locked to the exact source and isolated resources', 
   assert.ok(phase3Script.includes('$env:DATA_DIR = $DataDir'));
   assert.ok(phase3Script.includes('$env:NPM_CONFIG_CACHE = $CacheDir'));
   assert.ok(phase3Script.includes('D:\\Databank\\node\\node.exe'));
-  assert.ok(phase3Script.includes('D:\\\\Databank\\\\node\\\\npm.cmd'));
+  assert.ok(phase3Script.includes('D:\\Databank\\node\\npm.cmd'));
   assert.ok(phase3Script.includes('taskkill.exe /PID $Server.Id /T /F'));
   assert.ok(phase3Script.includes('PHASE3_SANDBOX_EXECUTION=PASS'));
 });
