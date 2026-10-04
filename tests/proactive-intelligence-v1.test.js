@@ -68,8 +68,10 @@ const NOW = '2026-10-04T02:00:00.000Z';
     resources: [{ model_id: 'model-unknown', status: 'unknown', live_verified: false }],
     queue: { queued_jobs: 1, eligible_online_executors: null, online_executors: null }
   }, { now: NOW });
-  assert.equal(unknown.status, 'quiet');
-  assert.equal(unknown.recommendation_count, 0);
+  assert.equal(unknown.status, 'attention');
+  assert.equal(unknown.recommendation_count, 1);
+  assert.equal(unknown.recommendations[0].kind, 'queue_state_unknown');
+  assert.equal(unknown.recommendations[0].priority, 'normal');
 
   const deterministicInput = {
     queue: { queued_jobs: 2, eligible_online_executors: 0 },
