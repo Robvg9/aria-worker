@@ -26,12 +26,12 @@ jobs:
         run: |
           set -euo pipefail
           case "$HEAD" in
-            pc-lacueva/*|pc-otra/*|android/*|aria/*|feat/*|fix/*|chore/*|refactor/*|docs/*|test/*|ops/*|hotfix/*)
+            pc-lacueva/*|pc-otra/*|android/*|aria/*|absorb/*|feat/*|fix/*|chore/*|refactor/*|docs/*|test/*|ops/*|hotfix/*)
               echo "Accepted development lane: $HEAD"
               ;;
             *)
               echo "Rejected branch name: $HEAD"
-              echo "Use a dedicated lane such as pc-lacueva/<scope>, pc-otra/<scope>, android/<scope>, feat/<scope>, fix/<scope>, or aria/<scope>."
+              echo "Use a dedicated lane such as pc-lacueva/<scope>, pc-otra/<scope>, android/<scope>, absorb/<scope>, feat/<scope>, fix/<scope>, or aria/<scope>."
               exit 1
               ;;
           esac
