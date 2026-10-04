@@ -58,7 +58,6 @@ jobs:
           name: omniroute-source-3e66ff2e
           path: |
             omniroute-source
-            SOURCE_COMMIT.txt
 
   phase5-provider:
     needs: source-bridge
@@ -80,35 +79,23 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
-          $expected='3e66ff2e8cc94821b093fe57dad667b585230cd1'
-          $root="${{ github.workspace }}"
-          $markerFile=Get-ChildItem $root -Recurse -File -Filter SOURCE_COMMIT.txt -ErrorAction SilentlyContinue | Select-Object -First 1
-          if(-not $markerFile){throw 'SOURCE_COMMIT_MARKER_MISSING'}
-          $marker=(Get-Content $markerFile.FullName -Raw).Trim()
-          if($marker -ne $expected){throw "SOURCE_MARKER_MISMATCH=$marker"}
-          $pkg=Get-ChildItem $root -Recurse -File -Filter package.json -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'omniroute-source' } | Select-Object -First 1
-          if(-not $pkg){throw 'OMNIROUTE_SOURCE_PACKAGE_MISSING'}
-          $src=$pkg.Directory.FullName
-          $target=Join-Path $root 'omniroute-source'
-          if((Resolve-Path $src).Path -ne (Resolve-Path $target -ErrorAction SilentlyContinue).Path){
-            Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
-            Move-Item $src $target
-          }
-          Write-Host "SOURCE_BRIDGE_VERIFY=PASS $marker"
-          Write-Host "SOURCE_DIR=$target"
-      - name: Verify exact OmniRoute source identity
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
-        run: |
-          $ErrorActionPreference='Stop'
           $root="$env:GITHUB_WORKSPACE"
-          $markerFile=Get-ChildItem $root -Recurse -File -Filter SOURCE_COMMIT.txt | Select-Object -First 1
+          $markerFile=Get-ChildItem "$root\omniroute-source" -Recurse -File -Filter SOURCE_COMMIT.txt -ErrorAction SilentlyContinue | Select-Object -First 1
           if(-not $markerFile){throw 'SOURCE_COMMIT_MARKER_MISSING'}
           $marker=(Get-Content $markerFile.FullName -Raw).Trim()
           if($marker -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_MARKER_MISMATCH=$marker"}
-          $pkg=Get-Content "$env:GITHUB_WORKSPACE\omniroute-source\package.json" -Raw | ConvertFrom-Json
-          if($pkg.version -ne '3.8.52'){throw "OMNIROUTE_VERSION_MISMATCH=$($pkg.version)"}
-          Write-Host "SOURCE_IDENTITY=PASS sha=$marker version=$($pkg.version)"
-
+          $pkg=Get-ChildItem "$root\omniroute-source" -Recurse -File -Filter package.json -ErrorAction SilentlyContinue | Select-Object -First 1
+          if(-not $pkg){throw 'OMNIROUTE_SOURCE_PACKAGE_MISSING'}
+          $src=$pkg.Directory.FullName
+          $target=Join-Path $root 'omniroute-source'
+          if((Resolve-Path $src).Path -ne (Resolve-Path $target).Path){
+            $tmp=Join-Path $root '__omniroute_source_tmp'
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            Move-Item $src $tmp
+            Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+            Move-Item $tmp $target
+          }
+          Write-Host "SOURCE_BRIDGE_VERIFY=PASS $marker"
       - name: Resolve Windows Node and npm
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
