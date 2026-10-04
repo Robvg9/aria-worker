@@ -36,7 +36,7 @@ assert.match(app,/Lo que ARIA acaba de hacer|Lo que ARIA acaba de hacer/);
 assert.match(app,/executionHumanNow/);
 assert.match(app,/executionHumanLog/);
 assert.match(app,/executionOutcome/);
-assert.match(app,/api\('\/missions\/' \+ encodeURIComponent\(missionId\) \+ '\/events\?live='/);
+assert.match(app,/api\('\/missions\/'\s*\+\s*encodeURIComponent\(missionId\)\s*\+\s*'\/events\?live='/);
 assert.match(app,/MEDITATION_LIVE_POLL_MS = 2500/);
 assert.match(app,/useLiveSync\(load, session\.accessToken, MEDITATION_LIVE_POLL_MS\)/);
 console.log('MEDITATION HUMAN LIVE EXECUTION CONTRACT: PASS');
