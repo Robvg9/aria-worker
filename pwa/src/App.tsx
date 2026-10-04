@@ -1362,13 +1362,24 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     try {
       const data = await api('/meditation/notifications?limit=50', session.accessToken);
       const next = Array.isArray(data?.notifications) ? data.notifications as PwaNotificationItem[] : [];
-      setItems(next);
-      setUnread(Number(data?.unread_count ?? 0));
+      const compact: PwaNotificationItem[] = [];
+      const compactKeys = new Set<string>();
+      for (const item of next) {
+        const copy = humanizeMeditationNotification(item);
+        const key = item.mission_id
+          ? String(item.mission_id) + '|' + copy.title + '|' + copy.body
+          : String(item.notification_id);
+        if (compactKeys.has(key)) continue;
+        compactKeys.add(key);
+        compact.push(item);
+      }
+      setItems(compact);
+      setUnread(compact.filter(item => !item.read_at).length);
 
       let seen: string[] = [];
       try { seen = JSON.parse(localStorage.getItem(seenKey) || '[]'); } catch {}
       const seenSet = new Set(seen.map(String));
-      const fresh = next.filter(item => !seenSet.has(String(item.notification_id)));
+      const fresh = compact.filter(item => !seenSet.has(String(item.notification_id)));
 
       if (firstSync.current) {
         next.forEach(item => seenSet.add(String(item.notification_id)));
@@ -2648,8 +2659,8 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
     <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{statusLabel(status)}</div><div className='executionGoal'>{goalPreview}</div></div></div>
     <div className='executionHeroActions'><span className={'pill '+tone(status)}>{statusLabel(status)}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
     {status !== 'queued' && <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>}
-    <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{nowText}</strong><small>{currentStep&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
-    <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Última actividad</strong></div></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>{latest && !latestEventFresh ? 'No hay actividad nueva confirmada; ARIA no inventará una acción.' : 'Esperando la primera actividad real del runtime…'}</div>}</div>
+    <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{nowText}</strong><small>{currentStep&&status!=='queued'&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':status==='queued'?'El runner todavía no ha tomado esta misión.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
+    <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Última actividad</strong></div></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>{status==='queued' ? 'La misión está esperando ejecución; aquí aparecerá la actividad cuando el runner la tome.' : latest && !latestEventFresh ? 'No hay actividad nueva confirmada; ARIA no inventará una acción.' : 'Esperando la primera actividad real del runtime…'}</div>}</div>
     {terminal&&<div className='executionOutcome'><div className='executionLabel'>RESULTADO</div><strong>{resultText}</strong><small>{verified?'Verificación registrada. La misión queda cerrada.':'El estado final y la evidencia disponible quedan conservados.'}</small></div>}
     <div className='executionLiveControl'><span className='muted'>{syncing?'Actualizando estado…':'Estado actualizado automáticamente.'}</span></div>
   </section>;
