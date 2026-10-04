@@ -583,6 +583,17 @@ async function navigate(adapter, url) {
 }
 
 async function runAutonomousRwht(options) {
+  if (!RESOURCE_PROFILE.local_llm_eligible) {
+    return {
+      status: 'failed',
+      verified: false,
+      error: 'local_llm_resource_guard:' + RESOURCE_PROFILE.guard_reason,
+      metadata: {
+        resource_profile: RESOURCE_PROFILE,
+        guard: 'worker-light',
+      },
+    };
+  }
   const o = options || {};
   const missionId = o.mission_id || ('rwht-' + Date.now());
   const goal = o.goal || 'Ejecutar RWHT autónomo desde PC.';
