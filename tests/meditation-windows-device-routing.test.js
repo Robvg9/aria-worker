@@ -46,6 +46,12 @@ assert.match(
 );
 assert.match(
   source,
+  /if\(explicitRequestedDevice\.startsWith\("windows-"\)\)[\\s\\S]*?const windowsFastPath=await windowsPcRwhtPlan\(goal,context\);/,
+  'Explicit Windows missions must take the Windows fast-path before expensive generic planning routes.',
+);
+
+assert.match(
+  source,
   /const androidAuto=await androidAutonomousPlan\(goal,context\);/,
   'Main planner must retain the Android route for genuine Android missions.',
 );
