@@ -20,6 +20,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta stale device, deploy drift, contract mismatch, duplicate job, lease expirado, timeout, fallo de verificación, estado stale de UI, proveedor/ejecutor no disponible y saturación."
   },
   {
+    "id": "lacueva-recovery-contract",
+    "file": "tests/lacueva-recovery-contract.test.js",
+    "title": "LaCueva Recovery Contract",
+    "category": "Windows / recursos / recuperación",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la recuperación de LaCueva mantenga el nodo como worker ligero, deshabilite Ollama y use únicamente la tarea canónica del agente.",
+    "capabilities": "Detecta regresiones de identidad, autostart, Ollama, recuperación y protección de nodos Windows de bajos recursos."
+  },
+  {
     "id": "autonomous-windows-rwht-controller",
     "file": "tests/autonomous-windows-rwht-controller.test.js",
     "title": "Autonomous Windows RWHT Controller",
