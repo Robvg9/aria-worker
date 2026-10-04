@@ -50,6 +50,9 @@ jobs:
       - name: Build exact source
         shell: powershell
         working-directory: omniroute-source
+        env:
+          OMNIROUTE_USE_TURBOPACK: '0'
+          OMNIROUTE_BUILD_WORKERS: '1'
         run: |
           $ErrorActionPreference='Stop'
           npm run build
