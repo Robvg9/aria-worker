@@ -1,10 +1,3 @@
-export const isDeviceOperation = (operation = "") => new Set([
-  "shell.execute",
-  "computer.use",
-  "computer.use.autonomous",
-  "ecc.execute",
-]).has(String(operation));
-
 export function resolveDeviceTargetPolicy({
   operation,
   requestedDeviceId,
@@ -16,9 +9,6 @@ export function resolveDeviceTargetPolicy({
     ? requestedDeviceId.trim()
     : null;
 
-  if (!isDeviceOperation(op)) {
-    throw new Error(`device_operation_not_allowed:${op}`);
-  }
   if (devices.length === 0) {
     throw new Error(`device_target_unavailable:${op}`);
   }
