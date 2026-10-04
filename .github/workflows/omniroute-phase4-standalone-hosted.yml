@@ -56,6 +56,10 @@ jobs:
       - name: Build exact source
         shell: powershell
         working-directory: omniroute-source
+        env:
+          OMNIROUTE_USE_TURBOPACK: '0'
+          OMNIROUTE_BUILD_WORKERS: '1'
+          OMNIROUTE_BUILD_MEMORY_MB: '12000'
         run: npm run build
 
       - name: Prepare local deterministic provider
