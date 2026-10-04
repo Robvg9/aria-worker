@@ -1,9 +1,6 @@
 name: ARIA ABSORB OmniRoute Phase 5 Ollama Qwen Self-Hosted
 
 on:
-  push:
-    branches:
-      - absorb/omniroute-v1-certification-20261004-r2
   pull_request:
     branches: [main]
     paths:
