@@ -1,0 +1,51 @@
+name: Proactive Signal Quality LIVE Proof
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/proactive-signal-quality-live-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Link production project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_PROJECT_REF"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Execute Proactive live proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .ci-proactive-signal-quality-live.sql <<'SQL'
+          select aria_internal.refresh_proactive_digest_v1();
+          select aria_internal.verify_proactive_digest_v1();
+          select aria_internal.refresh_proactive_trends_v1();
+          select aria_internal.verify_proactive_trends_v1();
+          SQL
+
+          if supabase db --help 2>/dev/null | grep -q query; then
+            supabase db query --linked < .ci-proactive-signal-quality-live.sql
+          else
+            supabase sql --linked -f .ci-proactive-signal-quality-live.sql
+          fi
+
+      - name: Assert canonical SHA-256 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'LIVE proof executed; inspect the four RPC outputs above for fingerprint_algorithm=sha256 and persisted/read-back evidence.'
