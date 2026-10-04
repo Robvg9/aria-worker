@@ -46,7 +46,7 @@ test('Meditation Windows continuity is serialized and lane-guarded', () => {
 });
 
 test('queue fairness keeps fresh queued work ahead of stale recovery', () => {
-  assert.match(queueFairness, /m\.status='queued' then 0/);
+  assert.match(queueFairness, /when 'queued' then 0/);
   assert.match(queueFairness, /for update skip locked/i);
   assert.match(queueFairness, /m\.status='running' and m\.lease_owner is null/i);
 });
