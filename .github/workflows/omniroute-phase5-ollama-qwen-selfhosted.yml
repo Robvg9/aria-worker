@@ -1,0 +1,174 @@
+name: ARIA ABSORB OmniRoute Phase 5 Ollama Qwen Self-Hosted
+
+on:
+  push:
+    branches:
+      - absorb/omniroute-v1-certification-20261004-r2
+  pull_request:
+    branches: [main]
+    paths:
+      - absorb/omniroute/**
+      - scripts/absorb/omniroute-phase5-ollama-qwen.mjs
+      - tests/omniroute-phase5-provider-contract.test.js
+      - .github/workflows/omniroute-phase5-ollama-qwen-selfhosted.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omniroute-phase5-ollama-qwen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phase5-provider:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ARIA
+        uses: actions/checkout@v4
+        with:
+          path: aria-worker
+
+      - name: Checkout exact OmniRoute
+        uses: actions/checkout@v4
+        with:
+          repository: diegosouzapw/OmniRoute
+          ref: 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          fetch-depth: 1
+          path: omniroute-source
+
+      - name: Verify exact OmniRoute source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
+          $head=(git rev-parse HEAD).Trim()
+          if($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_COMMIT_MISMATCH=$head"}
+          Write-Host "SOURCE_COMMIT=PASS $head"
+
+      - name: Resolve Windows Node and npm
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $node='D:\Databank\node\node.exe'
+          $npm='D:\Databank\npm.cmd'
+          if(-not (Test-Path $node)){throw 'NODE_NOT_FOUND'}
+          if(-not (Test-Path $npm)){throw 'NPM_NOT_FOUND'}
+          "ARIA_NODE_PATH=$node" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "ARIA_NPM_PATH=$npm" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify native Ollama and Qwen model
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path 'D:\Databank\Ollama\ollama.exe')){throw 'OLLAMA_NOT_FOUND'}
+          $tags=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 10
+          if(-not ($tags.models | Where-Object {$_.name -eq 'qwen3:4b'})){throw 'QWEN3_4B_NOT_INSTALLED'}
+          Write-Host 'OLLAMA_HEALTH=PASS'
+          Write-Host 'QWEN3_4B=PASS'
+
+      - name: Direct Qwen inference baseline
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $body=@{model='qwen3:4b';messages=@(@{role='user';content='Return exactly OMNIROUTE_QWEN_LIVE_OK'});stream=$false;temperature=0;options=@{temperature=0;num_predict=32}} | ConvertTo-Json -Depth 8
+          $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:11434/v1/chat/completions' -ContentType 'application/json' -Body $body -TimeoutSec 180
+          $content=[string]$r.choices[0].message.content
+          Write-Host "QWEN_DIRECT_RESPONSE=$content"
+          if($content -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'DIRECT_QWEN_MARKER_MISSING'}
+
+      - name: Ensure isolated Phase 5 port is free
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if(Get-NetTCPConnection -LocalPort 20130 -State Listen -ErrorAction SilentlyContinue){throw 'PHASE5_PORT_20130_OCCUPIED'}
+          Write-Host 'PHASE5_PORT=FREE'
+
+      - name: Install exact OmniRoute
+        shell: powershell
+        working-directory: omniroute-source
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NPM_CONFIG_CACHE='D:\ARIA-Windows-Agent\Sandbox\OmniRoute-Phase5\npm-cache'
+          New-Item -ItemType Directory -Force -Path $env:NPM_CONFIG_CACHE | Out-Null
+          & $env:ARIA_NPM_PATH ci --no-audit --no-fund
+          if($LASTEXITCODE -ne 0){throw "NPM_CI_FAILED=$LASTEXITCODE"}
+
+      - name: Build exact OmniRoute
+        shell: powershell
+        working-directory: omniroute-source
+        env:
+          OMNIROUTE_USE_TURBOPACK: '0'
+          OMNIROUTE_BUILD_WORKERS: '1'
+          OMNIROUTE_BUILD_MEMORY_MB: '12000'
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:ARIA_NPM_PATH run build
+          if($LASTEXITCODE -ne 0){throw "BUILD_FAILED=$LASTEXITCODE"}
+
+      - name: Start isolated OmniRoute
+        shell: powershell
+        working-directory: omniroute-source
+        run: |
+          $ErrorActionPreference='Stop'
+          $sandbox='D:\ARIA-Windows-Agent\Sandbox\OmniRoute-Phase5'
+          $data=Join-Path $sandbox 'data'; $capture=Join-Path $sandbox 'capture'
+          New-Item -ItemType Directory -Force -Path $data,$capture | Out-Null
+          $env:DATA_DIR=$data; $env:PORT='20130'; $env:HOST='127.0.0.1'; $env:HOSTNAME='127.0.0.1'
+          $env:NEXT_TELEMETRY_DISABLED='1'
+          $env:JWT_SECRET=([guid]::NewGuid().ToString('N')+[guid]::NewGuid().ToString('N'))
+          $env:API_KEY_SECRET=([guid]::NewGuid().ToString('N')+[guid]::NewGuid().ToString('N')).Substring(0,64)
+          $env:INITIAL_PASSWORD=([guid]::NewGuid().ToString('N'))
+          $env:OMNIROUTE_SELF_HOSTED_API_KEY='aria-phase5-key'
+          $env:OMNIROUTE_ALLOW_PRIVATE_PROVIDER_URLS='true'
+          $env:OMNIROUTE_ALLOW_LOCAL_PROVIDER_URLS='true'
+          $env:OMNIROUTE_SELF_HOSTED_PROVIDERS=@'
+          providers:
+            - id: ollama
+              kind: openai
+              baseUrl: http://127.0.0.1:11434/v1
+              model: qwen3:4b
+          '@
+          $stdout=Join-Path $capture 'omniroute.stdout.log'; $stderr=Join-Path $capture 'omniroute.stderr.log'
+          $proc=Start-Process -FilePath $env:ARIA_NODE_PATH -ArgumentList @('scripts/dev/run-next.mjs','start') -WorkingDirectory (Get-Location) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+          "OMNIROUTE_PID=$($proc.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "PHASE5_CAPTURE_DIR=$capture" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $ok=$false
+          for($i=0;$i-lt45;$i++){Start-Sleep -Seconds 2; try{$h=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:20130/api/health' -TimeoutSec 5;if($h.StatusCode -eq 200){$ok=$true;break}}catch{}}
+          if(-not $ok){if(Test-Path $stderr){Get-Content $stderr -Tail 120};if(Test-Path $stdout){Get-Content $stdout -Tail 120};throw 'OMNIROUTE_PHASE5_HEALTH_FAILED'}
+          Write-Host 'OMNIROUTE_PHASE5_START=PASS'
+
+      - name: Run real OmniRoute → Ollama → Qwen smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\aria-worker"
+          $env:OMNIROUTE_BASE_URL='http://127.0.0.1:20130'; $env:OMNIROUTE_API_KEY='aria-phase5-key'; $env:OMNIROUTE_SMOKE_MODEL='ollama/qwen3:4b'; $env:OMNIROUTE_SMOKE_TIMEOUT_MS='180000'
+          & $env:ARIA_NODE_PATH scripts/absorb/omniroute-phase5-ollama-qwen.mjs | Tee-Object -FilePath (Join-Path $env:PHASE5_CAPTURE_DIR 'PHASE5_SMOKE_RECEIPT.json')
+          if($LASTEXITCODE -ne 0){throw "PHASE5_SMOKE_FAILED=$LASTEXITCODE"}
+
+      - name: Persist Phase 5 evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt=Join-Path $env:PHASE5_CAPTURE_DIR 'PHASE5_SMOKE_RECEIPT.json'
+          if(-not (Test-Path $receipt)){throw 'PHASE5_RECEIPT_MISSING'}
+          $json=Get-Content -Raw $receipt | ConvertFrom-Json
+          if($json.status -ne 'PASS_REAL_OLLAMA_QWEN'){throw 'PHASE5_RECEIPT_NOT_PASS'}
+          [ordered]@{schema='aria.absorb.omniroute.phase5.capture.v1';status=$json.status;source_repository='diegosouzapw/OmniRoute';source_commit='3e66ff2e8cc94821b093fe57dad667b585230cd1';provider=$json.provider;model=$json.model;omni_port=20130;ollama_url='http://127.0.0.1:11434';marker='OMNIROUTE_QWEN_LIVE_OK';aria_runtime_touched=$false;captured_at_utc=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $env:PHASE5_CAPTURE_DIR 'PHASE5_FINAL_CAPTURE.json') -Encoding utf8
+
+      - name: Cleanup OmniRoute
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='SilentlyContinue'
+          if($env:OMNIROUTE_PID){& taskkill.exe /PID ([int]$env:OMNIROUTE_PID) /T /F | Out-Null}
+
+      - name: Upload Phase 5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-omniroute-phase5-evidence
+          path: D:\ARIA-Windows-Agent\Sandbox\OmniRoute-Phase5\capture
+          if-no-files-found: warn
