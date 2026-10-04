@@ -6,20 +6,42 @@
       "platform": "windows",
       "device_id": "windows-fe722cc6681e4f9c9cc35f5ebbb0a089",
       "runner_name": "ARIA-WINDOWS",
-      "purpose": ["omniroute"],
-      "selection": "explicit_only"
+      "purpose": [
+        "omniroute"
+      ],
+      "selection": "explicit_only",
+      "runner_labels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "aria-robvg-omniroute"
+      ]
     },
     "windows-lacueva-runtime": {
       "platform": "windows",
       "device_id": "windows-lacueva-780886",
-      "purpose": ["runtime-repair", "windows-e2e", "meditation-windows-support"],
-      "selection": "explicit_only"
+      "purpose": [
+        "runtime-repair",
+        "windows-e2e",
+        "meditation-windows-support"
+      ],
+      "selection": "explicit_only",
+      "runner_labels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "aria-lacueva-runtime"
+      ]
     },
     "android-meditation-control": {
       "platform": "android",
-      "purpose": ["meditation-ui-control", "human-verification"],
+      "purpose": [
+        "meditation-ui-control",
+        "human-verification"
+      ],
       "execution_authority": "canonical-mission-runner",
-      "selection": "explicit_only"
+      "selection": "explicit_only",
+      "runner_labels": []
     }
   },
   "rules": [
@@ -27,6 +49,7 @@
     "A requested device that is offline or incompatible is a hard resolution failure, not an implicit reroute.",
     "PR code must never execute on a persistent Windows runner unless the workflow explicitly opts into trusted physical E2E.",
     "Stale mission rows may be recovered, but a stale/unleased row must not outrank fresh queued work.",
-    "Mission success requires verification evidence; objective fulfillment remains a separate semantic gate."
+    "Mission success requires verification evidence; objective fulfillment remains a separate semantic gate.",
+    "Persistent physical Windows workflows must require the lane-specific self-hosted runner label; generic Windows labels are forbidden for lane-bound E2E."
   ]
 }
