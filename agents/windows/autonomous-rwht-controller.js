@@ -614,7 +614,7 @@ async function runAutonomousRwht(options) {
   const model = o.model || qwen;
   const captureScreenshots = o.capture_screenshots !== false;
   const controlDiscoveryVerify = /RWHT_CONTROL_DISCOVERY_VERIFY/i.test(goal);
-  const fullPwaCoverageMode = /(LIBRO\s+MAESTRO|ARIA\s+PWA|PWA\s+LIVE(?:\s+de)?\s+ARIA)/i.test(goal);
+  const fullPwaCoverageMode = /(LIBRO\s+MAESTRO|ARIA\s+PWA|PWA\s+LIVE)/i.test(goal);
   const requiredRoutes = fullPwaCoverageMode
     ? ['#home', '#chat', '#mission', '#projects', '#meditation', '#capabilities', '#settings']
     : [];
@@ -828,7 +828,7 @@ async function runAutonomousRwht(options) {
     let decisionSource = 'qwen3';
     let modelError = null;
 
-    const fastCoverageMode = /(RWHT\s+PC\s+E2E|RWHT_CONTROL_DISCOVERY_VERIFY|ARIA\s+PWA|PWA\s+LIVE(?:\s+de)?\s+ARIA)/i.test(goal);
+    const fastCoverageMode = /(RWHT\s+PC\s+E2E|RWHT_CONTROL_DISCOVERY_VERIFY|ARIA\s+PWA|PWA\s+LIVE)/i.test(goal);
     if (!fastCoverageMode) {
       try {
         const tiny = promptForTinySelector(goal, current, screenHash, exercisedControls);
