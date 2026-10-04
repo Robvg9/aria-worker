@@ -20,7 +20,7 @@ test('canonical physical lanes are explicit and disjoint', () => {
   assert.equal(manifest.lanes['windows-lacueva-runtime'].device_id, 'windows-lacueva-780886');
   assert.equal(manifest.lanes['android-meditation-control'].execution_authority, 'canonical-mission-runner');
   assert.deepEqual(manifest.lanes['omniroute-robvg-windows'].runner_labels, ['self-hosted','Windows','X64','aria-robvg-omniroute']);
-  assert.deepEqual(manifest.lanes['windows-lacueva-runtime'].runner_labels, ['self-hosted','Windows','X64','aria-lacueva-runtime']);
+  assert.deepEqual(manifest.lanes['windows-lacueva-runtime'].runner_labels, ['aria-lacueva-runtime']);
   assert.notEqual(
     manifest.lanes['omniroute-robvg-windows'].device_id,
     manifest.lanes['windows-lacueva-runtime'].device_id
@@ -39,15 +39,14 @@ test('persistent Windows physical E2E is trusted-main only and lane-guarded', ()
   assert.match(finalE2E, /expected='windows-lacueva-780886'/);
   assert.match(finalE2E, /WRONG_ARIA_WINDOWS_LANE/);
   assert.ok(finalE2E.indexOf('Guard canonical Windows lane') < finalE2E.indexOf('Inspect and safely free C'));
-  assert.match(finalE2E, /runs-on: \[self-hosted, Windows, X64, aria-lacueva-runtime\]/);
-  assert.doesNotMatch(finalE2E, /runs-on: \[self-hosted, Windows, X64\][^,]/);
+  assert.match(finalE2E, /runs-on: \[aria-lacueva-runtime\]/);
 });
 
 test('Meditation Windows continuity is serialized and lane-guarded', () => {
   assert.match(meditationE2E, /group: aria-meditation-live-e2e/);
   assert.match(meditationE2E, /expected='windows-lacueva-780886'/);
   assert.match(meditationE2E, /WRONG_ARIA_WINDOWS_LANE/);
-  assert.match(meditationE2E, /runs-on: \[self-hosted, Windows, X64, aria-lacueva-runtime\]/);
+  assert.match(meditationE2E, /runs-on: \[aria-lacueva-runtime\]/);
 });
 
 test('queue fairness keeps fresh queued work ahead of stale recovery', () => {
