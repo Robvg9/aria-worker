@@ -194,7 +194,39 @@ function learningPromptSuffix(learning:any){
     + "\nNo repitas una estrategia documentadamente fallida sin evidencia nueva. Verifica en la realidad cualquier prerrequisito aprendido antes de actuar.";
 }
 
-async function modelRoutes(){const [{data:m},{data:c},{data:a}]=await Promise.all([db.from("model_registry").select("model_id,provider_id,status,enabled"),db.from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),db.from("account_registry").select("account_id,provider_id,status,enabled")]);return (m||[]).filter((x:any)=>x.enabled&&x.status==="available").map((x:any)=>{const cap=(c||[]).find((z:any)=>z.model_id===x.model_id);const acc=(a||[]).find((z:any)=>z.provider_id===x.provider_id&&z.enabled&&["available","active"].includes(String(z.status)));return acc?{model_id:x.model_id,provider_id:x.provider_id,account_id:acc.account_id,capability_status:cap?.status||"unknown",evidence_type:cap?.evidence_type||"unknown",evidence_ref:cap?.evidence_ref||null,score:(cap?.status==="verified"?100:50)+(x.provider_id==="google"?10:0)}:null}).filter(Boolean).sort((x:any,y:any)=>y.score-x.score)}
+async function modelRoutes(){
+  const [{data:m},{data:c},{data:a},{data:devices}] = await Promise.all([
+    db.from("model_registry").select("model_id,provider_id,status,enabled"),
+    db.from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id","text_generation"),
+    db.from("account_registry").select("account_id,provider_id,status,enabled"),
+    db.from("device_registry").select("device_id,agent_type,status,capabilities"),
+  ]);
+  const localQwenAvailable = (devices || []).some((device:any) =>
+    String(device?.agent_type || "") === "windows-local" &&
+    String(device?.status || "").toLowerCase() === "online" &&
+    Array.isArray(device?.capabilities) &&
+    device.capabilities.map(String).includes("ollama.qwen3")
+  );
+  return (m || [])
+    .filter((x:any) => x.enabled && x.status === "available")
+    .map((x:any) => {
+      const cap=(c||[]).find((z:any)=>z.model_id===x.model_id);
+      const acc=(a||[]).find((z:any)=>z.provider_id===x.provider_id&&z.enabled&&["available","active"].includes(String(z.status)));
+      if(!acc) return null;
+      if(x.provider_id === "local_windows" && x.model_id === "qwen3:0.6b" && !localQwenAvailable) return null;
+      return {
+        model_id:x.model_id,
+        provider_id:x.provider_id,
+        account_id:acc.account_id,
+        capability_status:cap?.status||"unknown",
+        evidence_type:cap?.evidence_type||"unknown",
+        evidence_ref:cap?.evidence_ref||null,
+        score:(cap?.status==="verified"?100:50)+(x.provider_id==="google"?10:0)
+      };
+    })
+    .filter(Boolean)
+    .sort((x:any,y:any)=>y.score-x.score)
+}
 async function ariaPwaMasterMissionPlan(goal:string,context:any){
   const g=String(goal||"");
   if(!/(libro\s+maestro|pwa\s+aria|aria\s+.*pwa|pwa\s+.*aria)/i.test(g)) return null;
