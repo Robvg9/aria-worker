@@ -1,20 +1,10 @@
 'use strict';
 
-const crypto = require('node:crypto');
+const { canonical, sha256 } = require('./fingerprint-v1');
 
 const VERSION = 'aria-proactive-trend-intelligence-v1.0.0';
 const ACTION_MODE = 'recommendation_only';
 
-function canonical(value) {
-  if (value === undefined) return 'undefined';
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
-  return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
-}
-
-function sha256(value) {
-  return crypto.createHash('sha256').update(canonical(value)).digest('hex');
-}
 
 function normalizeTimestamp(value) {
   const date = value instanceof Date ? value : new Date(value);
