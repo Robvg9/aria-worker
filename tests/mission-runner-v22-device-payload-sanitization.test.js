@@ -10,9 +10,13 @@ const source = fs.readFileSync(
 );
 
 assert.match(source, /const allowedKeys = operation === "computer\.use\.android"/);
-assert.match(source, /"start_url",s*"start_app",s*"max_steps"/s);
-assert.match(source, /"dependency_results" is not forwarded|dependency_results) to every execution step/);
-assert.match(source, /for (const key of allowedKeys)/);
-assert.match(source, /input[key] =/);
-assert.ok(!source.includes('const input = step.input && typeof step.input === "object" ? { ...step.input } : {};'), 'Android payload must not spread the complete planner input');
+assert.match(source, /"start_url",\s*"start_app",\s*"max_steps"/s);
+assert.match(source, /__aria_attempt and\s+dependency_results/);
+assert.match(source, /for \(const key of allowedKeys\)/);
+assert.match(source, /input\[key\] =/);
+assert.ok(
+  !source.includes('const input = step.input && typeof step.input === "object" ? { ...step.input } : {};'),
+  'Android payload must not spread the complete planner input'
+);
+
 console.log('MISSION RUNNER DEVICE PAYLOAD SANITIZATION: PASS');
