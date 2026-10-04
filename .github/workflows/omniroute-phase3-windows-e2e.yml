@@ -1,6 +1,13 @@
 name: ARIA ABSORB OmniRoute Phase 3 Windows E2E
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
+      - 'absorb/omniroute/**'
+      - '.github/workflows/omniroute-phase3-windows-e2e.yml'
   push:
     branches:
       - absorb/omniroute-v1-certification-20261003
