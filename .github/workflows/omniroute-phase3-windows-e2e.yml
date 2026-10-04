@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   phase3-windows:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 45
     steps:
       - name: Checkout ARIA
