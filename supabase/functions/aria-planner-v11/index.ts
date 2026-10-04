@@ -355,7 +355,15 @@ async function windowsPcRwhtPlan(goal:string,context:any){
   const gl=g.toLowerCase();
   const isRwht=/(\brwht\b|real world human test|prueba real|auditar.*interfaz|auditar.*ui|bot[oó]n.*bot[oó]n|button.*button)/i.test(g);
   const isPc=/(pc|windows|computadora|ordenador|escritorio|desktop|navegador|browser|battlecruiser)/i.test(g);
-  if(!isRwht || !isPc)return null;
+  const requestedDeviceId=String(
+    context?.mission_planner_contract?.requested_device_id ||
+    context?.requested_device_id ||
+    context?.device_id ||
+    ""
+  ).trim().toLowerCase();
+  const explicitWindowsDevice=requestedDeviceId.startsWith("windows-");
+  // An explicit Windows target is stronger than lexical goal classification.
+  if((!isRwht || !isPc) && !explicitWindowsDevice)return null;
 
   const {data:devices}=await db.from("device_registry")
     .select("device_id,display_name,agent_type,status,last_seen_at,capabilities")
@@ -502,6 +510,14 @@ async function windowsPcRwhtPlan(goal:string,context:any){
 
 async function androidAutonomousPlan(goal:string,context:any){
   const g=String(goal||'').toLowerCase();
+  const requestedDeviceId=String(
+    context?.mission_planner_contract?.requested_device_id ||
+    context?.requested_device_id ||
+    context?.device_id ||
+    ""
+  ).trim().toLowerCase();
+  // Never divert an explicitly requested Windows mission into Android.
+  if(requestedDeviceId.startsWith("windows-"))return null;
   if(!/(android|tel[eé]fono|\\bapp\\b|aplicaci[oó]n|pwa|\\bweb\\b|bot[oó]n|interfaz|\\bui\\b)/i.test(g))return null;
   if(!/(probar|prueba|test|verificar|auditar|comprobar|revisar|explorar)/i.test(g))return null;
   const explicitDevice=typeof context?.device_id==='string'?context.device_id:'';
