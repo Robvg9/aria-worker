@@ -57,7 +57,7 @@ jobs:
           OMNIROUTE_USE_TURBOPACK: '0'
           OMNIROUTE_BUILD_WORKERS: '1'
           OMNIROUTE_BUILD_MEMORY_MB: '12000'
-        run: npm run build
+        run: npm run build:fast
 
       - name: Install Ollama
         shell: powershell
@@ -113,6 +113,7 @@ jobs:
           $env:API_KEY_SECRET=([guid]::NewGuid().ToString('N')+[guid]::NewGuid().ToString('N')).Substring(0,64)
           $env:INITIAL_PASSWORD=([guid]::NewGuid().ToString('N'))
           $env:OMNIROUTE_SELF_HOSTED_API_KEY='aria-phase5-hosted-key'
+          $env:OMNIROUTE_SKIP_STANDALONE='1'
           $env:OMNIROUTE_SELF_HOSTED_PROVIDERS=@'
           providers:
             - id: ollama
