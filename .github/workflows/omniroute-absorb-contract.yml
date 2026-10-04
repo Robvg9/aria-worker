@@ -1,0 +1,43 @@
+name: ARIA ABSORB OmniRoute Contract Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'absorb/omniroute/**'
+      - 'tests/omniroute-absorb-contract.test.js'
+      - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
+      - 'absorb/omniroute/PHASE_4_STANDALONE_CONTRACT.md'
+      - 'scripts/absorb/omniroute-phase4-standalone-smoke.mjs'
+      - '.github/workflows/omniroute-absorb-contract.yml'
+  push:
+    branches:
+      - 'absorb/omniroute-v1-certification-20261003'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: OmniRoute ABSORB Phase 1-3 contract
+        run: node tests/omniroute-absorb-contract.test.js
+      - name: PowerShell Phase 3 syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'scripts/absorb/omniroute-phase3-sandbox.ps1'
+          $content = Get-Content -Raw -LiteralPath $path
+          [void][scriptblock]::Create($content)
+          Write-Host "PASS PowerShell parse: $path"
+      - name: Phase 4 Node syntax
+        shell: bash
+        run: node --check scripts/absorb/omniroute-phase4-standalone-smoke.mjs
