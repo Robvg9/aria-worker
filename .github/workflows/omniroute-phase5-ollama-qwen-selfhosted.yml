@@ -78,12 +78,21 @@ jobs:
         with:
           path: aria-worker
 
-      - name: Download exact OmniRoute source archive
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ needs.source-bridge.outputs.artifact_id }}
-          path: ${{ github.workspace }}
-
+      - name: Download exact OmniRoute source archive via API
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_ARTIFACT_ID: ${{ needs.source-bridge.outputs.artifact_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $archive="$env:GITHUB_WORKSPACE\omniroute-source-3e66ff2e.tar.gz"
+          $uri="https://api.github.com/repos/Robvg9/aria-worker/actions/artifacts/$env:SOURCE_ARTIFACT_ID/zip"
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          Remove-Item $archive -Force -ErrorAction SilentlyContinue
+          Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $uri -OutFile $archive -TimeoutSec 600
+          $size=(Get-Item $archive).Length
+          if($size -lt 1000000){throw "SOURCE_ARCHIVE_TOO_SMALL=$size"}
+          Write-Host "SOURCE_ARCHIVE_DOWNLOAD=PASS bytes=$size"
       - name: Extract and verify exact OmniRoute source
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
