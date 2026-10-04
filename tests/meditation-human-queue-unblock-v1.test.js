@@ -57,6 +57,10 @@ assert.match(runner,/function scheduleMissionRetryKick\(missionId: string, reaso
 assert.match(runner,/rpc\(\"runner_tick_for_mission\", \{ p_mission_id: missionId \}\)/);
 assert.match(runner,/async function scheduleMissionRetryKick/);
 assert.match(runner,/await scheduleMissionRetryKick\(missionId, "retry_scheduled"\)/);
+assert.match(runner,/async function scheduleMissionContinuationKick\(missionId: string, reason: string\)/);
+assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "retry_exhausted_replan"\)/);
+assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "next_ready_batch"\)/);
+assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "verification_replan"\)/);
 
 const orphan=fs.readFileSync(path.join(root,'supabase/migrations/20261004014000_orphaned_retry_reconciliation_v1.sql'),'utf8');
 assert.match(orphan,/aria_reconcile_orphaned_retry_missions/);
