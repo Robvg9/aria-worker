@@ -83,6 +83,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en análisis, clasificación, propuesta de misión y continuidad."
   },
   {
+    "id": "mission-runner-v22-device-payload-sanitization",
+    "file": "tests/mission-runner-v22-device-payload-sanitization.test.js",
+    "title": "Mission Runner V22 Device Payload Sanitization",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que los campos internos del runner no se filtren hacia los payloads de dispositivos gobernados.",
+    "capabilities": "Detecta regresiones de saneamiento de payload, dispatch de dispositivos y contratos Android/Windows."
+  },
+  {
     "id": "mission-runner-v22-executor-inference",
     "file": "tests/mission-runner-v22-executor-inference.test.js",
     "title": "Mission Runner V22 Executor Inference",
@@ -1818,6 +1827,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Ejecuta una comprobación más cercana a runtime/entorno real y valida el resultado observable.",
     "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
+  },
+  {
+    "id": "planner-v11-local-qwen-capability",
+    "file": "tests/planner-v11-local-qwen-capability.test.js",
+    "title": "Planner V11 Local Qwen Capability",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la ruta local Qwen solo se seleccione cuando exista una capacidad LIVE compatible.",
+    "capabilities": "Detecta regresiones en selección de modelos, capacidades de dispositivos y routing local."
   },
   {
     "id": "project-chat-compact-v1",
