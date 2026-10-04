@@ -122,6 +122,22 @@ testCase('phase 3 runner is locked to the exact source and isolated resources', 
   assert.ok(phase3Script.includes('PHASE3_SANDBOX_EXECUTION=PASS'));
 });
 
+testCase('phase 4 hosted certification gate is explicit and includes restart/persistence', () => {
+  const workflowPath = path.join(root, '.github/workflows/omniroute-phase4-standalone-hosted.yml');
+  assert.ok(fs.existsSync(workflowPath), 'phase 4 hosted workflow missing');
+  const workflow = fs.readFileSync(workflowPath, 'utf8');
+  for (const token of [
+    'windows-latest',
+    '3e66ff2e8cc94821b093fe57dad667b585230cd1',
+    'OMNIROUTE_SELF_HOSTED_PROVIDERS',
+    'Run standalone smoke',
+    'Stop first instance and verify data survives',
+    'Restart exact OmniRoute with same data',
+    'Persist final Phase 4 evidence',
+    'aria-omniroute-phase4-evidence'
+  ]) assert.ok(workflow.includes(token), token);
+});
+
 testCase('runtime adapter gate remains closed before phases 3-5', () => {
   assert.ok(contract.includes('Phase 6+ runtime implementation is prohibited until'));
   assert.ok(contract.includes('Phase 3 isolated installation is PASS'));
