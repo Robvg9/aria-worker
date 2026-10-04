@@ -95,15 +95,11 @@ async function kickCanonicalRunner(missionId: string, reason: string) {
   }
 }
 
-function scheduleCanonicalRunnerKick(missionId: string, reason: string) {
-  const promise = kickCanonicalRunner(missionId, reason)
-    .then((result) => console.log("[aria-direct] canonical runner dispatch", JSON.stringify(result)))
-    .catch((error) => console.error("[aria-direct] canonical runner dispatch error", String(error)));
-  try {
-    EdgeRuntime.waitUntil(promise);
-  } catch {
-    void promise;
-  }
+async function scheduleCanonicalRunnerKick(missionId: string, reason: string) {
+  const result = await kickCanonicalRunner(missionId, reason);
+  if (result.status === "kick_failed") console.error("[aria-direct] canonical runner dispatch error", JSON.stringify(result));
+  else console.log("[aria-direct] canonical runner dispatch", JSON.stringify(result));
+  return result;
 }
 
 async function recall(goal: string) {
@@ -240,7 +236,7 @@ Deno.serve(async (request) => {
         mission_id: missionIdOut,
         queue_status: queue.status,
       };
-      scheduleCanonicalRunnerKick(missionIdOut, "user_mission_immediate_dispatch");
+      dispatch = { ...dispatch, status: "requested", request: await scheduleCanonicalRunnerKick(missionIdOut, "user_mission_immediate_dispatch") };
     } catch (error) {
       queue = {
         status: "enqueue_failed",
@@ -253,7 +249,7 @@ Deno.serve(async (request) => {
         mission_id: missionIdOut,
         queue_status: queue.status,
       };
-      scheduleCanonicalRunnerKick(missionIdOut, "user_mission_immediate_dispatch_after_queue_error");
+      dispatch = { ...dispatch, status: "requested", request: await scheduleCanonicalRunnerKick(missionIdOut, "user_mission_immediate_dispatch_after_queue_error") };
     }
   }
 
