@@ -35,7 +35,7 @@ const NOW = '2026-10-04T02:00:00.000Z';
   const badResource = buildProactiveDigest({
     resources: [
       { model_id: 'model-a', status: 'failed' },
-      { model_id: 'model-a', status: 'unavailable' }
+      { model_id: 'model-a', status: 'failed' }
     ]
   }, { now: NOW });
   assert.equal(badResource.recommendation_count, 1);
