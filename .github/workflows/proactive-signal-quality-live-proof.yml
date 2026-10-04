@@ -34,21 +34,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > .ci-proactive-signal-quality-live.sql <<'SQL'
-          select aria_internal.refresh_proactive_digest_v1();
-          select aria_internal.verify_proactive_digest_v1();
-          select aria_internal.refresh_proactive_trends_v1();
-          select aria_internal.verify_proactive_trends_v1();
-          SQL
+          run_sql() {
+            local sql="$1"
+            local out="$2"
+            printf '%s\n' "$sql" | supabase db query --linked | tee "$out"
+          }
 
-          if supabase db --help 2>/dev/null | grep -q query; then
-            supabase db query --linked < .ci-proactive-signal-quality-live.sql | tee .ci-proactive-signal-quality-live.out
-          else
-            supabase sql --linked -f .ci-proactive-signal-quality-live.sql | tee .ci-proactive-signal-quality-live.out
-          fi
-          grep -qi 'sha256' .ci-proactive-signal-quality-live.out
-          grep -qi 'persisted' .ci-proactive-signal-quality-live.out
-          grep -qi 'read_only' .ci-proactive-signal-quality-live.out
+          run_sql 'select aria_internal.refresh_proactive_digest_v1();' .proactive-digest.out
+          run_sql 'select aria_internal.verify_proactive_digest_v1();' .proactive-digest-verify.out
+          run_sql 'select aria_internal.refresh_proactive_trends_v1();' .proactive-trend.out
+          run_sql 'select aria_internal.verify_proactive_trends_v1();' .proactive-trend-verify.out
+
+          grep -qi 'fingerprint_algorithm.*sha256\|fingerprint_algorithm:sha256' .proactive-digest.out
+          grep -qi 'persisted' .proactive-digest.out
+          grep -qi 'present.*true\|present:true' .proactive-digest-verify.out
+          grep -qi 'sha256' .proactive-trend.out
+          grep -qi 'persisted' .proactive-trend.out
+          grep -qi 'present.*true\|present:true' .proactive-trend-verify.out
 
       - name: Assert canonical SHA-256 evidence
         shell: bash
