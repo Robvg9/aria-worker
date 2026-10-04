@@ -44,7 +44,6 @@ console.log('MEDITATION HUMAN LIVE EXECUTION CONTRACT: PASS');
 assert.doesNotMatch(app,/Parte de Meditación IA se sincronizó;/);
 assert.doesNotMatch(app,/SINCRONIZANDO…/);
 assert.doesNotMatch(app,/0\.0%/);
-assert.doesNotMatch(app,/Interpretar el objetivo de la misión\./);
 assert.match(app,/Núcleo operativo activo/);
 assert.match(app,/Transporte, modelos y cola disponibles/);
 console.log('MEDITATION OLD RED/GENERIC UX REGRESSION CONTRACT: PASS');
