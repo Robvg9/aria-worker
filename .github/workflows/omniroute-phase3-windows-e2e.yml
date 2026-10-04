@@ -172,9 +172,3 @@ jobs:
           Write-Host "CAPTURE=$path"
           Get-Content -Raw $path
           
-      - name: Upload Phase 3 receipt
-        uses: actions/upload-artifact@v4
-        with:
-          name: aria-omniroute-phase3-windows-e2e
-          path: D:\ARIA-Windows-Agent\Sandbox\OmniRoute-v3.8.52\PHASE3_CAPTURE.json
-          if-no-files-found: error
