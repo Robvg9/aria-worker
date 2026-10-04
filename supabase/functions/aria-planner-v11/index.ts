@@ -381,13 +381,13 @@ async function windowsPcRwhtPlan(goal:string,context:any){
 
   const candidates=(Array.isArray(devices)?devices:[]);
   // The registry capability list can lag behind the actual Windows runtime.
-  // For RWHT we already require an online windows-local device plus the local
-  // Qwen executor; the runtime itself advertises/implements computer.use and
-  // computer.use.autonomous. Do not reject a real Windows device solely because
-  // those two UI capabilities are missing from a stale heartbeat row.
+  // For RWHT we require an online windows-local device with the autonomous UI
+  // capability. If qwen is advertised, it remains available as the local model;
+  // if the heartbeat omits qwen while autonomous UI is still advertised, do not
+  // turn a usable Windows runtime into planner_empty_steps.
   const device=candidates.find((d:any)=>{
     const caps=Array.isArray(d?.capabilities)?d.capabilities.map(String):[];
-    return caps.includes("ollama.qwen3");
+    return caps.includes("ollama.qwen3") || caps.includes("computer.use.autonomous");
   }) || null;
 
   if(!device){
@@ -395,7 +395,8 @@ async function windowsPcRwhtPlan(goal:string,context:any){
       error:"windows_pc_executor_unavailable",
       planner_version:"aria-planner-v11-capability-aware-windows-rwht-v2",
       capability_gap:{
-        required:["ollama.qwen3"],
+        required:["computer.use.autonomous"],
+        optional:["ollama.qwen3"],
         runtime_ui_capabilities:["computer.use","computer.use.autonomous"],
         online_windows_devices:candidates
       }
@@ -460,9 +461,9 @@ async function windowsPcRwhtPlan(goal:string,context:any){
       capabilities:device.capabilities
     },
     decision_stack:[
-      {operation:"computer.use.autonomous",purpose:"observe → decide → act → verify → adapt",requires:["computer.use","ollama.qwen3"]},
+      {operation:"computer.use.autonomous",purpose:"observe → decide → act → verify → adapt",requires:["computer.use"]},
       {operation:"computer.use",purpose:"real Windows UI actions",actions:["observe","screenshot","click","double_click","type","keypress","hotkey","scroll","focus","wait"]},
-      {operation:"ollama.qwen3",purpose:"local structured UI decision model",model:"qwen3:0.6b"}
+      {operation:"ollama.qwen3",purpose:"local structured UI decision model",model:"qwen3:0.6b",optional:true}
     ],
     policy:{
       destructive_controls_blocked:true,
