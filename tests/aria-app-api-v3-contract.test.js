@@ -103,7 +103,7 @@ if(!plannerConfig.includes('"imports"'))throw new Error('planner v11 deno.json i
 console.log('aria-app-api-v3-contract.test.js: PASS');
 
 for (const fragment of [
-  "trackMission(responseData.mission.mission_id)",
+  '{trackMission(responseData.mission.mission_id)}',
   "Background mission tracking must never block the conversational channel.",
   "function missionResultText(mission: any)",
   "function missionHumanSummary(mission: any)",
@@ -115,7 +115,9 @@ for (const fragment of [
 ]) {
   // PWA assertions are mirrored here so the main npm contract gate covers
   // conversational/mission concurrency without requiring a browser runner.
-  if (!pwa.includes(fragment)) throw new Error("PWA runtime contract missing: " + fragment);
+  if (fragment === '{trackMission(responseData.mission.mission_id)}') {
+    if (!/\b(?:void\s+)?trackMission\(responseData\.mission\.mission_id\)/.test(pwa)) throw new Error("PWA runtime contract missing: trackMission(responseData.mission.mission_id)");
+  } else if (!pwa.includes(fragment)) throw new Error("PWA runtime contract missing: " + fragment);
 }
 
 const appApiMissionRetryAssertions=[
