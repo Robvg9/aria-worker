@@ -2491,6 +2491,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
   },,
 
   {
+    "id": "runtime-lane-integrity-v1",
+    "file": "tests/runtime-lane-integrity-v1.test.js",
+    "title": "Runtime Lane Integrity V1",
+    "category": "Runtime / devices / evidence",
+    "includedInNpmTest": true,
+    "how": "Comprueba lanes físicas explícitas, evita ejecución cruzada entre dispositivos, limita E2E Windows a trusted-main y protege cola/evidencia.",
+    "capabilities": "Protege identidad física, ownership de runners, selección de dispositivos, fairness de cola y cierre basado en evidencia."
+  },
+  {
     "id": "ecc-agent-adapter-layer",
     "file": "tests/ecc-agent-adapter-layer.test.js",
     "title": "ECC Agent Adapter Layer",
