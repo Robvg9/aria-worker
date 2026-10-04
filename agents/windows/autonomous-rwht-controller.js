@@ -15,6 +15,8 @@ try {
 }
 
 const VERSION = 'aria-windows-autonomous-rwht-v1.2.3';
+const { getWindowsResourceProfile } = require('./resource-profile');
+const RESOURCE_PROFILE = getWindowsResourceProfile();
 const OLLAMA_URL = 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.ARIA_OLLAMA_MODEL || 'qwen3:0.6b';
 let CDP_BASE_URL = process.env.ARIA_CHROME_CDP_URL || 'http://127.0.0.1:9222';
@@ -144,6 +146,9 @@ function parseJson(text) {
 }
 
 async function qwen(prompt, timeoutMs) {
+  if (!RESOURCE_PROFILE.local_llm_eligible) {
+    throw new Error('local_llm_resource_guard:' + RESOURCE_PROFILE.guard_reason);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs || 120000));
   try {
