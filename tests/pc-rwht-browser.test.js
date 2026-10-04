@@ -65,7 +65,7 @@ assert.match(runner, /authenticated_surface_missing/);
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /2026-10-02-canonical/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
-assert.match(pwaIndex, /content='293'/);
+assert.match(pwaIndex, /content='295'/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);

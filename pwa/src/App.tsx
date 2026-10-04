@@ -713,10 +713,16 @@ function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): num
 function selectLiveMission(overview: any): any | null {
   const candidates=[...(Array.isArray(overview?.missions)?overview.missions:[]),overview?.active_mission].filter(Boolean);
   const unique=Array.from(new Map(candidates.map((m:any)=>[String(m.mission_id),m])).values());
-  if(!unique.length)return null;
-  const userMissions=unique.filter((m:any)=>String(m?.metadata?.goal_source??'').toLowerCase()==='user').sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime());
-  if(userMissions.length)return userMissions[0];
-  return unique.filter((m:any)=>activeMissionRank(m.status,m.lease_owner,m.lease_until)>0).sort((a:any,b:any)=>activeMissionRank(b.status,b.lease_owner,b.lease_until)-activeMissionRank(a.status,a.lease_owner,a.lease_until)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
+  return unique
+    .filter((m:any)=>activeMissionRank(m.status,m.lease_owner,m.lease_until)>=45)
+    .sort((a:any,b:any)=>activeMissionRank(b.status,b.lease_owner,b.lease_until)-activeMissionRank(a.status,a.lease_owner,a.lease_until)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
+}
+function selectForegroundMission(overview: any): any | null {
+  const candidates=[...(Array.isArray(overview?.missions)?overview.missions:[]),overview?.foreground_mission,overview?.active_mission].filter(Boolean);
+  const unique=Array.from(new Map(candidates.map((m:any)=>[String(m.mission_id),m])).values());
+  return unique
+    .filter((m:any)=>String(m?.metadata?.goal_source??'').toLowerCase()==='user')
+    .sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
 }
 
 function humanNextAction(action: any, status: string): string {
@@ -1215,7 +1221,12 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
-  const humanTitle = status === 'succeeded' ? 'Resumen humano' : status === 'failed' ? 'Qué falló' : status === 'blocked' ? 'Diagnóstico del bloqueo' : status === 'waiting' ? 'Verificación en curso' : 'Situación actual';
+  const hadFailedAttempt = events.some((e:any) => String(e?.event_type).toLowerCase() === 'step_failed');
+  const hadVerifiedStep = events.some((e:any) => String(e?.event_type).toLowerCase() === 'step_succeeded' && e?.payload?.verified === true);
+  const humanRecoveryNote = status === 'succeeded' && hadFailedAttempt && hadVerifiedStep
+    ? 'ARIA encontró un fallo durante un intento anterior, cambió la estrategia y verificó el intento que cerró la misión.'
+    : '';
+  const humanTitle = status === 'succeeded' ? 'Resultado' : status === 'failed' ? 'Qué falló' : status === 'blocked' ? 'Diagnóstico del bloqueo' : status === 'waiting' ? 'Verificación en curso' : 'Situación actual';
   return (
     <div className='modalBackdrop' onClick={onClose}>
       <section className='detailModal' onClick={e => e.stopPropagation()}>
@@ -1252,24 +1263,18 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
             {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
           </div>
         )}
-        {diagnostic && <div className='detailResult diagnosticPanel'>
-          <div className='panelTitle'>DIAGNÓSTICO OPERACIONAL · {String(diagnostic.classification?.category || 'unknown').toUpperCase()}</div>
-          <div className='humanSummaryGrid'>
-            <div><strong>Causa raíz</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.root_cause || 'No determinada')}</p></div>
-            <div><strong>Qué observó ARIA</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.observed || 'Sin observación registrada')}</p></div>
-            <div><strong>Qué esperaba</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.expected || 'Evidencia verificable y estado coherente')}</p></div>
-            <div><strong>Dependencia</strong><p>{humanizeTechnicalText(JSON.stringify(diagnostic.diagnosis?.dependency || diagnostic.health?.dependency || {}))}</p></div>
-            <div><strong>Siguiente acción</strong><p>{humanizeTechnicalText(diagnostic.diagnosis?.next_action || 'Revisar evidencia y estrategia')}</p></div>
-            <div><strong>Intentos observados</strong><p>{String(diagnostic.diagnosis?.attempts_observed ?? diagnostic.attempts?.length ?? 0)}</p></div>
+        {diagnostic && status !== 'succeeded' && (
+          <div className='detailResult diagnosticPanel diagnosticHumanSummary'>
+            <div className='panelTitle'>RECUPERACIÓN</div>
+            <strong>{humanizeTechnicalText(diagnostic.diagnosis?.root_cause || diagnostic.diagnosis?.observed || 'ARIA conserva un diagnóstico para esta misión.')}</strong>
+            <p className='muted'>{humanizeTechnicalText(diagnostic.diagnosis?.next_action || 'ARIA conserva la evidencia y determinará la siguiente estrategia gobernada.')}</p>
           </div>
-          <div className='muted'>Trace: {String(diagnostic.correlation?.trace_id || '—')} · Request: {String(diagnostic.correlation?.request_id || '—')} · Execution: {String(diagnostic.correlation?.execution_id || '—')}</div>
-          <div className='muted'>Runtime: {String(diagnostic.versions?.runtime_version || '—')} · Planner: {String(diagnostic.versions?.planner_version || '—')} · Verifier: {String(diagnostic.versions?.verifier_version || '—')} · Build PWA: {String(diagnostic.versions?.pwa_build || '—')}</div>
-        </div>}
+        )}
         {status !== 'blocked' && <div className='detailResult'>
           <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
           <div className='objectiveStatusBanner'>
             <strong>{summary.objective.label}</strong>
-            <span>{summary.objective.note}</span>
+            <span>{humanRecoveryNote || summary.objective.note}</span>
           </div>
           <div className='humanSummaryGrid'>
             <div><strong>Qué hizo ARIA</strong><p>{summary.what}</p></div>
@@ -1357,13 +1362,24 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     try {
       const data = await api('/meditation/notifications?limit=50', session.accessToken);
       const next = Array.isArray(data?.notifications) ? data.notifications as PwaNotificationItem[] : [];
-      setItems(next);
-      setUnread(Number(data?.unread_count ?? 0));
+      const compact: PwaNotificationItem[] = [];
+      const compactKeys = new Set<string>();
+      for (const item of next) {
+        const copy = humanizeMeditationNotification(item);
+        const key = item.mission_id
+          ? String(item.mission_id) + '|' + copy.title + '|' + copy.body
+          : String(item.notification_id);
+        if (compactKeys.has(key)) continue;
+        compactKeys.add(key);
+        compact.push(item);
+      }
+      setItems(compact);
+      setUnread(compact.filter(item => !item.read_at).length);
 
       let seen: string[] = [];
       try { seen = JSON.parse(localStorage.getItem(seenKey) || '[]'); } catch {}
       const seenSet = new Set(seen.map(String));
-      const fresh = next.filter(item => !seenSet.has(String(item.notification_id)));
+      const fresh = compact.filter(item => !seenSet.has(String(item.notification_id)));
 
       if (firstSync.current) {
         next.forEach(item => seenSet.add(String(item.notification_id)));
@@ -1983,15 +1999,20 @@ function Chat({
 
 function meditationQueueItems(overview: any, activeMission: any): any[] {
   const all = Array.isArray(overview?.missions) ? overview.missions : [];
+  const queuedSource = Array.isArray(overview?.queued_missions) ? overview.queued_missions : [];
   const active = activeMission && ['running','waiting','planning'].includes(String(activeMission.status))
     ? activeMission
     : null;
-  const queued = all
-    .filter((m: any) => String(m?.status) === 'queued')
-    .sort((a: any, b: any) =>
-      Number(b?.queue_priority ?? b?.metadata?.queue_priority ?? 0) - Number(a?.queue_priority ?? a?.metadata?.queue_priority ?? 0) ||
-      new Date(String(a?.created_at || 0)).getTime() - new Date(String(b?.created_at || 0)).getTime()
-    );
+  const queuedMap = new Map<string, any>();
+  for (const item of [...queuedSource, ...all.filter((m: any) => String(m?.status) === 'queued')]) {
+    const id = String(item?.mission_id ?? '');
+    if (!id || queuedMap.has(id)) continue;
+    queuedMap.set(id, item);
+  }
+  const queued = Array.from(queuedMap.values()).sort((a: any, b: any) =>
+    Number(b?.queue_priority ?? b?.metadata?.queue_priority ?? 0) - Number(a?.queue_priority ?? a?.metadata?.queue_priority ?? 0) ||
+    new Date(String(a?.created_at || 0)).getTime() - new Date(String(b?.created_at || 0)).getTime()
+  );
   const result = active ? [active] : [];
   for (const item of queued) {
     if (!result.some((x: any) => String(x.mission_id) === String(item.mission_id))) result.push(item);
@@ -2118,8 +2139,12 @@ function Meditation({ session }: { session: Session }) {
         api('/diagnostics/health',session.accessToken).catch(()=>null)
       ]);
       if(overview){
-        let nextOverview=overview; const candidate=selectLiveMission(overview); const missionId=candidate?.mission_id;
-        let missionForView=candidate??null; let liveEvents=Array.isArray(candidate?.live_events)?candidate.live_events:[];
+        let nextOverview=overview; const candidate=selectLiveMission(overview);
+        const foreground=selectForegroundMission(overview);
+        const queued=meditationQueueItems(overview,null).find((x:any)=>String(x?.status)==='queued') ?? null;
+        const missionForView=candidate ?? queued ?? (foreground && ['succeeded','failed','blocked','cancelled'].includes(String(foreground.status)) ? foreground : null);
+        const missionId=candidate?.mission_id;
+        let liveEvents=Array.isArray(candidate?.live_events)?candidate.live_events:[];
         if(missionId&&!['succeeded','failed','blocked','cancelled'].includes(String(candidate?.status??'').toLowerCase())){
           const [missionResult,eventResult]=await Promise.all([
             api('/missions/'+encodeURIComponent(missionId),session.accessToken).catch(()=>null),
@@ -2215,8 +2240,12 @@ function Meditation({ session }: { session: Session }) {
   }
 
   const m = o?.active_mission;
-  const nextQueuedMission = meditationQueueItems(o, null)[0] ?? null;
-  const displayMission = m ?? nextQueuedMission;
+  const queuedMissions = meditationQueueItems(o, null).filter((item:any)=>String(item?.status)==='queued');
+  const nextQueuedMission = queuedMissions[0] ?? null;
+  const foreground = o?.foreground_mission ?? null;
+  const displayMission = m ?? nextQueuedMission ?? (foreground && ['succeeded','failed','blocked','cancelled'].includes(String(foreground.status)) ? foreground : null);
+  const cloudMode = String(o?.mode ?? 'stopped').toLowerCase();
+  const queueCount = queuedMissions.length;
 
   return (
     <main className='appShell'>
@@ -2234,7 +2263,18 @@ function Meditation({ session }: { session: Session }) {
           <button className='ghost' onClick={() => setIdeasOpen(true)}>Ver ideas y crear misión</button>
         </div>
       </section>
-      <section className='statePanel'><div><div className='panelTitle'>ESTADO CLOUD</div><div className='bigStatus'>{syncing && !o ? 'Sincronizando…' : o?.mode ? statusLabel(String(o.mode)) : 'Sin datos LIVE'}</div><div className='muted'>Misión activa: {m ? m.goal : 'ninguna'}{lastSyncAt ? ' · actualizado ' + new Date(lastSyncAt).toLocaleTimeString('es') : ''}</div></div><div className='actions'><button className='primary' disabled={busy} onClick={() => control('activate')}>Activar</button><button className='ghost' disabled={busy || !m || ['paused','succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('pause')}>Pausar</button><button className='ghost' disabled={busy || !m || ['succeeded','failed','blocked','cancelled'].includes(String(m?.status))} onClick={() => control('stop')}>Detener</button></div></section>
+      <section className='statePanel'>
+        <div>
+          <div className='panelTitle'>MEDITACIÓN IA</div>
+          <div className='bigStatus'>{m ? statusLabel(String(m.status)) : queueCount ? 'Hay trabajo en cola' : 'Lista para actuar'}</div>
+          <div className='muted'>{m ? missionGoalPreview(m, 150) : queueCount ? (queueCount + ' misión' + (queueCount === 1 ? '' : 'es') + ' esperando ejecución.') : 'No hay una misión ejecutándose ahora mismo.'}</div>
+        </div>
+        <div className='actions'>
+          <button className='primary' type='button' onClick={() => { window.location.hash = '#mission'; }}>＋ Nueva misión</button>
+          {cloudMode === 'stopped' && queueCount > 0 && <button className='primary' disabled={busy} onClick={() => control('activate')}>Activar cola</button>}
+          {cloudMode !== 'stopped' && <button className='ghost' disabled={busy} onClick={() => control('stop')}>Detener</button>}
+        </div>
+      </section>
 
       {displayMission
         ? <MeditationLiveExecution mission={displayMission} events={missionEvents} lastSyncAt={lastSyncAt} syncing={syncing} onOpen={() => void openMission(String(displayMission.mission_id))} onCancel={() => cancelMission(String(displayMission.mission_id))} />
@@ -2255,7 +2295,7 @@ function Meditation({ session }: { session: Session }) {
       <details className='panel collapsiblePanel meditationMoreDetails'>
         <summary><span>MÁS INFORMACIÓN</span><b>Detalles</b></summary>
         <div className='meditationSecondary'>
-                <section className='statsGrid'><StatCard value={o ? (o?.counts?.missions ?? 0) : '—'} label='Misiones visibles' /><StatCard value={o ? (o?.counts?.human_gates ?? 0) : '—'} label='Human Gates' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /><StatCard value={caps ? (caps?.summary.executors ?? 0) : '—'} label='Executors' /></section>
+                <section className='statsGrid'><StatCard value={queueCount} label='En cola' /><StatCard value={m ? statusLabel(String(m.status)) : '—'} label='Estado actual' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /></section>
                 <details className='panel collapsiblePanel'>
                   <summary><span>HUMAN GATES</span><b>{(o?.human_gates ?? []).length}</b></summary>
                   {(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row live' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}
@@ -2317,7 +2357,7 @@ function Meditation({ session }: { session: Session }) {
                         )}
                       </div>
                     )) : <div className='muted'>No hay misiones en cola.</div>}
-                    {queue.length > 1 && <div className='muted queueHint'>La misión ejecutándose permanece en prioridad 1. Las demás prioridades se ejecutarán en el orden mostrado.</div>}
+                    {queue.length > 1 && <div className='muted queueHint'>ARIA puede recibir nuevas misiones mientras esta cola exista. Una misión en cola no se considera ejecución activa.</div>}
                   </details>;
                 })()}
           
@@ -2669,17 +2709,18 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const currentStep=steps.find((s:any)=>String(s.status)==='running')??(latestStepId?steps.find((s:any)=>String(s.id)===latestStepId):null)??steps.find((s:any)=>Number(s.index)===Number(mission.current_step)+1)??steps.find((s:any)=>!['succeeded','skipped'].includes(String(s.status)))??null;
   const total=Number(mission.total_steps??mission.step_count??steps.length), completed=Math.max(Number(mission.completed_steps??0),steps.filter((s:any)=>['succeeded','skipped'].includes(String(s.status))).length), currentIndex=Number(currentStep?.index??0)||0;
   const percent=total>0?Math.min(100,Math.max(0,completed/total*100)):0;
-  const nowText=terminal?(status==='succeeded'?'Misión completada y verificada.':statusLabel(status)):status==='queued'?'La misión está en cola; ARIA está esperando que el runner la tome.':currentStep?directActionText(currentStep,latest):latest?executionEventDetail(latest):'ARIA está preparando el siguiente movimiento.';
+  const nowText=terminal?(status==='succeeded'?'Misión completada y verificada.':statusLabel(status)):status==='queued'?'La misión está en cola; ARIA la ejecutará cuando la cola esté activa.':currentStep?directActionText(currentStep,latest):latest?executionEventDetail(latest):'ARIA está preparando el siguiente movimiento.';
   const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
+  const goalPreview=missionGoalPreview(mission,180);
   const recentEvents=events.slice(-6).reverse(), verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified');
   return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
-    <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{statusLabel(status)}</div><div className='executionGoal'>{mission.goal}</div></div></div>
+    <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{statusLabel(status)}</div><div className='executionGoal'>{goalPreview}</div></div></div>
     <div className='executionHeroActions'><span className={'pill '+tone(status)}>{statusLabel(status)}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
-    <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>
-    <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{nowText}</strong><small>{currentStep&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
-    <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Lo que ARIA acaba de hacer</strong></div><button className='ghost executionDetailsButton' onClick={onOpen}>Detalles técnicos</button></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>{latest && !latestEventFresh ? 'No hay actividad nueva confirmada; ARIA no inventará una acción.' : 'Esperando la primera actividad real del runtime…'}</div>}</div>
+    {status !== 'queued' && <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>}
+    <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{nowText}</strong><small>{currentStep&&status!=='queued'&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':status==='queued'?'El runner todavía no ha tomado esta misión.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
+    <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Última actividad</strong></div></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>{status==='queued' ? 'La misión está esperando ejecución; aquí aparecerá la actividad cuando el runner la tome.' : latest && !latestEventFresh ? 'No hay actividad nueva confirmada; ARIA no inventará una acción.' : 'Esperando la primera actividad real del runtime…'}</div>}</div>
     {terminal&&<div className='executionOutcome'><div className='executionLabel'>RESULTADO</div><strong>{resultText}</strong><small>{verified?'Verificación registrada. La misión queda cerrada.':'El estado final y la evidencia disponible quedan conservados.'}</small></div>}
-    <div className='executionLiveControl'><span className='muted'>{syncing?'Actualizando estado…':'Actualización automática cada 2,5 s'}</span></div>
+    <div className='executionLiveControl'><span className='muted'>{syncing?'Actualizando estado…':'Estado actualizado automáticamente.'}</span></div>
   </section>;
 }
 
