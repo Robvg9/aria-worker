@@ -103,7 +103,7 @@ if(!plannerConfig.includes('"imports"'))throw new Error('planner v11 deno.json i
 console.log('aria-app-api-v3-contract.test.js: PASS');
 
 for (const fragment of [
-  "trackMission(responseData.mission.mission_id)",
+  '{trackMission(responseData.mission.mission_id)}',
   "Background mission tracking must never block the conversational channel.",
   "function missionResultText(mission: any)",
   "function missionHumanSummary(mission: any)",
@@ -115,7 +115,9 @@ for (const fragment of [
 ]) {
   // PWA assertions are mirrored here so the main npm contract gate covers
   // conversational/mission concurrency without requiring a browser runner.
-  if (!pwa.includes(fragment)) throw new Error("PWA runtime contract missing: " + fragment);
+  if (fragment === '{trackMission(responseData.mission.mission_id)}') {
+    if (!/\b(?:void\s+)?trackMission\(responseData\.mission\.mission_id\)/.test(pwa)) throw new Error("PWA runtime contract missing: trackMission(responseData.mission.mission_id)");
+  } else if (!pwa.includes(fragment)) throw new Error("PWA runtime contract missing: " + fragment);
 }
 
 const appApiMissionRetryAssertions=[
@@ -137,7 +139,9 @@ assertContains(appApi,'controllerOwnedByUser','mission overview must separate me
 assertContains(appApi,'scopedSessionId','meditation session scope must not hide canonical user missions when another controller owns the meditation session');
 assertContains(appApi,'source_of_truth:"aria_internal.mission_state"','mission collection must expose its canonical source of truth');
 assertContains(appApi,'path.endsWith("/missions")','canonical authenticated mission collection route missing');
-assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;return 0;','active mission selection must require a live lease');
+assertContains(appApi,'const latestUser=[...owned]','live context must keep the latest user mission visible');
+assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60','running mission ranking must prefer a live lease');
+assertContains(appApi,'if(s==="queued")return 20','queued user missions remain visible to the foreground surface');
 assertContains(pwa,"api('/missions?limit=100', session.accessToken)","PWA chat sync must use the canonical missions collection, not the meditation-control overview as its source of truth");
 console.log('FASE 1 BUG-PC-002/003 SSoT CONTRACT: PASS');
 

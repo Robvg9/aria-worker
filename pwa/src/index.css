@@ -576,3 +576,14 @@ button{touch-action:manipulation;}
 .meditationMoreDetails{margin-top:2px}
 .meditationMoreDetails>summary{display:flex;align-items:center;justify-content:space-between}
 .meditationSecondary{display:grid;gap:12px;margin-top:12px}
+
+/* Meditation IA — human-first live execution surface. */
+.executionSyncText{display:block;margin-top:6px;font-size:11px;opacity:.65;text-align:right}
+.executionHumanNow{margin-top:16px;padding:16px 18px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025)}
+.executionHumanNow strong{display:block;font-size:18px;line-height:1.35;margin-top:5px}
+.executionHumanNow small{display:block;margin-top:8px;opacity:.7;line-height:1.45}
+.executionProgressBar.indeterminate{position:relative;overflow:hidden}.executionProgressBar.indeterminate>span{display:none}.executionProgressBar.indeterminate::after{content:"";position:absolute;top:0;bottom:0;width:34%;border-radius:inherit;background:currentColor;opacity:.5;animation:ariaMissionProgress 1.25s ease-in-out infinite}@keyframes ariaMissionProgress{0%{left:-34%}100%{left:100%}}
+.executionHumanLog{margin-top:16px;padding:16px 18px;border:1px solid rgba(255,255,255,.08);border-radius:16px}.executionLogHeader{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.executionLogRow{display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:start;padding:11px 0;border-top:1px solid rgba(255,255,255,.06)}.executionLogRow:first-of-type{border-top:0}.executionLogDot{width:8px;height:8px;margin-top:5px;border-radius:50%;background:currentColor;opacity:.65}.executionLogRow strong{display:block;font-size:13px;line-height:1.3}.executionLogRow small{display:block;margin-top:3px;opacity:.68;line-height:1.4}.executionLogRow time{font-size:10px;opacity:.5;white-space:nowrap}.executionLogEmpty{padding:12px 0 2px;opacity:.65}
+.executionOutcome{margin-top:16px;padding:16px 18px;border-radius:16px;border:1px solid rgba(255,255,255,.08)}.executionOutcome strong{display:block;margin-top:5px;line-height:1.4}.executionOutcome small{display:block;margin-top:7px;opacity:.7;line-height:1.4}
+.operationalHealthCompact{overflow:hidden}.operationalHealthCompact>summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between}.operationalHealthSummary{padding:14px 0 4px}.operationalHealthSummary strong{display:block;font-size:16px}.operationalHealthSummary p{margin:6px 0;line-height:1.45;opacity:.78}.operationalHealthSummary small{opacity:.58}.operationalHealthActions{display:grid;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}.operationalHealthActions span{font-size:12px;opacity:.72}
+@media (max-width:700px){.executionLogRow{grid-template-columns:10px 1fr}.executionLogRow time{grid-column:2}}

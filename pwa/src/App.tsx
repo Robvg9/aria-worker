@@ -7,7 +7,7 @@ import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditation
 
 const API = '/api';
 const CACHE_PREFIX = 'aria-runtime-cache-v3';
-const CACHE_TTL_MS: Record<string, number> = { system: 15000, capabilities: 21600000, active_mission: 10000, meditation_overview: 21600000 };
+const CACHE_TTL_MS: Record<string, number> = { system: 15000, capabilities: 21600000, active_mission: 10000, meditation_overview: 15000 };
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const UI_PREFS_KEY = 'aria_ui_preferences_v1';
@@ -699,27 +699,24 @@ async function signIn(email: string, password: string) {
 function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): number {
   const value = String(status ?? '').toLowerCase();
   const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
-  // La superficie "EJECUCIÓN EN TIEMPO REAL" representa trabajo que realmente
-  // está siendo ejecutado o esperando una condición externa de esa ejecución.
-  // Planning/queued/paused son estados de cola/control, no una ejecución viva.
   if (value === 'running' && leased) return 60;
   if (value === 'waiting' && leased) return 45;
-  // Sin lease vigente, el estado no representa ejecución viva en la PWA.
+  // Sin lease vigente, running/waiting no se consideran ejecución LIVE.
+  if (value === 'planning') return 30;
+  if (value === 'queued') return 20;
+  if (value === 'paused') return 10;
+  if (value === 'succeeded') return 5;
+  if (value === 'failed' || value === 'blocked' || value === 'cancelled') return 4;
   return 0;
 }
 
 function selectLiveMission(overview: any): any | null {
-  const candidates = [
-    ...(Array.isArray(overview?.missions) ? overview.missions : []),
-    overview?.active_mission
-  ].filter(Boolean);
-  const unique = Array.from(new Map(candidates.map((m: any) => [String(m.mission_id), m])).values());
-  return unique
-    .filter((m: any) => activeMissionRank(m.status, m.lease_owner, m.lease_until) > 0)
-    .sort((a: any, b: any) =>
-      activeMissionRank(b.status, b.lease_owner, b.lease_until) - activeMissionRank(a.status, a.lease_owner, a.lease_until) ||
-      new Date(String(b.updated_at || 0)).getTime() - new Date(String(a.updated_at || 0)).getTime()
-    )[0] ?? null;
+  const candidates=[...(Array.isArray(overview?.missions)?overview.missions:[]),overview?.active_mission].filter(Boolean);
+  const unique=Array.from(new Map(candidates.map((m:any)=>[String(m.mission_id),m])).values());
+  if(!unique.length)return null;
+  const userMissions=unique.filter((m:any)=>String(m?.metadata?.goal_source??'').toLowerCase()==='user').sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime());
+  if(userMissions.length)return userMissions[0];
+  return unique.filter((m:any)=>activeMissionRank(m.status,m.lease_owner,m.lease_until)>0).sort((a:any,b:any)=>activeMissionRank(b.status,b.lease_owner,b.lease_until)-activeMissionRank(a.status,a.lease_owner,a.lease_until)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
 }
 
 function humanNextAction(action: any, status: string): string {
@@ -934,24 +931,16 @@ function StatCard({ value, label, color = '' }: { value: string | number; label:
 }
 
 function OperationalHealthPanel({ health }: { health: any }) {
-  if (!health) return <section className='panel'><div className='panelTitle'>SALUD OPERATIVA</div><div className='emptyState'>Sin diagnóstico de salud disponible.</div></section>;
-  const status=String(health.status||'unknown');
-  const s=health.summary||{};
-  return <section className='panel diagnosticHealthPanel'>
-    <div className='detailTop'><div><div className='panelTitle'>SALUD OPERATIVA · v{String(health.version||'diagnóstico')}</div><div className='bigStatus'>{status==='healthy'?'SALUDABLE':status==='degraded'?'DEGRADADA':status==='unavailable'?'NO DISPONIBLE':'SIN DATOS SUFICIENTES'}</div><div className='muted'>Actualizado {health.generated_at ? formatDate(health.generated_at) : 'ahora'}</div></div><span className={'pill '+tone(status)}>{statusLabel(status)}</span></div>
-    <div className='detailGrid'>
-      <StatCard value={s.active_missions ?? 0} label='Misiones activas' />
-      <StatCard value={s.queued_jobs ?? 0} label='Jobs en cola' />
-      <StatCard value={s.running_jobs ?? 0} label='Jobs ejecutándose' />
-      <StatCard value={s.stale_jobs ?? 0} label='Jobs stale' />
-      <StatCard value={(s.devices_online ?? 0)+'/'+(s.devices_total ?? 0)} label='Dispositivos online' />
-      <StatCard value={(s.models_available ?? 0)+'/'+(s.models_total ?? 0)} label='Modelos disponibles' />
-    </div>
-    <div className='humanSummaryGrid'>
-      {(health.next_actions||[]).map((action:string,i:number)=><div key={i}><strong>Siguiente acción</strong><p>{action}</p></div>)}
-    </div>
-  </section>;
+  if(!health)return null;
+  const status=String(health.status||'unknown').toLowerCase(), summary=health.summary||{}, dependencies=health.dependencies||{};
+  const coreHealthy=dependencies.device_transport?.status==='healthy'&&dependencies.model_runtime?.status==='healthy'&&dependencies.job_queue?.status==='healthy';
+  const headline=coreHealthy?'Núcleo operativo activo':status==='unavailable'?'Diagnóstico no disponible':'Hay una incidencia operativa que revisar';
+  const detail=coreHealthy&&Number(summary.blocked_missions||0)>0
+    ?'Los servicios necesarios para ejecutar están disponibles. Las misiones bloqueadas quedan como trabajo pendiente; no significan que esta ejecución esté fallando.'
+    :coreHealthy?'Transporte, modelos y cola disponibles.':'ARIA conserva el diagnóstico y muestra la dependencia que necesita atención.';
+  return <details className='panel operationalHealthCompact'><summary><span>ESTADO OPERATIVO</span><b>{coreHealthy?'ACTIVO':status==='unavailable'?'SIN DIAGNÓSTICO':'REVISAR'}</b></summary><div className='operationalHealthSummary'><strong>{headline}</strong><p>{detail}</p><small>{summary.devices_online??0}/{summary.devices_total??0} dispositivos · {summary.models_available??0}/{summary.models_total??0} modelos disponibles · {summary.queued_jobs??0} jobs en cola</small></div>{!coreHealthy&&Array.isArray(health.next_actions)&&health.next_actions.length>0&&<div className='operationalHealthActions'>{health.next_actions.slice(0,3).map((action:string,i:number)=><span key={i}>{action}</span>)}</div>}</details>;
 }
+
 
 function QuickCatalogModal({ title, items, onClose }: { title: string; items: any[]; onClose: () => void }) {
   return (
@@ -2121,63 +2110,38 @@ function Meditation({ session }: { session: Session }) {
   }
 
   async function load() {
-    setSyncing(true);
-    let successes = 0;
-    const [overview, capability, health] = await Promise.all([
-      api('/meditation/overview', session.accessToken).catch(() => null),
-      api('/capabilities', session.accessToken).catch(() => null),
-      api('/diagnostics/health', session.accessToken).catch(() => null)
-    ]);
-    if (overview) {
-      let nextOverview = overview;
-      const liveCandidate = selectLiveMission(overview);
-      const activeId = liveCandidate?.mission_id;
-      if (activeId) {
-        // The overview is only a queue snapshot. Select the highest-priority
-        // executable mission (RUNNING before QUEUED), then refresh the
-        // canonical mission + real event stream for that mission.
-        const [missionResult, eventResult] = await Promise.all([
-          api('/missions/' + encodeURIComponent(activeId), session.accessToken).catch(() => null),
-          api('/missions/' + encodeURIComponent(activeId) + '/events?live=' + Date.now(), session.accessToken).catch(() => ({ events: [] }))
-        ]);
-        const liveMission = missionResult?.mission;
-        const embeddedEvents = liveMission?.live_events ?? liveCandidate?.live_events ?? [];
-        const liveEvents = Array.isArray(eventResult?.events) && eventResult.events.length
-          ? eventResult.events
-          : embeddedEvents;
-        if (liveMission) nextOverview = {
-          ...overview,
-          active_mission: liveMission,
-          live_sync_at: new Date().toISOString(),
-          live_event_count: liveEvents.length
-        };
-        else if (liveCandidate) nextOverview = {
-          ...overview,
-          active_mission: liveCandidate,
-          live_sync_at: new Date().toISOString(),
-          live_event_count: liveEvents.length
-        };
-        setMissionEvents(Array.isArray(liveEvents) ? liveEvents : []);
-      } else {
-        setMissionEvents([]);
-        // Nunca conservar un active_mission terminal/antiguo cuando ya no existe
-        // una misión realmente ejecutándose.
-        nextOverview = { ...nextOverview, active_mission: null, live_sync_at: new Date().toISOString(), live_event_count: 0 };
+    setSyncing(true); let successes=0;
+    try{
+      const [overview,capability,health]=await Promise.all([
+        api('/meditation/overview',session.accessToken).catch(()=>null),
+        api('/capabilities',session.accessToken).catch(()=>null),
+        api('/diagnostics/health',session.accessToken).catch(()=>null)
+      ]);
+      if(overview){
+        let nextOverview=overview; const candidate=selectLiveMission(overview); const missionId=candidate?.mission_id;
+        let missionForView=candidate??null; let liveEvents=Array.isArray(candidate?.live_events)?candidate.live_events:[];
+        if(missionId&&!['succeeded','failed','blocked','cancelled'].includes(String(candidate?.status??'').toLowerCase())){
+          const [missionResult,eventResult]=await Promise.all([
+            api('/missions/'+encodeURIComponent(missionId),session.accessToken).catch(()=>null),
+            api('/missions/'+encodeURIComponent(missionId)+'/events?live='+Date.now(),session.accessToken).catch(()=>({events:[]}))
+          ]);
+          missionForView=missionResult?.mission??candidate;
+          if(Array.isArray(eventResult?.events)&&eventResult.events.length)liveEvents=eventResult.events;
+        }
+        if(missionForView){
+          nextOverview={...overview,active_mission:{...missionForView,live_events:liveEvents},live_sync_at:new Date().toISOString(),live_event_count:liveEvents.length};
+          setMissionEvents(Array.isArray(liveEvents)?liveEvents:[]);
+        }else{
+          nextOverview={...overview,active_mission:null,live_sync_at:new Date().toISOString(),live_event_count:0};
+          setMissionEvents([]);
+        }
+        setO(nextOverview); writeCached('meditation_overview',session.userId,nextOverview); successes++;
       }
-      setO(nextOverview);
-      writeCached('meditation_overview', session.userId, nextOverview);
-      successes++;
-    }
-    if (capability?.capabilities) {
-      setCaps(capability.capabilities);
-      writeCached('capabilities', session.userId, capability.capabilities);
-      successes++;
-    }
-    if (health?.health) setOperationalHealth(health.health);
-    setLastSyncAt(successes ? Date.now() : null);
-    const syncMessage = successes === 3 ? '' : successes > 0 ? 'Parte de Meditación IA se sincronizó; el resto sigue reintentándose.' : 'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar.';
-    setError(syncMessage);
-    setSyncing(false);
+      if(capability?.capabilities){setCaps(capability.capabilities);writeCached('capabilities',session.userId,capability.capabilities);successes++;}
+      if(health?.health){setOperationalHealth(health.health);successes++;}
+      setLastSyncAt(successes?Date.now():null);
+      setError(successes===3?'':successes>0?'No se pudieron actualizar todos los datos de Meditación IA; la vista conserva lo último disponible.':'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar ahora.');
+    }finally{setSyncing(false);}
   }
 
   async function openMission(missionId: string) {
@@ -2688,216 +2652,37 @@ function elapsedFrom(timestamp: any): string {
 }
 
 function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen, onCancel }: {
-  mission: any;
-  events: MissionEvent[];
-  lastSyncAt: number | null;
-  syncing: boolean;
-  onOpen: () => void;
-  onCancel?: () => Promise<void>;
+  mission:any; events:MissionEvent[]; lastSyncAt:number|null; syncing:boolean; onOpen:()=>void; onCancel?:()=>Promise<void>;
 }) {
-  if (!mission) {
-    return (
-      <section className='executionHero executionHeroEmpty'>
-        <div className='executionHeroTop'>
-          <div>
-            <div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div>
-            <div className='executionHeroTitle'>La cola está lista</div>
-            <div className='muted'>Cuando ARIA tome una misión, aquí verás el paso exacto, qué está haciendo y la evidencia más reciente.</div>
-          </div>
-          <span className='pill neutral'>SIN MISIÓN ACTIVA</span>
-        </div>
-        <div className='executionEmptyHint'>No uses “esperar” como señal de progreso: esta vista solo mostrará actividad cuando exista actividad real del runtime.</div>
-      </section>
-    );
-  }
+  if(!mission)return <section className='executionHero executionHeroEmpty'><div className='executionHeroTop'><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>Sin misión activa</div><div className='muted'>Cuando ARIA tome una misión, aquí verás qué está haciendo y el resultado.</div></div><span className='pill neutral'>SIN MISIÓN</span></div></section>;
+  const status=String(mission.status??'unknown').toLowerCase(), terminal=['succeeded','failed','blocked','cancelled'].includes(status), latest=events.length?events[events.length-1]:null;
+  const sessionSnapshot = {
+    mission_id: String(mission.mission_id ?? ''),
+    status,
+    updated_at: mission.updated_at ?? null,
+    last_event_at: latest?.created_at ?? null,
+    event_count: events.length
+  };
+  const latestEventFresh = !latest || (Number.isFinite(Date.parse(String(latest.created_at))) && Date.now() - Date.parse(String(latest.created_at)) < 15000);
 
-  const status = String(mission.status ?? 'unknown');
-  const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
-  const latest = events.length ? events[events.length - 1] : null;
-  const latestEventTime = latest ? new Date(String(latest.created_at || '')).getTime() : NaN;
-  const latestEventAgeMs = Number.isFinite(latestEventTime) ? Math.max(0, Date.now() - latestEventTime) : Number.POSITIVE_INFINITY;
-  const latestEventFresh = latestEventAgeMs <= 7000;
-  const latestType = String(latest?.event_type ?? '').toLowerCase();
-  const liveEventStepId = String(latest?.payload?.step_id ?? '').trim();
-  const activeEventTypes = new Set(['step_started', 'step_batch_started', 'cognitive_recall_completed',
-    'computer_use_observation_started','computer_use_decision_made','computer_use_action_started',
-    'computer_use_action_executed','computer_use_result_observed','computer_use_verification_completed']);
-  const currentStep =
-    (mission.steps ?? []).find((s: any) => String(s.status) === 'running') ??
-    (activeEventTypes.has(latestType) && liveEventStepId
-      ? (mission.steps ?? []).find((s: any) => String(s.id) === liveEventStepId)
-      : null) ??
-    (mission.steps ?? []).find((s: any) => Number(s.index) === Number(mission.current_step) + 1) ??
-    (mission.steps ?? []).find((s: any) => !['succeeded', 'skipped'].includes(String(s.status))) ??
-    null;
-  const progress = Number(mission.progress_percent ?? 0);
-  const completed = Number(mission.completed_steps ?? 0);
-  const total = Number(mission.total_steps ?? mission.step_count ?? 0);
-  const narrativeEvent = latestEventFresh ? latest : null;
-  const nowText = status === 'queued'
-    ? 'Esperando que el runner tome la misión'
-    : currentStep
-      ? String(currentStep.title)
-      : latestEventFresh
-        ? 'Procesando el siguiente movimiento'
-        : 'Sin evento nuevo: estado persistido';
-  const doingText = status === 'queued'
-    ? 'El motor de misiones todavía no ha tomado esta misión.'
-    : currentStep
-      ? directActionText(currentStep, latest)
-      : latestEventFresh
-        ? executionEventDetail(latest)
-        : 'No hay actividad nueva confirmada; ARIA no inventará una acción.';
-  const nextText = humanNextAction(mission.next_action, status);
-  const executionPlan = executionPlanForMission(mission);
-
-  return (
-    <section className={'executionHero ' + (terminal ? 'executionHeroTerminal ' + tone(status) : 'executionHeroRunning')}>
-      <div className='executionHeroTop'>
-        <div className='executionIdentity'>
-          <span className='executionPulse' aria-hidden='true' />
-          <div>
-            <div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div>
-            <div className='executionHeroTitle'>{statusLabel(status)}</div>
-            <div className='executionGoal'>{mission.goal}</div>
-          </div>
-        </div>
-        <div className='executionHeroActions'>
-          <span className={'pill ' + tone(status)}>{syncing ? 'SINCRONIZANDO…' : status === 'queued' ? 'EN COLA' : terminal ? statusLabel(status) : latestEventFresh ? 'ACTIVIDAD REAL' : 'ESTADO PERSISTIDO'}</span>
-          <button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>
-          {!terminal && onCancel && <button className='ghost executionDetailsButton dangerAction' onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; try { await onCancel(); } catch {} }}>Cancelar misión</button>}
-        </div>
-      </div>
-
-      <div className='executionProgressRow'>
-        <div className='executionProgressMeta'><strong>{progress.toFixed(1)}%</strong><span>{completed}/{total || '—'} pasos</span></div>
-        <div className='progressBar executionProgressBar'><span style={{ width: progress + '%' }} /></div>
-      </div>
-
-      <div className='executionPlanPanel'>
-        <div className='executionPlanHeader'>
-          <div>
-            <div className='executionLabel'>PLAN DE TRABAJO</div>
-            <strong>Esto es lo que ARIA pretende hacer para completar esta misión</strong>
-          </div>
-          <span className='muted'>Solo se marca ✓ cuando existe evidencia relacionada.</span>
-        </div>
-        <div className='executionPlanList'>
-          {executionPlan.map((item, index) => {
-            const state = executionPlanState(index, mission, events);
-            return (
-              <div className={'executionPlanItem ' + state} key={item}>
-                <span className='executionPlanCheck' aria-hidden='true'>{state === 'done' ? '✓' : state === 'current' ? '➜' : '○'}</span>
-                <span className='executionPlanIndex'>{index + 1}</span>
-                <div>
-                  <strong>{item}</strong>
-                  <small>{state === 'done' ? 'Comprobado con evidencia real' : state === 'current' ? 'Punto en curso' : 'Pendiente'}</small>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className='executionTelemetryGrid' aria-label='Telemetría de ejecución'>
-        <div className='executionTelemetryCard'>
-          <span>PASO EN CURSO</span>
-          <strong>{currentStep ? ((Number(currentStep.index) || 1) + ' · ' + humanStepTitle(currentStep, Number(currentStep?.index) || 1)) : 'Preparando…'}</strong>
-          <small>{status === 'queued' ? 'El motor de misiones aún no la ha tomado.' : currentStep ? statusLabel(String(currentStep.status)) : 'Sin paso activo confirmado'}</small>
-        </div>
-        <div className='executionTelemetryCard'>
-          <span>INTENTO ACTUAL</span>
-          <strong>{Number(currentStep?.attempt ?? currentStep?.attempt_count ?? mission.attempt_count ?? 0) || 1}</strong>
-          <small>{currentStep?.executor_type ? 'Ejecutor: ' + humanExecutorLabel(currentStep.executor_type) : 'Ejecutor aún no identificado'}</small>
-        </div>
-        <div className='executionTelemetryCard'>
-          <span>ACCIÓN ACTUAL</span>
-          <strong>{currentStep ? humanOperation(currentStep.operation, currentStep.executor_type) : '—'}</strong>
-          <small>{currentStep?.model_id ? 'Modelo: ' + humanizeTechnicalText(String(currentStep.model_id)) : (currentStep?.executor_type ? humanExecutorLabel(currentStep.executor_type) : 'Sin detalle adicional')}</small>
-        </div>
-        <div className='executionTelemetryCard'>
-          <span>ÚLTIMA ACTIVIDAD</span>
-          <strong>{latest ? elapsedFrom(latest.created_at) : '—'}</strong>
-          <small>{latest ? (latestEventFresh ? executionEventTitle(latest) : 'Último evento: ' + executionEventTitle(latest)) : 'Sin evento persistido todavía'}</small>
-        </div>
-      </div>
-
-      <div className='executionNarrative'>
-        <div className='executionLabel'>QUÉ ESTÁ PASANDO</div>
-        <strong>{executionNarrative(mission, currentStep, narrativeEvent).headline}</strong>
-        <div className='executionNarrativeSubject'>{executionNarrative(mission, currentStep, narrativeEvent).subject}</div>
-        <div className='executionNarrativeGrid'>
-          <div><span>EVIDENCIA</span><small>{executionNarrative(mission, currentStep, narrativeEvent).evidence}</small></div>
-          <div><span>DESPUÉS</span><small>{executionNarrative(mission, currentStep, narrativeEvent).next}</small></div>
-        </div>
-      </div>
-
-      <div className='executionNowGrid'>
-        <div className='executionNowCard executionNowMain'>
-          <div className='executionLabel'>AHORA MISMO</div>
-          {currentStep ? <>
-            <strong>{humanStepTitle(currentStep, Number(currentStep?.index) || 1)}</strong>
-            <small>{statusLabel(String(currentStep.status))} · {humanExecutorLabel(currentStep.executor_type)}</small>
-            <small>{verificationLabel(currentStep)}</small>
-          </> : <strong>ARIA está preparando el siguiente movimiento.</strong>}
-        </div>
-        <div className='executionNowCard'>
-          <div className='executionLabel'>QUÉ ESTÁ HACIENDO</div>
-          <strong>{doingText}</strong>
-          <small>{latestEventFresh && latest ? 'Evento ' + executionEventTitle(latest) + ' hace ' + elapsedFrom(latest.created_at) : status === 'queued' ? 'No se mostrará falsa actividad mientras permanezca en cola.' : 'Esperando un evento nuevo del runtime.'}</small>
-        </div>
-        <div className='executionNowCard'>
-          <div className='executionLabel'>PRÓXIMO MOVIMIENTO</div>
-          <strong>{status === 'queued' ? nextText : humanNextAction(mission.next_action, status)}</strong>
-          <small>{mission.eta?.eta_seconds != null ? 'Tiempo estimado: ' + Math.round(Number(mission.eta.eta_seconds)) + ' s' : 'Tiempo estimado calculándose con el historial disponible.'}</small>
-        </div>
-      </div>
-
-      <div className='executionEvidence'>
-        <div className='executionEvidenceHeader'>
-          <div>
-            <div className='executionLabel'>ÚLTIMA ACTIVIDAD REAL</div>
-            <strong>{latest ? (latestEventFresh ? executionEventTitle(latest) : 'Último evento persistido: ' + executionEventTitle(latest)) : 'Esperando el primer evento del runtime…'}</strong>
-          </div>
-          <span>{latest ? formatDate(latest.created_at) + ' · hace ' + elapsedFrom(latest.created_at) : lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString('es') : '—'}</span>
-        </div>
-        <div className='executionEvidenceDetail'>{latest ? executionEventDetail(latest) : 'La pantalla se sincronizará automáticamente y mostrará aquí el primer evento que ARIA registre.'}</div>
-      </div>
-
-      <div className='executionTimeline'>
-        <div className='executionLabel'>SECUENCIA REAL RECIENTE</div>
-        {(events ?? []).slice(-5).reverse().map((event: any) => (
-          <div className='timelineRow' key={String(event.event_id)}>
-            <span className='timelineDot' aria-hidden='true' />
-            <div>
-              <strong>{executionEventTitle(event)}</strong>
-              <small>{formatDate(event.created_at)}</small>
-              <div className='executionEvidenceDetail'>{executionEventDetail(event)}</div>
-            </div>
-          </div>
-        ))}
-        {!events.length && <div className='muted'>Todavía no hay eventos persistidos para esta misión.</div>}
-      </div>
-
-      <div className='executionStepRail'>
-        {(mission.steps ?? []).slice(0, 8).map((step: any) => (
-          <div className={'executionStepNode ' + String(step.status)} key={step.id}>
-            <span>{step.index}</span>
-            <small>{step.title}</small>
-          </div>
-        ))}
-      </div>
-
-      <div className='executionLiveControl'>
-        <span className='muted'>Sincronización automática cada 2,5 s</span>
-      </div>
-      <div className='executionFooter'>
-        <span>{lastSyncAt ? 'Estado consultado a las ' + new Date(lastSyncAt).toLocaleTimeString('es') : 'Sincronizando estado…'}</span>
-        <span>{events.length ? events.length + ' eventos registrados' : 'Sin eventos todavía'}</span>
-      </div>
-    </section>
-  );
+  const steps=Array.isArray(mission.steps)?mission.steps:[], latestStepId=String(latest?.payload?.step_id??'').trim();
+  const currentStep=steps.find((s:any)=>String(s.status)==='running')??(latestStepId?steps.find((s:any)=>String(s.id)===latestStepId):null)??steps.find((s:any)=>Number(s.index)===Number(mission.current_step)+1)??steps.find((s:any)=>!['succeeded','skipped'].includes(String(s.status)))??null;
+  const total=Number(mission.total_steps??mission.step_count??steps.length), completed=Math.max(Number(mission.completed_steps??0),steps.filter((s:any)=>['succeeded','skipped'].includes(String(s.status))).length), currentIndex=Number(currentStep?.index??0)||0;
+  const percent=total>0?Math.min(100,Math.max(0,completed/total*100)):0;
+  const nowText=terminal?(status==='succeeded'?'Misión completada y verificada.':statusLabel(status)):status==='queued'?'La misión está en cola; ARIA está esperando que el runner la tome.':currentStep?directActionText(currentStep,latest):latest?executionEventDetail(latest):'ARIA está preparando el siguiente movimiento.';
+  const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
+  const recentEvents=events.slice(-6).reverse(), verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified');
+  return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
+    <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{statusLabel(status)}</div><div className='executionGoal'>{mission.goal}</div></div></div>
+    <div className='executionHeroActions'><span className={'pill '+tone(status)}>{statusLabel(status)}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
+    <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>
+    <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{nowText}</strong><small>{currentStep&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
+    <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Lo que ARIA acaba de hacer</strong></div><button className='ghost executionDetailsButton' onClick={onOpen}>Detalles técnicos</button></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>{latest && !latestEventFresh ? 'No hay actividad nueva confirmada; ARIA no inventará una acción.' : 'Esperando la primera actividad real del runtime…'}</div>}</div>
+    {terminal&&<div className='executionOutcome'><div className='executionLabel'>RESULTADO</div><strong>{resultText}</strong><small>{verified?'Verificación registrada. La misión queda cerrada.':'El estado final y la evidencia disponible quedan conservados.'}</small></div>}
+    <div className='executionLiveControl'><span className='muted'>{syncing?'Actualizando estado…':'Actualización automática cada 2,5 s'}</span></div>
+  </section>;
 }
+
 
 function Capabilities({ session }: { session: Session }) {
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
