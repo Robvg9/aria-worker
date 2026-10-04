@@ -114,7 +114,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $node='D:\Databank\node\node.exe'
-          $npm='D:\Databank\npm.cmd'
+          $npm='D:\Databank\node\npm.cmd'
           if(-not (Test-Path $node)){throw 'NODE_NOT_FOUND'}
           if(-not (Test-Path $npm)){throw 'NPM_NOT_FOUND'}
           "ARIA_NODE_PATH=$node" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
