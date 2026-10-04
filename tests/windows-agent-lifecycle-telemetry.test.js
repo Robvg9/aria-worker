@@ -46,3 +46,10 @@ test('Windows watchdog restarts a live agent whose process heartbeat becomes sta
   assert.match(watchdog, /AgentHeartbeatStaleSeconds/);
   assert.match(watchdog, /Stop-Process -Id \$process\.Id -Force/);
 });
+
+
+test('Windows agent advertises deterministic autonomous RWHT without requiring qwen', () => {
+  assert.match(source, /const capabilities=\\[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION\\]/);
+  assert.match(source, /const deterministicPwaRwht=.*RWHT_CONTROL_DISCOVERY_VERIFY.*ARIA\\\\s\\+PWA/);
+  assert.doesNotMatch(source, /async function executeAutonomousRwhtJob\\(job\\)\\{if\\(!OLLAMA_ENABLED\\)/);
+});
