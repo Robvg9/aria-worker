@@ -3,10 +3,6 @@ name: ARIA ABSORB OmniRoute Phase 3 Windows Hosted
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'absorb/omniroute/**'
-      - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
-      - '.github/workflows/omniroute-phase3-hosted-windows.yml'
   workflow_dispatch:
 
 permissions:
