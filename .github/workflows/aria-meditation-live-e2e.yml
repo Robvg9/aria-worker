@@ -22,7 +22,7 @@ defaults:
 
 jobs:
   live-e2e:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: [self-hosted, Windows, X64, aria-lacueva-runtime]
     timeout-minutes: 7
     steps:
       - name: Checkout
