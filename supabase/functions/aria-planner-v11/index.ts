@@ -891,7 +891,7 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
   }catch(_e){ return null; }
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
 const explicitRequestedDevice=String(
   context?.mission_planner_contract?.requested_device_id ||
   context?.requested_device_id ||
@@ -901,7 +901,8 @@ const explicitRequestedDevice=String(
 if(explicitRequestedDevice.startsWith("windows-")){
   const windowsFastPath=await windowsPcRwhtPlan(goal,context);
   if(windowsFastPath)return windowsFastPath;
-}const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
+}
+const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
