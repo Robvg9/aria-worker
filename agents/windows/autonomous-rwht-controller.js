@@ -1073,6 +1073,20 @@ async function runAutonomousRwht(options) {
     ? Number((exercisedControls.size / discoveredControls.size).toFixed(3))
     : 0;
   const routeCoverageComplete = !fullPwaCoverageMode || visitedRoutes.size >= requiredRoutes.length;
+  const exitCoverageVerifiedActions = evidence.filter((item) => item.step && item.action && item.verified === true).length;
+  const exitCoverageComplete =
+    fullPwaCoverageMode
+    && routeCoverageComplete
+    && screensSeen.size > 1
+    && exitCoverageVerifiedActions > 0
+    && discoveredControls.size > 0
+    && exercisedControls.size + blockedControls.size >= discoveredControls.size;
+
+  // Do not report a false negative when the bounded action budget expires
+  // after all required PWA coverage and verification evidence is already complete.
+  if (finishReason === 'bounded_run_exhausted' && exitCoverageComplete) {
+    finishReason = 'coverage_complete';
+  }
   const complete = (finishReason === 'coverage_complete' || finishReason === 'control_discovery_verified') && routeCoverageComplete;
   const status = complete ? 'succeeded' : (verifiedActions.length ? 'partial' : 'failed');
 
