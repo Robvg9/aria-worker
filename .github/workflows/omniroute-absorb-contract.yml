@@ -12,7 +12,7 @@ on:
       - '.github/workflows/omniroute-absorb-contract.yml'
   push:
     branches:
-      - 'absorb/omniroute-v1-certification-20261003'
+      - 'feat/omniroute-v1-certification-20261004-final'
 
 permissions:
   contents: read
