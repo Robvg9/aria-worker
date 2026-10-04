@@ -42,6 +42,20 @@ assert.ok(queuedOrder>=0 && runningOrder>queuedOrder);
 assert.match(migration,/case lower\(coalesce\(m\.metadata->>'execution_lane',''\)\)/);
 assert.match(migration,/for update skip locked/);
 
+const direct=fs.readFileSync(path.join(root,'supabase/functions/aria-direct-v1/index.ts'),'utf8');
+const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
+assert.match(direct,/runner_tick_for_mission/);
+assert.match(direct,/runner_tick_for_mission[\s\S]*p_mission_id: missionId/);
+assert.match(direct,/EdgeRuntime\.waitUntil\(promise\)/);
+assert.match(direct,/authority: \"aria_internal\.runner_tick_for_mission\"/);
+assert.match(direct,/status: \"not_required\"/);
+assert.match(direct,/canonical_runner_is_execution_authority/);
+assert.doesNotMatch(direct,/status:\s*\"awaiting_device\"/);
+assert.doesNotMatch(direct,/no_online_android_termux_device/);
+assert.match(runner,/function scheduleMissionRetryKick\(missionId: string, reason: string\)/);
+assert.match(runner,/rpc\(\"runner_tick_for_mission\", \{ p_mission_id: missionId \}\)/);
+assert.match(runner,/EdgeRuntime\.waitUntil\(promise\)/);
+
 const orphan=fs.readFileSync(path.join(root,'supabase/migrations/20261004014000_orphaned_retry_reconciliation_v1.sql'),'utf8');
 assert.match(orphan,/aria_reconcile_orphaned_retry_missions/);
 assert.match(orphan,/status='running'/);
