@@ -3,6 +3,9 @@ name: ARIA ABSORB OmniRoute Phase 3 Windows Hosted
 on:
   pull_request:
     branches: [main]
+  push:
+    branches:
+      - 'feat/omniroute-v1-certification-20261004-final'
   workflow_dispatch:
 
 permissions:
