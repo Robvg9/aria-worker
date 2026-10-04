@@ -85,7 +85,7 @@ testCase('phase 3 sandbox contract is prepared and fail-closed', () => {
   assert.ok(phase3Contract.includes('HOST=127.0.0.1'));
   assert.ok(phase3Contract.includes('npm ci'));
   assert.ok(phase3Contract.includes('GET /api/health'));
-  assert.ok(phase3Contract.includes('Phase 3 is PASS when a real authorized Windows execution proves:'));
+  assert.ok(phase3Contract.includes('Status: PASS — HOSTED WINDOWS CERTIFIED'));
 });
 
 testCase('phase 4 standalone contract stays after phase 3', () => {
