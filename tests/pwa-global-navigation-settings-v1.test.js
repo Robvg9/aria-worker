@@ -73,7 +73,7 @@ assert.doesNotMatch(css,/Visible Dashboard\/Chat gesture hint/);
 assert.match(app,/executionHumanNow/);
 assert.match(app,/executionHumanLog/);
 assert.match(app,/executionOutcome/);
-assert.match(app,/Lo que ARIA acaba de hacer/);
+assert.match(app,/Última actividad/);
 assert.match(app,/Actualizando…/);
 assert.match(app,/live_events/);
 assert.doesNotMatch(app,/ACTIVIDAD REAL/);
