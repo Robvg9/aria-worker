@@ -22,6 +22,8 @@ concurrency:
 
 jobs:
   source-bridge:
+    outputs:
+      artifact_id: ${{ steps.upload_source.outputs.artifact-id }}
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -42,6 +44,7 @@ jobs:
           Set-Content -Path "${{ github.workspace }}\SOURCE_COMMIT.txt" -Value $head -Encoding utf8
           Write-Host "SOURCE_BRIDGE=PASS $head"
       - name: Upload exact source bridge
+        id: upload_source
         uses: actions/upload-artifact@v4
         with:
           name: omniroute-source-3e66ff2e
@@ -50,6 +53,7 @@ jobs:
             SOURCE_COMMIT.txt
 
   phase5-provider:
+    needs: source-bridge
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 60
     steps:
@@ -58,10 +62,10 @@ jobs:
         with:
           path: aria-worker
 
-      - name: Download exact OmniRoute source bridge
+      - name: Download exact OmniRoute source bridge by artifact ID
         uses: actions/download-artifact@v4
         with:
-          name: omniroute-source-3e66ff2e
+          artifact-ids: ${{ needs.source-bridge.outputs.artifact_id }}
           path: ${{ github.workspace }}
 
       - name: Verify exact bridged OmniRoute source
