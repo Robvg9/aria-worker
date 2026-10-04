@@ -12,6 +12,6 @@ assert.match(refresh,/proactive_digests/);
 assert.match(refresh,/security definer/i);
 assert.doesNotMatch(refresh,/mission_state|execution_jobs|meditation/i);
 assert.match(table,/enable row level security/);
-assert.match(table,/grant select, insert on aria_internal\\.proactive_digests to service_role/);
+assert.match(table,/grant select, insert on aria_internal\.proactive_digests to service_role/);
 assert.match(verify,/verify_proactive_digest_v1/);
 console.log('PROACTIVE LIVE V1 CONTRACT: PASS — protected SQL refresh, persistent digest, no mission coupling');
