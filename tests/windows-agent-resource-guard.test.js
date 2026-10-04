@@ -57,6 +57,7 @@ test('Windows runtime repair targets only the canonical LaCueva identity', () =>
   const guard = workflow.indexOf("Guard physical runner identity before maintenance");
   const cleanup = workflow.indexOf("Safe C cleanup and relocate ARIA caches to D");
   assert.ok(guard >= 0 && cleanup > guard, 'runner identity guard must precede maintenance');
+  assert.match(workflow, /if:\s*github\.event_name\s*!=\s*'pull_request'/);
 });
 test('Windows runtime repair syncs the resource profile with the agent', () => {
   assert.match(workflow, /agents\\windows\\resource-profile\.js/);
