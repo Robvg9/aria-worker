@@ -175,6 +175,21 @@ jobs:
           }
           if(-not $ok){throw 'OMNIROUTE_HEALTHCHECK_FAILED'}
           Write-Host 'OMNIROUTE_START=PASS'
+          # Prepare real inference + local-management credentials for the standalone API surfaces.
+          $cliToken = (& node --input-type=module -e "import('./bin/cli/utils/cliToken.mjs').then(async m=>console.log(await m.getCliToken()))").Trim()
+          if(-not $cliToken){throw 'CLI_TOKEN_DERIVATION_FAILED'}
+          "OMNIROUTE_CLI_TOKEN=$cliToken" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $createHeaders = @{
+            'x-omniroute-cli-token' = $cliToken
+            'Content-Type' = 'application/json'
+          }
+          $createBody = '{"name":"aria-phase4-catalog-check","modelAccessMode":"all"}'
+          $created = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:20128/api/keys' -Headers $createHeaders -Body $createBody -TimeoutSec 10
+          if(-not $created.id -or -not $created.key){throw 'TEMP_API_KEY_CREATE_FAILED'}
+          "OMNIROUTE_CATALOG_API_KEY=$($created.key)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "OMNIROUTE_TEMP_API_KEY_ID=$($created.id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host 'STANDALONE_AUTH_PREP=PASS'
+
 
       - name: Run standalone smoke
         shell: powershell
@@ -279,6 +294,17 @@ jobs:
           $path=Join-Path $env:PHASE4_CAPTURE_DIR 'PHASE4_FINAL_CAPTURE.json'
           $summary | ConvertTo-Json -Depth 8 | Set-Content -Path $path -Encoding utf8
           Get-Content -Raw $path
+
+      - name: Cleanup temporary catalog API key
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='SilentlyContinue'
+          if($env:OMNIROUTE_TEMP_API_KEY_ID -and $env:OMNIROUTE_CLI_TOKEN){
+            $headers=@{'x-omniroute-cli-token'=$env:OMNIROUTE_CLI_TOKEN}
+            Invoke-RestMethod -Method Delete -Uri ("http://127.0.0.1:20128/api/keys/" + $env:OMNIROUTE_TEMP_API_KEY_ID) -Headers $headers -TimeoutSec 10 | Out-Null
+            Write-Host 'TEMP_API_KEY_CLEANUP=PASS'
+          }
 
       - name: Cleanup processes
         if: always()
