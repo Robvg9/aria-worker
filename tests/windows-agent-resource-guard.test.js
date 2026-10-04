@@ -46,3 +46,20 @@ test('installer no longer hard-codes the legacy Windows identity', () => {
 
 assert.ok(MIN_LOCAL_LLM_RAM_BYTES > 0);
 assert.equal(MIN_LOCAL_LLM_LOGICAL_CPUS, 4);
+
+const workflow = fs.readFileSync(
+  require.resolve('../.github/workflows/aria-windows-runtime-repair.yml'),
+  'utf8'
+);
+test('Windows runtime repair targets only the canonical LaCueva identity', () => {
+  assert.match(workflow, /Guard physical runner identity before maintenance/);
+  assert.match(workflow, /expected='windows-lacueva-780886'/);
+  const guard = workflow.indexOf("Guard physical runner identity before maintenance");
+  const cleanup = workflow.indexOf("Safe C cleanup and relocate ARIA caches to D");
+  assert.ok(guard >= 0 && cleanup > guard, 'runner identity guard must precede maintenance');
+});
+test('Windows runtime repair syncs the resource profile with the agent', () => {
+  assert.match(workflow, /agents\\windows\\resource-profile\.js/);
+  assert.match(workflow, /resource-profile\.js/);
+  assert.match(workflow, /WINDOWS_RESOURCE_PROFILE_CHANGED=/);
+});
