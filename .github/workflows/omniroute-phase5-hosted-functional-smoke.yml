@@ -54,6 +54,14 @@ jobs:
         working-directory: omniroute-source
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Build exact OmniRoute
+        shell: powershell
+        working-directory: omniroute-source
+        env:
+          OMNIROUTE_USE_TURBOPACK: '0'
+          OMNIROUTE_BUILD_WORKERS: '1'
+          OMNIROUTE_BUILD_MEMORY_MB: '12000'
+        run: npm run build:fast
       - name: Install and start Ollama
         shell: powershell
         run: |
