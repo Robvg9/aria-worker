@@ -42,10 +42,13 @@ jobs:
           SQL
 
           if supabase db --help 2>/dev/null | grep -q query; then
-            supabase db query --linked < .ci-proactive-signal-quality-live.sql
+            supabase db query --linked < .ci-proactive-signal-quality-live.sql | tee .ci-proactive-signal-quality-live.out
           else
-            supabase sql --linked -f .ci-proactive-signal-quality-live.sql
+            supabase sql --linked -f .ci-proactive-signal-quality-live.sql | tee .ci-proactive-signal-quality-live.out
           fi
+          grep -qi 'sha256' .ci-proactive-signal-quality-live.out
+          grep -qi 'persisted' .ci-proactive-signal-quality-live.out
+          grep -qi 'read_only' .ci-proactive-signal-quality-live.out
 
       - name: Assert canonical SHA-256 evidence
         shell: bash
