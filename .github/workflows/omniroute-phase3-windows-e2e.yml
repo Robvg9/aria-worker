@@ -1,0 +1,176 @@
+name: ARIA ABSORB OmniRoute Phase 3 Windows E2E
+
+on:
+  push:
+    branches:
+      - absorb/omniroute-v1-certification-20261003
+    paths:
+      - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
+      - 'absorb/omniroute/**'
+      - '.github/workflows/omniroute-phase3-windows-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase3-windows:
+    runs-on: self-hosted
+    timeout-minutes: 45
+    steps:
+      - name: Checkout ARIA
+        uses: actions/checkout@v4
+        with:
+          path: aria-worker
+
+      - name: Checkout exact OmniRoute commit
+        uses: actions/checkout@v4
+        with:
+          repository: diegosouzapw/OmniRoute
+          ref: 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          fetch-depth: 1
+          path: omniroute-source
+
+      - name: Verify exact source commit
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1') {
+            throw "SOURCE_COMMIT_MISMATCH=$head"
+          }
+          Write-Host "SOURCE_COMMIT=PASS $head"
+
+      - name: Resolve Windows Node runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            'D:\Databank\node.exe',
+            'D:\Databank\node\node.exe'
+          )
+          $node = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $node) {
+            $cmd = Get-Command node -ErrorAction SilentlyContinue
+            if ($cmd) { $node = $cmd.Source }
+          }
+          if (-not $node) { throw 'NODE_NOT_FOUND' }
+          $npmCandidates = @(
+            'D:\Databank\npm.cmd',
+            'D:\Databank\node\npm.cmd'
+          )
+          $npm = $npmCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $npm) {
+            $cmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
+            if ($cmd) { $npm = $cmd.Source }
+          }
+          if (-not $npm) { throw 'NPM_NOT_FOUND' }
+          "ARIA_NODE_PATH=$node" | Out-File $env:GITHUB_ENV -Encoding utf8
+          "ARIA_NPM_PATH=$npm" | Out-File $env:GITHUB_ENV -Encoding utf8
+          & $node --version
+          & $npm --version
+
+      - name: Build exact locked artifact and isolated data
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sandbox = 'D:\ARIA-Windows-Agent\Sandbox\OmniRoute-v3.8.52'
+          $data = Join-Path $sandbox 'data'
+          $cache = Join-Path $sandbox 'npm-cache'
+          $artifact = Join-Path $sandbox 'omniroute-3e66ff2e8cc94821b093fe57dad667b585230cd1.zip'
+          New-Item -ItemType Directory -Force -Path $sandbox,$data,$cache | Out-Null
+          Remove-Item $artifact -Force -ErrorAction SilentlyContinue
+          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
+          & git archive --format=zip --output=$artifact 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $artifact).Hash.ToLowerInvariant()
+          "ARCHIVE_SHA256=$hash" | Out-File $env:GITHUB_ENV -Encoding utf8
+          Write-Host "ARCHIVE_SHA256=$hash"
+          $env:NPM_CONFIG_CACHE = $cache
+          $env:DATA_DIR = $data
+          $env:PORT = '20128'
+          $env:DASHBOARD_PORT = '20128'
+          $env:API_PORT = '20128'
+          $env:HOST = '127.0.0.1'
+          $env:HOSTNAME = '127.0.0.1'
+          $env:NEXT_TELEMETRY_DISABLED = '1'
+          $env:JWT_SECRET = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
+          $env:API_KEY_SECRET = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')).Substring(0,64)
+          $env:INITIAL_PASSWORD = [guid]::NewGuid().ToString('N')
+          & $env:ARIA_NPM_PATH ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw "NPM_CI_FAILED=$LASTEXITCODE" }
+          & $env:ARIA_NPM_PATH run build
+          if ($LASTEXITCODE -ne 0) { throw "BUILD_FAILED=$LASTEXITCODE" }
+
+      - name: Start and health-check isolated OmniRoute
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
+          $env:DATA_DIR = 'D:\ARIA-Windows-Agent\Sandbox\OmniRoute-v3.8.52\data'
+          $env:PORT = '20128'
+          $env:DASHBOARD_PORT = '20128'
+          $env:API_PORT = '20128'
+          $env:HOST = '127.0.0.1'
+          $env:HOSTNAME = '127.0.0.1'
+          $env:NEXT_TELEMETRY_DISABLED = '1'
+          $env:JWT_SECRET = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
+          $env:API_KEY_SECRET = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')).Substring(0,64)
+          $env:INITIAL_PASSWORD = [guid]::NewGuid().ToString('N')
+          $server = Start-Process -FilePath $env:ARIA_NODE_PATH -ArgumentList @('scripts/dev/run-next.mjs','start') -WorkingDirectory (Get-Location) -PassThru -WindowStyle Hidden
+          $healthy = $false
+          try {
+            for ($i=0; $i -lt 45; $i++) {
+              Start-Sleep -Seconds 2
+              try {
+                $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:20128/api/health' -TimeoutSec 5
+                if ($r.StatusCode -eq 200) { $healthy = $true; break }
+              } catch {}
+            }
+            if (-not $healthy) {
+              throw 'HEALTHCHECK_FAILED'
+            }
+            Write-Host 'HEALTH=PASS'
+          }
+          finally {
+            if ($server -and -not $server.HasExited) {
+              & taskkill.exe /PID $server.Id /T /F | Out-Null
+            }
+          }
+
+      - name: Persist Phase 3 evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sandbox = 'D:\ARIA-Windows-Agent\Sandbox\OmniRoute-v3.8.52'
+          $capture = [ordered]@{
+            schema = 'aria.absorb.omniroute.phase3.capture.v2'
+            status = 'PASS_SANDBOX_EXECUTION'
+            repository = 'diegosouzapw/OmniRoute'
+            ref = 'release/v3.8.52'
+            commit_sha = '3e66ff2e8cc94821b093fe57dad667b585230cd1'
+            archive_sha256 = $env:ARCHIVE_SHA256
+            node_version = (& $env:ARIA_NODE_PATH --version).Trim()
+            sandbox_root = $sandbox
+            data_dir = (Join-Path $sandbox 'data')
+            npm_cache = (Join-Path $sandbox 'npm-cache')
+            bind_host = '127.0.0.1'
+            port = 20128
+            health_url = 'http://127.0.0.1:20128/api/health'
+            health_status = 200
+            stop_status = 'PASS'
+            arias_canonical_runtime_touched = $false
+            executed_by = 'github-actions-self-hosted-windows'
+            captured_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+          }
+          $path = Join-Path $sandbox 'PHASE3_CAPTURE.json'
+          $capture | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -Path $path
+          Write-Host "CAPTURE=$path"
+          Get-Content -Raw $path
+          
+      - name: Upload Phase 3 receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-omniroute-phase3-windows-e2e
+          path: D:\ARIA-Windows-Agent\Sandbox\OmniRoute-v3.8.52\PHASE3_CAPTURE.json
+          if-no-files-found: error
