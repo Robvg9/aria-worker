@@ -21,6 +21,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-bridge:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact OmniRoute source on hosted Windows
+        uses: actions/checkout@v4
+        with:
+          repository: diegosouzapw/OmniRoute
+          ref: 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          fetch-depth: 1
+          path: omniroute-source
+      - name: Verify and package exact source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location "${{ github.workspace }}\omniroute-source"
+          $head=(git rev-parse HEAD).Trim()
+          if($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_COMMIT_MISMATCH=$head"}
+          Set-Content -Path "${{ github.workspace }}\SOURCE_COMMIT.txt" -Value $head -Encoding utf8
+          Write-Host "SOURCE_BRIDGE=PASS $head"
+      - name: Upload exact source bridge
+        uses: actions/upload-artifact@v4
+        with:
+          name: omniroute-source-3e66ff2e
+          path: |
+            omniroute-source
+            SOURCE_COMMIT.txt
+
   phase5-provider:
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 60
@@ -30,22 +58,22 @@ jobs:
         with:
           path: aria-worker
 
-      - name: Acquire exact OmniRoute source via direct Git fetch
+      - name: Download exact OmniRoute source bridge
+        uses: actions/download-artifact@v4
+        with:
+          name: omniroute-source-3e66ff2e
+          path: ${{ github.workspace }}
+
+      - name: Verify exact bridged OmniRoute source
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
-          $source="$env:GITHUB_WORKSPACE\omniroute-source"
-          Remove-Item $source -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $source | Out-Null
-          git -C $source init
-          git -C $source remote add origin https://github.com/diegosouzapw/OmniRoute.git
-          git -C $source -c http.version=HTTP/1.1 -c protocol.version=2 fetch --depth=1 origin 3e66ff2e8cc94821b093fe57dad667b585230cd1
-          $fetched=(git -C $source rev-parse FETCH_HEAD).Trim()
-          if($fetched -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "FETCH_SHA_MISMATCH=$fetched"}
-          git -C $source checkout --detach FETCH_HEAD
-          $head=(git -C $source rev-parse HEAD).Trim()
-          if($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_COMMIT_MISMATCH=$head"}
-          Write-Host "SOURCE_ACQUISITION=PASS $head"
+          $expected='3e66ff2e8cc94821b093fe57dad667b585230cd1'
+          if(-not (Test-Path "${{ github.workspace }}\SOURCE_COMMIT.txt")){throw 'SOURCE_COMMIT_MARKER_MISSING'}
+          $marker=(Get-Content "${{ github.workspace }}\SOURCE_COMMIT.txt" -Raw).Trim()
+          if($marker -ne $expected){throw "SOURCE_MARKER_MISMATCH=$marker"}
+          if(-not (Test-Path "${{ github.workspace }}\omniroute-source\package.json")){throw 'OMNIROUTE_SOURCE_PACKAGE_MISSING'}
+          Write-Host "SOURCE_BRIDGE_VERIFY=PASS $marker"
       - name: Verify exact OmniRoute source
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
