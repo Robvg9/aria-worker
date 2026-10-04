@@ -13,6 +13,9 @@ assert.match(app,/activeMissionRank(m.status,m.lease_owner,m.lease_until)>=45/);
 assert.match(app,/const displayMission = m ?? nextQueuedMission/);
 assert.match(api,/const rawActive=rawLive/);
 assert.match(api,/foreground_mission:foreground/);
+assert.match(api,/const active=live;/);
+assert.doesNotMatch(api,/const active=latestUser\?\?live;/);
+assert.match(api,/activeRank=.*running.*60.*waiting.*45/s);
 assert.match(api,/queued_missions:/);
 
 // A queued mission must never be represented as a live execution solely because it is the newest user mission.
