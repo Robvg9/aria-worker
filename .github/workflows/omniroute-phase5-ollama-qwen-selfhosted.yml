@@ -41,7 +41,7 @@ jobs:
           Set-Location "${{ github.workspace }}\omniroute-source"
           $head=(git rev-parse HEAD).Trim()
           if($head -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_COMMIT_MISMATCH=$head"}
-          Set-Content -Path "${{ github.workspace }}\SOURCE_COMMIT.txt" -Value $head -Encoding utf8
+          Set-Content -Path "${{ github.workspace }}\omniroute-source\SOURCE_COMMIT.txt" -Value $head -Encoding utf8
           Write-Host "SOURCE_BRIDGE=PASS $head"
       - name: Trim source bridge to runtime files
         shell: powershell
