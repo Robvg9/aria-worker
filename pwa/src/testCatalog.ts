@@ -2433,6 +2433,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Protege el cierre terminal de Meditation IA cuando la cobertura PWA y la evidencia ya están completas."
   },
   {
+    "id": "meditation-windows-device-routing",
+    "file": "tests/meditation-windows-device-routing.test.js",
+    "title": "Meditation Windows Device Routing",
+    "category": "Meditación IA / RWHT",
+    "includedInNpmTest": true,
+    "how": "Comprueba que una misión Meditation con dispositivo Windows explícito no sea desviada al planner Android.",
+    "capabilities": "Protege la selección determinista de dispositivo y evita drift Windows→Android en pruebas PWA."
+  },
+  {
     "id": "mistral-adapter",
     "file": "tests/mistral-adapter.test.js",
     "title": "Mistral Direct Provider Adapter",
