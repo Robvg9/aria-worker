@@ -29,7 +29,7 @@ if (!apiKey) { console.error('NOT_CERTIFIED: OMNIROUTE_API_KEY missing'); proces
   const content = String(json?.choices?.[0]?.message?.content || '').trim();
   const routedBy = String(response.headers.get('x-omniroute-routed-by') || '').trim();
   const decision = String(response.headers.get('x-omniroute-route-decision') || '').trim();
-  const provider = /^ollama\\b/i.test(decision) ? 'ollama' : '';
+  const provider = /^ollama\b/i.test(decision) ? 'ollama' : '';
   const pass = response.status === 200 && content.includes(marker) && routedBy === 'self-hosted-openai-compat' && provider === 'ollama' && /\bollama\b/i.test(decision);
   const receipt = {
     schema: 'aria.absorb.omniroute.phase5.capture.v1',
