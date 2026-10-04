@@ -24,6 +24,7 @@ async function fetchText(pathname, options = {}) {
     return { response, text, body };
   } finally { clearTimeout(timer); }
 }
+// Phase 4 hosted probe: use the supplied standalone credential only in-memory.
 console.log('=== OmniRoute Phase 4 — Standalone Smoke ===');
 console.log('BASE=' + baseUrl);
 try {
