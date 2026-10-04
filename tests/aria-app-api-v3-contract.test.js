@@ -139,7 +139,9 @@ assertContains(appApi,'controllerOwnedByUser','mission overview must separate me
 assertContains(appApi,'scopedSessionId','meditation session scope must not hide canonical user missions when another controller owns the meditation session');
 assertContains(appApi,'source_of_truth:"aria_internal.mission_state"','mission collection must expose its canonical source of truth');
 assertContains(appApi,'path.endsWith("/missions")','canonical authenticated mission collection route missing');
-assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;return 0;','active mission selection must require a live lease');
+assertContains(appApi,'const latestUser=[...owned]','live context must keep the latest user mission visible');
+assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60','running mission ranking must prefer a live lease');
+assertContains(appApi,'if(s==="queued")return 20','queued user missions remain visible to the foreground surface');
 assertContains(pwa,"api('/missions?limit=100', session.accessToken)","PWA chat sync must use the canonical missions collection, not the meditation-control overview as its source of truth");
 console.log('FASE 1 BUG-PC-002/003 SSoT CONTRACT: PASS');
 
