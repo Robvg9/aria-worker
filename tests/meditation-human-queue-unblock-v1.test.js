@@ -1,0 +1,39 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
+const api=fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
+const migration=fs.readFileSync(path.join(root,'supabase/migrations/20261004013000_mission_claim_queue_fairness_v1.sql'),'utf8');
+
+// Live execution and foreground/queue state must remain separate.
+assert.match(app,/function selectLiveMission/);
+assert.match(app,/function selectForegroundMission/);
+assert.match(app,/activeMissionRank(m.status,m.lease_owner,m.lease_until)>=45/);
+assert.match(app,/const displayMission = m ?? nextQueuedMission/);
+assert.match(api,/const rawActive=rawLive/);
+assert.match(api,/foreground_mission:foreground/);
+assert.match(api,/queued_missions:/);
+
+// A queued mission must never be represented as a live execution solely because it is the newest user mission.
+assert.doesNotMatch(app,/const userMissions=.*if\(userMissions\.length\)return userMissions\[0\]/);
+
+// New missions remain creatable while a mission is queued/running.
+assert.match(app,/href|window\.location\.hash = '#mission'/);
+assert.match(app,/＋ Nueva misión/);
+assert.match(app,/ARIA puede recibir nuevas misiones mientras esta cola exista/);
+
+// Main Meditation UI must not dump raw diagnostic traces/dependencies for humans.
+assert.doesNotMatch(app,/Trace: \{String\(diagnostic\.correlation/);
+assert.doesNotMatch(app,/Runtime: \{String\(diagnostic\.versions/);
+assert.match(app,/diagnosticHumanSummary/);
+assert.match(app,/Ver evidencia técnica/);
+
+// Runner fairness: queued work wins over stale recovery rows within the same execution lane.
+const queuedOrder=migration.indexOf("when 'queued' then 0");
+const runningOrder=migration.indexOf("when 'running' then 4");
+assert.ok(queuedOrder>=0 && runningOrder>queuedOrder);
+assert.match(migration,/case lower\(coalesce\(m\.metadata->>'execution_lane',''\)\)/);
+assert.match(migration,/for update skip locked/);
+
+console.log('MEDITATION HUMAN + QUEUE UNBLOCK CONTRACT: PASS');
