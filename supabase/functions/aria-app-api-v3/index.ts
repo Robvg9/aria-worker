@@ -572,9 +572,9 @@ async function liveAssistantContext(userId:string) {
   });
   const latestUser=[...owned].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user").sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
   const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());
-  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="running")return 50;if(s==="waiting"&&hasLiveLease(m))return 45;if(s==="waiting")return 40;if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;return 0;};
+  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;return 0;};
   const live=[...owned].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
-  const active=latestUser??live;
+  const active=live;
 const recent=owned.slice(0,8).map((m:any)=>({
     mission_id:String(m.mission_id),
     goal:String(m.goal||""),
@@ -599,6 +599,16 @@ const recent=owned.slice(0,8).map((m:any)=>({
       completed_steps:Number(active.completed_steps||0),
       next_action:active.next_action??null,
       phase:missionPhase(active)
+    }:null,
+    foreground_mission:latestUser?{
+      mission_id:String(latestUser.mission_id),
+      goal:String(latestUser.goal||""),
+      status:String(latestUser.status||""),
+      current_step:Number(latestUser.current_step||0),
+      total_steps:Number(latestUser.total_steps||latestUser.checkpoint?.plan?.length||0),
+      completed_steps:Number(latestUser.completed_steps||0),
+      next_action:latestUser.next_action??null,
+      phase:missionPhase(latestUser)
     }:null,
     counts,
     recent_missions:recent
