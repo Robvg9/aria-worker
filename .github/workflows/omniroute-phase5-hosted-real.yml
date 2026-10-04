@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: omniroute-phase5-hosted-real
+  cancel-in-progress: true
+
 jobs:
   phase5-hosted-real:
     runs-on: windows-latest
@@ -64,15 +68,17 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           irm https://ollama.com/install.ps1 | iex
-          $ollama=(Get-Command ollama -ErrorAction Stop).Source
-          Write-Host "OLLAMA_BINARY=$ollama"
+          $ollama="$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          if(-not (Test-Path $ollama)){throw "OLLAMA_BINARY_NOT_FOUND=$ollama"}
+          "OLLAMA_BINARY=$ollama"
           & $ollama --version
 
       - name: Start Ollama service
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $ollama=(Get-Command ollama -ErrorAction Stop).Source
+          $ollama="$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          if(-not (Test-Path $ollama)){throw "OLLAMA_BINARY_NOT_FOUND=$ollama"}
           $p=Start-Process -FilePath $ollama -ArgumentList 'serve' -PassThru -WindowStyle Hidden
           "OLLAMA_PID=$($p.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $ok=$false
@@ -149,7 +155,7 @@ jobs:
         run: |
           $receipt="$env:PHASE5_CAPTURE_DIR\PHASE5_SMOKE_RECEIPT.json"
           if(Test-Path $receipt){
-            '## OmniRoute Phase 5 — REAL Ollama → Qwen' | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            '# OmniRoute Phase 5 REAL Ollama Qwen' | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             Get-Content $receipt | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           }
 
