@@ -61,6 +61,13 @@ assert.match(runner,/async function scheduleMissionContinuationKick\(missionId: 
 assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "retry_exhausted_replan"\)/);
 assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "next_ready_batch"\)/);
 assert.match(runner,/await scheduleMissionContinuationKick\(missionId, "verification_replan"\)/);
+const retryOrderStart=runner.indexOf('const retryableFailure = failures.find');
+const retryOrderEnd=runner.indexOf('// Terminal failed: primary+fallback exhausted');
+assert.ok(retryOrderStart>=0 && retryOrderEnd>retryOrderStart,'retry continuation block must exist');
+const retryOrder=runner.slice(retryOrderStart,retryOrderEnd);
+assert.ok(retryOrder.indexOf('await emitEvent(missionId, "step_retrying"') < retryOrder.indexOf('await updateMission(missionId, {\n            lease_owner: null'),'retry event must persist before lease release');
+assert.ok(retryOrder.indexOf('await updateMission(missionId, {\n            lease_owner: null') < retryOrder.indexOf('await scheduleMissionRetryKick(missionId, "retry_scheduled")'),'retry lease must release before canonical kick');
+
 
 const orphan=fs.readFileSync(path.join(root,'supabase/migrations/20261004014000_orphaned_retry_reconciliation_v1.sql'),'utf8');
 assert.match(orphan,/aria_reconcile_orphaned_retry_missions/);
