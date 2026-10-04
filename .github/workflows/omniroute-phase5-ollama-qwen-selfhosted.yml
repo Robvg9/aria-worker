@@ -76,16 +76,26 @@ jobs:
           artifact-ids: ${{ needs.source-bridge.outputs.artifact_id }}
           path: ${{ github.workspace }}
 
-      - name: Verify exact bridged OmniRoute source
+      - name: Normalize bridged OmniRoute source
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference='Stop'
           $expected='3e66ff2e8cc94821b093fe57dad667b585230cd1'
-          if(-not (Test-Path "${{ github.workspace }}\SOURCE_COMMIT.txt")){throw 'SOURCE_COMMIT_MARKER_MISSING'}
-          $marker=(Get-Content "${{ github.workspace }}\SOURCE_COMMIT.txt" -Raw).Trim()
+          $root="${{ github.workspace }}"
+          $markerFile=Get-ChildItem $root -Recurse -File -Filter SOURCE_COMMIT.txt -ErrorAction SilentlyContinue | Select-Object -First 1
+          if(-not $markerFile){throw 'SOURCE_COMMIT_MARKER_MISSING'}
+          $marker=(Get-Content $markerFile.FullName -Raw).Trim()
           if($marker -ne $expected){throw "SOURCE_MARKER_MISMATCH=$marker"}
-          if(-not (Test-Path "${{ github.workspace }}\omniroute-source\package.json")){throw 'OMNIROUTE_SOURCE_PACKAGE_MISSING'}
+          $pkg=Get-ChildItem $root -Recurse -File -Filter package.json -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'omniroute-source' } | Select-Object -First 1
+          if(-not $pkg){throw 'OMNIROUTE_SOURCE_PACKAGE_MISSING'}
+          $src=$pkg.Directory.FullName
+          $target=Join-Path $root 'omniroute-source'
+          if((Resolve-Path $src).Path -ne (Resolve-Path $target -ErrorAction SilentlyContinue).Path){
+            Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+            Move-Item $src $target
+          }
           Write-Host "SOURCE_BRIDGE_VERIFY=PASS $marker"
+          Write-Host "SOURCE_DIR=$target"
       - name: Verify exact OmniRoute source
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
