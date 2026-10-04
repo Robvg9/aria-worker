@@ -18,9 +18,10 @@ for(const header of ['x-aria-trace-id','x-aria-request-id','x-aria-pwa-build']) 
 assert.match(api,/source_sha:/,'POST mission intake must persist the release SHA when PWA build is a commit SHA');
 assert.match(pwa,/OperationalHealthPanel/);
 assert.match(pwa,/diagnosticResult/);
-assert.match(pwa,/DIAGNÓSTICO OPERACIONAL/);
-assert.match(pwa,/Intentos observados/);
-assert.match(pwa,/Siguiente acción/);
+assert.match(pwa,/OperationalHealthPanel/);
+assert.match(pwa,/ESTADO OPERATIVO/);
+assert.match(pwa,/diagnosticHumanSummary/);
+assert.match(pwa,/Ver evidencia técnica/);
 console.log('ARIA APP API V3 DIAGNOSTICS CONTRACT: PASS');
 
 assert.match(pwa,/if \(screen !== 1\) return;/);
