@@ -2222,6 +2222,17 @@ async function scheduleMissionRetryKick(missionId: string, reason: string) {
   }
 }
 
+async function scheduleMissionContinuationKick(missionId: string, reason: string) {
+  try {
+    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
+    console.log("[aria-runner] continuation dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
+    return { status: "kick_requested", request_id: requestId ?? null };
+  } catch (error) {
+    console.error("[aria-runner] continuation dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
+    return { status: "kick_failed", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 async function chainNextMeditationMission(depth: number) {
   if (depth >= 8) return { status: "chain_limit_reached", depth };
   const next = await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
@@ -2635,6 +2646,7 @@ Deno.serve(async (request) => {
             lease_until: null,
           });
           await emitEvent(missionId, "mission_replanned", autoRecovery);
+          await scheduleMissionContinuationKick(missionId, "automatic_strategy_recovery");
           return out({
             ok: true,
             status: "replanned",
@@ -2783,6 +2795,7 @@ Deno.serve(async (request) => {
           lease_owner:null,
           lease_until:null,
         });
+        await scheduleMissionContinuationKick(missionId, "objective_plan_replan");
         return out({ok:true,status:"replanned_objective_alignment",mission_id:missionId,runtime:V,objective_plan_guard:{kind:objectiveGuard.kind,replan_attempts:previousObjectiveReplans+1}});
       }
       await updateMission(missionId,{
@@ -2887,6 +2900,7 @@ Deno.serve(async (request) => {
         lease_owner: null,
         lease_until: null,
       });
+      await scheduleMissionContinuationKick(missionId, "learning_preflight_replan");
       return out({ ok: true, status: "replanned_learning", mission_id: missionId, runtime: V, block_details: blockDetails });
     }
 
@@ -2975,6 +2989,7 @@ Deno.serve(async (request) => {
             lease_owner: null,
             lease_until: null,
           });
+          await scheduleMissionContinuationKick(missionId, "verification_replan");
           return out({ ok: true, status: "replanned", mission_id: missionId, runtime: V, next_action: "replan: alternative recovery strategy required", recovery });
         } else {
           const details = verification.details || {
@@ -3608,6 +3623,7 @@ Deno.serve(async (request) => {
           lease_owner: null,
           lease_until: null,
         });
+        await scheduleMissionContinuationKick(missionId, "retry_exhausted_replan");
         return out({
           ok: true,
           status: "replanned",
@@ -3632,6 +3648,7 @@ Deno.serve(async (request) => {
           lease_owner: null,
           lease_until: null,
         });
+        await scheduleMissionContinuationKick(missionId, "next_ready_batch");
         return out({
           ok: true,
           status: "running",
@@ -3743,6 +3760,7 @@ Deno.serve(async (request) => {
         lease_owner: null,
         lease_until: null,
       });
+      await scheduleMissionContinuationKick(missionId, "learning_application_replan");
       return out({ ok: true, status: "replanned_learning_application", mission_id: missionId, runtime: V, block_details: applicationBlock });
     }
 
