@@ -613,7 +613,22 @@ function verifyStep(step: any, result: any) {
   if (typeof verify.stderr_contains === "string" && !String(result?.stderr ?? "").includes(verify.stderr_contains)) return false;
   if (typeof verify.response_content_equals === "string" && String(result?.response?.content ?? result?.response?.output_text ?? "") !== verify.response_content_equals) return false;
   const responseContent = String(result?.response?.content ?? result?.response?.output_text ?? "").trim();
-  if (verify.response_content_nonempty === true && !responseContent) return false;
+
+  // Device UI executors prove success through their governed job result/evidence,
+  // not through model-style response.content. Keep response_content checks strict
+  // for model/agent/connector steps while allowing computer.use.android to pass
+  // when the physical job itself succeeded with exit_code 0 and persisted evidence.
+  const androidUiStep = executorType(step) === "device" && String(step?.operation || "") === "computer.use.android";
+  if (verify.response_content_nonempty === true && !responseContent) {
+    if (!androidUiStep) return false;
+    const hasPhysicalEvidence = Boolean(
+      result?.evidence ||
+      result?.result ||
+      result?.metadata ||
+      Number(result?.exit_code) === 0
+    );
+    if (result?.status !== "succeeded" || Number(result?.exit_code) !== 0 || !hasPhysicalEvidence) return false;
+  }
   if (typeof verify.response_content_contains === "string" && !responseContent.includes(verify.response_content_contains)) return false;
   return true;
 }

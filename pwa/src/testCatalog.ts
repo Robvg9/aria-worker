@@ -83,6 +83,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en análisis, clasificación, propuesta de misión y continuidad."
   },
   {
+    "id": "mission-runner-v22-android-ui-verification",
+    "file": "tests/mission-runner-v22-android-ui-verification.test.js",
+    "title": "Mission Runner V22 Android UI Verification",
+    "category": "Android / dispositivos",
+    "includedInNpmTest": true,
+    "how": "Comprueba que Computer Use Android se verifique mediante evidencia física del job y código de salida, no mediante response.content.",
+    "capabilities": "Detecta falsos negativos de verificación en ejecución Android, evidencia física y estado terminal."
+  },
+  {
     "id": "mission-runner-v22-device-payload-sanitization",
     "file": "tests/mission-runner-v22-device-payload-sanitization.test.js",
     "title": "Mission Runner V22 Device Payload Sanitization",
