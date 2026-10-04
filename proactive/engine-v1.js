@@ -1,6 +1,6 @@
 'use strict';
 
-const crypto = require('node:crypto');
+const { canonical, sha256 } = require('./fingerprint-v1');
 
 const VERSION = 'aria-proactive-intelligence-v1.0.0';
 const ACTION_MODE = 'recommendation_only';
@@ -8,16 +8,6 @@ const PRIORITY_WEIGHT = Object.freeze({ urgent: 0, high: 1, normal: 2, low: 3 })
 const STATUS = new Set(['online', 'offline', 'stale', 'degraded', 'available', 'unavailable', 'blocked', 'failed', 'unknown']);
 const RESOURCE_BAD = new Set(['degraded', 'unavailable', 'blocked', 'failed']);
 
-function canonical(value) {
-  if (value === undefined) return 'undefined';
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
-  return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
-}
-
-function sha256(value) {
-  return crypto.createHash('sha256').update(canonical(value)).digest('hex');
-}
 
 function stringOrNull(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
