@@ -53,6 +53,7 @@ jobs:
         env:
           OMNIROUTE_USE_TURBOPACK: '0'
           OMNIROUTE_BUILD_WORKERS: '1'
+          OMNIROUTE_BUILD_MEMORY_MB: '12000'
         run: |
           $ErrorActionPreference='Stop'
           npm run build
