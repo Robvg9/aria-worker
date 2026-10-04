@@ -2652,6 +2652,16 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
   }
+  
+  {
+    "id": "omniroute-absorb-contract",
+    "file": "tests/omniroute-absorb-contract.test.js",
+    "title": "OmniRoute ABSORB Contract",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba los contratos de absorción y certificación de OmniRoute sin habilitarlo prematuramente.",
+    "capabilities": "Valida source lock, autoridad ARIA, aislamiento, orden de fases y gates fail-closed de OmniRoute."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
