@@ -145,17 +145,6 @@ jobs:
           & node scripts/absorb/omniroute-phase5-ollama-qwen.mjs | Tee-Object -FilePath "$env:PHASE5_CAPTURE_DIR\PHASE5_SMOKE_RECEIPT.json"
           if($LASTEXITCODE -ne 0){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw "PHASE5_SMOKE_FAILED=$LASTEXITCODE"}
           Write-Host 'PHASE5_REAL_OLLAMA_QWEN=PASS'
-      - name: Run real OmniRoute → Ollama → Qwen smoke
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          Set-Location "$env:GITHUB_WORKSPACE\aria-worker"
-          $env:OMNIROUTE_BASE_URL='http://127.0.0.1:20130'
-          $env:OMNIROUTE_API_KEY='aria-phase5-hosted-key'
-          $env:OMNIROUTE_SMOKE_MODEL='ollama/qwen3:4b'
-          $env:OMNIROUTE_SMOKE_TIMEOUT_MS='180000'
-          & node scripts/absorb/omniroute-phase5-ollama-qwen.mjs | Tee-Object -FilePath "$env:PHASE5_CAPTURE_DIR\PHASE5_SMOKE_RECEIPT.json"
-          if($LASTEXITCODE -ne 0){throw "PHASE5_SMOKE_FAILED=$LASTEXITCODE"}
 
       - name: Persist Phase 5 receipt in job summary
         if: always()
