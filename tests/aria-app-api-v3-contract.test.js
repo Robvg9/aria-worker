@@ -141,7 +141,7 @@ assertContains(appApi,'source_of_truth:"aria_internal.mission_state"','mission c
 assertContains(appApi,'path.endsWith("/missions")','canonical authenticated mission collection route missing');
 assertContains(appApi,'const latestUser=[...owned]','live context must keep the latest user mission visible');
 assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60','running mission ranking must prefer a live lease');
-assertContains(appApi,'if(s==="queued")return 20','queued user missions remain visible to the foreground surface');
+assertContains(appApi,'foreground_mission:latestUser','queued user missions remain visible as foreground context without being treated as live execution');
 assertContains(pwa,"api('/missions?limit=100', session.accessToken)","PWA chat sync must use the canonical missions collection, not the meditation-control overview as its source of truth");
 console.log('FASE 1 BUG-PC-002/003 SSoT CONTRACT: PASS');
 
