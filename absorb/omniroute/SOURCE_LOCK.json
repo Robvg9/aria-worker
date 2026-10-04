@@ -1,0 +1,34 @@
+{
+  "schema": "aria.absorb.omniroute.source-lock.v1",
+  "status": "VERIFIED_COMMIT_LOCKED",
+  "runtime_enabled": false,
+  "source": {
+    "repository": "diegosouzapw/OmniRoute",
+    "ref": "release/v3.8.52",
+    "commit_sha": "3e66ff2e8cc94821b093fe57dad667b585230cd1",
+    "license": "MIT",
+    "source_url": "https://github.com/diegosouzapw/OmniRoute/tree/release/v3.8.52"
+  },
+  "observed": {
+    "version": "3.8.52",
+    "openai_compatible_base_url": "http://127.0.0.1:20128/v1",
+    "default_bind_host": "127.0.0.1",
+    "api_key_required_for_hardened_self_host": true,
+    "runtime": "Node.js 22.x/24.x supported by the inspected package manifest"
+  },
+  "artifact_digest": {
+    "sha256": null,
+    "status": "PENDING_SANDBOX_CAPTURE",
+    "reason": "LaCueva is online, but the exact locked source archive could not be fetched from GitHub in the current Windows environment; no release artifact digest is invented."
+  },
+  "execution_policy": {
+    "external_code_execution": false,
+    "downloaded_code_execution": false,
+    "activation_requires_runtime_gates": true
+  },
+  "gates": {
+    "phase_1_source_lock": "PASS_COMMIT_LOCKED",
+    "phase_2_audit": "PASS_STATIC_AUDIT",
+    "phase_3_sandbox": "BLOCKED_ENVIRONMENT_NETWORK"
+  }
+}
