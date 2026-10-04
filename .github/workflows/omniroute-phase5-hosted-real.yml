@@ -1,9 +1,6 @@
 name: ARIA ABSORB OmniRoute Phase 5 REAL Hosted Ollama Qwen
 
 on:
-  push:
-    branches:
-      - absorb/omniroute-v1-certification-20261004-r2
   workflow_dispatch:
 
 permissions:
