@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "omniroute-absorb-contract",
+    "file": "tests/omniroute-absorb-contract.test.js",
+    "title": "OmniRoute ABSORB Contract",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba el source lock, el aislamiento de Windows y que las fases no certificadas permanezcan bloqueadas.",
+    "capabilities": "Valida orden de certificación, autoridad de ARIA y activación fail-closed."
+  },
+  {
     "id": "phase6-anti-regression",
     "file": "tests/phase6-anti-regression.test.js",
     "title": "Phase 6 Anti-Regresión Final",
@@ -1395,15 +1404,6 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba el comportamiento específico indicado por el nombre del test y detecta regresiones.",
     "capabilities": "Comprueba sincronización, notificaciones, ideas→misiones, recursos y flujos de Meditación IA."
-  },
-  {
-    "id": "meditation-human-queue-unblock-v1",
-    "file": "tests/meditation-human-queue-unblock-v1.test.js",
-    "title": "Meditation Human Queue Unblock V1",
-    "category": "Meditación IA",
-    "includedInNpmTest": true,
-    "how": "Comprueba que la ejecución LIVE, la cola y la interfaz humana permanezcan separadas y recuperables.",
-    "capabilities": "Comprueba estado de ejecución, cola, recuperación de misiones y presentación humana en Meditación IA."
   },
   {
     "id": "meditation-sync-contract-v1",
