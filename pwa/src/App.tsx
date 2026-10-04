@@ -1946,15 +1946,20 @@ function Chat({
 
 function meditationQueueItems(overview: any, activeMission: any): any[] {
   const all = Array.isArray(overview?.missions) ? overview.missions : [];
+  const queuedSource = Array.isArray(overview?.queued_missions) ? overview.queued_missions : [];
   const active = activeMission && ['running','waiting','planning'].includes(String(activeMission.status))
     ? activeMission
     : null;
-  const queued = all
-    .filter((m: any) => String(m?.status) === 'queued')
-    .sort((a: any, b: any) =>
-      Number(b?.queue_priority ?? b?.metadata?.queue_priority ?? 0) - Number(a?.queue_priority ?? a?.metadata?.queue_priority ?? 0) ||
-      new Date(String(a?.created_at || 0)).getTime() - new Date(String(b?.created_at || 0)).getTime()
-    );
+  const queuedMap = new Map<string, any>();
+  for (const item of [...queuedSource, ...all.filter((m: any) => String(m?.status) === 'queued')]) {
+    const id = String(item?.mission_id ?? '');
+    if (!id || queuedMap.has(id)) continue;
+    queuedMap.set(id, item);
+  }
+  const queued = Array.from(queuedMap.values()).sort((a: any, b: any) =>
+    Number(b?.queue_priority ?? b?.metadata?.queue_priority ?? 0) - Number(a?.queue_priority ?? a?.metadata?.queue_priority ?? 0) ||
+    new Date(String(a?.created_at || 0)).getTime() - new Date(String(b?.created_at || 0)).getTime()
+  );
   const result = active ? [active] : [];
   for (const item of queued) {
     if (!result.some((x: any) => String(x.mission_id) === String(item.mission_id))) result.push(item);
