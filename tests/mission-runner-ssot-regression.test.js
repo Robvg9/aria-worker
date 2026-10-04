@@ -14,7 +14,7 @@ test("async device and local-model jobs are reconciled instead of re-enqueued", 
   assert.match(runner, /if \(localResult\?\.status === "waiting"\) \{[\s\S]{0,1800}pending_source: "windows_ollama"/, "local Windows/Qwen async jobs must remain durable pending work");
   assert.match(runner, /pending_reconciled: true/, "successful local job reconciliation must be explicitly evidenced");
   assert.match(runner, /const nextAttempt = pendingAttempt > 0 \? pendingAttempt : Number\(attempts\[id\] \|\| 0\) \+ 1;/, "a resumed pending job must preserve its original attempt number");
-  assert.match(runner, /Async device jobs are durable in execution_jobs/, "the runner must document durable async reconciliation");
+  assert.match(runner, /Async device jobs are durable in execution_jobs\. This also covers model/, "the runner must document durable async reconciliation");
 });
 
 test("PWA mission state uses the canonical mission_state source and live leases", () => {
