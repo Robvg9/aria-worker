@@ -8,13 +8,6 @@ on:
       - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
       - 'absorb/omniroute/**'
       - '.github/workflows/omniroute-phase3-windows-e2e.yml'
-  push:
-    branches:
-      - absorb/omniroute-v1-certification-20261003
-    paths:
-      - 'scripts/absorb/omniroute-phase3-sandbox.ps1'
-      - 'absorb/omniroute/**'
-      - '.github/workflows/omniroute-phase3-windows-e2e.yml'
   workflow_dispatch:
 
 permissions:
