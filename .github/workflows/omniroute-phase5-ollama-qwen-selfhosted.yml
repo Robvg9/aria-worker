@@ -229,11 +229,3 @@ jobs:
         run: |
           $ErrorActionPreference='SilentlyContinue'
           if($env:OMNIROUTE_PID){& taskkill.exe /PID ([int]$env:OMNIROUTE_PID) /T /F | Out-Null}
-
-      - name: Upload Phase 5 evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aria-omniroute-phase5-evidence
-          path: D:\ARIA-Windows-Agent\Sandbox\OmniRoute-Phase5\capture
-          if-no-files-found: warn
