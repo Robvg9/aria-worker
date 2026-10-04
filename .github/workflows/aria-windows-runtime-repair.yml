@@ -9,13 +9,8 @@ on:
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/**'
       - '.github/workflows/aria-windows-runtime-repair.yml'
-  pull_request:
-    paths:
-      - 'agents/windows/**'
-      - 'autonomy/meditation-ia-controller.js'
-      - 'autonomy/windows-shell-executor.js'
-      - 'computer-use/**'
-      - '.github/workflows/aria-windows-runtime-repair.yml'
+  # Physical runtime repair is intentionally NOT triggered by pull_request.
+  # PR code must never execute implicitly on a persistent self-hosted Windows runner.
   workflow_dispatch:
 
 permissions:
