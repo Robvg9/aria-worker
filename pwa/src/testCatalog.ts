@@ -11,13 +11,13 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
-    id: 'omniroute-absorb-contract',
-    file: 'tests/omniroute-absorb-contract.test.js',
-    title: 'OmniRoute ABSORB Contract',
-    category: 'IA / modelos / routing',
-    includedInNpmTest: true,
-    how: 'Comprueba el source lock, el aislamiento de Windows y que las fases no certificadas permanezcan bloqueadas.',
-    capabilities: 'Valida orden de certificación, autoridad de ARIA y activación fail-closed.'
+    "id": "omniroute-absorb-contract",
+    "file": "tests/omniroute-absorb-contract.test.js",
+    "title": "OmniRoute ABSORB Contract",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba el source lock, el aislamiento de Windows y que las fases no certificadas permanezcan bloqueadas.",
+    "capabilities": "Valida orden de certificación, autoridad de ARIA y activación fail-closed."
   },
   {
     "id": "phase6-anti-regression",
