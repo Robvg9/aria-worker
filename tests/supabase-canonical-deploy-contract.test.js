@@ -73,4 +73,9 @@ for(const file of workflowFiles){
   assert.doesNotMatch(text,/aria-mission-runner-v15\\b|aria-mission-runner-v16\\b|aria-mission-runner-v17\\b|aria-mission-runner-v18\\b/,'active workflows must not call retired mission-runner versions');
   assert.doesNotMatch(text,/aria-autonomy-supervisor-v10\\b/,'active workflows must not call retired autonomy-supervisor-v10');
 }
+const direct=fs.readFileSync(path.join('supabase','functions','aria-direct-v1','index.ts'),'utf8');
+assert.match(direct,/const CANONICAL_RUNTIME = .*aria-canonical-runtime-v1/,'direct runtime URL must be canonical');
+assert.match(direct,/fetch\(CANONICAL_RUNTIME/,'direct mission dispatch must call canonical runtime directly');
+assert.match(direct,/EDGE_API_KEY/,'direct runtime dispatch must use Supabase gateway api key');
+assert.match(direct,/authorization: `Bearer \$\{SHARED_SECRET\}`/,'direct runtime dispatch must preserve ARIA authentication');
 console.log('SUPABASE CANONICAL DEPLOY CONTRACT: PASS');

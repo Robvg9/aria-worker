@@ -21,6 +21,7 @@ const EXEC = `${URL}/functions/v1/aria-execution-runtime-v1`;
 const RUNTIME = `${URL}/functions/v1/aria-runtime-gateway-v1`;
 const AGENT = `${URL}/functions/v1/aria-agent-runtime-v1`;
 const SMART_VERIFIER = `${URL}/functions/v1/aria-smart-verifier-v1`;
+const EDGE_API_KEY = (() => { try { const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}"); return typeof keys?.default === "string" ? keys.default : ""; } catch { return ""; } })();
 const GITHUB_APP = `${URL}/functions/v1/aria-github-app-runtime-v1`;
 const EAS_API = 'https://api.expo.dev';
 const EAS_TOKEN = Deno.env.get('EXPO_TOKEN') ?? '';
@@ -69,6 +70,7 @@ const tokenOf = (request: Request) => authContextOf(request).token;
 
 const downstreamHeaders = (auth: AuthContext) => {
   const headers: Record<string, string> = { "content-type": "application/json" };
+  if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
   if (auth.kind === "authorization" && auth.token) headers.authorization = `Bearer ${auth.token}`;
   else if (auth.kind === "autonomy-token" && auth.token) headers["x-aria-autonomy-token"] = auth.token;
   else if (SECRET) headers.authorization = `Bearer ${SECRET}`;
@@ -78,6 +80,7 @@ const downstreamHeaders = (auth: AuthContext) => {
 const internalHeaders = () => ({
   "content-type": "application/json",
   authorization: `Bearer ${SECRET}`,
+  ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {}),
 });
 
 const rpc = async (name: string, args: Record<string, unknown>) => {
