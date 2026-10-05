@@ -1,4 +1,5 @@
 name: Deploy ARIA Supabase Runtime
+# 2026-10-05: force production redeploy after mission lifecycle fix #959. No behavior change.
 # Phase 4 migration reconciliation LIVE certification trigger; behavior unchanged.
 
 on:
