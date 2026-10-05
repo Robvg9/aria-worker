@@ -30,21 +30,22 @@ function normalizeRoute(route,index){
   const capability=String(route.capability||'').trim();
   const evidence=isRecord(route.evidence)?route.evidence:{};
   const tags=Array.isArray(route.tags)?route.tags.map(String):[];
+  const routeTaskId=String(route.task_id||'').trim();
   const evidenceId=String(evidence.evidence_id||'').trim();
   const targetId=String(evidence.target_id||'').trim();
   const reasons=[];
-  if(!providerId||!accountId||!modelId)reasons.push('identity_incomplete');
+  if(!providerId||!accountId||!modelId||!routeTaskId)reasons.push('identity_incomplete');
   if(capability!=='text_generation')reasons.push('capability_not_allowed');
   if(route.allowed!==true)reasons.push('route_not_authorized');
   if(route.availability_status!=='available')reasons.push('availability_not_verified');
   if(evidence.source!==EVIDENCE_SOURCE)reasons.push('evidence_source_invalid');
   if(!evidenceId)reasons.push('evidence_id_missing');
   if(!targetId)reasons.push('target_id_missing');
-  if(targetId!==String(route.task_id||targetId))reasons.push('route_target_mismatch');
+  if(targetId!==routeTaskId)reasons.push('route_target_mismatch');
   if(evidence.provider_id!==providerId)reasons.push('evidence_provider_mismatch');
   if(evidence.model_id!==modelId)reasons.push('evidence_model_mismatch');
   return {ok:reasons.length===0,reasons,index,provider_id:providerId,account_id:accountId,model_id:modelId,capability,
-    latency_ms:num(route.latency_ms),cost_usd:num(route.cost_usd),offline:route.offline===true,local:route.local===true,tags,evidence_id:evidenceId,target_id:targetId};
+    task_id:routeTaskId,latency_ms:num(route.latency_ms),cost_usd:num(route.cost_usd),offline:route.offline===true,local:route.local===true,tags,evidence_id:evidenceId,target_id:targetId};
 }
 
 function modeCompatible(route,mode){
@@ -59,8 +60,13 @@ function modeCompatible(route,mode){
 function constraintsCompatible(route,constraints){
   if(!isRecord(constraints))return {ok:true,reasons:[]};
   const reasons=[];
-  if(constraints.max_latency_ms!==undefined&&(route.latency_ms===null||route.latency_ms>Number(constraints.max_latency_ms)))reasons.push('max_latency_exceeded');
-  if(constraints.max_cost_usd!==undefined&&(route.cost_usd===null||route.cost_usd>Number(constraints.max_cost_usd)))reasons.push('max_cost_exceeded');
+  for(const key of ['max_latency_ms','max_cost_usd']){
+    if(constraints[key]===undefined)continue;
+    const limit=Number(constraints[key]);
+    if(!Number.isFinite(limit)||limit<0){reasons.push(key+'_invalid');continue;}
+    if(key==='max_latency_ms'&&(route.latency_ms===null||route.latency_ms>limit))reasons.push('max_latency_exceeded');
+    if(key==='max_cost_usd'&&(route.cost_usd===null||route.cost_usd>limit))reasons.push('max_cost_exceeded');
+  }
   if(constraints.preferred_provider&&route.provider_id!==String(constraints.preferred_provider))reasons.push('preferred_provider_mismatch');
   if(constraints.preferred_model&&route.model_id!==String(constraints.preferred_model))reasons.push('preferred_model_mismatch');
   return {ok:reasons.length===0,reasons};
@@ -88,6 +94,7 @@ function selectAuto(input){
   const rejected=[];const eligible=[];
   for(const route of normalized){
     if(!route.ok){rejected.push({index:route.index,model_id:route.model_id||null,reasons:route.reasons});continue;}
+    if(route.task_id!==taskId||route.target_id!==taskId){rejected.push({index:route.index,model_id:route.model_id,reasons:['request_target_mismatch']});continue;}
     if(!modeCompatible(route,mode)){rejected.push({index:route.index,model_id:route.model_id,reasons:['mode_not_compatible']});continue;}
     const c=constraintsCompatible(route,input.constraints);
     if(!c.ok){rejected.push({index:route.index,model_id:route.model_id,reasons:c.reasons});continue;}
