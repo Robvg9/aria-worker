@@ -10,7 +10,7 @@ const source = fs.readFileSync(
 );
 
 assert.match(source, /async function runAndroidNotification/);
-assert.match(source, /getopt:\\s\+Unknown option/);
+assert.match(source, /getopt:\s+Unknown option/);
 assert.match(source, /termux-api/);
 assert.match(source, /Notification/);
 assert.match(source, /--es['"],? ['"]id['"]/);
