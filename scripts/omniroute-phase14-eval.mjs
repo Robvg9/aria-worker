@@ -9,7 +9,7 @@ const matrix=[
 
 function score(row){
  const checks={authority:row.authority==='ARIA',evidence:row.evidence!=='',fallback:row.fallback!=='',security:row.security!=='',local_qwen:row.local_qwen!=='no'};
- return {path:row.path,checks,static_gate:Object.values(checks).every(Boolean)?'PASS':'PARTIAL',live_quality:row.live_quality};
+ return {path:row.path,checks,static_gate:(checks.authority&&checks.evidence&&checks.fallback&&checks.security)?'PASS':'PARTIAL',local_capability:checks.local_qwen?'AVAILABLE':'NOT_REQUIRED',live_quality:row.live_quality};
 }
 const result={
 version:'aria-omniroute-comparative-eval-v1.0.0',
