@@ -3400,7 +3400,7 @@ Deno.serve(async (request) => {
           });
         }
 
-        const retryableFailure = failures.find((item) => item.step.retryable !== false && RETRYABLE_STATUSES.has(String(item.result?.status || "failed")) && Number(attempts[String(item.step.id)]) < Math.min(3, Number(item.step.max_attempts || MAX_STEP_ATTEMPTS)));
+        const retryableFailure = failures.find((item) => item.step.retryable !== false && item.result?.error?.code !== "local_model_route_unavailable" && RETRYABLE_STATUSES.has(String(item.result?.status || "failed")) && Number(attempts[String(item.step.id)]) < Math.min(3, Number(item.step.max_attempts || MAX_STEP_ATTEMPTS)));
         if (retryableFailure) {
           const retryStepId = String(retryableFailure.step.id);
           await updateMission(missionId, {
