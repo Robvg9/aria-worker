@@ -98,6 +98,7 @@ type DeviceTargetResolution = {
 function deviceSupportsOperation(capabilities: unknown, operation: string) {
   if (!Array.isArray(capabilities)) return false;
   if (operation === "ecc.execute") return capabilities.some((capability) => String(capability) === "shell.execute");
+  if (operation === "android.notification") return capabilities.some((capability) => String(capability) === "notifications.push");
   return capabilities.some((capability) => String(capability) === operation);
 }
 
