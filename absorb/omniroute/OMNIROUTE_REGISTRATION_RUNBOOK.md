@@ -13,6 +13,11 @@
 7. Enable progressively behind explicit policy.
 8. Run post-enable health and rollback smoke test.
 
+## Final automated LIVE gate
+`.github/workflows/omniroute-final-live-promotion.yml` executes the final Windows-hosted proof:
+exact OmniRoute 3.8.52 source → native Ollama → qwen3:4b → loopback gateway → ARIA canonical Security/Auto-Combo/checkpoint/adapter/verification → persisted mission receipt.
+The gate must be green before promotion; it never enables the provider itself.
+
 ## Rollback
 1. Set `active=false` and remove OmniRoute from selectable capability availability.
 2. Keep ARIA default/fallback routing available.
