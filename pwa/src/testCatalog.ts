@@ -83,6 +83,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta desalineación entre Planner, runner, device capabilities, enqueue Android y rutas locales de modelo."
   },
   {
+    "id": "meditation-android-claim-capability-alias-contract",
+    "file": "tests/meditation-android-claim-capability-alias-contract.test.js",
+    "title": "Meditation Android Claim Capability Alias Contract",
+    "category": "Meditación IA",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el claim canónico traduzca android.notification a notifications.push al seleccionar jobs.",
+    "capabilities": "Detecta desalineación entre operación de job y capability física durante el claim del agente."
+  },
+  {
     "id": "meditation-idea-analyzer-v2",
     "file": "tests/meditation-idea-analyzer-v2.test.js",
     "title": "Meditation Idea Analyzer V2",
