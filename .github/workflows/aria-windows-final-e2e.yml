@@ -127,3 +127,4 @@ jobs:
           Write-Host 'MEDITATION_HEARTBEAT=PASS'
           Write-Host 'ARIA_WINDOWS_FINAL_E2E=PASS'
 # CERTIFICATION-REPLAY-2026-10-05: semantic physical E2E rerun on current main
+# CERTIFICATION-REPLAY-2026-10-05B: final physical E2E on post-repair main
