@@ -79,18 +79,21 @@ jobs:
           set -euo pipefail
           base="${RWHT_URL%/}"
           html=""
+          expected_total="$(grep -c '"file": "tests/' pwa/src/testCatalog.ts)"
+          test "$expected_total" -gt 0
+
           for attempt in $(seq 1 60); do
             html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$base/?probe=$GITHUB_SHA-chat-catalog-$attempt" 2>/dev/null || true)"
             if (grep -q "name='aria-test-catalog-version' content='2026-10-02-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-02-canonical"' <<<"$html") &&
-               (grep -q "name='aria-test-catalog-total' content='293'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="293"' <<<"$html"); then
+               (grep -q "name='aria-test-catalog-total' content='$expected_total'" <<<"$html" || grep -q "name=\"aria-test-catalog-total\" content=\"$expected_total\"" <<<"$html"); then
               break
             fi
             test "$attempt" -lt 60 && sleep 2
           done
           test -n "$html"
           (grep -q "name='aria-test-catalog-version' content='2026-10-02-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-02-canonical"' <<<"$html")
-          (grep -q "name='aria-test-catalog-total' content='293'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="293"' <<<"$html")
-          echo CHAT_CANONICAL_TEST_CATALOG_LIVE_OK
+          (grep -q "name='aria-test-catalog-total' content='$expected_total'" <<<"$html" || grep -q "name=\"aria-test-catalog-total\" content=\"$expected_total\"" <<<"$html")
+          echo "CHAT_CANONICAL_TEST_CATALOG_LIVE_OK total=$expected_total"
       - name: Execute authenticated Chat E2E
         if: github.event_name != 'pull_request'
         working-directory: rwht/pc-browser
