@@ -20,7 +20,7 @@ async function runCanonical(input={}){
   });
   if(selection.status!=='selected')return{status:'blocked',stage:'router',route_selection:selection,version:VERSION};
 
-  const route={status:'selected',provider_id:selection.selected.provider_id,account_id:selection.selected.account_id,model_id:selection.selected.model_id,capability:selection.capability,route_type:'omniroute_auto_combo',gateway_endpoint:input.security.gateway_endpoint,omniroute_provider:input.omniroute_provider};
+  const route={status:'selected',provider_id:selection.selected.provider_id,account_id:selection.selected.account_id,model_id:selection.selected.model_id,upstream_model:selection.selected.upstream_model,capability:selection.capability,route_type:'omniroute_auto_combo',gateway_endpoint:input.security.gateway_endpoint,omniroute_provider:input.omniroute_provider};
   const checkpointSource={mission_id:input.mission_id,goal:input.task,status:'running',current_step:input.current_step??0,total_steps:input.total_steps??1,completed_steps:input.completed_steps??0,next_action:'execute_selected_route',checkpoint:{}};
   const cp=recovery.createCheckpoint(checkpointSource,{gateway_status:'verified',gateway_generation:input.gateway_generation??0,selected_route:route});
   if(cp.status!=='checkpointed')return{status:'blocked',stage:'checkpoint',reason:cp.reason,version:VERSION};
