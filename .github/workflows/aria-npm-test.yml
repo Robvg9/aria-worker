@@ -112,12 +112,12 @@ jobs:
           $env:DATA_DIR=$data
           $env:OMNIROUTE_SELF_HOSTED_API_KEY='aria-final-live-key'
           $env:OMNIROUTE_SELF_HOSTED_PROVIDERS=@'
-providers:
-  - id: ollama
-    kind: openai
-    baseUrl: http://127.0.0.1:11434/v1
-    model: qwen3:4b
-'@
+          providers:
+            - id: ollama
+              kind: openai
+              baseUrl: http://127.0.0.1:11434/v1
+              model: qwen3:4b
+          '@
           $stdout=Join-Path $root 'omniroute.stdout.log'
           $stderr=Join-Path $root 'omniroute.stderr.log'
           $p=Start-Process -FilePath node -ArgumentList "$env:GITHUB_WORKSPACE\omniroute-source\scripts\dev\run-next.mjs",'start' -WorkingDirectory "$env:GITHUB_WORKSPACE\omniroute-source" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
