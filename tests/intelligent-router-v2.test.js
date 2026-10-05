@@ -176,6 +176,7 @@ assert.equal(canonicalFail.status,'failed'); assert.notEqual(canonicalFail.statu
 console.log('OMNIROUTE PHASE 12 CANONICAL E2E: PASS');
 })().catch(error=>{console.error('OMNIROUTE PHASE 12 CANONICAL E2E: FAIL '+(error?.stack||error));process.exit(1);});
 
+(async()=>{
 // Phase 13 — negative failure certification.
 assert.equal(sec.validateGatewayEndpoint('http://10.0.0.5:20128/v1/chat/completions').ok,false);
 assert.equal(sec.validateProviderAllowlist('evil',['ollama']).ok,false);
@@ -191,3 +192,4 @@ assert.equal(negExec.status,'failed'); assert.notEqual(negExec.status,'succeeded
 const negCanonical=await canonicalE2E.runCanonical({...e2eBase,security:{...e2eBase.security,gateway_endpoint:'http://10.0.0.5:20128/v1/chat/completions'}});
 assert.equal(negCanonical.status,'blocked'); assert.equal(negCanonical.stage,'security');
 console.log('OMNIROUTE PHASE 13 NEGATIVE CERTIFICATION: PASS');
+})().catch(error=>{console.error('OMNIROUTE PHASE 13 NEGATIVE CERTIFICATION: FAIL '+(error?.stack||error));process.exit(1);});
