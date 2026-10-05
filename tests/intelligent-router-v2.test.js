@@ -49,7 +49,7 @@ const allowed=[
  {task_id:'task-8',provider_id:'p-c',account_id:'a-c',model_id:'offline',capability:'text_generation',allowed:true,availability_status:'available',latency_ms:1200,cost_usd:0,tags:['offline'],offline:true,local:true,evidence:{source:'aria.router.allowed_set',target_id:'task-8',provider_id:'p-c',model_id:'offline',evidence_id:'ev-offline'}}
 ];
 let a=auto.selectAuto({task_id:'task-8',task:'implement coding fix',capability:'text_generation',mode:'auto/coding',allowed_routes:allowed});
-assert.equal(a.status,'selected'); assert.equal(a.selected.model_id,'coder'); assert.equal(a.selection_evidence.target_id,'task-8'); assert.equal(a.selection_evidence.provider_id,'p-b'); assert.equal(a.selection_evidence.model_id,'cheap');
+assert.equal(a.status,'selected'); assert.equal(a.selected.model_id,'coder'); assert.equal(a.selection_evidence.target_id,'task-8'); assert.equal(a.selection_evidence.provider_id,'p-a'); assert.equal(a.selection_evidence.model_id,'coder');
 let f1=auto.selectAuto({task_id:'task-8',task:'fast response',capability:'text_generation',mode:'auto/fast',allowed_routes:allowed});
 assert.equal(f1.selected.model_id,'coder');
 let c1=auto.selectAuto({task_id:'task-8',task:'cheap response',capability:'text_generation',mode:'auto/cheap',allowed_routes:allowed});
