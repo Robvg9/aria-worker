@@ -1,0 +1,169 @@
+name: ARIA ABSORB OmniRoute Phase 5 REAL Hosted Ollama Qwen
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'absorb/omniroute/**'
+      - 'scripts/absorb/omniroute-phase5-ollama-qwen.mjs'
+      - '.github/workflows/omniroute-phase5-hosted-functional-smoke.yml'
+      - '.github/workflows/omniroute-phase5-hosted-real.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omniroute-phase5-hosted-real
+  cancel-in-progress: true
+
+jobs:
+  phase5-hosted-real:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout ARIA
+        uses: actions/checkout@v4
+        with:
+          path: aria-worker
+
+      - name: Checkout exact OmniRoute
+        uses: actions/checkout@v4
+        with:
+          repository: diegosouzapw/OmniRoute
+          ref: 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          fetch-depth: 1
+          path: omniroute-source
+
+      - name: Verify exact source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
+          $sha=(git rev-parse HEAD).Trim()
+          if($sha -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_SHA_MISMATCH=$sha"}
+          $pkg=Get-Content package.json -Raw | ConvertFrom-Json
+          if($pkg.version -ne '3.8.52'){throw "OMNI_VERSION_MISMATCH=$($pkg.version)"}
+          Write-Host "SOURCE=PASS sha=$sha version=$($pkg.version)"
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: omniroute-source/package-lock.json
+
+      - name: Install exact OmniRoute
+        shell: powershell
+        working-directory: omniroute-source
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build exact OmniRoute
+        shell: powershell
+        working-directory: omniroute-source
+        env:
+          OMNIROUTE_USE_TURBOPACK: '0'
+          OMNIROUTE_BUILD_WORKERS: '1'
+          OMNIROUTE_BUILD_MEMORY_MB: '12000'
+        run: npm run build:fast
+
+      - name: Install Ollama
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          irm https://ollama.com/install.ps1 | iex
+          $ollama="$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          if(-not (Test-Path $ollama)){throw "OLLAMA_BINARY_NOT_FOUND=$ollama"}
+          "OLLAMA_BINARY=$ollama"
+          & $ollama --version
+          "$env:LOCALAPPDATA\Programs\Ollama" | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          "OLLAMA_EXE=$ollama" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Start Ollama service
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $ollama="$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          if(-not (Test-Path $ollama)){throw "OLLAMA_BINARY_NOT_FOUND=$ollama"}
+          $p=Start-Process -FilePath $ollama -ArgumentList 'serve' -PassThru -WindowStyle Hidden
+          "OLLAMA_PID=$($p.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $ok=$false
+          for($i=0;$i-lt30;$i++){Start-Sleep -Seconds 2;try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
+          if(-not $ok){throw 'OLLAMA_HEALTH_FAILED'}
+          Write-Host 'OLLAMA_HEALTH=PASS'
+
+      - name: Pull exact Qwen 3 4B
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:OLLAMA_EXE pull qwen3:4b
+          & $env:OLLAMA_EXE list
+
+      - name: Verify direct Qwen baseline
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $body=@{model='qwen3:4b';messages=@(@{role='user';content='Return exactly OMNIROUTE_QWEN_LIVE_OK'});stream=$false;temperature=0;options=@{temperature=0;num_predict=16}} | ConvertTo-Json -Depth 8
+          $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:11434/v1/chat/completions' -ContentType 'application/json' -Body $body -TimeoutSec 180
+          $c=[string]$r.choices[0].message.content
+          Write-Host "QWEN_DIRECT=$c"
+          if($c -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'QWEN_DIRECT_MARKER_FAILED'}
+
+      - name: Start OmniRoute and run real Ollama Qwen smoke in one step
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $sandbox="$env:RUNNER_TEMP\aria-omniroute-phase5-hosted"
+          New-Item -ItemType Directory -Force -Path "$sandbox\data","$sandbox\capture" | Out-Null
+          $env:DATA_DIR="$sandbox\data"
+          $env:PORT='20130'
+          $env:HOST='127.0.0.1'
+          $env:HOSTNAME='127.0.0.1'
+          $env:NEXT_TELEMETRY_DISABLED='1'
+          $env:JWT_SECRET=([guid]::NewGuid().ToString('N')+[guid]::NewGuid().ToString('N'))
+          $env:API_KEY_SECRET=([guid]::NewGuid().ToString('N')+[guid]::NewGuid().ToString('N')).Substring(0,64)
+          $env:INITIAL_PASSWORD=([guid]::NewGuid().ToString('N'))
+          $env:OMNIROUTE_SELF_HOSTED_API_KEY='aria-phase5-hosted-key'
+          $env:OMNIROUTE_SKIP_STANDALONE='1'
+          $env:OMNIROUTE_SELF_HOSTED_PROVIDERS=@'
+          providers:
+            - id: ollama
+              kind: openai
+              baseUrl: http://127.0.0.1:11434/v1
+              model: qwen3:4b
+          '@
+          $stdout="$sandbox\capture\omniroute.stdout.log"
+          $stderr="$sandbox\capture\omniroute.stderr.log"
+          $p=Start-Process -FilePath node -ArgumentList "$env:GITHUB_WORKSPACE\omniroute-source\scripts\dev\run-next.mjs",'start' -WorkingDirectory "$env:GITHUB_WORKSPACE\omniroute-source" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+          "OMNIROUTE_PID=$($p.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "PHASE5_CAPTURE_DIR=$capture" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $ok=$false
+          for($i=0;$i-lt45;$i++){Start-Sleep -Seconds 2;try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:20130/api/health' -TimeoutSec 5;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
+          if(-not $ok){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_HEALTH_FAILED'}
+          for($j=0;$j-lt5;$j++){Start-Sleep -Seconds 2;if(-not (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_PROCESS_DIED_AFTER_HEALTH'};Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:20130/api/health' -TimeoutSec 5 | Out-Null}
+          Set-Location "$env:GITHUB_WORKSPACE\aria-worker"
+          $env:OMNIROUTE_BASE_URL='http://127.0.0.1:20130'
+          $env:OMNIROUTE_API_KEY='aria-phase5-hosted-key'
+          $env:OMNIROUTE_SMOKE_MODEL='ollama/qwen3:4b'
+          $env:OMNIROUTE_SMOKE_TIMEOUT_MS='180000'
+          & node scripts/absorb/omniroute-phase5-ollama-qwen.mjs | Tee-Object -FilePath "$env:PHASE5_CAPTURE_DIR\PHASE5_SMOKE_RECEIPT.json"
+          if($LASTEXITCODE -ne 0){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw "PHASE5_SMOKE_FAILED=$LASTEXITCODE"}
+          Write-Host 'PHASE5_REAL_OLLAMA_QWEN=PASS'
+
+      - name: Persist Phase 5 receipt in job summary
+        if: always()
+        shell: powershell
+        run: |
+          $receipt="$env:PHASE5_CAPTURE_DIR\PHASE5_SMOKE_RECEIPT.json"
+          if(Test-Path $receipt){
+            '# OmniRoute Phase 5 REAL Ollama Qwen' | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            Get-Content $receipt | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+
+      - name: Cleanup
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='SilentlyContinue'
+          if($env:OMNIROUTE_PID){taskkill.exe /PID ([int]$env:OMNIROUTE_PID) /T /F | Out-Null}
+          if($env:OLLAMA_PID){taskkill.exe /PID ([int]$env:OLLAMA_PID) /T /F | Out-Null}
