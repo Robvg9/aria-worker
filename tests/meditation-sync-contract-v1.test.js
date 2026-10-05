@@ -22,6 +22,7 @@ assert.match(api,/fastMissions/);
 assert.match(api,/const latestUser=.*goal_source/s);
 assert.match(api,/const hasLiveLease=.*lease_owner.*lease_until/s);
 assert.match(api,/activeRank=.*running.*60.*waiting.*45/s);
+assert.match(app,/activeMissionRank\(.*running.*35/s);
 assert.doesNotMatch(api,/activeRank=.*if\(s==="running"\)return 50/);
 assert.match(api,/foreground_mission/);
 assert.match(api,/const rawLive=/);
