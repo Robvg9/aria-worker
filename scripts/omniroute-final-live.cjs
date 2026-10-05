@@ -1,9 +1,91 @@
 'use strict';
 
+const http = require('node:http');
+
+global.fetch = async function loopbackFetch(url, options = {}) {
+  const u = new URL(url);
+  const isLoopback = u.protocol === 'http:' &&
+    (u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '::1');
+  if (!isLoopback) throw new Error('live transport restricted to loopback');
+
+  return await new Promise((resolve, reject) => {
+    const req = http.request({
+      protocol: u.protocol,
+      hostname: u.hostname,
+      port: u.port || 80,
+      path: u.pathname + u.search,
+      method: options.method || 'GET',
+      headers: options.headers || {}
+    }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        resolve({
+          status: res.statusCode || 0,
+          headers: res.headers,
+          json: async () => {
+            try { return JSON.parse(raw); } catch { return null; }
+          }
+        });
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(120000, () => {
+      const err = new Error('request timeout');
+      err.name = 'TimeoutError';
+      req.destroy(err);
+    });
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+};
+
 const fs = require('node:fs');
 const path = require('node:path');
 const security = require('../security/omniroute-security.js');
 const execution = require('../execution/lookup.js');
+
+async function liveTransport(url, options = {}) {
+  const u = new URL(url);
+  if (u.protocol !== 'http:' || !['127.0.0.1','localhost','::1'].includes(u.hostname)) {
+    throw new Error('live transport restricted to loopback');
+  }
+  return await new Promise((resolve, reject) => {
+    const headers = { ...(options.headers || {}) };
+    if (options.body && !Object.keys(headers).some(k => k.toLowerCase() === 'content-length')) {
+      headers['Content-Length'] = Buffer.byteLength(String(options.body));
+    }
+    headers.Connection = headers.Connection || 'close';
+    const req = http.request({
+      hostname: u.hostname,
+      port: u.port || 80,
+      path: u.pathname + u.search,
+      method: options.method || 'GET',
+      headers
+    }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        resolve({
+          status: res.statusCode || 0,
+          headers: res.headers,
+          json: async () => { try { return JSON.parse(raw); } catch { return null; } }
+        });
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(120000, () => {
+      const e = new Error('request timeout');
+      e.name = 'TimeoutError';
+      req.destroy(e);
+    });
+    if (options.body) req.write(String(options.body));
+    req.end();
+  });
+}
+liveTransport.isLive = true;
 const { runCanonical, createCheckpointStore } = require('../execution/omniroute-canonical-e2e.js');
 
 const evidencePath = process.env.OMNIROUTE_FINAL_EVIDENCE_PATH || path.join(process.cwd(), 'omniroute-final-live-evidence.json');
@@ -45,7 +127,7 @@ const allowedRoute = {
       candidateSelectable: () => true, getModel: () => ({ provider_id: 'omniroute', status: 'available' }), isAccountActive: () => true,
       supports: () => true, capacityAllows: () => true, credentialRefOf: () => 'env://OMNIROUTE_API_KEY',
       credentialResolver: { resolver_id: 'final-live-env-test', async resolve() { return { status: 'resolved', secret: apiKey }; } },
-      transport: execution.defaultTransport
+      transport: liveTransport
     },
     verification_rules: {
       verify(executionResult) {
