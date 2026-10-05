@@ -5,6 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { executeAndroidAccessibilityJob, probeLocalIpcHealth, probeAndroidCommandReceiver } = require('../../computer-use/android-accessibility-v1');
 const { executeAutonomousAndroidMission } = require('./android-autonomous-runner-v1');
+const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('./android-ui-health-state');
 
 const GATEWAY_URL = process.env.ARIA_DEVICE_GATEWAY_URL;
 const DEVICE_TOKEN = process.env.ARIA_DEVICE_TOKEN;
@@ -15,6 +16,7 @@ const MAX_OUTPUT = 256 * 1024;
 const DISPLAY_OUTPUT = 4096;
 let computerUseInFlight = false;
 let lastAndroidUiHealth = { ok: false, reason: 'probe_not_run' };
+let androidUiHealthState = { health: lastAndroidUiHealth, failureStreak: 0, lastGoodAt: 0 };
 
 function log(message) { console.log(`[ARIA] ${new Date().toISOString()} ${message}`); }
 function redact(text) {
@@ -98,37 +100,30 @@ async function resolveSecret(jobId, secretRef) {
   return body.secret;
 }
 async function heartbeat() {
-  let androidUiHealth = lastAndroidUiHealth;
+  let androidUiHealth = androidUiHealthState.health;
   if (!computerUseInFlight) {
+    let probe = { ok: false, reason: 'probe_not_run' };
+    let fallback = { ok: false, reason: 'fallback_not_run' };
     try {
-      androidUiHealth = await probeLocalIpcHealth({ timeoutMs: 2500 });
-      if (!androidUiHealth.ok) {
-        const fallback = await probeAndroidCommandReceiver({ timeoutMs: 2500 });
-        if (fallback.ok) {
-          androidUiHealth = {
-            ok: true,
-            reason: 'android_command_receiver_ready',
-            payload: { protocol: 'aria-android-ui-command-receiver-v1' },
-            metadata: { transport: 'android-command-receiver' }
-          };
-        }
-      }
-      lastAndroidUiHealth = androidUiHealth;
+      probe = await probeLocalIpcHealth({ timeoutMs: 2500 });
     } catch (error) {
-      androidUiHealth = { ok: false, reason: String(error?.message || error).slice(0, 180) };
-      try {
-        const fallback = await probeAndroidCommandReceiver({ timeoutMs: 2500 });
-        if (fallback.ok) {
-          androidUiHealth = {
-            ok: true,
-            reason: 'android_command_receiver_ready',
-            payload: { protocol: 'aria-android-ui-command-receiver-v1' },
-            metadata: { transport: 'android-command-receiver' }
-          };
-        }
-      } catch (_) {}
-      lastAndroidUiHealth = androidUiHealth;
+      probe = { ok: false, reason: String(error?.message || error).slice(0, 180) };
     }
+    if (!probe.ok) {
+      try {
+        fallback = await probeAndroidCommandReceiver({ timeoutMs: 2500 });
+      } catch (error) {
+        fallback = { ok: false, reason: String(error?.message || error).slice(0, 180) };
+      }
+    }
+    androidUiHealthState = resolveAndroidUiHealth({
+      previous: androidUiHealthState,
+      probe,
+      fallback,
+      heartbeatMs: HEARTBEAT_MS
+    });
+    androidUiHealth = androidUiHealthState.health;
+    lastAndroidUiHealth = androidUiHealth;
   }
   const capabilities = ['shell.execute','notifications.push'];
   if (androidUiHealth.ok) capabilities.push('computer.use.android');
@@ -192,7 +187,17 @@ async function claimAndExecute() {
     if(safeStderr)log(`STDERR ${JSON.stringify(safeStderr)}`);
     await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})});
     log(`JOB ACK id=${job.job_id} status=${result.status}`);
-    if (job.operation === 'computer.use.android') computerUseInFlight = false;
+    if (job.operation === 'computer.use.android') {
+      computerUseInFlight = false;
+      if (result.status === 'succeeded') {
+        androidUiHealthState = markAndroidUiExecutionSuccess(
+          androidUiHealthState,
+          Date.now(),
+          result.metadata || {}
+        );
+        lastAndroidUiHealth = androidUiHealthState.health;
+      }
+    }
     return 'worked';
   }catch(error){
     computerUseInFlight = false;
