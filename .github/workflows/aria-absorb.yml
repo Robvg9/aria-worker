@@ -10,6 +10,16 @@ on:
       - 'absorb/tests/**'
       - 'rwht/pc-browser/absorb-rwht.mjs'
       - '.github/workflows/aria-absorb.yml'
+      - '.github/workflows/omniroute-final-live-promotion.yml'
+      - 'execution/adapters/omniroute.js'
+      - 'execution/omniroute-canonical-e2e.js'
+      - 'router/omniroute.js'
+      - 'router/omniroute-auto.js'
+      - 'router/omniroute-resilience.js'
+      - 'execution/omniroute-recovery.js'
+      - 'security/omniroute-security.js'
+      - 'absorb/omniroute/**'
+      - 'scripts/omniroute-final-live.mjs'
   push:
     branches: [main, 'feat/absorb-live-e2e-check-20261002']
   workflow_dispatch:
@@ -117,3 +127,142 @@ jobs:
             -d "$body"
           echo "ABSORB_E2E_EVIDENCE_PERSISTED"
 
+
+
+  omniroute-final-live:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout ARIA
+        uses: actions/checkout@v4
+        with:
+          path: aria-worker
+
+      - name: Checkout exact OmniRoute source
+        uses: actions/checkout@v4
+        with:
+          repository: diegosouzapw/OmniRoute
+          ref: 3e66ff2e8cc94821b093fe57dad667b585230cd1
+          fetch-depth: 1
+          path: omniroute-source
+
+      - name: Verify source lock
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\omniroute-source"
+          $sha=(git rev-parse HEAD).Trim()
+          if($sha -ne '3e66ff2e8cc94821b093fe57dad667b585230cd1'){throw "SOURCE_SHA_MISMATCH=$sha"}
+          $pkg=Get-Content package.json -Raw | ConvertFrom-Json
+          if($pkg.version -ne '3.8.52'){throw "OMNI_VERSION_MISMATCH=$($pkg.version)"}
+          Write-Host "OMNIROUTE_SOURCE_LOCK_PASS=$sha"
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: omniroute-source/package-lock.json
+
+      - name: Install exact OmniRoute
+        working-directory: omniroute-source
+        shell: powershell
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build exact OmniRoute
+        working-directory: omniroute-source
+        shell: powershell
+        env:
+          OMNIROUTE_USE_TURBOPACK: '0'
+          OMNIROUTE_BUILD_WORKERS: '1'
+          OMNIROUTE_BUILD_MEMORY_MB: '12000'
+        run: npm run build:fast
+
+      - name: Install and start Ollama
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          irm https://ollama.com/install.ps1 | iex
+          $ollama="$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          if(-not (Test-Path $ollama)){throw "OLLAMA_BINARY_NOT_FOUND=$ollama"}
+          $p=Start-Process -FilePath $ollama -ArgumentList 'serve' -PassThru -WindowStyle Hidden
+          "OMNI_OLLAMA_PID=$($p.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $ok=$false
+          for($i=0;$i-lt30;$i++){Start-Sleep -Seconds 2;try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
+          if(-not $ok){throw 'OMNI_OLLAMA_HEALTH_FAILED'}
+          & $ollama pull qwen3:4b
+          if($LASTEXITCODE -ne 0){throw "OMNI_QWEN_PULL_FAILED=$LASTEXITCODE"}
+
+      - name: Verify direct Qwen
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $body=@{model='qwen3:4b';messages=@(@{role='user';content='Return exactly OMNIROUTE_QWEN_LIVE_OK'});stream=$false;temperature=0;options=@{temperature=0;num_predict=16}} | ConvertTo-Json -Depth 8
+          $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:11434/v1/chat/completions' -ContentType 'application/json' -Body $body -TimeoutSec 180
+          $c=[string]$r.choices[0].message.content
+          Write-Host "QWEN_DIRECT=$c"
+          if($c -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'OMNI_QWEN_DIRECT_MARKER_FAILED'}
+
+      - name: Start OmniRoute
+        working-directory: omniroute-source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'aria-omniroute-final'
+          $data=Join-Path $root 'data'
+          New-Item -ItemType Directory -Force -Path $root,$data | Out-Null
+          $env:HOST='127.0.0.1'
+          $env:HOSTNAME='127.0.0.1'
+          $env:PORT='20130'
+          $env:DATA_DIR=$data
+          $env:OMNIROUTE_SELF_HOSTED_API_KEY='aria-final-live-key'
+          $env:OMNIROUTE_SELF_HOSTED_PROVIDERS=@'
+providers:
+  - id: ollama
+    kind: openai
+    baseUrl: http://127.0.0.1:11434/v1
+    model: qwen3:4b
+'@
+          $stdout=Join-Path $root 'omniroute.stdout.log'
+          $stderr=Join-Path $root 'omniroute.stderr.log'
+          $p=Start-Process -FilePath node -ArgumentList "$env:GITHUB_WORKSPACE\omniroute-source\scripts\dev\run-next.mjs",'start' -WorkingDirectory "$env:GITHUB_WORKSPACE\omniroute-source" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+          "OMNI_OMNIROUTE_PID=$($p.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "OMNIROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $ok=$false
+          for($i=0;$i-lt45;$i++){Start-Sleep -Seconds 2;try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:20130/api/health' -TimeoutSec 5;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
+          if(-not $ok){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_HEALTH_FAILED'}
+          if(-not (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_DIED_AFTER_HEALTH'}
+          Write-Host 'OMNIROUTE_HEALTH_PASS'
+
+      - name: Run canonical ARIA LIVE E2E + persistence
+        working-directory: aria-worker
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $evidence=Join-Path $env:RUNNER_TEMP 'aria-omniroute-final\omniroute-final-live-evidence.json'
+          $env:OMNIROUTE_API_KEY='aria-final-live-key'
+          $env:OMNIROUTE_FINAL_ENDPOINT='http://127.0.0.1:20130/v1/chat/completions'
+          $env:OMNIROUTE_FINAL_EVIDENCE_PATH=$evidence
+          node scripts/omniroute-final-live.mjs
+          if($LASTEXITCODE -ne 0){throw "OMNIROUTE_FINAL_LIVE_E2E_FAILED=$LASTEXITCODE"}
+
+      - name: Upload OmniRoute final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-omniroute-final-live-evidence
+          path: |
+            ${{ runner.temp }}/aria-omniroute-final/omniroute-final-live-evidence.json
+            ${{ runner.temp }}/aria-omniroute-final/data/mission.json
+            ${{ runner.temp }}/aria-omniroute-final/data/events.ndjson
+            ${{ runner.temp }}/aria-omniroute-final/omniroute.stdout.log
+            ${{ runner.temp }}/aria-omniroute-final/omniroute.stderr.log
+          if-no-files-found: warn
+
+      - name: Cleanup OmniRoute and Ollama
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='SilentlyContinue'
+          if($env:OMNI_OMNIROUTE_PID){taskkill.exe /PID ([int]$env:OMNI_OMNIROUTE_PID) /T /F | Out-Null}
+          if($env:OMNI_OLLAMA_PID){taskkill.exe /PID ([int]$env:OMNI_OLLAMA_PID) /T /F | Out-Null}
