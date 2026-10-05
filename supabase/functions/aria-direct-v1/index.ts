@@ -6,6 +6,7 @@ const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const MISSION_INTAKE = `${SUPABASE_URL}/functions/v1/aria-mission-intake-v1`;
 const MEMORY_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const sb = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } });
+const EDGE_API_KEY = (() => { try { const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}"); return typeof keys?.default === "string" ? keys.default : ""; } catch { return ""; } })();
 
 const out = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -109,7 +110,8 @@ async function recall(goal: string) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${SHARED_SECRET}`
+        authorization: `Bearer ${SHARED_SECRET}`,
+        ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {})
       },
       body: JSON.stringify({ action: "search", query: goal, limit: 5 })
     });
@@ -183,7 +185,8 @@ Deno.serve(async (request) => {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${SHARED_SECRET}`
+      authorization: `Bearer ${SHARED_SECRET}`,
+      ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {})
     },
     body: JSON.stringify({ goal, mission_id: missionId, metadata, source: "direct_aria_interface" })
   });
