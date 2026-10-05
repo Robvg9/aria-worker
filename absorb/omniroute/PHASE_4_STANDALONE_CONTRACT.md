@@ -1,6 +1,6 @@
 # OmniRoute Phase 4 — Standalone Smoke Contract
 
-Status: PREPARED / NOT CERTIFIED
+Status: PASS — HOSTED WINDOWS CERTIFIED
 
 ## Purpose
 Define the standalone certification that must pass after Phase 3 installation and before any ARIA runtime adapter work.
@@ -29,4 +29,11 @@ The runner writes a bounded JSON receipt under the Phase 4 sandbox.
 Phase 4 becomes PASS only when the isolated service has passed health, readiness, models, authentication negative cases, non-stream chat, streaming chat, status, and restart/persistence checks.
 A static test, successful process start, or non-empty models catalog alone is not Phase 4 PASS.
 
-Until the full standalone smoke receipt exists: Phase 4 — STANDALONE SMOKE = PREPARED / NOT CERTIFIED.
+Until the full standalone smoke receipt exists: Phase 4 — STANDALONE SMOKE = PASS — HOSTED WINDOWS CERTIFIED.
+
+## Current certification evidence (2026-10-05)
+- Phase 3 Hosted Windows: GitHub Actions Run `37199350410` → SUCCESS.
+- Phase 4 Standalone Hosted Windows: GitHub Actions Run `37199350438` → SUCCESS, including restart/persistence verification.
+- Phase 5 Hosted real Ollama→Qwen: GitHub Actions Run `37242957331` → SUCCESS.
+- Exact OmniRoute source: `diegosouzapw/OmniRoute` commit `3e66ff2e8cc94821b093fe57dad667b585230cd1`, version `3.8.52`.
+- Runtime activation remains disabled in SOURCE_LOCK; certification artifacts do not promote OmniRoute into ARIA authority.
