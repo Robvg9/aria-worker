@@ -38,4 +38,5 @@ assert.match(
   /on conflict \(decision_id\) do nothing/
 );
 
+console.log('GEMINI_DIRECT_ROUTE_REGISTRY_CERTIFICATION_RERUN=2026-10-05');
 console.log('GEMINI DIRECT MODEL REGISTRY RECONCILIATION CONTRACT: PASS');
