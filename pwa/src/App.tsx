@@ -1036,7 +1036,7 @@ function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
   return (
     <section className='panel' data-testid='aria-absorb-center'>
       <div className='panelTitle'>🧬 ARIA ABSORB · v1.0</div>
-      <p className='muted'>Adquisición gobernada de capacidades. ARIA inspecciona primero, no ejecuta código externo y solo habilita bindings certificados.</p>
+      <p className='muted'>Adquisición gobernada de capacidades. ARIA inspecciona primero, no ejecuta código externo y solo habilita bindings certificados. <strong>100% solo aparece cuando todos los gates obligatorios pasan.</strong></p>
 
       <div className='settingsOption'>
         <div><strong>Fuente GitHub</strong><small>URL https://github.com/&lt;owner&gt;/&lt;repo&gt; · usa una referencia inmutable cuando sea posible.</small></div>
@@ -1060,7 +1060,7 @@ function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
           return <button type='button' className='testCatalogRow' key={record.absorption_id} onClick={() => setSelected(record.absorption_id)}>
             <div className='testCatalogMain'>
               <div><strong>{record.resource_name || (record.source_owner + '/' + record.source_repo)}</strong><small>{record.source_requested_ref || 'ref no especificada'} · {record.source_commit_sha || 'commit pendiente'}</small></div>
-              <div className='testCatalogMeta'><span className={'pill ' + tone(String(record.status || ''))}>{statusLabel(String(record.status || ''))}</span><span className='pill'>{count} capacidades indexadas</span></div>
+              <div className='testCatalogMeta'><span className={'pill ' + tone(String(record.status || ''))}>{statusLabel(String(record.status || ''))}</span><span className='pill'>{count} capacidades indexadas</span><span className={'pill ' + (record.completion?.complete ? 'positive' : '')}>{Number(record.completion?.completion_percent ?? 0).toFixed(1)}% absorción</span></div>
             </div>
             <span>›</span>
           </button>;
@@ -1075,6 +1075,8 @@ function AbsorbCenter({ userId, token }: { userId: string; token: string }) {
           <div><strong>Commit</strong><p>{current.source_commit_sha}</p></div>
           <div><strong>Digest</strong><p>{current.source_digest_sha256}</p></div>
           <div><strong>Estado runtime</strong><p>{current.enabled ? 'HABILITADO' : 'NO HABILITADO'}</p></div>
+          <div><strong>Completitud</strong><p>{Number(current.completion?.completion_percent ?? 0).toFixed(1)}% · {current.completion?.status || 'INCOMPLETE'}</p></div>
+          <div><strong>Qué falta</strong><p>{current.completion?.missing?.[0]?.reason || 'Ningún gate pendiente.'}</p></div>
           <div><strong>Verificación</strong><p>{current.verification?.verification_level || 'Pendiente'}</p></div>
           <div><strong>Ejecución externa</strong><p>PROHIBIDA durante adquisición.</p></div>
         </div>
