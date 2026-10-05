@@ -1,0 +1,24 @@
+{
+  "schema": "aria.absorb.omniroute.phase5.evidence.v1",
+  "status": "PASS_REAL_OLLAMA_QWEN",
+  "run_id": 37242957331,
+  "job_id": 111555142952,
+  "source_repository": "diegosouzapw/OmniRoute",
+  "source_commit": "3e66ff2e8cc94821b093fe57dad667b585230cd1",
+  "version": "3.8.52",
+  "ollama": "127.0.0.1:11434",
+  "model": "qwen3:4b",
+  "checks": [
+    "exact_commit",
+    "npm_ci",
+    "npm_run_build:fast",
+    "ollama_health",
+    "qwen3_4b_pull",
+    "direct_qwen_marker",
+    "omniroute_health",
+    "omniroute_to_ollama_qwen_marker",
+    "receipt_persisted"
+  ],
+  "aria_runtime_touched": false,
+  "captured_at_utc": "2026-10-04T23:34:08Z"
+}
