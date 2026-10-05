@@ -7,7 +7,7 @@ const source = fs.readFileSync(file, "utf8");
 const required = [
   "verifiedModelFallbackRoutes",
   // Primary may be openrouter OR google; fallback must still fire for google unauthorized.
-  '!["openrouter", "google", "mistral", "xai"].includes(primaryProvider)',
+  '!["openrouter", "google", "mistral", "xai", "local_windows"].includes(primaryProvider)',
   'risk !== "READ"',
   '.in("provider_id", ["openrouter", "google"])',
   'providerId === "google" && !modelId.endsWith("-direct")',
