@@ -144,7 +144,7 @@ jobs:
           $env:OMNIROUTE_API_KEY='aria-final-live-key'
           $env:OMNIROUTE_FINAL_ENDPOINT='http://127.0.0.1:20130/v1/chat/completions'
           $env:OMNIROUTE_FINAL_EVIDENCE_PATH=$evidence
-          node scripts/omniroute-final-live.mjs
+          node scripts/omniroute-final-live.cjs
           if($LASTEXITCODE -ne 0){throw "OMNIROUTE_FINAL_LIVE_E2E_FAILED=$LASTEXITCODE"}
 
       - name: Upload OmniRoute final evidence
