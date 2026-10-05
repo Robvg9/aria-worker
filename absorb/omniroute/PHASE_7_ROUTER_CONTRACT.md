@@ -19,6 +19,10 @@ OmniRoute remains subordinate infrastructure that may choose a provider/model on
 ## Non-goals
 Phase 7 does not add OmniRoute to default routing, invent capacity/quota, call OmniRoute from the control-plane Router, store secrets, replace the existing fallback engine, or certify canonical mission E2E.
 
+## Test coverage
+
+Phase 7 assertions are integrated into `tests/intelligent-router-current.test.js`, which is part of the canonical `npm test` suite. A separate duplicate test file is intentionally not maintained.
+
 ## Gate
 Implementation gate: ARIA can construct a deterministic, explicitly opted-in OmniRoute route while existing default routing remains unchanged.
 Live/E2E gate: deferred to later canonical execution phases; static implementation is not claimed as LIVE/E2E PASS.
