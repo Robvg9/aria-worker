@@ -44,7 +44,8 @@ function normalizeRoute(route,index){
   if(targetId!==routeTaskId)reasons.push('route_target_mismatch');
   if(evidence.provider_id!==providerId)reasons.push('evidence_provider_mismatch');
   if(evidence.model_id!==modelId)reasons.push('evidence_model_mismatch');
-  return {ok:reasons.length===0,reasons,index,provider_id:providerId,account_id:accountId,model_id:modelId,capability,
+  const upstreamModel=typeof route.upstream_model==='string'&&route.upstream_model.trim()?route.upstream_model.trim():null;
+  return {ok:reasons.length===0,reasons,index,provider_id:providerId,account_id:accountId,model_id:modelId,upstream_model:upstreamModel,capability,
     task_id:routeTaskId,latency_ms:num(route.latency_ms),cost_usd:num(route.cost_usd),offline:route.offline===true,local:route.local===true,tags,evidence_id:evidenceId,target_id:targetId};
 }
 
