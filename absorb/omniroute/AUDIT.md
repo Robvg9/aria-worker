@@ -69,3 +69,10 @@ Therefore the following are not claimed:
 ## Promotion rule
 
 No Phase 6 runtime adapter, registry enablement, or production provider routing is allowed until Phases 3–5 produce independent real evidence.
+
+## Current certification evidence (2026-10-05)
+- Phase 3 Hosted Windows: GitHub Actions Run `37199350410` → SUCCESS.
+- Phase 4 Standalone Hosted Windows: GitHub Actions Run `37199350438` → SUCCESS, including restart/persistence verification.
+- Phase 5 Hosted real Ollama→Qwen: GitHub Actions Run `37242957331` → SUCCESS.
+- Exact OmniRoute source: `diegosouzapw/OmniRoute` commit `3e66ff2e8cc94821b093fe57dad667b585230cd1`, version `3.8.52`.
+- Runtime activation remains disabled in SOURCE_LOCK; certification artifacts do not promote OmniRoute into ARIA authority.
