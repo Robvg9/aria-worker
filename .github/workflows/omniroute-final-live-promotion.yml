@@ -133,6 +133,8 @@ providers:
           OMNIROUTE_FINAL_ENDPOINT: 'http://127.0.0.1:20130/v1/chat/completions'
           OMNIROUTE_FINAL_EVIDENCE_PATH: '$env:RUNNER_TEMP\aria-omniroute-final\omniroute-final-live-evidence.json'
         run: |
+          $evidence=Join-Path $env:RUNNER_TEMP 'aria-omniroute-final\\omniroute-final-live-evidence.json'
+          $env:OMNIROUTE_FINAL_EVIDENCE_PATH=$evidence
           New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'aria-omniroute-final') | Out-Null
           node scripts/omniroute-final-live.mjs
           if($LASTEXITCODE -ne 0){throw "FINAL_LIVE_E2E_FAILED=$LASTEXITCODE"}
