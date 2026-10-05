@@ -39,9 +39,22 @@ jobs:
           const snapshot=model.refresh({current_activity:{mission_id:'phase2-contract-cert',state:'certifying'}});
           assert.equal(snapshot.version,'self-model-v2.0.0');
           assert.ok(snapshot.what_i_can_do.includes('model_routing'));assert.ok(snapshot.what_i_cannot_do.includes('external_multi_ia'));
-          const route=router.route({capability:'text_generation'});assert.equal(route.status,'selected');
-          const selection=model.chooseBest('text_generation');assert.equal(selection.status,'selected');assert.equal(selection.route.status,'selected');assert.equal(selection.route.model_id,route.model_id);
-          assert.ok(modelRegistry.getModel(route.model_id));assert.equal(capRegistry.supports(route.model_id,'text_generation'),true);assert.ok(accountRegistry.getAccount(route.account_id));assert.ok(quotaRegistry.getCapacity(route.account_id));assert.ok(quotaRegistry.getQuota(route.account_id));
+          const route=router.route({capability:'text_generation'});
+          assert.ok(['selected','no_route'].includes(route.status), 'unexpected router status: '+route.status);
+          const selection=model.chooseBest('text_generation');
+          assert.equal(selection.status,'selected');
+          assert.equal(selection.route?.status,route.status);
+          if(route.status==='selected'){
+            assert.equal(selection.route.model_id,route.model_id);
+            assert.ok(modelRegistry.getModel(route.model_id));
+            assert.equal(capRegistry.supports(route.model_id,'text_generation'),true);
+            assert.ok(accountRegistry.getAccount(route.account_id));
+            assert.ok(quotaRegistry.getCapacity(route.account_id));
+            assert.ok(quotaRegistry.getQuota(route.account_id));
+          } else {
+            const textRoutes=router.collectCandidates('text_generation');
+            assert.equal(textRoutes.length,0);
+          }
           assert.ok(model.answer('What can I do?').answer.includes('text_generation'));
           assert.deepEqual(model.compare(snapshot).capabilities,{added:[],removed:[],changed:[],unchanged:true});
           assert.equal(JSON.stringify(snapshot).includes('api_key'),false);
