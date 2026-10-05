@@ -55,8 +55,37 @@ async function runAndroidNotification(payload) {
     '--priority', shellQuote(payload.priority),
     '--group', shellQuote('aria-meditation')
   ].join(' ');
-  const result = await run(command, process.cwd(), 30_000);
-  result.metadata = { ...(result.metadata || {}), agent_version:'aria-termux-agent-v2', operation:'android.notification', notification_id:payload.notification_id, mission_id:payload.mission_id, severity:payload.severity, kind:payload.kind, action:payload.action || null };
+  let result = await run(command, process.cwd(), 30_000);
+  let delivery_path = 'termux-notification';
+  if (result.status === 'failed' && /getopt:\s+Unknown option ['"]s['"]/i.test(String(result.stderr || ''))) {
+    const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
+    const api = `${prefix}/libexec/termux-api`;
+    const directCommand = [
+      `test -x ${shellQuote(api)}`,
+      '&&',
+      `printf '%s' ${shellQuote(payload.message)} |`,
+      shellQuote(api),
+      'Notification',
+      '--es', 'id', shellQuote(id),
+      '--es', 'title', shellQuote(payload.title),
+      '--es', 'priority', shellQuote(payload.priority),
+      '--es', 'group', shellQuote('aria-meditation')
+    ].join(' ');
+    const fallbackResult = await run(directCommand, process.cwd(), 30_000);
+    result = fallbackResult;
+    delivery_path = 'termux-api-direct-fallback';
+  }
+  result.metadata = {
+    ...(result.metadata || {}),
+    agent_version:'aria-termux-agent-v2',
+    operation:'android.notification',
+    notification_id:payload.notification_id,
+    mission_id:payload.mission_id,
+    severity:payload.severity,
+    kind:payload.kind,
+    action:payload.action || null,
+    delivery_path
+  };
   return result;
 }
 if (!GATEWAY_URL || !DEVICE_TOKEN || !DEVICE_ID) {
