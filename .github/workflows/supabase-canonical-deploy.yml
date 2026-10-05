@@ -73,10 +73,12 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
+          test -n "$SUPABASE_DB_PASSWORD"
           supabase link --project-ref "$SUPABASE_PROJECT_REF"
 
           rm -rf .ci/supabase-migrations-source
@@ -154,7 +156,7 @@ jobs:
           echo "MIGRATIONS_PENDING_COUNT=$pending"
           if (( pending > 0 )); then
             echo "APPLYING_PENDING_MIGRATIONS=true"
-            supabase db push --include-all --yes
+            supabase db push --include-all --yes --password "$SUPABASE_DB_PASSWORD"
           else
             echo "APPLYING_PENDING_MIGRATIONS=false"
             echo "SUPABASE_MIGRATION_NOOP=true"
