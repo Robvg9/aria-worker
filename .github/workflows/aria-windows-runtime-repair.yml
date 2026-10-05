@@ -147,11 +147,11 @@ jobs:
           $ap='D:\ARIA-Windows-Agent\Logs\agent.pid';$agentPidReload=0
           if(Test-Path $ap){[void][int]::TryParse((Get-Content -Raw $ap).Trim(),[ref]$agentPidReload)}
           if($agentPidReload -gt 0){$proc=Get-Process -Id $agentPidReload -ErrorAction SilentlyContinue;if($null -ne $proc){Write-Host "WINDOWS_AGENT_RELOAD_PID=$agentPidReload";try{Stop-Process -Id $agentPidReload -Force -ErrorAction Stop;Start-Sleep -Seconds 2}catch{Write-Warning "WINDOWS_AGENT_STOP_PROCESS_FAILED=$($_.Exception.Message)"}}}
-$still=if($agentPidReload -gt 0){Get-Process -Id $agentPidReload -ErrorAction SilentlyContinue}else{$null}
-if($null -ne $still){
-  Write-Host "WINDOWS_AGENT_PROCESS_STILL_RUNNING=$agentPidReload"
-  try{& sc.exe stop 'ARIA-WINDOWS' | Out-Host;Start-Sleep -Seconds 3}catch{Write-Warning "ARIA_WINDOWS_SERVICE_STOP_FAILED=$($_.Exception.Message)"}
-}
+          $still=if($agentPidReload -gt 0){Get-Process -Id $agentPidReload -ErrorAction SilentlyContinue}else{$null}
+          if($null -ne $still){
+            Write-Host "WINDOWS_AGENT_PROCESS_STILL_RUNNING=$agentPidReload"
+            try{& sc.exe stop 'ARIA-WINDOWS' | Out-Host;Start-Sleep -Seconds 3}catch{Write-Warning "ARIA_WINDOWS_SERVICE_STOP_FAILED=$($_.Exception.Message)"}
+          }
 
           Start-Sleep -Seconds 2
           $launcher='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1'
