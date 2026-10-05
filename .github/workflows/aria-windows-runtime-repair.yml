@@ -233,16 +233,16 @@ if($null -ne $still){
       - name: Ensure singleton interactive GitHub runner autostart
         run: |
           $ErrorActionPreference='Stop'
-          $runnerRoot='C:\\actions-runner-lacueva'
+          $runnerRoot='C:\actions-runner-lacueva'
           $runCmd=Join-Path $runnerRoot 'run.cmd'
           $launcher=Join-Path $runnerRoot 'start-runner-on-login.ps1'
           if(-not(Test-Path $runCmd)){throw "LaCueva runner executable missing: $runCmd"}
           @'
 $ErrorActionPreference = 'Stop'
-$runnerRoot = 'C:\\actions-runner-lacueva'
+$runnerRoot = 'C:\actions-runner-lacueva'
 $runCmd = Join-Path $runnerRoot 'run.cmd'
 if (-not (Test-Path $runCmd)) { throw "Runner missing: $runCmd" }
-$mutex = New-Object System.Threading.Mutex($false, 'Global\\ARIA-LACUEVA-RUNNER-SINGLETON')
+$mutex = New-Object System.Threading.Mutex($false, 'Global\ARIA-LACUEVA-RUNNER-SINGLETON')
 $acquired = $false
 try { $acquired = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $acquired = $true }
 if (-not $acquired) { exit 0 }
