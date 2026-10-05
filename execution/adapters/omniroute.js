@@ -112,7 +112,18 @@ async function execute({ route, input, secret, transport }) {
   if (typeof route.omniroute_provider === 'string' && route.omniroute_provider.trim()) headers['x-omniroute-provider'] = route.omniroute_provider.trim();
   let response;
   try { response = await transport(endpoint, { method: 'POST', headers, body: JSON.stringify(body) }); }
-  catch (error) { return { ok: false, error: { code: error && error.name === 'TimeoutError' ? 'timeout' : 'transport_error', message: 'transport failure' } }; }
+  catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : '';
+    const name = typeof error?.name === 'string' ? error.name : '';
+    const detail = [code, name].filter(Boolean).join(':');
+    return {
+      ok: false,
+      error: {
+        code: error && error.name === 'TimeoutError' ? 'timeout' : 'transport_error',
+        message: detail ? 'transport failure (' + detail + ')' : 'transport failure'
+      }
+    };
+  }
   if (!response || typeof response.status !== 'number') return { ok: false, error: { code: 'invalid_response', message: 'transport returned no status' } };
   if (response.status < 200 || response.status >= 300) return { ok: false, error: { code: 'provider_error', message: 'OmniRoute returned HTTP ' + response.status, provider_status: response.status } };
   const responseBody = await responseJson(response);
