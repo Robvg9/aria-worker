@@ -162,7 +162,7 @@ const allowedRoute = {
     task_id: missionId, task, mission_id: missionId, capability: 'text_generation', mode: 'auto/offline', allowed_routes: [allowedRoute],
     security: { gateway_endpoint: endpoint, provider_id: 'omniroute', provider_allowlist: ['omniroute'], credential_ref: 'env://OMNIROUTE_API_KEY', timeout_ms: 120000, origin: 'http://127.0.0.1:20130', allowed_origins: ['http://127.0.0.1:20130'], input: { task, mission_id: missionId } },
     omniroute_provider: 'ollama',
-    payload: { messages: [{ role: 'user', content: task }], temperature: 0, stream: false, enable_thinking: false, max_tokens: 32 },
+    payload: { messages: [{ role: 'user', content: task }], temperature: 0, stream: false, enable_thinking: false, max_tokens: 128 },
     authorization: { status: 'approved' },
     execution_deps: {
       candidateSelectable: () => true, getModel: () => ({ provider_id: 'omniroute', status: 'available' }), isAccountActive: () => true,
