@@ -9,7 +9,7 @@ const migrationPath = path.join(
   root,
   'supabase',
   'migrations',
-  '20261005012500_reconcile_gemini_direct_model_registry_v1.sql'
+  '20261005012213_reconcile_gemini_direct_model_registry_v1.sql'
 );
 const migration = fs.readFileSync(migrationPath, 'utf8');
 
