@@ -12,6 +12,7 @@ const manifest = JSON.parse(read('runtime/lane-manifest-v1.json'));
 const runner = read('supabase/functions/aria-mission-runner-v22/index.ts');
 const finalE2E = read('.github/workflows/aria-windows-final-e2e.yml');
 const meditationE2E = read('.github/workflows/aria-meditation-live-e2e.yml');
+const runtimeRepair = read('.github/workflows/aria-windows-runtime-repair.yml');
 const queueFairness = read('supabase/migrations/20261004013000_mission_claim_queue_fairness_v1.sql');
 
 test('canonical physical lanes are explicit and disjoint', () => {
@@ -47,6 +48,14 @@ test('Meditation Windows continuity is serialized and lane-guarded', () => {
   assert.match(meditationE2E, /expected='windows-lacueva-780886'/);
   assert.match(meditationE2E, /WRONG_ARIA_WINDOWS_LANE/);
   assert.match(meditationE2E, /runs-on: \[aria-lacueva-runtime\]/);
+});
+
+test('Windows runtime repair is pinned to the LaCueva lane and self-starts', () => {
+  assert.match(runtimeRepair, /runs-on: \[aria-lacueva-runtime\]/);
+  assert.match(runtimeRepair, /expected='windows-lacueva-780886'/);
+  assert.match(runtimeRepair, /WRONG_RUNNER_IDENTITY/);
+  assert.match(runtimeRepair, /ARIA-LACUEVA-Runner\.lnk/);
+  assert.match(runtimeRepair, /ARIA_LACUEVA_RUNNER_AUTOSTART=PASS/);
 });
 
 test('queue fairness keeps fresh queued work ahead of stale recovery', () => {
