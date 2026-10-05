@@ -1,0 +1,70 @@
+name: ARIA ABSORB OmniRoute Phase 6 Adapter
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - execution/adapters/omniroute.js
+      - execution/lookup.js
+      - execution/registry.json
+      - tests/omniroute-adapter.test.js
+      - absorb/omniroute/PHASE_6_ADAPTER_CONTRACT.md
+      - .github/workflows/omniroute-phase6-adapter.yml
+      - package.json
+      - pwa/src/testCatalog.ts
+  push:
+    branches: [feat/omniroute-phase6-adapter-20261005]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omniroute-phase6-adapter
+  cancel-in-progress: true
+
+jobs:
+  phase6:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      - name: Syntax checks
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          node --check execution/adapters/omniroute.js
+          node --check execution/lookup.js
+          node --check tests/omniroute-adapter.test.js
+
+      - name: Phase 6 adapter contract
+        shell: powershell
+        run: node tests/omniroute-adapter.test.js
+
+      - name: Existing adapter boundary
+        shell: powershell
+        run: node tests/adapter-boundary.test.js
+
+      - name: Execution regression
+        shell: powershell
+        run: node tests/execution.test.js
+
+      - name: Persist Phase 6 evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          [ordered]@{schema='aria.absorb.omniroute.phase6.capture.v1';status='PASS';adapter_id='omniroute_gateway_chat_completions';provider_id='omniroute';source='diegosouzapw/OmniRoute@3e66ff2e8cc94821b093fe57dad667b585230cd1';endpoint_policy='loopback-http-only';network_mode='injected-test-transport';runtime_enabled=$false;router_authority='ARIA';memory_authority='ARIA';captured_at_utc=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Depth 6 | Set-Content phase6-evidence.json -Encoding utf8
+          Get-Content phase6-evidence.json
+
+      - name: Upload Phase 6 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-omniroute-phase6-adapter-evidence
+          path: phase6-evidence.json

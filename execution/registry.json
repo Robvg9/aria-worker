@@ -81,6 +81,15 @@
         "text_generation"
       ],
       "status": "registered"
+    },
+    {
+      "adapter_id": "omniroute_gateway_chat_completions",
+      "provider_id": "omniroute",
+      "interface_type": "http_json",
+      "operations": [
+        "text_generation"
+      ],
+      "status": "registered"
     }
   ],
   "credential_resolver": {
