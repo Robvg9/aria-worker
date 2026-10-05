@@ -2804,7 +2804,25 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
-  }
+  },
+  {
+    "id": "omniroute-absorb-contract",
+    "file": "tests/omniroute-absorb-contract.test.js",
+    "title": "OmniRoute ABSORB Integration Contract",
+    "category": "OmniRoute / ABSORB",
+    "includedInNpmTest": true,
+    "how": "Protege el contrato de integración de OmniRoute como gateway aislado, sin convertirlo en autoridad de misiones, permisos, memoria o evidencia.",
+    "capabilities": "Valida source lock, aislamiento, orden de fases y límites de integración."
+  },
+  {
+    "id": "omniroute-phase5-provider-contract",
+    "file": "tests/omniroute-phase5-provider-contract.test.js",
+    "title": "OmniRoute Phase 5 Hosted Ollama Qwen",
+    "category": "OmniRoute / proveedores",
+    "includedInNpmTest": true,
+    "how": "Protege la certificación del camino exacto OmniRoute → Ollama → Qwen 3 4B sobre runner Windows hospedado.",
+    "capabilities": "Valida source SHA, modelo Qwen, endpoint OpenAI-compatible, atribución del provider y fail-closed del runtime."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
