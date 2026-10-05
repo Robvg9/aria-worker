@@ -2072,6 +2072,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones donde un paso protegido podría ejecutarse antes de que el estado Human Gate recién persistido sea visible en memoria."
   },
   {
+    "id": "chat-immediate-local-persistence",
+    "file": "tests/chat-immediate-local-persistence.test.js",
+    "title": "Chat Immediate Local Persistence",
+    "category": "RWHT / Chat / Persistence",
+    "includedInNpmTest": true,
+    "how": "Protege la persistencia inmediata del mensaje de usuario antes del POST asíncrono a la conversación.",
+    "capabilities": "Evita pérdida del mensaje durante procesamiento local de larga duración y recarga del navegador."
+  },
+  {
     "id": "self-model",
     "file": "tests/self-model.test.js",
     "title": "Self Model",
