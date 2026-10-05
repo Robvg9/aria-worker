@@ -4,7 +4,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
-import { resolveDeviceTargetPolicy } from "../../../runtime/device-target-policy-v1.mjs";
+import { resolveDeviceTargetPolicy } from "./device-target-policy-v1.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
 // Per-invocation fence: unique lease owner per tick.
