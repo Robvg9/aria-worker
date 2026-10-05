@@ -193,9 +193,16 @@ export function evaluateAbsorptionCompletion(record = {}) {
     ...(Array.isArray(metadata.runtime_bindings) ? metadata.runtime_bindings.filter(isObject) : [])
   ];
   const scopeDefined = requiredCapabilityIds.length > 0 || requiredBindings.length > 0;
-  const bindingReady = scopeDefined && requiredBindings.every((wanted) => bindings.some((binding) =>
+  const capabilities = Array.isArray(record.capabilities) ? record.capabilities.filter(isObject) : [];
+  const targetCapabilitiesReady = requiredCapabilityIds.length > 0 && requiredCapabilityIds.every((id) => capabilities.some((capability) =>
+    String(capability.capability_id || "") === id &&
+    capability.verification_state === "VERIFIED" &&
+    (capability.status === "ENABLED" || capability.runtime_binding?.enabled === true)
+  ));
+  const targetBindingsReady = requiredBindings.length > 0 && requiredBindings.every((wanted) => bindings.some((binding) =>
     String(binding.binding_id || "") === String(wanted.binding_id || "") && binding.enabled === true
   ));
+  const bindingReady = scopeDefined && (requiredBindings.length > 0 ? targetBindingsReady : targetCapabilitiesReady);
   const sourceLocked = typeof record.source_commit_sha === "string" && /^[0-9a-f]{40}$/i.test(record.source_commit_sha) &&
     typeof record.source_digest_sha256 === "string" && /^[0-9a-f]{64}$/i.test(record.source_digest_sha256);
   const gates = [
