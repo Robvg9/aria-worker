@@ -327,7 +327,7 @@ async function run() {
     await page.waitForFunction(
       ({chatPrefix, markerValue}) => {
         for (const key of Object.keys(localStorage)) {
-          if (!key.startsWith(chatPrefix + ':')) continue;
+          if (!key.startsWith(chatPrefix)) continue;
           try {
             const parsed = JSON.parse(localStorage.getItem(key) || 'null');
             if (Array.isArray(parsed?.messages) &&
