@@ -111,6 +111,14 @@ const assert = require('node:assert/strict');
   assert.equal(noScope.complete, false);
   assert.ok(noScope.missing.some((gate) => gate.id === 'scope_defined'));
 
+  const capabilityScope = absorb.evaluateAbsorptionCompletion({ ...base, capabilities: [{ capability_id: 'cap.test', status: 'ENABLED', verification_state: 'VERIFIED', runtime_binding: { enabled: true } }], runtime_binding: null, metadata: { absorption_scope: { required_capability_ids: ['cap.test'] }, absorption_lifecycle: base.metadata.absorption_lifecycle } });
+  assert.equal(capabilityScope.status, 'COMPLETE');
+  assert.equal(capabilityScope.complete, true);
+
+  const capabilityNotReady = absorb.evaluateAbsorptionCompletion({ ...base, capabilities: [{ capability_id: 'cap.test', status: 'DISCOVERED', verification_state: 'NOT_VERIFIED' }], runtime_binding: null, metadata: { absorption_scope: { required_capability_ids: ['cap.test'] }, absorption_lifecycle: base.metadata.absorption_lifecycle } });
+  assert.equal(capabilityNotReady.status, 'INCOMPLETE');
+  assert.ok(capabilityNotReady.missing.some((gate) => gate.id === 'target_bindings_ready'));
+
   console.log('absorb-completion-contract: PASS');
 })().catch(error => {
   console.error(error);
