@@ -4,6 +4,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
+import { resolveDeviceTargetPolicy } from "../../../runtime/device-target-policy-v1.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
 // Per-invocation fence: unique lease owner per tick.
@@ -118,9 +119,17 @@ async function buildLocalQwenRecoveryStep(mission: any, recovery: any) {
     .limit(8);
   if (error) throw new Error("local_qwen_recovery_device_lookup:" + error.message);
 
-  const device = (Array.isArray(data) ? data : []).find((d:any) =>
+  const qwenCandidates = (Array.isArray(data) ? data : []).filter((d:any) =>
     Array.isArray(d?.capabilities) && d.capabilities.map(String).includes("ollama.qwen3")
   );
+  const requestedLocalDeviceId = String(
+    mission?.metadata?.device_id || recovery?.device_id || recovery?.resolved_device_id || ""
+  ).trim();
+  const device = requestedLocalDeviceId
+    ? qwenCandidates.find((d:any) => String(d?.device_id || "") === requestedLocalDeviceId) || null
+    : qwenCandidates.length === 1
+      ? qwenCandidates[0]
+      : null;
   if (!device) return null;
 
   const goal = String(mission?.goal || "");
@@ -192,25 +201,19 @@ async function resolveDeviceTarget(missionId: string, step: any): Promise<Device
       return bTime - aTime || String(a.device_id).localeCompare(String(b.device_id));
     });
 
-  const exact = requested
-    ? candidates.find((device) => String(device.device_id) === requested)
-    : null;
-  const selected = exact || candidates[0];
-
-  if (!selected?.device_id) {
-    throw new Error(`device_target_unavailable:${operation}`);
-  }
+  const resolutionPolicy = resolveDeviceTargetPolicy({
+    operation,
+    requestedDeviceId: requested,
+    candidates,
+  });
+  const selected = resolutionPolicy.selected;
 
   const resolution: DeviceTargetResolution = {
-    requested_device_id: requested,
+    requested_device_id: resolutionPolicy.requested_device_id,
     resolved_device_id: String(selected.device_id),
     operation,
-    fallback: !exact,
-    reason: exact
-      ? "requested_device_online_and_capable"
-      : requested
-        ? "requested_device_missing_offline_or_incompatible"
-        : "no_device_requested_selected_online_capable_device",
+    fallback: resolutionPolicy.fallback,
+    reason: resolutionPolicy.reason,
   };
 
   const resolutionEventType = operation.startsWith("computer.use")

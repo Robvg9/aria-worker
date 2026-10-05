@@ -12,17 +12,33 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: aria-meditation-live-e2e
+  cancel-in-progress: false
+
 defaults:
   run:
     shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
 
 jobs:
   live-e2e:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: [aria-lacueva-runtime]
     timeout-minutes: 7
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Guard canonical Windows lane before Meditation E2E
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected='windows-lacueva-780886'
+          $config='D:\ARIA-Windows-Agent\Data\config.json'
+          if(-not(Test-Path $config)){throw "ARIA lane config missing: $config"}
+          $device=[string]((Get-Content -Raw $config|ConvertFrom-Json).device_id)
+          Write-Host "EXPECTED_ARIA_DEVICE_ID=$expected"
+          Write-Host "OBSERVED_ARIA_DEVICE_ID=$device"
+          if($device -ne $expected){throw "WRONG_ARIA_WINDOWS_LANE expected=$expected observed=$device"}
+          Write-Host 'ARIA_WINDOWS_LANE_IDENTITY=PASS'
 
       - name: Diagnose and repair stale in-memory Meditation controller
         run: |
