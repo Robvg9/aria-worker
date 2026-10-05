@@ -88,15 +88,15 @@ testCase('phase 3 sandbox contract is prepared and fail-closed', () => {
   assert.ok(phase3Contract.includes('Status: PASS — HOSTED WINDOWS CERTIFIED'));
 });
 
-testCase('phase 4 standalone contract stays after phase 3', () => {
-  assert.ok(phase4Contract.includes('Status: PREPARED / NOT CERTIFIED'));
+testCase('phase 4 standalone contract is certified and stays after phase 3', () => {
+  assert.ok(phase4Contract.includes('Status: PASS — HOSTED WINDOWS CERTIFIED'));
   assert.ok(phase4Contract.includes('/api/health'));
   assert.ok(phase4Contract.includes('/api/health/ping'));
   assert.ok(phase4Contract.includes('/v1/models'));
   assert.ok(phase4Contract.includes('Non-streaming chat completion'));
   assert.ok(phase4Contract.includes('Streaming chat completion'));
   assert.ok(phase4Contract.includes('restart/persistence'));
-  assert.ok(phase4Contract.includes('Phase 4 — STANDALONE SMOKE = PREPARED / NOT CERTIFIED.'));
+  assert.ok(phase4Contract.includes('Phase 4 — STANDALONE SMOKE = PASS — HOSTED WINDOWS CERTIFIED.'));
 });
 
 testCase('phase 4 runner is fail-closed and never certifies missing prerequisites', () => {
