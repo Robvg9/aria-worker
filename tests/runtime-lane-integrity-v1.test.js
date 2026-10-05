@@ -30,7 +30,7 @@ test('canonical physical lanes are explicit and disjoint', () => {
 
 test('mission runner bundles its device target policy dependency locally', () => {
   assert.match(runner, /from "\.\/device-target-policy-v1\.mjs"/);
-  assert.ok(fs.existsSync(path.join(ROOT, 'supabase/functions/aria-mission-runner-v22/device-target-policy-v1.mjs')));
+  assert.ok(fs.existsSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/device-target-policy-v1.mjs')));
 });
 
 test('mission runner refuses implicit device selection', () => {
