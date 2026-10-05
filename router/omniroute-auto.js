@@ -119,7 +119,7 @@ function selectAuto(input){
     selection_rule:mode==='auto/fast'?'lowest_observed_latency':mode==='auto/cheap'?'lowest_observed_cost':mode==='auto/coding'?'coding_tag_then_stable_id':mode==='auto/offline'?'offline_local_then_stable_id':'stable_id'
   };
   const decision={status:'selected',version:VERSION,route_type:'omniroute_auto_combo',task_id:taskId,capability,mode,
-    selected:{provider_id:winner.provider_id,account_id:winner.account_id,model_id:winner.model_id},
+    selected:{provider_id:winner.provider_id,account_id:winner.account_id,model_id:winner.model_id,upstream_model:winner.upstream_model||null},
     selection_evidence:evidence,decision_hash:null,candidates_considered:eligible.length,rejected_candidates:rejected};
   decision.decision_hash=decisionHash({task_id:taskId,capability,mode,selected:decision.selected,selection_evidence:evidence});
   return decision;
