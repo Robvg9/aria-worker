@@ -3310,6 +3310,11 @@ Deno.serve(async (request) => {
         last_executor_types: batch.map(executorType),
       };
 
+      // Keep the in-memory mission snapshot aligned with the persisted checkpoint.
+      // A later batch in the same invocation must observe human-gate state created
+      // by an earlier batch; otherwise a protected step can bypass the gate.
+      mission.checkpoint = checkpoint;
+
       if (waiting) {
         await updateMission(missionId, {
           status: "paused",
