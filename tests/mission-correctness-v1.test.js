@@ -89,5 +89,11 @@ assert.match(plannerScopeSource,/Mentioning BattleCruiser inside a broader ARIA\
 assert.match(plannerScopeSource,/explicitBattleCruiserTarget/);
 assert.match(plannerScopeSource,/broadAriaPwaScope/);
 assert.ok(plannerScopeSource.indexOf('const isBattleCruiser=explicitBattleCruiserTarget') > plannerScopeSource.indexOf('const broadAriaPwaScope'),'BattleCruiser routing must use explicit scoped intent');
+assert.match(plannerScopeSource,/const explicitBattleCruiser=explicitBattleCruiserTarget && !broadAriaPwaScope/);
+assert.match(runner,/const readOps = new Set\\(\\[.*"tree_read"/);
+assert.match(pwa,/if \\(value === 'running'\\) return 35/);
+assert.match(pwa,/if \\(value === 'waiting'\\) return 30/);
+assert.match(pwa,/const recoveryVisible=.*!leaseValid/);
+assert.match(pwa,/La misión perdió el lease, pero sigue registrada/);
 
 console.log("mission-correctness-v1: PASS");
