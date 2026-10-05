@@ -34,6 +34,7 @@ function buildRequest(route, input) {
   const body = { model, messages, stream: input.payload.stream === true };
   if (typeof input.payload.max_tokens === 'number') body.max_tokens = input.payload.max_tokens;
   if (typeof input.payload.temperature === 'number') body.temperature = input.payload.temperature;
+  if (typeof input.payload.enable_thinking === 'boolean') body.enable_thinking = input.payload.enable_thinking;
   return body;
 }
 
