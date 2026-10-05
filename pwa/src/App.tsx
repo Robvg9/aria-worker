@@ -717,7 +717,7 @@ function selectLiveMission(overview: any): any | null {
   const candidates=[...(Array.isArray(overview?.missions)?overview.missions:[]),overview?.active_mission].filter(Boolean);
   const unique=Array.from(new Map(candidates.map((m:any)=>[String(m.mission_id),m])).values());
   return unique
-    .filter((m:any)=>activeMissionRank(m.status,m.lease_owner,m.lease_until)>=45)
+    .filter((m:any)=>activeMissionRank(m.status,m.lease_owner,m.lease_until)>=30)
     .sort((a:any,b:any)=>activeMissionRank(b.status,b.lease_owner,b.lease_until)-activeMissionRank(a.status,a.lease_owner,a.lease_until)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
 }
 function selectForegroundMission(overview: any): any | null {
