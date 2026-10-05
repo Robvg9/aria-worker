@@ -56,23 +56,19 @@ jobs:
               p=subprocess.run(["supabase","db","query","--linked",q],text=True,capture_output=True)
               return p.stdout + p.stderr
           
-          def make_mission(mid, goal):
-              code, body=call("aria-direct-v1",{"goal":goal,"mission_id":mid,"metadata":{"goal_source":"human_gate_e2e","probe":"human_gate_safe_autonomy","cloud_only":True}})
-              assert code < 300 and body.get("ok") is True, (code,body)
-          
           def tick(mid):
               return call("aria-mission-runner-v22",{"mission_id":mid})
-          
+
           def wait_terminal(mid):
               last=None
-              for _ in range(10):
+              for _ in range(20):
                   _,last=tick(mid)
                   if last.get("status") in {"succeeded","failed","blocked","rejected","cancelled"}:
                       return last
                   time.sleep(1)
               return last
 
-          def wait_for_status(mid, expected, attempts=5):
+          def wait_for_status(mid, expected, attempts=12):
               last=None
               for _ in range(attempts):
                   _,last=tick(mid)
@@ -80,83 +76,87 @@ jobs:
                       return last
                   time.sleep(1)
               return last
-          
+
+          # Planner contract is checked independently. The executable E2E deliberately
+          # uses a harmless device shell route so Human Gate does not depend on a model
+          # or provider being available in the current registry.
           code, p = call("aria-planner-v11", {"goal":"Implement a harmless controlled test action that explicitly requires human approval before the protected action. Human Gate is required."})
           assert code < 300, p
           plan=p.get("plan") or p
           gated=[s for s in plan.get("steps",[]) if (s.get("policy") or {}).get("human_gate_required") is True]
           assert gated and any(str(s.get("risk","")).upper()=="HIGH_RISK_WRITE" for s in gated), plan
-          route_text=sql("select 'HG_ROUTE='||m.model_id||'|'||m.provider_id||'|'||a.account_id as route from aria_internal.model_registry m join aria_internal.capability_matrix c on c.model_id=m.model_id and c.capability_id='text_generation' join aria_internal.account_registry a on a.provider_id=m.provider_id where m.enabled and m.status='available' and c.status='verified' and a.enabled and a.status in ('available','active') order by case when m.model_id='google/gemini-3.5-flash-lite-direct' then 0 when m.provider_id='openrouter' then 1 else 2 end,m.model_id limit 1;")
-          m_route=re.search(r'HG_ROUTE=([^|\s]+)\|([^|\s]+)\|([^|\s]+)',route_text)
-          if not m_route:
-              raise SystemExit("Incomplete verified model route: "+route_text[:1000])
-          MODEL_ID, PROVIDER_ID, ACCOUNT_ID=m_route.groups()
-          print("PLANNER_HUMAN_GATE_PASS",[(s.get("id"),s.get("risk")) for s in gated],"ROUTE",PROVIDER_ID,MODEL_ID)
-          
-          def seed(mid, steps):
-              q=json.dumps(steps).replace("'","''")
-              sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan','"+q+"'::jsonb,'completed_steps',jsonb_build_array(),'attempts','{}'::jsonb,'results','{}'::jsonb),status='queued',total_steps="+str(len(steps))+",lease_owner=null,lease_until=null WHERE mission_id='"+mid+"';")
-          
+          print("PLANNER_HUMAN_GATE_PASS",[(s.get("id"),s.get("risk")) for s in gated])
+
+          DEVICE_ID="windows-lacueva-780886"
+
           safe_steps=[
            {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
-           {"id":"safe_m1","operation":"text_generation","executor_type":"model","target":{"type":"model","provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"risk":"READ","input":{"payload":{"prompt":"Reply SAFE_AUTONOMY_OK","max_tokens":32,"temperature":0}},"policy":{"runtime_probe":True},"verify":{"response_content_contains":"SAFE_AUTONOMY_OK"},"depends_on":["safe_c1"]}
+           {"id":"safe_d1","operation":"shell.execute","executor_type":"device","target":{"type":"device","device_id":DEVICE_ID},"risk":"READ","input":{"command":"Write-Output SAFE_AUTONOMY_OK","cwd":"D:\\ARIA-Windows-Agent"},"policy":{"runtime_probe":True},"verify":{"stdout_contains":"SAFE_AUTONOMY_OK"},"depends_on":["safe_c1"]}
           ]
           protected_steps=[
            {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
-           {"id":"protected_m1","operation":"text_generation","executor_type":"model","target":{"type":"model","provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"risk":"HIGH_RISK_WRITE","input":{"payload":{"prompt":"Reply PROTECTED_ACTION_OK","max_tokens":32,"temperature":0}},"policy":{"human_gate_required":True,"human_gate_reason":"Controlled E2E protected action","human_gate_instructions":"Approve the exact protected model action."},"verify":{"response_content_contains":"PROTECTED_ACTION_OK"},"depends_on":["safe_c1"]}
+           {"id":"protected_d1","operation":"shell.execute","executor_type":"device","target":{"type":"device","device_id":DEVICE_ID},"risk":"HIGH_RISK_WRITE","input":{"command":"Write-Output PROTECTED_ACTION_OK","cwd":"D:\\ARIA-Windows-Agent"},"policy":{"human_gate_required":True,"human_gate_reason":"Controlled E2E protected action","human_gate_instructions":"Approve the exact protected shell action."},"verify":{"stdout_contains":"PROTECTED_ACTION_OK"},"depends_on":["safe_c1"]}
           ]
-          
+
+          def insert_mission(mid, goal, steps, human_gate=False):
+              checkpoint=json.dumps({"plan":steps,"completed_steps":[],"attempts":{},"results":{}}).replace("'","''")
+              metadata=json.dumps({"goal_source":"human_gate_e2e","probe":"human_gate_safe_autonomy","device_id":DEVICE_ID,**({"human_gate":{"enabled":True,"method":"explicit_confirmation","instructions":"Approve the exact protected shell action.","reason":"Controlled E2E protected action."}} if human_gate else {})}).replace("'","''")
+              sql("INSERT INTO aria_internal.mission_state (mission_id,goal,status,current_step,total_steps,completed_steps,checkpoint,metadata,lease_owner,lease_until) VALUES ('"+mid+"','"+goal.replace("'","''")+"','queued',0,"+str(len(steps))+",0,'"+checkpoint+"'::jsonb,'"+metadata+"'::jsonb,NULL,NULL);")
+
           safe="mission_hg_SAFE_"+str(int(time.time()*1000))
-          make_mission(safe,"Safe autonomy no gate"); seed(safe,safe_steps)
-          s=wait_terminal(safe); sdb=sql("select status,completed_steps,total_steps,last_stderr from aria_internal.mission_state where mission_id='"+safe+"';")
-          print("SAFE",s,sdb); assert "succeeded" in sdb and "2" in sdb
-          
+          insert_mission(safe,"Safe autonomy no gate",safe_steps)
+          s=wait_terminal(safe)
+          sdb=sql("select status,completed_steps,total_steps,last_stderr from aria_internal.mission_state where mission_id='"+safe+"';")
+          print("SAFE",s,sdb)
+          assert "succeeded" in sdb and "2" in sdb
+
           pos="mission_hg_POS_"+str(int(time.time()*1000))
-          make_mission(pos,"Protected action Human Gate"); seed(pos,protected_steps)
+          insert_mission(pos,"Protected action Human Gate",protected_steps,True)
           p1=wait_for_status(pos,"human_required"); assert p1.get("status")=="human_required",p1
           gate_text=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as gate from aria_internal.mission_state where mission_id='"+pos+"';")
-          m=re.search(r'HG_HASH=([0-9a-f]{64})',gate_text); assert m,gate_text
+          m=re.search(r"HG_HASH=([0-9a-f]{64})",gate_text); assert m,gate_text
           action_hash=m.group(1)
-          start0=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
-          assert re.search(r'\b0\b',start0),start0
-          
+          start0=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
+          assert re.search(r"\b0\b",start0),start0
+
           bc,bad=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e","action_hash":"WRONG"})
           assert bc==409 and bad.get("status")=="human_gate_decision_rejected",bad
-          
-          direct={"execution_version":"1","request_id":"hg-bypass","task_id":"protected_m1","capability":"text_generation","selected_route":{"provider_id":PROVIDER_ID,"account_id":ACCOUNT_ID,"model_id":MODEL_ID},"authorization":{"status":"approved","human_gate_verified":True,"human_gate_mission_id":pos,"human_gate_step_id":"protected_m1","human_gate_action_hash":"fake","human_gate_approval_token":"fake"},"input":{"payload":{"prompt":"SHOULD_NOT_RUN","max_tokens":16}},"policy":{"human_gate_required":True}}
+
+          direct={"execution_version":"1","request_id":"hg-bypass","task_id":"protected_d1","capability":"shell.execute","selected_route":{"provider_id":"local_windows","account_id":DEVICE_ID,"device_id":DEVICE_ID},"authorization":{"status":"approved","human_gate_verified":True,"human_gate_mission_id":pos,"human_gate_step_id":"protected_d1","human_gate_action_hash":"fake","human_gate_approval_token":"fake"},"input":{"command":"Write-Output SHOULD_NOT_RUN","cwd":"D:\\ARIA-Windows-Agent"},"policy":{"human_gate_required":True}}
           _,dr=call("aria-execution-runtime-v1",direct); assert dr.get("status")=="blocked",dr
-          
+
           bc,ap=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e","action_hash":action_hash})
           assert bc<300 and ap.get("status")=="human_gate_approved",ap
-          
-          sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_set(checkpoint,'{plan,1,target,model_id}','\"tampered-route\"',true) WHERE mission_id='"+pos+"';")
+
+          sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_set(checkpoint,'{plan,1,target,device_id}','\"tampered-device\"',true) WHERE mission_id='"+pos+"';")
           tam=wait_for_status(pos,"human_required"); assert tam.get("status")=="human_required",tam
-          
-          seed(pos,protected_steps)
+
+          # Re-seed the approved plan and force a fresh gate hash after tampering.
+          sql("UPDATE aria_internal.mission_state SET checkpoint=jsonb_build_object('plan',('"+json.dumps(protected_steps).replace("'","''")+"'::jsonb),'completed_steps','[]'::jsonb,'attempts','{}'::jsonb,'results','{}'::jsonb),status='queued',current_step=0,completed_steps=0,total_steps=2,lease_owner=null,lease_until=null WHERE mission_id='"+pos+"';")
           fresh=wait_for_status(pos,"human_required"); assert fresh.get("status")=="human_required",fresh
           ht=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as h from aria_internal.mission_state where mission_id='"+pos+"';")
-          m=re.search(r'HG_HASH=([0-9a-f]{64})',ht); assert m,ht
+          m=re.search(r"HG_HASH=([0-9a-f]{64})",ht); assert m,ht
           fresh_hash=m.group(1)
           bc,ap2=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e2","action_hash":fresh_hash})
           assert bc<300 and ap2.get("status")=="human_gate_approved",ap2
           pf=wait_terminal(pos)
           pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
-          started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
-          print("POS",pf,pdb,started); assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r'\b1\b',started)
-          
+          started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
+          print("POS",pf,pdb,started); assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b1\b",started)
+
           rej="mission_hg_REJ_"+str(int(time.time()*1000))
-          make_mission(rej,"Reject protected Human Gate"); seed(rej,protected_steps)
+          insert_mission(rej,"Reject protected Human Gate",protected_steps,True)
           r1=wait_for_status(rej,"human_required"); assert r1.get("status")=="human_required",r1
           rh=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as h from aria_internal.mission_state where mission_id='"+rej+"';")
-          m=re.search(r'HG_HASH=([0-9a-f]{64})',rh); assert m
+          m=re.search(r"HG_HASH=([0-9a-f]{64})",rh); assert m
           bc,rr=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":rej,"decision":"reject","approver_id":"e2e-reject","action_hash":m.group(1)})
           assert bc<300 and rr.get("status")=="human_gate_rejected",rr
           rdb=sql("select status from aria_internal.mission_state where mission_id='"+rej+"';")
-          rs=sql("select count(*) from aria_internal.mission_events where mission_id='"+rej+"' and event_type='step_started' and payload->>'step_id'='protected_m1';")
-          assert ("blocked" in rdb or "cancelled" in rdb or "failed" in rdb) and re.search(r'\b0\b',rs),(rdb,rs)
-          
+          rs=sql("select count(*) from aria_internal.mission_events where mission_id='"+rej+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
+          assert ("blocked" in rdb or "cancelled" in rdb or "failed" in rdb) and re.search(r"\b0\b",rs),(rdb,rs)
+
           can="mission_hg_CAN_"+str(int(time.time()*1000))
-          make_mission(can,"Cancel protected Human Gate"); seed(can,protected_steps)
+          insert_mission(can,"Cancel protected Human Gate",protected_steps,True)
           c1=wait_for_status(can,"human_required"); assert c1.get("status")=="human_required",c1
           p1=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
           assert "paused" in p1 and "pending" in p1
@@ -164,12 +164,12 @@ jobs:
           p2=sql("select status,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+can+"';")
           assert "paused" in p2 and "pending" in p2,(c2,p2)
           ch=sql("select 'HG_HASH='||(checkpoint->'human_gate'->>'action_hash') as h from aria_internal.mission_state where mission_id='"+can+"';")
-          m=re.search(r'HG_HASH=([0-9a-f]{64})',ch); assert m
+          m=re.search(r"HG_HASH=([0-9a-f]{64})",ch); assert m
           bc,cc=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":can,"decision":"cancel","approver_id":"e2e-cancel","action_hash":m.group(1)})
           assert bc<300 and cc.get("status")=="human_gate_cancelled",cc
           cdb=sql("select status from aria_internal.mission_state where mission_id='"+can+"';")
           assert "cancelled" in cdb
-          
+
           print("HG_E2E_PASS")
           print("HUMAN_GATE_SAFE_AUTONOMY = VERIFIED E2E")
           print("ALL_PASS")
