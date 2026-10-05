@@ -117,7 +117,7 @@ async function absorbVerify(userId:string, absorptionId:string){
   if(String(row.metadata?.absorption_identity||"")!==identity) throw Object.assign(new Error("absorb_identity_mismatch"),{status:409});
   const verification={state:"VERIFIED",verification_level:"source_provenance_and_deterministic_inventory",runtime_verified:false,security_review:"pending",contract_test:"pending",evidence_persisted:true,verified_at:new Date().toISOString()};
   const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"VERIFIED",verification,inventory,capabilities,absorption_plan:advanceAbsorptionPlan(row.absorption_plan,"VERIFIED"),enabled:false}).eq("absorption_id",absorptionId).eq("user_id",userId)
-    .select("absorption_id,status,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,capabilities,verification,enabled,updated_at").single();
+    .select("absorption_id,status,source_type,source_ref,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,resource_name,enabled,inventory,capabilities,absorption_plan,verification,runtime_binding,metadata,created_at,updated_at").single();
   if(upError) throw new Error("absorb_verify_persist_failed:"+upError.message);
   return data;
 }
@@ -139,7 +139,7 @@ async function absorbRegister(userId:string, absorptionId:string, binding:any){
   if(!allowedAbsorbBinding(row,binding)) throw Object.assign(new Error("absorb_binding_not_allowlisted"),{status:403});
   const runtimeBinding={binding_id:"tool_ecc_operator",operation:"ecc.execute",underlying_operation:"shell.execute",mode:"existing_governed_aria_capability",enabled:false,registered_at:new Date().toISOString()};
   const {data,error:upError}=await sb.schema("aria_internal").from("capability_absorptions").update({status:"REGISTERED",runtime_binding:runtimeBinding,enabled:false,verification:{...row.verification,adapter_contract:"tool_ecc_operator",runtime_verified:false,security_review:"passed"}}).eq("absorption_id",absorptionId).eq("user_id",userId)
-    .select("absorption_id,status,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,runtime_binding,verification,enabled,updated_at").single();
+    .select("absorption_id,status,source_type,source_ref,source_owner,source_repo,source_requested_ref,source_commit_sha,source_digest_sha256,resource_name,enabled,inventory,capabilities,absorption_plan,verification,runtime_binding,metadata,created_at,updated_at").single();
   if(upError) throw new Error("absorb_register_persist_failed:"+upError.message);
   return data;
 }
