@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
 const MISSION_INTAKE = `${SUPABASE_URL}/functions/v1/aria-mission-intake-v1`;
+const CANONICAL_RUNTIME = `${SUPABASE_URL}/functions/v1/aria-canonical-runtime-v1`;
 const MEMORY_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const sb = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false } });
 const EDGE_API_KEY = (() => { try { const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}"); return typeof keys?.default === "string" ? keys.default : ""; } catch { return ""; } })();
@@ -69,29 +70,39 @@ async function resolveMeditationDevice(metadata: Record<string, unknown>) {
 
 async function kickCanonicalRunner(missionId: string, reason: string) {
   try {
-    const { data, error } = await sb.rpc("runner_tick_for_mission", {
-      p_mission_id: missionId,
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      authorization: `Bearer ${SHARED_SECRET}`,
+      ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {})
+    };
+    const response = await fetch(CANONICAL_RUNTIME, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ mission_id: missionId })
     });
-    if (error) {
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
       return {
         status: "kick_failed",
         mission_id: missionId,
         reason,
-        error: error.message,
+        http_status: response.status,
+        error: body?.error ?? `canonical_runtime_http_${response.status}`
       };
     }
     return {
       status: "kick_requested",
       mission_id: missionId,
       reason,
-      runner_request_id: data ?? null,
+      runtime_status: body?.status ?? null,
+      runtime_response: body
     };
   } catch (error) {
     return {
       status: "kick_failed",
       mission_id: missionId,
       reason,
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message : String(error)
     };
   }
 }
