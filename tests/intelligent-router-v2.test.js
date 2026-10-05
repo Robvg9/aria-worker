@@ -77,6 +77,7 @@ const upstreamSelected=auto.selectAuto({task_id:'task-8',task:'upstream model pr
 assert.equal(upstreamSelected.status,'selected');
 assert.equal(upstreamSelected.selected.model_id,'ollama/qwen3:4b');
 assert.equal(upstreamSelected.selected.upstream_model,'qwen3:4b');
+assert.equal(upstreamSelected.selected.upstream_model,'qwen3:4b');
 let a=auto.selectAuto({task_id:'task-8',task:'implement coding fix',capability:'text_generation',mode:'auto/coding',allowed_routes:allowed});
 assert.equal(a.status,'selected'); assert.equal(a.selected.model_id,'coder'); assert.equal(a.selection_evidence.target_id,'task-8'); assert.equal(a.selection_evidence.provider_id,'p-a'); assert.equal(a.selection_evidence.model_id,'coder');
 let f1=auto.selectAuto({task_id:'task-8',task:'fast response',capability:'text_generation',mode:'auto/fast',allowed_routes:allowed});
