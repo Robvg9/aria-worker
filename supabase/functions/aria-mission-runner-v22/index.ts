@@ -1615,6 +1615,26 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
           model_fallback_attempts: failures.length,
         };
       }
+      if (localResult?.status === "waiting") {
+        // Keep a durable local device job waiting for reconciliation instead of
+        // converting queue time into a model failure or spawning another attempt.
+        return {
+          ...localResult,
+          status: "waiting",
+          executor_type: "model",
+          operation: step.operation,
+          provider_id: route.provider_id,
+          account_id: route.account_id,
+          model_id: route.model_id,
+          pending_executor_type: "device",
+          pending_source: "windows_ollama",
+          pending_device_id: route.device_id,
+          model_fallback_used: true,
+          model_fallback_source: "windows_ollama",
+          model_fallback_device_id: route.device_id,
+          model_fallback_attempts: failures.length,
+        };
+      }
       failures.push({
         provider_id: route.provider_id,
         account_id: route.account_id,
@@ -3180,99 +3200,93 @@ Deno.serve(async (request) => {
         const pending = pendingJobs[id] && typeof pendingJobs[id] === "object"
           ? pendingJobs[id] as Record<string, unknown>
           : null;
-        const pendingJobId = executorType(step) === "device" && typeof pending?.job_id === "string"
-          ? String(pending.job_id)
-          : "";
+        const pendingJobId = typeof pending?.job_id === "string" ? String(pending.job_id) : "";
         const pendingAttempt = Number(pending?.attempt || 0);
+        let reconciledPendingResult: any = null;
 
-        // Async device jobs are already persisted in execution_jobs. While a pending
-        // job is queued/claimed/running, poll that exact job instead of creating a
-        // fresh attempt. This prevents the paused -> retry -> re-enqueue loop.
+        // Reconcile durable async jobs before starting another attempt. This is
+        // intentionally independent of the planner executor type because a model
+        // step may be backed by a local Windows/Qwen device job.
         if (pendingJobId) {
           const polled = await getExecutionJob(pendingJobId);
           const pendingJob = polled.body?.job;
           const pendingStatus = String(pendingJob?.status || pending?.status || "queued");
-          if (!pendingJob || !["succeeded", "failed", "timeout", "cancelled", "blocked"].includes(pendingStatus)) {
+          if (!pendingJob || !["succeeded","failed","timeout","cancelled","blocked"].includes(pendingStatus)) {
             pendingJobs[id] = {
-              ...(pending || {}),
-              job_id: pendingJobId,
-              status: pendingStatus,
+              ...(pending || {}), job_id: pendingJobId, status: pendingStatus,
               attempt: pendingAttempt || Number(attempts[id] || 1),
             };
             return {
               step,
               result: {
                 status: "waiting",
-                executor_type: "device",
+                executor_type: String(pending?.executor_type || executorType(step)),
                 operation: step.operation,
                 job_id: pendingJobId,
                 job_status: pendingStatus,
+                pending_executor_type: pending?.pending_executor_type ?? pending?.executor_type ?? null,
+                pending_source: pending?.pending_source ?? null,
               },
               waiting: true,
               passed: false,
             };
           }
-          pendingJobs[id] = {
-            ...(pending || {}),
-            job_id: pendingJobId,
-            status: pendingStatus,
-            attempt: pendingAttempt || Number(attempts[id] || 1),
+
+          const basePending = {
+            status: pendingStatus, executor_type: String(pending?.executor_type || "device"),
+            operation: step.operation, job_id: pendingJobId,
+            exit_code: pendingJob.exit_code ?? null, stdout: pendingJob.stdout ?? "", stderr: pendingJob.stderr ?? "",
+            result: pendingJob.result ?? null, evidence: pendingJob.evidence ?? pendingJob.result ?? null,
+            error: pendingJob.error ?? null,
           };
+          if (String(pending?.pending_source || "") === "windows_ollama" || String(pending?.provider_id || "") === "local_windows") {
+            reconciledPendingResult = {
+              ...basePending,
+              executor_type: "model",
+              provider_id: String(pending.provider_id || "local_windows"),
+              account_id: String(pending.account_id || pending.device_id || ""),
+              model_id: String(pending.model_id || "qwen3:0.6b"),
+              response: { content: String(pendingJob.stdout ?? "").trim() },
+              model_fallback_used: true,
+              model_fallback_source: "windows_ollama",
+              model_fallback_device_id: String(pending.pending_device_id || pending.device_id || ""),
+              model_fallback_attempts: Number(pending.fallback_attempts || 0),
+              pending_reconciled: true,
+            };
+          } else {
+            reconciledPendingResult = basePending;
+          }
+          pendingJobs[id] = undefined;
         }
 
         const nextAttempt = pendingAttempt > 0 ? pendingAttempt : Number(attempts[id] || 0) + 1;
         attempts[id] = nextAttempt;
-        await renewLease(missionId);
-        await emitEvent(missionId, "step_started", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt });
-        await updateMission(missionId, {
-          status: "running",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: `execute: ${id}`,
-          checkpoint: {
-            ...(mission.checkpoint || {}),
-            plan: steps,
-            completed_steps: [...completed],
-            attempts,
-            results,
-            active_step: {
-              step_id: id,
-              executor_type: executorType(step),
-              operation: String(step.operation || "unknown"),
-              started_at: new Date().toISOString(),
-              attempt: nextAttempt,
+        let result: any = reconciledPendingResult;
+        if (!reconciledPendingResult) {
+          await renewLease(missionId);
+          await emitEvent(missionId, "step_started", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt });
+          await updateMission(missionId, {
+            status: "running", current_step: completed.size, completed_steps: completed.size,
+            next_action: `execute: ${id}`,
+            checkpoint: {
+              ...(mission.checkpoint || {}), plan: steps, completed_steps: [...completed], attempts, results,
+              active_step: { step_id: id, executor_type: executorType(step), operation: String(step.operation || "unknown"), started_at: new Date().toISOString(), attempt: nextAttempt },
             },
-          },
-        });
-
-        let result: any;
-        try {
-          const executionGate = currentHumanGate(mission, step);
-          const executionAuthorization = requiresHumanGate(step)
-            ? {
-                status: "approved",
-                risk_class: step.risk || "HIGH_RISK_WRITE",
-                evidence_ref: `human-gate:${missionId}:${String(step.id)}`,
-                human_gate_verified: executionGate?.status === "approved",
-                human_gate_action_hash: String(executionGate?.action_hash || ""),
-                human_gate_approval_token: String(executionGate?.approval_token || ""),
-                human_gate_mission_id: missionId,
-                human_gate_step_id: String(step.id),
-              }
-            : step.authorization;
-          const executionStep = {
-            ...step,
-            ...(executionAuthorization ? { authorization: executionAuthorization } : {}),
-            input: {
-              ...(step.input || {}),
-              __aria_attempt: nextAttempt,
-              dependency_results: dependencyEvidenceForStep(step, results),
-            },
-          };
-          result = await executeStep(missionId, executionStep, auth, mission);
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
+          });
+          try {
+            const executionGate = currentHumanGate(mission, step);
+            const executionAuthorization = requiresHumanGate(step)
+              ? { status: "approved", risk_class: step.risk || "HIGH_RISK_WRITE", evidence_ref: `human-gate:${missionId}:${String(step.id)}`,
+                  human_gate_verified: executionGate?.status === "approved", human_gate_action_hash: String(executionGate?.action_hash || ""),
+                  human_gate_approval_token: String(executionGate?.approval_token || ""), human_gate_mission_id: missionId, human_gate_step_id: String(step.id) }
+              : step.authorization;
+            const executionStep = { ...step, ...(executionAuthorization ? { authorization: executionAuthorization } : {}),
+              input: { ...(step.input || {}), __aria_attempt: nextAttempt, dependency_results: dependencyEvidenceForStep(step, results) } };
+            result = await executeStep(missionId, executionStep, auth, mission);
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
+          }
         }
 
         let independent = { passed: true, skipped: true };
@@ -3280,19 +3294,27 @@ Deno.serve(async (request) => {
         const passed = independent.passed && verifyStep(step, result);
         result.independent_verification = independent;
         if (passed) {
-          results[id] = result;
-          pendingJobs[id] = undefined;
-          await emitEvent(missionId, "step_succeeded", { step_id: id, executor_type: result.executor_type, operation: result.operation || step.operation, agent_id: result.agent_id || null, attempt: nextAttempt, verified: true });
+          results[id] = result; pendingJobs[id] = undefined;
+          await emitEvent(missionId, "step_succeeded", { step_id: id, executor_type: result.executor_type, operation: result.operation || step.operation, agent_id: result.agent_id || null, attempt: nextAttempt, verified: true, reconciled: result.pending_reconciled === true });
           return { step, result, passed: true };
         }
 
-        if (String(result?.status) === "waiting" && executorType(step) === "device") {
-          pendingJobs[id] = { job_id: result.job_id, status: result.job_status || "queued", attempt: nextAttempt };
-          await emitEvent(missionId, "mission_waiting", { step_id: id, executor_type: "device", job_id: result.job_id, attempt: nextAttempt });
+        if (String(result?.status) === "waiting" && typeof result?.job_id === "string") {
+          pendingJobs[id] = {
+            job_id: String(result.job_id), status: result.job_status || "queued", attempt: nextAttempt,
+            executor_type: result.executor_type || executorType(step), pending_executor_type: result.pending_executor_type || null,
+            pending_source: result.pending_source || null, pending_device_id: result.pending_device_id || result.model_fallback_device_id || null,
+            device_id: result.pending_device_id || result.model_fallback_device_id || null, provider_id: result.provider_id || null,
+            account_id: result.account_id || null, model_id: result.model_id || null, fallback_attempts: Number(result.model_fallback_attempts || 0),
+          };
+          await emitEvent(missionId, "mission_waiting", { step_id: id, executor_type: result.executor_type || executorType(step),
+            pending_executor_type: result.pending_executor_type || null, pending_source: result.pending_source || null, job_id: result.job_id, attempt: nextAttempt });
           return { step, result, waiting: true, passed: false };
         }
 
-        await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || (String(result?.status || "") === "succeeded" ? "verification_failed" : (result?.status || "verification_failed")), result_status: result?.status ?? null, verification_status: result?.repair?.verification_status ?? result?.verification_status ?? null });
+        await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt,
+          reason: result?.error?.code || (String(result?.status || "") === "succeeded" ? "verification_failed" : (result?.status || "verification_failed")),
+          result_status: result?.status ?? null, verification_status: result?.repair?.verification_status ?? result?.verification_status ?? null });
         return { step, result, passed: false, waiting: false };
       }));
 
@@ -3342,16 +3364,15 @@ Deno.serve(async (request) => {
       mission.checkpoint = checkpoint;
 
       if (waiting) {
+        const pendingSource = String(waiting.result?.pending_source || "");
+        const resumeLabel = pendingSource === "windows_ollama" ? "resume: pending local Qwen job " : "resume: pending device job ";
         await updateMission(missionId, {
-          status: "paused",
-          current_step: completed.size,
-          completed_steps: completed.size,
-          next_action: `resume: pending device job ${String(waiting.step.id)}`,
-          checkpoint: { ...checkpoint, recovery: { status: "waiting_for_async_executor" } },
-          lease_owner: null,
-          lease_until: null,
+          status: "waiting", current_step: completed.size, completed_steps: completed.size,
+          next_action: resumeLabel + String(waiting.step.id),
+          checkpoint: { ...checkpoint, recovery: { status: "waiting_for_async_executor", pending_source: pendingSource || null } },
+          lease_owner: null, lease_until: null,
         });
-        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id) });
+        return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id), pending_source: pendingSource || null });
       }
 
       const failures = outcomes.filter((item) => !item.passed);
