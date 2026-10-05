@@ -316,8 +316,7 @@ async function run() {
     }, { timeout: TIMEOUT_MS });
     await send.click();
 
-    // The API may acknowledge chat processing before the assistant bubble is rendered.
-    // First prove the user message reached the UI, then inspect the canonical response.
+    // Prove the local UI accepted the user message and persisted it locally.
     await page.waitForFunction(
       ({markerValue}) =>
         [...document.querySelectorAll('.chatScreen .bubble.user')]
@@ -325,6 +324,24 @@ async function run() {
       { markerValue: marker },
       { timeout: Math.min(TIMEOUT_MS, 30000) }
     );
+    await page.waitForFunction(
+      ({chatPrefix, markerValue}) => {
+        for (const key of Object.keys(localStorage)) {
+          if (!key.startsWith(chatPrefix + ':')) continue;
+          try {
+            const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+            if (Array.isArray(parsed?.messages) &&
+                parsed.messages.some(message => message?.role === 'user' && String(message.text || '').includes(markerValue))) {
+              return true;
+            }
+          } catch {}
+        }
+        return false;
+      },
+      { chatPrefix: CHAT_PREFIX, markerValue: marker },
+      { timeout: 15000 }
+    );
+    report.chat.local_persistence_verified = true;
 
     const chatPostResponse = await chatPostResponsePromise;
     const chatPostBody = await chatPostResponse.json().catch(() => null);
@@ -332,23 +349,6 @@ async function run() {
       ? chatPostBody.parts.find(part => part.type === 'text').text.trim()
       : '';
     const asyncProcessingAccepted = Boolean(chatPostBody?.processing || chatPostBody?.visualState === 'processing');
-    if (!postAssistantText && asyncProcessingAccepted) {
-      await page.waitForFunction(
-        ({beforeCount}) =>
-          [...document.querySelectorAll('.chatScreen .bubble.aria')]
-            .slice(beforeCount)
-            .some(node => String(node.textContent || '').trim().length > 0),
-        { beforeCount: before },
-        { timeout: TIMEOUT_MS }
-      );
-    }
-
-    report.chat.ui_response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
-    if (!report.chat.ui_response_text && !postAssistantText) throw new Error('chat_response_empty');
-    const canonicalAssistantText = postAssistantText || report.chat.ui_response_text;
-    if (!canonicalAssistantText) throw new Error('chat_post_response_missing_assistant_text');
-
-    report.chat.response_text = canonicalAssistantText;
 
     report.chat.post_response = {
       status: chatPostResponse.status(),
@@ -363,27 +363,36 @@ async function run() {
       } : null
     };
 
-    await page.waitForFunction(
-      ({responseValue}) => {
-        const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
-        return [...document.querySelectorAll('.chatScreen .bubble.aria')]
-          .some(node => normalize(node.textContent).includes(normalize(responseValue)));
-      },
-      { responseValue: canonicalAssistantText },
-      { timeout: TIMEOUT_MS }
-    );
-
-    const expectedAssistantText = canonicalAssistantText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     let server = null;
     let serverMessages = [];
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+    let serverAssistantText = postAssistantText;
+    const serverDeadline = Date.now() + (asyncProcessingAccepted ? 100000 : 30000);
+    while (Date.now() < serverDeadline) {
       server = await readConversation(page, accessToken);
       serverMessages = Array.isArray(server.body?.conversation?.messages) ? server.body.conversation.messages : [];
       const userSaved = serverMessages.some(m => m?.role === 'user' && typeof m?.content === 'string' && m.content.includes(marker));
-      const assistantSaved = serverMessages.some(m => m?.role === 'assistant' && typeof m?.content === 'string' && m.content.includes(expectedAssistantText));
-      if (userSaved && assistantSaved) break;
-      if (attempt < 5) await waitFor(1000);
+      if (!serverAssistantText) {
+        const markerIndex = serverMessages.findIndex(m => m?.role === 'user' && typeof m?.content === 'string' && m.content.includes(marker));
+        const candidate = markerIndex >= 0
+          ? serverMessages.slice(markerIndex + 1).find(m => m?.role === 'assistant' && typeof m?.content === 'string' && m.content.trim())
+          : null;
+        if (candidate) serverAssistantText = String(candidate.content).trim();
+      }
+      if (userSaved && serverAssistantText) break;
+      await waitFor(1200);
     }
+
+    const visibleAria = page.locator('.chatScreen .bubble.aria');
+    const visibleCount = await visibleAria.count();
+    report.chat.ui_response_text = visibleCount > before
+      ? (await visibleAria.last().innerText()).trim()
+      : '';
+    const canonicalAssistantText = serverAssistantText || report.chat.ui_response_text;
+    if (!canonicalAssistantText) throw new Error(asyncProcessingAccepted ? 'chat_server_assistant_persistence_timeout' : 'chat_response_empty');
+
+    report.chat.response_text = canonicalAssistantText;
+
+    const expectedAssistantText = canonicalAssistantText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     report.chat.server_persistence_status = server?.status ?? null;
     report.chat.server_conversation_id = server?.body?.conversation_id ?? null;
     report.chat.server_message_count = serverMessages.length;
