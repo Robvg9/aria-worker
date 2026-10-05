@@ -29,7 +29,27 @@ assert.strictEqual(normalizeResponse({choices:[]},route),null);
 
 (async()=>{
   let observed=null;
-  const ok=await execute({route,input:{payload:{prompt:'hello',temperature:0}},secret:SECRET,transport:async(url,options)=>{observed={url,options};return{status:200,headers:new Headers({[ROUTED_BY_HEADER]:'self-hosted-openai-compat',[ROUTE_DECISION_HEADER]:'ollama(qwen3:4b)'}),json:{id:'omni-ok',model:'ollama/qwen3:4b',choices:[{message:{content:'OMNI_OK'},finish_reason:'stop'}],usage:{prompt_tokens:1,completion_tokens:2,total_tokens:3}};}}});
+  const ok=await execute({
+    route,
+    input:{payload:{prompt:'hello',temperature:0}},
+    secret:SECRET,
+    transport:async(url,options)=>{
+      observed={url,options};
+      return {
+        status:200,
+        headers:new Headers({
+          [ROUTED_BY_HEADER]:'self-hosted-openai-compat',
+          [ROUTE_DECISION_HEADER]:'ollama(qwen3:4b)'
+        }),
+        json:{
+          id:'omni-ok',
+          model:'ollama/qwen3:4b',
+          choices:[{message:{content:'OMNI_OK'},finish_reason:'stop'}],
+          usage:{prompt_tokens:1,completion_tokens:2,total_tokens:3}
+        }
+      };
+    }
+  });
   assert.strictEqual(ok.ok,true);
   assert.strictEqual(observed.url,DEFAULT_ENDPOINT);
   assert.strictEqual(observed.options.method,'POST');
