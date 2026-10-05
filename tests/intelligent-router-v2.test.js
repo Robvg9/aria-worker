@@ -24,6 +24,30 @@ assert.equal(out.status,'no_route');
 assert.deepEqual(r.parallelPlan([{id:'a'},{id:'b'},{id:'c',depends_on:['a','b']}],{maxParallel:2}).batches,[['a','b'],['c']]);
 assert.equal(r.parallelPlan([{id:'a',depends_on:['a']}]).status,'blocked');
 
+
+const omniAdapter=require('../execution/adapters/omniroute.js');
+const executionEngine=require('../execution/lookup.js');
+const requestWithThinkingDisabled=omniAdapter.buildRequest(
+ {model_id:'ollama/qwen3:4b',upstream_model:'qwen3:4b'},
+ {payload:{messages:[{role:'user',content:'hello'}],enable_thinking:false,temperature:0}}
+);
+assert.equal(requestWithThinkingDisabled.model,'qwen3:4b');
+assert.equal(requestWithThinkingDisabled.enable_thinking,false);
+const markedLiveTransport=async()=>({status:200,json:{id:'e2e',model:'qwen3:4b',choices:[{message:{content:'ok'},finish_reason:'stop'}]},headers:new Map()});
+markedLiveTransport.isLive=true;
+const liveExecution=await executionEngine.execute({
+ task_id:'omni-live-mode-test',capability:'text_generation',
+ selected_route:{status:'selected',provider_id:'omniroute',account_id:'acct-omni',model_id:'ollama/qwen3:4b',capability:'text_generation',upstream_model:'qwen3:4b'},
+ authorization:{status:'approved'},input:{payload:{messages:[{role:'user',content:'hello'}],enable_thinking:false}}
+},{
+ candidateSelectable:()=>true,getModel:()=>({provider_id:'omniroute',status:'available'}),isAccountActive:()=>true,supports:()=>true,capacityAllows:()=>true,
+ credentialRefOf:()=> 'env://OMNIROUTE_API_KEY',credentialResolver:{resolve:async()=>({status:'resolved',secret:'test-secret'})},
+ adapters:executionEngine.ADAPTERS,transport:markedLiveTransport
+});
+assert.equal(liveExecution.status,'succeeded');
+assert.equal(liveExecution.metadata.mode,'live');
+console.log('OMNIROUTE QWEN THINKING + LIVE MODE REGRESSION: PASS');
+
 console.log('MISSION 6 ROUTER V2 CONTRACT: PASS');
 
 out=r.select(candidates,{task:'write code and debug a regression',capability:'text_generation',risk:'high',required_tools:['coding']});
