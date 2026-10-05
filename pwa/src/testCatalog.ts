@@ -2804,7 +2804,7 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
-  }
+  },
   {
     "id": "omniroute-absorb-contract",
     "file": "tests/omniroute-absorb-contract.test.js",
