@@ -500,3 +500,6 @@ run().catch(error => {
 });
 
 // Final universal certification trigger: persistence/recovery contract aligned.
+
+
+// Persistence/Recovery post-merge certification marker 2026-10-05.

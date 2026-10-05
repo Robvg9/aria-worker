@@ -1136,6 +1136,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
   },
   {
+    "id": "gemini-direct-route-registry-v1",
+    "file": "tests/gemini-direct-route-registry-v1.test.js",
+    "title": "Gemini Direct Route Registry V1",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Verifica que la ruta Gemini Direct solo se habilite cuando el proveedor y la capability tienen evidencia vigente.",
+    "capabilities": "Protege la reconciliación del model registry, evidencia LIVE y fail-closed del router."
+  },
+  {
     "id": "github-app-installation-scope",
     "file": "tests/github-app-installation-scope.test.js",
     "title": "Github App Installation Scope",
