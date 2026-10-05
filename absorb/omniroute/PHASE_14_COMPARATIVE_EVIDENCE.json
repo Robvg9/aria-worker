@@ -11,5 +11,7 @@
     "live_quality": "PENDING"
   },
   "promotion": "BLOCKED_PENDING_LIVE_E2E",
-  "next_phase": 15
+  "next_phase": 15,
+  "head_commit": "5cc3077cdc8ecac70c395492c6e7d329cc883aec",
+  "validation": "PASS"
 }
