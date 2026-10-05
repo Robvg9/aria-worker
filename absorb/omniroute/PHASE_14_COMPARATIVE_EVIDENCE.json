@@ -1,0 +1,15 @@
+{
+  "phase": 14,
+  "name": "Comparative Evaluation",
+  "status": "IMPLEMENTED_STATIC_ONLY",
+  "branch": "feat/omniroute-phase14-comparative-eval-20261005",
+  "scope": "architecture_and_governance_only",
+  "results": {
+    "aria_default_router": "PASS",
+    "omniroute_governed": "PASS",
+    "omniroute_local_qwen": "PASS_STATIC",
+    "live_quality": "PENDING"
+  },
+  "promotion": "BLOCKED_PENDING_LIVE_E2E",
+  "next_phase": 15
+}
