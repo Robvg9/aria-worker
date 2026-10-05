@@ -701,8 +701,11 @@ function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): num
   const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
   if (value === 'running' && leased) return 60;
   if (value === 'waiting' && leased) return 45;
-  // Sin lease vigente, running/waiting no se consideran ejecución LIVE.
-  if (value === 'planning') return 30;
+  // An unleased running/waiting mission is recoverable work, not "no mission".
+  // Keep it visible until the canonical runtime reaches a new state.
+  if (value === 'running') return 35;
+  if (value === 'waiting') return 30;
+  if (value === 'planning') return 25;
   if (value === 'queued') return 20;
   if (value === 'paused') return 10;
   if (value === 'succeeded') return 5;
@@ -2712,6 +2715,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
 }) {
   if(!mission)return <section className='executionHero executionHeroEmpty'><div className='executionHeroTop'><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>Sin misión activa</div><div className='muted'>Cuando ARIA tome una misión, aquí verás qué está haciendo y el resultado.</div></div><span className='pill neutral'>SIN MISIÓN</span></div></section>;
   const status=String(mission.status??'unknown').toLowerCase(), terminal=['succeeded','failed','blocked','cancelled'].includes(status), latest=events.length?events[events.length-1]:null;
+  const leaseValid=Boolean(mission.lease_owner && mission.lease_until && new Date(String(mission.lease_until)).getTime()>Date.now());
+  const recoveryVisible=(status==='running'||status==='waiting')&&!leaseValid;
+  const displayedStatus=recoveryVisible?'Recuperando':statusLabel(status);
   const sessionSnapshot = {
     mission_id: String(mission.mission_id ?? ''),
     status,
@@ -2730,10 +2736,10 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const goalPreview=missionGoalPreview(mission,180);
   const recentEvents=events.slice(-6).reverse(), verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified');
   return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
-    <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{statusLabel(status)}</div><div className='executionGoal'>{goalPreview}</div></div></div>
-    <div className='executionHeroActions'><span className={'pill '+tone(status)}>{statusLabel(status)}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
+    <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{displayedStatus}</div><div className='executionGoal'>{goalPreview}</div></div></div>
+    <div className='executionHeroActions'><span className={'pill '+(recoveryVisible?'warning':tone(status))}>{displayedStatus}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
     {status !== 'queued' && <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>}
-    <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{nowText}</strong><small>{currentStep&&status!=='queued'&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':status==='queued'?'El runner todavía no ha tomado esta misión.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
+    <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{recoveryVisible?'La misión perdió el lease, pero sigue registrada y ARIA está intentando recuperarla.':nowText}</strong><small>{currentStep&&status!=='queued'&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':status==='queued'?'El runner todavía no ha tomado esta misión.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
     <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Última actividad</strong></div></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>{status==='queued' ? 'La misión está esperando ejecución; aquí aparecerá la actividad cuando el runner la tome.' : latest && !latestEventFresh ? 'No hay actividad nueva confirmada; ARIA no inventará una acción.' : 'Esperando la primera actividad real del runtime…'}</div>}</div>
     {terminal&&<div className='executionOutcome'><div className='executionLabel'>RESULTADO</div><strong>{resultText}</strong><small>{verified?'Verificación registrada. La misión queda cerrada.':'El estado final y la evidencia disponible quedan conservados.'}</small></div>}
     <div className='executionLiveControl'><span className='muted'>{syncing?'Actualizando estado…':'Estado actualizado automáticamente.'}</span></div>
