@@ -69,7 +69,7 @@ let evidenceTargetBlocked=auto.selectAuto({task_id:'task-8',task:'same',capabili
 assert.equal(evidenceTargetBlocked.status,'no_route');
 let invalidConstraint=auto.selectAuto({task_id:'task-8',task:'same',capability:'text_generation',mode:'auto',constraints:{max_cost_usd:'not-a-number'},allowed_routes:allowed});
 assert.equal(invalidConstraint.status,'no_route');
-assert.ok(invalidConstraint.rejected_candidates.every(x=>x.reasons.includes('max_cost_usd_invalid')));
+assert.ok(invalidConstraint.rejected.every(x=>x.reasons.includes('max_cost_usd_invalid')));
 assert.equal(auto.selectAuto({task_id:'task-8',task:'x',capability:'text_generation',mode:'auto/unknown',allowed_routes:allowed}).status,'no_route');
 console.log('OMNIROUTE PHASE 8 AUTO-COMBO: PASS');
 const fs=require('node:fs');
