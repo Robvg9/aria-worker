@@ -192,7 +192,8 @@ async function run() {
     }, null, { timeout:30000 });
     assert.equal(await page.locator('input[type="password"]:visible').count(), 0, 'meditation route must remain authenticated');
     await page.getByText('ANALIZADOR DE IDEAS', { exact:true }).waitFor({ state:'visible', timeout:30000 });
-    await page.getByText('ESTADO CLOUD', { exact:true }).waitFor({ state:'visible', timeout:30000 });
+    await page.getByText('MEDITACIÓN IA', { exact:true }).waitFor({ state:'visible', timeout:30000 });
+    await page.locator('.statePanel .bigStatus').waitFor({ state:'visible', timeout:30000 });
     await page.getByText('EJECUCIÓN EN TIEMPO REAL', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     await page.getByRole('button', { name:'ANALIZAR Y PROPONER' }).waitFor({ state:'visible', timeout:30000 });
     report.meditation_surface_verified = true;
