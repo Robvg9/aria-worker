@@ -419,43 +419,6 @@ async function run() {
     );
     report.chat.reload_persistence_verified = true;
 
-    const expectedAssistantText = canonicalAssistantText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
-    let server = null;
-    let serverMessages = [];
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      server = await readConversation(page, accessToken);
-      serverMessages = Array.isArray(server.body?.conversation?.messages) ? server.body.conversation.messages : [];
-      const userSaved = serverMessages.some(m => m?.role === 'user' && typeof m?.content === 'string' && m.content.includes(marker));
-      const assistantSaved = serverMessages.some(m => m?.role === 'assistant' && typeof m?.content === 'string' && m.content.includes(expectedAssistantText));
-      if (userSaved && assistantSaved) break;
-      if (attempt < 5) await waitFor(1000);
-    }
-    report.chat.server_persistence_status = server?.status ?? null;
-    report.chat.server_conversation_id = server?.body?.conversation_id ?? null;
-    report.chat.server_message_count = serverMessages.length;
-    report.chat.server_message_roles = serverMessages.map(m => String(m?.role ?? '')).slice(-8);
-    report.chat.server_persistence_verified =
-      server?.status === 200 && serverMessages.some(m => m?.role === 'user' && typeof m?.content === 'string' && m.content.includes(marker));
-    report.chat.server_assistant_persistence_verified =
-      server?.status === 200 && serverMessages.some(m => m?.role === 'assistant' && typeof m?.content === 'string' && m.content.includes(expectedAssistantText));
-    if (!report.chat.server_persistence_verified) throw new Error('chat_server_persistence_missing');
-    if (!report.chat.server_assistant_persistence_verified) throw new Error('chat_server_assistant_persistence_missing');
-
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('.chatScreen .chatWindow', { state: 'visible', timeout: 60000 });
-    const semanticResponseText = report.chat.response_text.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
-    await page.waitForFunction(
-      ({markerValue, responseValue}) => {
-        const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
-        const userOk = [...document.querySelectorAll('.chatScreen .bubble.user')].some(node => normalize(node.textContent).includes(normalize(markerValue)));
-        const assistantOk = [...document.querySelectorAll('.chatScreen .bubble.aria')].some(node => normalize(node.textContent).includes(normalize(responseValue)));
-        return userOk && assistantOk;
-      },
-      { markerValue: marker, responseValue: semanticResponseText },
-      { timeout: 60000 }
-    );
-    report.chat.reload_persistence_verified = true;
-
     await page.goto(BASE_URL + '#home', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await assertDashboard(page);
     const beforeRecovery = await readStateSnapshot(page);
