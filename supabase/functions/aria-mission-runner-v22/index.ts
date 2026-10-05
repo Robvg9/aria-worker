@@ -98,10 +98,13 @@ type DeviceTargetResolution = {
   reason: string;
 };
 
-function deviceSupportsOperation(capabilities: unknown, operation: string) {
+function deviceSupportsOperation(capabilities: unknown, operation: string, agentType?: string) {
   if (!Array.isArray(capabilities)) return false;
   if (operation === "ecc.execute") return capabilities.some((capability) => String(capability) === "shell.execute");
   if (operation === "android.notification") return capabilities.some((capability) => String(capability) === "notifications.push");
+  if (operation === "computer.use" && String(agentType || "").toLowerCase() === "android-termux") {
+    return capabilities.some((capability) => String(capability) === "computer.use.android");
+  }
   return capabilities.some((capability) => String(capability) === operation);
 }
 
@@ -198,7 +201,7 @@ async function resolveDeviceTarget(missionId: string, step: any): Promise<Device
   if (error) throw new Error(`device_target_lookup:${error.message}`);
 
   const candidates = (Array.isArray(data) ? data : [])
-    .filter((device) => deviceSupportsOperation(device.capabilities, operation))
+    .filter((device) => deviceSupportsOperation(device.capabilities, operation, device.agent_type))
     .sort((a, b) => {
       const aTime = Date.parse(String(a.last_seen_at || "")) || 0;
       const bTime = Date.parse(String(b.last_seen_at || "")) || 0;
@@ -746,7 +749,27 @@ async function getExecutionJob(jobId: string) {
 
 async function enqueueDeviceJob(missionId: string, step: any, jobId: string) {
   const resolution = await resolveDeviceTarget(missionId, step);
-  const payload = buildDeviceEnqueuePayload(V, missionId, step, jobId, resolution.resolved_device_id);
+  const { data: resolvedDevice, error: resolvedDeviceError } = await sb.schema("aria_internal")
+    .from("device_registry")
+    .select("device_id,agent_type,status,capabilities")
+    .eq("device_id", resolution.resolved_device_id)
+    .eq("status", "online")
+    .maybeSingle();
+  if (resolvedDeviceError) throw new Error("resolved_device_lookup:" + resolvedDeviceError.message);
+  if (!resolvedDevice) throw new Error("resolved_device_unavailable:" + resolution.resolved_device_id);
+
+  // Planner compatibility: Android missions may arrive as generic computer.use.
+  // Persist the concrete Android operation at the execution-job boundary so
+  // capability checks, claim and the Android executor all speak the same contract.
+  const normalizedOperation =
+    String(step?.operation || "") === "computer.use" &&
+    String(resolvedDevice.agent_type || "").toLowerCase() === "android-termux"
+      ? "computer.use.android"
+      : String(step?.operation || "shell.execute");
+  const normalizedStep = normalizedOperation === String(step?.operation || "")
+    ? step
+    : { ...step, operation: normalizedOperation };
+  const payload = buildDeviceEnqueuePayload(V, missionId, normalizedStep, jobId, resolution.resolved_device_id);
   const data = await rpc("enqueue_execution_job_gateway", {
     p_job_id: String(payload.job_id),
     p_mission_id: String(payload.mission_id),
