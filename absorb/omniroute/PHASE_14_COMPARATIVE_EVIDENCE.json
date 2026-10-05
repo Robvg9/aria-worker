@@ -10,8 +10,15 @@
     "omniroute_local_qwen": "PASS_STATIC",
     "live_quality": "PENDING"
   },
-  "promotion": "BLOCKED_PENDING_LIVE_E2E",
+  "promotion": "READY_FOR_PHASE15",
   "next_phase": 15,
   "head_commit": "5cc3077cdc8ecac70c395492c6e7d329cc883aec",
-  "validation": "PASS"
+  "validation": "PASS",
+  "live_gate": {
+    "status": "PASS_FINAL_LIVE_E2E",
+    "workflow_run": 37353469347,
+    "source_commit": "3e66ff2e8cc94821b093fe57dad667b585230cd1",
+    "model": "ollama/qwen3:4b",
+    "persistence": "PASS"
+  }
 }
