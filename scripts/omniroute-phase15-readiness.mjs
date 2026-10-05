@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-'use strict';
-const fs=require('node:fs');
-const path=require('node:path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const __dirname=path.dirname(fileURLToPath(import.meta.url));
 const p=path.join(__dirname,'..','absorb','omniroute','PHASE_15_REGISTRATION_PROPOSAL.json');
 const m=JSON.parse(fs.readFileSync(p,'utf8'));
 const required=['capability_id','source','version','permissions','dependency','health','evidence','rollback','evolution'];
