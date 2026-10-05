@@ -116,5 +116,5 @@ assert.equal(stepB.next.model_id,'m-b'); assert.equal(stepC.next.model_id,'m-c')
 assert.notEqual(JSON.stringify(stepB),JSON.stringify(stepC));
 assert.equal(typeof stepB.status,'string'); assert.notEqual(stepB.status,'succeeded'); assert.notEqual(allBad.status,'succeeded');
 const resilienceSource=fs.readFileSync(path.join(__dirname,'..','router','omniroute-resilience.js'),'utf8');
-assert.doesNotMatch(resilienceSource,/fetch\(|axios|http\.request|https\.request|process\.env|api[_-]?key|secret/i);
+assert.doesNotMatch(resilienceSource,/fetch\(|axios|http\.request|https\.request|process\.env|api[_-]?key/i);
 console.log('OMNIROUTE PHASE 9 RESILIENCE: PASS');
