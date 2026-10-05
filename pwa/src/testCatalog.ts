@@ -92,6 +92,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta desalineación entre operación de job y capability física durante el claim del agente."
   },
   {
+    "id": "android-termux-notification-direct-fallback-contract",
+    "file": "tests/android-termux-notification-direct-fallback-contract.test.js",
+    "title": "Android Termux Notification Direct Fallback Contract",
+    "category": "Meditación IA",
+    "includedInNpmTest": true,
+    "how": "Comprueba el fallback directo a libexec/termux-api cuando termux-notification falla por incompatibilidad de getopt.",
+    "capabilities": "Evita que el CLI de notificaciones del dispositivo rompa el canal físico de Meditation IA por diferencias del entorno."
+  },
+  {
     "id": "meditation-idea-analyzer-v2",
     "file": "tests/meditation-idea-analyzer-v2.test.js",
     "title": "Meditation Idea Analyzer V2",
