@@ -1,3 +1,8 @@
+const runnerSource = fs.readFileSync(
+  path.join(__dirname, '..', 'supabase/functions/aria-mission-runner-v22/index.ts'),
+  'utf8'
+);
+
 'use strict';
 
 const assert = require('node:assert/strict');
@@ -19,4 +24,9 @@ assert.ok(
   'Android payload must not spread the complete planner input'
 );
 
+assert.match(runnerSource, /operation === "computer.use" && String(agentType || "").toLowerCase() === "android-termux"/);
+assert.match(runnerSource, /capability === "computer.use.android"/);
+assert.match(runnerSource, /const normalizedOperation =/);
+assert.match(runnerSource, /normalizedOperation === String(step?.operation || "")/);
+assert.match(runnerSource, /operation: normalizedOperation/);
 console.log('MISSION RUNNER DEVICE PAYLOAD SANITIZATION: PASS');
