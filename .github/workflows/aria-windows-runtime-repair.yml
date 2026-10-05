@@ -321,3 +321,4 @@ jobs:
           Write-Host 'MEDITATION_HEARTBEAT=PASS'
           Write-Host 'ARIA_WINDOWS_REPAIR=PASS'
 # Runner session recovery certification trigger 2026-10-05
+# CERTIFICATION-REPLAY-2026-10-05: runtime repair post-merge E2E rerun on canonical LaCueva lane
