@@ -1,0 +1,18 @@
+{
+  "phase": 7,
+  "name": "Router Integration",
+  "status": "IMPLEMENTED_NOT_LIVE",
+  "version": "aria-omniroute-router-integration-v1.0.0",
+  "branch": "absorb/omniroute-phase7-router-20261005",
+  "source_main": "917497a0b733e4021c805ff5311bf6a9c7f1384d",
+  "gates": {
+    "opt_in_only": "PASS",
+    "loopback_only": "PASS",
+    "verified_capability_evidence_required": "PASS",
+    "default_router_unchanged": "PASS",
+    "no_network_from_router_extension": "PASS",
+    "no_secret_access_from_router_extension": "PASS"
+  },
+  "live_e2e": "PENDING",
+  "next_phase": 8
+}
