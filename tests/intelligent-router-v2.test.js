@@ -67,3 +67,9 @@ let targetBlocked=auto.selectAuto({task_id:'task-8',task:'same',capability:'text
 assert.equal(targetBlocked.status,'no_route');
 assert.equal(auto.selectAuto({task_id:'task-8',task:'x',capability:'text_generation',mode:'auto/unknown',allowed_routes:allowed}).status,'no_route');
 console.log('OMNIROUTE PHASE 8 AUTO-COMBO: PASS');
+const fs=require('node:fs');
+const path=require('node:path');
+const autoSource=fs.readFileSync(path.join(__dirname,'..','router','omniroute-auto.js'),'utf8');
+assert.doesNotMatch(autoSource,/fetch\(|axios|http\.request|https\.request/);
+assert.doesNotMatch(autoSource,/process\.env|api[_-]?key|secret/i);
+console.log('OMNIROUTE PHASE 8 SOURCE BOUNDARY: PASS');
