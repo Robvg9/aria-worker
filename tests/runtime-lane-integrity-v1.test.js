@@ -66,6 +66,17 @@ test('Windows runtime repair is pinned to LaCueva and installs singleton interac
   assert.match(runtimeRepair, /ARIA_LACUEVA_RUNNER_AUTOSTART=PASS/);
 });
 
+test('Windows runtime repair PowerShell heredoc remains inside YAML block', () => {
+  const lines = runtimeRepair.split(/\r?\n/);
+  const start = lines.findIndex((line) => line === "          @'");
+  const end = lines.findIndex((line) => line === "          '@ | Set-Content -LiteralPath $launcher -Encoding UTF8 -Force");
+  assert.ok(start >= 0, 'runtime repair heredoc opener missing or not YAML-indented');
+  assert.ok(end > start, 'runtime repair heredoc closer missing or not YAML-indented');
+  for (let i = start; i <= end; i += 1) {
+    assert.match(lines[i], /^ {10}/, `heredoc YAML indentation lost at line ${i + 1}`);
+  }
+});
+
 test('queue fairness keeps fresh queued work ahead of stale recovery', () => {
   assert.match(queueFairness, /when 'queued' then 0/);
   assert.match(queueFairness, /for update skip locked/i);
