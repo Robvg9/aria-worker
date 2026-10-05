@@ -175,3 +175,32 @@ const canonicalFail=await canonicalE2E.runCanonical({...e2eBase,alternative_rout
 assert.equal(canonicalFail.status,'failed'); assert.notEqual(canonicalFail.status,'succeeded'); assert.equal(canonicalFail.execution.status,'failed'); assert.equal(canonicalFail.failure_kind,'provider_unavailable'); assert.equal(canonicalFail.failover.status,'fallback_available');
 console.log('OMNIROUTE PHASE 12 CANONICAL E2E: PASS');
 })().catch(error=>{console.error('OMNIROUTE PHASE 12 CANONICAL E2E: FAIL '+(error?.stack||error));process.exit(1);});
+
+(async()=>{
+const sec=require('../security/omniroute-security.js');
+const auto=require('../router/omniroute-auto.js');
+const resilience=require('../router/omniroute-resilience.js');
+const recovery=require('../execution/omniroute-recovery.js');
+const execution=require('../execution/lookup.js');
+const canonicalE2E=require('../execution/omniroute-canonical-e2e.js');
+const e2eRoute={task_id:'neg-13',provider_id:'omniroute',account_id:'acct-omni',model_id:'auto',capability:'text_generation',allowed:true,availability_status:'available',quota_status:'available',circuit_status:'closed',cooldown_active:false,latency_ms:100,cost_usd:0,tags:['coding'],evidence:{source:'aria.router.allowed_set',target_id:'neg-13',provider_id:'omniroute',model_id:'auto',evidence_id:'phase13-route-001'}};
+const mission={mission_id:'mission-phase13',goal:'negative recovery',status:'running',current_step:1,total_steps:2,completed_steps:0,next_action:'execute',checkpoint:{}};
+const cp=recovery.createCheckpoint(mission,{gateway_status:'available',gateway_generation:1,selected_route:{provider_id:'omniroute',account_id:'acct-omni',model_id:'auto'}});
+const interrupted=recovery.markDisconnected(mission,cp.checkpoint,{code:'connection_refused'});
+const e2eBase={task_id:'neg-13',mission_id:'neg-13',task:'x',capability:'text_generation',mode:'auto',allowed_routes:[e2eRoute],security:{gateway_endpoint:'http://127.0.0.1:20128/v1/chat/completions',provider_id:'omniroute',provider_allowlist:['omniroute'],credential_ref:'secret://omniroute/local',timeout_ms:10000,origin:'http://localhost:8787',allowed_origins:['http://localhost:8787'],input:{messages:[{role:'user',content:'x'}]}},authorization:{status:'approved'},payload:{messages:[{role:'user',content:'x'}]}};
+// Phase 13 — negative failure certification.
+assert.equal(sec.validateGatewayEndpoint('http://10.0.0.5:20128/v1/chat/completions').ok,false);
+assert.equal(sec.validateProviderAllowlist('evil',['ollama']).ok,false);
+assert.equal(sec.validateCredentialBoundary('plain-secret').ok,false);
+assert.equal(auto.selectAuto({task_id:'neg-13',task:'x',capability:'text_generation',mode:'auto',allowed_routes:[{...e2eRoute,task_id:'neg-13',allowed:false}]}).status,'no_route');
+assert.equal(auto.selectAuto({task_id:'neg-13',task:'x',capability:'text_generation',mode:'auto',allowed_routes:[{...e2eRoute,task_id:'neg-13',evidence:{...e2eRoute.evidence,target_id:'wrong'}}]}).status,'no_route');
+assert.equal(resilience.planFallback({primary:e2eRoute,error:{status:429},alternatives:[{...e2eRoute,provider_id:'other'}]}).status,'no_fallback');
+assert.equal(resilience.planFallback({primary:e2eRoute,error:{quota_exhausted:true},alternatives:[{...e2eRoute,provider_id:'other',quota_status:'unknown'}]}).status,'no_fallback');
+assert.equal(recovery.createCheckpoint({...mission,status:'succeeded'}).status,'blocked');
+assert.equal(recovery.resumeMission({...interrupted.mission},cp.checkpoint,{status:'unverified',healthy:false,evidence_id:'x'}).status,'blocked');
+const negExec=await execution.execute({task_id:'neg-13',capability:'text_generation',selected_route:{...e2eRoute,status:'selected'},authorization:{status:'approved'},input:{payload:{messages:[{role:'user',content:'x'}]} }},{candidateSelectable:()=>true,capacityAllows:()=>true,isAccountActive:()=>true,supports:()=>true,getModel:()=>({provider_id:'omniroute',status:'available'}),credentialRefOf:()=> 'secret://omniroute/local',credentialResolver:{resolve:async()=>({status:'resolved',secret:'runtime-only'})},transport:async()=>({status:503,json:{}}),adapters:require('../execution/lookup.js').ADAPTERS});
+assert.equal(negExec.status,'failed'); assert.notEqual(negExec.status,'succeeded');
+const negCanonical=await canonicalE2E.runCanonical({...e2eBase,security:{...e2eBase.security,gateway_endpoint:'http://10.0.0.5:20128/v1/chat/completions'}});
+assert.equal(negCanonical.status,'blocked'); assert.equal(negCanonical.stage,'security');
+console.log('OMNIROUTE PHASE 13 NEGATIVE CERTIFICATION: PASS');
+})().catch(error=>{console.error('OMNIROUTE PHASE 13 NEGATIVE CERTIFICATION: FAIL '+(error?.stack||error));process.exit(1);});

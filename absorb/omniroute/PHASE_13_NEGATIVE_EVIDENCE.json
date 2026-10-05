@@ -1,0 +1,14 @@
+{
+  "phase": 13,
+  "name": "Negative Failure Certification",
+  "status": "IMPLEMENTED_VERIFIED",
+  "branch": "feat/omniroute-phase13-negative-cert-20261005",
+  "validation": {
+    "negative_certification": "PASS",
+    "phases_8_12_regression_chain": "PASS",
+    "router_current": "covered_by_same_v2_suite",
+    "no_false_success": "PASS"
+  },
+  "live_dependency": "none",
+  "next_phase": 14
+}
