@@ -2045,6 +2045,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida selección de modelos, planner, routing, fallback, multi-IA y coordinación."
   },
   {
+    "id": "self-model-router-evidence-contract",
+    "file": "tests/self-model-router-evidence-contract.test.js",
+    "title": "Self Model Router Evidence Contract",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba que Self-Model conserve el estado de selección de rutas cuando existe evidencia y respete no_route cuando ninguna ruta está disponible.",
+    "capabilities": "Detecta regresiones en routing fail-closed, integración con Self-Model y sincronización entre registries y capacidades."
+  },
+  {
     "id": "self-model",
     "file": "tests/self-model.test.js",
     "title": "Self Model",
