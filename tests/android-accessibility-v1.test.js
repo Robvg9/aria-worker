@@ -11,6 +11,7 @@ const {
   executeAndroidAccessibilityJob
 } = require('../computer-use/android-accessibility-v1');
 const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('../agents/termux/android-ui-health-state');
+const healthState = fs.readFileSync(path.join(__dirname, '..', 'agents', 'termux', 'android-ui-health-state.js'), 'utf8');
 
 assert.equal(PACKAGE, 'com.robvg9.ariauiagent.debug');
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
@@ -43,7 +44,7 @@ assert.ok(agent.includes('probeLocalIpcHealth'));
 assert.ok(agent.includes("if (androidUiHealth.ok) capabilities.push('computer.use.android')"));
 assert.ok(agent.includes('resolveAndroidUiHealth'));
 assert.ok(agent.includes('markAndroidUiExecutionSuccess'));
-assert.ok(agent.includes('android_ui_health_degraded_last_known_good'));
+assert.ok(healthState.includes('android_ui_health_degraded_last_known_good'));
 assert.ok(manifest.includes('AriaAccessibilityService'));
 assert.ok(manifest.includes('<queries>'));
 assert.ok(manifest.includes('<package android:name="com.termux" />'));
