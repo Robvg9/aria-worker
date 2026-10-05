@@ -47,15 +47,25 @@ test("PWA mission state uses the canonical mission_state source and live leases"
   );
 });
 
-test("PWA never treats a non-leased running/waiting mission as live", () => {
+test("PWA keeps non-leased running/waiting missions visible as recoverable", () => {
   assert.match(
     pwaApp,
-    /if \(value === 'running' && leased\) return 60;\s*if \(value === 'waiting' && leased\) return 45;\s*\/\/ Sin lease vigente,/,
-    "PWA active mission selection must require a live lease for running/waiting states"
+    /if \(value === 'running' && leased\) return 60;\s*if \(value === 'waiting' && leased\) return 45;/,
+    "leased running/waiting missions must remain the highest-priority live execution states"
   );
-  assert.doesNotMatch(
+  assert.match(
     pwaApp,
-    /if \(value === 'running'\) return 50;|if \(value === 'waiting'\) return 40;/,
-    "PWA must not promote non-leased mission states into live execution"
+    /if \(value === 'running'\) return 35;\s*if \(value === 'waiting'\) return 30;/,
+    "unleased running/waiting missions must remain visible so a recoverable mission never disappears"
+  );
+  assert.match(
+    pwaApp,
+    /const recoveryVisible=.*!leaseValid/,
+    "PWA must explicitly identify an unleased running/waiting mission as recovery-visible"
+  );
+  assert.match(
+    pwaApp,
+    /La misión perdió el lease, pero sigue registrada/,
+    "PWA must explain the recoverable lease loss to the user"
   );
 });
