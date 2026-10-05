@@ -10,6 +10,7 @@ const {
   probeLocalIpcHealth,
   executeAndroidAccessibilityJob
 } = require('../computer-use/android-accessibility-v1');
+const { resolveAndroidUiHealth, markAndroidUiExecutionSuccess } = require('../agents/termux/android-ui-health-state');
 
 assert.equal(PACKAGE, 'com.robvg9.ariauiagent.debug');
 assert.equal(LOCAL_IPC_URL, 'http://127.0.0.1:45874/execute');
@@ -40,6 +41,9 @@ assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 
 assert.ok(fs.readFileSync(path.join(__dirname, '..', 'android-ui-agent', 'app', 'src', 'main', 'java', 'com', 'robvg9', 'ariauiagent', 'AriaAccessibilityService.kt'), 'utf8').includes('swipe_distance_too_small'));
 assert.ok(agent.includes('probeLocalIpcHealth'));
 assert.ok(agent.includes("if (androidUiHealth.ok) capabilities.push('computer.use.android')"));
+assert.ok(agent.includes('resolveAndroidUiHealth'));
+assert.ok(agent.includes('markAndroidUiExecutionSuccess'));
+assert.ok(agent.includes('android_ui_health_degraded_last_known_good'));
 assert.ok(manifest.includes('AriaAccessibilityService'));
 assert.ok(manifest.includes('<queries>'));
 assert.ok(manifest.includes('<package android:name="com.termux" />'));
@@ -145,6 +149,50 @@ assert.ok(!manifest.includes('ARIA Browser Bridge'));
     assert.equal(retried.status, 'succeeded');
     assert.equal(retried.payload.evidence_hash, 'retry-pass');
     assert.equal(calls, 2);
+
+    let healthState = markAndroidUiExecutionSuccess({}, 1000, { transport: 'android-local-http' });
+    assert.equal(healthState.health.ok, true);
+    assert.equal(healthState.failureStreak, 0);
+    const transient1 = resolveAndroidUiHealth({
+      previous: healthState,
+      probe: { ok: false, reason: 'android_local_ipc_health_timeout_2500ms' },
+      fallback: { ok: false, reason: 'android_command_receiver_unavailable' },
+      now: 61000,
+      heartbeatMs: 60000
+    });
+    assert.equal(transient1.health.ok, true);
+    assert.equal(transient1.failureStreak, 1);
+    assert.equal(transient1.health.metadata.degraded, true);
+
+    const transient2 = resolveAndroidUiHealth({
+      previous: transient1,
+      probe: { ok: false, reason: 'android_local_ipc_health_timeout_2500ms' },
+      fallback: { ok: false, reason: 'android_command_receiver_unavailable' },
+      now: 121000,
+      heartbeatMs: 60000
+    });
+    assert.equal(transient2.health.ok, true);
+    assert.equal(transient2.failureStreak, 2);
+
+    const recovered = resolveAndroidUiHealth({
+      previous: transient2,
+      probe: { ok: true, reason: 'android_local_ipc_ready' },
+      fallback: { ok: false },
+      now: 130000,
+      heartbeatMs: 60000
+    });
+    assert.equal(recovered.health.ok, true);
+    assert.equal(recovered.failureStreak, 0);
+
+    const staleDrop = resolveAndroidUiHealth({
+      previous: { ...healthState, failureStreak: 2 },
+      probe: { ok: false, reason: 'android_local_ipc_health_timeout_2500ms' },
+      fallback: { ok: false, reason: 'android_command_receiver_unavailable' },
+      now: 181500,
+      heartbeatMs: 60000
+    });
+    assert.equal(staleDrop.health.ok, false);
+    assert.equal(staleDrop.failureStreak, 3);
 
     console.log('android-accessibility-v1 PASS');
   } finally {
