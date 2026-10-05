@@ -74,6 +74,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en aprendizaje, runtime, persistencia y gobernanza."
   },
   {
+    "id": "meditation-model-routing-capability-contract",
+    "file": "tests/meditation-model-routing-capability-contract.test.js",
+    "title": "Meditation Model Routing Capability Contract",
+    "category": "Meditación IA",
+    "includedInNpmTest": true,
+    "how": "Comprueba que las rutas locales de modelo solo se seleccionen con una capacidad física LIVE compatible y queden ligadas a un device_id real.",
+    "capabilities": "Detecta drift entre model registry, device capabilities, rutas Qwen locales y operaciones Android de Meditation IA."
+  },
+  {
     "id": "meditation-idea-analyzer-v2",
     "file": "tests/meditation-idea-analyzer-v2.test.js",
     "title": "Meditation Idea Analyzer V2",
