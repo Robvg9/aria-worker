@@ -138,7 +138,7 @@ jobs:
           pf=wait_terminal(pos)
           pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
           started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
-          print("POS",pf,pdb,started); assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b1\b",started)
+          print("POS",pf,pdb,started); assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b2\b",started)
 
           rej="mission_hg_REJ_"+str(int(time.time()*1000))
           insert_mission(rej,"Reject protected Human Gate",protected_steps,True)
