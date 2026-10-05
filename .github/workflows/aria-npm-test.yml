@@ -94,7 +94,7 @@ jobs:
           Write-Host "QWEN_DIRECT=$c"
           if($c -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'OMNI_QWEN_DIRECT_MARKER_FAILED'}
 
-      - name: Start OmniRoute
+      - name: Start OmniRoute and run canonical LIVE E2E
         working-directory: omniroute-source
         shell: powershell
         run: |
@@ -108,44 +108,36 @@ jobs:
           $env:DATA_DIR=$data
           $env:OMNIROUTE_SELF_HOSTED_API_KEY='aria-final-live-key'
           $env:OMNIROUTE_SELF_HOSTED_PROVIDERS=@'
-          providers:
-            - id: ollama
-              kind: openai
-              baseUrl: http://127.0.0.1:11434/v1
-              model: qwen3:4b
-          '@
+providers:
+  - id: ollama
+    kind: openai
+    baseUrl: http://127.0.0.1:11434/v1
+    model: qwen3:4b
+'@
           $stdout=Join-Path $root 'omniroute.stdout.log'
           $stderr=Join-Path $root 'omniroute.stderr.log'
           $p=Start-Process -FilePath node -ArgumentList "$env:GITHUB_WORKSPACE\omniroute-source\scripts\dev\run-next.mjs",'dev' -WorkingDirectory "$env:GITHUB_WORKSPACE\omniroute-source" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
-          "OMNI_OMNIROUTE_PID=$($p.Id)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          $ok=$false
-          for($i=0;$i-lt45;$i++){Start-Sleep -Seconds 2;try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:20130/api/health' -TimeoutSec 5;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
-          if(-not $ok){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_HEALTH_FAILED'}
-          if(-not (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_DIED_AFTER_HEALTH'}
-          Write-Host 'OMNIROUTE_HEALTH_PASS'
-
-      - name: Probe OmniRoute direct chat
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $body=@{model='qwen3:4b';messages=@(@{role='user';content='Return exactly OMNIROUTE_QWEN_LIVE_OK'});stream=$false;temperature=0;max_tokens=16} | ConvertTo-Json -Depth 8
-          $headers=@{Authorization='Bearer aria-final-live-key';'x-omniroute-provider'='ollama'}
-          $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:20130/v1/chat/completions' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 120
-          $c=[string]$r.choices[0].message.content
-          Write-Host "OMNIROUTE_DIRECT_CHAT=$c"
-          if($c -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'OMNIROUTE_DIRECT_CHAT_MARKER_FAILED'}
-
-      - name: Run canonical ARIA LIVE E2E + persistence
-        working-directory: aria-worker
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $evidence=Join-Path $env:RUNNER_TEMP 'aria-omniroute-final\omniroute-final-live-evidence.json'
-          $env:OMNIROUTE_API_KEY='aria-final-live-key'
-          $env:OMNIROUTE_FINAL_ENDPOINT='http://127.0.0.1:20130/v1/chat/completions'
-          $env:OMNIROUTE_FINAL_EVIDENCE_PATH=$evidence
-          node scripts/omniroute-final-live.cjs
-          if($LASTEXITCODE -ne 0){throw "OMNIROUTE_FINAL_LIVE_E2E_FAILED=$LASTEXITCODE"}
+          try {
+            $ok=$false
+            for($i=0;$i-lt45;$i++){Start-Sleep -Seconds 2;try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:20130/api/health' -TimeoutSec 5;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
+            if(-not $ok){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_HEALTH_FAILED'}
+            Write-Host 'OMNIROUTE_HEALTH_PASS'
+            $body=@{model='qwen3:4b';messages=@(@{role='user';content='Return exactly OMNIROUTE_QWEN_LIVE_OK'});stream=$false;temperature=0;max_tokens=16} | ConvertTo-Json -Depth 8
+            $headers=@{Authorization='Bearer aria-final-live-key';'x-omniroute-provider'='ollama'}
+            $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:20130/v1/chat/completions' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 120
+            $c=[string]$r.choices[0].message.content
+            Write-Host "OMNIROUTE_DIRECT_CHAT=$c"
+            if($c -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'OMNIROUTE_DIRECT_CHAT_MARKER_FAILED'}
+            Set-Location "$env:GITHUB_WORKSPACE\aria-worker"
+            $evidence=Join-Path $env:RUNNER_TEMP 'aria-omniroute-final\omniroute-final-live-evidence.json'
+            $env:OMNIROUTE_API_KEY='aria-final-live-key'
+            $env:OMNIROUTE_FINAL_ENDPOINT='http://127.0.0.1:20130/v1/chat/completions'
+            $env:OMNIROUTE_FINAL_EVIDENCE_PATH=$evidence
+            node scripts/omniroute-final-live.cjs
+            if($LASTEXITCODE -ne 0){throw "OMNIROUTE_FINAL_LIVE_E2E_FAILED=$LASTEXITCODE"}
+          } finally {
+            if($p){taskkill.exe /PID ([int]$p.Id) /T /F | Out-Null}
+          }
 
       - name: Upload OmniRoute final evidence
         if: always()
