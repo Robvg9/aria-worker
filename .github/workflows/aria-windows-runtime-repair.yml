@@ -238,33 +238,33 @@ if($null -ne $still){
           $launcher=Join-Path $runnerRoot 'start-runner-on-login.ps1'
           if(-not(Test-Path $runCmd)){throw "LaCueva runner executable missing: $runCmd"}
           @'
-$ErrorActionPreference = 'Stop'
-$runnerRoot = 'C:\actions-runner-lacueva'
-$runCmd = Join-Path $runnerRoot 'run.cmd'
-if (-not (Test-Path $runCmd)) { throw "Runner missing: $runCmd" }
-$mutex = New-Object System.Threading.Mutex($false, 'Global\ARIA-LACUEVA-RUNNER-SINGLETON')
-$acquired = $false
-try { $acquired = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $acquired = $true }
-if (-not $acquired) { exit 0 }
-try {
-  while ($true) {
-    $existing = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-      $_.Name -eq 'Runner.Listener.exe' -and [string]$_.CommandLine -match [regex]::Escape($runnerRoot)
-    })
-    if ($existing.Count -gt 0) { exit 0 }
-    $p = Start-Process -FilePath $runCmd -WorkingDirectory $runnerRoot -PassThru
-    Start-Sleep -Seconds 8
-    $listener = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-      $_.Name -eq 'Runner.Listener.exe' -and [string]$_.CommandLine -match [regex]::Escape($runnerRoot)
-    })
-    if ($listener.Count -gt 0) { exit 0 }
-    if ($p.HasExited) { Start-Sleep -Seconds 30 } else { exit 0 }
-  }
-} finally {
-  $mutex.ReleaseMutex() | Out-Null
-  $mutex.Dispose()
-}
-'@ | Set-Content -LiteralPath $launcher -Encoding UTF8 -Force
+          $ErrorActionPreference = 'Stop'
+          $runnerRoot = 'C:\actions-runner-lacueva'
+          $runCmd = Join-Path $runnerRoot 'run.cmd'
+          if (-not (Test-Path $runCmd)) { throw "Runner missing: $runCmd" }
+          $mutex = New-Object System.Threading.Mutex($false, 'Global\ARIA-LACUEVA-RUNNER-SINGLETON')
+          $acquired = $false
+          try { $acquired = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+          if (-not $acquired) { exit 0 }
+          try {
+            while ($true) {
+              $existing = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+                $_.Name -eq 'Runner.Listener.exe' -and [string]$_.CommandLine -match [regex]::Escape($runnerRoot)
+              })
+              if ($existing.Count -gt 0) { exit 0 }
+              $p = Start-Process -FilePath $runCmd -WorkingDirectory $runnerRoot -PassThru
+              Start-Sleep -Seconds 8
+              $listener = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+                $_.Name -eq 'Runner.Listener.exe' -and [string]$_.CommandLine -match [regex]::Escape($runnerRoot)
+              })
+              if ($listener.Count -gt 0) { exit 0 }
+              if ($p.HasExited) { Start-Sleep -Seconds 30 } else { exit 0 }
+            }
+          } finally {
+            $mutex.ReleaseMutex() | Out-Null
+            $mutex.Dispose()
+          }
+          '@ | Set-Content -LiteralPath $launcher -Encoding UTF8 -Force
           $startup=[Environment]::GetFolderPath('Startup')
           $shortcutPath=Join-Path $startup 'ARIA-LACUEVA-Runner.lnk'
           $shell=New-Object -ComObject WScript.Shell
