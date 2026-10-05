@@ -434,6 +434,17 @@ async function testControl(page, control, config) {
     }
 
     if (!locator) {
+      // Mission cards and aggregate counters are server-backed and may legitimately
+      // change between the route snapshot and the replay attempt. Treat that churn
+      // as an explicit skip; static controls remain hard failures.
+      if (dynamicMission || dynamicStat) {
+        return {
+          outcome: 'skipped',
+          action: 'click',
+          reason: 'dynamic_content_churn',
+          label
+        };
+      }
       return {
         outcome: 'failed',
         action: 'click',
