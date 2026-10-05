@@ -300,6 +300,152 @@ async function ariaPwaMasterMissionPlan(goal:string,context:any){
   };
 }
 
+async function battlecruiserReadonlyAuditPlan(goal:string,context:any){
+  const rawProject=String(
+    context?.project_id
+      ?? context?.metadata?.project_id
+      ?? context?.project?.id
+      ?? ""
+  ).toLowerCase();
+  const g=String(goal||"");
+  const gl=g.toLowerCase();
+  const explicitBattleCruiser=rawProject==="battlecruiser"
+    || /battlecruiser/i.test(g);
+  const auditIntent=/(auditor[ií]a|auditar|audit|inspecciona|inspeccionar|revisa|revisar|diagn[oó]stico|estado actual|read[- ]only|solo lectura|sin modificar|no modifiques)/i.test(g);
+  if(!explicitBattleCruiser || !auditIntent)return null;
+
+  const owner="Robvg9";
+  const repo="battlecruiser";
+  const branch="main";
+  const baseTarget={type:"connector",connector_id:"github",owner,repo,branch};
+  const readPolicy={
+    tool_use:true,
+    verification_read:true,
+    read_only_audit:true,
+    non_mutating:true,
+    destructive_actions_blocked:true,
+    spanish_output_required:true
+  };
+
+  const steps:any[]=[
+    {
+      id:"bc_github_repo_read",
+      operation:"repo_read",
+      executor_type:"connector",
+      target:baseTarget,
+      input:{owner,repo},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"bc_github_tree_read",
+      operation:"tree_read",
+      executor_type:"connector",
+      target:baseTarget,
+      input:{owner,repo,branch},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      depends_on:["bc_github_repo_read"],
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"bc_github_package_read",
+      operation:"file_read",
+      executor_type:"connector",
+      target:baseTarget,
+      input:{owner,repo,branch,path:"package.json"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      depends_on:["bc_github_tree_read"],
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"bc_github_cerebro_read",
+      operation:"file_read",
+      executor_type:"connector",
+      target:baseTarget,
+      input:{owner,repo,branch,path:"BATTLECRUISER_CEREBRO.md"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      depends_on:["bc_github_tree_read"],
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"bc_github_test_runner_read",
+      operation:"file_read",
+      executor_type:"connector",
+      target:baseTarget,
+      input:{owner,repo,branch,path:"test/run-suite.js"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      depends_on:["bc_github_tree_read"],
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"bc_github_quality_workflow_read",
+      operation:"file_read",
+      executor_type:"connector",
+      target:baseTarget,
+      input:{owner,repo,branch,path:".github/workflows/quality.yml"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      depends_on:["bc_github_tree_read"],
+      verify:{response_content_nonempty:true}
+    }
+  ];
+
+  const evidenceStepIds=steps.map((s:any)=>s.id);
+  const evidenceInstruction=[
+    "Eres el sintetizador final de una auditoría READ-ONLY de BattleCruiser.",
+    "FUENTE EXCLUSIVA: usa únicamente los resultados de los pasos GitHub que aparecen como dependencias de esta etapa.",
+    "NO uses memoria, conocimiento previo, contexto LIVE previo ni suposiciones para afirmar que un archivo, test, proveedor o bloqueo existe.",
+    "El árbol GitHub es la autoridad para presencia/ausencia de archivos; los file_read son autoridad para su contenido.",
+    "Si README.md no aparece en el árbol, dilo como AUSENTE; no lo sustituyas inventando un README.",
+    "Los tests deben reportarse solo a partir del árbol y de los archivos de test realmente leídos.",
+    "No modifiques archivos, no hagas commits, no abras PR y no cambies configuración.",
+    "Entrega el informe en español con esta estructura: PROBLEMA → EVIDENCIA → IMPACTO → SOLUCIÓN → RESULTADO → PRÓXIMA ACCIÓN.",
+    "Incluye explícitamente repositorio, commit/branch inspeccionado, archivos fuentes revisados, tests encontrados, workflows relevantes y bloqueos.",
+    "Termina con el marcador exacto AUDITORIA_BATTLECRUISER_READONLY_OK."
+  ].join("\n");
+  steps.push({
+    id:"bc_audit_synthesis",
+    operation:"text_generation",
+    executor_type:"model",
+    target:{type:"model",provider_id:"google",account_id:"acct_google_gemini_free",model_id:"google/gemini-3.5-flash-lite-direct"},
+    capability:"text_generation",
+    input:{payload:{prompt:SPANISH_OUTPUT_CONTRACT+"\n\n"+evidenceInstruction,max_tokens:3200,temperature:0}},
+    risk:"READ",
+    timeout_ms:120000,
+    policy:{...readPolicy,evidence_bound_synthesis:true,model_must_not_claim_unread_evidence:true},
+    depends_on:evidenceStepIds,
+    verify:{response_content_contains:"AUDITORIA_BATTLECRUISER_READONLY_OK"},
+    selection:{
+      review_role:"forensic_auditor",
+      model_id:"google/gemini-3.5-flash-lite-direct",
+      provider_id:"google",
+      account_id:"acct_google_gemini_free",
+      evidence_only:true
+    }
+  });
+  return {
+    goal,
+    steps,
+    planner_version:"aria-planner-v11-battlecruiser-readonly-audit-v2",
+    battlecruiser_readonly_audit:true,
+    project_id:"battlecruiser",
+    repository:{owner,repo,branch},
+    mutation_allowed:false,
+    evidence_contract:"github-read-then-model-synthesis"
+  };
+}
+
 async function battlecruiserGithubRwhtPlan(goal:string,context:any){
   const rawProject=String(
     context?.project_id
@@ -940,7 +1086,7 @@ if(explicitRequestedDevice.startsWith("windows-")){
   const windowsFastPath=await windowsPcRwhtPlan(goal,context);
   if(windowsFastPath)return windowsFastPath;
 }
-const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
+const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context);if(battlecruiserAudit)return out({ok:true,plan:battlecruiserAudit});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
