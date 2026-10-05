@@ -309,9 +309,15 @@ async function battlecruiserReadonlyAuditPlan(goal:string,context:any){
   ).toLowerCase();
   const g=String(goal||"");
   const gl=g.toLowerCase();
-  const explicitBattleCruiser=rawProject==="battlecruiser"
-    || /battlecruiser/i.test(g);
-  const auditIntent=/(auditor[ií]a|auditar|audit|inspecciona|inspeccionar|revisa|revisar|diagn[oó]stico|estado actual|read[- ]only|solo lectura|sin modificar|no modifiques)/i.test(g);
+  // BattleCruiser audit routing requires explicit scoped intent. A broad ARIA/PWA
+  // mission may mention BattleCruiser as downstream context without targeting it.
+  const broadAriaPwaScope=/(libro\s+maestro|pwa\s+aria|aria\s+.*pwa|pwa\s+.*aria)/i.test(g);
+  const explicitBattleCruiserTarget=rawProject==="battlecruiser"
+    || /(?:^|[\n.;:])\s*(?:objetivo|misión|mision|tarea|proyecto|repositorio|repo)?\s*battlecruiser\s*(?:$|[\n.;:])/i.test(g)
+    || /\b(?:audita|auditar|revisa|revisar|inspecciona|inspeccionar|diagnostica|diagnosticar|analiza|analizar)\s+(?:(?:el|la|al|a|mi|tu|proyecto|repositorio|repo)\s+)?battlecruiser\b/i.test(g)
+    || /\b(?:proyecto|repositorio|repo|rama|archivo|pull\s+request|pr)\s+(?:de\s+)?battlecruiser\b/i.test(g);
+  const explicitBattleCruiser=explicitBattleCruiserTarget && !broadAriaPwaScope;
+  const auditIntent=/(auditor[ií]a|auditar|audit|inspecciona|inspeccionar|revisa|revisar|diagn[oó]stico|estado actual|read[- ]only|solo lectura|sin modificar)/i.test(g);
   if(!explicitBattleCruiser || !auditIntent)return null;
 
   const owner="Robvg9";
