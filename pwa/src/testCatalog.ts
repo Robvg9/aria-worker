@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "omniroute-phase6-adapter",
+    "file": "tests/omniroute-adapter.test.js",
+    "title": "OmniRoute Phase 6 Adapter",
+    "category": "IA / modelos / routing",
+    "includedInNpmTest": true,
+    "how": "Comprueba el adaptador gobernado entre ARIA Execution y OmniRoute sin habilitar OmniRoute como runtime global.",
+    "capabilities": "Valida identidad del adapter, credencial inyectada, endpoint loopback, traducción OpenAI-compatible, errores fail-closed, metadata segura y ausencia de retry."
+  },
+  {
     "id": "phase6-anti-regression",
     "file": "tests/phase6-anti-regression.test.js",
     "title": "Phase 6 Anti-Regresión Final",
