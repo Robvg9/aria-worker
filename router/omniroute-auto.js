@@ -11,7 +11,7 @@ const VERSION = 'aria-omniroute-auto-combo-v1.0.0';
 const EVIDENCE_SOURCE = 'aria.router.allowed_set';
 
 function isRecord(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
-function num(v){return Number.isFinite(Number(v))?Number(v):null;}
+function num(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 
 function canonical(value){
   if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
