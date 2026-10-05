@@ -15,6 +15,7 @@ const MEMORY = `${SUPABASE_URL}/functions/v1/aria-memory-v2`;
 const PLANNER = `${SUPABASE_URL}/functions/v1/aria-planner-v11`;
 const EXEC = `${SUPABASE_URL}/functions/v1/aria-execution-runtime-v1`;
 const DEVICE_GATEWAY = `${SUPABASE_URL}/functions/v1/aria-device-gateway`;
+const EDGE_API_KEY = (() => { try { const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}"); return typeof keys?.default === "string" ? keys.default : ""; } catch { return ""; } })();
 const MEDIA_BUCKET = "aria-app-media";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,x-aria-request-id,x-aria-pwa-build,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
@@ -175,7 +176,7 @@ async function requireUser(token: string) {
   if (error || !claims?.sub) throw Object.assign(new Error("invalid_or_expired_session"), { status: 401 });
   return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
 }
-async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` }, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
+async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const headers: Record<string,string> = { "content-type": "application/json", authorization: `Bearer ${SECRET}` }; if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY; const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
 async function persistConversationMessage(userId:string,conversationId:string,role:"user"|"assistant"|"system",content:string,parts:any[],traceId:string,visualState:string|null,providerId:string|null,modelId:string|null,title:string,project:any){
   const sb=serviceClient();
   const saved=await sb.rpc("aria_app_persist_message",{
