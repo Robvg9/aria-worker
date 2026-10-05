@@ -127,7 +127,7 @@ const allowedRoute = {
   fs.mkdirSync(runtimeRoot, { recursive: true });
   let child = null;
   try {
-    child = spawn(process.execPath, [path.join(sourceDir, 'scripts', 'dev', 'run-next.mjs'), 'start'], {
+    child = spawn(process.execPath, [path.join(sourceDir, 'scripts', 'dev', 'run-next.mjs'), 'dev'], {
       cwd: sourceDir, windowsHide: true, stdio: ['ignore','pipe','pipe'],
       env: { ...process.env, HOST:'127.0.0.1', HOSTNAME:'127.0.0.1', PORT:'20130',
         DATA_DIR:dataDir, OMNIROUTE_SELF_HOSTED_API_KEY:apiKey,
