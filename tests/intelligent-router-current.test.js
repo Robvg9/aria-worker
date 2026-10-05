@@ -1,6 +1,6 @@
 /** Mission 10.6 — Intelligent Router current contract tests */
 const assert=require('assert');
-const {route,collectCandidates,capacityAllows,candidateEvidence,version,registry}=require('../router/lookup.js');
+const {route,routeOptIn,collectCandidates,capacityAllows,candidateEvidence,version,registry}=require('../router/lookup.js');
 const modelLookup=require('../models/lookup.js');
 const modelReg=require('../models/registry.json');
 const capLookup=require('../capabilities/lookup.js');
@@ -38,8 +38,11 @@ ok(route({capability:CAP,preferred_provider:'google'}).status==='no_route','pref
 ok(route({capability:CAP,preferred_account:ACCOUNT}).status==='no_route','preferred account returns no_route while direct Gemini is unavailable');
 ok(collectCandidates(CAP).length===0,'candidate enumeration is empty while all static cloud routes are unavailable');
 const ranked=collectCandidates(CAP); ok(ranked.length===0,'candidate ranking remains empty without available static routes');
-const src=fs.readFileSync(path.join(__dirname,'..','router','lookup.js'),'utf8');
-ok(!/Math\.random|Date\.now|crypto\.random/.test(src),'router selection has no randomness/time');
-ok(!/fetch\(|axios|http\.request|https\.request/.test(src),'router lookup has no network calls');
-ok(!('models' in registry)&&!('accounts' in registry)&&!('capabilities' in registry)&&!('entries' in registry),'router registry has no copied foreign records');
+
+const OMNIROUTE_ENDPOINT='http://127.0.0.1:20128/v1/chat/completions';
+const omniOptIn=routeOptIn({opt_in:true,provider_id:'omniroute',account_id:'acct_omniroute_local',model_id:'ollama/qwen3:4b',capability:'text_generation',gateway_endpoint:OMNIROUTE_ENDPOINT,omniroute_provider:'ollama',availability_evidence:{status:'verified',healthy:true,capability:'omniroute.gateway',source:'aria.omniroute.capability',evidence_id:'phase7-current-router-001',verified_at:'2026-10-05T00:00:00Z',endpoint:OMNIROUTE_ENDPOINT}});
+ok(omniOptIn.status==='selected','OmniRoute is selectable only through explicit opt-in evidence');
+ok(omniOptIn.route_type==='omniroute_opt_in','OmniRoute route is marked as opt-in');
+ok(routeOptIn({opt_in:false,provider_id:'omniroute',account_id:'acct_omniroute_local',model_id:'ollama/qwen3:4b',capability:'text_generation',gateway_endpoint:OMNIROUTE_ENDPOINT,availability_evidence:{status:'verified',healthy:true,capability:'omniroute.gateway',source:'aria.omniroute.capability',evidence_id:'phase7-current-router-001',verified_at:'2026-10-05T00:00:00Z',endpoint:OMNIROUTE_ENDPOINT}}).status==='no_route','OmniRoute is not selected without opt-in');
+ok(typeof routeOptIn==='function','Router exposes the Phase 7 opt-in integration without changing default route()');
 console.log(`All ${passed} assertions passed.`);

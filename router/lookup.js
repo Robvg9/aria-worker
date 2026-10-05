@@ -8,6 +8,8 @@ const capLookup = require('../capabilities/lookup.js');
 const accountLookup = require('../accounts/lookup.js');
 const quotaLookup = require('../quota/lookup.js');
 const registry = require('./registry.json');
+const omnirouteIntegration = require('./omniroute.js');
+
 
 const SELECTED='selected', NO_ROUTE='no_route', AVAILABLE_CAPACITY='available';
 const BLOCKING_CAPACITY=new Set(['unavailable','exhausted','unknown']);
@@ -72,4 +74,4 @@ function route(input){
   if(!chosen)return {status:NO_ROUTE};
   return {status:SELECTED,provider_id:chosen.provider_id,account_id:chosen.account_id,model_id:chosen.model_id,capability:capability.trim(),score:chosen.score,selection_evidence:chosen.evidence,unknown_dimensions:chosen.unknown_dimensions};
 }
-module.exports={version:registry.version,route,collectCandidates,rankCandidates,candidateEvidence,capacityAllows,registry};
+module.exports={version:registry.version,route,routeOptIn:omnirouteIntegration.selectOptIn,omnirouteIntegration,collectCandidates,rankCandidates,candidateEvidence,capacityAllows,registry};
