@@ -76,6 +76,8 @@ jobs:
           OMNIROUTE_USE_TURBOPACK: '0'
           OMNIROUTE_BUILD_WORKERS: '1'
           OMNIROUTE_BUILD_MEMORY_MB: '12000'
+          OMNIROUTE_BUILD_BACKEND_ONLY: '1'
+          OMNIROUTE_SKIP_STANDALONE: '1'
         run: npm run build:fast
 
       - name: Install and start Ollama
