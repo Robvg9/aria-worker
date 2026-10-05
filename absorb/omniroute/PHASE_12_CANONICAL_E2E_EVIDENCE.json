@@ -1,0 +1,32 @@
+{
+  "phase": 12,
+  "name": "Canonical ARIA E2E",
+  "status": "IMPLEMENTED_NOT_LIVE",
+  "version": "aria-omniroute-canonical-e2e-v1.0.0",
+  "branch": "feat/omniroute-phase12-canonical-e2e-20261005",
+  "gates": {
+    "security_gate": "PASS",
+    "auto_combo_selection": "PASS",
+    "checkpoint_creation": "PASS",
+    "execution_adapter_chain": "PASS",
+    "verification_gate": "PASS",
+    "failure_to_fallback": "PASS",
+    "no_false_success": "PASS",
+    "phase9_10_11_chain": "PASS"
+  },
+  "physical_validation": {
+    "canonical_e2e": "PASS",
+    "intelligent_router_current": "28/28 PASS",
+    "phase6_anti_regression": "11/11 PASS",
+    "environment": "RobVG / Windows Node.js v24.19.0"
+  },
+  "live_probe": {
+    "status": "BLOCKED_RUNTIME",
+    "endpoint": "http://127.0.0.1:20128/v1/chat/completions",
+    "gateway_listening": "NO",
+    "ollama_api": "NO_RESPONSE",
+    "api_key_persisted": "NO"
+  },
+  "live_e2e": "PENDING",
+  "next_phase": 13
+}
