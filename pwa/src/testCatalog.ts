@@ -2054,6 +2054,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en routing fail-closed, integración con Self-Model y sincronización entre registries y capacidades."
   },
   {
+    "id": "human-gate-same-tick-checkpoint-regression",
+    "file": "tests/human-gate-same-tick-checkpoint-regression.test.js",
+    "title": "Human Gate Same Tick Checkpoint Regression",
+    "category": "Misiones / Human Gate",
+    "includedInNpmTest": true,
+    "how": "Protege el contrato que obliga al runner a refrescar su snapshot de checkpoint antes de evaluar el siguiente batch.",
+    "capabilities": "Detecta regresiones donde un paso protegido podría ejecutarse antes de que el estado Human Gate recién persistido sea visible en memoria."
+  },
+  {
     "id": "self-model",
     "file": "tests/self-model.test.js",
     "title": "Self Model",
