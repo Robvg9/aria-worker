@@ -34,4 +34,6 @@ assert.match(planner,/AUDITORIA_BATTLECRUISER_READONLY_OK/);
 assert.match(planner,/mutation_allowed:false/);
 const auditStart=planner.indexOf('const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context)');
 const genericStart=planner.indexOf('const allForOne=await allForOnePlan(goal,context)');
+const memoryStart=planner.indexOf('const learned=await learningContextForGoal(goal)');
+assert(auditStart>=0 && memoryStart>=0 && auditStart<memoryStart,'BattleCruiser read-only audit must bypass heavy learning context lookup');
 assert(auditStart>=0 && genericStart>=0 && auditStart<genericStart,'BattleCruiser read-only audit must preempt generic planning');
