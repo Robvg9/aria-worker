@@ -40,3 +40,30 @@ assert.deepEqual(r.governFallback({provider_id:'p1',account_id:'a1'},[{provider_
 assert.deepEqual(r.governFallback({provider_id:'p1',account_id:'a1'},[{provider_id:'p2',account_id:'a2',model_id:'m-next'}],'rate_limit'),[]);
 assert.equal(r.governFallback({provider_id:'p1',account_id:'a1'},[{provider_id:'p2',account_id:'a2',model_id:'m-next'}],'rate_limit',{allow_rate_limit_fallback:true}).length,1);
 console.log('MISSION 6 ROUTER V2 FALLBACK GOVERNANCE: PASS');
+
+const auto={...require('../router/omniroute-auto.js')};
+const allowed=[
+ {task_id:'task-8',provider_id:'p-z',account_id:'a-z',model_id:'slow',capability:'text_generation',allowed:true,availability_status:'available',latency_ms:900,cost_usd:0.001,tags:[],evidence:{source:'aria.router.allowed_set',target_id:'task-8',provider_id:'p-z',model_id:'slow',evidence_id:'ev-slow'}},
+ {task_id:'task-8',provider_id:'p-a',account_id:'a-a',model_id:'coder',capability:'text_generation',allowed:true,availability_status:'available',latency_ms:500,cost_usd:0.004,tags:['coding'],evidence:{source:'aria.router.allowed_set',target_id:'task-8',provider_id:'p-a',model_id:'coder',evidence_id:'ev-coder'}},
+ {task_id:'task-8',provider_id:'p-b',account_id:'a-b',model_id:'cheap',capability:'text_generation',allowed:true,availability_status:'available',latency_ms:700,cost_usd:0.0005,tags:['coding'],evidence:{source:'aria.router.allowed_set',target_id:'task-8',provider_id:'p-b',model_id:'cheap',evidence_id:'ev-cheap'}},
+ {task_id:'task-8',provider_id:'p-c',account_id:'a-c',model_id:'offline',capability:'text_generation',allowed:true,availability_status:'available',latency_ms:1200,cost_usd:0,tags:['offline'],offline:true,local:true,evidence:{source:'aria.router.allowed_set',target_id:'task-8',provider_id:'p-c',model_id:'offline',evidence_id:'ev-offline'}}
+];
+let a=auto.selectAuto({task_id:'task-8',task:'implement coding fix',capability:'text_generation',mode:'auto/coding',allowed_routes:allowed});
+assert.equal(a.status,'selected'); assert.equal(a.selected.model_id,'cheap'); assert.equal(a.selection_evidence.target_id,'task-8'); assert.equal(a.selection_evidence.provider_id,'p-b'); assert.equal(a.selection_evidence.model_id,'cheap');
+let f1=auto.selectAuto({task_id:'task-8',task:'fast response',capability:'text_generation',mode:'auto/fast',allowed_routes:allowed});
+assert.equal(f1.selected.model_id,'coder');
+let c1=auto.selectAuto({task_id:'task-8',task:'cheap response',capability:'text_generation',mode:'auto/cheap',allowed_routes:allowed});
+assert.equal(c1.selected.model_id,'cheap');
+let o1=auto.selectAuto({task_id:'task-8',task:'offline response',capability:'text_generation',mode:'auto/offline',allowed_routes:allowed});
+assert.equal(o1.selected.model_id,'offline');
+let d1=auto.selectAuto({task_id:'task-8',task:'same decision',capability:'text_generation',mode:'auto',allowed_routes:allowed});
+let d2=auto.selectAuto({task_id:'task-8',task:'same decision',capability:'text_generation',mode:'auto',allowed_routes:allowed.slice().reverse()});
+assert.equal(d1.decision_hash,d2.decision_hash);
+let blocked=auto.selectAuto({task_id:'task-8',task:'same',capability:'text_generation',mode:'auto',allowed_routes:allowed.map(x=>({...x,allowed:false}))});
+assert.equal(blocked.status,'no_route'); assert.equal(blocked.reason,'no_eligible_allowed_route');
+let constrained=auto.selectAuto({task_id:'task-8',task:'cheap under budget',capability:'text_generation',mode:'auto',constraints:{max_cost_usd:0.0007},allowed_routes:allowed});
+assert.equal(constrained.selected.model_id,'cheap');
+let targetBlocked=auto.selectAuto({task_id:'task-8',task:'same',capability:'text_generation',mode:'auto',allowed_routes:[{...allowed[0],task_id:'other'}]});
+assert.equal(targetBlocked.status,'no_route');
+assert.equal(auto.selectAuto({task_id:'task-8',task:'x',capability:'text_generation',mode:'auto/unknown',allowed_routes:allowed}).status,'no_route');
+console.log('OMNIROUTE PHASE 8 AUTO-COMBO: PASS');
