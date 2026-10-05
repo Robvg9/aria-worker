@@ -46,7 +46,10 @@ assert.ok(deviceRerouteMigration.includes("v_device_capabilities @> jsonb_build_
 
 assert.ok(runner.includes("async function resolveDeviceTarget"));
 assert.ok(runner.includes("device_target_resolved"));
-assert.ok(runner.includes("buildDeviceEnqueuePayload(V, missionId, step, jobId, resolution.resolved_device_id)"));
+assert.ok(runner.includes("const normalizedOperation ="));
+assert.ok(runner.includes('String(step?.operation || "") === "computer.use"'));
+assert.ok(runner.includes('"computer.use.android"'));
+assert.ok(runner.includes("buildDeviceEnqueuePayload(V, missionId, normalizedStep, jobId, resolution.resolved_device_id)"));
 assert.ok(forensic.includes("resolvedDeviceId?: string | null"));
 assert.ok(forensic.includes("resolved_device_id: resolvedDeviceId || step.target?.device_id || null"));
 
