@@ -1,6 +1,6 @@
 # OmniRoute — Phase 6 Adapter Contract
 
-Status: IMPLEMENTATION / NOT ENABLED
+Status: PASS / IMPLEMENTED / NOT ENABLED
 
 ## Purpose
 Provide the protocol-specific adapter boundary between ARIA Execution 10.13 and the already-certified OmniRoute gateway.
@@ -37,3 +37,12 @@ Configuration default only. Phase 6 does not enable the OmniRoute runtime.
 
 ## Closure gate
 Phase 6 is PASS only when the focused adapter contract, execution registration and regression tests pass, live I/O remains disabled outside an explicitly controlled transport, and no ARIA authority boundary is broadened.
+## Evidence — 2026-10-05
+- GitHub Actions Phase 6 run `37258125338` = SUCCESS.
+- Syntax checks = PASS.
+- OmniRoute adapter contract = PASS.
+- Existing adapter boundary = PASS.
+- Execution regression = PASS.
+- Phase 6 evidence artifact = `aria-omniroute-phase6-adapter-evidence`.
+- Live I/O remained disabled outside injected test transport.
+- OmniRoute runtime/provider integration remains globally disabled until later governed phases.
