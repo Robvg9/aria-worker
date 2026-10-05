@@ -11,7 +11,7 @@ assert.match(planner,/github_create_branch/);
 assert.match(planner,/github_file_write/);
 assert.match(planner,/github_file_verify/);
 assert.match(planner,/github_open_pr/);
-assert.match(planner,/aria\\/sandbox\\//);
+assert.ok(planner.includes('aria/sandbox/'));
 assert.match(planner,/battlecruiserRwht=await battlecruiserGithubRwhtPlan\(goal,context\);if\(battlecruiserRwht\)return out\(\{ok:true,plan:battlecruiserRwht\}\)/);
 
 const planStart=planner.indexOf('const battlecruiserRwht=await battlecruiserGithubRwhtPlan(goal,context)');
