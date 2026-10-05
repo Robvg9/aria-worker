@@ -1,0 +1,17 @@
+{
+  "schema": "aria.absorb.omniroute.phase3.evidence.v1",
+  "status": "PASS_HOSTED_WINDOWS",
+  "run_id": 37199350410,
+  "job_id": 111427639298,
+  "source_repository": "diegosouzapw/OmniRoute",
+  "source_commit": "3e66ff2e8cc94821b093fe57dad667b585230cd1",
+  "version": "3.8.52",
+  "checks": [
+    "exact_commit",
+    "npm_ci",
+    "npm_run_build",
+    "isolated_loopback_health_200",
+    "clean_stop"
+  ],
+  "captured_at_utc": "2026-10-04T11:54:46Z"
+}
