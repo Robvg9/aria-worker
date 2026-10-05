@@ -8,6 +8,12 @@ on:
       - 'self-development/coordinator.js'
       - 'tests/self-model-v2.test.js'
       - 'package.json'
+  pull_request:
+    paths:
+      - 'self-model/**'
+      - 'self-development/coordinator.js'
+      - 'tests/self-model-v2.test.js'
+      - 'package.json'
 
 permissions:
   contents: read
