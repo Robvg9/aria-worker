@@ -62,7 +62,12 @@ jobs:
       - name: Install exact OmniRoute
         working-directory: omniroute-source
         shell: powershell
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+
+      - name: Prepare required native runtime packages
+        working-directory: omniroute-source
+        shell: powershell
+        run: npm rebuild @swc/core better-sqlite3 --prefer-offline --no-audit --no-fund
 
       - name: Build exact OmniRoute
         working-directory: omniroute-source
