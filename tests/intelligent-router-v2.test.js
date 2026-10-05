@@ -65,6 +65,11 @@ let constrained=auto.selectAuto({task_id:'task-8',task:'cheap under budget',capa
 assert.equal(constrained.selected.model_id,'cheap');
 let targetBlocked=auto.selectAuto({task_id:'task-8',task:'same',capability:'text_generation',mode:'auto',allowed_routes:[{...allowed[0],task_id:'other'}]});
 assert.equal(targetBlocked.status,'no_route');
+let evidenceTargetBlocked=auto.selectAuto({task_id:'task-8',task:'same',capability:'text_generation',mode:'auto',allowed_routes:[{...allowed[0],evidence:{...allowed[0].evidence,target_id:'other'}}]});
+assert.equal(evidenceTargetBlocked.status,'no_route');
+let invalidConstraint=auto.selectAuto({task_id:'task-8',task:'same',capability:'text_generation',mode:'auto',constraints:{max_cost_usd:'not-a-number'},allowed_routes:allowed});
+assert.equal(invalidConstraint.status,'no_route');
+assert.ok(invalidConstraint.rejected_candidates.every(x=>x.reasons.includes('max_cost_usd_invalid')));
 assert.equal(auto.selectAuto({task_id:'task-8',task:'x',capability:'text_generation',mode:'auto/unknown',allowed_routes:allowed}).status,'no_route');
 console.log('OMNIROUTE PHASE 8 AUTO-COMBO: PASS');
 const fs=require('node:fs');
