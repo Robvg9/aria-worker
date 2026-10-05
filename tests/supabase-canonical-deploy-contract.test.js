@@ -73,4 +73,12 @@ for(const file of workflowFiles){
   assert.doesNotMatch(text,/aria-mission-runner-v15\\b|aria-mission-runner-v16\\b|aria-mission-runner-v17\\b|aria-mission-runner-v18\\b/,'active workflows must not call retired mission-runner versions');
   assert.doesNotMatch(text,/aria-autonomy-supervisor-v10\\b/,'active workflows must not call retired autonomy-supervisor-v10');
 }
+const gatewayAuthMigration=path.join('supabase','migrations','20261005100000_edge_gateway_apikey_dispatch_v1.sql');
+assert.ok(fs.existsSync(gatewayAuthMigration),'edge gateway dispatch auth migration must be versioned');
+const gatewayAuthSql=fs.readFileSync(gatewayAuthMigration,'utf8');
+assert.match(gatewayAuthSql,/apikey/,'pg_net Edge Function dispatches must include apikey');
+assert.match(gatewayAuthSql,/x-aria-autonomy-token/,'custom ARIA autonomy authentication must remain alongside apikey');
+assert.match(gatewayAuthSql,/aria-canonical-runtime-v1/,'canonical runtime trigger must be covered');
+assert.match(gatewayAuthSql,/aria-mission-runner-v22/,'mission runner trigger must be covered');
+assert.match(gatewayAuthSql,/aria-autonomy-supervisor-v5/,'autonomy supervisor cron dispatch must be covered');
 console.log('SUPABASE CANONICAL DEPLOY CONTRACT: PASS');
