@@ -74,3 +74,5 @@ for(const file of workflowFiles){
   assert.doesNotMatch(text,/aria-autonomy-supervisor-v10\\b/,'active workflows must not call retired autonomy-supervisor-v10');
 }
 console.log('SUPABASE CANONICAL DEPLOY CONTRACT: PASS');
+assert.match(source,/SUPABASE_DB_PASSWORD/,'CI migration deploy must provide DB password explicitly');
+assert.match(source,/supabase db push --include-all --yes --password "\$SUPABASE_DB_PASSWORD"/,'CI must use explicit password-based db push to avoid cli_login_postgres auth failures');
