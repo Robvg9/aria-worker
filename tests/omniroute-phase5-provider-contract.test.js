@@ -41,7 +41,7 @@ for (const token of [
   'Persist receipt'
 ]) assert.ok(workflow.includes(token), token);
 
-assert.strictEqual(evidence.status, 'PASS_HOSTED_WINDOWS');
+assert.strictEqual(evidence.status, 'PASS_REAL_OLLAMA_QWEN');
 assert.strictEqual(evidence.provider, 'ollama');
 assert.strictEqual(evidence.model, 'ollama/qwen3:4b');
 assert.strictEqual(evidence.http_status, 200);
