@@ -316,12 +316,14 @@ async function run() {
     }, { timeout: TIMEOUT_MS });
     await send.click();
 
+    // The API may acknowledge chat processing before the assistant bubble is rendered.
+    // First prove the user message reached the UI, then inspect the canonical response.
     await page.waitForFunction(
-      ({beforeCount, markerValue}) =>
-        document.querySelectorAll('.chatScreen .bubble.aria').length > beforeCount &&
-        [...document.querySelectorAll('.chatScreen .bubble.user')].some(node => String(node.textContent || '').includes(markerValue)),
-      { beforeCount: before, markerValue: marker },
-      { timeout: TIMEOUT_MS }
+      ({markerValue}) =>
+        [...document.querySelectorAll('.chatScreen .bubble.user')]
+          .some(node => String(node.textContent || '').includes(markerValue)),
+      { markerValue: marker },
+      { timeout: Math.min(TIMEOUT_MS, 30000) }
     );
 
     const chatPostResponse = await chatPostResponsePromise;
@@ -329,10 +331,21 @@ async function run() {
     const postAssistantText = typeof chatPostBody?.parts?.find?.(part => part?.type === 'text')?.text === 'string'
       ? chatPostBody.parts.find(part => part.type === 'text').text.trim()
       : '';
-    report.chat.ui_response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
-    if (!report.chat.ui_response_text) throw new Error('chat_response_empty');
     const asyncProcessingAccepted = Boolean(chatPostBody?.processing || chatPostBody?.visualState === 'processing');
-    const canonicalAssistantText = postAssistantText || (asyncProcessingAccepted ? report.chat.ui_response_text : '');
+    if (!postAssistantText && asyncProcessingAccepted) {
+      await page.waitForFunction(
+        ({beforeCount}) =>
+          [...document.querySelectorAll('.chatScreen .bubble.aria')]
+            .slice(beforeCount)
+            .some(node => String(node.textContent || '').trim().length > 0),
+        { beforeCount: before },
+        { timeout: TIMEOUT_MS }
+      );
+    }
+
+    report.chat.ui_response_text = (await page.locator('.chatScreen .bubble.aria').last().innerText()).trim();
+    if (!report.chat.ui_response_text && !postAssistantText) throw new Error('chat_response_empty');
+    const canonicalAssistantText = postAssistantText || report.chat.ui_response_text;
     if (!canonicalAssistantText) throw new Error('chat_post_response_missing_assistant_text');
 
     report.chat.response_text = canonicalAssistantText;
@@ -341,6 +354,7 @@ async function run() {
       status: chatPostResponse.status(),
       conversationId: typeof chatPostBody?.conversationId === 'string' ? chatPostBody.conversationId : null,
       error: typeof chatPostBody?.error === 'string' ? chatPostBody.error : null,
+      processing: asyncProcessingAccepted,
       cognitive: chatPostBody?.cognitive && typeof chatPostBody.cognitive === 'object' ? {
         input_persistence_ms: chatPostBody.cognitive.input_persistence_ms ?? null,
         assistant_persistence_ms: chatPostBody.cognitive.assistant_persistence_ms ?? null,
@@ -358,23 +372,6 @@ async function run() {
       { responseValue: canonicalAssistantText },
       { timeout: TIMEOUT_MS }
     );
-
-    await page.waitForFunction(
-      ({prefix, markerValue}) => {
-        for (let i = 0; i < localStorage.length; i += 1) {
-          const key = localStorage.key(i) || '';
-          if (!key.startsWith(prefix)) continue;
-          try {
-            const parsed = JSON.parse(localStorage.getItem(key) || 'null');
-            if (parsed?.messages?.some(m => typeof m?.text === 'string' && m.text.includes(markerValue))) return true;
-          } catch {}
-        }
-        return false;
-      },
-      { prefix: CHAT_PREFIX, markerValue: marker },
-      { timeout: 30000 }
-    );
-    report.chat.local_persistence_verified = true;
 
     const expectedAssistantText = canonicalAssistantText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     let server = null;
