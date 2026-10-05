@@ -14,7 +14,8 @@ on:
       - 'tests/pwa-auth-proxy-contract.test.js'
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
       - 'pwa/src/.rwht-persistence-recovery-trigger.ts'
-  pull_request:\n    paths:\n      - 'rwht/pc-browser/rwht-persistence-recovery-e2e.mjs'\n      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'\n  workflow_dispatch:\n
+  workflow_dispatch:
+
 concurrency:
   group: aria-authenticated-pwa-rwht
   cancel-in-progress: false
