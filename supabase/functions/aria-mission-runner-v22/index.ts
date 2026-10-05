@@ -98,6 +98,7 @@ type DeviceTargetResolution = {
 function deviceSupportsOperation(capabilities: unknown, operation: string) {
   if (!Array.isArray(capabilities)) return false;
   if (operation === "ecc.execute") return capabilities.some((capability) => String(capability) === "shell.execute");
+  if (operation === "android.notification") return capabilities.some((capability) => String(capability) === "notifications.push");
   return capabilities.some((capability) => String(capability) === operation);
 }
 
@@ -1416,7 +1417,7 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
   if (operation !== "text_generation") return [];
   const primaryProvider = String(original?.provider_id || "");
   // Allow local Windows/Ollama recovery from any cloud text route. Never retry the same route.
-  if (!["openrouter", "google", "mistral", "xai"].includes(primaryProvider)) return [];
+  if (!["openrouter", "google", "mistral", "xai", "local_windows"].includes(primaryProvider)) return [];
   const risk = String(original?.risk || "READ").toUpperCase();
   if (risk !== "READ") return [];
 
@@ -1523,17 +1524,42 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
     model_id: String(step.target.model_id),
     capability: String(step.operation),
   };
-  const fallbackRoutes = await verifiedModelFallbackRoutes({ ...primary, risk: step.risk }, String(step.operation));
-  const filteredFallbackRoutes = fallbackRoutes.filter((r:any) => r.provider_id !== primary.provider_id || r.account_id !== primary.account_id || r.model_id !== primary.model_id);
+  let primaryRoute = primary;
+  let primaryLocalAvailable = true;
+  if (primary.provider_id === "local_windows") {
+    const { data: localDevices } = await sb.schema("aria_internal")
+      .from("device_registry")
+      .select("device_id,status,capabilities,last_seen_at")
+      .eq("status", "online")
+      .order("last_seen_at", { ascending: false })
+      .limit(8);
+    const liveLocal = (Array.isArray(localDevices) ? localDevices : []).find((device:any) =>
+      deviceSupportsOperation(device.capabilities, "ollama.qwen3")
+    );
+    primaryLocalAvailable = Boolean(liveLocal);
+    if (liveLocal) primaryRoute = { ...primary, device_id: String(liveLocal.device_id) };
+  }
+  const fallbackRoutes = await verifiedModelFallbackRoutes({ ...primaryRoute, risk: step.risk }, String(step.operation));
+  const filteredFallbackRoutes = fallbackRoutes.filter((r:any) => r.provider_id !== primaryRoute.provider_id || r.account_id !== primaryRoute.account_id || r.model_id !== primaryRoute.model_id);
   const localFallback = filteredFallbackRoutes.find((r:any) => r.provider_id === "local_windows") || null;
   const cloudFallbacks = filteredFallbackRoutes.filter((r:any) => r.provider_id !== "local_windows");
-  // Reserve one route slot for an online verified local executor. Cloud fallbacks
-  // can never crowd the local recovery route out of the route budget.
   const routes = [
-    primary,
+    ...(primaryLocalAvailable ? [primaryRoute] : []),
     ...cloudFallbacks.slice(0, 2),
     ...(localFallback ? [localFallback] : []),
   ].slice(0, 4);
+  if (!routes.length) {
+    return {
+      status: "failed",
+      executor_type: "model",
+      operation: step.operation,
+      provider_id: primary.provider_id,
+      account_id: primary.account_id,
+      model_id: primary.model_id,
+      error: { code: "local_model_route_unavailable", message: "No online Windows device currently advertises ollama.qwen3 for the planned local model route.", attempts: 0 },
+      model_execution_failures: [{ provider_id: primary.provider_id, model_id: primary.model_id, http_status: null, code: "local_model_route_unavailable", message: "No online Windows device currently advertises ollama.qwen3 for the planned local model route.", provider_status: "unavailable" }],
+    };
+  }
     const failures:any[] = [];
   const authorization = step.authorization && typeof step.authorization === "object"
     ? step.authorization
