@@ -1,4 +1,6 @@
 'use strict';
+
+(async()=>{
 const assert=require('node:assert/strict');
 const r=require('../router/intelligent-v2.js');
 
@@ -234,3 +236,5 @@ const negCanonical=await canonicalE2E.runCanonical({...e2eBase,security:{...e2eB
 assert.equal(negCanonical.status,'blocked'); assert.equal(negCanonical.stage,'security');
 console.log('OMNIROUTE PHASE 13 NEGATIVE CERTIFICATION: PASS');
 })().catch(error=>{console.error('OMNIROUTE PHASE 13 NEGATIVE CERTIFICATION: FAIL '+(error?.stack||error));process.exit(1);});
+
+})();
