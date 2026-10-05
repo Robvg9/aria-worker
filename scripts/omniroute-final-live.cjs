@@ -144,7 +144,7 @@ const allowedRoute = {
       };
       poll();
     });
-    const directBody = JSON.stringify({ model:'qwen3:4b', messages:[{role:'user',content:'Return exactly '+marker}], stream:false, temperature:0, max_tokens:32, enable_thinking:false });
+    const directBody = JSON.stringify({ model:'qwen3:4b', messages:[{role:'user',content:'Return exactly '+marker}], stream:false, temperature:0, max_tokens:128, enable_thinking:false });
     let direct;
     try {
       direct = await liveTransport(endpoint,{method:'POST',headers:{Authorization:'Bearer '+apiKey,'Content-Type':'application/json','x-omniroute-provider':'ollama'},body:directBody});
