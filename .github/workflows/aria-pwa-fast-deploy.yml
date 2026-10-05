@@ -11,6 +11,10 @@ on:
       - ".github/workflows/aria-pwa-fast-deploy.yml"
   workflow_dispatch:
 
+concurrency:
+  group: aria-cloudflare-production-deploy
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
