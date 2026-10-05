@@ -2,7 +2,10 @@ name: Deploy ARIA Cloudflare Worker
 # 2026-10-05: force production redeploy after mission lifecycle fix #959. No behavior change.
 
 on:
-  push:
+  # Production deploys are release-bearing on merged PRs. This avoids relying
+  # on app-token push events that may not emit a second workflow trigger.
+  pull_request_target:
+    types: [closed]
     branches: [main]
     paths:
       - 'worker.js'
@@ -29,6 +32,7 @@ permissions:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true)
     runs-on: ubuntu-latest
     environment: production
     steps:
