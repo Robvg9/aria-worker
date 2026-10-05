@@ -126,3 +126,4 @@ jobs:
           if([int]$b.tick_count-lt$t){throw 'Tick counter regressed'}
           Write-Host 'MEDITATION_HEARTBEAT=PASS'
           Write-Host 'ARIA_WINDOWS_FINAL_E2E=PASS'
+# CERTIFICATION-REPLAY-2026-10-05: semantic physical E2E rerun on current main
