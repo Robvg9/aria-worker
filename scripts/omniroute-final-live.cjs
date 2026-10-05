@@ -45,6 +45,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const security = require('../security/omniroute-security.js');
 const execution = require('../execution/lookup.js');
+const { spawn } = require('node:child_process');
+const net = require('node:net');
 
 async function liveTransport(url, options = {}) {
   const u = new URL(url);
@@ -95,6 +97,11 @@ const endpoint = process.env.OMNIROUTE_FINAL_ENDPOINT || 'http://127.0.0.1:20130
 const apiKey = process.env.OMNIROUTE_API_KEY || '';
 if (!apiKey) throw new Error('OMNIROUTE_API_KEY missing');
 const dataDir = path.dirname(evidencePath);
+const sourceDir = process.env.OMNIROUTE_SOURCE_DIR;
+if (!sourceDir) throw new Error('OMNIROUTE_SOURCE_DIR missing');
+const runtimeRoot = path.dirname(evidencePath);
+const serverStdout = path.join(runtimeRoot, 'omniroute.stdout.log');
+const serverStderr = path.join(runtimeRoot, 'omniroute.stderr.log');
 fs.mkdirSync(dataDir, { recursive: true });
 const missionFile = path.join(dataDir, 'mission.json');
 const eventsFile = path.join(dataDir, 'events.ndjson');
@@ -111,12 +118,33 @@ const task = 'Return exactly ' + marker;
 
 const allowedRoute = {
   allowed: true, availability_status: 'available', provider_id: 'omniroute', account_id: 'account-ollama-local',
-  model_id: 'ollama/qwen3:4b', capability: 'text_generation', task_id: missionId, latency_ms: 1, cost_usd: 0, offline: true, local: true,
+  model_id: 'ollama/qwen3:4b', upstream_model: 'qwen3:4b', capability: 'text_generation', task_id: missionId, latency_ms: 1, cost_usd: 0, offline: true, local: true,
   evidence: { source: 'aria.router.allowed_set', evidence_id: 'live-gateway-omniroute-ollama-qwen-20261005', target_id: missionId, provider_id: 'omniroute', model_id: 'ollama/qwen3:4b' }
 };
 
 (async () => {
-  await store.create({ mission_id: missionId, goal: task, status: 'running', current_step: 0, total_steps: 1, completed_steps: 0, next_action: 'execute_selected_route', checkpoint: {} });
+  const providerConfig = ['providers:','  - id: ollama','    kind: openai','    baseUrl: http://127.0.0.1:11434/v1','    model: qwen3:4b',''].join('\n');
+  fs.mkdirSync(runtimeRoot, { recursive: true });
+  let child = null;
+  try {
+    child = spawn(process.execPath, [path.join(sourceDir, 'scripts', 'dev', 'run-next.mjs'), 'start'], {
+      cwd: sourceDir, windowsHide: true, stdio: ['ignore','pipe','pipe'],
+      env: { ...process.env, HOST:'127.0.0.1', HOSTNAME:'127.0.0.1', PORT:'20130',
+        DATA_DIR:dataDir, OMNIROUTE_SELF_HOSTED_API_KEY:apiKey,
+        OMNIROUTE_SELF_HOSTED_PROVIDERS:providerConfig }
+    });
+    child.stdout.pipe(fs.createWriteStream(serverStdout,{flags:'a'}));
+    child.stderr.pipe(fs.createWriteStream(serverStderr,{flags:'a'}));
+
+    await new Promise((resolve,reject)=>{
+      const deadline=Date.now()+90000;
+      const poll=()=>{
+        const s=net.connect({host:'127.0.0.1',port:20130},()=>{s.destroy();resolve();});
+        s.on('error',()=>{if(Date.now()>deadline)reject(new Error('OMNIROUTE_PORT_NOT_LISTENING'));else setTimeout(poll,1000);});
+      };
+      poll();
+    });
+    await store.create({ mission_id: missionId, goal: task, status: 'running', current_step: 0, total_steps: 1, completed_steps: 0, next_action: 'execute_selected_route', checkpoint: {} });
   const result = await runCanonical({
     task_id: missionId, task, mission_id: missionId, capability: 'text_generation', mode: 'auto/offline', allowed_routes: [allowedRoute],
     security: { gateway_endpoint: endpoint, provider_id: 'omniroute', provider_allowlist: ['omniroute'], credential_ref: 'env://OMNIROUTE_API_KEY', timeout_ms: 120000, origin: 'http://127.0.0.1:20130', allowed_origins: ['http://127.0.0.1:20130'], input: { task, mission_id: missionId } },
@@ -159,4 +187,12 @@ const allowedRoute = {
   fs.writeFileSync(evidencePath, JSON.stringify(receipt, null, 2) + '\n');
   if (receipt.status !== 'PASS_FINAL_LIVE_E2E') process.exit(1);
   console.log(JSON.stringify(receipt, null, 2));
-})();
+  } finally {
+    if (child && !child.killed) { try { child.kill('SIGTERM'); } catch {} }
+    await new Promise(r=>setTimeout(r,500));
+    if (child && !child.killed) { try { child.kill('SIGKILL'); } catch {} }
+  }
+})().catch(error => {
+  fs.appendFileSync(serverStderr, '\nFINAL_LIVE_ERROR ' + (error?.stack || String(error)) + '\n');
+  process.exit(1);
+});
