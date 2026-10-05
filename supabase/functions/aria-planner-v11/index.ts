@@ -9,7 +9,7 @@ const TOOL_UNIVERSE_V1={
   version:"tool-universe-v1",
   connectors:["github","supabase","cloudflare","bitrise","eas"],
   executors:["model","agent","device","connector","eas"],
-  device_operations:["shell.execute","ollama.qwen3","computer.use","computer.use.autonomous","computer.use.android"],
+  device_operations:["shell.execute","ollama.qwen3","computer.use","computer.use.autonomous","computer.use.android","android.notification"],
   ui_capabilities:["observe","screenshot","click","double_click","type","keypress","hotkey","scroll","focus","wait"],
   governance:["READ","LOW_RISK_WRITE","HIGH_RISK_WRITE","DESTRUCTIVE","human_gate_for_high_risk"]
 };
@@ -201,12 +201,15 @@ async function modelRoutes(){
     db.from("account_registry").select("account_id,provider_id,status,enabled"),
     db.from("device_registry").select("device_id,agent_type,status,capabilities"),
   ]);
-  const localQwenAvailable = (devices || []).some((device:any) =>
-    String(device?.agent_type || "") === "windows-local" &&
-    String(device?.status || "").toLowerCase() === "online" &&
-    Array.isArray(device?.capabilities) &&
-    device.capabilities.map(String).includes("ollama.qwen3")
-  );
+  const localQwenDevice = (devices || [])
+    .filter((device:any) =>
+      String(device?.agent_type || "") === "windows-local" &&
+      String(device?.status || "").toLowerCase() === "online" &&
+      Array.isArray(device?.capabilities) &&
+      device.capabilities.map(String).includes("ollama.qwen3")
+    )
+    .sort((a:any,b:any) => String(b?.last_seen_at || "").localeCompare(String(a?.last_seen_at || "")))[0] || null;
+  const localQwenAvailable = Boolean(localQwenDevice);
   return (m || [])
     .filter((x:any) => x.enabled && x.status === "available")
     .map((x:any) => {
@@ -218,6 +221,9 @@ async function modelRoutes(){
         model_id:x.model_id,
         provider_id:x.provider_id,
         account_id:acc.account_id,
+        ...(x.provider_id === "local_windows" && x.model_id === "qwen3:0.6b"
+          ? { device_id: String(localQwenDevice.device_id) }
+          : {}),
         capability_status:cap?.status||"unknown",
         evidence_type:cap?.evidence_type||"unknown",
         evidence_ref:cap?.evidence_ref||null,
