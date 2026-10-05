@@ -807,7 +807,9 @@ async function deviceExecute(missionId: string, step: any) {
 async function githubExecute(step: any, token: string | null, mission: any = null) {
   const operation = String(step.operation || "");
   const input = step.input && typeof step.input === "object" ? step.input : {};
-  const readOps = new Set(["repo_read", "file_read", "ref_read", "pr_find", "pr_read", "pr_checks", "main_workflow_runs"]);
+  // Keep the planner/executor GitHub contract aligned. The GitHub App runtime
+  // already implements tree_read as a read-only operation.
+  const readOps = new Set(["repo_read", "tree_read", "file_read", "ref_read", "pr_find", "pr_read", "pr_checks", "main_workflow_runs"]);
   const writeOps = new Set(["create_branch", "file_write", "open_pr", "pr_merge"]);
   if (!readOps.has(operation) && !writeOps.has(operation)) {
     throw new Error(`github_operation_not_allowed:${operation}`);
