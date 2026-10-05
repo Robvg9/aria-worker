@@ -228,6 +228,24 @@ if($null -ne $still){
           Write-Host 'COMPUTER_USE_RUNTIME_SYNC=PASS'
           Write-Host "COMPUTER_USE_AGENT_RELOAD_NEW_PID=$pidNow"
 
+      - name: Ensure interactive GitHub runner autostart
+        run: |
+          $ErrorActionPreference='Stop'
+          $runnerRoot='C:\actions-runner-lacueva'
+          $runCmd=Join-Path $runnerRoot 'run.cmd'
+          if(-not(Test-Path $runCmd)){throw "LaCueva runner executable missing: $runCmd"}
+          $startup=[Environment]::GetFolderPath('Startup')
+          $shortcutPath=Join-Path $startup 'ARIA-LACUEVA-Runner.lnk'
+          $shell=New-Object -ComObject WScript.Shell
+          $shortcut=$shell.CreateShortcut($shortcutPath)
+          $shortcut.TargetPath=$runCmd
+          $shortcut.WorkingDirectory=$runnerRoot
+          $shortcut.WindowStyle=1
+          $shortcut.Description='ARIA LaCueva interactive GitHub Actions runner autostart'
+          $shortcut.Save()
+          Write-Host "ARIA_LACUEVA_RUNNER_AUTOSTART=PASS"
+          Write-Host "ARIA_LACUEVA_RUNNER_STARTUP=$shortcutPath"
+
       - name: Enforce singleton Agent and singleton watchdog without restart
         run: |
           $ErrorActionPreference='Continue'
