@@ -1,6 +1,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { executeAndroidAccessibilityJob, probeLocalIpcHealth, probeAndroidCommandReceiver } = require('../../computer-use/android-accessibility-v1');
@@ -57,7 +58,10 @@ async function runAndroidNotification(payload) {
   ].join(' ');
   let result = await run(command, process.cwd(), 30_000);
   let delivery_path = 'termux-notification';
-  if (result.status === 'failed' && /getopt:\s+Unknown option ['"]s['"]/i.test(String(result.stderr || ''))) {
+  const primary_notification_error = result.status === 'failed'
+    ? { stderr: String(result.stderr || ''), exit_code: result.exit_code ?? null }
+    : null;
+  if (result.status === 'failed') {
     const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
     const api = `${prefix}/libexec/termux-api`;
     const directCommand = [
@@ -110,10 +114,30 @@ async function api(path, options = {}) {
     throw error;
   } finally { clearTimeout(timer); }
 }
+function resolveShell() {
+  const prefix = process.env.PREFIX || '/data/data/com.termux/files/usr';
+  const candidates = [
+    process.env.ARIA_SHELL_BIN,
+    process.env.SHELL,
+    `${prefix}/bin/bash`,
+    `${prefix}/bin/sh`,
+    '/system/bin/sh',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return { path: candidate, args: candidate.endsWith('/bash') ? ['-lc'] : ['-c'] };
+      }
+    } catch (_) {}
+  }
+  return { path: '/system/bin/sh', args: ['-c'] };
+}
+
 function run(command, cwd, timeoutMs) {
   return new Promise((resolve) => {
     const started=Date.now();
-    const child=spawn('/data/data/com.termux/files/usr/bin/bash',['-lc',command],{cwd:cwd||process.cwd(),env:process.env});
+    const shell=resolveShell();
+    const child=spawn(shell.path,[...shell.args,command],{cwd:cwd||process.cwd(),env:process.env});
     let stdout=''; let stderr=''; let killed=false;
     const append=(current,chunk)=>(current+chunk.toString()).slice(-MAX_OUTPUT);
     const timer=setTimeout(()=>{killed=true;child.kill('SIGTERM')},Math.max(1000,timeoutMs||120000));
