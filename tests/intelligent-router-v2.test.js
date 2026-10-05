@@ -164,6 +164,7 @@ assert.equal(providerOut.trusted,false); assert.equal(providerOut.execution_auth
 const securitySource=fs.readFileSync(path.join(__dirname,'..','security','omniroute-security.js'),'utf8');
 assert.doesNotMatch(securitySource,/fetch\(|axios|http\.request|https\.request|process\.env/);
 console.log('OMNIROUTE PHASE 11 SECURITY: PASS');
+(async()=>{
 const canonicalE2E=require('../execution/omniroute-canonical-e2e.js');
 const e2eRoute={task_id:'mission-phase12-001',provider_id:'omniroute',account_id:'acct-omni',model_id:'auto',capability:'text_generation',allowed:true,availability_status:'available',latency_ms:100,cost_usd:0,tags:['coding'],evidence:{source:'aria.router.allowed_set',target_id:'mission-phase12-001',provider_id:'omniroute',model_id:'auto',evidence_id:'phase12-route-001'}};
 const e2eBase={task_id:'mission-phase12-001',mission_id:'mission-phase12-001',task:'Return OMNIROUTE_OK.',capability:'text_generation',mode:'auto',allowed_routes:[e2eRoute],security:{gateway_endpoint:'http://127.0.0.1:20128/v1/chat/completions',provider_id:'omniroute',provider_allowlist:['omniroute'],credential_ref:'secret://omniroute/local',timeout_ms:10000,origin:'http://localhost:8787',allowed_origins:['http://localhost:8787'],input:{messages:[{role:'user',content:'Return OMNIROUTE_OK.'}]}},authorization:{status:'approved'},payload:{messages:[{role:'user',content:'Return OMNIROUTE_OK.'}]}};
@@ -173,3 +174,4 @@ assert.equal(canonicalOk.status,'succeeded'); assert.equal(canonicalOk.stage,'ca
 const canonicalFail=await canonicalE2E.runCanonical({...e2eBase,alternative_routes:[{...e2eRoute,provider_id:'other',account_id:'acct-other',model_id:'other-model',evidence:{...e2eRoute.evidence,provider_id:'other',model_id:'other-model',evidence_id:'phase12-alt'}}],execution_deps:{...makeE2EDeps(503),transport:async()=>({status:503,json:{}})}});
 assert.equal(canonicalFail.status,'failed'); assert.notEqual(canonicalFail.status,'succeeded'); assert.equal(canonicalFail.execution.status,'failed'); assert.equal(canonicalFail.failure_kind,'provider_unavailable'); assert.equal(canonicalFail.failover.status,'fallback_available');
 console.log('OMNIROUTE PHASE 12 CANONICAL E2E: PASS');
+})().catch(error=>{console.error('OMNIROUTE PHASE 12 CANONICAL E2E: FAIL '+(error?.stack||error));process.exit(1);});
