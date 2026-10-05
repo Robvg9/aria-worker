@@ -1,0 +1,65 @@
+{
+  "capability_id": "omniroute.gateway",
+  "registration_status": "PENDING_LIVE_E2E",
+  "active": false,
+  "enablement": "DISABLED",
+  "source": {
+    "repository": "diegosouzapw/OmniRoute",
+    "ref": "release/v3.8.52",
+    "audited_commit": "3e66ff2e8cc94821b093fe57dad667b585230cd1",
+    "provenance_kind": "source_locked"
+  },
+  "version": "3.8.52",
+  "aria_adapter": {
+    "phase6_adapter": "execution/adapters/omniroute.js",
+    "router_integration": "router/omniroute.js",
+    "auto_combo": "router/omniroute-auto.js",
+    "resilience": "router/omniroute-resilience.js",
+    "recovery": "execution/omniroute-recovery.js",
+    "security": "security/omniroute-security.js",
+    "canonical_e2e": "execution/omniroute-canonical-e2e.js"
+  },
+  "permissions": {
+    "capability": "text_generation",
+    "authority": "ARIA",
+    "gateway_scope": "loopback_only",
+    "execution_authority_from_provider_output": false,
+    "raw_secret_material_in_aria": false
+  },
+  "dependency": {
+    "local_gateway": "http://127.0.0.1:20128/v1",
+    "optional_local_model": "Qwen via Ollama",
+    "ollama_endpoint": "http://127.0.0.1:11434"
+  },
+  "health": {
+    "last_static_validation": "PASS",
+    "live_gateway": "BLOCKED_NOT_LISTENING",
+    "local_ollama": "NO_RESPONSE",
+    "live_quality": "PENDING"
+  },
+  "evidence": {
+    "phases": "7-14 implemented/verified as recorded in absorb evidence receipts",
+    "canonical_e2e": "PASS_INJECTED_TRANSPORT",
+    "negative_certification": "PASS",
+    "comparative_eval": "PASS_STATIC"
+  },
+  "rollback": {
+    "trigger": "live regression, security regression, provider-policy issue, or negative certification failure",
+    "action": "set active=false; remove/disable capability route registration; preserve prior ARIA router path; revert the corresponding PR if required",
+    "data_rule": "do not delete historical evidence receipts"
+  },
+  "evolution": {
+    "detect_new_version": true,
+    "compare_before_promotion": true,
+    "isolated_test_before_enable": true,
+    "rollback_previous_version": true,
+    "provenance_required": true
+  },
+  "known_limitations": [
+    "Canonical LIVE provider execution is not yet certified.",
+    "Local OmniRoute gateway was not listening during the current run.",
+    "Ollama API did not respond during the current run.",
+    "Provider terms/eligibility must be rechecked before enabling any upstream provider.",
+    "Capability must remain absent from active availability until LIVE/E2E + persistence gates pass."
+  ]
+}

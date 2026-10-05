@@ -1,0 +1,20 @@
+{
+  "phase": 15,
+  "name": "Registration / Promotion / Evolution",
+  "status": "READY_BLOCKED_PENDING_LIVE_E2E",
+  "branch": "feat/omniroute-phase15-registration-readiness-20261005",
+  "active_registry_changed": false,
+  "registration_manifest": "absorb/omniroute/PHASE_15_REGISTRATION_PROPOSAL.json",
+  "runbook": "absorb/omniroute/OMNIROUTE_REGISTRATION_RUNBOOK.md",
+  "readiness_script": "scripts/omniroute-phase15-readiness.mjs",
+  "current_gate": "BLOCKED_PENDING_LIVE_E2E",
+  "rollback_defined": true,
+  "evolution_defined": true,
+  "head_commit": "37d5152aa3a40d2b9de9aefbaab6602184269ab3",
+  "validation": {
+    "readiness_manifest": "PASS",
+    "safe_default_disabled": "PASS",
+    "promotion": "BLOCKED_PENDING_LIVE_E2E",
+    "active_registry_changed": false
+  }
+}
