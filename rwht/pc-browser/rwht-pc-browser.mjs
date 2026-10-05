@@ -673,8 +673,23 @@ async function auditRoute(page, url, routeIndex, config) {
       }
     }
 
-    const controlsNow = await discoverInteractive(page);
+    let controlsNow = await discoverInteractive(page);
     const original = initialControls[index];
+    // Controls backed by async mission/chat/meditation data can appear after the
+    // route surface itself is visible. Give the same route a short deterministic
+    // hydration window before declaring the snapshot unreproducible.
+    const targetLabel = safeLabel(original.name);
+    const reproductionDeadline = Date.now() + Math.min(10000, Math.max(2500, config.action_timeout_ms + 2500));
+    while (Date.now() < reproductionDeadline) {
+      const exact = controlsNow.find((control) =>
+        (original.selector_hint && control.selector_hint === original.selector_hint && control.tag === original.tag) ||
+        (original.role && control.role === original.role && control.name === original.name && control.href === original.href && control.tag === original.tag) ||
+        (targetLabel && control.name === targetLabel)
+      );
+      if (exact || controlsNow.length > index) break;
+      await page.waitForTimeout(350);
+      controlsNow = await discoverInteractive(page);
+    }
     const originalLabel = safeLabel(original.name);
     const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
     const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
