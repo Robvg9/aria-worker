@@ -1,7 +1,7 @@
 # OmniRoute Registration / Rollback Runbook
 
 ## Current state
-`omniroute.gateway` is a registration candidate only. `active=false` and `enablement=DISABLED` remain mandatory until LIVE/E2E and persistence gates pass.
+`omniroute.gateway` is `REGISTERED` after the final LIVE/E2E proof. `active=false` and `enablement=DISABLED` remain mandatory: OmniRoute is explicit opt-in only and never becomes the default route automatically.
 
 ## Promote
 1. Verify source lock/version/provenance.
@@ -9,14 +9,14 @@
 3. Verify local gateway health and canonical LIVE/E2E.
 4. Verify persistence/evidence after a real mission.
 5. Review permissions and provider terms.
-6. Change registration from PENDING_LIVE_E2E to REGISTERED.
-7. Enable progressively behind explicit policy.
-8. Run post-enable health and rollback smoke test.
+6. ✅ Change registration from PENDING_LIVE_E2E to REGISTERED.
+7. Keep default enablement disabled until a separate explicit policy decision.
+8. Run post-enable health and rollback smoke test only if/when explicit enablement is approved.
 
 ## Final automated LIVE gate
 `.github/workflows/omniroute-final-live-promotion.yml` executes the final Windows-hosted proof:
 exact OmniRoute 3.8.52 source → native Ollama → qwen3:4b → loopback gateway → ARIA canonical Security/Auto-Combo/checkpoint/adapter/verification → persisted mission receipt.
-The gate must be green before promotion; it never enables the provider itself.
+The gate is green: workflow run 37353469347 produced PASS_FINAL_LIVE_E2E with persisted mission evidence. The gate never enables the provider itself.
 
 ## Rollback
 1. Set `active=false` and remove OmniRoute from selectable capability availability.

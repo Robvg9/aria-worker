@@ -1,20 +1,33 @@
 {
   "phase": 15,
   "name": "Registration / Promotion / Evolution",
-  "status": "READY_BLOCKED_PENDING_LIVE_E2E",
+  "status": "REGISTERED_OPT_IN_ONLY",
   "branch": "feat/omniroute-phase15-registration-readiness-20261005",
   "active_registry_changed": false,
   "registration_manifest": "absorb/omniroute/PHASE_15_REGISTRATION_PROPOSAL.json",
   "runbook": "absorb/omniroute/OMNIROUTE_REGISTRATION_RUNBOOK.md",
   "readiness_script": "scripts/omniroute-phase15-readiness.mjs",
-  "current_gate": "BLOCKED_PENDING_LIVE_E2E",
+  "current_gate": "REGISTERED_OPT_IN_ONLY",
   "rollback_defined": true,
   "evolution_defined": true,
   "head_commit": "37d5152aa3a40d2b9de9aefbaab6602184269ab3",
   "validation": {
     "readiness_manifest": "PASS",
     "safe_default_disabled": "PASS",
-    "promotion": "BLOCKED_PENDING_LIVE_E2E",
+    "live_e2e": "PASS",
+    "promotion": "REGISTERED_OPT_IN_ONLY",
     "active_registry_changed": false
+  },
+  "final_live_certification": {
+    "workflow_run": 37353469347,
+    "artifact_id": 11363921733,
+    "source_commit": "3e66ff2e8cc94821b093fe57dad667b585230cd1",
+    "source_version": "3.8.52",
+    "model": "ollama/qwen3:4b",
+    "mission_id": "omniroute-final-live-20261005",
+    "canonical_e2e": "PASS_FINAL_LIVE_E2E",
+    "verification": "PASS",
+    "persistence": "PASS",
+    "security": "PASS_LOOPBACK_NO_RAW_SECRET_PERSISTED"
   }
 }

@@ -1,7 +1,7 @@
 {
   "phase": 12,
   "name": "Canonical ARIA E2E",
-  "status": "IMPLEMENTED_NOT_LIVE",
+  "status": "LIVE_CERTIFIED",
   "version": "aria-omniroute-canonical-e2e-v1.0.0",
   "branch": "feat/omniroute-phase12-canonical-e2e-20261005",
   "gates": {
@@ -21,12 +21,28 @@
     "environment": "RobVG / Windows Node.js v24.19.0"
   },
   "live_probe": {
-    "status": "BLOCKED_RUNTIME",
-    "endpoint": "http://127.0.0.1:20128/v1/chat/completions",
-    "gateway_listening": "NO",
-    "ollama_api": "NO_RESPONSE",
-    "api_key_persisted": "NO"
+    "status": "PASS",
+    "endpoint": "http://127.0.0.1:20130/v1/chat/completions",
+    "gateway_listening": "YES",
+    "ollama_api": "PASS",
+    "api_key_persisted": "NO",
+    "environment": "GitHub Actions Windows runner; ephemeral loopback certification endpoint"
   },
-  "live_e2e": "PENDING",
-  "next_phase": 13
+  "live_e2e": "PASS_FINAL_LIVE_E2E",
+  "next_phase": 13,
+  "latest_live_certification": {
+    "workflow_run": 37353469347,
+    "artifact_id": 11363921733,
+    "captured_at_utc": "2026-10-05T18:13:36.441Z",
+    "mission_id": "omniroute-final-live-20261005",
+    "source_commit": "3e66ff2e8cc94821b093fe57dad667b585230cd1",
+    "source_version": "3.8.52",
+    "model": "ollama/qwen3:4b",
+    "routed_by": "self-hosted-openai-compat",
+    "canonical_execution": "succeeded",
+    "verification": "verified",
+    "checkpoint_id": "chk_617d1bc67a35c248bbc871e272bcba98",
+    "persistence": "mission_succeeded",
+    "security": "loopback_only_raw_secret_persisted_false"
+  }
 }

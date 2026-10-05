@@ -1,6 +1,6 @@
 {
   "capability_id": "omniroute.gateway",
-  "registration_status": "PENDING_LIVE_E2E",
+  "registration_status": "REGISTERED",
   "active": false,
   "enablement": "DISABLED",
   "source": {
@@ -33,15 +33,20 @@
   },
   "health": {
     "last_static_validation": "PASS",
-    "live_gateway": "BLOCKED_NOT_LISTENING",
-    "local_ollama": "NO_RESPONSE",
-    "live_quality": "PENDING"
+    "live_gateway": "PASS",
+    "local_ollama": "PASS",
+    "live_quality": "VERIFIED_MARKER_RESPONSE_ONLY",
+    "live_certification_workflow_run": 37353469347,
+    "live_certification_artifact_id": 11363921733,
+    "live_certification_endpoint": "http://127.0.0.1:20130/v1/chat/completions"
   },
   "evidence": {
     "phases": "7-14 implemented/verified as recorded in absorb evidence receipts",
-    "canonical_e2e": "PASS_INJECTED_TRANSPORT",
+    "canonical_e2e": "PASS_LIVE",
     "negative_certification": "PASS",
-    "comparative_eval": "PASS_STATIC"
+    "comparative_eval": "PASS_STATIC",
+    "final_live_workflow_run": 37353469347,
+    "final_live_artifact_id": 11363921733
   },
   "rollback": {
     "trigger": "live regression, security regression, provider-policy issue, or negative certification failure",
@@ -56,10 +61,8 @@
     "provenance_required": true
   },
   "known_limitations": [
-    "Canonical LIVE provider execution is not yet certified.",
-    "Local OmniRoute gateway was not listening during the current run.",
-    "Ollama API did not respond during the current run.",
+    "Live certification proves successful governed OmniRoute→Ollama/Qwen execution and persistence; it is not a broad quality/latency/cost benchmark.",
     "Provider terms/eligibility must be rechecked before enabling any upstream provider.",
-    "Capability must remain absent from active availability until LIVE/E2E + persistence gates pass."
+    "Capability remains disabled in default availability; OmniRoute is selectable only through explicit opt-in policy."
   ]
 }
