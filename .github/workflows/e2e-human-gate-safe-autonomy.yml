@@ -9,6 +9,13 @@ on:
       - 'supabase/functions/aria-execution-runtime-v1/index.ts'
       - 'supabase/functions/aria-planner-v11/index.ts'
       - 'supabase/migrations/**'
+  pull_request:
+    paths:
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'supabase/functions/aria-execution-runtime-v1/index.ts'
+      - 'supabase/functions/aria-planner-v11/index.ts'
+      - 'supabase/migrations/**'
 permissions:
   contents: read
 concurrency:
