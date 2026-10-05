@@ -89,7 +89,9 @@ assert.strictEqual(normalizeResponse({choices:[]},route),null);
   const noTransport=await execute({route,input:{payload:{prompt:'hello'}},secret:SECRET});
   assert.strictEqual(noTransport.error.code,'transport_error');
 
-  const engineResult=await engine.execute({selected_route:route,authorization:{status:'approved'},input:{modality:'text',payload:{prompt:'hello'}}},{
+  const engineRoute={...route,gateway_endpoint:'http://127.0.0.1:29999/v1/chat/completions',upstream_model:'qwen3:4b'};
+  let engineObserved=null;
+  const engineResult=await engine.execute({selected_route:engineRoute,authorization:{status:'approved'},input:{modality:'text',payload:{prompt:'hello'}}},{
     candidateSelectable:()=>true,
     getModel:()=>({model_id:'ollama/qwen3:4b',provider_id:'omniroute',status:'available'}),
     isAccountActive:()=>true,
@@ -97,9 +99,13 @@ assert.strictEqual(normalizeResponse({choices:[]},route),null);
     supports:()=>true,
     capacityAllows:()=>true,
     credentialResolver:{resolve:()=>({status:'resolved',secret:SECRET})},
-    transport:async()=>({status:200,headers:new Headers(),json:{id:'e1',model:'ollama/qwen3:4b',choices:[{message:{content:'engine-ok'},finish_reason:'stop'}]}})
+    transport:async(url,options)=>{engineObserved={url,options};return{status:200,headers:new Headers(),json:{id:'e1',model:'qwen3:4b',choices:[{message:{content:'engine-ok'},finish_reason:'stop'}]}};}
   });
   assert.strictEqual(engineResult.status,'succeeded');
+  assert.strictEqual(engineObserved.url,'http://127.0.0.1:29999/v1/chat/completions');
+  assert.strictEqual(JSON.parse(engineObserved.options.body).model,'qwen3:4b');
+  assert.strictEqual(engineResult.route.upstream_model,'qwen3:4b');
+  assert.strictEqual(engineResult.route.gateway_endpoint,'http://127.0.0.1:29999/v1/chat/completions');
   assert.strictEqual(engineResult.metadata.adapter_id,'omniroute_gateway_chat_completions');
   assert.strictEqual(engineResult.metadata.gateway,'omniroute');
 

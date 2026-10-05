@@ -67,6 +67,14 @@ function normalizeUsage(usage) {
   return out;
 }
 
+async function responseJson(response) {
+  if (!response) return null;
+  if (typeof response.json === 'function') {
+    try { return await response.json(); } catch { return null; }
+  }
+  return response.json && typeof response.json === 'object' ? response.json : null;
+}
+
 function normalizeResponse(json, route) {
   const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
   const message = choice && isRecord(choice.message) ? choice.message : null;
@@ -107,9 +115,10 @@ async function execute({ route, input, secret, transport }) {
   catch (error) { return { ok: false, error: { code: error && error.name === 'TimeoutError' ? 'timeout' : 'transport_error', message: 'transport failure' } }; }
   if (!response || typeof response.status !== 'number') return { ok: false, error: { code: 'invalid_response', message: 'transport returned no status' } };
   if (response.status < 200 || response.status >= 300) return { ok: false, error: { code: 'provider_error', message: 'OmniRoute returned HTTP ' + response.status, provider_status: response.status } };
-  const normalized = normalizeResponse(response.json, route);
+  const responseBody = await responseJson(response);
+  const normalized = normalizeResponse(responseBody, route);
   if (!normalized) return { ok: false, error: { code: 'invalid_response', message: 'OmniRoute returned no text content' } };
-  return { ok: true, response: normalized, usage: normalizeUsage(response.json && response.json.usage), metadata: safeMetadata(response, route) };
+  return { ok: true, response: normalized, usage: normalizeUsage(responseBody && responseBody.usage), metadata: safeMetadata(response, route) };
 }
 
 module.exports = { DEFAULT_ENDPOINT, PROVIDER_ID, ROUTED_BY_HEADER, ROUTE_DECISION_HEADER, descriptor, buildMessages, buildRequest, endpointOf, isLoopbackEndpoint, normalizeResponse, normalizeUsage, safeMetadata, execute };
