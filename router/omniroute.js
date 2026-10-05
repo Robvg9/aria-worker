@@ -1,6 +1,7 @@
 'use strict';
 
 /** ARIA Router — OmniRoute Phase 7 opt-in integration. */
+// Phase 7 compatibility marker: default route() remains untouched.
 const PROVIDER_ID = 'omniroute';
 const CAPABILITY_ID = 'text_generation';
 const CAPABILITY = 'omniroute.gateway';
