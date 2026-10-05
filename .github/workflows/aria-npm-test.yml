@@ -135,6 +135,17 @@ jobs:
           if(-not (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)){Get-Content $stderr -Tail 200;Get-Content $stdout -Tail 200;throw 'OMNIROUTE_DIED_AFTER_HEALTH'}
           Write-Host 'OMNIROUTE_HEALTH_PASS'
 
+      - name: Probe OmniRoute direct chat
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $body=@{model='qwen3:4b';messages=@(@{role='user';content='Return exactly OMNIROUTE_QWEN_LIVE_OK'});stream=$false;temperature=0;max_tokens=16} | ConvertTo-Json -Depth 8
+          $headers=@{Authorization='Bearer aria-final-live-key';'x-omniroute-provider'='ollama'}
+          $r=Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:20130/v1/chat/completions' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 120
+          $c=[string]$r.choices[0].message.content
+          Write-Host "OMNIROUTE_DIRECT_CHAT=$c"
+          if($c -notmatch 'OMNIROUTE_QWEN_LIVE_OK'){throw 'OMNIROUTE_DIRECT_CHAT_MARKER_FAILED'}
+
       - name: Run canonical ARIA LIVE E2E + persistence
         working-directory: aria-worker
         shell: powershell
