@@ -44,11 +44,11 @@ assert.match(migration,/for update skip locked/);
 
 const direct=fs.readFileSync(path.join(root,'supabase/functions/aria-direct-v1/index.ts'),'utf8');
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
-assert.match(direct,/runner_tick_for_mission/);
-assert.match(direct,/runner_tick_for_mission[\s\S]*p_mission_id: missionId/);
 assert.match(direct,/async function scheduleCanonicalRunnerKick/);
+assert.match(direct,/fetch\(CANONICAL_RUNTIME/);
+assert.match(direct,/body: JSON\.stringify\(\{ mission_id: missionId \}\)/);
 assert.match(direct,/await scheduleCanonicalRunnerKick\(missionIdOut, "user_mission_immediate_dispatch"/);
-assert.match(direct,/authority: \"aria_internal\.runner_tick_for_mission\"/);
+assert.doesNotMatch(direct,/authority: \"aria_internal\.runner_tick_for_mission\"/);
 assert.match(direct,/status: \"not_required\"/);
 assert.match(direct,/canonical_runner_is_execution_authority/);
 assert.doesNotMatch(direct,/status:\s*\"awaiting_device\"/);
