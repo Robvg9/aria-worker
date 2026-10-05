@@ -35,6 +35,7 @@ for (const fragment of [
   'aria_session_v2',
   'aria-runtime-cache-v3',
   'aria-chat-history-v1:',
+  'if (!key.startsWith(chatPrefix)) continue;',
   'session_refresh_not_repersisted',
   'session_reload_persistence_missing',
   'chat_server_persistence_missing',
@@ -82,5 +83,6 @@ for (const fragment of [
 }
 
 assert.doesNotMatch(runner, /console\.(log|error)\([^\n]*(password|refreshToken|accessToken)/i);
+assert.doesNotMatch(runner, /key\.startsWith\(chatPrefix \+ ':'\)/);
 
 console.log('PWA PERSISTENCE + RECOVERY CONTRACT: PASS');
