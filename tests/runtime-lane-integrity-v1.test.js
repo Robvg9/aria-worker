@@ -55,11 +55,14 @@ test('Meditation Windows continuity is serialized and lane-guarded', () => {
   assert.match(meditationE2E, /runs-on: \[aria-lacueva-runtime\]/);
 });
 
-test('Windows runtime repair is pinned to LaCueva and installs interactive autostart', () => {
-  assert.match(runtimeRepair, /runs-on: \[aria-lacueva-runtime\]/);
+test('Windows runtime repair is pinned to LaCueva and installs singleton interactive autostart', () => {
+  assert.match(runtimeRepair, /runs-on: \\[aria-lacueva-runtime\\]/);
+  assert.match(runtimeRepair, /concurrency:\\n  group: aria-windows-runtime-repair-lacueva/);
   assert.match(runtimeRepair, /expected='windows-lacueva-780886'/);
   assert.match(runtimeRepair, /WRONG_RUNNER_IDENTITY/);
-  assert.match(runtimeRepair, /ARIA-LACUEVA-Runner\.lnk/);
+  assert.match(runtimeRepair, /ARIA-LACUEVA-Runner\\.lnk/);
+  assert.match(runtimeRepair, /start-runner-on-login\\.ps1/);
+  assert.match(runtimeRepair, /ARIA-LACUEVA-RUNNER-SINGLETON/);
   assert.match(runtimeRepair, /ARIA_LACUEVA_RUNNER_AUTOSTART=PASS/);
 });
 
