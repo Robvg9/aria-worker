@@ -54,6 +54,8 @@ test('Windows runtime repair is pinned to the LaCueva lane', () => {
   assert.match(runtimeRepair, /runs-on: \[aria-lacueva-runtime\]/);
   assert.match(runtimeRepair, /expected='windows-lacueva-780886'/);
   assert.match(runtimeRepair, /WRONG_RUNNER_IDENTITY/);
+  assert.match(runtimeRepair, /ARIA-LACUEVA-Runner\.lnk/);
+  assert.match(runtimeRepair, /ARIA_LACUEVA_RUNNER_AUTOSTART=PASS/);
 });
 
 test('queue fairness keeps fresh queued work ahead of stale recovery', () => {
