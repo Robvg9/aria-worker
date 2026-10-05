@@ -7,7 +7,7 @@ import { buildEccExecution } from "./ecc-operator.ts";
  * - Strict Computer Use enqueue payload normalization by executor contract
  */
 export const PLANNER_TIMEOUT_MS = 45_000;
-export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "ollama.qwen3", "ecc.execute"]);
+export const DEVICE_OPS_ALLOWLIST = new Set(["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "android.notification", "ollama.qwen3", "ecc.execute"]);
 
 export async function createPlanWithTimeout(
   plannerUrl: string,
@@ -104,6 +104,13 @@ export function buildDeviceEnqueuePayload(
       ecc_action: execution.request.action,
       ecc_target: execution.request.target,
     };
+  } else if (operation === "android.notification") {
+    const source = step.input && typeof step.input === "object" ? step.input : {};
+    const input: Record<string, unknown> = {};
+    for (const key of ["notification_id", "title", "message", "severity", "kind", "mission_id", "priority", "action"] as const) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) input[key] = (source as Record<string, unknown>)[key];
+    }
+    payload.command = JSON.stringify(input);
   } else if (operation === "computer.use" || operation === "computer.use.autonomous" || operation === "computer.use.android") {
     // The runtime gateway persists device payloads in execution_jobs.command.
     // Each device contract is strict, so never forward arbitrary planner fields.

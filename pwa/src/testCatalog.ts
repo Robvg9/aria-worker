@@ -74,6 +74,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en aprendizaje, runtime, persistencia y gobernanza."
   },
   {
+    "id": "meditation-android-notification-routing-contract",
+    "file": "tests/meditation-android-notification-routing-contract.test.js",
+    "title": "Meditation Android Notification + Model Routing Contract",
+    "category": "Meditación IA",
+    "includedInNpmTest": true,
+    "how": "Comprueba el contrato de notificaciones Android y que las rutas Qwen locales dependan de una capacidad física LIVE compatible.",
+    "capabilities": "Detecta desalineación entre Planner, runner, device capabilities, enqueue Android y rutas locales de modelo."
+  },
+  {
     "id": "meditation-idea-analyzer-v2",
     "file": "tests/meditation-idea-analyzer-v2.test.js",
     "title": "Meditation Idea Analyzer V2",
