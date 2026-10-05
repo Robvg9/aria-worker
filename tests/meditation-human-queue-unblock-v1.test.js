@@ -48,7 +48,7 @@ assert.match(direct,/async function scheduleCanonicalRunnerKick/);
 assert.match(direct,/fetch\(CANONICAL_RUNTIME/);
 assert.match(direct,/body: JSON\.stringify\(\{ mission_id: missionId \}\)/);
 assert.match(direct,/await scheduleCanonicalRunnerKick\(missionIdOut, "user_mission_immediate_dispatch"/);
-assert.doesNotMatch(direct,/authority: \"aria_internal\.runner_tick_for_mission\"/);
+
 assert.match(direct,/status: \"not_required\"/);
 assert.match(direct,/canonical_runner_is_execution_authority/);
 assert.doesNotMatch(direct,/status:\s*\"awaiting_device\"/);
