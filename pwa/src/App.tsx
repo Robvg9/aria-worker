@@ -1693,7 +1693,23 @@ function Chat({
     processingStartedAtRef.current = Date.now();
     setProcessingElapsedMs(0);
     setLastProcessingMs(null);
-    setMessages(m => [...m, { id: crypto.randomUUID(), role: 'user', text: clean + (file ? '\\n[' + file.name + ']' : '') }]);
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      text: clean + (file ? '\\n[' + file.name + ']' : '')
+    };
+    const activeConversationId = conversationId ?? crypto.randomUUID();
+    // Persist before any upload/network/model work. Local Qwen may process
+    // asynchronously for up to 150s, so the user message must survive reload
+    // independently of the render/effect lifecycle.
+    writeChatHistory(
+      session.userId,
+      activeConversationId,
+      [...messages, userMessage],
+      pendingMissionConfirmation
+    );
+    setConversationId(activeConversationId);
+    setMessages(m => [...m, userMessage]);
     setText('');
     try {
       const parts: any[] = [];
@@ -1707,9 +1723,7 @@ function Chat({
         parts.push({ type: 'file', fileId: path, path, mimeType: file.type || 'application/octet-stream', filename: file.name });
       }
       setFile(null);
-      const activeConversationId = conversationId ?? crypto.randomUUID();
       const clientMessageId = crypto.randomUUID();
-      setConversationId(activeConversationId);
       const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId }) });
       let responseData = d;
       if (d?.processing && d?.job_id) {
