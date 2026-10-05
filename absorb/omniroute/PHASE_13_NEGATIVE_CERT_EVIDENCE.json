@@ -1,0 +1,29 @@
+{
+  "phase": 13,
+  "name": "Negative Failure Certification",
+  "status": "PASS",
+  "version": "aria-omniroute-negative-cert-v1.0.0",
+  "branch": "feat/omniroute-phase13-negative-cert-20261005",
+  "validation": {
+    "security_ssrf_denied": "PASS",
+    "provider_not_allowlisted_denied": "PASS",
+    "raw_credential_denied": "PASS",
+    "unauthorized_route_denied": "PASS",
+    "target_evidence_mismatch_denied": "PASS",
+    "rate_limit_fallback_policy_denied_by_default": "PASS",
+    "unknown_quota_denied": "PASS",
+    "terminal_checkpoint_denied": "PASS",
+    "unverified_recovery_denied": "PASS",
+    "execution_503_remains_failed": "PASS",
+    "canonical_security_blocked_on_non_loopback": "PASS",
+    "phase8_regression": "PASS",
+    "phase9_regression": "PASS",
+    "phase10_regression": "PASS",
+    "phase11_regression": "PASS",
+    "phase12_regression": "PASS"
+  },
+  "physical_exit_code": 0,
+  "environment": "RobVG / Windows Node.js v24.19.0",
+  "live_e2e_applicability": "NOT_REQUIRED_FOR_NEGATIVE_CERTIFICATION",
+  "next_phase": 14
+}
