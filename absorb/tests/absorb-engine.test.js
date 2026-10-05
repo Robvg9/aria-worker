@@ -77,3 +77,50 @@ const assert = require('node:assert/strict');
   console.error(error);
   process.exitCode = 1;
 });
+
+
+(async () => {
+  const absorb = await import('../../supabase/functions/_shared/absorb-engine.mjs');
+  const base = {
+    source_commit_sha: 'a'.repeat(40), source_digest_sha256: 'b'.repeat(64),
+    status: 'ENABLED', enabled: true,
+    inventory: { complete_tree: true, deterministic: true },
+    verification: { security_review: 'passed', contract_test: 'passed', runtime_verified: true, evidence_persisted: true },
+    runtime_binding: { binding_id: 'tool_ecc_operator', enabled: true },
+    metadata: { absorption_scope: { required_bindings: [{ binding_id: 'tool_ecc_operator' }] }, absorption_lifecycle: {
+      learning_recorded: true, use_verified: true, monitor_ready: true, rollback_ready: true
+    }}
+  };
+  const complete = absorb.evaluateAbsorptionCompletion(base);
+  assert.equal(complete.status, 'COMPLETE');
+  assert.equal(complete.complete, true);
+  assert.equal(complete.completion_percent, 100);
+  assert.equal(complete.missing.length, 0);
+
+  const incomplete = absorb.evaluateAbsorptionCompletion({ ...base, metadata: {
+    absorption_scope: { required_bindings: [{ binding_id: 'tool_ecc_operator' }] },
+    absorption_lifecycle: { learning_recorded: true, use_verified: false, monitor_ready: true, rollback_ready: true }
+  }});
+  assert.equal(incomplete.status, 'INCOMPLETE');
+  assert.equal(incomplete.complete, false);
+  assert.ok(incomplete.completion_percent < 100);
+  assert.ok(incomplete.missing.some((gate) => gate.id === 'use_verified'));
+
+  const noScope = absorb.evaluateAbsorptionCompletion({ ...base, metadata: { absorption_lifecycle: base.metadata.absorption_lifecycle } });
+  assert.equal(noScope.status, 'INCOMPLETE');
+  assert.equal(noScope.complete, false);
+  assert.ok(noScope.missing.some((gate) => gate.id === 'scope_defined'));
+
+  const capabilityScope = absorb.evaluateAbsorptionCompletion({ ...base, capabilities: [{ capability_id: 'cap.test', status: 'ENABLED', verification_state: 'VERIFIED', runtime_binding: { enabled: true } }], runtime_binding: null, metadata: { absorption_scope: { required_capability_ids: ['cap.test'] }, absorption_lifecycle: base.metadata.absorption_lifecycle } });
+  assert.equal(capabilityScope.status, 'COMPLETE');
+  assert.equal(capabilityScope.complete, true);
+
+  const capabilityNotReady = absorb.evaluateAbsorptionCompletion({ ...base, capabilities: [{ capability_id: 'cap.test', status: 'DISCOVERED', verification_state: 'NOT_VERIFIED' }], runtime_binding: null, metadata: { absorption_scope: { required_capability_ids: ['cap.test'] }, absorption_lifecycle: base.metadata.absorption_lifecycle } });
+  assert.equal(capabilityNotReady.status, 'INCOMPLETE');
+  assert.ok(capabilityNotReady.missing.some((gate) => gate.id === 'target_bindings_ready'));
+
+  console.log('absorb-completion-contract: PASS');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

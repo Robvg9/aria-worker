@@ -167,3 +167,71 @@ export function transitionStatus(current,next) {
 export async function buildAbsorptionIdentity(inventory,capabilities) {
   return sha256(JSON.stringify({schema:ABSORB_SCHEMA,source:inventory?.source,inventory_digest_sha256:inventory?.inventory_digest_sha256,capability_ids:(capabilities||[]).map(x=>x.capability_id)}));
 }
+
+
+// Strict completion contract: 100% is impossible unless every mandatory gate passes.
+export const ABSORB_COMPLETION_VERSION = "aria-absorb-completion-v1";
+export const ABSORB_COMPLETION_GATES = Object.freeze([
+  "source_locked","inventory_complete","scope_defined","target_bindings_ready",
+  "security_verified","contract_tested","runtime_verified","evidence_persisted",
+  "registered","enabled","learning_recorded","use_verified","monitor_ready","rollback_ready"
+]);
+
+function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
+function passedValue(value) { return value === true || value === "PASS" || value === "passed" || value === "VERIFIED"; }
+
+export function evaluateAbsorptionCompletion(record = {}) {
+  const inventory = isObject(record.inventory) ? record.inventory : {};
+  const verification = isObject(record.verification) ? record.verification : {};
+  const metadata = isObject(record.metadata) ? record.metadata : {};
+  const lifecycle = isObject(metadata.absorption_lifecycle) ? metadata.absorption_lifecycle : {};
+  const scope = isObject(metadata.absorption_scope) ? metadata.absorption_scope : {};
+  const requiredCapabilityIds = Array.isArray(scope.required_capability_ids) ? scope.required_capability_ids.map(String).filter(Boolean) : [];
+  const requiredBindings = Array.isArray(scope.required_bindings) ? scope.required_bindings.filter(isObject) : [];
+  const bindings = [
+    ...(isObject(record.runtime_binding) ? [record.runtime_binding] : []),
+    ...(Array.isArray(metadata.runtime_bindings) ? metadata.runtime_bindings.filter(isObject) : [])
+  ];
+  const scopeDefined = requiredCapabilityIds.length > 0 || requiredBindings.length > 0;
+  const capabilities = Array.isArray(record.capabilities) ? record.capabilities.filter(isObject) : [];
+  const targetCapabilitiesReady = requiredCapabilityIds.length > 0 && requiredCapabilityIds.every((id) => capabilities.some((capability) =>
+    String(capability.capability_id || "") === id &&
+    capability.verification_state === "VERIFIED" &&
+    (capability.status === "ENABLED" || capability.runtime_binding?.enabled === true)
+  ));
+  const targetBindingsReady = requiredBindings.length > 0 && requiredBindings.every((wanted) => bindings.some((binding) =>
+    String(binding.binding_id || "") === String(wanted.binding_id || "") && binding.enabled === true
+  ));
+  const bindingReady = scopeDefined && (requiredBindings.length > 0 ? targetBindingsReady : targetCapabilitiesReady);
+  const sourceLocked = typeof record.source_commit_sha === "string" && /^[0-9a-f]{40}$/i.test(record.source_commit_sha) &&
+    typeof record.source_digest_sha256 === "string" && /^[0-9a-f]{64}$/i.test(record.source_digest_sha256);
+  const gates = [
+    { id: "source_locked", passed: sourceLocked, reason: "Falta una referencia de commit y/o digest SHA-256 válido." },
+    { id: "inventory_complete", passed: inventory.complete_tree === true && inventory.deterministic === true, reason: "El inventario no está marcado como completo y determinista." },
+    { id: "scope_defined", passed: scopeDefined, reason: "No existe un alcance explícito de capacidades/bindings que ARIA deba considerar absorbidos." },
+    { id: "target_bindings_ready", passed: bindingReady, reason: "Uno o más bindings objetivo todavía no están habilitados y verificables." },
+    { id: "security_verified", passed: passedValue(verification.security_review), reason: "La revisión de seguridad no está marcada como PASS." },
+    { id: "contract_tested", passed: passedValue(verification.contract_test), reason: "El contrato del adaptador no está marcado como PASS." },
+    { id: "runtime_verified", passed: verification.runtime_verified === true, reason: "No existe evidencia de ejecución LIVE verificada." },
+    { id: "evidence_persisted", passed: verification.evidence_persisted === true, reason: "La evidencia no está marcada como persistida." },
+    { id: "registered", passed: ["REGISTERED", "ENABLED"].includes(String(record.status || "")), reason: "La capacidad todavía no está registrada." },
+    { id: "enabled", passed: String(record.status || "") === "ENABLED" && record.enabled === true, reason: "La capacidad todavía no está habilitada." },
+    { id: "learning_recorded", passed: lifecycle.learning_recorded === true, reason: "Falta registrar aprendizaje/resultado de uso." },
+    { id: "use_verified", passed: lifecycle.use_verified === true, reason: "Falta una prueba de uso real posterior a la habilitación." },
+    { id: "monitor_ready", passed: lifecycle.monitor_ready === true, reason: "Falta dejar activo el control de degradación/deriva." },
+    { id: "rollback_ready", passed: lifecycle.rollback_ready === true, reason: "Falta evidencia de rollback/reemplazo seguro." }
+  ];
+  const passed = gates.filter((gate) => gate.passed).length;
+  const complete = passed === gates.length;
+  return Object.freeze({
+    version: ABSORB_COMPLETION_VERSION,
+    status: complete ? "COMPLETE" : "INCOMPLETE",
+    complete,
+    completion_percent: Math.round((passed / gates.length) * 1000) / 10,
+    gates,
+    passed_gates: passed,
+    required_gates: gates.length,
+    missing: gates.filter((gate) => !gate.passed).map((gate) => ({ id: gate.id, reason: gate.reason })),
+    definition_of_done: "100% requires every mandatory absorption gate to pass; no partial state may be reported as COMPLETE."
+  });
+}

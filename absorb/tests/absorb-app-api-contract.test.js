@@ -16,7 +16,9 @@ for (const needle of [
   'path.endsWith("/absorb/enable")',
   'external_code_execution',
   'runtime_binding',
-  'tool_ecc_operator'
+  'tool_ecc_operator',
+  'evaluateAbsorptionCompletion',
+  'completion'
 ]) assert.ok(app.includes(needle), 'missing absorb contract: ' + needle);
 
 assert.match(engine, /external_code_execution:"FORBIDDEN"/);
