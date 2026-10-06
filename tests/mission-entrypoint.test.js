@@ -39,7 +39,13 @@ const { createMissionEntrypoint } = require('../autonomy/mission-entrypoint');
   assert.strictEqual(ran[0], 'mission_test_1');
   assert.strictEqual(result.result.status, 'succeeded');
 
-  console.log('One-shot mission entrypoint: PASS');
+  const queued = await entrypoint.queueMission({ goal: 'queue test application' });
+  assert.strictEqual(queued.mission.status, 'queued');
+  assert.strictEqual(queued.result.status, 'queued');
+  assert.strictEqual(queued.result.execution_started, false);
+  assert.strictEqual(ran.length, 1);
+
+  console.log('Mission entrypoint: PASS');
 })().catch((error) => {
   console.error(error);
   process.exit(1);
