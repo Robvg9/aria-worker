@@ -2744,7 +2744,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const percent=total>0?Math.min(100,Math.max(0,completed/total*100)):0;
   const nowText=terminal?(status==='succeeded'?'Misión completada y verificada.':statusLabel(status)):status==='queued'?'La misión está en cola; ARIA la ejecutará cuando la cola esté activa.':currentStep?directActionText(currentStep,latest):latest?executionEventDetail(latest):'ARIA está preparando el siguiente movimiento.';
   const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
-  const goalPreview=missionGoalPreview(mission,180);
+  const goalPreview=missionHumanTitle(mission);
   const recentEvents=events.slice(-6).reverse(), verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified');
   return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
     <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{displayedStatus}</div><div className='executionGoal'>{goalPreview}</div></div></div>
