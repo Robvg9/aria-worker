@@ -267,10 +267,13 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
         content: "RECUPERACIÓN DE IMPLEMENTACIÓN: todavía no se ha producido ninguna escritura gobernada. No finalices la misión ni redactes un informe todavía. Debes usar ahora github_file_patch o github_file_write sobre la rama no-main y realizar al menos una mutación concreta que implemente la solicitud. Después verifica con lectura que el cambio quedó escrito.",
       });
     }
-    const forceTool = allowWrite && ((round === 0 && !sawToolCall) || (round === maxRounds - 1 && writes.length === 0));
+    const forceTool = allowWrite && writes.length === 0;
     let message:any=null;
     let lastModelError:any=null;
     const candidates = (!sawToolCall && round === 0) ? toolRoutes : [toolRoute];
+    const roundTools = allowWrite && writes.length === 0 && (sawToolCall || round > 0)
+      ? [patchTool, writeTool]
+      : tools;
     for (const candidate of candidates) {
       if (preferredProvider === "openrouter" && String(candidate?.provider) !== "openrouter") {
         throw new Error("recovery_google_route_forbidden");
@@ -283,7 +286,7 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
         recovery_free_only: isRecoveryFreeAgent,
       });
       try {
-        message = await callModel(candidate.model, messages, tools, forceTool, candidate.provider);
+        message = await callModel(candidate.model, messages, roundTools, forceTool, candidate.provider);
         toolRoute = candidate;
         break;
       } catch (error) {
