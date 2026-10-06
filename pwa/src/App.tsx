@@ -163,6 +163,35 @@ function humanizeStructuredMissionResult(value: any, mission: any): string {
 
 function missionResultText(mission: any): string {
   const results = mission?.checkpoint?.results && typeof mission.checkpoint.results === 'object' ? mission.checkpoint.results : {};
+  const verification = mission?.checkpoint?.verification;
+  const mutationBranchStep = Object.values(results).find((value:any) => value?.data?.ref || value?.ref);
+  const mutationWriteStep = Object.values(results).find((value:any) => value?.data?.path && (value?.data?.commit_sha || value?.data?.branch));
+  const mutationReadStep = Object.values(results).find((value:any) => value?.data?.html_url && value?.data?.path);
+  if (String(verification?.status || '').toLowerCase() === 'invalidated') {
+    const expected = verification?.expected || {};
+    const claimed = verification?.verifier_claim || {};
+    return [
+      'La verificación final fue INVALIDADA por una contradicción de evidencia.',
+      expected.branch ? 'Rama real: ' + String(expected.branch) + '.' : '',
+      expected.commit ? 'Commit real: ' + String(expected.commit) + '.' : '',
+      expected.path ? 'Archivo real: ' + String(expected.path) + '.' : '',
+      claimed.branch || claimed.commit || claimed.path
+        ? 'El verificador había reportado datos incompatibles: ' + [claimed.branch ? 'rama ' + claimed.branch : '', claimed.commit ? 'commit ' + claimed.commit : '', claimed.path ? 'ruta ' + claimed.path : ''].filter(Boolean).join(', ') + '.'
+        : '',
+      'El artefacto físico existe, pero la misión no puede considerarse exitosa hasta que una verificación gobernada coincida con la evidencia real.'
+    ].filter(Boolean).join(' ');
+  }
+  if (mutationWriteStep?.data || mutationReadStep?.data || mutationBranchStep?.data) {
+    const branch = String(mutationWriteStep?.data?.branch || mutationBranchStep?.data?.ref || '').replace(/^refs\/heads\//,'');
+    const commit = String(mutationWriteStep?.data?.commit_sha || '');
+    const filePath = String(mutationWriteStep?.data?.path || mutationReadStep?.data?.path || '');
+    return [
+      branch ? 'Rama creada: ' + branch + '.' : '',
+      commit ? 'Commit real: ' + commit + '.' : '',
+      filePath ? 'Archivo escrito y leído: ' + filePath + '.' : '',
+      mutationReadStep?.data?.html_url ? 'GitHub confirmó físicamente el archivo en la rama.' : ''
+    ].filter(Boolean).join(' ');
+  }
   const preferredKeys = ['summary_1', 'crosscheck_1', 'facts_1'];
   for (const key of preferredKeys) {
     const value = results[key];
@@ -205,7 +234,16 @@ function missionResultText(mission: any): string {
 
 function missionObjectivePresentation(mission: any, result: string) {
   const text = String(result || '').toLowerCase();
+  const status = String(mission?.status || '').toLowerCase();
+  const verificationStatus = String(mission?.checkpoint?.verification?.status || '').toLowerCase();
   const goal = String(mission?.goal || '').toLowerCase();
+  if (status === 'failed' || verificationStatus === 'invalidated' || /verificación final fue invalidada|objetivo no demostrado/.test(text)) {
+    return {
+      verified: false,
+      label: 'Objetivo no demostrado',
+      note: 'Los pasos de ejecución terminaron, pero la verificación final fue invalidada o la misión quedó marcada como fallida.'
+    };
+  }
   if (/(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|computer\.use\.autonomous|windows device)/.test(goal) &&
       /(no demostró|objetivo no demostrado|no obtuvo el diagnóstico|no quedó determinado|no contiene.*objetivo)/.test(text)) {
     return {
