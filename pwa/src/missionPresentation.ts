@@ -30,7 +30,7 @@ export function missionHumanTitle(mission: any): string {
   let title = 'Misión de ARIA';
   if (/battlecruiser/i.test(goal)) title = 'Integración con BattleCruiser';
   else if (/cuevacoin/i.test(goal)) title = 'Operación CuevaCoin';
-  else if (/(credenciales|usuario|contraseña|password|login|sesión)/i.test(goal)) title = 'Diagnóstico de acceso';
+  else if (/(credenciales|usuario|contraseña|password|login|sesión)/i.test(goal)) title = 'Diagnóstico de acceso y credenciales';
   else if (/(rwht|real world human|prueba)/i.test(goal)) title = project === 'General' ? 'Prueba de ARIA' : `Prueba de ARIA · ${project}`;
   else if (/(dashboard|navegación|deslic|segunda pantalla|pantalla principal)/i.test(goal)) title = 'Mejora de navegación';
   else if (/(notific|avisos)/i.test(goal)) title = 'Mejora de notificaciones';
