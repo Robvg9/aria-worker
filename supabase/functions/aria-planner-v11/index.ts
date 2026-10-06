@@ -1220,7 +1220,7 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
   }catch(_e){ return null; }
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const githubProofRecovery=await githubArtifactProofRecoveryPlan(goal,context);if(githubProofRecovery)return out({ok:true,plan:githubProofRecovery,planner_version:githubProofRecovery.planner_version,recovery_route:githubProofRecovery.recovery_route});const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
 const explicitRequestedDevice=String(
   context?.mission_planner_contract?.requested_device_id ||
   context?.requested_device_id ||
