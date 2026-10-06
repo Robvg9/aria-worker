@@ -53,7 +53,8 @@ async function login(page) {
     if (await submit.count()) await submit.click();
     else await password.press('Enter');
     try {
-      await page.waitForFunction(() => {
+      const page = page2;
+    await page.waitForFunction(() => {
         const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
           const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
         });
@@ -151,6 +152,103 @@ async function ensureLiveSession(page) {
   return refreshedStatus === 200 || refreshedStatus === 204 ? refreshed : null;
 }
 
+
+function base64UrlToUint8Array(value) {
+  const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  const raw = Buffer.from(padded, 'base64');
+  return new Uint8Array(raw);
+}
+
+function runSupabaseSql(project, query) {
+  const { execFileSync } = require('node:child_process');
+  return execFileSync('supabase', ['db', 'query', '--linked', query], {
+    env: { ...process.env, SUPABASE_PROJECT_REF: project },
+    encoding: 'utf8',
+    timeout: 120000
+  });
+}
+
+async function registerBackgroundPush(page, token) {
+  await page.context().grantPermissions(['notifications'], { origin: new URL(page.url()).origin });
+  const result = await page.evaluate(async ({ token }) => {
+    const statusResponse = await fetch('/api/meditation/push/status', {
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      cache: 'no-store'
+    });
+    const status = await statusResponse.json();
+    if (statusResponse.status !== 200 || status.configured !== true || !status.vapid_public) {
+      throw new Error('web_push_status_unavailable:' + statusResponse.status);
+    }
+    const registration = await navigator.serviceWorker.ready;
+    if (!registration.pushManager) throw new Error('push_manager_unavailable');
+    const existing = await registration.pushManager.getSubscription();
+    const subscription = existing || await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: Uint8Array.from(atob(status.vapid_public.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(status.vapid_public.length/4)*4,'=')), c => c.charCodeAt(0))
+    });
+    const json = subscription.toJSON();
+    const saveResponse = await fetch('/api/meditation/push/subscribe', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        endpoint: json.endpoint,
+        p256dh: json.keys?.p256dh,
+        auth: json.keys?.auth,
+        expiration_time: json.expirationTime ?? null,
+        user_agent: navigator.userAgent.slice(0,512)
+      })
+    });
+    const save = await saveResponse.json().catch(() => null);
+    if (saveResponse.status !== 200) throw new Error('web_push_subscribe_failed:' + saveResponse.status);
+    await caches.open('aria-push-receipts-v1').then(cache => cache.delete('/pwa/__aria-push-receipt__')).catch(() => {});
+    return { endpoint: json.endpoint, active_subscriptions: save?.subscription?.active ? 1 : 0 };
+  }, { token });
+  return result;
+}
+
+async function triggerBackgroundPush(project, missionId, userId, notificationId) {
+  const sql = `
+begin;
+insert into aria_internal.mission_state
+  (mission_id, goal, status, current_step, total_steps, completed_steps, checkpoint, metadata, lease_owner, lease_until)
+values
+  ('${missionId}','RWHT background Web Push probe','succeeded',1,1,1,
+   jsonb_build_object('probe',true,'plan',jsonb_build_array()),
+   jsonb_build_object('user_id','${userId}','probe','background_web_push_e2e'),
+   null,null)
+on conflict (mission_id) do nothing;
+with ev as (
+  insert into aria_internal.mission_events (mission_id,event_type,payload)
+  values ('${missionId}','mission_verified',jsonb_build_object('probe',true,'web_push_e2e',true))
+  returning event_id
+)
+insert into aria_internal.meditation_notifications
+  (source_event_id, mission_id, kind, severity, title, message, action, metadata)
+select event_id, '${missionId}', 'mission_completed_verified', 'success',
+       'Misión completada y verificada', 'RWHT background Web Push E2E', 'review_result',
+       jsonb_build_object('probe',true,'web_push_e2e',true,'notification_id','${notificationId}')
+from ev;
+commit;
+`;
+  runSupabaseSql(project, sql);
+}
+
+async function readPushReceipt(page) {
+  return page.evaluate(async () => {
+    const cache = await caches.open('aria-push-receipts-v1');
+    const response = await cache.match('/pwa/__aria-push-receipt__');
+    const receipt = response ? await response.json().catch(() => null) : null;
+    const registration = await navigator.serviceWorker.ready;
+    const shown = await registration.getNotifications({ tag: receipt?.notification_id ? 'aria-meditation-' + receipt.notification_id : undefined });
+    return {
+      receipt,
+      shown_notifications: shown.length,
+      permission: 'Notification' in window ? Notification.permission : 'unsupported'
+    };
+  });
+}
+
 async function expectApi(page, apiPath, token) {
   return page.evaluate(async ({ apiPath, token }) => {
     const r = await fetch('/api' + apiPath, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' } });
@@ -171,7 +269,7 @@ async function run() {
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', e => pageErrors.push(String(e?.message || e)));
   page.on('response', response => { if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() }); });
-  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
+  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
   try {
     await page.goto(base + '#projects', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(1200);
@@ -180,8 +278,7 @@ async function run() {
     const persisted = await readSession(page);
     assert.ok(persisted?.accessToken && persisted?.userId, 'authenticated session was not persisted');
     report.auth_verified = true;
-    await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
-    await page.waitForTimeout(2500);
+    await page2.waitForTimeout(2500);
     await page.waitForFunction(() => {
       const password = [...document.querySelectorAll('input[type="password"]')].some(el => {
         const r = el.getBoundingClientRect();
@@ -195,10 +292,33 @@ async function run() {
     await page.getByText('MEDITACIÓN IA', { exact:true }).waitFor({ state:'visible', timeout:30000 });
     await page.locator('.statePanel .bigStatus').waitFor({ state:'visible', timeout:30000 });
     await page.getByText('EJECUCIÓN EN TIEMPO REAL', { exact:true }).waitFor({ state:'visible', timeout:30000 });
+    await page.getByRole('button', { name:'Ver ideas y crear misión' }).click();
     await page.getByRole('button', { name:'ANALIZAR Y PROPONER' }).waitFor({ state:'visible', timeout:30000 });
     report.meditation_surface_verified = true;
     const session = await readSession(page);
     assert.ok(session?.accessToken && session?.userId, 'aria session missing after login');
+    const pushProbeMissionId = 'mission_webpush_e2e_' + Date.now();
+    const pushProbeNotificationId = crypto.randomUUID();
+    await registerBackgroundPush(page, session.accessToken);
+    await page.close();
+    const project = String(process.env.SUPABASE_PROJECT_REF || 'icuqsstxfdbvjytkhlog');
+    await new Promise(resolve => setTimeout(resolve, 250));
+    await triggerBackgroundPush(project, pushProbeMissionId, session.userId, pushProbeNotificationId);
+    let pushReceipt = null;
+    let probePage = await context.newPage();
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await probePage.waitForTimeout(1000);
+      pushReceipt = await readPushReceipt(probePage).catch(() => null);
+      if (pushReceipt?.receipt?.notification_id === pushProbeNotificationId) break;
+    }
+    assert.equal(pushReceipt?.receipt?.notification_id, pushProbeNotificationId, 'background push did not reach the service worker after page close');
+    assert.equal(pushReceipt?.shown_notifications, 1, 'service worker did not expose the delivered native notification');
+    assert.equal(pushReceipt?.permission, 'granted', 'notification permission was not granted');
+    report.background_push_verified = true;
+    await probePage.close();
+    const page2 = await context.newPage();
+    await page2.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
+    await page2.waitForTimeout(1500);
     const [overview, health, ideas, notifications] = await Promise.all([
       expectApi(page, '/meditation/overview', session.accessToken),
       expectApi(page, '/diagnostics/health', session.accessToken),
