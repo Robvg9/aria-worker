@@ -1033,7 +1033,7 @@ const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state")
 const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(scopedSessionId&&md.meditation_session_id===scopedSessionId)});
 const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||('Misión #'+(owned.length-i))),description:String(m?.goal||"")}));
 const latestUser=[...ranked].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user").sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
-const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;return 0;};const foregroundRank=(m:any)=>{const s=String(m?.status||"");if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;if(s==="succeeded")return 5;if(["failed","blocked","cancelled"].includes(s))return 4;return 0;};
+const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());const activeRank=(m:any)=>{const s=String(m?.status||"");const nextAction=String(m?.next_action||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="running"&&nextAction==="next_ready_batch")return 55;if(s==="waiting"&&hasLiveLease(m))return 45;return 0;};const foregroundRank=(m:any)=>{const s=String(m?.status||"");if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;if(s==="succeeded")return 5;if(["failed","blocked","cancelled"].includes(s))return 4;return 0;};
 const rawLive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||foregroundRank(b)-foregroundRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
 const rawActive=rawLive;
 const visibleIds=ranked.slice(0,20).map((m:any)=>String(m.mission_id));if(rawActive?.mission_id&&!visibleIds.includes(String(rawActive.mission_id)))visibleIds.push(String(rawActive.mission_id));
@@ -1698,39 +1698,3 @@ Deno.serve(async (req) => {
     }
     if (req.method === "GET" && path.endsWith("/diagnostics/health")) {
       try {
-        return json({ok:true,health:await operationalHealth(user.id),trace_id:trace});
-      } catch {
-        return json({
-          ok: true,
-          health: {
-            version: "aria-operational-diagnostics-v1.0.0",
-            status: "unavailable",
-            observed: false,
-            scope: "system",
-            user_id: user.id,
-            reason: "diagnostic_unavailable",
-            next_actions: ["Restaurar el diagnóstico operativo antes de considerar el núcleo saludable."]
-          },
-          trace_id: trace
-        });
-      }
-    }
-    if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/diagnostic")) {
-      const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/diagnostic$/,""));
-      const diagnostic=await missionDiagnosticForUser(missionId,user.id);
-      if(!diagnostic)return json({error:"mission_not_found",trace_id:trace},404);
-      return json({ok:true,diagnostic,trace_id:trace});
-    }
-    if (req.method === "GET" && path.includes("/missions/") && path.endsWith("/events")) {
-      const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
-      const mission=await missionForUser(missionId,user.id);
-      if(!mission) return json({error:"mission_not_found",trace_id:trace},404);
-      const {data,error}=await serviceClient().schema("aria_internal").from("mission_events").select("event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha").eq("mission_id",missionId).order("created_at",{ascending:true}).limit(200);
-      if(error) return json({error:"mission_events_failed",detail:error.message,trace_id:trace},502);
-      return json({ok:true,events:data??[],trace_id:trace});
-    }
-    if (req.method === "GET" && path.includes("/missions/")) { const missionId = decodeURIComponent(path.split("/missions/")[1]); const mission = await missionForUser(missionId, user.id); if (!mission) return json({ error: "mission_not_found", trace_id: trace }, 404); return json({ mission, trace_id: trace }); }
-    if (req.method === "POST" && path.endsWith("/memory/search")) { const body = await req.json().catch(() => null); const text = typeof body?.query === "string" ? body.query.trim() : ""; if (!text) return json({ error: "query_required", stage: "input", trace_id: trace }, 400); const results = await recall(text, user.id); return json({ ok: true, query: text, result_count: results.length, results, scope: "user", trace_id: trace }); }
-    return json({ error: "not_found", stage: "routing", trace_id: trace }, 404);
-  } catch (e) { return json({ error: "internal_error", stage: "gateway", detail: String((e as any)?.message ?? e), trace_id: trace }, 500); }
-});
