@@ -582,7 +582,8 @@ async function liveAssistantContext(userId:string) {
   });
   const latestUser=[...owned].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user").sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
   const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());
-  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;return 0;};
+  const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
+  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if(s==="running"&&!hasPendingJob(m))return 35;if(s==="waiting"&&!hasPendingJob(m))return 30;return 0;};
   const live=[...owned].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
   const active=live;
 const recent=owned.slice(0,8).map((m:any)=>({
