@@ -851,9 +851,12 @@ async function missionProofArtifactPlan(goal:string, context:any={}){
         timeout_ms:60000,
         policy:{tool_use:true,verification_read:true,non_main_branch_required:true,spanish_output_required:true},
         depends_on:["implementation_write_1"],
-        verify:{response_content_contains:"ARIA Mission Proof"},
+        verify:{response_content_nonempty:true},
         selection:{recovery_route:"github_connector_artifact_verification"}
-      }
+      },
+      agentStep("verification_agent_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},
+        `VERIFICACIÓN FÍSICA DEL ARTEFACTO. Inspecciona en GitHub la rama ${branchName} del repositorio Robvg9/aria-worker y confirma que existe ${path}, que el contenido es realmente HTML autónomo, que contiene "ARIA Mission Proof", source_ref, captured_at_utc, NO CONFIRMADO y "Siguiente acción recomendada", y que la rama no es main. No modifiques nada. Declara cada comprobación PASS/FAIL y no aceptes texto como evidencia.`,
+        ["verification_file_1"])
     ],
     planner_version:"aria-planner-v11-mission-proof-connector-recovery-v1",
     alternative_strategy:true,
