@@ -34,6 +34,7 @@ jobs:
       RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
       RWHT_LOGIN_WAIT_MS: '40000'
       RWHT_AUTH_ATTEMPTS: '1'
+      RWHT_BACKGROUND_PUSH_E2E: 'true'
       RWHT_ARTIFACT_DIR: meditation-e2e-artifacts
       RWHT_BACKGROUND_PUSH_E2E: 'true'
     steps:
