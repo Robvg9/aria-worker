@@ -24,6 +24,8 @@ export function missionProjectLabel(mission: any): string {
 }
 
 export function missionHumanTitle(mission: any): string {
+  const stored = String(mission?.display_title ?? mission?.metadata?.display_title ?? '').trim();
+  if (stored) return compactMissionTitle(stored);
   const goal = String(mission?.goal ?? '').trim();
   const project = missionProjectLabel(mission);
 
