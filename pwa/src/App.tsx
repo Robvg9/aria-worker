@@ -2372,7 +2372,6 @@ function Meditation({ session }: { session: Session }) {
                           <div>
                             <strong>{queueLabel(r, index)}</strong>
                             <small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small>
-                            <small>{missionGoalPreview(r, 110)}</small>
                           </div>
                         </button>
                         {String(r.status) === 'queued' && (
@@ -2389,7 +2388,7 @@ function Meditation({ session }: { session: Session }) {
           
                 <details className='panel collapsiblePanel'>
                   <summary><span>HISTORIAL</span><b>{(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).length}</b></summary>
-                  {(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).slice(0, 12).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
+                  {(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).slice(0, 12).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small></div><span className='rowArrow'>›</span></button>)}
                 </details>
           
         </div>
@@ -2740,7 +2739,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const percent=total>0?Math.min(100,Math.max(0,completed/total*100)):0;
   const nowText=terminal?(status==='succeeded'?'Misión completada y verificada.':statusLabel(status)):status==='queued'?'La misión está en cola; ARIA la ejecutará cuando la cola esté activa.':currentStep?directActionText(currentStep,latest):latest?executionEventDetail(latest):'ARIA está preparando el siguiente movimiento.';
   const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
-  const goalPreview=missionGoalPreview(mission,180);
+  const goalPreview=missionHumanTitle(mission);
   const recentEvents=events.slice(-6).reverse(), verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified');
   return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
     <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{displayedStatus}</div><div className='executionGoal'>{goalPreview}</div></div></div>
