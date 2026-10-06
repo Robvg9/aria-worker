@@ -7,7 +7,7 @@ function createMissionEntrypoint({ missionStore, runMission, idFactory = () => `
   if (typeof runMission !== 'function') throw new TypeError('runMission function required');
   if (typeof idFactory !== 'function') throw new TypeError('idFactory function required');
 
-  async function startMission({ goal, mission_id = null, metadata = {}, checkpoint = {} } = {}) {
+  async function createQueuedMission({ goal, mission_id = null, metadata = {}, checkpoint = {} } = {}) {
     if (typeof goal !== 'string' || goal.trim() === '') throw new TypeError('goal must be a non-empty string');
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new TypeError('metadata must be a JSON object');
     if (!checkpoint || typeof checkpoint !== 'object' || Array.isArray(checkpoint)) throw new TypeError('checkpoint must be a JSON object');
@@ -24,12 +24,21 @@ function createMissionEntrypoint({ missionStore, runMission, idFactory = () => `
       checkpoint,
       metadata
     });
+    return Object.freeze({ mission });
+  }
 
+  async function startMission(input = {}) {
+    const { mission } = await createQueuedMission(input);
     const result = await runMission(mission.mission_id);
     return Object.freeze({ mission, result });
   }
 
-  return Object.freeze({ startMission });
+  async function queueMission(input = {}) {
+    const { mission } = await createQueuedMission(input);
+    return Object.freeze({ mission, result: { status: 'queued', execution_started: false } });
+  }
+
+  return Object.freeze({ startMission, queueMission });
 }
 
 module.exports = Object.freeze({ createMissionEntrypoint });
