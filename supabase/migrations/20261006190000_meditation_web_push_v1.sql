@@ -85,7 +85,7 @@ set search_path = 'pg_catalog','aria_internal'
 as $$
 declare
   v_secret text;
-  v_url constant text := 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-meditation-web-push-v1';
+  v_url constant text := 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3/meditation/push/dispatch';
 begin
   select decrypted_secret into v_secret
   from vault.decrypted_secrets
