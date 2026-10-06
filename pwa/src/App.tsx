@@ -2163,13 +2163,33 @@ function Meditation({ session }: { session: Session }) {
   async function load() {
     setSyncing(true); let successes=0;
     try{
-      const [overview,capability,health]=await Promise.all([
+      const [overview,missionsFallback,capability,health]=await Promise.all([
         api('/meditation/overview',session.accessToken).catch(()=>null),
+        api('/missions?limit=100',session.accessToken).catch(()=>null),
         api('/capabilities',session.accessToken).catch(()=>null),
         api('/diagnostics/health',session.accessToken).catch(()=>null)
       ]);
-      if(overview){
-        let nextOverview=overview; const candidate=selectLiveMission(overview);
+      if(overview || missionsFallback){
+        const fallbackMissions=Array.isArray(missionsFallback?.missions)?missionsFallback.missions:[];
+        const mergedOverview=overview
+          ? {
+              ...overview,
+              missions: Array.from(new Map([
+                ...(Array.isArray(overview?.missions)?overview.missions:[]),
+                ...fallbackMissions
+              ].map((m:any)=>[String(m?.mission_id),m])).values()),
+              active_mission: missionsFallback?.active_mission ?? overview?.active_mission
+            }
+          : {
+              version:'aria-meditation-dashboard-fallback-v1',
+              mode:'stopped',
+              missions:fallbackMissions,
+              active_mission:missionsFallback?.active_mission??null,
+              queued_missions:[],
+              foreground_mission:null,
+              counts:{missions:fallbackMissions.length,queued:0,human_gates:0,blocked:0,verification_pending:0}
+            };
+        let nextOverview=mergedOverview; const candidate=selectLiveMission(mergedOverview);
         const foreground=selectForegroundMission(overview);
         const queued=meditationQueueItems(overview,null).find((x:any)=>String(x?.status)==='queued') ?? null;
         const missionForView=candidate ?? queued ?? (foreground && ['succeeded','failed','blocked','cancelled'].includes(String(foreground.status)) ? foreground : null);
