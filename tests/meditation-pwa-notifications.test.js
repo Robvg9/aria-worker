@@ -43,6 +43,12 @@ assert(helper.includes('showNotification'), 'persistent PWA notification call mi
 assert(helper.includes('/pwa/#notification='), 'notification deep link missing');
 
 assert(sw.includes('notificationclick'), 'service-worker notificationclick handler missing');
+assert(app.includes('const livePermission = typeof window !== \'undefined\' && \'Notification\' in window'));
+assert(app.includes('const recentUnread = compact.filter'));
+assert(app.includes('const notificationCandidates = firstSync.current'));
+assert(app.includes('if (shown) seenSet.add(String(item.notification_id))'));
+assert(app.includes('if (livePermission !== \'granted\' && !item.read_at) return'));
+console.log('PWA FIRST-SYNC NOTIFICATION DELIVERY REGRESSION: PASS');
 assert(sw.includes('/pwa/#notification='), 'service-worker notification target missing');
 
 console.log('MEDITATION IA PWA NOTIFICATIONS CUTOVER CONTRACT: PASS');
