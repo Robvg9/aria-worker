@@ -2266,7 +2266,7 @@ function Meditation({ session }: { session: Session }) {
         let nextOverview=mergedOverview; const candidate=selectLiveMission(mergedOverview);
         const foreground=selectForegroundMission(overview);
         const queued=meditationQueueItems(overview,null).find((x:any)=>String(x?.status)==='queued') ?? null;
-        const missionForView=candidate ?? queued ?? (foreground && ['succeeded','failed','blocked','cancelled'].includes(String(foreground.status)) ? foreground : null);
+        let missionForView=candidate ?? queued ?? (foreground && ['succeeded','failed','blocked','cancelled'].includes(String(foreground.status)) ? foreground : null);
         const missionId=candidate?.mission_id;
         let liveEvents=Array.isArray(candidate?.live_events)?candidate.live_events:[];
         if(missionId&&!['succeeded','failed','blocked','cancelled'].includes(String(candidate?.status??'').toLowerCase())){
