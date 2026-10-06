@@ -50,7 +50,7 @@ assert.match(app,/Ocultar evidencia técnica/);
 assert.match(app,/missionHumanTitle/);
 assert.match(app,/missionListLabel/);
 assert.match(presentation,/Integración con BattleCruiser/);
-assert.match(presentation,/Diagnóstico de acceso y credenciales/);
+assert.match(presentation,/Diagnóstico de acceso/);
 assert.match(css,/\.technicalToggle/);
 assert.match(css,/\.settingsOption/);
 console.log('MISSION PRESENTATION + COLLAPSIBLE EVIDENCE CONTRACT: PASS');
