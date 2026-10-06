@@ -876,6 +876,58 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
   if(countError)throw new Error(countError.message);
   return{version:"aria-meditation-notifications-v1",notifications:data||[],unread_count:Number(unreadCount||0),external_channels:{configured:false,channels:[]}};
 }
+async function meditationPushStatusForUser(userId:string){
+  const sb=serviceClient();
+  const [{data:cfg,error:cfgError},{count,error:countError}]=await Promise.all([
+    sb.rpc("aria_get_web_push_runtime_config"),
+    sb.schema("aria_internal").from("meditation_push_subscriptions").select("subscription_id",{count:"exact",head:true}).eq("user_id",userId).eq("active",true)
+  ]);
+  if(cfgError) throw new Error("web_push_config_lookup_failed:"+cfgError.message);
+  if(countError) throw new Error("web_push_subscription_count_failed:"+countError.message);
+  const vapidPublic=String(cfg?.vapid_public??"");
+  return {
+    configured:Boolean(vapidPublic && cfg?.vapid_private && cfg?.webhook_secret),
+    vapid_public:vapidPublic,
+    active_subscriptions:Number(count||0),
+    transport:"web_push"
+  };
+}
+async function saveMeditationPushSubscriptionForUser(userId:string,body:any){
+  const endpoint=String(body?.endpoint??"").trim();
+  const p256dh=String(body?.p256dh??"").trim();
+  const auth=String(body?.auth??"").trim();
+  if(!endpoint||!p256dh||!auth) throw Object.assign(new Error("push_subscription_fields_required"),{status:400});
+  let parsed:URL;
+  try { parsed=new URL(endpoint); } catch { throw Object.assign(new Error("push_subscription_endpoint_invalid"),{status:400}); }
+  if(parsed.protocol!=="https:") throw Object.assign(new Error("push_subscription_endpoint_https_required"),{status:400});
+  if(endpoint.length>4096||p256dh.length>512||auth.length>512) throw Object.assign(new Error("push_subscription_field_too_long"),{status:400});
+  const expiration=body?.expiration_time==null?null:Number(body.expiration_time);
+  if(expiration!==null && !Number.isFinite(expiration)) throw Object.assign(new Error("push_subscription_expiration_invalid"),{status:400});
+  const userAgent=typeof body?.user_agent==="string"?body.user_agent.slice(0,512):null;
+  const {data,error}=await serviceClient().schema("aria_internal").from("meditation_push_subscriptions").upsert({
+    user_id:userId,
+    endpoint,
+    p256dh,
+    auth,
+    expiration_time:expiration,
+    user_agent:userAgent,
+    active:true,
+    updated_at:new Date().toISOString()
+  },{onConflict:"user_id,endpoint"}).select("subscription_id,endpoint,active,created_at,updated_at").single();
+  if(error) throw new Error("push_subscription_save_failed:"+error.message);
+  return {ok:true,subscription:data};
+}
+async function removeMeditationPushSubscriptionForUser(userId:string,body:any){
+  const endpoint=String(body?.endpoint??"").trim();
+  if(!endpoint) throw Object.assign(new Error("push_subscription_endpoint_required"),{status:400});
+  const {data,error}=await serviceClient().schema("aria_internal").from("meditation_push_subscriptions")
+    .update({active:false,updated_at:new Date().toISOString()})
+    .eq("user_id",userId).eq("endpoint",endpoint)
+    .select("subscription_id,endpoint,active");
+  if(error) throw new Error("push_subscription_remove_failed:"+error.message);
+  return {ok:true,subscriptions_removed:Number(data?.length||0)};
+}
+
 async function markMeditationNotificationsReadForUser(userId:string,body:any){
   const ids=Array.isArray(body?.notification_ids)?body.notification_ids.map(String).filter(Boolean):[];
   const all=body?.all===true;
@@ -1272,6 +1324,26 @@ Deno.serve(async (req) => {
       }
     }
     if (req.method === "GET" && path.endsWith("/meditation/notifications")) { const url = new URL(req.url); const unreadOnly = url.searchParams.get("unread_only") === "true"; const limit = Number(url.searchParams.get("limit") || 50); return json({ ok: true, ...(await meditationNotificationsForUser(user.id, unreadOnly, limit)), trace_id: trace }); }
+    if (req.method === "GET" && path.endsWith("/meditation/push/status")) {
+      try { return json({ ok:true, ...(await meditationPushStatusForUser(user.id)), trace_id:trace }); }
+      catch(e) { return json({ error:String((e as any)?.message||e), trace_id:trace },502); }
+    }
+    if (req.method === "POST" && path.endsWith("/meditation/push/subscribe")) {
+      try {
+        const body=await req.json().catch(()=>null);
+        return json({ ...(await saveMeditationPushSubscriptionForUser(user.id,body)), trace_id:trace });
+      } catch(e) {
+        return json({ error:String((e as any)?.message||e), trace_id:trace },Number((e as any)?.status)||500);
+      }
+    }
+    if (req.method === "POST" && path.endsWith("/meditation/push/unsubscribe")) {
+      try {
+        const body=await req.json().catch(()=>null);
+        return json({ ...(await removeMeditationPushSubscriptionForUser(user.id,body)), trace_id:trace });
+      } catch(e) {
+        return json({ error:String((e as any)?.message||e), trace_id:trace },Number((e as any)?.status)||500);
+      }
+    }
     if (req.method === "POST" && path.endsWith("/meditation/notifications/read")) { const body = await req.json().catch(() => null); return json({ ...await markMeditationNotificationsReadForUser(user.id, body), trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/media/upload-url")) { const body = await req.json().catch(() => null); const fileName = typeof body?.fileName === "string" && body.fileName.trim() ? body.fileName.trim().replace(/[^A-Za-z0-9._-]/g, "_") : "upload.bin"; const objectPath=`${user.id}/${crypto.randomUUID()}/${fileName}`; const { data, error } = await serviceClient().storage.from(MEDIA_BUCKET).createSignedUploadUrl(objectPath); if (error || !data?.signedUrl) return json({ error: "media_upload_url_failed", stage: "media", trace_id: trace }, 502); return json({ ok: true, bucket: MEDIA_BUCKET, path: objectPath, signedUrl: data.signedUrl, trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/conversation")) {
