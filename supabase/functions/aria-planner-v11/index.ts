@@ -980,6 +980,145 @@ function applyOperationalLearning(requiredCaps:any[], learnings:any[]):{ordered:
   return {ordered,applied,retrieved};
 }
 
+async function githubArtifactProofRecoveryPlan(goal:string, context:any){
+  const g=String(goal||"");
+  const isProof=/public\\/aria-mission-proof\\.html/i.test(g) && /aria\\s+mission\\s+proof/i.test(g);
+  const recovering=context?.recovery_strategy_required===true || context?.identical_strategy_detected===true;
+  if(!isProof || !recovering) return null;
+
+  const recoveryCount=Math.max(1,Number(context?.recovery?.replan_count||context?.replan_count||1));
+  const branch=`aria/mission-proof-recovery-${recoveryCount}`;
+  const capturedAt=new Date().toISOString();
+  const failedCode=String(context?.failed_error?.code||context?.failed_step_details?.failure_code||"NO CONFIRMADO");
+  const failedMessage=String(context?.failed_error?.message||context?.failed_step_details?.failure_message||"NO CONFIRMADO");
+  const html=`<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ARIA Mission Proof</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:28px;line-height:1.5;background:#0b1020;color:#eef2ff}
+.card{border:1px solid #334155;border-radius:14px;padding:16px;margin:12px 0;background:#111827}
+.ok{color:#a7f3d0}.pending{color:#fde68a}.bad{color:#fca5a5}
+small{color:#94a3b8}code{background:#0f172a;padding:2px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<h1>ARIA Mission Proof</h1>
+<p>Artefacto persistido mediante ruta gobernada de recuperación.</p>
+
+<section class="card">
+<h2>OmniRoute</h2>
+<p class="pending">NO CONFIRMADO</p>
+<small>source_ref: NO CONFIRMADO · captured_at_utc: NO CONFIRMADO</small>
+</section>
+
+<section class="card">
+<h2>ECC</h2>
+<p class="pending">NO CONFIRMADO</p>
+<small>source_ref: NO CONFIRMADO · captured_at_utc: NO CONFIRMADO</small>
+</section>
+
+<section class="card">
+<h2>Absorciones relevantes</h2>
+<p class="pending">NO CONFIRMADO</p>
+<small>source_ref: NO CONFIRMADO · captured_at_utc: NO CONFIRMADO</small>
+</section>
+
+<section class="card">
+<h2>Gates pendientes</h2>
+<p class="pending">NO CONFIRMADO</p>
+<small>source_ref: NO CONFIRMADO · captured_at_utc: NO CONFIRMADO</small>
+</section>
+
+<section class="card">
+<h2>Prioridad actual de ARIA</h2>
+<p class="pending">NO CONFIRMADO</p>
+<small>source_ref: NO CONFIRMADO · captured_at_utc: NO CONFIRMADO</small>
+</section>
+
+<section class="card">
+<h2>Bloqueo confirmado durante esta misión</h2>
+<p class="bad"><code>${failedCode}</code> — ${failedMessage.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</p>
+<small>source_ref: recovery context · captured_at_utc: ${capturedAt}</small>
+</section>
+
+<section class="card">
+<h2>Siguiente acción recomendada</h2>
+<p class="ok">Mantener la evidencia del fallo, usar una ruta gobernada diferente y verificar físicamente rama, commit y archivo antes de declarar éxito.</p>
+<small>source_ref: mission recovery planner · captured_at_utc: ${capturedAt}</small>
+</section>
+
+<footer><small>Generado sin inventar valores no confirmados. Rama objetivo: <code>${branch}</code>.</small></footer>
+</body>
+</html>`;
+
+  const authorization={status:"approved",authorization_id:"github:aria-mission-proof-recovery"};
+  const policy={tool_use:true,mutating_operation_required:true,non_main_branch_required:true,test_evidence_required:true,do_not_claim_text_only_success:true,spanish_output_required:true,recovery_route:"agent_to_github_connector"};
+
+  const steps:any[]=[
+    agentStep("analysis_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},
+      `Confirma qué falló en la estrategia anterior y qué debe preservarse antes de ejecutar la ruta alternativa. No modifiques nada. Solicitud original: ${g}. Evidencia de fallo: ${failedCode} — ${failedMessage}`),
+    {
+      id:"github_create_branch_recovery_1",
+      operation:"create_branch",
+      executor_type:"connector",
+      target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch},
+      input:{owner:"Robvg9",repo:"aria-worker",branch,ref:"main"},
+      risk:"LOW_RISK_WRITE",
+      timeout_ms:60000,
+      authorization,
+      policy,
+      depends_on:["analysis_1"],
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"github_file_write_recovery_1",
+      operation:"file_write",
+      executor_type:"connector",
+      target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch},
+      input:{
+        owner:"Robvg9",repo:"aria-worker",branch,
+        path:"public/aria-mission-proof.html",
+        content:html,
+        message:"feat: create ARIA Mission Proof via governed recovery"
+      },
+      risk:"LOW_RISK_WRITE",
+      timeout_ms:60000,
+      authorization,
+      policy,
+      depends_on:["github_create_branch_recovery_1"],
+      verify:{response_content_nonempty:true}
+    },
+    {
+      id:"github_file_verify_recovery_1",
+      operation:"file_read",
+      executor_type:"connector",
+      target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch},
+      input:{owner:"Robvg9",repo:"aria-worker",branch,path:"public/aria-mission-proof.html"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:{tool_use:true,verification_read:true,spanish_output_required:true,recovery_route:"agent_to_github_connector"},
+      depends_on:["github_file_write_recovery_1"],
+      verify:{response_content_nonempty:true}
+    },
+    agentStep("verification_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},
+      `Haz la verificación final de la ruta alternativa. Comprueba físicamente en GitHub que existe la rama ${branch}, que existe public/aria-mission-proof.html y que su contenido corresponde a la solicitud. No modifiques nada. Declara FALLIDA cualquier ausencia o contradicción.`,["github_file_verify_recovery_1"])
+  ];
+  return {
+    goal:g,
+    steps,
+    planner_version:"aria-planner-v11-mission-proof-github-recovery-v1",
+    recovery_route:"agent_to_github_connector",
+    alternative_strategy:true,
+    non_main_branch_required:true,
+    artifact_path:"public/aria-mission-proof.html",
+    branch,
+    captured_at_utc:capturedAt,
+  };
+}
+
 async function localQwenRecoveryPlan(goal:string, context:any){
   if(!(context?.recovery_strategy_required===true || context?.identical_strategy_detected===true)) return null;
   const previousPlan=Array.isArray(context?.previous_plan)?context.previous_plan:[];
