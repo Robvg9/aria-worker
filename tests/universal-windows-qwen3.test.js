@@ -20,7 +20,7 @@ const { createUniversalExecutor } = require('../autonomy/universal-executor');
       id: 'local-qwen3',
       operation: 'ollama.qwen3',
       target: { type: 'device', device_id: 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089' },
-      input: { prompt: 'Responde exactamente: ARIA_LOCAL_OK', model: 'qwen3:4b' },
+      input: { prompt: 'Responde exactamente: ARIA_LOCAL_OK', model: 'qwen3:0.6b' },
       risk_class: 'READ'
     }
   });
