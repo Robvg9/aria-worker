@@ -2284,25 +2284,41 @@ function dependencyEvidenceForStep(step: any, results: Record<string, unknown>) 
 
 
 async function scheduleMissionRetryKick(missionId: string, reason: string) {
-  try {
-    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
-    console.log("[aria-runner] retry dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
-    return { status: "kick_requested", request_id: requestId ?? null };
-  } catch (error) {
-    console.error("[aria-runner] retry dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
-    return { status: "kick_failed", error: error instanceof Error ? error.message : String(error) };
-  }
+  const dispatch = async () => {
+    try {
+      const response = await fetch(CANONICAL, {
+        method: "POST",
+        headers: internalHeaders(),
+        body: JSON.stringify({ mission_id: missionId }),
+      });
+      const body = await response.text();
+      if (!response.ok) throw new Error(`canonical_runtime_http_${response.status}:${body.slice(0,500)}`);
+      console.log("[aria-runner] retry background dispatch completed", JSON.stringify({ mission_id: missionId, reason, status: response.status, body: body.slice(0,500) }));
+    } catch (error) {
+      console.error("[aria-runner] retry background dispatch failed", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
+    }
+  };
+  EdgeRuntime.waitUntil(dispatch());
+  return { status: "kick_background_scheduled", mission_id: missionId, reason };
 }
 
 async function scheduleMissionContinuationKick(missionId: string, reason: string) {
-  try {
-    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
-    console.log("[aria-runner] continuation dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
-    return { status: "kick_requested", request_id: requestId ?? null };
-  } catch (error) {
-    console.error("[aria-runner] continuation dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
-    return { status: "kick_failed", error: error instanceof Error ? error.message : String(error) };
-  }
+  const dispatch = async () => {
+    try {
+      const response = await fetch(CANONICAL, {
+        method: "POST",
+        headers: internalHeaders(),
+        body: JSON.stringify({ mission_id: missionId }),
+      });
+      const body = await response.text();
+      if (!response.ok) throw new Error(`canonical_runtime_http_${response.status}:${body.slice(0,500)}`);
+      console.log("[aria-runner] continuation background dispatch completed", JSON.stringify({ mission_id: missionId, reason, status: response.status, body: body.slice(0,500) }));
+    } catch (error) {
+      console.error("[aria-runner] continuation background dispatch failed", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
+    }
+  };
+  EdgeRuntime.waitUntil(dispatch());
+  return { status: "kick_background_scheduled", mission_id: missionId, reason };
 }
 
 async function chainNextMeditationMission(depth: number) {
@@ -3798,171 +3814,3 @@ Deno.serve(async (request) => {
               application_verification: learningApplication,
             },
             plan: steps,
-            completed_steps: [...completed],
-            attempts,
-            results,
-            pending_jobs: pendingJobs,
-            recovery: {
-              status: "learning_application_evidence_missing",
-              block_details: applicationBlock,
-            },
-          },
-          lease_owner: null,
-          lease_until: null,
-        });
-        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V, block_details: applicationBlock });
-      }
-
-      await updateMission(missionId, {
-        status: "queued",
-        current_step: 0,
-        completed_steps: 0,
-        next_action: applicationBlock.next_action,
-        last_stderr: "learning_application_evidence_missing",
-        checkpoint: {
-          ...(mission.checkpoint || {}),
-          learning_gate: {
-            ...learningGate,
-            application_verified: false,
-            application_replan_attempts: nextLearningReplans,
-            application_verification: learningApplication,
-          },
-          plan: undefined,
-          completed_steps: [],
-          attempts: {},
-          results: {},
-          pending_jobs: {},
-          recovery: {
-            status: "replan_learning_application",
-            replan_required: true,
-            block_details: applicationBlock,
-          },
-        },
-        lease_owner: null,
-        lease_until: null,
-      });
-      await scheduleMissionContinuationKick(missionId, "learning_application_replan");
-      return out({ ok: true, status: "replanned_learning_application", mission_id: missionId, runtime: V, block_details: applicationBlock });
-    }
-
-    await emitEvent(missionId, "checkpoint_saved", {
-      kind: "learning_application_verified",
-      version: "mastery-learning-loop-v1",
-      applied_memory_ids: learningGate?.applied_memory_ids || [],
-      verified_memory_ids: learningApplication?.verified_memory_ids || [],
-    });
-
-    const verifiedLearningGate = {
-      ...(learningGate || {}),
-      application_verified: true,
-      application_verification: learningApplication,
-      verified_at: new Date().toISOString(),
-    };
-
-    const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
-    if (!finalVerified) throw new Error("final_verification_failed");
-
-    const humanGate = realHumanGate(mission);
-    if (humanGate && !humanGateCompleted(mission)) {
-      const alreadyRequested = mission?.checkpoint?.human_gate?.status === "pending";
-      if (!alreadyRequested) {
-        await emitEvent(missionId, "human_gate_requested", {
-          required: true,
-          method: humanGate.method,
-          instructions: humanGate.instructions,
-          reason: humanGate.reason,
-        });
-      }
-      await updateMission(missionId, {
-        status: "paused",
-        current_step: completed.size,
-        completed_steps: completed.size,
-        next_action: "human_gate:confirm",
-        checkpoint: {
-          ...(mission.checkpoint || {}),
-          learning_gate: verifiedLearningGate,
-          plan: steps,
-          completed_steps: [...completed],
-          attempts,
-          results,
-          human_gate: {
-            required: true,
-            status: "pending",
-            verified: false,
-            method: humanGate.method,
-            instructions: humanGate.instructions,
-            reason: humanGate.reason,
-          },
-        },
-        lease_owner: null,
-        lease_until: null,
-      });
-      return out({
-        ok: true,
-        status: "human_gate_required",
-        mission_id: missionId,
-        runtime: V,
-        completed_steps: completed.size,
-        human_gate: { status: "pending", method: humanGate.method, instructions: humanGate.instructions },
-      });
-    }
-
-    const executorTypes = [...new Set(steps.map(executorType))];
-    const agentSteps = steps.filter((step) => executorType(step) === "agent");
-    const modelSteps = steps.filter((step) => executorType(step) === "model");
-    const agentIds = agentSteps.map((step) => String(step.target?.agent_id || "")).filter(Boolean);
-    const verifiedTerminalMarkers = {
-      universal_execution_verified: true,
-      model_execution_verified: modelSteps.length > 0 && modelSteps.every((step) => verifyStep(step, results[String(step.id)])),
-      agent_execution_verified: agentSteps.length > 0 && agentSteps.every((step) => verifyStep(step, results[String(step.id)])),
-    };
-    await emitEvent(missionId, "mission_verified", {
-      steps: steps.length,
-      completed_steps: completed.size,
-      executor_types: executorTypes,
-      agent_ids: agentIds,
-      verified: true,
-      ...verifiedTerminalMarkers,
-    });
-
-    const finalized = await rpc("aria_mission_finalize_verified_lease", {
-      p_mission_id: missionId,
-      p_worker_id: V,
-    });
-    if (!finalized) throw new Error("verified_terminalization_lease_lost");
-
-    const chained = meditationChain ? await chainNextMeditationMission(chainDepth) : null;
-    if (chained?.status === "chained" && chained?.child_status === "succeeded" && chained?.mission_id) {
-      try {
-        await rpc("aria_internal.record_mission_chain_evidence", {
-          p_parent_mission_id: missionId,
-          p_child_mission_id: String(chained.mission_id),
-          p_worker_id: V,
-          p_depth: Number(chained.depth || chainDepth + 1),
-        });
-      } catch {
-        // Chain execution succeeded; proof persistence is best-effort and never rewrites a terminal mission.
-      }
-    }
-    return out({ ok: true, status: "succeeded", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, executor_types: executorTypes, results: completed.size, chained });
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    const failedMissionId = activeMissionId || requestedMissionId;
-    let recoveryUpdate = "not_attempted";
-    if (failedMissionId) {
-      try {
-        const recovered = await updateMission(failedMissionId, {
-          status: "paused",
-          next_action: "recovery: universal runner exception",
-          last_stderr: reason,
-          lease_owner: null,
-          lease_until: null,
-        });
-        recoveryUpdate = recovered ? "applied" : "lease_lost";
-      } catch (recoveryError) {
-        recoveryUpdate = `failed:${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
-      }
-    }
-    return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V_LOGICAL, invocation_id: V, error: reason, recovery_update: recoveryUpdate });
-  }
-});
