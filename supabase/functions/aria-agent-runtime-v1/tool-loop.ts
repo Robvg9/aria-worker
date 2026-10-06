@@ -193,7 +193,8 @@ function geminiTools(tools:any[]) {
   return tools.length?[{functionDeclarations:tools.filter((tool:any)=>tool?.type==="function"&&tool?.function?.name).map((tool:any)=>({name:String(tool.function.name),description:String(tool.function.description||""),parameters:tool.function.parameters||{type:"object",properties:{},required:[]}}))}]:undefined;
 }
 function geminiMessage(json:any){
-  const parts=json?.candidates?.[0]?.content?.parts; if(!Array.isArray(parts))return null;
+  const candidate=json?.candidates?.[0]??{};
+  const parts=Array.isArray(candidate?.content?.parts)?candidate.content.parts:[];
   const text=parts.filter((p:any)=>typeof p?.text==="string").map((p:any)=>p.text).join("").trim();
   const calls=parts.filter((p:any)=>p?.functionCall?.name).map((p:any)=>({
     id:String(p.functionCall.id||crypto.randomUUID()),
@@ -201,13 +202,12 @@ function geminiMessage(json:any){
     function:{name:String(p.functionCall.name),arguments:JSON.stringify(p.functionCall.args||{})},
     geminiPart:p,
   }));
-  if(!text&&!calls.length)return null;
-  return {role:"assistant",content:text,tool_calls:calls,geminiParts:parts};
+  return {role:"assistant",content:text,tool_calls:calls,geminiParts:parts,geminiMeta:{finish_reason:candidate?.finishReason??null,prompt_feedback:json?.promptFeedback??null}};
 }
 export async function callGeminiModel(model:string,messages:any[],tools:any[],forceTool=false){
   const secret=String(Deno.env.get("GOOGLE_API_KEY")||"").trim(); if(!secret)throw new Error("google_credential_unavailable");
   const {systemInstruction,contents}=geminiContents(messages);
-  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:2200}};
+  const body:any={contents,generationConfig:{temperature:0,maxOutputTokens:4096,...(tools.length?{thinkingConfig:{thinkingLevel:forceTool?"low":"medium"}}:{})}};
   if(systemInstruction)body.systemInstruction=systemInstruction;
   const declaredTools=geminiTools(tools); if(declaredTools){body.tools=declaredTools;if(forceTool)body.toolConfig={functionCallingConfig:{mode:"ANY"}};}
   const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":secret},body:JSON.stringify(body)});
