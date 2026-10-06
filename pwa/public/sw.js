@@ -73,8 +73,8 @@ self.addEventListener('push', event => {
     (notificationId ? '/pwa/#notification=' + encodeURIComponent(notificationId) : '/pwa/#home')
   );
 
-  event.waitUntil(
-    self.registration.showNotification(title, {
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, {
       body,
       icon: '/pwa/icons/aria.svg',
       badge: '/pwa/icons/aria.svg',
@@ -85,8 +85,20 @@ self.addEventListener('push', event => {
         missionId: missionId || null,
         url: target
       }
-    })
-  );
+    });
+
+    const receipt = {
+      received: true,
+      notification_id: notificationId || null,
+      mission_id: missionId || null,
+      received_at: new Date().toISOString(),
+      handler: 'service_worker_push'
+    };
+    const cache = await caches.open(PUSH_RECEIPT_CACHE);
+    await cache.put(PUSH_RECEIPT_URL, new Response(JSON.stringify(receipt), {
+      headers: { 'content-type': 'application/json' }
+    }));
+  })();
 });
 
 self.addEventListener('notificationclick', event => {
