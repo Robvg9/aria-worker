@@ -270,6 +270,7 @@ async function run() {
     const persisted = await readSession(page);
     assert.ok(persisted?.accessToken && persisted?.userId, 'authenticated session was not persisted');
     report.auth_verified = true;
+    await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(2500);
     await page.waitForFunction(() => {
       const password = [...document.querySelectorAll('input[type="password"]')].some(el => {
