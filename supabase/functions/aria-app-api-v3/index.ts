@@ -1,6 +1,7 @@
 // Runtime refresh checkpoint: redeploy unchanged canonical APP API v3 after transient Edge Function boot errors observed 2026-09-29.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import webpush from "npm:web-push@3.6.7";
 import { classifyConversation } from "../_shared/fast-lane.ts";
 import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
@@ -876,6 +877,88 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
   if(countError)throw new Error(countError.message);
   return{version:"aria-meditation-notifications-v1",notifications:data||[],unread_count:Number(unreadCount||0),external_channels:{configured:false,channels:[]}};
 }
+async function dispatchMeditationWebPushNotification(notification:any, providedSecret:string){
+  const sb=serviceClient();
+  const {data:cfg,error:cfgError}=await sb.rpc("aria_get_web_push_runtime_config");
+  if(cfgError) return {ok:false,status:500,error:"web_push_config_lookup_failed",detail:cfgError.message};
+  const expectedSecret=String(cfg?.webhook_secret??"");
+  if(!expectedSecret||providedSecret!==expectedSecret) return {ok:false,status:401,error:"unauthorized_webhook"};
+  const notificationId=String(notification?.notification_id??"").trim();
+  const missionId=String(notification?.mission_id??"").trim();
+  if(!notificationId||!missionId) return {ok:false,status:400,error:"notification_identity_required"};
+  const {data:mission,error:missionError}=await sb.schema("aria_internal").from("mission_state").select("metadata").eq("mission_id",missionId).maybeSingle();
+  if(missionError) return {ok:false,status:502,error:"mission_owner_lookup_failed",detail:missionError.message};
+  const md=mission?.metadata&&typeof mission.metadata==="object"?mission.metadata:{};
+  const userId=String(md.user_id??md.owner_user_id??"").trim();
+  if(!userId) return {ok:false,status:422,error:"mission_owner_missing"};
+
+  const {data:subscriptions,error:subError}=await sb.schema("aria_internal").from("meditation_push_subscriptions")
+    .select("subscription_id,endpoint,p256dh,auth,expiration_time").eq("user_id",userId).eq("active",true).limit(20);
+  if(subError) return {ok:false,status:502,error:"push_subscription_lookup_failed",detail:subError.message};
+  const rows=Array.isArray(subscriptions)?subscriptions:[];
+  if(!rows.length) return {ok:true,delivered:0,skipped:0,reason:"no_active_subscription",notification_id:notificationId};
+
+  const vapidPublic=String(cfg?.vapid_public??"");
+  const vapidPrivate=String(cfg?.vapid_private??"");
+  if(!vapidPublic||!vapidPrivate) return {ok:false,status:500,error:"vapid_config_missing"};
+  webpush.setVapidDetails("https://aria.robvg9.workers.dev/",vapidPublic,vapidPrivate);
+
+  let delivered=0,skipped=0,failed=0,expired=0;
+  const payload=JSON.stringify({
+    notification_id:notificationId,
+    mission_id:missionId,
+    kind:String(notification?.kind??"update"),
+    severity:String(notification?.severity??"info"),
+    title:String(notification?.title??"Actualización de ARIA"),
+    body:String(notification?.message??"ARIA tiene una actualización."),
+    action:String(notification?.action??"review_result"),
+    url:"/pwa/#notification="+encodeURIComponent(notificationId),
+    created_at:notification?.created_at??new Date().toISOString()
+  });
+
+  for(const row of rows){
+    const subscriptionId=String(row.subscription_id);
+    const {data:prior,error:priorError}=await sb.schema("aria_internal").from("meditation_push_deliveries")
+      .select("status,attempts").eq("notification_id",notificationId).eq("subscription_id",subscriptionId).maybeSingle();
+    if(priorError) return {ok:false,status:502,error:"push_delivery_lookup_failed",detail:priorError.message};
+    if(String(prior?.status??"")==="sent"){ skipped++; continue; }
+
+    const attempt=Number(prior?.attempts??0)+1;
+    const now=new Date().toISOString();
+    const {error:pendingError}=await sb.schema("aria_internal").from("meditation_push_deliveries").upsert({
+      notification_id:notificationId,subscription_id:subscriptionId,status:"pending",attempts:attempt,error:null,updated_at:now
+    },{onConflict:"notification_id,subscription_id"});
+    if(pendingError) return {ok:false,status:502,error:"push_delivery_pending_persist_failed",detail:pendingError.message};
+
+    try{
+      await webpush.sendNotification({
+        endpoint:String(row.endpoint),
+        expirationTime:row.expiration_time==null?null:Number(row.expiration_time),
+        keys:{p256dh:String(row.p256dh),auth:String(row.auth)}
+      },payload,{TTL:300});
+      const sentAt=new Date().toISOString();
+      const {error}=await sb.schema("aria_internal").from("meditation_push_deliveries").upsert({
+        notification_id:notificationId,subscription_id:subscriptionId,status:"sent",http_status:201,attempts:attempt,error:null,sent_at:sentAt,updated_at:sentAt
+      },{onConflict:"notification_id,subscription_id"});
+      if(error) return {ok:false,status:502,error:"push_delivery_persist_failed",detail:error.message};
+      delivered++;
+    }catch(error){
+      const statusCode=Number((error as any)?.statusCode??0);
+      const errorText=String((error as any)?.body??error).replace(/\s+/g," ").trim().slice(0,600);
+      const isExpired=statusCode===404||statusCode===410;
+      const failedAt=new Date().toISOString();
+      if(isExpired){
+        await sb.schema("aria_internal").from("meditation_push_subscriptions").update({active:false,updated_at:failedAt}).eq("subscription_id",subscriptionId);
+        expired++;
+      }
+      await sb.schema("aria_internal").from("meditation_push_deliveries").upsert({
+        notification_id:notificationId,subscription_id:subscriptionId,status:isExpired?"expired":"failed",http_status:statusCode||null,attempts:attempt,error:errorText,updated_at:failedAt
+      },{onConflict:"notification_id,subscription_id"});
+      failed++;
+    }
+  }
+  return {ok:true,notification_id:notificationId,mission_id:missionId,user_id:userId,subscriptions:rows.length,delivered,skipped,failed,expired};
+}
 async function meditationPushStatusForUser(userId:string){
   const sb=serviceClient();
   const [{data:cfg,error:cfgError},{count,error:countError}]=await Promise.all([
@@ -1172,6 +1255,16 @@ async function reorderMeditationQueue(userId:string, orderedMissionIds:string[])
 Deno.serve(async (req) => {
   const trace = req.headers.get("x-aria-trace-id") ?? crypto.randomUUID();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  const internalPath = new URL(req.url).pathname.replace(/\/+$/, "");
+  if (req.method === "POST" && internalPath.endsWith("/meditation/push/dispatch")) {
+    try {
+      const payload = await req.json().catch(() => null);
+      const result = await dispatchMeditationWebPushNotification(payload?.notification, String(req.headers.get("x-aria-webpush-secret") || ""));
+      return json(result, Number(result?.status || (result?.ok === false ? 500 : 200)));
+    } catch (e) {
+      return json({ error: "web_push_dispatch_internal_error", detail: String((e as any)?.message || e) }, 500);
+    }
+  }
   let user: any;
   try { user = await requireUser(bearer(req)); }
   catch (e) { const status = (e as any)?.status === 401 ? 401 : 500; return json({ error: status === 401 ? "invalid_or_expired_session" : "gateway_auth_failure", stage: "auth", detail: String((e as any)?.message ?? e), trace_id: trace }, status); }
