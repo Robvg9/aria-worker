@@ -9,13 +9,18 @@ const source = fs.readFileSync(
   'utf8',
 );
 
-assert.match(source, /function githubArtifactProofRecoveryPlan\(goal:string, context:any\)/);
-assert.match(source, /public\\\\\/aria-mission-proof\\\\\.html/);
-assert.match(source, /recovery_route:"agent_to_github_connector"/);
-assert.match(source, /operation:"create_branch"/);
-assert.match(source, /operation:"file_write"/);
-assert.match(source, /operation:"file_read"/);
-assert.match(source, /non_main_branch_required:true/);
-assert.match(source, /NO CONFIRMADO/);
-assert.match(source, /agentStep\("verification_1"/);
+for (const marker of [
+  'function githubArtifactProofRecoveryPlan(goal:string, context:any)',
+  'public\\/aria-mission-proof\\.html',
+  'recovery_route:"agent_to_github_connector"',
+  'operation:"create_branch"',
+  'operation:"file_write"',
+  'operation:"file_read"',
+  'non_main_branch_required:true',
+  'NO CONFIRMADO',
+  'agentStep("verification_1"',
+]) {
+  assert.ok(source.includes(marker), `missing planner marker: ${marker}`);
+}
+
 console.log('MISSION PROOF GOVERNED CONNECTOR RECOVERY ROUTE: PASS');
