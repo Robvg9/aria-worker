@@ -1856,20 +1856,24 @@ function Chat({
   async function runMission() {
     const clean = goal.trim();
     if (!clean || sending) return;
-    setSending(true); setError('');
+    setSending(true);
+    setError('');
+    setMissionCreatedNotice('Creando misión…');
+    setShowNewMission(false);
+    if (window.location.hash === '#mission') window.location.hash = '#home';
     try {
       const d = await api('/missions', session.accessToken, { method: 'POST', body: JSON.stringify({ goal: clean }) });
       const missionId = d?.mission?.mission_id;
       if (!missionId) throw new Error('ARIA no confirmó la creación de la misión.');
       setGoal('');
-      setShowNewMission(false);
       const createdTitle = missionHumanTitle(d.mission);
       setMissionCreatedNotice('Misión creada: ' + createdTitle);
       window.setTimeout(() => setMissionCreatedNotice(''), 5000);
       setMission(d.mission);
-      if (window.location.hash === '#mission') window.location.hash = '#home';
       void trackMission(missionId);
     } catch (x) {
+      setMissionCreatedNotice('');
+      setShowNewMission(true);
       setError(x instanceof Error ? x.message : 'No se pudo iniciar la misión.');
     } finally {
       setSending(false);
