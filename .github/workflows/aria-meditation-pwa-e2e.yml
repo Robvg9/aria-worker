@@ -34,6 +34,7 @@ jobs:
       RWHT_LOGIN_WAIT_MS: '40000'
       RWHT_AUTH_ATTEMPTS: '1'
       RWHT_ARTIFACT_DIR: meditation-e2e-artifacts
+      RWHT_BACKGROUND_PUSH_E2E: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,6 +59,17 @@ jobs:
       - name: Install Chromium
         working-directory: rwht/pc-browser
         run: npx playwright install chromium
+      - name: Install Supabase CLI for background Web Push E2E
+        run: npm install -g supabase
+      - name: Link Supabase for background Web Push E2E
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_REF"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
       - name: Verify canonical PWA catalog on LIVE
         run: |
           set -euo pipefail
