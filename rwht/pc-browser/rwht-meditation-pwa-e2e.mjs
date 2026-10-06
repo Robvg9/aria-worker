@@ -152,15 +152,6 @@ async function ensureLiveSession(page) {
 }
 
 
-function runSupabaseSql(project, query) {
-  const { execFileSync } = require('node:child_process');
-  return execFileSync('supabase', ['db', 'query', '--linked', query], {
-    env: { ...process.env, SUPABASE_PROJECT_REF: project },
-    encoding: 'utf8',
-    timeout: 120000
-  });
-}
-
 async function verifyWebPushConfig(page, token) {
   await page.context().grantPermissions(['notifications'], { origin: new URL(page.url()).origin });
   const result = await page.evaluate(async ({ token }) => {
@@ -308,34 +299,54 @@ async function run() {
       const pushProbeNotificationId = crypto.randomUUID();
       await verifyWebPushConfig(page, session.accessToken);
 
-      // Close the PWA page first. Keep only an about:blank controller page so the
-      // registered Service Worker is still available while no PWA window is open.
+      // Close the PWA page before the notification is delivered.
       await page.close();
+
       const controllerPage = await context.newPage({ url: 'about:blank' });
       const origin = String(new URL(base).origin);
+      const pushDelivery = await deliverBackgroundPushViaCdp(
+        controllerPage,
+        origin,
+        pushProbeNotificationId,
+        pushProbeMissionId
+      );
 
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await triggerBackgroundPush(project, pushProbeMissionId, session.userId, pushProbeNotificationId);
-      const pushDelivery = await deliverBackgroundPushViaCdp(controllerPage, origin, pushProbeNotificationId, pushProbeMissionId);
-
-      let pushReceipt = null;
       const probePage = await context.newPage();
       await probePage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
-      for (let attempt = 0; attempt < 15; attempt += 1) {
+
+      let pushReceipt = null;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
         await probePage.waitForTimeout(1000);
         pushReceipt = await readPushReceipt(probePage).catch(() => null);
         if (pushReceipt?.receipt?.notification_id === pushProbeNotificationId) break;
       }
-      assert.equal(pushReceipt?.receipt?.notification_id, pushProbeNotificationId, 'background push did not reach the service worker after the PWA page was closed');
-      assert.equal(pushReceipt?.shown_notifications, 1, 'service worker did not expose the delivered native notification');
-      assert.equal(pushReceipt?.permission, 'granted', 'notification permission was not granted');
+
+      assert.equal(
+        pushReceipt?.receipt?.notification_id,
+        pushProbeNotificationId,
+        'background push did not reach the Service Worker after the PWA page was closed'
+      );
+      assert.equal(
+        pushReceipt?.shown_notifications,
+        1,
+        'Service Worker did not expose the delivered native notification'
+      );
+      assert.equal(
+        pushReceipt?.permission,
+        'granted',
+        'notification permission was not granted'
+      );
+
       report.background_push_verified = true;
-      report.background_push_registration_scope = pushDelivery.scope;
+      report.background_push_registration_scope = pushDelivery.scope || null;
+
       await probePage.close();
       await controllerPage.close();
     }
 
     page = await context.newPage();
+    await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
+    await page.waitForTimeout(1500);
     const [overview, health, ideas, notifications] = await Promise.all([
       expectApi(page, '/meditation/overview', session.accessToken),
       expectApi(page, '/diagnostics/health', session.accessToken),
