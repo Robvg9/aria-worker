@@ -55,7 +55,7 @@ const { createUniversalMissionRunner } = require('../autonomy/universal-mission'
       },
       input: {
         prompt: 'Responde exactamente: ARIA_LOCAL_OK',
-        model: 'qwen3:4b'
+        model: 'qwen3:0.6b'
       },
       risk: 'low'
     }];
@@ -79,7 +79,7 @@ const { createUniversalMissionRunner } = require('../autonomy/universal-mission'
   assert.strictEqual(deviceCalls.length, 1);
   assert.strictEqual(deviceCalls[0].step.operation, 'ollama.qwen3');
   assert.strictEqual(deviceCalls[0].step.target.device_id, 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089');
-  assert.strictEqual(deviceCalls[0].step.input.model, 'qwen3:4b');
+  assert.strictEqual(deviceCalls[0].step.input.model, 'qwen3:0.6b');
   assert.strictEqual(missions.get('m-live').status, 'succeeded');
   assert.strictEqual(missions.get('m-live').completed_steps, 1);
 
