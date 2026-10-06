@@ -209,6 +209,33 @@ async function deliverBackgroundPushViaCdp(controllerPage, origin, notificationI
   return { registrationId, scope: [...registrations.entries()].find(([, id]) => id === registrationId)?.[0] || null };
 }
 
+async function triggerBackgroundPush(project, missionId, userId, notificationId) {
+  const sql = `
+begin;
+insert into aria_internal.mission_state
+  (mission_id, goal, status, current_step, total_steps, completed_steps, checkpoint, metadata, lease_owner, lease_until)
+values
+  ('${missionId}','RWHT background Web Push probe','succeeded',1,1,1,
+   jsonb_build_object('probe',true,'plan',jsonb_build_array()),
+   jsonb_build_object('user_id','${userId}','probe','background_web_push_e2e'),
+   null,null)
+on conflict (mission_id) do nothing;
+with ev as (
+  insert into aria_internal.mission_events (mission_id,event_type,payload)
+  values ('${missionId}','mission_verified',jsonb_build_object('probe',true,'web_push_e2e',true))
+  returning event_id
+)
+insert into aria_internal.meditation_notifications
+  (source_event_id, mission_id, kind, severity, title, message, action, metadata)
+select event_id, '${missionId}', 'mission_completed_verified', 'success',
+       'Misión completada y verificada', 'RWHT background Web Push E2E', 'review_result',
+       jsonb_build_object('probe',true,'web_push_e2e',true,'notification_id','${notificationId}')
+from ev;
+commit;
+`;
+  runSupabaseSql(project, sql);
+}
+
 async function readPushReceipt(page) {
   return page.evaluate(async () => {
     const cache = await caches.open('aria-push-receipts-v1');
