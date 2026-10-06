@@ -2736,6 +2736,7 @@ Deno.serve(async (request) => {
 
       const identicalRecovery = {
         status: "waiting_for_alternative_strategy",
+        replan_required: true,
         recoverable: true,
         retry_ready: true,
         kind: "identical_replan_strategy",
