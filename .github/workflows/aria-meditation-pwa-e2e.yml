@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  group: aria-authenticated-pwa-rwht-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
