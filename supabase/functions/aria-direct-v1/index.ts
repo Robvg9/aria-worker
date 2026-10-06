@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SHARED_SECRET = Deno.env.get("ARIA_RUNTIME_SHARED_SECRET") ?? "";
@@ -179,6 +180,8 @@ Deno.serve(async (request) => {
   const memoryContext = hasExplicitVisualContext ? [] : await recall(goal);
   const metadata = {
     ...userMetadata,
+    display_title: deriveMissionDisplayTitle(goal, String(userMetadata.project_name ?? "")),
+    display_title_version: MISSION_TITLE_VERSION,
     trace_id: traceId,
     request_id: requestId,
     runtime_version: "aria-mission-runner-v22-universal",
