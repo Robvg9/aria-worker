@@ -10,15 +10,6 @@ on:
       - 'supabase/functions/aria-app-api-v3/**'
       - 'supabase/functions/aria-device-gateway/**'
       - 'supabase/migrations/*meditation*'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
-      - '.github/workflows/aria-meditation-pwa-e2e.yml'
-      - 'pwa/**'
-      - 'supabase/functions/aria-app-api-v3/**'
-      - 'supabase/functions/aria-device-gateway/**'
-      - 'supabase/migrations/*meditation*'
   workflow_dispatch:
 
 permissions:
@@ -67,19 +58,6 @@ jobs:
       - name: Install Chromium
         working-directory: rwht/pc-browser
         run: npx playwright install chromium
-      - name: Resolve PR PWA preview target
-        if: github.event_name == 'pull_request'
-        env:
-          PR_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          branch_slug="$(printf '%s' "$PR_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9-]#-#g' | cut -c1-70 | sed 's/-*$//')"
-          preview="https://${branch_slug}-aria.robvg9.workers.dev"
-          html="$(curl --fail --silent --show-error --retry 4 --retry-delay 2 "$preview/pwa/?probe=$GITHUB_SHA-preview" 2>/dev/null || true)"
-          test -n "$html"
-          grep -q 'ARIA — Centro de Mando' <<< "$html"
-          echo "RWHT_URL=$preview/pwa/" >> "$GITHUB_ENV"
-          echo "Resolved PR PWA preview: $preview/pwa/"
       - name: Install Supabase CLI for background Web Push E2E
         run: npm install -g supabase
       - name: Link Supabase for background Web Push E2E
