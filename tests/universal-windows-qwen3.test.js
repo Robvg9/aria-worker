@@ -19,7 +19,7 @@ const { createUniversalExecutor } = require('../autonomy/universal-executor');
     step: {
       id: 'local-qwen3',
       operation: 'ollama.qwen3',
-      target: { type: 'device', device_id: 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089' },
+      target: { type: 'device', device_id: 'windows-lacueva-780886' },
       input: { prompt: 'Responde exactamente: ARIA_LOCAL_OK', model: 'qwen3:0.6b' },
       risk_class: 'READ'
     }
@@ -30,7 +30,7 @@ const { createUniversalExecutor } = require('../autonomy/universal-executor');
   assert.strictEqual(result.stdout, 'ARIA_LOCAL_OK');
   assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0].step.operation, 'ollama.qwen3');
-  assert.strictEqual(calls[0].step.target.device_id, 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089');
+  assert.strictEqual(calls[0].step.target.device_id, 'windows-lacueva-780886');
 
   console.log('universal Windows qwen3 route test passed');
 })().catch(error => { console.error(error); process.exit(1); });
