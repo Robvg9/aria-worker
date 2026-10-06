@@ -306,6 +306,21 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
     if (!message) throw (lastModelError instanceof Error ? lastModelError : new Error("agent_model_empty"));
     text = typeof message.content === "string" ? message.content.trim() : "";
     if (!Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+      if (allowWrite && writes.length === 0 && round < maxRounds - 1) {
+        await recordDiagnostic(missionId, stepId, {
+          status: "continuation_required",
+          code: "repair_requires_mutation",
+          message: "The coding agent returned without a write. Keep the governed tool loop alive until a concrete mutation is attempted or the round budget is exhausted.",
+          model_id: toolRoute.model,
+          round,
+          saw_tool_call: sawToolCall,
+        });
+        messages.push({
+          role: "user",
+          content: "IMPLEMENTACIÓN OBLIGATORIA: ya inspeccionaste el objetivo, pero todavía no existe ninguna escritura gobernada. Continúa en la rama no-main y usa ahora github_file_write para crear el artefacto solicitado o github_file_patch para modificar el archivo exacto. No finalices con un informe mientras writes=0. Después lee el resultado para verificarlo.",
+        });
+        continue;
+      }
       if (allowWrite && !sawToolCall && round === 0) {
         await recordDiagnostic(missionId, stepId, {
           status: "failed",
