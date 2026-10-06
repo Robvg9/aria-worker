@@ -27,7 +27,7 @@ jobs:
     environment: production
     env:
       RWHT_URL: https://aria.robvg9.workers.dev/pwa/
-      RWHT_HEADLESS: 'true'
+      RWHT_HEADLESS: 'false'
       RWHT_REQUIRE_AUTH: 'true'
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
       RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
@@ -97,9 +97,12 @@ jobs:
           echo "PWA_LIVE_NOT_READY" >&2
           exit 1
 
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Execute production Web Push E2E
         working-directory: rwht/pc-browser
-        run: node rwht-meditation-pwa-e2e.mjs
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' node rwht-meditation-pwa-e2e.mjs
 
       - name: Upload Web Push evidence
         if: always()
