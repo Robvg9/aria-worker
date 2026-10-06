@@ -2832,6 +2832,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
   }
+  {
+    "id": "meditation-web-push",
+    "file": "tests/meditation-web-push.test.js",
+    "title": "Meditation IA Background Web Push",
+    "category": "Meditation IA / notificaciones",
+    "includedInNpmTest": true,
+    "how": "Comprueba la suscripción persistente, el envío servidor-a-dispositivo y el manejo de notificaciones con la PWA cerrada.",
+    "capabilities": "Valida Web Push en segundo plano, Service Worker, VAPID, persistencia de suscripciones y evidencia de entrega."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{
