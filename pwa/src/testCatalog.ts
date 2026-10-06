@@ -2833,6 +2833,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
   }
   {
+    "id": "mission-proof-governed-recovery",
+    "file": "tests/mission-proof-governed-recovery.test.js",
+    "title": "Mission Proof Governed Recovery",
+    "category": "Mission / verificación / recuperación",
+    "includedInNpmTest": false,
+    "how": "Comprueba que el plan gobernado de recuperación de Mission Proof conserva rama, archivo y lectura física.",
+    "capabilities": "Valida recuperación gobernada, escritura física en GitHub y coherencia del plan de verificación."
+  },
+  {
     "id": "meditation-web-push",
     "file": "tests/meditation-web-push.test.js",
     "title": "Meditation IA Background Web Push",
