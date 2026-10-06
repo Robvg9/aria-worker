@@ -175,10 +175,13 @@ async function registerBackgroundPush(page, token) {
     const registration = await navigator.serviceWorker.ready;
     if (!registration.pushManager) throw new Error('push_manager_unavailable');
     const existing = await registration.pushManager.getSubscription();
-    const subscription = existing || await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: Uint8Array.from(atob(status.vapid_public.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(status.vapid_public.length/4)*4,'=')), c => c.charCodeAt(0))
-    });
+    const subscription = existing || await Promise.race([
+      registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: Uint8Array.from(atob(status.vapid_public.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(status.vapid_public.length/4)*4,'=')), c => c.charCodeAt(0))
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('push_subscription_timeout')), 30000))
+    ]);
     const json = subscription.toJSON();
     const saveResponse = await fetch('/api/meditation/push/subscribe', {
       method: 'POST',
