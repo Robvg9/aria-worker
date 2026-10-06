@@ -298,6 +298,7 @@ async function run() {
     await triggerBackgroundPush(project, pushProbeMissionId, session.userId, pushProbeNotificationId);
     let pushReceipt = null;
     let probePage = await context.newPage();
+    await probePage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     for (let attempt = 0; attempt < 30; attempt += 1) {
       await probePage.waitForTimeout(1000);
       pushReceipt = await readPushReceipt(probePage).catch(() => null);
@@ -306,6 +307,14 @@ async function run() {
     assert.equal(pushReceipt?.receipt?.notification_id, pushProbeNotificationId, 'background push did not reach the service worker after page close');
     assert.equal(pushReceipt?.shown_notifications, 1, 'service worker did not expose the delivered native notification');
     assert.equal(pushReceipt?.permission, 'granted', 'notification permission was not granted');
+
+    let delivery = '';
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      delivery = runSupabaseSql(project, "select status from aria_internal.meditation_push_deliveries where notification_id='" + pushProbeNotificationId + "' order by updated_at desc limit 1;");
+      if (/\bsent\b/i.test(delivery)) break;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    assert.ok(/\bsent\b/i.test(delivery), 'background push server delivery was not persisted as sent');
     report.background_push_verified = true;
     await probePage.close();
     page = await context.newPage();
