@@ -643,6 +643,80 @@ function verifyStep(step: any, result: any) {
   return true;
 }
 
+function validateMutationVerificationConsistency(steps: any[], results: Record<string, any>) {
+  const mutationOps = new Set(["create_branch", "github.create_branch", "file_write", "file.write", "file_read", "file.read"]);
+  const mutationSteps = steps.filter((step:any) => mutationOps.has(String(step?.operation || "").toLowerCase()));
+  const createBranchStep = mutationSteps.find((step:any) => /create_branch/i.test(String(step?.operation || "")));
+  const writeStep = mutationSteps.find((step:any) => /file[_\.]write/i.test(String(step?.operation || "")));
+  const readStep = mutationSteps.find((step:any) => /file[_\.]read/i.test(String(step?.operation || "")));
+  if (!createBranchStep || !writeStep || !readStep) return { required: false, passed: true };
+
+  const unwrap = (result:any) => {
+    if (!result || typeof result !== "object") return result;
+    if (result.data && typeof result.data === "object") return result.data;
+    return result;
+  };
+  const branchResult:any = unwrap(results[String(createBranchStep.id)] || {});
+  const writeResult:any = unwrap(results[String(writeStep.id)] || {});
+  const readResult:any = unwrap(results[String(readStep.id)] || {});
+  const branch = String(
+    branchResult?.branch ||
+    branchResult?.ref?.replace(/^refs\/heads\//, "") ||
+    writeResult?.branch ||
+    writeStep?.input?.branch ||
+    ""
+  ).trim();
+  const commit = String(
+    writeResult?.commit_sha ||
+    writeResult?.sha ||
+    branchResult?.commit_sha ||
+    ""
+  ).trim();
+  const path = String(
+    writeResult?.path ||
+    readResult?.path ||
+    writeStep?.input?.path ||
+    readStep?.input?.path ||
+    ""
+  ).trim();
+
+  if (!branch || branch === "main") return { required: true, passed: false, reason: "mutation_verification_branch_missing_or_main" };
+  if (!commit || !/^[0-9a-f]{40}$/i.test(commit)) return { required: true, passed: false, reason: "mutation_verification_commit_missing_or_invalid" };
+  if (!path) return { required: true, passed: false, reason: "mutation_verification_path_missing" };
+
+  const verifierSteps = steps.filter((step:any) =>
+    /verif/i.test(String(step?.id || "") + " " + String(step?.operation || "")) &&
+    !/create_branch|file[_\.]write|file[_\.]read/i.test(String(step?.operation || ""))
+  );
+  if (!verifierSteps.length) return { required: true, passed: false, reason: "mutation_verification_verifier_step_missing" };
+
+  const verifierTexts = verifierSteps
+    .map((step:any) => {
+      const result = results[String(step.id)] || {};
+      return String(result?.response?.content ?? result?.response?.output_text ?? result?.stdout ?? "").trim();
+    })
+    .filter(Boolean);
+  if (!verifierTexts.length) return { required: true, passed: false, reason: "mutation_verification_verifier_evidence_missing" };
+
+  const verifierText = verifierTexts.join("\n");
+  const hasBranch = verifierText.includes(branch);
+  const hasCommit = verifierText.includes(commit);
+  const hasPath = verifierText.includes(path);
+  const claimsMainAsTarget = /(?:rama|branch)\s*:\s*main/i.test(verifierText);
+  const claimsDifferentPath = /(?:ruta exacta|path)\s*:\s*\S+/i.test(verifierText) && !hasPath;
+
+  if (!hasBranch || !hasCommit || !hasPath || claimsMainAsTarget || claimsDifferentPath) {
+    return {
+      required: true,
+      passed: false,
+      reason: "mutation_verification_evidence_mismatch",
+      expected: { branch, commit, path },
+      verifier_excerpt: verifierText.slice(0, 4000),
+    };
+  }
+
+  return { required: true, passed: true, branch, commit, path, verifier_confirmed: true, source: "structured_mutation_results_plus_verifier_text" };
+}
 function realHumanGate(mission: any) {
   const gate = mission?.metadata?.human_gate;
   if (!gate || typeof gate !== "object") return null;
@@ -3879,6 +3953,40 @@ Deno.serve(async (request) => {
       application_verification: learningApplication,
       verified_at: new Date().toISOString(),
     };
+
+    const mutationVerification = validateMutationVerificationConsistency(steps, results);
+    if (!mutationVerification.passed) {
+      await emitEvent(missionId, "mission_verification_failed", {
+        reason: mutationVerification.reason,
+        verification: mutationVerification,
+      });
+      await updateMission(missionId, {
+        status: "failed",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: null,
+        last_stderr: mutationVerification.reason,
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          verification: mutationVerification,
+          recovery: {
+            status: "verification_failed",
+            reason: mutationVerification.reason,
+            recoverable: true,
+          },
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      return out({
+        ok: false,
+        status: "failed",
+        mission_id: missionId,
+        runtime: V,
+        error: mutationVerification.reason,
+        verification: mutationVerification,
+      });
+    }
 
     const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
     if (!finalVerified) throw new Error("final_verification_failed");

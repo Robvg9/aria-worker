@@ -54,6 +54,38 @@ self.addEventListener('fetch', event => {
   event.respondWith(networkFirst(event.request, event.request));
 });
 
+self.addEventListener('push', event => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    try { payload = { body: event.data ? event.data.text() : '' }; } catch {}
+  }
+
+  const title = String(payload?.title || 'Actualización de ARIA');
+  const body = String(payload?.body || 'ARIA tiene una actualización.');
+  const notificationId = String(payload?.notification_id || '');
+  const missionId = String(payload?.mission_id || '');
+  const target = String(
+    payload?.url ||
+    (notificationId ? '/pwa/#notification=' + encodeURIComponent(notificationId) : '/pwa/#home')
+  );
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: '/pwa/icons/aria.svg',
+      badge: '/pwa/icons/aria.svg',
+      tag: notificationId ? 'aria-meditation-' + notificationId : 'aria-meditation-update',
+      renotify: true,
+      data: {
+        notificationId: notificationId || null,
+        missionId: missionId || null,
+        url: target
+      }
+    })
+  );
+});
 
 self.addEventListener('notificationclick', event => {
   const notification = event.notification;

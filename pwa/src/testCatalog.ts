@@ -2831,7 +2831,25 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": false,
     "how": "Comprueba el contrato específico de integración de ECC con ARIA y detecta regresiones.",
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
-  }
+  },
+  {
+    "id": "mission-proof-governed-recovery",
+    "file": "tests/mission-proof-governed-recovery.test.js",
+    "title": "Mission Proof Governed Recovery",
+    "category": "Mission / verificación / recuperación",
+    "includedInNpmTest": false,
+    "how": "Comprueba que el plan gobernado de recuperación de Mission Proof conserva rama, archivo y lectura física.",
+    "capabilities": "Valida recuperación gobernada, escritura física en GitHub y coherencia del plan de verificación."
+  },
+  {
+    "id": "meditation-web-push",
+    "file": "tests/meditation-web-push.test.js",
+    "title": "Meditation IA Background Web Push",
+    "category": "Meditation IA / notificaciones",
+    "includedInNpmTest": true,
+    "how": "Comprueba la suscripción persistente, el envío servidor-a-dispositivo y el manejo de notificaciones con la PWA cerrada.",
+    "capabilities": "Valida Web Push en segundo plano, Service Worker, VAPID, persistencia de suscripciones y evidencia de entrega."
+  },
 ];
 
 export type TestCatalogStats = Readonly<{

@@ -42,6 +42,8 @@ const HISTORICAL_LABELS: Array<[RegExp,string]> = [
   [/Failed/gi,'Fallida']
 ];
 
+const PUSH_PUBLIC_KEY_CACHE = 'aria_web_push_public_key_v1';
+
 export function humanizeMeditationDetail(item: PwaNotificationItem): string {
   const raw = String(item?.message ?? '').trim();
   if (!raw) return 'ARIA tiene un detalle adicional registrado.';
@@ -98,6 +100,80 @@ export async function requestPwaNotificationPermission(): Promise<NotificationPe
     return Notification.permission;
   }
   return Notification.requestPermission();
+}
+
+async function fetchPushApi(accessToken: string, path: string, method = 'GET', body?: unknown): Promise<any> {
+  const response = await fetch('/api' + path, {
+    method,
+    headers: {
+      authorization: 'Bearer ' + accessToken,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' })
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: 'no-store'
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = typeof data?.error === 'string' ? data.error : 'web_push_api_failed';
+    throw new Error(message);
+  }
+  return data;
+}
+
+function base64UrlToUint8Array(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  const raw = atob(padded);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+
+export async function ensurePwaWebPushSubscription(accessToken: string): Promise<boolean> {
+  if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return false;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+
+  const status = await fetchPushApi(accessToken, '/meditation/push/status');
+  const vapidPublic = String(status?.vapid_public ?? '').trim();
+  if (!vapidPublic || status?.configured !== true) throw new Error('web_push_not_configured');
+
+  const registration = await navigator.serviceWorker.ready;
+  if (!registration.pushManager) return false;
+
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64UrlToUint8Array(vapidPublic)
+    });
+  }
+
+  const serialized = subscription.toJSON();
+  const endpoint = String(serialized?.endpoint ?? '').trim();
+  const p256dh = String(serialized?.keys?.p256dh ?? '').trim();
+  const auth = String(serialized?.keys?.auth ?? '').trim();
+  if (!endpoint || !p256dh || !auth) throw new Error('invalid_push_subscription');
+
+  await fetchPushApi(accessToken, '/meditation/push/subscribe', 'POST', {
+    endpoint,
+    p256dh,
+    auth,
+    expiration_time: serialized?.expirationTime ?? null,
+    user_agent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 512) : null
+  });
+
+  try {
+    localStorage.setItem(PUSH_PUBLIC_KEY_CACHE, vapidPublic);
+    localStorage.setItem(PUSH_PUBLIC_KEY_CACHE + ':endpoint', endpoint);
+  } catch {}
+  return true;
+}
+
+export async function removePwaWebPushSubscription(accessToken: string, endpoint?: string): Promise<boolean> {
+  const knownEndpoint = String(endpoint || localStorage.getItem(PUSH_PUBLIC_KEY_CACHE + ':endpoint') || '').trim();
+  if (!knownEndpoint) return false;
+  await fetchPushApi(accessToken, '/meditation/push/unsubscribe', 'POST', { endpoint: knownEndpoint });
+  return true;
 }
 
 export async function showPwaNotification(item: PwaNotificationItem): Promise<boolean> {
