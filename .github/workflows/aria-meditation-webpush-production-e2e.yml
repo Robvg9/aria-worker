@@ -1,0 +1,110 @@
+name: ARIA Meditation IA — Production Web Push E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
+      - 'pwa/src/notifications.ts'
+      - 'pwa/public/sw.js'
+      - 'pwa/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/migrations/*meditation*'
+      - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-production-webpush-e2e
+  cancel-in-progress: false
+
+jobs:
+  webpush_e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      RWHT_URL: https://aria.robvg9.workers.dev/pwa/
+      RWHT_HEADLESS: 'true'
+      RWHT_REQUIRE_AUTH: 'true'
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      RWHT_LOGIN_WAIT_MS: '40000'
+      RWHT_AUTH_ATTEMPTS: '1'
+      RWHT_BACKGROUND_PUSH_E2E: 'true'
+      RWHT_ARTIFACT_DIR: meditation-e2e-artifacts
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Prepare authenticated session fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+          elif [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then
+            printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+          fi
+          if [[ -f "${RUNNER_TEMP}/aria-rwht-auth-state.json" ]]; then
+            chmod 600 "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Install E2E dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        run: npx playwright install chromium
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase
+
+      - name: Link production Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_PROJECT_REF}"
+          test -n "${SUPABASE_ACCESS_TOKEN}"
+          supabase link --project-ref "${SUPABASE_PROJECT_REF}"
+
+      - name: Wait for LIVE PWA
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/?probe=$GITHUB_SHA-webpush-$attempt" 2>/dev/null || true)"
+            if grep -q "aria-test-catalog-version" <<<"$html" || grep -q "ARIA" <<<"$html"; then
+              echo "PWA_LIVE_OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "PWA_LIVE_NOT_READY" >&2
+          exit 1
+
+      - name: Execute production Web Push E2E
+        working-directory: rwht/pc-browser
+        run: node rwht-meditation-pwa-e2e.mjs
+
+      - name: Upload Web Push evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-production-webpush-evidence
+          path: rwht/pc-browser/meditation-e2e-artifacts
+          if-no-files-found: warn
