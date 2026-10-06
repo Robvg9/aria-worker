@@ -11,7 +11,7 @@ const source = fs.readFileSync(
 
 for (const marker of [
   'function githubArtifactProofRecoveryPlan(goal:string, context:any)',
-  'public\\/aria-mission-proof\\.html',
+  'artifact_path:"public/aria-mission-proof.html"',
   'recovery_route:"agent_to_github_connector"',
   'operation:"create_branch"',
   'operation:"file_write"',
