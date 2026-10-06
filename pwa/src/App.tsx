@@ -1381,21 +1381,51 @@ function PwaNotificationCenter({ session }: { session: Session }) {
       setItems(compact);
       setUnread(compact.filter(item => !item.read_at).length);
 
+      const livePermission = typeof window !== 'undefined' && 'Notification' in window
+        ? Notification.permission
+        : 'unsupported';
+      setPermission(livePermission);
+
       let seen: string[] = [];
       try { seen = JSON.parse(localStorage.getItem(seenKey) || '[]'); } catch {}
       const seenSet = new Set(seen.map(String));
       const fresh = compact.filter(item => !seenSet.has(String(item.notification_id)));
+      const now = Date.now();
+      const recentUnread = compact.filter(item => {
+        if (item.read_at) return false;
+        const created = Date.parse(String(item.created_at || ''));
+        return Number.isFinite(created) && (now - created) <= 30 * 60 * 1000;
+      });
 
-      if (firstSync.current) {
-        next.forEach(item => seenSet.add(String(item.notification_id)));
-        firstSync.current = false;
-      } else if (permission === 'granted') {
-        for (const item of fresh.slice(0, 3)) {
-          try { await showPwaNotification(item); } catch {}
-          seenSet.add(String(item.notification_id));
+      // First sync must not silently mark recent unread notifications as seen.
+      // This is what previously caused a mission that finished while the PWA
+      // was closed to appear in the in-app ledger without producing the native
+      // browser notification on the next open.
+      const notificationCandidates = firstSync.current
+        ? recentUnread.slice(0, 3)
+        : fresh.slice(0, 3);
+
+      if (livePermission === 'granted') {
+        for (const item of notificationCandidates) {
+          try {
+            const shown = await showPwaNotification(item);
+            if (shown) seenSet.add(String(item.notification_id));
+          } catch {}
         }
-      } else {
-        fresh.forEach(item => seenSet.add(String(item.notification_id)));
+      }
+
+      // Do not mark unseen items as delivered when permission is unavailable.
+      // They remain unread/pending until permission is granted or the user opens
+      // the notification center and reviews them.
+      if (firstSync.current) {
+        recentUnread.forEach(item => {
+          if (livePermission !== 'granted' && !item.read_at) return;
+          if (seenSet.has(String(item.notification_id))) return;
+          if (item.read_at) seenSet.add(String(item.notification_id));
+        });
+        firstSync.current = false;
+      } else if (livePermission !== 'granted') {
+        // No native delivery occurred; keep the local delivery marker untouched.
       }
 
       const compactSeen = Array.from(seenSet).slice(-200);
