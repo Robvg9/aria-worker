@@ -12,6 +12,7 @@ const validQwen = JSON.stringify({
   model: OLLAMA_QWEN3_MODEL
 });
 
+assert.strictEqual(OLLAMA_QWEN3_MODEL, 'qwen3:0.6b');
 assert.strictEqual(validateDeviceJobOperation(DEVICE_JOB_OPERATIONS.SHELL_EXECUTE, 'echo ok').ok, true);
 const autonomousRwht = validateDeviceJobOperation(
   DEVICE_JOB_OPERATIONS.AUTONOMOUS_COMPUTER_USE,

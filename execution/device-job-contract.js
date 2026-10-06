@@ -8,7 +8,7 @@ const DEVICE_JOB_OPERATIONS = Object.freeze({
   ANDROID_BROWSER_BRIDGE: 'computer.use.android'
 });
 
-const OLLAMA_QWEN3_MODEL = 'qwen3:4b';
+const OLLAMA_QWEN3_MODEL = 'qwen3:0.6b';
 const OLLAMA_QWEN3_ALLOWED_FIELDS = new Set(['prompt', 'model', 'timeout_ms']);
 const AUTONOMOUS_COMPUTER_USE_ALLOWED_FIELDS = new Set(['mode', 'goal', 'start_url', 'max_actions', 'max_runtime_ms', 'capture_screenshots']);
 const COMPUTER_USE_ACTIONS = new Set([
