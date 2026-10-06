@@ -45,6 +45,24 @@ function request(method, body) {
   assert.strictEqual((await ok.json()).ok, true);
   assert.strictEqual(calls[0].goal, 'build an application');
 
+  let queueCalls = 0;
+  let startCalls = 0;
+  const queuedHandler = createMissionHttpHandler({
+    startMission: async () => {
+      startCalls += 1;
+      return { mission: { mission_id: 'wrong-start' } };
+    },
+    queueMission: async (input) => {
+      queueCalls += 1;
+      return { mission: { mission_id: 'queued-1', goal: input.goal, status: 'queued' }, result: { status: 'queued', execution_started: false } };
+    }
+  });
+  const queued = await queuedHandler(request('POST', { goal: 'queue an application' }));
+  assert.strictEqual(queued.status, 200);
+  assert.strictEqual((await queued.json()).mission.mission_id, 'queued-1');
+  assert.strictEqual(queueCalls, 1);
+  assert.strictEqual(startCalls, 0);
+
   const protectedHandler = createMissionHttpHandler({
     auth: async () => false,
     startMission: async () => ({})
