@@ -29,7 +29,7 @@ assert.match(app,/function togglePref\(key: keyof UiPrefs\)/);
 assert.match(app,/function updateApp\(\)/);
 console.log('CONFIG SETTINGS CONTRACT: PASS');
 assert.match(app,/Actualizar app/);
-assert.match(app,/caches.keys()/);
+assert.match(app,/caches.keys\(\)/);
 assert.match(app,/sessionSnapshot/);
 console.log('GLOBAL NAV + SETTINGS CONTRACT: PASS');
 
@@ -114,7 +114,6 @@ assert.match(app,/Sí, comenzar misión/);
 assert.match(css,/.pageBodyViewport>\.executionHero\{flex:0 0 auto/);
 assert.match(css,/.meditationViewport>\.executionHero\{flex:0 0 auto!important/);
 assert.match(css,/.missionConfirmation\{/);
-console.log('CHAT PERSISTENCE + MOBILE MEDITATION + MISSION CONFIRMATION CONTRACT: PASS');
 
 
 assert.match(app,/const active = selectLiveMission\(missionsResult\)/,'Dashboard/Chat must use the canonical live-mission selector instead of trusting an arbitrary active_mission payload.');
