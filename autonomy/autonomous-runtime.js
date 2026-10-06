@@ -43,7 +43,7 @@ function createAutonomousRuntime({
   });
 
   const entrypoint = createMissionEntrypoint({ missionStore, runMission: mission.run });
-  const http = createMissionHttpHandler({ startMission: entrypoint.startMission, auth: device.auth || null });
+  const http = createMissionHttpHandler({ startMission: entrypoint.startMission, queueMission: entrypoint.queueMission, auth: device.auth || null });
 
   return Object.freeze({
     missionRepository,
