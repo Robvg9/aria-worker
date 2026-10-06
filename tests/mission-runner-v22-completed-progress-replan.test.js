@@ -60,3 +60,14 @@ const recoveredCheckpoint={
 };
 if(!recoveredCheckpoint.recovery.failed_step_ids.includes("master_rwht_full_1")) throw new Error("fixture invalid");
 console.log("verified-result recovery contract: PASS");
+if(source.includes('rpc("runner_tick_for_mission"')) {
+  throw new Error("mission continuation/retry must not depend on missing runner_tick_for_mission RPC");
+}
+if(!source.includes('fetch(CANONICAL')) {
+  throw new Error("mission continuation/retry must re-enter through canonical runtime");
+}
+if(!source.includes('headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" }')) {
+  throw new Error("canonical continuation dispatch must preserve governed internal auth");
+}
+console.log("mission continuation canonical dispatch contract: PASS");
+
