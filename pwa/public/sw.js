@@ -1,4 +1,6 @@
 const CACHE = 'aria-pwa-__BUILD__';
+const PUSH_RECEIPT_CACHE = 'aria-push-receipts-v1';
+const PUSH_RECEIPT_URL = '/pwa/__aria-push-receipt__';
 
 self.addEventListener('install', event => {
   event.waitUntil(self.skipWaiting());
@@ -7,7 +9,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE && key !== PUSH_RECEIPT_CACHE).map(key => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
