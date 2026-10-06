@@ -50,7 +50,7 @@ assert.match(app,/Ocultar evidencia técnica/);
 assert.match(app,/missionHumanTitle/);
 assert.match(app,/missionListLabel/);
 assert.match(presentation,/Integración con BattleCruiser/);
-assert.match(presentation,/Diagnóstico de acceso/);
+assert.match(presentation,/Diagnóstico de acceso y credenciales/);
 assert.match(presentation,/MISSION_TITLE_MAX = 36/);
 assert.match(app,/setMissionCreatedNotice\('Creando misión…'\);\s*setShowNewMission\(false\)/);
 assert.match(app,/setMissionCreatedNotice\('Misión creada: '\s*\+\s*createdTitle\)/);
