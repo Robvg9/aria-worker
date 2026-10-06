@@ -34,6 +34,7 @@ jobs:
       RWHT_LOGIN_WAIT_MS: '40000'
       RWHT_AUTH_ATTEMPTS: '1'
       RWHT_ARTIFACT_DIR: meditation-e2e-artifacts
+      RWHT_BACKGROUND_PUSH_E2E: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
