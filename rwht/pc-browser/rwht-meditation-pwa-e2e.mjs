@@ -53,8 +53,7 @@ async function login(page) {
     if (await submit.count()) await submit.click();
     else await password.press('Enter');
     try {
-      const page = page2;
-    await page.waitForFunction(() => {
+      await page.waitForFunction(() => {
         const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
           const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
         });
@@ -152,13 +151,6 @@ async function ensureLiveSession(page) {
   return refreshedStatus === 200 || refreshedStatus === 204 ? refreshed : null;
 }
 
-
-function base64UrlToUint8Array(value) {
-  const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
-  const raw = Buffer.from(padded, 'base64');
-  return new Uint8Array(raw);
-}
 
 function runSupabaseSql(project, query) {
   const { execFileSync } = require('node:child_process');
@@ -264,7 +256,7 @@ async function run() {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: envBool('RWHT_HEADLESS', true) });
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) }, ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) });
-  const page = await context.newPage();
+  let page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', e => pageErrors.push(String(e?.message || e)));
@@ -316,9 +308,9 @@ async function run() {
     assert.equal(pushReceipt?.permission, 'granted', 'notification permission was not granted');
     report.background_push_verified = true;
     await probePage.close();
-    const page2 = await context.newPage();
-    await page2.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
-    await page2.waitForTimeout(1500);
+    page = await context.newPage();
+    await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
+    await page.waitForTimeout(1500);
     const [overview, health, ideas, notifications] = await Promise.all([
       expectApi(page, '/meditation/overview', session.accessToken),
       expectApi(page, '/diagnostics/health', session.accessToken),
