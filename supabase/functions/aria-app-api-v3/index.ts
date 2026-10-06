@@ -863,7 +863,7 @@ async function meditationOwnedMissionIds(userId:string){
 }
 async function meditationNotificationsForUser(userId:string,unreadOnly=false,limit=50){
   const missionIds=await meditationOwnedMissionIds(userId);
-  const empty={version:"aria-meditation-notifications-v1",notifications:[],unread_count:0,external_channels:{configured:false,channels:[]}};
+  const empty={version:"aria-meditation-notifications-v1",notifications:[],unread_count:0,external_channels:{configured:true,channels:["web_push"]}};
   if(!missionIds.length)return empty;
   const safeLimit=Math.max(1,Math.min(100,Number(limit)||50));
   const sb=serviceClient().schema("aria_internal");
@@ -875,7 +875,7 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
   ]);
   if(error)throw new Error(error.message);
   if(countError)throw new Error(countError.message);
-  return{version:"aria-meditation-notifications-v1",notifications:data||[],unread_count:Number(unreadCount||0),external_channels:{configured:false,channels:[]}};
+  return{version:"aria-meditation-notifications-v1",notifications:data||[],unread_count:Number(unreadCount||0),external_channels:{configured:true,channels:["web_push"]}};
 }
 async function dispatchMeditationWebPushNotification(notification:any, providedSecret:string){
   const sb=serviceClient();
