@@ -1,7 +1,7 @@
 'use strict';
 
-function createMissionHttpHandler({ startMission, auth = null } = {}) {
-  if (typeof startMission !== 'function') throw new TypeError('startMission function required');
+function createMissionHttpHandler({ startMission, queueMission = null, auth = null } = {}) {
+  if (typeof startMission !== 'function' && typeof queueMission !== 'function') throw new TypeError('startMission function required');
   if (auth !== null && typeof auth !== 'function') throw new TypeError('auth must be a function or null');
 
   return async function handle(request) {
@@ -32,7 +32,7 @@ function createMissionHttpHandler({ startMission, auth = null } = {}) {
     }
 
     try {
-      const result = await startMission({
+      const result = await (typeof queueMission === 'function' ? queueMission : startMission)({
         goal: body.goal,
         mission_id: typeof body.mission_id === 'string' ? body.mission_id : null,
         metadata: body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata) ? body.metadata : {},
