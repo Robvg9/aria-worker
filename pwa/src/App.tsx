@@ -3,7 +3,7 @@ import { ProjectWorkspace } from './ProjectWorkspace';
 import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
-import { getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
+import { ensurePwaWebPushSubscription, getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
 const API = '/api';
 const CACHE_PREFIX = 'aria-runtime-cache-v3';
@@ -1370,6 +1370,11 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     else setPermission('unsupported');
   }, []);
 
+  useEffect(() => {
+    if (permission !== 'granted') return;
+    void ensurePwaWebPushSubscription(session.accessToken).catch(() => {});
+  }, [permission, session.accessToken]);
+
   async function openNotification(item: PwaNotificationItem) {
     setSelected(item);
     setOpen(true);
@@ -1486,6 +1491,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     const result = await requestPwaNotificationPermission();
     setPermission(result);
     if (result === 'granted') {
+      try { await ensurePwaWebPushSubscription(session.accessToken); } catch {}
       setOpen(true);
       await loadNotifications();
     }
