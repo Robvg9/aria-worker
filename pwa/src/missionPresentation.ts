@@ -1,4 +1,11 @@
 const pad = (value: number) => String(Math.max(1, value)).padStart(2, '0');
+const MISSION_TITLE_MAX = 36;
+
+function compactMissionTitle(value: string): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= MISSION_TITLE_MAX) return text;
+  return text.slice(0, MISSION_TITLE_MAX - 1).trimEnd() + '…';
+}
 
 export function missionProjectLabel(mission: any): string {
   const raw = [
@@ -20,16 +27,18 @@ export function missionHumanTitle(mission: any): string {
   const goal = String(mission?.goal ?? '').trim();
   const project = missionProjectLabel(mission);
 
-  if (/battlecruiser/i.test(goal)) return 'Integración con BattleCruiser';
-  if (/cuevacoin/i.test(goal)) return 'Operación CuevaCoin';
-  if (/(credenciales|usuario|contraseña|password|login|sesión)/i.test(goal)) return 'Diagnóstico de acceso y credenciales';
-  if (/(rwht|real world human|prueba)/i.test(goal)) return project === 'General' ? 'Prueba y verificación de ARIA' : `Prueba y verificación · ${project}`;
-  if (/(dashboard|navegación|deslic|segunda pantalla|pantalla principal)/i.test(goal)) return 'Mejora de navegación de ARIA';
-  if (/(notific|avisos)/i.test(goal)) return 'Mejora de notificaciones';
-  if (/(chat)/i.test(goal)) return project === 'General' ? 'Mejora del chat de ARIA' : `Chat · ${project}`;
-  if (/(android|pwa|aplicación|app)/i.test(goal)) return project === 'General' ? 'Mejora de la aplicación ARIA' : `Mejora de ${project}`;
-  if (/mandale|manda(le)? un mensaje|env(í|i)a.*mensaje/i.test(goal)) return 'Envío de mensaje';
-  return project === 'General' ? 'Misión de ARIA' : `Misión · ${project}`;
+  let title = 'Misión de ARIA';
+  if (/battlecruiser/i.test(goal)) title = 'Integración con BattleCruiser';
+  else if (/cuevacoin/i.test(goal)) title = 'Operación CuevaCoin';
+  else if (/(credenciales|usuario|contraseña|password|login|sesión)/i.test(goal)) title = 'Diagnóstico de acceso';
+  else if (/(rwht|real world human|prueba)/i.test(goal)) title = project === 'General' ? 'Prueba de ARIA' : `Prueba de ARIA · ${project}`;
+  else if (/(dashboard|navegación|deslic|segunda pantalla|pantalla principal)/i.test(goal)) title = 'Mejora de navegación';
+  else if (/(notific|avisos)/i.test(goal)) title = 'Mejora de notificaciones';
+  else if (/(chat)/i.test(goal)) title = project === 'General' ? 'Mejora del chat' : `Chat · ${project}`;
+  else if (/(android|pwa|aplicación|app)/i.test(goal)) title = project === 'General' ? 'Mejora de la app ARIA' : `Mejora de ${project}`;
+  else if (/mandale|manda(le)? un mensaje|env(í|i)a.*mensaje/i.test(goal)) title = 'Envío de mensaje';
+  else if (goal) title = project === 'General' ? 'Misión de ARIA' : `Misión · ${project}`;
+  return compactMissionTitle(title);
 }
 
 export function missionListLabel(mission: any, index: number): string {
