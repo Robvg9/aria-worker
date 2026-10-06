@@ -2283,26 +2283,46 @@ function dependencyEvidenceForStep(step: any, results: Record<string, unknown>) 
 }
 
 
-async function scheduleMissionRetryKick(missionId: string, reason: string) {
+async function scheduleMissionKick(missionId: string, reason: string, kind: "retry" | "continuation") {
   try {
-    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
-    console.log("[aria-runner] retry dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
-    return { status: "kick_requested", request_id: requestId ?? null };
+    // The old runner_tick_for_mission RPC is absent from the current schema.
+    // Re-enter through the canonical governed runtime instead.
+    const response = await fetch(CANONICAL, {
+      method: "POST",
+      headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" },
+      body: JSON.stringify({ mission_id: missionId }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(String(payload?.error || payload?.status || `canonical_runner_http_${response.status}`));
+    }
+    console.log(`[aria-runner] ${kind} dispatch`, JSON.stringify({
+      mission_id: missionId,
+      reason,
+      request_id: payload?.invocation_id ?? null,
+      runtime_status: payload?.status ?? null,
+    }));
+    return {
+      status: "kick_requested",
+      request_id: payload?.invocation_id ?? null,
+      runtime_status: payload?.status ?? null,
+    };
   } catch (error) {
-    console.error("[aria-runner] retry dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
+    console.error(`[aria-runner] ${kind} dispatch error`, JSON.stringify({
+      mission_id: missionId,
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    }));
     return { status: "kick_failed", error: error instanceof Error ? error.message : String(error) };
   }
 }
 
+async function scheduleMissionRetryKick(missionId: string, reason: string) {
+  return scheduleMissionKick(missionId, reason, "retry");
+}
+
 async function scheduleMissionContinuationKick(missionId: string, reason: string) {
-  try {
-    const requestId = await rpc("runner_tick_for_mission", { p_mission_id: missionId });
-    console.log("[aria-runner] continuation dispatch", JSON.stringify({ mission_id: missionId, reason, request_id: requestId ?? null }));
-    return { status: "kick_requested", request_id: requestId ?? null };
-  } catch (error) {
-    console.error("[aria-runner] continuation dispatch error", JSON.stringify({ mission_id: missionId, reason, error: error instanceof Error ? error.message : String(error) }));
-    return { status: "kick_failed", error: error instanceof Error ? error.message : String(error) };
-  }
+  return scheduleMissionKick(missionId, reason, "continuation");
 }
 
 async function chainNextMeditationMission(depth: number) {
