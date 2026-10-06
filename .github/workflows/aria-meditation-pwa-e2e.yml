@@ -22,6 +22,7 @@ concurrency:
 jobs:
   live-e2e:
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 15
     env:
       RWHT_URL: https://aria.robvg9.workers.dev/pwa/
