@@ -587,3 +587,6 @@ button{touch-action:manipulation;}
 .executionOutcome{margin-top:16px;padding:16px 18px;border-radius:16px;border:1px solid rgba(255,255,255,.08)}.executionOutcome strong{display:block;margin-top:5px;line-height:1.4}.executionOutcome small{display:block;margin-top:7px;opacity:.7;line-height:1.4}
 .operationalHealthCompact{overflow:hidden}.operationalHealthCompact>summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between}.operationalHealthSummary{padding:14px 0 4px}.operationalHealthSummary strong{display:block;font-size:16px}.operationalHealthSummary p{margin:6px 0;line-height:1.45;opacity:.78}.operationalHealthSummary small{opacity:.58}.operationalHealthActions{display:grid;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}.operationalHealthActions span{font-size:12px;opacity:.72}
 @media (max-width:700px){.executionLogRow{grid-template-columns:10px 1fr}.executionLogRow time{grid-column:2}}
+
+
+.missionToast{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:1200;display:flex;align-items:center;gap:10px;max-width:min(92vw,520px);padding:12px 14px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(18,22,30,.96);box-shadow:0 12px 36px rgba(0,0,0,.28);font-size:14px;font-weight:600}.missionToast .ghost{min-width:28px;padding:3px 7px}

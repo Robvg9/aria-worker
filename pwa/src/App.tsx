@@ -1533,6 +1533,7 @@ function Chat({
   const [messages, setMessages] = useState<Message[]>(cachedChat?.messages ?? []);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [missionCreatedNotice, setMissionCreatedNotice] = useState('');
   const [system, setSystem] = useState<any>(() => readCached('system', session.userId));
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [mission, setMission] = useState<Mission | null>(() => readCached('active_mission', session.userId));
@@ -1860,7 +1861,12 @@ function Chat({
       const d = await api('/missions', session.accessToken, { method: 'POST', body: JSON.stringify({ goal: clean }) });
       const missionId = d?.mission?.mission_id;
       if (!missionId) throw new Error('ARIA no confirmó la creación de la misión.');
-      setGoal(''); setShowNewMission(false);
+      setGoal('');
+      setShowNewMission(false);
+      const createdTitle = missionHumanTitle(d.mission);
+      setMissionCreatedNotice('Misión creada: ' + createdTitle);
+      window.setTimeout(() => setMissionCreatedNotice(''), 5000);
+      setMission(d.mission);
       if (window.location.hash === '#mission') window.location.hash = '#home';
       void trackMission(missionId);
     } catch (x) {
@@ -1903,7 +1909,7 @@ function Chat({
                 <div>
                   <div className='eyebrow'>CENTRO DE MANDO</div>
                   <h2>{mission ? statusLabel(String(mission.status)) : 'Lista para actuar'}</h2>
-                  <p>{mission ? mission.goal : 'Aquí solo verás lo esencial para saber si ARIA está lista y qué misión está atendiendo.'}</p>
+                  <p>{mission ? missionHumanTitle(mission) : 'Aquí solo verás lo esencial para saber si ARIA está lista y qué misión está atendiendo.'}</p>
                 </div>
               </div>
               <section className='panel homeMissionCard'>
@@ -1998,13 +2004,14 @@ function Chat({
       {quickView && <QuickCatalogModal title={quickView.title} items={quickView.items} onClose={() => setQuickView(null)} />}
       {showMission && mission && <MissionDetail mission={mission} events={events} diagnostic={missionDiagnostic} onClose={() => { setShowMission(false); setMissionDiagnostic(null); }} />}
 
+      {missionCreatedNotice && <div className='missionToast' role='status' aria-live='polite'>{missionCreatedNotice}<button className='ghost' onClick={() => setMissionCreatedNotice('')}>×</button></div>}
       {showNewMission && (
         <div className='modalBackdrop' onClick={() => setShowNewMission(false)}>
           <section className='detailModal compactModal' onClick={e => e.stopPropagation()}>
             <div className='eyebrow'>NUEVA MISIÓN</div>
             <h2>¿Qué debe hacer ARIA?</h2>
             <p className='muted'>La solicitud seguirá el runtime canónico y sus controles de governance.</p>
-            <textarea value={goal} onChange={e => setGoal(e.target.value)} placeholder='Ejemplo: revisa el estado de X y dime qué está mal.' />
+            <textarea aria-label='Objetivo de la misión' value={goal} onChange={e => setGoal(e.target.value)} placeholder='Describe el resultado que quieres. ARIA decide cómo conseguirlo.' />
             <div className='modalActions'>
               <button className='ghost' onClick={() => setShowNewMission(false)}>Cancelar</button>
               <button className='primary' disabled={!goal.trim() || sending} onClick={runMission}>{sending ? 'Enviando…' : 'Crear misión'}</button>
