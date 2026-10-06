@@ -1856,13 +1856,18 @@ function Chat({
   async function runMission() {
     const clean = goal.trim();
     if (!clean || sending) return;
+    const submittedGoal = clean;
     setSending(true); setError('');
+
+    // The form represents the submit action, not the lifetime of the mission.
+    // Close it immediately so a slow mission POST cannot look like a frozen modal.
+    setGoal('');
+    setShowNewMission(false);
+
     try {
       const d = await api('/missions', session.accessToken, { method: 'POST', body: JSON.stringify({ goal: clean }) });
       const missionId = d?.mission?.mission_id;
       if (!missionId) throw new Error('ARIA no confirmó la creación de la misión.');
-      setGoal('');
-      setShowNewMission(false);
       const createdTitle = missionHumanTitle(d.mission);
       setMissionCreatedNotice('Misión creada: ' + createdTitle);
       window.setTimeout(() => setMissionCreatedNotice(''), 5000);
@@ -1870,12 +1875,13 @@ function Chat({
       if (window.location.hash === '#mission') window.location.hash = '#home';
       void trackMission(missionId);
     } catch (x) {
+      setGoal(submittedGoal);
+      setShowNewMission(true);
       setError(x instanceof Error ? x.message : 'No se pudo iniciar la misión.');
     } finally {
       setSending(false);
     }
   }
-
   return (
     <main className='appShell pwaShell'>
       <header className='topBar'>
@@ -2293,7 +2299,7 @@ function Meditation({ session }: { session: Session }) {
         <div>
           <div className='panelTitle'>MEDITACIÓN IA</div>
           <div className='bigStatus'>{m ? statusLabel(String(m.status)) : queueCount ? 'Hay trabajo en cola' : 'Lista para actuar'}</div>
-          <div className='muted'>{m ? missionGoalPreview(m, 150) : queueCount ? (queueCount + ' misión' + (queueCount === 1 ? '' : 'es') + ' esperando ejecución.') : 'No hay una misión ejecutándose ahora mismo.'}</div>
+          <div className='muted'>{m ? missionHumanTitle(m) : queueCount ? (queueCount + ' misión' + (queueCount === 1 ? '' : 'es') + ' esperando ejecución.') : 'No hay una misión ejecutándose ahora mismo.'}</div>
         </div>
         <div className='actions'>
           <button className='primary' type='button' onClick={() => { window.location.hash = '#mission'; }}>＋ Nueva misión</button>
@@ -2740,10 +2746,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const percent=total>0?Math.min(100,Math.max(0,completed/total*100)):0;
   const nowText=terminal?(status==='succeeded'?'Misión completada y verificada.':statusLabel(status)):status==='queued'?'La misión está en cola; ARIA la ejecutará cuando la cola esté activa.':currentStep?directActionText(currentStep,latest):latest?executionEventDetail(latest):'ARIA está preparando el siguiente movimiento.';
   const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
-  const goalPreview=missionGoalPreview(mission,180);
   const recentEvents=events.slice(-6).reverse(), verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified');
   return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
-    <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{displayedStatus}</div><div className='executionGoal'>{goalPreview}</div></div></div>
+    <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{missionHumanTitle(mission)}</div><div className='executionGoal'>{displayedStatus} · {missionActivityLabel(mission)}</div></div></div>
     <div className='executionHeroActions'><span className={'pill '+(recoveryVisible?'warning':tone(status))}>{displayedStatus}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
     {status !== 'queued' && <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>}
     <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{recoveryVisible?'La misión perdió el lease, pero sigue registrada y ARIA está intentando recuperarla.':nowText}</strong><small>{currentStep&&status!=='queued'&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':status==='queued'?'El runner todavía no ha tomado esta misión.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
