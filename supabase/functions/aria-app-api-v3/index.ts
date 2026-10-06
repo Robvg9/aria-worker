@@ -6,6 +6,7 @@ import { shouldDebate, debatePrompt } from "../_shared/model-debate.ts";
 import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-mission.mjs";
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
+import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -530,11 +531,17 @@ async function enrichMission(m:any, sb:any, includeEta=true) {
   const progress=tw?Math.max(0,Math.min(100,Math.round(dw/tw*1000)/10)):(m.total_steps?Math.round((m.completed_steps||0)/m.total_steps*1000)/10:0);
   const eta=includeEta ? await etaFor(sb,steps) : {eta_seconds:null,basis:"overview_fast",samples:0};
   const md = m?.metadata && typeof m.metadata === "object" ? m.metadata : {};
+  const displayTitle = deriveMissionDisplayTitle(
+    String(m?.goal ?? ""),
+    String(md.project_name ?? "")
+  );
   const queuePriority = Number(md.queue_priority);
   return {
     ...m,
     project_id: md.project_id ?? null,
     project_name: md.project_name ?? null,
+    display_title: String(md.display_title || displayTitle).slice(0, 36),
+    display_title_version: String(md.display_title_version || MISSION_TITLE_VERSION),
     queue_priority: Number.isFinite(queuePriority) ? queuePriority : 0,
     progress_percent:progress,
     step_count:steps.length,
