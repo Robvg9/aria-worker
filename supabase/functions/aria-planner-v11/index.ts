@@ -727,6 +727,147 @@ async function androidAutonomousPlan(goal:string,context:any){
   const input={mode:'autonomous_test',goal:String(goal),target_package:targetPackage,allow_any_app:true,allowed_hosts:allowedHosts,start_url:startUrl,start_app:startApp,max_steps:maxSteps};
   return out({ok:true,plan:{goal,steps:[{id:'android_autonomous_1',operation:'computer.use',executor_type:'device',target:{type:'device',device_id:String(device.device_id)},input,risk:'LOW_RISK_WRITE',timeout_ms:180000,policy:{autonomous_ui_test:true,safe_actions_only:true,physical_verification_required:true,device_scoped:true,mutating_operation_required:false},verify:{expected_exit_code:0}},],planner_version:'aria-planner-v11-android-autonomous-v1',android_autonomous:true,device:{device_id:device.device_id,status:device.status,capabilities:device.capabilities}}});
 }
+async function missionProofArtifactPlan(goal:string, context:any={}){
+  const g=String(goal||"");
+  if(!/(aria\\s+mission\\s+proof|aria-mission-proof\\.html|mission\\s+proof)/i.test(g)) return null;
+  const capturedAt=new Date().toISOString();
+  const safeRows=async(table:string,columns:string,filters:any[]=[] )=>{
+    try{
+      let q=db.from(table).select(columns).limit(50);
+      for(const [method,...args] of filters){
+        if(typeof q?.[method]==="function") q=q[method](...args);
+      }
+      const {data,error}=await q;
+      return error?{error:error.message}:data||[];
+    }catch(e){return {error:e instanceof Error?e.message:String(e)};}
+  };
+  const [accounts,models,caps,missions]=await Promise.all([
+    safeRows("account_registry","account_id,provider_id,status,enabled,priority,updated_at",[["eq","provider_id","openrouter"]]),
+    safeRows("model_registry","model_id,provider_id,status,enabled,updated_at",[["in","provider_id",["google","openrouter","local_windows"]]]),
+    safeRows("capability_matrix","capability_id,model_id,status,verified_at,evidence_ref",[["limit",50]]),
+    safeRows("mission_state","mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stderr,updated_at,created_at",[["in","status",["running","waiting","planning","queued"]]])
+  ]);
+  const openrouter=Array.isArray(accounts)?accounts.find((x:any)=>String(x?.provider_id)==="openrouter"):null;
+  const eccRows=Array.isArray(caps)?caps.filter((x:any)=>/ecc/i.test(String(x?.capability_id||""))):[];
+  const current=Array.isArray(missions)
+    ? missions.sort((a:any,b:any)=>String(b?.updated_at||"").localeCompare(String(a?.updated_at||"")))[0]
+    : null;
+  const currentMissionId=String(context?.mission_id||current?.mission_id||"");
+  const source=(kind:string,id:string)=>({source_ref:id,captured_at_utc:capturedAt,kind});
+  const evidence:any={
+    schema_version:"aria-mission-proof-v1",
+    generated_by:"aria-planner-v11-mission-proof-recovery",
+    captured_at_utc:capturedAt,
+    repo:"Robvg9/aria-worker",
+    metrics:{
+      omniRoute:{
+        value:openrouter?String(openrouter.status||"NO CONFIRMADO").toUpperCase():"NO CONFIRMADO",
+        interpretation:openrouter
+          ?"Proveedor OpenRouter actualmente registrado en ARIA; esto no por sí solo certifica OmniRoute E2E."
+          :"No existe una fila canónica de cuenta OpenRouter disponible.",
+        ...source("provider-routing-state","aria_internal.account_registry:provider_id=openrouter")
+      },
+      ecc:{
+        value:eccRows.length?JSON.stringify(eccRows.slice(0,5)):"NO CONFIRMADO",
+        interpretation:eccRows.length
+          ?"Existen capacidades registradas relacionadas con ECC; su absorción E2E no se infiere de esta tabla."
+          :"No hay métrica canónica ECC expuesta en capability_matrix.",
+        ...source("ecc-capability-registry","aria_internal.capability_matrix:capability_id~ecc")
+      },
+      absorption_completion:{
+        value:"NO CONFIRMADO",
+        interpretation:"No existe en esta ruta una métrica canónica única de porcentaje de absorción verificable.",
+        ...source("absorption-metric","aria_internal:canonical_absorption_percentage_not_found")
+      },
+      pending_gates:{
+        value:"NO CONFIRMADO",
+        interpretation:"Esta recuperación no inventa gates; requiere evidencia LIVE específica para declararlos.",
+        ...source("gate-state","aria_internal:canonical_live_gate_snapshot_not_found")
+      },
+      current_priority:{
+        value:current?.goal?String(current.goal).slice(0,240):"NO CONFIRMADO",
+        interpretation:current
+          ?"Prioridad derivada únicamente de la misión activa más reciente; no sustituye el roadmap maestro."
+          :"No hay una misión activa consultable.",
+        ...source("active-mission-priority",current?.mission_id
+          ?`aria_internal.mission_state:mission_id=${current.mission_id}`
+          :"aria_internal.mission_state:no-active-mission")
+      },
+      blockers:{
+        value:current?.last_stderr || current?.next_action || "NO CONFIRMADO",
+        interpretation:current
+          ?"Bloqueo/acción actual persistida por el runtime."
+          :"No hay bloqueo canónico de misión activa disponible.",
+        ...source("runtime-blocker",current?.mission_id
+          ?`aria_internal.mission_state:mission_id=${current.mission_id}`
+          :"aria_internal.mission_state:no-active-mission")
+      }
+    },
+    context:{mission_id:currentMissionId||null},
+    next_action:"Completar la verificación física del branch, commit SHA y archivo; cualquier dato no confirmado debe permanecer como NO CONFIRMADO."
+  };
+  const branchName=`aria/mission-proof-${Date.now()}`;
+  const path="public/aria-mission-proof.html";
+  const json=JSON.stringify(evidence,null,2).replace(/</g,"\\u003c");
+  const html='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ARIA Mission Proof</title><style>body{font-family:system-ui,sans-serif;max-width:960px;margin:40px auto;padding:0 20px;background:#0b1020;color:#eef}main{display:grid;gap:16px}.card{background:#151b2f;border:1px solid #2d3858;border-radius:14px;padding:16px}code,pre{white-space:pre-wrap;word-break:break-word}h1{margin-bottom:4px}.muted{opacity:.72}.value{font-size:1.1rem;font-weight:700}</style></head><body><main><div class="card"><h1>ARIA Mission Proof</h1><p class="muted">Artefacto autónomo gobernado · datos capturados: '+capturedAt+'</p></div><div id="metrics"></div><div class="card"><h2>Siguiente acción recomendada</h2><p id="next"></p></div><details class="card"><summary>Evidencia estructurada</summary><pre id="evidence"></pre></details></main><script>const EVIDENCE='+json+';const metrics=Object.entries(EVIDENCE.metrics);document.getElementById("metrics").innerHTML=metrics.map(([k,v])=>'<div class="card"><h2>'+k.replaceAll("_"," ")+'</h2><div class="value">'+String(v.value).replaceAll("<","&lt;")+'</div><p>'+String(v.interpretation||"")+'</p><p class="muted">source_ref: '+String(v.source_ref||"")+'<br>captured_at_utc: '+String(v.captured_at_utc||"")+'</p></div>').join("");document.getElementById("next").textContent=EVIDENCE.next_action;document.getElementById("evidence").textContent=JSON.stringify(EVIDENCE,null,2);</script></body></html>';
+
+  return {
+    goal:g,
+    steps:[
+      {
+        id:"implementation_branch_1",
+        operation:"create_branch",
+        executor_type:"connector",
+        target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:branchName},
+        input:{owner:"Robvg9",repo:"aria-worker",branch:branchName,ref:"main"},
+        risk:"LOW_RISK_WRITE",
+        timeout_ms:60000,
+        authorization:{status:"approved",risk_class:"LOW_RISK_WRITE",evidence_ref:"mission-proof-recovery"},
+        policy:{tool_use:true,mutating_operation_required:true,non_main_branch_required:true,destructive_actions_blocked:true,spanish_output_required:true},
+        verify:{response_content_nonempty:true},
+        selection:{recovery_route:"github_connector_artifact_write",selection_reason:"materially different from failed agent/model route"}
+      },
+      {
+        id:"implementation_write_1",
+        operation:"file_write",
+        executor_type:"connector",
+        target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:branchName},
+        input:{owner:"Robvg9",repo:"aria-worker",branch:branchName,path,content:html,message:"feat: create ARIA Mission Proof artifact"},
+        risk:"LOW_RISK_WRITE",
+        timeout_ms:60000,
+        authorization:{status:"approved",risk_class:"LOW_RISK_WRITE",evidence_ref:"mission-proof-recovery"},
+        policy:{tool_use:true,mutating_operation_required:true,non_main_branch_required:true,destructive_actions_blocked:true,spanish_output_required:true},
+        depends_on:["implementation_branch_1"],
+        verify:{response_content_nonempty:true},
+        selection:{recovery_route:"github_connector_artifact_write"}
+      },
+      {
+        id:"verification_file_1",
+        operation:"file_read",
+        executor_type:"connector",
+        target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:branchName},
+        input:{owner:"Robvg9",repo:"aria-worker",branch:branchName,path},
+        risk:"READ",
+        timeout_ms:60000,
+        policy:{tool_use:true,verification_read:true,non_main_branch_required:true,spanish_output_required:true},
+        depends_on:["implementation_write_1"],
+        verify:{response_content_nonempty:true},
+        selection:{recovery_route:"github_connector_artifact_verification"}
+      },
+      agentStep("verification_agent_1",{agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},
+        `VERIFICACIÓN FÍSICA DEL ARTEFACTO. Inspecciona en GitHub la rama ${branchName} del repositorio Robvg9/aria-worker y confirma que existe ${path}, que el contenido es realmente HTML autónomo, que contiene "ARIA Mission Proof", source_ref, captured_at_utc, NO CONFIRMADO y "Siguiente acción recomendada", y que la rama no es main. No modifiques nada. Declara cada comprobación PASS/FAIL y no aceptes texto como evidencia.`,
+        ["verification_file_1"])
+    ],
+    planner_version:"aria-planner-v11-mission-proof-connector-recovery-v1",
+    alternative_strategy:true,
+    recovery_route:"github_connector_artifact_write",
+    non_main_branch:branchName,
+    artifact_path:path,
+    evidence_contract:"source_ref + captured_at_utc + NO CONFIRMADO for unavailable facts",
+    learning_context:context?.learned_knowledge
+  };
+}
+
 async function assetPlan(goal:string, context:any={}){const g=goal.toLowerCase(); if(/(?:modelo individual:|model individual:)/i.test(goal)){const target=(goal.match(/(?:modelo individual:|model individual:)\s*([^\s]+)/i)||[])[1]||"";const routes=await modelRoutes();const route=routes.find((r:any)=>r.model_id===target);if(!route)return out({error:"target_model_unavailable",target},409);return out({ok:true,plan:{goal,steps:[modelStep("asset_1",route,`FINDINGS. Audit only the exact target model ${target}. Use the live route selected by ARIA. Discuss availability, route, account, capability evidence, observed behavior, limits, fallback and risks. Do not invent. Finish with VERDICT.`)],planner_version:"aria-planner-v11-asset-forensic-v1",asset_forensic:true,target_type:"model",target,learning_context:context?.learned_knowledge}})}
 if(/(?:agente individual:|agent individual:)/i.test(goal)){const target=(goal.match(/(?:agente individual:|agent individual:)\s*([^\s]+)/i)||[])[1]||"";const {data:a}=await db.from("agent_catalog").select("agent_id,role,model_id,status,capabilities,max_risk").eq("agent_id",target).maybeSingle();if(!a||a.status!=="available")return out({error:"target_agent_unavailable",target},409);return out({ok:true,plan:{goal,steps:[agentStep("asset_1",a,`FINDINGS. Audit the exact target agent ${target}. Compare its live behavior with its registered role, capabilities, model, risk and limits. Use only evidence available to you; do not invent. Finish with VERDICT.`)],planner_version:"aria-planner-v11-asset-forensic-v1",asset_forensic:true,target_type:"agent",target,learning_context:context?.learned_knowledge}})}
 if(/(?:dispositivo\/executor individual:|device\/executor individual:)/i.test(goal)){const target=(goal.match(/(?:dispositivo\/executor individual:|device\/executor individual:)\s*([^\s]+)/i)||[])[1]||"";return out({ok:true,plan:{goal,steps:[{id:"asset_1",operation:"shell.execute",executor_type:"device",target:{type:"device",device_id:target},input:{command:"echo ARIA_ASSET_FORENSIC_DEVICE_OK"},risk:"READ",timeout_ms:30000,policy:{asset_forensic:true,safe_read_only:true},verify:{expected_exit_code:0,stdout_contains:"ARIA_ASSET_FORENSIC_DEVICE_OK"}}],planner_version:"aria-planner-v11-asset-forensic-v1",asset_forensic:true,target_type:"device",target,learning_context:context?.learned_knowledge}})}
@@ -1081,7 +1222,7 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
   }catch(_e){ return null; }
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const missionProofRecovery=await missionProofArtifactPlan(goal,context);if(missionProofRecovery)return out({ok:true,plan:missionProofRecovery,planner_version:missionProofRecovery.planner_version,recovery_route:missionProofRecovery.recovery_route});const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
 const explicitRequestedDevice=String(
   context?.mission_planner_contract?.requested_device_id ||
   context?.requested_device_id ||
