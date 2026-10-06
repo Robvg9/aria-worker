@@ -10,6 +10,8 @@ const runnerContinuity = fs.readFileSync(path.join(root, "supabase/functions/ari
 const recoveryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20260922133000_mission_verification_recovery_v1.sql"), "utf8");
 const hardBlockRecoveryMigration = fs.readFileSync(path.join(root, "supabase/migrations/20260922143000_mission_hardblock_recovery_epoch_v1.sql"), "utf8");
 const pwa = fs.readFileSync(path.join(root, "pwa/src/App.tsx"), "utf8");
+const presentation = fs.readFileSync(path.join(root, "pwa/src/missionPresentation.ts"), "utf8");
+const direct = fs.readFileSync(path.join(root, "supabase/functions/aria-direct-v1/index.ts"), "utf8");
 
 assert.match(planner, /SPANISH_OUTPUT_CONTRACT/);
 assert.match(planner, /spanish_output_required:true/);
@@ -95,5 +97,13 @@ assert.ok(pwa.includes("if (value === 'running') return 35"), 'PWA must keep unl
 assert.ok(pwa.includes("if (value === 'waiting') return 30"), 'PWA must keep unleased waiting missions visible');
 assert.ok(pwa.includes('const recoveryVisible=(status===\'running\'||status===\'waiting\')&&!leaseValid'), 'PWA recovery visibility marker missing');
 assert.match(pwa,/La misión perdió el lease, pero sigue registrada/);
+assert.match(pwa,/const created = d\?\.mission/);
+assert.match(pwa,/setShowNewMission\(false\)/);
+assert.match(pwa,/setMission\(created\)/);
+assert.match(presentation,/MISSION_TITLE_MAX = 36/);
+assert.match(presentation,/display_title/);
+assert.match(presentation,/return compactMissionTitle\(title\)/);
+assert.match(direct,/deriveMissionDisplayTitle\(goal/);
+assert.match(direct,/display_title_version/);
 
 console.log("mission-correctness-v1: PASS");
