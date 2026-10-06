@@ -1694,6 +1694,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Comprueba orquestación, misiones, executors, recuperación, persistencia y ejecución universal."
   },
   {
+    "id": "mission-write-intent-routing",
+    "file": "tests/mission-write-intent-routing.test.js",
+    "title": "Mission Write Intent Routing",
+    "category": "Ejecución / misiones",
+    "includedInNpmTest": true,
+    "how": "Comprueba que las misiones de creación de artefactos no se desvíen hacia una revisión de solo lectura por lenguaje ambiguo.",
+    "capabilities": "Detecta regresiones donde términos como “revisable” provoquen una ruta de reviewer en lugar del ejecutor de implementación gobernado."
+  },
+  {
     "id": "mission5-agent-expansion",
     "file": "tests/mission5-agent-expansion.test.js",
     "title": "Mission5 Agent Expansion",
