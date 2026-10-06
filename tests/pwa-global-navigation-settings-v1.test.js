@@ -29,7 +29,7 @@ assert.match(app,/function togglePref\(key: keyof UiPrefs\)/);
 assert.match(app,/function updateApp\(\)/);
 console.log('CONFIG SETTINGS CONTRACT: PASS');
 assert.match(app,/Actualizar app/);
-assert.match(app,/caches.keys\(\)/);
+assert.match(app,/caches.keys()/);
 assert.match(app,/sessionSnapshot/);
 console.log('GLOBAL NAV + SETTINGS CONTRACT: PASS');
 
@@ -50,7 +50,11 @@ assert.match(app,/Ocultar evidencia técnica/);
 assert.match(app,/missionHumanTitle/);
 assert.match(app,/missionListLabel/);
 assert.match(presentation,/Integración con BattleCruiser/);
-assert.match(presentation,/Diagnóstico de acceso/);
+assert.match(presentation,/Diagnóstico de acceso y credenciales/);
+assert.match(presentation,/MISSION_TITLE_MAX = 36/);
+assert.match(app,/setMissionCreatedNotice\('Creando misión…'\);\s*setShowNewMission\(false\)/);
+assert.match(app,/setMissionCreatedNotice\('Misión creada: '\s*\+\s*createdTitle\)/);
+assert.match(app,/const goalPreview=missionHumanTitle\(mission\)/);
 assert.match(css,/\.technicalToggle/);
 assert.match(css,/\.settingsOption/);
 console.log('MISSION PRESENTATION + COLLAPSIBLE EVIDENCE CONTRACT: PASS');
@@ -114,6 +118,7 @@ assert.match(app,/Sí, comenzar misión/);
 assert.match(css,/.pageBodyViewport>\.executionHero\{flex:0 0 auto/);
 assert.match(css,/.meditationViewport>\.executionHero\{flex:0 0 auto!important/);
 assert.match(css,/.missionConfirmation\{/);
+console.log('CHAT PERSISTENCE + MOBILE MEDITATION + MISSION CONFIRMATION CONTRACT: PASS');
 
 
 assert.match(app,/const active = selectLiveMission\(missionsResult\)/,'Dashboard/Chat must use the canonical live-mission selector instead of trusting an arbitrary active_mission payload.');
