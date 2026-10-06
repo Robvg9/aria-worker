@@ -40,6 +40,8 @@ assert(app.includes('/meditation/notifications/read'), 'PWA notification read ac
 
 assert(helper.includes('navigator.serviceWorker'), 'service-worker notification helper missing');
 assert(helper.includes('showNotification'), 'persistent PWA notification call missing');
+assert(helper.includes('ensurePwaWebPushSubscription'), 'background Web Push subscription sync missing');
+assert(helper.includes('PushManager'), 'background Web Push API surface missing');
 assert(helper.includes('/pwa/#notification='), 'notification deep link missing');
 
 assert(sw.includes('notificationclick'), 'service-worker notificationclick handler missing');
