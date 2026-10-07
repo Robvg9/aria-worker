@@ -582,9 +582,11 @@ async function liveAssistantContext(userId:string) {
     return md.user_id===userId||md.owner_user_id===userId||(sessionId&&md.meditation_session_id===sessionId);
   });
   const latestUser=[...owned].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user").sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
+  const UNLEASED_RECOVERY_MAX_AGE_MS=30*60*1000;
   const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());
   const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
-  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if(s==="running"&&!hasPendingJob(m))return 35;if(s==="waiting"&&!hasPendingJob(m))return 30;return 0;};
+  const isRecentRecovery=(m:any)=>{const updated=Date.parse(String(m?.updated_at||""));return Number.isFinite(updated)&&Date.now()-updated<=UNLEASED_RECOVERY_MAX_AGE_MS;};
+  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if((s==="running"||s==="waiting")&&!hasPendingJob(m)&&isRecentRecovery(m))return s==="running"?35:30;return 0;};
   const live=[...owned].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
   const active=live;
 const recent=owned.slice(0,8).map((m:any)=>({
@@ -1202,11 +1204,15 @@ async function meditationIdeaConvertForUser(userId:string,proposalId:string,temp
 }
 
 async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);const controllerOwnedByUser=String(controller?.owner_user_id||"")===userId;const scopedSessionId=controllerOwnedByUser&&controller?.session_id?String(controller.session_id):"";
-const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,metadata,created_at,updated_at,lease_owner,lease_until").order("updated_at",{ascending:false}).limit(200);if(me)throw new Error(me.message);
+const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,metadata,created_at,updated_at,lease_owner,lease_until,checkpoint").order("updated_at",{ascending:false}).limit(200);if(me)throw new Error(me.message);
 const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(scopedSessionId&&md.meditation_session_id===scopedSessionId)});
 const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||('Misión #'+(owned.length-i))),description:String(m?.goal||"")}));
 const latestUser=[...ranked].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user").sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
-const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if(s==="running"&&!hasPendingJob(m))return 35;if(s==="waiting"&&!hasPendingJob(m))return 30;return 0;};const foregroundRank=(m:any)=>{const s=String(m?.status||"");if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;if(s==="succeeded")return 5;if(["failed","blocked","cancelled"].includes(s))return 4;return 0;};
+const UNLEASED_RECOVERY_MAX_AGE_MS=30*60*1000;
+ const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());
+ const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
+ const isRecentRecovery=(m:any)=>{const updated=Date.parse(String(m?.updated_at||""));return Number.isFinite(updated)&&Date.now()-updated<=UNLEASED_RECOVERY_MAX_AGE_MS;};
+ const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if((s==="running"||s==="waiting")&&!hasPendingJob(m)&&isRecentRecovery(m))return s==="running"?35:30;return 0;};const foregroundRank=(m:any)=>{const s=String(m?.status||"");if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;if(s==="succeeded")return 5;if(["failed","blocked","cancelled"].includes(s))return 4;return 0;};
 const rawLive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||foregroundRank(b)-foregroundRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
 const rawActive=rawLive;
 const visibleIds=ranked.slice(0,20).map((m:any)=>String(m.mission_id));if(rawActive?.mission_id&&!visibleIds.includes(String(rawActive.mission_id)))visibleIds.push(String(rawActive.mission_id));
