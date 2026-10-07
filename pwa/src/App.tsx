@@ -1405,7 +1405,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
           <div className={'detailResult missionProblemPanel ' + (isHumanGate ? 'missionProblemHumanGate' : 'missionProblemFailure')}>
             <div className='panelTitle'>{humanProblemTitle.toUpperCase()}</div>
             <div className='missionProblemLead'>{humanProblemSummary}</div>
-            <div className='missionRecoveryTitle'>QUÉ TIENES QUE HACER</div>
+            <div className='missionRecoveryTitle'>CÓMO SOLUCIONARLO</div>
             <div className='recoverySteps'>
               {recoverySteps.map((stepText:string,index:number) => (
                 <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>
@@ -1429,6 +1429,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
             )}
             {gateError && <div className='errorBox'>{gateError}</div>}
             {retryError && <div className='errorBox'>{retryError}</div>}
+            <div className='missionRecoveryTitle'>CÓMO DESBLOQUEARLA</div>
             <div className='missionProblemFooter'>{isHumanGate ? 'Después de continuar, ARIA retomará la misión desde el paso pendiente.' : verificationMismatch ? 'La escritura ya está hecha; el reintento debe volver a comprobarla, no volver a inventar el resultado.' : block?.recoverable ? 'La misión conserva la evidencia y puede continuar.' : 'La misión necesita una nueva intervención para seguir.'}</div>
           </div>
         )}
