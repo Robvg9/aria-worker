@@ -1,17 +1,17 @@
 'use strict';
 
 const MAX_IDEA_LENGTH = 4000;
-const SCHEMA_VERSION = 'idea-to-mission-v1';
+const SCHEMA_VERSION = 'idea-to-mission-v3';
 const P = Object.freeze({
   human: [/\bhuman gate\b/i,/\bintervenci[oó]n humana\b/i,/\bverificaci[oó]n humana\b/i,/\bmanual(?:mente)?\b/i,/\bmi aprobaci[oó]n\b/i],
   payment: [/\b(pago|pagar|billing|subscription|suscripci[oó]n|quota|cuota)\b/i,/\b(api key|clave de api|credencial|credential|token|secreto|secret)\b/i],
   device: [/\b(android|tel[eé]fono|phone|usb|adb|dispositivo|device|c[aá]mara|micr[oó]fono|browser|navegador)\b/i],
-  dependency: [/\b(depende|dependencia|dependency|prerequisito|prerequisite)\b/i,/\bbloquead[oa]\b.*\b(hasta|until|antes|before)\b/i,/\brequiere\b.*\b(primero|first|antes)\b/i],
+  dependency: [/\b(depende|dependencia|dependency|prerrequisito|prerequisite)\b/i,/\bbloquead[oa]\b.*\b(hasta|until|antes|before)\b/i,/\brequiere\b.*\b(primero|first|antes)\b/i],
   capability: [/\b(nueva capacidad|capacidad nueva|new capability|capability gap|gap de capacidad)\b/i,/\bnuevo\s+(modelo|agente|proveedor|conector)\b/i],
   governance: [/\b(seguridad|security|gobernanza|governance|permiso|permissions?|autorizaci[oó]n|production|producci[oó]n|merge)\b/i],
   deferred: [/\b(diferir|diferido|deferred|postponer|postpone|m[aá]s adelante|later|despu[eé]s)\b/i],
   notViable: [/\b(no\s+(?:es\s+)?viable|not viable|imposible|impossible|no se puede|cannot be done|not possible|fuera de alcance|out of scope)\b/i],
-  mutation: [/\b(crear|crear|implementar|modificar|actualizar|a[nñ]adir|anadir|eliminar|desarrollar|refactorizar|escribir|migrar|reparar|corregir|fix|build|implement|modify|update|add|remove|develop|refactor|write|migrate|repair)\b/i]
+  mutation: [/\b(crear|implementar|modificar|actualizar|a[nñ]adir|anadir|eliminar|desarrollar|refactorizar|escribir|migrar|reparar|corregir|fix|build|implement|modify|update|add|remove|develop|refactor|write|migrate|repair)\b/i]
 });
 
 const text = (v) => typeof v === 'string' ? v.trim() : '';
@@ -48,7 +48,7 @@ function classifyIdea(idea) {
   else if(signals.human_gate_required) state='human_gate_required';
   else if(signals.dependency_required) state='dependency_check';
   const categories=uniq([
-    signals.mutation_required?'implementation': 'analysis',
+    signals.mutation_required?'implementation':'analysis',
     signals.capability_gap?'capability_gap':null,
     signals.device_or_connection_required?'device':null,
     signals.payment_or_credential_block?'payment_or_credential':null,
@@ -71,48 +71,138 @@ function classifyIdea(idea) {
 function objectiveFromIdea(idea,c){
   return {
     objective_id:'objective_1',
-    title:'Convertir en resultado verificable: '+text(idea).replace(/[.!?]+$/g,'').slice(0,96),
+    title:'Resultado que ARIA entendió',
     text:text(idea),
-    acceptance:'La propuesta queda estructurada, inspeccionable, trazable y no se autoencola.',
-    verifier:'Validación de esquema, dependencias, Human Gate/bloqueos y no autoencolado.',
+    acceptance:'La idea termina convertida en un único resultado ejecutable, verificable y trazable.',
+    verifier:'Comprobar resultado, evidencia, dependencias y cierre sin autoejecutar antes de tu elección.',
     scope:c.scope
   };
 }
 
 function subobjectives(c){
   const rows=[
-    {id:'subobjective_1',title:'Definir objetivo y criterio de éxito',description:'Traducir la idea a un objetivo concreto con aceptación y verificador.',depends_on:[]},
-    {id:'subobjective_2',title:'Analizar dependencias y fronteras',description:'Identificar prerrequisitos, dispositivos, credenciales, capacidades y gobernanza.',depends_on:['subobjective_1']},
-    {id:'subobjective_3',title:'Descomponer en misiones ejecutables',description:'Crear misiones propuestas con pasos y dependencias.',depends_on:['subobjective_1','subobjective_2']},
-    {id:'subobjective_4',title:'Definir verificación y siguiente decisión',description:'Definir evidencia requerida y mantener control humano de la cola.',depends_on:['subobjective_3']}
+    {id:'subobjective_1',title:'Entender el resultado',description:'Convertir la idea en un objetivo concreto y verificable.',depends_on:[]},
+    {id:'subobjective_2',title:'Comparar rutas',description:'Proponer alternativas con diferencias claras de alcance, riesgo y esfuerzo.',depends_on:['subobjective_1']},
+    {id:'subobjective_3',title:'Ejecutar y comprobar',description:'Crear una única misión a partir del plan que elijas y cerrar con evidencia.',depends_on:['subobjective_2']}
   ];
-  if(c.capability_gap) rows.splice(2,0,{id:'subobjective_capability',title:'Cerrar o verificar la capacidad faltante',description:'Convertir el gap detectado en una misión explícita antes de depender de esa capacidad.',depends_on:['subobjective_2']});
+  if(c.capability_gap) rows.splice(2,0,{id:'subobjective_capability',title:'Cerrar o comprobar la capacidad faltante',description:'Identificar la capacidad necesaria antes de comprometer la ejecución.',depends_on:['subobjective_2']});
   return rows;
 }
 
-function missions(c){
-  const gate=(enabled)=>({enabled,method:enabled?'manual_confirmation':null,instructions:enabled?'Revisar y confirmar la decisión humana requerida antes de promocionar o ejecutar una acción sensible.':null});
-  const m=[
-    {mission_id:'idea_mission_1',title:'Análisis y objetivo',goal:'Validar la idea, objetivo, aceptación y alcance.',status:'proposed',risk:'READ',executor_type:'planner',depends_on:[],human_gate:gate(false),blockers:[],steps:[
-      {id:'step_1',title:'Normalizar idea',operation:'idea.normalize',risk:'READ',executor_type:'planner',depends_on:[]},
-      {id:'step_2',title:'Definir aceptación',operation:'idea.acceptance',risk:'READ',executor_type:'planner',depends_on:['step_1']}
-    ]},
-    {mission_id:'idea_mission_2',title:'Dependencias y gobernanza',goal:'Verificar prerrequisitos, dispositivos, credenciales, capacidades y gobernanza.',status:'proposed',risk:c.governance_or_security?'MEDIUM':'READ',executor_type:c.device_or_connection_required?'device':'planner',depends_on:['idea_mission_1'],human_gate:gate(c.human_gate_required||c.governance_or_security),blockers:c.blockers.slice(),steps:[
-      {id:'step_1',title:'Comprobar dependencias',operation:'idea.dependencies',risk:'READ',executor_type:'planner',depends_on:[]},
-      {id:'step_2',title:'Resolver fronteras',operation:'idea.governance_check',risk:c.governance_or_security?'MEDIUM':'READ',executor_type:c.device_or_connection_required?'device':'planner',depends_on:['step_1']}
-    ]},
-    {mission_id:'idea_mission_3',title:c.mutation_required?'Implementación gobernada':'Resolución / mejora propuesta',goal:c.mutation_required?'Implementar el cambio propuesto en una ruta gobernada.':'Aplicar la mejora propuesta en la menor ruta gobernada necesaria.',status:(c.not_viable||c.payment_or_credential_block)?'blocked':'proposed',risk:c.mutation_required?'LOW_RISK_WRITE':'READ',executor_type:c.capability_gap?'agent':'connector',depends_on:['idea_mission_2'],human_gate:gate(c.human_gate_required||c.governance_or_security),blockers:c.blockers.slice(),steps:[
-      {id:'step_1',title:'Preparar ruta gobernada',operation:'idea.prepare_change',risk:'READ',executor_type:'planner',depends_on:[]},
-      {id:'step_2',title:'Aplicar cambio',operation:c.mutation_required?'idea.apply_change':'idea.execute_improvement',risk:c.mutation_required?'LOW_RISK_WRITE':'READ',executor_type:c.capability_gap?'agent':'connector',depends_on:['step_1']}
-    ]},
-    {mission_id:'idea_mission_4',title:'Verificación y evidencia',goal:'Verificar resultado, evidencia y criterio de cierre.',status:c.not_viable?'blocked':(c.deferred?'deferred':'proposed'),risk:'READ',executor_type:'verifier',depends_on:['idea_mission_3'],human_gate:gate(false),blockers:[],steps:[
-      {id:'step_1',title:'Verificar resultado',operation:'idea.verify',risk:'READ',executor_type:'verifier',depends_on:[]},
-      {id:'step_2',title:'Registrar evidencia',operation:'idea.evidence',risk:'READ',executor_type:'verifier',depends_on:['step_1']}
-    ]}
+function gate(enabled){
+  return {
+    enabled,
+    method:enabled?'manual_confirmation':null,
+    instructions:enabled?'Revisar alcance, destino y acción sensible antes de aprobar.':null
+  };
+}
+
+function planOptions(c){
+  const writeRisk=c.mutation_required?'LOW_RISK_WRITE':'READ';
+  const executor=c.capability_gap?'agent':'connector';
+  const action=c.mutation_required?'idea.apply_change':'idea.execute_improvement';
+  const commonBlockers=c.blockers.slice();
+  if(c.device_or_connection_required) commonBlockers.push({code:'DEVICE_REQUIRED',reason:'La ruta requiere un dispositivo o conexión explícita.'});
+  const humanGate=c.human_gate_required||c.governance_or_security;
+  return [
+    {
+      id:'plan_a',
+      title:'Plan A · Mínimo',
+      summary:'La ruta más pequeña para obtener el resultado pedido, con el menor alcance posible.',
+      tradeoffs:'Menos trabajo y menor superficie de cambio; cubre solo lo necesario.',
+      recommended:false,
+      goal:'Lograr el resultado solicitado con el mínimo cambio gobernado.',
+      risk:writeRisk,
+      executor_type:executor,
+      human_gate:gate(humanGate),
+      blockers:commonBlockers,
+      steps:[
+        {id:'step_1',title:'Preparar la ruta',operation:'idea.prepare_change',risk:'READ',executor_type:'planner',depends_on:[]},
+        {id:'step_2',title:'Aplicar el cambio mínimo',operation:action,risk:writeRisk,executor_type:executor,depends_on:['step_1']},
+        {id:'step_3',title:'Verificar el resultado',operation:'idea.verify',risk:'READ',executor_type:'verifier',depends_on:['step_2']}
+      ]
+    },
+    {
+      id:'plan_b',
+      title:'Plan B · Equilibrado',
+      summary:'Equilibra alcance, seguridad y verificación; es la ruta recomendada por defecto.',
+      tradeoffs:'Un poco más de trabajo a cambio de una comprobación y evidencia más completas.',
+      recommended:true,
+      goal:'Implementar el resultado con una ruta gobernada, comprobación y evidencia de cierre.',
+      risk:writeRisk,
+      executor_type:executor,
+      human_gate:gate(humanGate),
+      blockers:commonBlockers,
+      steps:[
+        {id:'step_1',title:'Preparar ruta y dependencias',operation:'idea.prepare_change',risk:'READ',executor_type:'planner',depends_on:[]},
+        {id:'step_2',title:'Aplicar el cambio',operation:action,risk:writeRisk,executor_type:executor,depends_on:['step_1']},
+        {id:'step_3',title:'Comprobar comportamiento y resultado',operation:'idea.verify',risk:'READ',executor_type:'verifier',depends_on:['step_2']},
+        {id:'step_4',title:'Registrar evidencia de cierre',operation:'idea.evidence',risk:'READ',executor_type:'verifier',depends_on:['step_3']}
+      ]
+    },
+    {
+      id:'plan_c',
+      title:'Plan C · Robusto',
+      summary:'Incluye comprobaciones adicionales para reducir regresiones y dejar más evidencia.',
+      tradeoffs:'Mayor tiempo y alcance; útil cuando el cambio tendrá uso continuado o riesgo de regresión.',
+      recommended:false,
+      goal:'Implementar el resultado y añadir comprobaciones de regresión antes del cierre.',
+      risk:writeRisk,
+      executor_type:executor,
+      human_gate:gate(humanGate),
+      blockers:commonBlockers,
+      steps:[
+        {id:'step_1',title:'Preparar ruta y dependencias',operation:'idea.prepare_change',risk:'READ',executor_type:'planner',depends_on:[]},
+        {id:'step_2',title:'Aplicar el cambio',operation:action,risk:writeRisk,executor_type:executor,depends_on:['step_1']},
+        {id:'step_3',title:'Verificar resultado',operation:'idea.verify',risk:'READ',executor_type:'verifier',depends_on:['step_2']},
+        {id:'step_4',title:'Ejecutar comprobación de regresión',operation:'idea.regression_check',risk:'READ',executor_type:'verifier',depends_on:['step_3']},
+        {id:'step_5',title:'Registrar evidencia de cierre',operation:'idea.evidence',risk:'READ',executor_type:'verifier',depends_on:['step_4']}
+      ]
+    }
   ];
-  if(c.device_or_connection_required) m[1].blockers.push({code:'DEVICE_REQUIRED',reason:'No se debe autoejecutar sin la conexión/dispositivo declarado.'});
-  if(c.deferred) m.forEach((x,i)=>{if(i>0&&x.status==='proposed')x.status='deferred';});
-  return m;
+}
+
+function missions(c, idea){
+  const plans=planOptions(c);
+  const recommended=plans.find(p=>p.recommended)||plans[1];
+  return [{
+    mission_id:'idea_mission_main',
+    title:'Misión derivada de la idea',
+    goal:recommended.goal,
+    status:(c.not_viable||c.payment_or_credential_block)?'blocked':'proposed',
+    risk:recommended.risk,
+    executor_type:recommended.executor_type,
+    depends_on:[],
+    human_gate:recommended.human_gate,
+    blockers:recommended.blockers,
+    plans,
+    selected_plan_id:recommended.id,
+    steps:recommended.steps
+  }];
+}
+
+function summaryForIdea(idea,c,ms){
+  const plans=ms[0]?.plans||[];
+  const recommended=plans.find(p=>p.recommended)||plans[1]||plans[0];
+  const blockers=(c.blockers||[]).map(b=>b.reason).filter(Boolean);
+  return {
+    objective:'Una sola misión elegida por ti.',
+    human_explanation:'ARIA entendió la idea, detectó las restricciones principales y preparó tres rutas. Todavía no ejecuta ninguna hasta que elijas.',
+    what_i_understood:text(idea),
+    recommended_plan:recommended?.id||'plan_b',
+    recommended_plan_title:recommended?.title||'Plan B · Equilibrado',
+    why_recommended:'Es la ruta equilibrada entre alcance, riesgo y evidencia de cierre.',
+    tradeoffs:plans.map(p=>({id:p.id,title:p.title,summary:p.summary,tradeoffs:p.tradeoffs})),
+    dependencies:blockers.length?blockers:['No se detectaron bloqueos externos explícitos.'],
+    verification:'ARIA verificará el resultado elegido y conservará la evidencia de cierre.',
+    classification:c.execution_state,
+    viability:c.viability,
+    mission_count:1,
+    plan_count:plans.length,
+    blocked_missions:ms.filter(x=>x.status==='blocked').length,
+    human_gate_required:ms.some(x=>x.human_gate.enabled),
+    auto_enqueue:false
+  };
 }
 
 function stable(v){
@@ -134,10 +224,25 @@ async function buildIdeaMissionProposal(idea,context={}){
   const c=classifyIdea(normalized);
   const objective=objectiveFromIdea(normalized,c);
   const subs=subobjectives(c);
-  const ms=missions(c);
-  const canonical={schema_version:SCHEMA_VERSION,input:{idea:normalized},classification:c,objective,subobjectives:subs,missions:ms,queue_policy:{mode:'manual_only',auto_enqueue:false,auto_execute:false,human_decision_required:true},closure:{required:true,rule:'inspectable_plan_without_auto_queue'}};
+  const ms=missions(c,normalized);
+  const canonical={
+    schema_version:SCHEMA_VERSION,
+    input:{idea:normalized},
+    classification:c,
+    objective,
+    subobjectives:subs,
+    missions:ms,
+    queue_policy:{mode:'manual_only',auto_enqueue:false,auto_execute:false,human_decision_required:true},
+    closure:{required:true,rule:'one_selected_plan_creates_one_mission'}
+  };
   const fingerprint=await sha256(key(normalized));
-  return {proposal_id:'proposal_'+fingerprint.slice(0,24),fingerprint,created_from:{source:'meditation-idea-to-mission-v1',device_id:text(context.device_id)||null,created_by:text(context.created_by)||'robert'},...canonical,summary:{objective:objective.title,classification:c.execution_state,viability:c.viability,mission_count:ms.length,blocked_missions:ms.filter(x=>x.status==='blocked').length,human_gate_required:ms.some(x=>x.human_gate.enabled),auto_enqueue:false}};
+  return {
+    proposal_id:'proposal_'+fingerprint.slice(0,24),
+    fingerprint,
+    created_from:{source:'meditation-idea-analyzer-v3',device_id:text(context.device_id)||null,created_by:text(context.created_by)||'robert'},
+    ...canonical,
+    summary:summaryForIdea(normalized,c,ms)
+  };
 }
 
 function validateProposal(p){
@@ -145,14 +250,15 @@ function validateProposal(p){
   if(!p.proposal_id||!p.fingerprint||!p.input?.idea) return {valid:false,reason:'identity_or_idea'};
   if(!p.objective?.text||!p.objective?.acceptance||!p.objective?.verifier) return {valid:false,reason:'objective'};
   if(!Array.isArray(p.subobjectives)||!p.subobjectives.length) return {valid:false,reason:'subobjectives'};
-  if(!Array.isArray(p.missions)||!p.missions.length) return {valid:false,reason:'missions'};
-  if(p.queue_policy?.auto_enqueue!==false||p.queue_policy?.auto_execute!==false) return {valid:false,reason:'auto_queue_forbidden'};
-  const ids=new Set();
-  for(const m of p.missions){
-    if(!m.mission_id||ids.has(m.mission_id)) return {valid:false,reason:'duplicate_mission_id'};
-    ids.add(m.mission_id);
-    for(const dep of m.depends_on||[]) if(!ids.has(dep)) return {valid:false,reason:'mission_dependency_order'};
+  if(!Array.isArray(p.missions)||p.missions.length!==1) return {valid:false,reason:'single_mission_required'};
+  const mission=p.missions[0];
+  if(!mission?.mission_id||!Array.isArray(mission?.plans)||mission.plans.length!==3) return {valid:false,reason:'three_plan_options_required'};
+  const planIds=new Set();
+  for(const plan of mission.plans){
+    if(!plan?.id||planIds.has(plan.id)||!Array.isArray(plan.steps)||!plan.steps.length) return {valid:false,reason:'invalid_plan'};
+    planIds.add(plan.id);
   }
+  if(p.queue_policy?.auto_enqueue!==false||p.queue_policy?.auto_execute!==false) return {valid:false,reason:'auto_queue_forbidden'};
   return {valid:true,reason:null};
 }
 

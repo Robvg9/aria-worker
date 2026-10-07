@@ -868,19 +868,11 @@ function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any, miss
   const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
   if (value === 'running' && leased) return 60;
   if (value === 'waiting' && leased) return 45;
-
-  // A mission without a lease is only foreground-recoverable for a bounded
-  // window. Historical/stale rows must fall back to history, never "Ahora".
-  if (value === 'running' || value === 'waiting') {
-    const pendingJobs = mission?.checkpoint?.pending_jobs;
-    const hasPendingJob = pendingJobs && typeof pendingJobs === 'object' && Object.keys(pendingJobs).length > 0;
-    const age = Date.now() - missionActivityTimestamp(mission);
-    if (!hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) {
-      return value === 'running' ? 35 : 30;
-    }
-    return 0;
-  }
-
+  const recoveryStatus = String(mission?.checkpoint?.recovery?.status ?? '');
+  const pendingJobs = mission?.checkpoint?.pending_jobs;
+  const hasPendingJob = pendingJobs && typeof pendingJobs === 'object' && Object.keys(pendingJobs).length > 0;
+  const age = Date.now() - missionActivityTimestamp(mission);
+  if (value === 'running' && recoveryStatus === 'verification_retry_requested' && !hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) return 55;
   return 0;
 }
 
@@ -1601,7 +1593,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
-  const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
+  const [ideaProposals, setIdeaProposals] = useState<any[]>(() => readCached('meditation_ideas', session.userId) ?? []);
   const [ideaText, setIdeaText] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [ideaError, setIdeaError] = useState('');
@@ -1927,7 +1919,7 @@ function Chat({
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [mission, setMission] = useState<Mission | null>(() => readCached('active_mission', session.userId));
   const [events, setEvents] = useState<MissionEvent[]>([]);
-  const [operationalHealth, setOperationalHealth] = useState<any>(null);
+  const [operationalHealth, setOperationalHealth] = useState<any>(() => readCached('operational_health', session.userId));
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const initialNavigation = navigationFromHash();
   const [showMission, setShowMission] = useState(false);
@@ -2465,7 +2457,10 @@ function Meditation({ session }: { session: Session }) {
   async function loadIdeas() {
     try {
       const data = await api('/meditation/ideas', session.accessToken);
-      if (Array.isArray(data?.items)) setIdeaProposals(data.items);
+      if (Array.isArray(data?.items)) {
+        setIdeaProposals(data.items);
+        writeCached('meditation_ideas', session.userId, data.items);
+      }
       setIdeaError('');
     } catch (x) {
       setIdeaError(x instanceof Error ? x.message : 'No se pudieron cargar las propuestas de ideas.');
@@ -2508,14 +2503,14 @@ function Meditation({ session }: { session: Session }) {
     }
   }
 
-  async function convertIdeaMission(proposalId: string, templateMissionId: string) {
+  async function convertIdeaMission(proposalId: string, planId: string) {
     if (ideaBusy) return;
     setIdeaBusy(true);
     setIdeaError('');
     try {
       await api('/meditation/ideas/' + encodeURIComponent(proposalId) + '/convert', session.accessToken, {
         method: 'POST',
-        body: JSON.stringify({ template_mission_id: templateMissionId })
+        body: JSON.stringify({ plan_id: planId })
       });
       await Promise.all([loadIdeas(), load()]);
     } catch (x) {
@@ -2543,9 +2538,9 @@ function Meditation({ session }: { session: Session }) {
     return map[String(value ?? '')] || 'Estado registrado';
   }
 
-  function convertedTemplate(proposal: any, templateId: string) {
+  function convertedPlan(proposal: any, planId: string) {
     return Array.isArray(proposal?.converted_missions)
-      ? proposal.converted_missions.find((x: any) => String(x?.template_mission_id) === String(templateId))
+      ? proposal.converted_missions.find((x: any) => String(x?.plan_id) === String(planId))
       : null;
   }
 
@@ -2602,7 +2597,7 @@ function Meditation({ session }: { session: Session }) {
         setO(nextOverview); writeCached('meditation_overview',session.userId,nextOverview); successes++;
       }
       if(capability?.capabilities){setCaps(capability.capabilities);writeCached('capabilities',session.userId,capability.capabilities);successes++;}
-      if(health?.health){setOperationalHealth(health.health);successes++;}
+      if(health?.health){setOperationalHealth(health.health);writeCached('operational_health',session.userId,health.health);successes++;}
       setLastSyncAt(successes?Date.now():null);
       setError(successes===3?'':successes>0?'No se pudieron actualizar todos los datos de Meditación IA; la vista conserva lo último disponible.':'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar ahora.');
     }finally{setSyncing(false);}
@@ -2736,17 +2731,34 @@ function Meditation({ session }: { session: Session }) {
               <span>ARIA está disponible y la ejecución en tiempo real aparecerá aquí cuando una misión pase a ejecución.</span>
             </div>
           </section>}
-      {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (
-        <div className='meditationHealthWarning' role='status'>
-          <strong>⚠️ Atención operativa</strong>
-          <span>{String(operationalHealth.next_actions?.[0] || operationalHealth.message || 'ARIA detectó una condición que necesita revisión.')}</span>
-        </div>
-      )}
+      {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (() => {
+        const blockedCount = Number(o?.counts?.blocked ?? operationalHealth?.summary?.blocked_missions ?? 0);
+        const failedCount = Number(o?.counts?.failed ?? operationalHealth?.summary?.failed_24h ?? 0);
+        const nextAction = String(operationalHealth?.next_actions?.[0] || 'Revisa primero las misiones bloqueadas y después las fallidas.');
+        return (
+          <div className='meditationHealthWarning' role='status'>
+            <strong>⚠️ Núcleo operativo degradado</strong>
+            <span>
+              {blockedCount ? blockedCount + ' misiones bloqueadas' : 'Hay condiciones operativas pendientes'}
+              {failedCount ? ' · ' + failedCount + ' fallos recientes' : ''}.
+              {' '}Las dependencias críticas no se consideran caídas; el problema principal requiere revisión de misiones.
+            </span>
+            <small><b>Cómo arreglarlo:</b> {nextAction}</small>
+            <small>Después abre <b>Bloqueadas</b> y <b>Fallidas</b> en “Más información” para revisar cada causa y su siguiente acción.</small>
+          </div>
+        );
+      })()}
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
       <details className='panel collapsiblePanel meditationMoreDetails'>
         <summary><span>MÁS INFORMACIÓN</span><b>Detalles</b></summary>
         <div className='meditationSecondary'>
-                <section className='statsGrid'><StatCard value={queueCount} label='En cola' /><StatCard value={m ? statusLabel(String(m.status)) : '—'} label='Estado actual' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /></section>
+                <section className='statsGrid'>
+                  <StatCard value={Number(o?.counts?.history ?? 0)} label='Historial total' />
+                  <StatCard value={Number(o?.counts?.queued ?? queueCount)} label='En cola' />
+                  <StatCard value={Number(o?.counts?.failed ?? 0)} label='Fallidas' />
+                  <StatCard value={Number(o?.counts?.blocked ?? 0)} label='Bloqueadas' />
+                </section>
+                <div className='muted'>Human Gate, Esperando verificación y Bloqueadas son estados distintos: una misión fallida puede haber ejecutado cambios y fallar después; una bloqueada se detiene antes de completar su ejecución.</div>
                 <details className='panel collapsiblePanel'>
                   <summary><span>HUMAN GATES</span><b>{(o?.human_gates ?? []).length}</b></summary>
                   {(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row live' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}
@@ -2813,8 +2825,14 @@ function Meditation({ session }: { session: Session }) {
                 })()}
           
                 <details className='panel collapsiblePanel'>
-                  <summary><span>HISTORIAL</span><b>{(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).length}</b></summary>
+                  <summary><span>HISTORIAL</span><b>{Number(o?.counts?.history ?? 0)}</b></summary>
+                  <div className='muted'>Total real: {Number(o?.counts?.history ?? 0)}. Mostrando las últimas 12 aquí; el resto sigue disponible en el registro de misiones.</div>
                   {(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).slice(0, 12).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
+                </details>
+                <details className='panel collapsiblePanel'>
+                  <summary><span>FALLIDAS</span><b>{Number(o?.counts?.failed ?? 0)}</b></summary>
+                  {(o?.failed ?? []).map((r: any) => <button className='row bad' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className='dot bad' /><div><strong>{missionHumanTitle(r)}</strong><small>{r.reason_type || 'Fallo registrado'} · {missionGoalPreview(r, 100)}</small><small>{r.instructions?.[1] || r.next_action || 'Revisar evidencia y decidir el siguiente paso.'}</small></div><span className='rowArrow'>›</span></button>)}
+                  {!(o?.failed?.length) && <div className='muted'>No hay fallos recientes en la lista rápida.</div>}
                 </details>
           
         </div>
@@ -2826,7 +2844,7 @@ function Meditation({ session }: { session: Session }) {
               <div>
                 <div className='eyebrow'>MEDITACIÓN IA</div>
                 <h2>Ideas analizadas</h2>
-                <div className='muted'>ARIA analiza una idea, explica qué significa y puede preparar una misión para que tú decidas cuándo crearla.</div>
+                <div className='muted'>Escribe una idea. ARIA explicará lo que entendió, señalará dependencias y te dará tres rutas claras: Plan A, Plan B y Plan C. Solo la ruta que elijas se convertirá en una misión.</div>
               </div>
               <button className='ghost' onClick={() => setIdeasOpen(false)}>Cerrar</button>
             </div>
@@ -2842,54 +2860,89 @@ function Meditation({ session }: { session: Session }) {
             <div className='ideaProposalList'>
               {!ideaProposals.length
                 ? <div className='emptyState ideaEmpty'>Todavía no hay ideas analizadas.</div>
-                : ideaProposals.slice(0, 20).map((proposal: any) => (
-                  <article className='ideaProposalCard' key={proposal.proposal_id}>
-                    <div className='ideaProposalTop'>
-                      <div>
-                        <div className='eyebrow'>IDEA ANALIZADA</div>
-                        <strong>{proposal.input?.idea || 'Idea sin texto'}</strong>
-                      </div>
-                      <span className={'pill ' + tone(String(proposal.status))}>{ideaStateLabel(proposal.status)}</span>
-                    </div>
-                    <div className='ideaMeaning'>
-                      <b>Qué significa</b>
-                      <span>{proposal.summary?.human_explanation || proposal.summary?.explanation || (proposal.summary?.human_gate_required ? 'Esta idea necesita una decisión o intervención humana antes de poder ejecutarse.' : proposal.classification?.viability === 'high' ? 'ARIA la considera viable y ya preparó posibles misiones.' : proposal.classification?.viability ? 'ARIA revisó su viabilidad y dejó el resultado registrado antes de proponer misiones.' : 'ARIA analizó la idea y dejó registrada una propuesta de trabajo.')}</span>
-                    </div>
-                    <div className='ideaMetaGrid'>
-                      <span><b>Viabilidad</b>{ideaStateLabel(proposal.classification?.viability)}</span>
-                      <span><b>Estado</b>{ideaStateLabel(proposal.classification?.execution_state)}</span>
-                      <span><b>Misiones</b>{Array.isArray(proposal.missions) ? proposal.missions.length : 0}</span>
-                      <span><b>Human Gate</b>{proposal.summary?.human_gate_required ? 'Sí' : 'No'}</span>
-                    </div>
-                    {(proposal.blockers || []).length > 0 && (
-                      <div className='ideaBlockerBox'>
-                        <b>Qué la bloquea</b>
-                        {(proposal.blockers || []).slice(0, 4).map((b: any, i: number) => <small key={i}>{b?.reason || b?.code || 'Bloqueo detectado'}</small>)}
-                      </div>
-                    )}
-                    {proposal.status === 'proposed' && (
-                      <div className='actions'>
-                        <button className='primary' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'accept')}>Aceptar propuesta</button>
-                        <button className='ghost' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'reject')}>Rechazar</button>
-                      </div>
-                    )}
-                    {['accepted','converted'].includes(String(proposal.status)) && Array.isArray(proposal.missions) && (
-                      <div className='ideaMissionTemplates'>
-                        {proposal.missions.map((template: any) => {
-                          const converted = convertedTemplate(proposal, template.mission_id);
-                          return (
-                            <div className='ideaMissionTemplate' key={template.mission_id}>
-                              <div><strong>{template.title}</strong><small>{template.goal}</small></div>
-                              {converted ? <span className='pill good'>MISIÓN CREADA</span> : <button className='ghost' disabled={ideaBusy} onClick={() => void convertIdeaMission(String(proposal.proposal_id), String(template.mission_id))}>Crear misión</button>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </article>
-                ))}
-            </div>
-          </section>
+                : ideaProposals.slice(0, 20).map((proposal: any) => {
+                    const template = Array.isArray(proposal.missions) ? proposal.missions[0] : null;
+                    const plans = Array.isArray(template?.plans) ? template.plans : [];
+                    return (
+                      <article className='ideaProposalCard' key={proposal.proposal_id}>
+                        <div className='ideaProposalTop'>
+                          <div>
+                            <div className='eyebrow'>IDEA ANALIZADA</div>
+                            <strong>{proposal.input?.idea || 'Idea sin texto'}</strong>
+                          </div>
+                          <span className={'pill ' + tone(String(proposal.status))}>{ideaStateLabel(proposal.status)}</span>
+                        </div>
+
+                        <div className='ideaMeaning'>
+                          <b>Qué entendió ARIA</b>
+                          <span>{proposal.summary?.human_explanation || proposal.summary?.explanation || 'ARIA analizó la idea y preparó una ruta gobernada.'}</span>
+                        </div>
+
+                        <div className='ideaMeaning'>
+                          <b>Resultado buscado</b>
+                          <span>{proposal.objective?.text || proposal.summary?.what_i_understood || proposal.input?.idea}</span>
+                        </div>
+
+                        <div className='ideaMetaGrid'>
+                          <span><b>Viabilidad</b>{ideaStateLabel(proposal.classification?.viability)}</span>
+                          <span><b>Estado</b>{ideaStateLabel(proposal.classification?.execution_state)}</span>
+                          <span><b>Rutas</b>{proposal.summary?.plan_count ?? plans.length ?? 0}</span>
+                          <span><b>Human Gate</b>{proposal.summary?.human_gate_required ? 'Sí' : 'No'}</span>
+                        </div>
+
+                        <div className='ideaBlockerBox'>
+                          <b>Dependencias</b>
+                          {(proposal.summary?.dependencies || proposal.blockers || []).slice(0, 4).map((b: any, i: number) =>
+                            <small key={i}>{typeof b === 'string' ? b : (b?.reason || b?.code || 'Sin bloqueo externo detectado.')}</small>
+                          )}
+                          {!((proposal.summary?.dependencies || proposal.blockers || []).length) && <small>No se detectaron bloqueos externos explícitos.</small>}
+                        </div>
+
+                        <div className='ideaMeaning'>
+                          <b>Cómo se comprobará</b>
+                          <span>{proposal.summary?.verification || proposal.objective?.verifier || 'ARIA comprobará el resultado y conservará la evidencia antes de cerrar.'}</span>
+                        </div>
+
+                        {proposal.status === 'proposed' && (
+                          <div className='actions'>
+                            <button className='primary' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'accept')}>Aceptar propuesta</button>
+                            <button className='ghost' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'reject')}>Rechazar</button>
+                          </div>
+                        )}
+
+                        {['accepted','converted'].includes(String(proposal.status)) && plans.length > 0 && (
+                          <div className='ideaMissionTemplates'>
+                            <div className='panelTitle'>ELIGE UNA RUTA</div>
+                            {plans.map((plan: any) => {
+                              const converted = convertedPlan(proposal, String(plan.id));
+                              return (
+                                <div className='ideaMissionTemplate' key={plan.id}>
+                                  <div>
+                                    <strong>{plan.title}</strong>
+                                    <small>{plan.summary}</small>
+                                    <small>{plan.tradeoffs}</small>
+                                    {plan.recommended && <span className='pill good'>RECOMENDADO</span>}
+                                  </div>
+                                  {converted
+                                    ? <span className='pill good'>MISIÓN CREADA</span>
+                                    : <button className='ghost' disabled={ideaBusy || proposal.status === 'converted'} onClick={() => void convertIdeaMission(String(proposal.proposal_id), String(plan.id))}>Elegir esta ruta</button>}
+                                </div>
+                              );
+                            })}
+                            <div className='muted'>Elegir una ruta crea una sola misión. ARIA no ejecuta las otras opciones.</div>
+                          </div>
+                        )}
+
+                        {['accepted','converted'].includes(String(proposal.status)) && plans.length === 0 && Array.isArray(proposal.missions) && proposal.missions.length > 0 && (
+                          <div className='ideaBlockerBox'>
+                            <b>Propuesta antigua</b>
+                            <small>Esta idea fue creada con el analizador anterior y dividía el trabajo en cuatro submisiones. No conviene crear otra desde aquí; analiza de nuevo la idea para obtener Plan A, B o C.</small>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+            </div>          </section>
         </div>
       )}
 
@@ -3148,8 +3201,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   if(!mission)return <section className='executionHero executionHeroEmpty'><div className='executionHeroTop'><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>Sin misión activa</div><div className='muted'>Cuando ARIA tome una misión, aquí verás qué está haciendo y el resultado.</div></div><span className='pill neutral'>SIN MISIÓN</span></div></section>;
   const status=String(mission.status??'unknown').toLowerCase(), terminal=['succeeded','failed','blocked','cancelled'].includes(status), latest=events.length?events[events.length-1]:null;
   const leaseValid=Boolean(mission.lease_owner && mission.lease_until && new Date(String(mission.lease_until)).getTime()>Date.now());
-  const recoveryVisible=(status==='running'||status==='waiting') && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30;
-  const displayedStatus=recoveryVisible?'Recuperando':statusLabel(status);
+  const verificationRetry=String(mission?.checkpoint?.recovery?.status||'')==='verification_retry_requested';
+  const recoveryVisible=verificationRetry && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30;
+  const displayedStatus=recoveryVisible?'Comprobando de nuevo':statusLabel(status);
   const sessionSnapshot = {
     mission_id: String(mission.mission_id ?? ''),
     status,
@@ -3173,11 +3227,13 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
       : statusLabel(status)
     : status==='queued'
       ? 'La misión está en cola; ARIA la ejecutará cuando la cola esté activa.'
-      : currentStep
-        ? directActionText(currentStep,latest)
-        : latest
-          ? executionEventDetail(latest)
-          : 'ARIA está preparando el siguiente movimiento.';
+      : verificationRetry && recoveryVisible
+        ? 'ARIA está volviendo a comprobar la misma evidencia; no repetirá los cambios ya realizados.'
+        : currentStep
+          ? directActionText(currentStep,latest)
+          : latest
+            ? executionEventDetail(latest)
+            : 'ARIA está preparando el siguiente movimiento.';
   const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
   const goalPreview=missionHumanTitle(mission);
   const recentEvents=events.slice(-6).reverse();
@@ -3205,15 +3261,41 @@ function Capabilities({ session }: { session: Session }) {
   return <CapabilityCenter caps={caps} userId={session.userId} token={session.accessToken} />;
 }
 
-function MeditationBackgroundSync({ session }: { session: Session }) {
-  useLiveSync(async () => {
-    const [overview, capability] = await Promise.all([
-      api('/meditation/overview', session.accessToken).catch(() => null),
-      api('/capabilities', session.accessToken).catch(() => null),
-    ]);
-    if (overview) writeCached('meditation_overview', session.userId, overview);
-    if (capability?.capabilities) writeCached('capabilities', session.userId, capability.capabilities);
-  }, session.accessToken, 10000);
+function PwaDataPreloader({ session }: { session: Session }) {
+  useEffect(() => {
+    let cancelled = false;
+    const warm = async () => {
+      const projectIds = ['battlecruiser','cuevacoin','aria'];
+      const [system, missions, overview, ideas, capabilities, health, ...projectData] = await Promise.all([
+        api('/system', session.accessToken).catch(() => null),
+        api('/missions?limit=100', session.accessToken).catch(() => null),
+        api('/meditation/overview', session.accessToken).catch(() => null),
+        api('/meditation/ideas?limit=100', session.accessToken).catch(() => null),
+        api('/capabilities', session.accessToken).catch(() => null),
+        api('/diagnostics/health', session.accessToken).catch(() => null),
+        ...projectIds.flatMap(id => [
+          api('/projects/' + encodeURIComponent(id) + '/missions?limit=100', session.accessToken).catch(() => null),
+          api('/projects/' + encodeURIComponent(id) + '/conversation', session.accessToken).catch(() => null)
+        ])
+      ]);
+      if (cancelled) return;
+      if (system?.aria) writeCached('system', session.userId, system.aria);
+      if (overview) writeCached('meditation_overview', session.userId, overview);
+      if (Array.isArray(ideas?.items)) writeCached('meditation_ideas', session.userId, ideas.items);
+      if (capabilities?.capabilities) writeCached('capabilities', session.userId, capabilities.capabilities);
+      if (health?.health) writeCached('operational_health', session.userId, health.health);
+      if (Array.isArray(missions?.missions)) writeCached('active_mission', session.userId, selectLiveMission(missions) ?? null);
+      projectIds.forEach((id, i) => {
+        const missionData = projectData[i * 2];
+        const conversationData = projectData[i * 2 + 1];
+        if (Array.isArray(missionData?.missions)) writeCached('project_missions', session.userId + ':' + id, missionData.missions);
+        if (conversationData?.conversation_id) writeCached('project_conversation', session.userId + ':' + id, conversationData);
+      });
+    };
+    void warm();
+    const timer = window.setInterval(() => void warm(), 30000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [session.accessToken, session.userId]);
   return null;
 }
 
@@ -3497,8 +3579,7 @@ export default function App() {
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}
     >
       <PwaNotificationCenter session={session} />
-      {/* Meditación IA sincroniza sus datos solo dentro de su propia pantalla.
-          No duplicar consultas pesadas en Chat/Proyectos durante segundo plano. */}
+      <PwaDataPreloader session={session} />
       {page === 'projects'
         ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
