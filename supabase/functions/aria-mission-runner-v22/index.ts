@@ -2371,7 +2371,12 @@ function objectivePlanAlignment(goal:string, steps:any[]){
         ok:false,
         kind:"multi_project_surface_mismatch",
         reason:"El objetivo exige varios proyectos, pero el plan no cubre todas las superficies solicitadas.",
-        required:["ARIA","CuevaCoin","BattleCruiser"],
+        required:[
+          "La aplicación debe cubrir ARIA, CuevaCoin y BattleCruiser",
+          "Debe leer fuentes actuales y producir estado verificable",
+          "Debe construir la aplicación Reality Board y no solo un informe de un proyecto",
+          "Debe ejecutar código/tests/deploy/E2E para el resultado solicitado"
+        ],
         missing,
         forbidden:[],
       };
@@ -3511,7 +3516,9 @@ Deno.serve(async (request) => {
 
         let independent = { passed: true, skipped: true };
         try { independent = await independentVerify(mission, step, result); } catch (error) { independent = { passed: false, skipped: false, reason: String(error instanceof Error ? error.message : error) }; }
-        const passed = independent.passed && verifyStep(step, result);
+        const synthesisVerification = evidenceBoundSynthesisVerification(step, result, results);
+        const passed = synthesisVerification.passed !== false && independent.passed && verifyStep(step, result);
+        result.__aria_evidence_verification = synthesisVerification;
         result.independent_verification = independent;
         if (passed) {
           results[id] = result;
