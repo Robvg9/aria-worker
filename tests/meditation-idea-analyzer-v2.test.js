@@ -30,7 +30,7 @@ for(const fragment of [
   'const [ideaText, setIdeaText] = useState',
   'const [ideaBusy, setIdeaBusy] = useState',
   'const [ideaError, setIdeaError] = useState',
-  'const [ideaProposals, setIdeaProposals] = useState'
+  "const [ideaProposals, setIdeaProposals] = useState<any[]>(() => readCached('meditation_ideas', session.userId) ?? [])"
 ]) {
   if(!pwa.includes(fragment)) throw new Error('PWA missing idea analyzer marker: '+fragment);
 }
