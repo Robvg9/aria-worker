@@ -497,13 +497,28 @@ function missionHumanSummary(mission: any) {
   return { what, how, changed, improvement, expected, result, objective };
 }
 
-function diagnosticHumanSummary(mission: any) {
+function diagnosticHumanSummary(diagnostic: any, mission: any) {
   const summary = missionHumanSummary(mission);
+  const rootCause = String(
+    diagnostic?.diagnosis?.root_cause ||
+    diagnostic?.root_cause ||
+    diagnostic?.problem ||
+    ''
+  ).trim();
   return {
     title: String(summary.objective?.label || 'Resultado de la misión'),
-    root_cause: summary.objective?.verified
-      ? 'La misión quedó verificada.'
-      : 'La misión no quedó demostrada por la verificación final.',
+    root_cause: humanizeTechnicalText(rootCause) || (
+      summary.objective?.verified
+        ? 'La misión quedó verificada.'
+        : 'La misión no quedó demostrada por la verificación final.'
+    ),
+    problem: humanizeTechnicalText(rootCause),
+    action: humanizeTechnicalText(
+      diagnostic?.action ||
+      diagnostic?.recommended_action ||
+      diagnostic?.remediation ||
+      ''
+    ),
     what_happened: summary.what,
     what_changed: summary.changed,
     next_steps: summary.improvement,
