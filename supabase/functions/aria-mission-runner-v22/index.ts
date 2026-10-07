@@ -3620,6 +3620,7 @@ Deno.serve(async (request) => {
             completed_steps: completed.size,
             next_action: "terminal: all model routes exhausted",
             last_stderr: "model_execution_failed_all_routes",
+            finished_at: new Date().toISOString(),
             checkpoint: {
               ...checkpoint,
               results,
