@@ -30,11 +30,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run focused scheduler + project preview contracts
-        run: |
-          set -euo pipefail
-          node tests/mission-runtime-integrity-v1.test.js
-          node tests/pwa-project-workspace.test.js
+      - name: Run scheduler runtime integrity contract
+        run: node tests/mission-runtime-integrity-v1.test.js
+
+      - name: Run ARTIA project workspace contract
+        run: node tests/pwa-project-workspace.test.js
 
       - name: Verify Cloudflare deployment secrets
         env:
