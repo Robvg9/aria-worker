@@ -260,11 +260,12 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
     verify:{response_content_nonempty:true}
   }));
 
-  const agentsRes=await db.from("agent_catalog").select("agent_id,role,model_id,status,max_risk").eq("status","available").order("agent_id").limit(20);
-  const agents=Array.isArray(agentsRes.data)?agentsRes.data:[];
-  const coder=agents.find((a:any)=>a.agent_id==="aria-agent-coding-v1")||agents.find((a:any)=>/cod|developer|implement/i.test(String(a.role||"")))||agents[0];
-  const reviewer=agents.find((a:any)=>a.agent_id==="aria-agent-reviewer-v1")||agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||"")))||agents[0];
-  if(!coder||!reviewer) return null;
+  // Keep the multi-project planning path deterministic and cheap: these are the
+  // canonical governed agent IDs already used by ARIA for coding/review. Agent
+  // availability is enforced later by the execution runtime, not by a blocking
+  // planner discovery query.
+  const coder={agent_id:"aria-agent-coding-v1",role:"coding",model_id:"aria-agent-coding-v1"};
+  const reviewer={agent_id:"aria-agent-reviewer-v1",role:"reviewer",model_id:"aria-agent-reviewer-v1"};
 
   steps.push({
     id:"reality_board_implementation",
