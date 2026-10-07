@@ -271,7 +271,7 @@ function missionDisplayStepState(step: any, index: number, mission: any): string
   const verification = mission?.checkpoint?.verification;
   if (String(mission?.status || '').toLowerCase() === 'failed'
       && String(verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch'
-      && /verif/i.test(String(step?.id || '') + ' ' + String(step?.operation || ''))) return 'failed';
+      && (index === Number(mission?.total_steps || 0) - 1 || /verif/i.test(String(step?.id || '') + ' ' + String(step?.operation || ''))) return 'failed';
   if (['succeeded','skipped','completed'].includes(base)) return 'done';
   if (base === 'failed' || base === 'blocked') return base;
   if (base === 'running' || base === 'waiting') return base;
@@ -1368,7 +1368,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
     : '';
   const humanTitle = status === 'succeeded' ? 'Resultado' : status === 'failed' ? 'Qué falló' : status === 'blocked' ? 'Bloqueo' : status === 'waiting' ? 'Verificación en curso' : 'Situación actual';
   const block = mission?.block_details || null;
-  const isHumanGate = block?.kind === 'human_gate' || block?.verification_pending === true;
+  const isHumanGate = block?.kind === 'human_gate';
   const verificationMismatch = String(mission?.checkpoint?.verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch';
   const humanProblemTitle = isHumanGate ? 'Hay una acción tuya pendiente' : verificationMismatch ? 'La comprobación final falló' : status === 'blocked' ? 'La misión está bloqueada' : 'La misión necesita atención';
   const diagnosticSummary = diagnosticHumanSummary(diagnostic, mission);
@@ -1405,7 +1405,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
         </div>
 
         <div className='detailGrid missionMetaGrid'>
-          <StatCard value={mission.completed_steps ?? 0} label={'Pasos completados de ' + (mission.total_steps ?? planSteps.length ?? '—')} />
+          <StatCard value={mission.completed_steps ?? 0} label={(status === 'failed' && verificationMismatch ? 'Pasos ejecutados de ' : 'Pasos completados de ') + (mission.total_steps ?? planSteps.length ?? '—')} />
           <StatCard value={status === 'failed' ? 'FALLIDA' : statusLabel(status)} label='Estado' />
           <StatCard value={formatDate(startAt || undefined)} label='Inicio' />
           <StatCard value={formatDate(finishAt || undefined)} label='Finalización' />
