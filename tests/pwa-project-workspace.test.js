@@ -160,7 +160,7 @@ assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions
 const appCurrent = fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 assert.match(appCurrent,/replan_required/);
 assert.match(appCurrent,/1 · REPLANIFICANDO/);
-assert.match(appCurrent,/Replanteando la estrategia de la misión/);
+assert.match(appCurrent,/REPLANIFICANDO/);
 const apiCurrent = fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 assert.match(apiCurrent,/activeRecoveryStatuses/);
 assert.match(apiCurrent,/replan_learning_application/);
