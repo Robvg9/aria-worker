@@ -497,6 +497,20 @@ function missionHumanSummary(mission: any) {
   return { what, how, changed, improvement, expected, result, objective };
 }
 
+function diagnosticHumanSummary(mission: any) {
+  const summary = missionHumanSummary(mission);
+  return {
+    title: String(summary.objective?.label || 'Resultado de la misión'),
+    root_cause: summary.objective?.verified
+      ? 'La misión quedó verificada.'
+      : 'La misión no quedó demostrada por la verificación final.',
+    what_happened: summary.what,
+    what_changed: summary.changed,
+    next_steps: summary.improvement,
+    result: summary.result,
+  };
+}
+
 function cacheKey(kind: string, userId: string) {
   return CACHE_PREFIX + ':' + userId + ':' + kind;
 }
