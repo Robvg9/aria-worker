@@ -1178,7 +1178,7 @@ async function meditationIdeaDecisionForUser(userId:string,proposalId:string,act
   return {ok:true,proposal:presentMeditationIdeaProposal(data),action:String(action??"").toLowerCase()};
 }
 
-async function meditationIdeaConvertForUser(userId:string,proposalId:string,templateMissionId:string,requestedDeviceId:string|null){
+async function meditationIdeaConvertForUser(userId:string,proposalId:string,planId:string,requestedDeviceId:string|null){
   const sb=serviceClient().schema("aria_internal");
   let deviceId=String(requestedDeviceId??"").trim();
   if(deviceId){
@@ -1193,11 +1193,11 @@ async function meditationIdeaConvertForUser(userId:string,proposalId:string,temp
     deviceId=String(data?.[0]?.device_id??"");
   }
   if(!deviceId) throw Object.assign(new Error("android_device_unavailable"),{status:409});
-  const {data,error}=await sb.rpc("meditation_idea_convert_mission",{
+  const {data,error}=await sb.rpc("meditation_idea_convert_mission_v3",{
     p_proposal_id:proposalId,
     p_owner_user_id:userId,
     p_device_id:deviceId,
-    p_template_mission_id:templateMissionId
+    p_plan_id:planId
   });
   if(error) throw Object.assign(new Error(error.message),{status:409});
   return {ok:true,device_id:deviceId,...data};
@@ -1430,7 +1430,7 @@ Deno.serve(async (req) => {
           ...(await meditationIdeaConvertForUser(
             user.id,
             decodeURIComponent(ideaConvertPath[1]),
-            String(body?.template_mission_id??""),
+            String(body?.plan_id??""),
             typeof body?.device_id==="string"?body.device_id:null
           )),
           trace_id:trace
@@ -1844,13 +1844,27 @@ Deno.serve(async (req) => {
         },
         created_at: now,
       });
+      let kickRequestId:any=null;
+      let kickError:any=null;
+      try {
+        const {data:tick,error:tickError}=await sb.rpc("meditation_runner_tick_for_mission",{p_mission_id:missionId});
+        if(tickError) kickError=tickError.message;
+        else kickRequestId=tick??null;
+      } catch(e) {
+        kickError=String((e as any)?.message||e);
+      }
       const mission = await enrichMission(updated, sb, true);
       return json({
         ok: true,
         mission,
         verification_retry: true,
         preserved_completed_steps: completedSteps.length,
-        evidence_warning: eventError ? "La misión se reanudó, pero ARIA no pudo registrar el evento de reanudación." : null,
+        runner_kick_request_id: kickRequestId,
+        evidence_warning: eventError
+          ? "La misión se reanudó, pero ARIA no pudo registrar el evento de reanudación."
+          : kickError
+            ? "La misión se reanudó y conserva la evidencia, pero el runtime no pudo recibir el tick automático."
+            : null,
         trace_id: trace
       });
     }
