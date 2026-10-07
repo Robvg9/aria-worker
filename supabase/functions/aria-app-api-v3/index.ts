@@ -1227,7 +1227,20 @@ async function meditationOverview(userId:string){
   const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
   const isRecentRecovery=(m:any)=>{const updated=Date.parse(String(m?.updated_at||""));return Number.isFinite(updated)&&Date.now()-updated<=UNLEASED_RECOVERY_MAX_AGE_MS;};
   const isVerificationRetry=(m:any)=>String(m?.checkpoint?.recovery?.status||"")==="verification_retry_requested"&&isRecentRecovery(m);
-  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if(s==="running"&&!hasLiveLease(m)&&isVerificationRetry(m)&&!hasPendingJob(m))return 55;return 0;};
+  const activeRecoveryStatuses=new Set(["replan_required","replan_learning_application","verification_pending","waiting_for_alternative_strategy","retry_scheduled"]);
+  const activeRank=(m:any)=>{
+    const s=String(m?.status||"");
+    if(s==="running"&&hasLiveLease(m))return 60;
+    if(s==="waiting"&&hasLiveLease(m))return 45;
+    if(s==="running"&&!hasLiveLease(m)&&isVerificationRetry(m)&&!hasPendingJob(m))return 55;
+    if(activeRecoveryStatuses.has(String(m?.checkpoint?.recovery?.status||""))&&isRecentRecovery(m)){
+      if(s==="running")return 50;
+      if(s==="planning")return 42;
+      if(s==="queued")return 38;
+      if(s==="waiting")return 36;
+    }
+    return 0;
+  };
   const foregroundRank=(m:any)=>{const s=String(m?.status||"");if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;if(s==="succeeded")return 5;if(["failed","blocked","cancelled"].includes(s))return 4;return 0;};
   const rawLive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||foregroundRank(b)-foregroundRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
   const rawActive=activeRank(rawLive)>0?rawLive:null;
