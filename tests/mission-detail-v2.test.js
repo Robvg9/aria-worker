@@ -10,7 +10,7 @@ const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-
 assert.match(app, /<div className='panelTitle'>PLAN DE LA MISIÓN<\/div>/);
 assert.match(app, /label='Inicio'/);
 assert.match(app, /label='Finalización'/);
-assert.match(app, /value=\{statusLabel\(status\)\}/);
+assert.match(app, /status === 'failed' \? 'FALLIDA' : statusLabel\(status\)/);
 assert.ok(!app.includes('RECUPERACIÓN / VERIFICACIÓN'));
 assert.match(app, /Ya está resuelto · continuar misión/);
 assert.match(app, /La misión falló en la comprobación final\./);
