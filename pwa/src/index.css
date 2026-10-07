@@ -600,6 +600,8 @@ button{touch-action:manipulation;}
 .missionArtifactInfo small{display:block;margin-top:4px;color:var(--muted);font-size:10px;line-height:1.35;overflow-wrap:anywhere}
 .missionArtifactActions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
 .missionArtifactActions a{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 11px}
+.missionArtifactHumanLinks{display:grid;gap:3px;flex-basis:100%;margin-top:2px;color:var(--muted);font-size:10px;line-height:1.4}
+.missionArtifactHumanLinks a{color:var(--text);font-weight:800;text-decoration:underline}
 .missionArtifactDownload{cursor:pointer}
 .missionArtifactsCompact{margin-top:12px}
 @media(max-width:700px){
