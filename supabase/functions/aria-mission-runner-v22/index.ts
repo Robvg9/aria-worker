@@ -3962,10 +3962,11 @@ Deno.serve(async (request) => {
       });
       await updateMission(missionId, {
         status: "failed",
-        current_step: completed.size,
+        current_step: Math.min(steps.length, Math.max(1, completed.size)),
         completed_steps: completed.size,
         next_action: null,
         last_stderr: mutationVerification.reason,
+        finished_at: new Date().toISOString(),
         checkpoint: {
           ...(mission.checkpoint || {}),
           verification: mutationVerification,
