@@ -32,7 +32,7 @@ assert.ok(
 assert.match(appApi, /display_title/);
 assert.match(appApi, /Misión #/);
 assert.match(appApi, /description:String\(m\?\.goal/);
-assert.match(appApi, /order\("updated_at",\{ascending:false\}\)\.limit\(200\)/);
+assert.match(appApi, /order\("updated_at",\{ascending:false\}\)\.limit\(500\)/);
 
 assert.match(runner, /String\(result\?\.status \|\| ""\) === "succeeded" \? "verification_failed"/);
 assert.match(runner, /result_status: result\?\.status/);
