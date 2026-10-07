@@ -235,12 +235,24 @@ async function resolveDeviceTarget(missionId: string, step: any): Promise<Device
   return resolution;
 }
 
+async function sha256Hex(value:string){
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map(v=>v.toString(16).padStart(2,"0")).join("");
+}
 async function authorized(request: Request) {
   const auth = authContextOf(request);
   const token = auth.token;
   if (!token) return false;
   if (auth.kind === "authorization" && KEY && constantTimeEqual(token, KEY)) return true;
   if (auth.kind === "authorization" && SECRET && constantTimeEqual(token, SECRET)) return true;
+  if (auth.kind === "autonomy-token") {
+    try {
+      const h=await sha256Hex(token);
+      const {data,error}=await sb.schema("aria_internal").from("runtime_auth_token_hashes")
+        .select("token_name,token_hash").eq("token_name","aria_autonomy_cron_token").eq("active",true).maybeSingle();
+      if(!error&&data?.token_hash&&constantTimeEqual(h,String(data.token_hash))) return true;
+    } catch {}
+  }
   const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: token });
   return !error && data === true;
 }
