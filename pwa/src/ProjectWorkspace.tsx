@@ -138,7 +138,7 @@ function drawProjectPreview(ctx:CanvasRenderingContext2D, project:Project, frame
   ctx.font='700 14px Inter, sans-serif'; ctx.fillStyle='#fff'; ctx.fillText('Área de referencia del proyecto',48,278);
   ctx.font='500 13px Inter, sans-serif'; ctx.fillStyle='#9187a3';
   const contextLines=project.id==='cuevacoin'
-    ? ['Panel financiero/operativo de referencia para CuevaCoin.','Cuenta, movimientos, transferencias y operaciones se muestran solo como referencia visual.','Las operaciones financieras reales requieren backend LIVE y verificación específica.']
+    ? ['Panel financiero/operativo de referencia para CuevaCoin.','Cuenta, movimientos, transferencias y operaciones se muestran como referencia para señalar cambios.','Las operaciones financieras reales requieren backend LIVE y verificación específica.']
     : project.id==='aria'
     ? ['Centro cognitivo de referencia para ARIA.','Misiones, ejecución, verificación, evidencia y capacidades pertenecen al runtime canónico.','Los estados deben proceder de evidencia LIVE y persistida, no de texto inventado.']
     : [project.context,'Chat, misiones y ARTIA comparten el mismo proyecto y la misma cola canónica de ARIA.','La referencia visual sirve para señalar cambios y no certifica por sí sola una ejecución LIVE.'];
@@ -312,7 +312,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
     <div ref={previewShellRef} className={'canvasWrap artiaPreviewShell '+(previewFullscreen?'isFullscreen':'')} style={{position:'relative',width:'100%',aspectRatio:'1100 / 650',overflow:'hidden'}}>
       {livePreviewUrl ? <iframe title={'PWA LIVE de '+project.name} src={livePreviewUrl} allow='fullscreen' style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0,background:'#0e0b17',pointerEvents:previewPaused?'none':'auto'}} /> : null}
       <canvas ref={canvasRef} style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:previewPaused?'auto':'none'}} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} aria-label={'Capa de anotaciones visuales de '+project.name}/>
-      {!livePreviewUrl && <div className='projectReferenceBadge'>Referencia visual del proyecto · no es una fuente LIVE</div>}
+      {!livePreviewUrl && <div className='projectReferenceBadge' role='note'>Referencia visual · sin fuente LIVE</div>}
       {previewFullscreen && <button type='button' className='artiaFullscreenExit' onClick={()=>void togglePreviewFullscreen()} aria-label='Salir de pantalla completa'>↙ Salir</button>}
     </div>
     <textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Describe qué debe cambiar. Lo escrito + lo pintado se convierten en contexto de ARIA y pueden saltar directamente como misión.'/><div className='muted visualHint'>Anotaciones: {actions.length} · {previewPaused?'La vista está pausada; las anotaciones quedan sobre la referencia.':'Pausa la vista para habilitar el lienzo.'}</div>
