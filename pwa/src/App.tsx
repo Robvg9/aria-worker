@@ -1333,9 +1333,10 @@ function CapabilityCenter({
 }
 
 
-function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel, onHumanGateApprove }: { mission: Mission; events: MissionEvent[]; diagnostic?: any; onClose: () => void; onRetry?: () => Promise<void>; onCancel?: () => Promise<void>; onHumanGateApprove?: () => Promise<void> }) {
+function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerifyRetry, onCancel, onHumanGateApprove }: { mission: Mission; events: MissionEvent[]; diagnostic?: any; onClose: () => void; onRetry?: () => Promise<void>; onVerifyRetry?: () => Promise<void>; onCancel?: () => Promise<void>; onHumanGateApprove?: () => Promise<void> }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [verifyRetrying, setVerifyRetrying] = useState(false);
   const [approvingGate, setApprovingGate] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [retryError, setRetryError] = useState('');
@@ -1437,6 +1438,11 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
                     setApprovingGate(true); setGateError('');
                     try { await onHumanGateApprove!(); } catch(e) { setGateError(e instanceof Error ? e.message : 'No se pudo continuar la misión.'); } finally { setApprovingGate(false); }
                   }}>{approvingGate ? 'Continuando…' : 'Ya está resuelto · continuar misión'}</button>
+                ) : verificationMismatch && onVerifyRetry ? (
+                  <button className='primary' disabled={verifyRetrying || retrying || cancelling} onClick={async () => {
+                    setVerifyRetrying(true); setRetryError('');
+                    try { await onVerifyRetry(); } catch(e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reanudar la verificación.'); } finally { setVerifyRetrying(false); }
+                  }}>{verifyRetrying ? 'Volviendo a comprobar…' : 'Volver a comprobar · sin repetir cambios'}</button>
                 ) : (
                   <button className='primary' disabled={retrying || cancelling} onClick={async () => {
                     setRetrying(true); setRetryError('');
@@ -1483,7 +1489,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
           <div className='detailResult missionCancelPanel'>
             <div className='panelTitle'>CONTROL DE MISIÓN</div>
             <p className='muted'>Puedes detener esta misión. ARIA guardará la cancelación en la evidencia.</p>
-            <button className='ghost dangerAction' disabled={cancelling || retrying || approvingGate} onClick={async () => {
+            <button className='ghost dangerAction' disabled={cancelling || retrying || verifyRetrying || approvingGate} onClick={async () => {
               if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return;
               setCancelling(true); setCancelError('');
               try { await onCancel(); } catch(e) { setCancelError(e instanceof Error ? e.message : 'No se pudo cancelar la misión.'); } finally { setCancelling(false); }
@@ -1740,6 +1746,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
           events={missionEvents}
           diagnostic={missionDiagnostic}
           onRetry={() => retryMission(String(missionDetail.mission_id))}
+          onVerifyRetry={() => retryMissionVerification(String(missionDetail.mission_id))}
           onHumanGateApprove={() => approveHumanGate(String(missionDetail.mission_id))}
           onClose={() => {
             setMissionDetail(null);
@@ -2505,6 +2512,12 @@ function Meditation({ session }: { session: Session }) {
     const newId = data?.mission?.mission_id;
     if (!newId) throw new Error('ARIA no confirmó el reintento de la misión.');
     await openMission(String(newId));
+  }
+
+  async function retryMissionVerification(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/verify-retry', session.accessToken, { method: 'POST', body: JSON.stringify({}) });
+    if (data?.verification_retry !== true || !data?.mission?.mission_id) throw new Error('ARIA no confirmó la reanudación de la verificación.');
+    await openMission(String(data.mission.mission_id));
   }
 
   async function approveHumanGate(missionId: string) {
