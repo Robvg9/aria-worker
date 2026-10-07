@@ -874,6 +874,26 @@ function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any, miss
   const hasPendingJob = pendingJobs && typeof pendingJobs === 'object' && Object.keys(pendingJobs).length > 0;
   const age = Date.now() - missionActivityTimestamp(mission);
   if (value === 'running' && recoveryStatus === 'verification_retry_requested' && !hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) return 55;
+  // A recent unleased recovery must stay visible; otherwise the mission appears to
+  // disappear from Meditation IA while the canonical runtime is legitimately waiting
+  // for a retry/replan. The age guard prevents historical stale missions becoming
+  // the foreground mission.
+  const visibleRecoveryStatuses = new Set([
+    'retry_scheduled',
+    'waiting_for_alternative_strategy',
+    'replan_required',
+    'replan_learning_application',
+    'verification_pending',
+    'verification_failed',
+    'learning_application_evidence_missing'
+  ]);
+  if (visibleRecoveryStatuses.has(recoveryStatus) && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) {
+    return value === 'running' ? 50 : 40;
+  }
+  if (value === 'running' && !leased && !hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) {
+    const nextAction = String(mission?.next_action ?? '').toLowerCase();
+    if (nextAction.startsWith('retry:') || nextAction.startsWith('replan:') || nextAction.startsWith('recovery:')) return 35;
+  }
   return 0;
 }
 
