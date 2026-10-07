@@ -4,6 +4,7 @@ const s=fs.readFileSync('supabase/functions/aria-mission-runner-v22/index.ts','u
 const start=s.indexOf('async function createPlan(');
 const end=s.indexOf('\n}\n',start)+3;
 const block=s.slice(start,end);
+assert.ok(block.includes('auth.kind === "autonomy-token" && SECRET'));
+assert.ok(block.includes('authorization:`Bearer ${SECRET}`'));
 assert.ok(block.includes('...downstreamHeaders(auth)'));
-assert.ok(!block.includes('authorization:`Bearer ${KEY}`'));
-console.log('MISSION PLANNER AUTH FORWARDING CONTRACT: PASS');
+console.log('MISSION PLANNER INTERNAL SECRET ROUTE CONTRACT: PASS');
