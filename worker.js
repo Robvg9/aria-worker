@@ -134,8 +134,8 @@ async function directAria(request,env){if(request.method==="GET")return fetch(DI
 async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
 function artifactSafeSegment(value, allowSlash = false) {
   const s = String(value || '');
-  if (!s || s.includes('..') || /[\\u0000-\\u001f]/.test(s)) return false;
-  if (allowSlash) return /^[A-Za-z0-9._~!$&()*+,;=:@\\/-]+$/.test(s);
+  if (!s || s.includes('..') || /[\u0000-\u001f]/.test(s)) return false;
+  if (allowSlash) return /^[A-Za-z0-9._~!if (allowSlash) return /^[A-Za-z0-9._~!$&()*+,;=:@\\/-]+$/.test(s);()*+,;=:@\/-]+$/.test(s);
   return /^[A-Za-z0-9._~!$&()*+,;=:@-]+$/.test(s);
 }
 function artifactRawUrl(repo, ref, artifactPath) {
