@@ -22,7 +22,8 @@ assert.match(api, /\/verify-retry/);
 assert.match(api, /human_requested_verification_retry/);
 assert.match(api, /preserved_completed_steps/);
 assert.match(api, /status: "completed"/);
-assert.match(api, /approved_by: user\.id/);\nassert.match(api, /verified: true/);
+assert.match(api, /approved_by: user\.id/);
+assert.match(api, /verified: true/);
 
 assert.match(runner, /finished_at: new Date\(\)\.toISOString\(\)/);
 assert.match(runner, /validateMutationVerificationConsistency/);
