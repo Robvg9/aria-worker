@@ -9,11 +9,15 @@ const migration=fs.readFileSync(path.join(root,'supabase/migrations/202610040130
 // Live execution and foreground/queue state must remain separate.
 assert.match(app,/function selectLiveMission/);
 assert.match(app,/function selectForegroundMission/);
-assert.match(app,/activeMissionRank\(m\.status,m\.lease_owner,m\.lease_until\)\s*>=\s*30/);
-assert.match(app,/if \(value === 'running'\) return 35/);
-assert.match(app,/if \(value === 'waiting'\) return 30/);
+assert.match(app,/activeMissionRank\(m\.status,m\.lease_owner,m\.lease_until,m\)\s*>=\s*30/);
+assert.match(app,/const UNLEASED_RECOVERY_MAX_AGE_MS = 30 \* 60 \* 1000/);
+assert.match(app,/const pendingJobs = mission\?\.checkpoint\?\.pending_jobs/);
+assert.match(app,/age <= UNLEASED_RECOVERY_MAX_AGE_MS/);
 assert.match(app,/const displayMission = m \?\? nextQueuedMission/);
+assert.match(api,/select\("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,metadata,created_at,updated_at,lease_owner,lease_until,checkpoint"\)/);
 assert.match(api,/const rawActive=rawLive/);
+assert.match(api,/const isRecentRecovery=/);
+assert.match(api,/UNLEASED_RECOVERY_MAX_AGE_MS/);
 assert.match(api,/foreground_mission:foreground/);
 assert.match(api,/const active=live;/);
 assert.doesNotMatch(api,/const active=latestUser\?\?live;/);
