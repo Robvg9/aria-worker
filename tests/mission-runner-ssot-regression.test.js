@@ -75,8 +75,13 @@ test("PWA never promotes stale non-leased running/waiting missions to live execu
   );
   assert.match(
     pwaApp,
-    /const recoveryVisible=\(status==='running'\|\|status==='waiting'\) && !leaseValid && activeMissionRank\(status,mission\.lease_owner,mission\.lease_until,mission\)>=30/,
-    "PWA live execution must use the same bounded recovery predicate as selection"
+    /const verificationRetry=String\(mission\?\.checkpoint\?\.recovery\?\.status\|\|'\'\)===\'verification_retry_requested\'/,
+    "PWA must identify intentional verification retries explicitly"
+  );
+  assert.match(
+    pwaApp,
+    /const recoveryVisible=verificationRetry && !leaseValid && activeMissionRank\(status,mission\.lease_owner,mission\.lease_until,mission\)>=30/,
+    "PWA live execution must only show recovery copy for explicit verification retries"
   );
   assert.doesNotMatch(
     pwaApp,
