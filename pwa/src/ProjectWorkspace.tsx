@@ -294,7 +294,13 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const TAB_KEY=(projectId:string)=>'aria_project_tab_v2:'+session.userId+':'+projectId;
   const [project,setProject]=useState<Project>(()=>{try{const id=localStorage.getItem(PROJECT_KEY);return PROJECTS.find(p=>p.id===id)||PROJECTS[0]}catch{return PROJECTS[0]}});
   const [tab,setTab]=useState<'overview'|'chat'|'missions'|'visual'>(()=>{try{const saved=localStorage.getItem(TAB_KEY(PROJECTS[0].id));return (saved as any)||'overview'}catch{return 'overview'}});
-  const [messages,setMessages]=useState<ChatMessage[]>([]);
+  const [messages,setMessages]=useState<ChatMessage[]>(()=>{
+    try {
+      const cached=localStorage.getItem('aria_project_conversation:'+session.userId+':'+PROJECTS[0].id);
+      const data=cached?JSON.parse(cached):null;
+      return Array.isArray(data?.messages)?data.messages:[];
+    } catch { return []; }
+  });
   const processingStartedAtRef=useRef<number|null>(null);
   const [processingElapsedMs,setProcessingElapsedMs]=useState(0);
   const [lastProcessingMs,setLastProcessingMs]=useState<number|null>(null);
@@ -304,14 +310,23 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const [goal,setGoal]=useState('');
   const [sending,setSending]=useState(false);
   const [error,setError]=useState('');
-  const [missions,setMissions]=useState<any[]>([]);
+  const [missions,setMissions]=useState<any[]>(()=>{
+    try { return JSON.parse(localStorage.getItem('aria_project_missions:'+session.userId+':'+PROJECTS[0].id)||'[]'); } catch { return []; }
+  });
   const [selectedMission,setSelectedMission]=useState<any|null>(null);
   const projectChatRef=useRef<HTMLTextAreaElement|null>(null);
   const projectChatLoadRef=useRef<{projectId:string;promise:Promise<void>}|null>(null);
 
   useEffect(()=>{try{localStorage.setItem(PROJECT_KEY,project.id);localStorage.setItem(TAB_KEY(project.id),tab)}catch{}},[project.id,tab,session.userId]);
 
-  async function loadMissions(){try{const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=100',session.accessToken);setMissions(d.missions||[])}catch(e){setError(e instanceof Error?e.message:'No se pudieron cargar las misiones.')}}
+  async function loadMissions(){
+    try{
+      const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=100',session.accessToken);
+      const rows=Array.isArray(d?.missions)?d.missions:[];
+      setMissions(rows);
+      try{localStorage.setItem('aria_project_missions:'+session.userId+':'+project.id,JSON.stringify(rows));}catch{}
+    }catch(e){setError(e instanceof Error?e.message:'No se pudieron cargar las misiones.')}
+  }
 
   async function loadProjectChat(){
     const projectId=project.id;
@@ -325,7 +340,9 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         if(projectId!==project.id)return;
         setConversationId(d.conversation_id);
         const rows=Array.isArray(d.conversation?.messages)?d.conversation.messages:[];
-        setMessages(rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim()));
+        const normalized=rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim());
+        setMessages(normalized);
+        try{localStorage.setItem('aria_project_conversation:'+session.userId+':'+projectId,JSON.stringify({conversation_id:d.conversation_id,messages:normalized}));}catch{}
         setProjectChatReady(true);
       }catch(e){
         if(projectId===project.id)setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
@@ -347,7 +364,17 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return()=>window.clearInterval(timer);
   },[sending]);
 
-  useEffect(()=>{setSelectedMission(null);setError('');setConversationId(null);setProjectChatReady(false);setMessages([]);setMissions([]);try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}},[project.id]);
+  useEffect(()=>{
+    setSelectedMission(null);setError('');setProjectChatReady(false);
+    try{
+      const cachedM=JSON.parse(localStorage.getItem('aria_project_missions:'+session.userId+':'+project.id)||'[]');
+      setMissions(Array.isArray(cachedM)?cachedM:[]);
+      const cachedChat=JSON.parse(localStorage.getItem('aria_project_conversation:'+session.userId+':'+project.id)||'null');
+      setConversationId(typeof cachedChat?.conversation_id==='string'?cachedChat.conversation_id:null);
+      setMessages(Array.isArray(cachedChat?.messages)?cachedChat.messages:[]);
+    }catch{setConversationId(null);setMessages([]);setMissions([]);}
+    try{const saved=localStorage.getItem(TAB_KEY(project.id));if(saved)setTab(saved as any)}catch{}
+  },[project.id,session.userId]);
 
   useEffect(()=>{
     if(tab==='missions'||tab==='overview')void loadMissions();
