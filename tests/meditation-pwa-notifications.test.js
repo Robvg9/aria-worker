@@ -35,6 +35,10 @@ assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped noti
 
 assert(app.includes("from './notifications'"), 'PWA notification helper import missing');
 assert(app.includes('PwaNotificationCenter'), 'PWA notification center missing');
+assert(app.includes('const selectedLive = selected'), 'selected notification must derive from current ledger state');
+assert(app.includes('setSelected(current => current?.notification_id === item.notification_id'), 'selected notification read state must update immediately');
+assert(app.includes('const visibleItems = historyExpanded ? items : items.slice(0, 8)'), 'notification history must be compact by default');
+assert(app.includes("Ver historial completo · ' + items.length"), 'full notification history must remain accessible');
 assert(app.includes('/meditation/notifications'), 'PWA notification polling missing');
 assert(app.includes('/meditation/notifications/read'), 'PWA notification read action missing');
 
