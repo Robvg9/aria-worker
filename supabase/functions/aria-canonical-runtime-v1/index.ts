@@ -13,4 +13,18 @@ async function authorized(r:Request){
     if(!error&&data?.token_hash&&eq(h,String(data.token_hash)))return true;
   }catch(_){}
   const {data,error}=await sb.rpc("aria_autonomy_cron_authorize",{p_token:a});return !error&&data===true
-}Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await authorized(r)))return out({error:"unauthorized"},401);const body=await r.text();const h=new Headers({"content-type":"application/json"});const at=r.headers.get("x-aria-autonomy-token"),ab=r.headers.get("authorization"),trace=r.headers.get("X-ARIA-Trace-Id");const meditation=r.headers.get("x-aria-trigger")==="meditation-ia";if(meditation&&KEY){h.set("authorization",`Bearer ${KEY}`);h.set("x-aria-trigger","meditation-ia");}else if(KEY){h.set("authorization",`Bearer ${KEY}`);}else if(meditation&&SECRET){h.set("authorization",`Bearer ${SECRET}`);h.set("x-aria-trigger","meditation-ia");}else if(at)h.set("x-aria-autonomy-token",at);else if(ab)h.set("authorization",ab);if(trace)h.set("X-ARIA-Trace-Id",trace);try{const u=await fetch(RUNNER,{method:"POST",headers:h,body});const b=await u.text();return new Response(b,{status:u.status,headers:{"content-type":u.headers.get("content-type")||"application/json","cache-control":"no-store"}})}catch(e){return out({ok:false,status:"unavailable",error:e instanceof Error?e.message:String(e),runtime:"canonical-runtime-v1"},503)}});
+}Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await authorized(r)))return out({error:"unauthorized"},401);const body=await r.text();const h=new Headers({"content-type":"application/json"});const at=r.headers.get("x-aria-autonomy-token"),ab=r.headers.get("authorization"),trace=r.headers.get("X-ARIA-Trace-Id");const meditation=r.headers.get("x-aria-trigger")==="meditation-ia";if(meditation&&KEY){h.set("authorization",`Bearer ${KEY}`);h.set("x-aria-trigger","meditation-ia");}else if(KEY){h.set("authorization",`Bearer ${KEY}`);}else if(meditation&&SECRET){h.set("authorization",`Bearer ${SECRET}`);h.set("x-aria-trigger","meditation-ia");}else if(at)h.set("x-aria-autonomy-token",at);else if(ab)h.set("authorization",ab);if(trace)h.set("X-ARIA-Trace-Id",trace);try{
+  const trigger=r.headers.get("x-aria-trigger")||"";
+  if(trigger==="mission-tick"||trigger==="scheduler"){
+    const p=fetch(RUNNER,{method:"POST",headers:h,body}).catch(()=>undefined);
+    try{
+      (globalThis as any).EdgeRuntime?.waitUntil?.(p);
+    }catch(_){}
+    return out({ok:true,status:"accepted",async:true,runtime:"canonical-runtime-v1"},202);
+  }
+  const u=await fetch(RUNNER,{method:"POST",headers:h,body});
+  const b=await u.text();
+  return new Response(b,{status:u.status,headers:{"content-type":u.headers.get("content-type")||"application/json","cache-control":"no-store"}});
+}catch(e){
+  return out({ok:false,status:"unavailable",error:e instanceof Error?e.message:String(e),runtime:"canonical-runtime-v1"},503);
+}});
