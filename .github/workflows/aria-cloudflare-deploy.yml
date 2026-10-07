@@ -36,7 +36,7 @@ on:
 
 concurrency:
   group: aria-cloudflare-production-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -353,6 +353,20 @@ jobs:
           test "$stale_sw_code" = "200"
           test "$stale_sw_build" = "$GITHUB_SHA"
           grep -qi 'no-store' <<<"$stale_sw_cache"
+      - name: Smoke test CuevaCoin project preview source
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev"
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -D "$headers" -o "$body" -w '%{http_code}' "$base/project-preview/cuevacoin/?probe=${GITHUB_SHA}")"
+          echo "CUEVACOIN_PROJECT_PREVIEW_STATUS=$code"
+          cat "$headers"
+          test "$code" = "200"
+          grep -qi "^content-type: text/html" "$headers"
+          grep -qi "^x-aria-preview-source: github-main" "$headers"
+          grep -q "CuevaCoin" "$body"
+          echo PROJECT_PREVIEW_CUEVACOIN_LIVE_OK
       - name: Smoke test direct ARIA interface
         run: |
           set -euo pipefail
