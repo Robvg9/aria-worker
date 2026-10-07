@@ -3,7 +3,7 @@ import { missionGoalPreview, missionHumanTitle, missionListLabel } from './missi
 
 type Session = { accessToken: string; userId: string };
 type ChatMessage = { id:string; role:'user'|'aria'; text:string; processingMs?:number };
-type Project = { id: string; name: string; description: string; icon: string; context: string; previewUrl?: string };
+type Project = { id: string; name: string; description: string; icon: string; context: string; previewUrl?: string; previewMode?: 'live' | 'source' | 'reference' };
 type Tool = 'pen'|'marker'|'line'|'rect'|'circle'|'arrow'|'text'|'eraser';
 type Point = { x:number; y:number };
 type DrawAction = { tool:Tool; color:string; size:number; points:Point[]; text?:string };
@@ -19,9 +19,9 @@ const HUMAN_API_ERRORS: Record<string,string> = {
   invalid_or_expired_session:'La sesión de ARIA expiró. Vuelve a entrar para continuar.'
 };
 const PROJECTS: Project[] = [
-  { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.', previewUrl:'https://battlecruiser.robvg9.workers.dev/' },
-  { id:'cuevacoin', name:'CuevaCoin', description:'Aplicación financiera/operativa vinculada al ecosistema de negocios.', icon:'🪙', context:'CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.' },
-  { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.' }
+  { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.', previewUrl:'https://battlecruiser.robvg9.workers.dev/', previewMode:'live' },
+  { id:'cuevacoin', name:'CuevaCoin', description:'Aplicación financiera/operativa vinculada al ecosistema de negocios.', icon:'🪙', context:'CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.', previewUrl:'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', previewMode:'source' },
+  { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.', previewUrl:'https://aria.robvg9.workers.dev/pwa/', previewMode:'live' }
 ];
 
 async function api(path:string, token:string, init:RequestInit={}) {
@@ -161,6 +161,7 @@ function drawProjectPreview(ctx:CanvasRenderingContext2D, project:Project, frame
 
 function VisualBoard({session,project,conversationId,onChat,onMission}:{session:Session;project:Project;conversationId:string|null;onChat:(message:string,conversationId?:string)=>void;onMission:(payload:any)=>Promise<any>}) {
   const livePreviewUrl = project.previewUrl || null;
+  const previewMode = project.previewMode || (livePreviewUrl ? 'live' : 'reference');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [tool,setTool] = useState<Tool>('pen');
   const [color,setColor] = useState('#9f7cff');
@@ -298,8 +299,8 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   }
 
   return <section className='panel visualBoardPanel'>
-    <div className='panelHeading'><div><div className='panelTitle'>ARTIA · PROJECT PREVIEW</div><h2>Vista previa de {project.name}</h2><div className='muted'>Mira el proyecto, pausa la vista cuando quieras modificar algo y pinta directamente sobre esa referencia.</div></div><span className={'pill '+(previewPaused?'good':livePreviewUrl?'live':'neutral')}>{livePreviewUrl?(previewPaused?'LIVE pausada · lista para pintar':'LIVE'):(previewPaused?'Referencia pausada · lista para pintar':'Referencia visual')}</span></div>
-    <div className='visualPreviewControls'><div className='visualPreviewControlGroup'><button type='button' className='ghost' onClick={()=>{setPreviewPaused(v=>!v);if(!previewPaused)setNotice('Vista previa pausada. Ya puedes pintar.');else setNotice('Vista previa reanudada. Las nuevas anotaciones se conservan.')}}>{previewPaused?'▶ Reproducir vista':'⏸ Pausar para pintar'}</button><button type='button' className='ghost' onClick={()=>void togglePreviewFullscreen()} aria-label={previewFullscreen?'Salir de pantalla completa':'Abrir vista previa en pantalla completa'}>{previewFullscreen?'↙ Salir':'⛶ Pantalla completa'}</button></div><span className='muted'>{backgroundDataUrl?'Referencia cargada':livePreviewUrl?'Fuente LIVE configurada':'Referencia visual local del proyecto'}</span></div>
+    <div className='panelHeading'><div><div className='panelTitle'>ARTIA · PROJECT PREVIEW</div><h2>Vista previa de {project.name}</h2><div className='muted'>Mira el proyecto, pausa la vista cuando quieras modificar algo y pinta directamente sobre esa referencia.</div></div><span className={'pill '+(previewPaused?'good':previewMode==='live'?'live':'neutral')}>{previewMode==='live'?(previewPaused?'LIVE pausada · lista para pintar':'LIVE'):(previewMode==='source'?(previewPaused?'Código pausado · listo para pintar':'Vista del código'):(previewPaused?'Referencia pausada · lista para pintar':'Referencia visual'))}</span></div>
+    <div className='visualPreviewControls'><div className='visualPreviewControlGroup'><button type='button' className='ghost' onClick={()=>{setPreviewPaused(v=>!v);if(!previewPaused)setNotice('Vista previa pausada. Ya puedes pintar.');else setNotice('Vista previa reanudada. Las nuevas anotaciones se conservan.')}}>{previewPaused?'▶ Reproducir vista':'⏸ Pausar para pintar'}</button><button type='button' className='ghost' onClick={()=>void togglePreviewFullscreen()} aria-label={previewFullscreen?'Salir de pantalla completa':'Abrir vista previa en pantalla completa'}>{previewFullscreen?'↙ Salir':'⛶ Pantalla completa'}</button></div><span className='muted'>{backgroundDataUrl?'Referencia cargada':previewMode==='live'?'Fuente LIVE configurada':previewMode==='source'?'Fuente de código configurada':'Referencia visual local del proyecto'}</span></div>
     <div className='drawToolbar'>
       <label className='fileButton'>📷 Cargar captura de referencia <input type='file' accept='image/*' hidden onChange={e=>{const f=e.target.files?.[0];if(f)loadBackground(f);e.currentTarget.value=''}}/></label>
       {(['pen','marker','line','rect','circle','arrow','text','eraser'] as Tool[]).map(x=><button type='button' key={x} className={'toolButton '+(tool===x?'selected':'')} onClick={()=>setTool(x)} aria-label={x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}>{x==='pen'?'✎':x==='marker'?'🖍':x==='line'?'╱':x==='rect'?'▭':x==='circle'?'◯':x==='arrow'?'➜':x==='text'?'T':'⌫'}<span>{x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}</span></button>)}
