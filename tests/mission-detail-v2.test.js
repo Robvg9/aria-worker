@@ -23,6 +23,5 @@ assert.match(api, /approved_by: user\.id/);
 
 assert.match(runner, /finished_at: new Date\(\)\.toISOString\(\)/);
 assert.match(runner, /validateMutationVerificationConsistency/);
-assert.match(runner, /finished_at: new Date\\(\\)\\.toISOString\\(\\)/);
 
 console.log('PASS mission-detail-v2');
