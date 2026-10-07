@@ -135,11 +135,11 @@ async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){cons
 function artifactSafeSegment(value, allowSlash = false) {
   const s = String(value || '');
   if (!s || s.includes('..') || /[\u0000-\u001f]/.test(s)) return false;
-  if (allowSlash) return /^[A-Za-z0-9._~!if (allowSlash) return /^[A-Za-z0-9._~!$&()*+,;=:@\\/-]+$/.test(s);()*+,;=:@\/-]+$/.test(s);
+  if (allowSlash) return /^[A-Za-z0-9._~!$&()*+,;=:@\/-]+$/.test(s);
   return /^[A-Za-z0-9._~!$&()*+,;=:@-]+$/.test(s);
 }
 function artifactRawUrl(repo, ref, artifactPath) {
-  if (!/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/.test(repo)) return null;
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return null;
   if (!artifactSafeSegment(ref, true) || !artifactSafeSegment(artifactPath, true) || artifactPath.startsWith('/')) return null;
   const refPath = ref.split('/').map(encodeURIComponent).join('/');
   const filePath = artifactPath.split('/').map(encodeURIComponent).join('/');
