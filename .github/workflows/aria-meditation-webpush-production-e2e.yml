@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
+      - 'rwht/pc-browser/production-webpush-live-e2e.mjs'
       - 'pwa/src/notifications.ts'
       - 'pwa/public/sw.js'
       - 'pwa/**'
@@ -103,7 +104,7 @@ jobs:
 
       - name: Execute production Web Push E2E
         working-directory: rwht/pc-browser
-        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' node rwht-meditation-pwa-e2e.mjs
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' node production-webpush-live-e2e.mjs
 
       - name: Upload Web Push evidence
         if: always()
