@@ -190,3 +190,4 @@ jobs:
 # 2026-09-28: canonical runtime deploy must certify planner metadata forwarding + device-intent routing from main.
 
 # 2026-09-28: certify current main runner/planner mission-intent contract in canonical runtime deployment.
+# 2026-10-07: migration reconciliation repaired; rerun canonical deployment after applying pending main migrations.
