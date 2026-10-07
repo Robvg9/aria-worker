@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
+export const TEST_CATALOG_VERSION = '2026-10-07-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "omniroute-phase6-adapter",
