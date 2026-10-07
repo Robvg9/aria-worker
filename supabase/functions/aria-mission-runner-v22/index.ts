@@ -2054,6 +2054,8 @@ async function strategyRouteFingerprint(step:any, routeOverride:any = null) {
 }
 
 async function lookupFailureMemory(goalSignature:string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
     const { data, error } = await sb.schema("aria_internal")
       .from("strategy_failure_ledger")
@@ -2061,15 +2063,20 @@ async function lookupFailureMemory(goalSignature:string) {
       .eq("goal_signature", goalSignature)
       .eq("blocked", true)
       .order("last_failed_at", { ascending: false })
-      .limit(20);
+      .limit(20)
+      .abortSignal(controller.signal);
     if (error) throw error;
     return { available: true, rows: Array.isArray(data) ? data : [] };
   } catch (error) {
     return {
       available: false,
       rows: [],
-      reason: error instanceof Error ? error.message : String(error),
+      reason: error instanceof Error && error.name === "AbortError"
+        ? "failure_memory_lookup_timeout"
+        : error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
