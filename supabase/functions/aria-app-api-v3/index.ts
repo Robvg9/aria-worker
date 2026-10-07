@@ -1842,6 +1842,10 @@ Deno.serve(async (req) => {
         return json({ error: "human_gate_not_approvable", detail: "La misión ya no está detenida esperando este Human Gate.", trace_id: trace }, 409);
       }
       const now = new Date().toISOString();
+      const planSteps = Array.isArray(original?.checkpoint?.plan) ? original.checkpoint.plan : [];
+      const gateStepIndex = Number.isFinite(Number(gate.step_id))
+        ? Number(gate.step_id)
+        : Math.max(0, planSteps.findIndex((step:any) => String(step?.id || '') === String(gate.step_id || ''))) + 1;
       const approvedCheckpoint = {
         ...(original.checkpoint || {}),
         human_gate: {
@@ -1871,7 +1875,7 @@ Deno.serve(async (req) => {
       if (!updated) return json({ error: "human_gate_approve_race", detail: "La misión cambió de estado antes de poder continuar.", trace_id: trace }, 409);
       const { error: eventError } = await sb.schema("aria_internal").from("mission_events").insert({
         mission_id: missionId,
-        step_index: Number(gate.step_id || 0) || null,
+        step_index: gateStepIndex || null,
         event_type: "human_gate_approved",
         payload: {
           step_id: gate.step_id ?? null,
