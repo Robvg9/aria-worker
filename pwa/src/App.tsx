@@ -1415,7 +1415,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
             <h2>{missionHumanTitle(mission)}</h2>
             <div className='muted'>{missionGoalPreview(mission)}</div>
             <div className='muted missionActivityHint'>{missionActivityLabel(mission)}</div>
-            <span className={'pill ' + tone(status)}>{statusLabel(status)}</span>
+            <span className={'pill ' + tone(status)}>{status === 'failed' ? 'FALLIDA' : statusLabel(status)}</span>
           </div>
           <button className='ghost' onClick={onClose}>Cerrar</button>
         </div>
