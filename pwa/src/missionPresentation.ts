@@ -16,6 +16,7 @@ export function missionProjectLabel(mission: any): string {
     mission?.goal,
   ].filter(Boolean).join(' ').toLowerCase();
 
+  if (raw.includes('battlecruiser') && raw.includes('cuevacoin') && /\baria\b/.test(raw)) return 'Multi-proyecto';
   if (raw.includes('battlecruiser')) return 'BattleCruiser';
   if (raw.includes('cuevacoin')) return 'CuevaCoin';
   if (raw.includes('chatbending')) return 'ChatBending';
@@ -28,7 +29,9 @@ export function missionHumanTitle(mission: any): string {
   const project = missionProjectLabel(mission);
 
   let title = 'Misión de ARIA';
-  if (/battlecruiser/i.test(goal)) title = 'Integración con BattleCruiser';
+  if (/aria reality board|reality board|estado real.*proyectos?|qué está realmente terminado|que está realmente terminado/i.test(goal)
+      && /battlecruiser/i.test(goal) && /cueva\s*coin|cuevacoin/i.test(goal) && /\baria\b/i.test(goal)) title = 'ARIA Reality Board';
+  else if (/battlecruiser/i.test(goal)) title = 'Integración con BattleCruiser';
   else if (/cuevacoin/i.test(goal)) title = 'Operación CuevaCoin';
   else if (/(credenciales|usuario|contraseña|password|login|sesión)/i.test(goal)) title = 'Diagnóstico de acceso y credenciales';
   else if (/(rwht|real world human|prueba)/i.test(goal)) title = project === 'General' ? 'Prueba de ARIA' : `Prueba de ARIA · ${project}`;
