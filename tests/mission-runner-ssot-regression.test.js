@@ -47,7 +47,7 @@ test("PWA mission state uses the canonical mission_state source and live leases"
   );
 });
 
-test("PWA keeps non-leased running/waiting missions visible as recoverable", () => {
+test("PWA never promotes stale non-leased running/waiting missions to live execution", () => {
   assert.match(
     pwaApp,
     /if \(value === 'running' && leased\) return 60;\s*if \(value === 'waiting' && leased\) return 45;/,
@@ -55,17 +55,32 @@ test("PWA keeps non-leased running/waiting missions visible as recoverable", () 
   );
   assert.match(
     pwaApp,
+    /const UNLEASED_RECOVERY_MAX_AGE_MS = 30 \* 60 \* 1000/,
+    "PWA recovery must have a bounded freshness window"
+  );
+  assert.match(
+    pwaApp,
+    /const pendingJobs = mission\?\.checkpoint\?\.pending_jobs/,
+    "PWA recovery must inspect persisted pending jobs"
+  );
+  assert.match(
+    pwaApp,
+    /age <= UNLEASED_RECOVERY_MAX_AGE_MS/,
+    "PWA recovery must reject stale work"
+  );
+  assert.match(
+    pwaApp,
+    /activeMissionRank\(m\.status,m\.lease_owner,m\.lease_until,m\)/,
+    "live mission selection must pass the complete mission object into the freshness guard"
+  );
+  assert.match(
+    pwaApp,
+    /const recoveryVisible=\(status==='running'\|\|status==='waiting'\) && !leaseValid && activeMissionRank\(status,mission\.lease_owner,mission\.lease_until,mission\)>=30/,
+    "PWA live execution must use the same bounded recovery predicate as selection"
+  );
+  assert.doesNotMatch(
+    pwaApp,
     /if \(value === 'running'\) return 35;\s*if \(value === 'waiting'\) return 30;/,
-    "unleased running/waiting missions must remain visible so a recoverable mission never disappears"
-  );
-  assert.match(
-    pwaApp,
-    /const recoveryVisible=.*!leaseValid/,
-    "PWA must explicitly identify an unleased running/waiting mission as recovery-visible"
-  );
-  assert.match(
-    pwaApp,
-    /La misión perdió el lease, pero sigue registrada/,
-    "PWA must explain the recoverable lease loss to the user"
+    "unleased missions must not be promoted indefinitely"
   );
 });
