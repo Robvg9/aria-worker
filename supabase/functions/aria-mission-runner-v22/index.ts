@@ -332,10 +332,11 @@ async function recall(goal: string, auth: AuthContext) {
 }
 
 async function createPlan(goal: string, context: unknown, auth: AuthContext) {
+  // Preserve the canonical internal authentication mode. In particular, an
+  // autonomy-token invocation must reach the planner through x-aria-autonomy-token;
+  // forcing the runner's service-role Authorization caused LIVE planner 401s.
   const plannerHeaders: Record<string,string> = {
-    "content-type":"application/json",
-    ...(EDGE_API_KEY ? {apikey:EDGE_API_KEY} : {}),
-    ...(KEY ? {authorization:`Bearer ${KEY}`} : downstreamHeaders(auth)),
+    ...downstreamHeaders(auth),
   };
   return createPlanWithTimeout(PLANNER, goal, context, plannerHeaders);
 }
