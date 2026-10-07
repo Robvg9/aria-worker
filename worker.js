@@ -135,11 +135,11 @@ async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){cons
 function artifactSafeSegment(value, allowSlash = false) {
   const s = String(value || '');
   if (!s || s.includes('..') || /[\\u0000-\\u001f]/.test(s)) return false;
-  if (allowSlash) return /^[A-Za-z0-9._~!export default {async scheduled(_controller,env,ctx){'()*+,;=:@\\/-]+$/.test(s);
-  return /^[A-Za-z0-9._~!export default {async scheduled(_controller,env,ctx){'()*+,;=:@-]+$/.test(s);
+  if (allowSlash) return /^[A-Za-z0-9._~!$&()*+,;=:@\\/-]+$/.test(s);
+  return /^[A-Za-z0-9._~!$&()*+,;=:@-]+$/.test(s);
 }
 function artifactRawUrl(repo, ref, artifactPath) {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return null;
+  if (!/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/.test(repo)) return null;
   if (!artifactSafeSegment(ref, true) || !artifactSafeSegment(artifactPath, true) || artifactPath.startsWith('/')) return null;
   const refPath = ref.split('/').map(encodeURIComponent).join('/');
   const filePath = artifactPath.split('/').map(encodeURIComponent).join('/');
@@ -171,13 +171,13 @@ async function serveGithubArtifact(request,url,mode){
   headers.set('content-type',artifactContentType(artifactPath));
   headers.set('cache-control','public, max-age=300');
   headers.set('x-content-type-options','nosniff');
-  if(mode==='view' && /^\.html?$/i.test('.'+artifactPath.split('.').pop())){
+  if(mode==='view' && /\\.html?$/i.test(artifactPath)){
     headers.set('content-security-policy',"sandbox allow-scripts allow-forms allow-modals");
     headers.set('content-disposition','inline');
   } else if(mode==='view'){
     headers.set('content-disposition','inline');
   } else {
-    const filename=(artifactPath.split('/').pop()||'artifact').replace(/[\r\n"]/g,'');
+    const filename=(artifactPath.split('/').pop()||'artifact').replace(/[\\r\\n"]/g,'');
     headers.set('content-disposition','attachment; filename="'+filename+'"');
   }
   if(request.method==='HEAD')return new Response(null,{status:upstream.status,headers});
