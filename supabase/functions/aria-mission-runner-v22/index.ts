@@ -236,9 +236,11 @@ async function resolveDeviceTarget(missionId: string, step: any): Promise<Device
 }
 
 async function authorized(request: Request) {
-  const token = tokenOf(request);
-  if (token && SECRET && constantTimeEqual(token, SECRET)) return true;
+  const auth = authContextOf(request);
+  const token = auth.token;
   if (!token) return false;
+  if (auth.kind === "authorization" && KEY && constantTimeEqual(token, KEY)) return true;
+  if (auth.kind === "authorization" && SECRET && constantTimeEqual(token, SECRET)) return true;
   const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: token });
   return !error && data === true;
 }
