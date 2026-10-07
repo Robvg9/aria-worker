@@ -81,7 +81,7 @@ const downstreamHeaders = (auth: AuthContext) => {
 
 const internalHeaders = () => ({
   "content-type": "application/json",
-  authorization: `Bearer ${SECRET}`,
+  authorization: `Bearer ${KEY || SECRET}`,
   ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {}),
 });
 
