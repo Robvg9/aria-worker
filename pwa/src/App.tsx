@@ -1444,7 +1444,10 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
               <div><strong>Qué hizo ARIA</strong><p>{verificationMismatch ? 'Completó los pasos de creación y comprobación del archivo. El problema apareció al comparar la respuesta final con la evidencia real.' : summary.what}</p></div>
               <div><strong>Qué pasó</strong><p>{verificationMismatch ? 'La última comprobación dijo que el cambio estaba en otra rama y otro archivo. Esa respuesta no coincidía con la evidencia real.' : summary.how}</p></div>
               <div><strong>Qué falta</strong><p>{verificationMismatch ? 'Volver a comprobar la misma evidencia con una verificación gobernada y coherente.' : summary.improvement}</p></div>
-              <div><strong>Resultado</strong><p>{answer}</p></div>
+            </div>
+            <div className='missionAnswer'>
+              <div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div>
+              <p className='missionResultPlain'>{answer}</p>
             </div>
           </div>
         )}
