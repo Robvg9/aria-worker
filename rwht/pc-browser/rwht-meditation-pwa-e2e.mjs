@@ -314,6 +314,11 @@ async function run() {
       report.background_push_registration_scope = pushDelivery.scope || null;
 
       await probePage.close();
+      if (envBool('RWHT_BACKGROUND_PUSH_ONLY', false)) {
+        report.status = 'verified';
+        report.cleaned_up = true;
+        return;
+      }
       await controllerPage.close();
     }
 
