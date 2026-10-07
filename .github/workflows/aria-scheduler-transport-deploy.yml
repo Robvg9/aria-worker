@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "worker.js"
+      - "wrangler.toml"
       - "supabase/migrations/20261007205000_scheduler_cloudflare_transport_fallback_v1.sql"
       - "tests/mission-runtime-integrity-v1.test.js"
       - ".github/workflows/aria-scheduler-transport-deploy.yml"
