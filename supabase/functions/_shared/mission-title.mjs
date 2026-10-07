@@ -19,7 +19,8 @@ export function deriveMissionDisplayTitle(goal, projectName = '') {
   const project = trimTitle(projectName);
   let title = '';
 
-  if (/battlecruiser/i.test(g)) title = 'Integración con BattleCruiser';
+  if (/(reality\s+board|panel de estado.*proyectos|estado real.*proyectos)/i.test(g) && /battlecruiser/i.test(g) && /cueva\s*coin|cuevacoin/i.test(g) && /\baria\b/i.test(g)) title = 'ARIA Reality Board';
+  else if (/battlecruiser/i.test(g)) title = 'Integración con BattleCruiser';
   else if (/cuevacoin/i.test(g)) title = 'Operación CuevaCoin';
   else if (/(notific|avisos)/i.test(g)) title = 'Mejora de notificaciones';
   else if (/(dashboard|panel|navegación|navegacion)/i.test(g)) title = 'Mejora del panel de ARIA';
