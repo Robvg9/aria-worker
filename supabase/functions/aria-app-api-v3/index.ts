@@ -1203,43 +1203,103 @@ async function meditationIdeaConvertForUser(userId:string,proposalId:string,plan
   return {ok:true,device_id:deviceId,...data};
 }
 
-async function meditationOverview(userId:string){const sb=serviceClient();const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at").eq("controller_id","primary").maybeSingle();if(ce)throw new Error(ce.message);const controllerOwnedByUser=String(controller?.owner_user_id||"")===userId;const scopedSessionId=controllerOwnedByUser&&controller?.session_id?String(controller.session_id):"";
-const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,metadata,created_at,updated_at,lease_owner,lease_until,checkpoint").order("updated_at",{ascending:false}).limit(200);if(me)throw new Error(me.message);
-const owned=(all??[]).filter((m:any)=>{const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};return md.user_id===userId||md.owner_user_id===userId||(scopedSessionId&&md.meditation_session_id===scopedSessionId)});
-const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||('Misión #'+(owned.length-i))),description:String(m?.goal||"")}));
-const latestUser=[...ranked].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user").sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
-const UNLEASED_RECOVERY_MAX_AGE_MS=30*60*1000;
- const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());
- const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
- const isRecentRecovery=(m:any)=>{const updated=Date.parse(String(m?.updated_at||""));return Number.isFinite(updated)&&Date.now()-updated<=UNLEASED_RECOVERY_MAX_AGE_MS;};
- const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if((s==="running"||s==="waiting")&&!hasPendingJob(m)&&isRecentRecovery(m))return s==="running"?35:30;return 0;};const foregroundRank=(m:any)=>{const s=String(m?.status||"");if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;if(s==="succeeded")return 5;if(["failed","blocked","cancelled"].includes(s))return 4;return 0;};
-const rawLive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||foregroundRank(b)-foregroundRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
-const rawActive=rawLive;
-const visibleIds=ranked.slice(0,20).map((m:any)=>String(m.mission_id));if(rawActive?.mission_id&&!visibleIds.includes(String(rawActive.mission_id)))visibleIds.push(String(rawActive.mission_id));
-let detailed:any[]=[];if(visibleIds.length){const {data,error}=await sb.schema("aria_internal").from("mission_state").select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at,lease_owner,lease_until").in("mission_id",visibleIds);if(error)throw new Error(error.message);detailed=data??[];}
-const detailedById=new Map(detailed.map((m:any)=>[String(m.mission_id),m]));
-const fastMissions=await Promise.all(ranked.slice(0,20).map((m:any)=>enrichMission({...m,...(detailedById.get(String(m.mission_id))||{})},sb,false)));
-const activeSource=rawActive?{...rawActive,...(detailedById.get(String(rawActive.mission_id))||{})}:null;
-const active=activeSource?await enrichMission(activeSource,sb,true):null;
-const foregroundSource=latestUser?{...latestUser,...(detailedById.get(String(latestUser.mission_id))||{})}:null;
-const foreground=foregroundSource?await enrichMission(foregroundSource,sb,false):null;
-const queuedSources=[...ranked].filter((m:any)=>String(m?.status)==="queued").sort((a:any,b:any)=>Number(b?.metadata?.queue_priority??0)-Number(a?.metadata?.queue_priority??0)||new Date(String(a.updated_at||0)).getTime()-new Date(String(b.updated_at||0)).getTime());
-const queuedMissionSources=queuedSources.slice(0,20);
-const queuedMissions=queuedMissionSources.map((m:any)=>enrichMission({...m,...(detailedById.get(String(m.mission_id))||{})},sb,false));
-const missions=fastMissions.map((m:any)=>m.mission_id===active?.mission_id?active:m);const byId=new Map(missions.map(m=>[m.mission_id,m]));const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events").select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"]).order("created_at",{ascending:false}).limit(100);if(ee)throw new Error(ee.message);const gates:any[]=[];for(const e of ev??[]){const m=byId.get(String(e.mission_id));if(!m||terminal.has(String(m.status)))continue;const p=e.payload&&typeof e.payload==='object'?e.payload:{};const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,`Usa el control Human Gate de ARIA para aprobar o rechazar la continuación.`],source:e.created_at});}for(const m of missions.filter(x=>!terminal.has(String(x.status)))){const req=m?.metadata?.human_gate_required;if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});}const blocked=missions.filter(m=>String(m.status)==="blocked").map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:[m.block_details?.remediation||"Revisa el motivo indicado.",m.block_details?.next_action||m.next_action||"Determina qué recurso o autorización falta.","ARIA intentará una estrategia alternativa cuando exista una ruta gobernada disponible."],updated_at:m.updated_at}));const verification_pending=missions.filter(m=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).map(m=>({mission_id:m.mission_id,goal:m.goal,status:m.status,...(m.block_details||{}),step:m.steps.find((s:any)=>String(s.id)===String(m?.checkpoint?.recovery?.failed_step_id||""))??null,updated_at:m.updated_at}));
-let liveEvents:any[]=[];
-if(active?.mission_id){
-  const {data:liveEventRows,error:liveEventError}=await sb.schema("aria_internal").from("mission_events")
-    .select("event_id,mission_id,step_index,event_type,payload,created_at")
-    .eq("mission_id",String(active.mission_id))
-    .order("created_at",{ascending:false})
-    .limit(30);
-  if(liveEventError) throw new Error(liveEventError.message);
-  liveEvents=(liveEventRows??[]).reverse();
-}
-const liveSyncAt=new Date().toISOString();
-const activeWithLive=active ? {...active,live_events:liveEvents,live_sync_at:liveSyncAt,live_event_count:liveEvents.length}:null;
-return{version:"aria-meditation-dashboard-v5",mode:controllerOwnedByUser?String(controller?.desired_mode??"stopped"):"stopped",controller:controllerOwnedByUser?controller:null,active_mission:activeWithLive,foreground_mission:foreground,queued_missions:await Promise.all(queuedMissions),missions,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:missions.length,human_gates:gates.length,blocked:blocked.length,verification_pending:verification_pending.length,queued:queuedSources.length},source_of_truth:"aria_internal.mission_state"};
+async function meditationOverview(userId:string){
+  const sb=serviceClient();
+  const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control")
+    .select("controller_id,owner_user_id,desired_mode,session_id,revision,last_command,last_command_at,last_cloud_tick_at,last_cloud_status,metadata,created_at,updated_at")
+    .eq("controller_id","primary").maybeSingle();
+  if(ce)throw new Error(ce.message);
+  const controllerOwnedByUser=String(controller?.owner_user_id||"")===userId;
+  const scopedSessionId=controllerOwnedByUser&&controller?.session_id?String(controller.session_id):"";
+  const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state")
+    .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,metadata,created_at,updated_at,lease_owner,lease_until,checkpoint")
+    .order("updated_at",{ascending:false}).limit(500);
+  if(me)throw new Error(me.message);
+  const owned=(all??[]).filter((m:any)=>{
+    const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};
+    return md.user_id===userId||md.owner_user_id===userId||(scopedSessionId&&md.meditation_session_id===scopedSessionId);
+  });
+  const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||('Misión #'+(owned.length-i))),description:String(m?.goal||"")}));
+  const latestUser=[...ranked].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user")
+    .sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
+  const UNLEASED_RECOVERY_MAX_AGE_MS=30*60*1000;
+  const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());
+  const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
+  const isRecentRecovery=(m:any)=>{const updated=Date.parse(String(m?.updated_at||""));return Number.isFinite(updated)&&Date.now()-updated<=UNLEASED_RECOVERY_MAX_AGE_MS;};
+  const isVerificationRetry=(m:any)=>String(m?.checkpoint?.recovery?.status||"")==="verification_retry_requested"&&isRecentRecovery(m);
+  const activeRank=(m:any)=>{const s=String(m?.status||"");if(s==="running"&&hasLiveLease(m))return 60;if(s==="waiting"&&hasLiveLease(m))return 45;if(s==="running"&&!hasLiveLease(m)&&isVerificationRetry(m)&&!hasPendingJob(m))return 55;return 0;};
+  const foregroundRank=(m:any)=>{const s=String(m?.status||"");if(s==="planning")return 30;if(s==="queued")return 20;if(s==="paused")return 10;if(s==="succeeded")return 5;if(["failed","blocked","cancelled"].includes(s))return 4;return 0;};
+  const rawLive=[...ranked].sort((a:any,b:any)=>activeRank(b)-activeRank(a)||foregroundRank(b)-foregroundRank(a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
+  const rawActive=activeRank(rawLive)>0?rawLive:null;
+  const recentFailed=ranked.filter((m:any)=>String(m.status)==="failed").slice(0,12);
+  const recentBlocked=ranked.filter((m:any)=>String(m.status)==="blocked").slice(0,12);
+  const recentVerification=ranked.filter((m:any)=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).slice(0,12);
+  const visibleSources=[...ranked.slice(0,20),...(rawActive?[rawActive]:[]),...recentFailed,...recentBlocked,...recentVerification];
+  const visibleIds=Array.from(new Set(visibleSources.map((m:any)=>String(m.mission_id)).filter(Boolean)));
+  let detailed:any[]=[];
+  if(visibleIds.length){
+    const {data,error}=await sb.schema("aria_internal").from("mission_state")
+      .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at,lease_owner,lease_until")
+      .in("mission_id",visibleIds);
+    if(error)throw new Error(error.message);
+    detailed=data??[];
+  }
+  const detailedById=new Map(detailed.map((m:any)=>[String(m.mission_id),m]));
+  const fastMissions=await Promise.all(ranked.slice(0,20).map((m:any)=>enrichMission({...m,...(detailedById.get(String(m.mission_id))||{})},sb,false)));
+  const activeSource=rawActive?{...rawActive,...(detailedById.get(String(rawActive.mission_id))||{})}:null;
+  const active=activeSource?await enrichMission(activeSource,sb,true):null;
+  const foregroundSource=latestUser?{...latestUser,...(detailedById.get(String(latestUser.mission_id))||{})}:null;
+  const foreground=foregroundSource?await enrichMission(foregroundSource,sb,false):null;
+  const enrichSpecial=async(source:any[])=>Promise.all(source.map((m:any)=>enrichMission({...m,...(detailedById.get(String(m.mission_id))||{})},sb,false)));
+  const failedList=await enrichSpecial(recentFailed);
+  const blockedList=await enrichSpecial(recentBlocked);
+  const verificationList=await enrichSpecial(recentVerification);
+  const queuedSources=[...ranked].filter((m:any)=>String(m?.status)==="queued")
+    .sort((a:any,b:any)=>Number(b?.metadata?.queue_priority??0)-Number(a?.metadata?.queue_priority??0)||new Date(String(a.updated_at||0)).getTime()-new Date(String(b.updated_at||0)).getTime());
+  const queuedMissions=queuedSources.slice(0,20).map((m:any)=>enrichMission({...m,...(detailedById.get(String(m.mission_id))||{})},sb,false));
+  const missions=fastMissions.map((m:any)=>m.mission_id===active?.mission_id?active:m);
+  const byId=new Map([...missions,...failedList,...blockedList,...verificationList].map(m=>[m.mission_id,m]));
+  const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events")
+    .select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"])
+    .order("created_at",{ascending:false}).limit(100);
+  if(ee)throw new Error(ee.message);
+  const gates:any[]=[];
+  for(const e of ev??[]){
+    const m=byId.get(String(e.mission_id)); if(!m||terminal.has(String(m.status)))continue;
+    const p=e.payload&&typeof e.payload==="object"?e.payload:{}; const step=m.steps.find((s:any)=>s.id===String(p.step_id??''))??null;
+    gates.push({id:`${e.mission_id}:${e.created_at}`,mission_id:e.mission_id,step_id:p.step_id??null,event_type:e.event_type,reason:p.stop_reason??"human_gate_required",risk:step?.risk??m.metadata?.human_gate_required?.[0]??"HIGH_RISK_WRITE",mission_goal:m.goal,operation:step?.operation??null,target:step?{executor_type:step.executor_type,operation:step.operation}:null,instructions:[`Revisa la misión: ${m.goal}`,`Confirma el paso ${step?.index??p.step_id??"pendiente"} y su operación ${step?.operation??"indicada por el gate"}.`,`Verifica el riesgo declarado (${step?.risk??"HIGH_RISK_WRITE"}) y el objetivo antes de aprobar.`,"Usa el control Human Gate de ARIA para aprobar o rechazar la continuación."],source:e.created_at});
+  }
+  for(const m of [...missions,...failedList,...blockedList,...verificationList].filter(x=>!terminal.has(String(x.status)))){
+    const req=m?.metadata?.human_gate_required;
+    if(!Array.isArray(req)||!req.length||gates.some(g=>g.mission_id===m.mission_id))continue;
+    gates.push({id:`${m.mission_id}:policy`,mission_id:m.mission_id,step_id:null,event_type:"policy_gate",reason:"human_gate_required",risk:String(req[0]),mission_goal:m.goal,operation:null,target:null,instructions:["Revisa la misión y el cambio propuesto.",`Confirma la categoría de riesgo: ${String(req[0])}.`,"Aprueba o rechaza la continuación desde Human Gate de ARIA."],source:m.updated_at});
+  }
+  const toBlocked=(m:any)=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['blocked','failed','running'].includes(s.status))??null,instructions:[m.block_details?.remediation||"Revisa el motivo indicado.",m.block_details?.next_action||m.next_action||"Determina qué recurso o autorización falta.","ARIA intentará una estrategia alternativa cuando exista una ruta gobernada disponible."],updated_at:m.updated_at});
+  const blocked=blockedList.map(toBlocked);
+  const failed=failedList.map((m:any)=>({mission_id:m.mission_id,goal:m.goal,status:m.status,reason_type:reasonType(m),...(m.block_details||{}),next_action:m.next_action,step:m.steps.find((s:any)=>['failed','running','blocked'].includes(s.status))??null,instructions:["Revisa el último fallo y la evidencia persistida.",m.block_details?.remediation||m.next_action||"Decide si conviene reintentar o volver a comprobar la misma evidencia.","Una misión fallida no equivale a una misión bloqueada: falló después de ejecutar; bloqueada significa que ARIA detuvo la ejecución por una condición de gobernanza/dependencia."],updated_at:m.updated_at}));
+  const verification_pending=verificationList.map((m:any)=>({mission_id:m.mission_id,goal:m.goal,status:m.status,...(m.block_details||{}),step:m.steps.find((s:any)=>String(s.id)===String(m?.checkpoint?.recovery?.failed_step_id||""))??null,updated_at:m.updated_at}));
+  let liveEvents:any[]=[];
+  if(active?.mission_id){
+    const {data:liveEventRows,error:liveEventError}=await sb.schema("aria_internal").from("mission_events")
+      .select("event_id,mission_id,step_index,event_type,payload,created_at").eq("mission_id",String(active.mission_id))
+      .order("created_at",{ascending:false}).limit(30);
+    if(liveEventError)throw new Error(liveEventError.message);
+    liveEvents=(liveEventRows??[]).reverse();
+  }
+  const liveSyncAt=new Date().toISOString();
+  const activeWithLive=active?{...active,live_events:liveEvents,live_sync_at:liveSyncAt,live_event_count:liveEvents.length,ui_state:isVerificationRetry(active)?"verification_retry":"live_execution"}:null;
+  const ownerFilterParts=scopedSessionId?`metadata->>user_id.eq.${userId},metadata->>owner_user_id.eq.${userId},metadata->>meditation_session_id.eq.${scopedSessionId}`:`metadata->>user_id.eq.${userId},metadata->>owner_user_id.eq.${userId}`;
+  const countStatus=async(status:string|null)=>{
+    let q=sb.schema("aria_internal").from("mission_state").select("mission_id",{count:"exact",head:true}).or(ownerFilterParts);
+    if(status)q=q.eq("status",status);
+    const {count,error}=await q; if(error)throw new Error(error.message); return Number(count||0);
+  };
+  const statusNames=['queued','planning','running','waiting','paused','succeeded','failed','blocked','cancelled']; const statusCounts:any={};
+  for(const statusName of statusNames)statusCounts[statusName]=await countStatus(statusName);
+  statusCounts.total=await countStatus(null);
+  statusCounts.history=statusCounts.succeeded+statusCounts.failed+statusCounts.blocked+statusCounts.cancelled;
+  statusCounts.active=statusCounts.planning+statusCounts.running+statusCounts.waiting+statusCounts.paused;
+  return{version:"aria-meditation-dashboard-v6",mode:controllerOwnedByUser?String(controller?.desired_mode??"stopped"):"stopped",controller:controllerOwnedByUser?controller:null,active_mission:activeWithLive,foreground_mission:foreground,queued_missions:await Promise.all(queuedMissions),missions,failed,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:statusCounts.total,total:statusCounts.total,history:statusCounts.history,active:statusCounts.active,human_gates:gates.length,blocked:statusCounts.blocked,failed:statusCounts.failed,verification_pending:verification_pending.length,queued:statusCounts.queued,succeeded:statusCounts.succeeded,cancelled:statusCounts.cancelled},source_of_truth:"aria_internal.mission_state"};
 }
 
 function looksLikeSimpleConversation(input:string) {
