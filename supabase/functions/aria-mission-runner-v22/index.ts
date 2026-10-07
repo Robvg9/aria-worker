@@ -332,12 +332,16 @@ async function recall(goal: string, auth: AuthContext) {
 }
 
 async function createPlan(goal: string, context: unknown, auth: AuthContext) {
-  // Preserve the canonical internal authentication mode. In particular, an
-  // autonomy-token invocation must reach the planner through x-aria-autonomy-token;
-  // forcing the runner's service-role Authorization caused LIVE planner 401s.
-  const plannerHeaders: Record<string,string> = {
-    ...downstreamHeaders(auth),
-  };
+  // Internal runner -> planner traffic should use the shared runtime secret.
+  // Autonomy-token validation performs an extra DB lookup and can time out (546)
+  // under pool pressure; the planner already accepts ARIA_RUNTIME_SHARED_SECRET.
+  const plannerHeaders: Record<string,string> = (auth.kind === "autonomy-token" && SECRET)
+    ? {
+        "content-type":"application/json",
+        ...(EDGE_API_KEY ? {apikey:EDGE_API_KEY} : {}),
+        authorization:`Bearer ${SECRET}`,
+      }
+    : { ...downstreamHeaders(auth) };
   return createPlanWithTimeout(PLANNER, goal, context, plannerHeaders);
 }
 
