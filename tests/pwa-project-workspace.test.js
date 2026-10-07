@@ -94,6 +94,12 @@ assert.match(project,/mime_type:'image\/png'/);
 assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
 assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
 assert.match(project,/PROJECT REFERENCE/);
+assert.match(project,/CuevaCoin/);
+assert.match(project,/CuevaCoin\.\s*'Panel financiero|Panel financiero\/operativo/);
+assert.match(project,/ARIA\.\s*'Centro cognitivo|Centro cognitivo de referencia/);
+assert.match(project,/Referencia visual del proyecto/);
+assert.doesNotMatch(project,/fillText\('LIVE PREVIEW'/);
+
 assert.match(project,/if\(!livePreviewUrl\)/);
 assert.match(project,/canvas must remain transparent|The canvas must remain transparent/i);
 assert.match(project,/Fuente LIVE configurada/);
