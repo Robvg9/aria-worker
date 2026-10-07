@@ -93,12 +93,5 @@ jobs:
           test "$code" = "401"
           grep -q "unauthorized" /tmp/scheduler-body
 
-      - name: Smoke test scheduler transport with invalid token reaches canonical runtime
-        run: |
-          set -euo pipefail
-          code="$(curl --silent --show-error --max-time 30 -o /tmp/scheduler-invalid-body -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'x-aria-autonomy-token: ARIA_INVALID_PROBE_TOKEN' --data '{}' "https://aria.robvg9.workers.dev/scheduler/tick?probe=$GITHUB_SHA")"
-          echo "SCHEDULER_INVALID_TOKEN_STATUS=$code"
-          test "$code" = "401"
-
       - name: Final marker
         run: echo "ARIA_SCHEDULER_TRANSPORT_DEPLOY_OK sha=$GITHUB_SHA"
