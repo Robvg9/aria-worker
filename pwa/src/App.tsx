@@ -1375,7 +1375,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
 
         <div className='detailGrid missionMetaGrid'>
           <StatCard value={mission.completed_steps ?? 0} label={'Pasos completados de ' + (mission.total_steps ?? planSteps.length ?? '—')} />
-          <StatCard value={statusLabel(status)} label='Estado' />
+          <StatCard value={status === 'failed' ? 'FALLIDA' : statusLabel(status)} label='Estado' />
           <StatCard value={formatDate(startAt || undefined)} label='Inicio' />
           <StatCard value={formatDate(finishAt || undefined)} label='Finalización' />
         </div>
