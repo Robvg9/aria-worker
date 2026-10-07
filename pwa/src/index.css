@@ -617,3 +617,8 @@ button{touch-action:manipulation;}
   .missionPlanState{grid-column:2;justify-self:start}
   .missionProblemActions .primary,.missionProblemActions .ghost{width:100%}
 }
+
+
+.missionFinalVerificationBanner{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-top:0;padding:13px 14px;border:1px solid rgba(255,120,149,.18);border-left:3px solid var(--red);border-radius:14px;background:rgba(255,120,149,.045)}
+.missionFinalVerificationBanner strong{display:block;margin-top:4px;font-size:14px}
+.missionFinalVerificationBanner p{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.45}
