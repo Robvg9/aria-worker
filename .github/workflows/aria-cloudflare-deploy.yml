@@ -267,6 +267,37 @@ jobs:
             echo AUTH_PROXY_UNEXPECTED_STATUS
             exit 1
           fi
+      - name: Smoke test mission artifact view and download
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev"
+          repo="Robvg9/aria-worker"
+          ref="aria/mission-proof/muwzv8o2"
+          artifact_path="public/aria-mission-proof.html"
+          view_url="$base/artifact/view?repo=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$repo")&ref=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ref")&path=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$artifact_path")"
+          download_url="$base/artifact/download?repo=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$repo")&ref=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ref")&path=$(python -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$artifact_path")"
+
+          view_code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -D /tmp/aria-artifact-view.headers -o /tmp/aria-artifact-view.html -w '%{http_code}' "$view_url")"
+          echo "ARTIFACT_VIEW_STATUS=$view_code"
+          cat /tmp/aria-artifact-view.headers
+          test "$view_code" = "200"
+          grep -qi '^content-type: text/html' /tmp/aria-artifact-view.headers
+          grep -qi '^content-disposition: inline' /tmp/aria-artifact-view.headers
+          grep -qi '^content-security-policy: .*sandbox' /tmp/aria-artifact-view.headers
+          grep -q 'ARIA Mission Proof' /tmp/aria-artifact-view.html
+
+          download_code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -D /tmp/aria-artifact-download.headers -o /tmp/aria-artifact-download.html -w '%{http_code}' "$download_url")"
+          echo "ARTIFACT_DOWNLOAD_STATUS=$download_code"
+          cat /tmp/aria-artifact-download.headers
+          test "$download_code" = "200"
+          grep -qi '^content-disposition: attachment;' /tmp/aria-artifact-download.headers
+          grep -q 'ARIA Mission Proof' /tmp/aria-artifact-download.html
+
+          bad_code="$(curl --silent --show-error --max-time 20 --retry 1 -o /tmp/aria-artifact-bad.body -w '%{http_code}' "$base/artifact/view?repo=Robvg9%2Faria-worker&ref=main&path=..%2Fworker.js")"
+          echo "ARTIFACT_TRAVERSAL_STATUS=$bad_code"
+          test "$bad_code" = "400"
+          echo ARTIFACT_VIEW_DOWNLOAD_LIVE_OK
+
       - name: Smoke test PWA API network boundary
         run: |
           set -euo pipefail
