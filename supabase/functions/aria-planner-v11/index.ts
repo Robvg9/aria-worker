@@ -263,7 +263,7 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
   const agentsRes=await db.from("agent_catalog").select("agent_id,role,model_id,status,max_risk").eq("status","available").order("agent_id").limit(20);
   const agents=Array.isArray(agentsRes.data)?agentsRes.data:[];
   const coder=agents.find((a:any)=>a.agent_id==="aria-agent-coding-v1")||agents.find((a:any)=>/cod|developer|implement/i.test(String(a.role||"")))||agents[0];
-  const reviewer=agents.find((a:any)=>a.agent_id==="aria-agent-reviewer-v1")||agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||")))||agents[0];
+  const reviewer=agents.find((a:any)=>a.agent_id==="aria-agent-reviewer-v1")||agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||"")))||agents[0];
   if(!coder||!reviewer) return null;
 
   steps.push({
