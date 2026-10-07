@@ -29,7 +29,7 @@ function firstObjectValue(value: any, keys: string[]): string {
 }
 
 function githubPartsFromObject(value: any): { repo: string; ref: string; path: string; sourceUrl?: string } | null {
-  const source = firstObjectValue(value, ['html_url', 'view_url', 'preview_url', 'source_url', 'url']);
+  const source = firstObjectValue(value, ['html_url', 'view_url', 'preview_url', 'source_url', 'artifact_url']);
   const download = firstObjectValue(value, ['download_url', 'raw_url', 'rawUrl']);
   const fromHtml = source.match(GITHUB_RE);
   if (fromHtml) return { repo: fromHtml[1], ref: fromHtml[2], path: fromHtml[3], sourceUrl: source };
@@ -47,7 +47,7 @@ function parseDirectArtifact(value: any): Omit<MissionArtifact, 'id' | 'kind' | 
   if (!value || typeof value !== 'object') return null;
   const viewUrl = firstObjectValue(value, ['view_url', 'preview_url', 'artifact_url']);
   const downloadUrl = firstObjectValue(value, ['download_url', 'downloadUrl', 'artifact_download_url', 'signed_url', 'signedUrl', 'public_url', 'publicUrl']);
-  const sourceUrl = firstObjectValue(value, ['source_url', 'sourceUrl', 'html_url', 'url']);
+  const sourceUrl = firstObjectValue(value, ['source_url', 'sourceUrl', 'html_url', 'artifact_url']);
   const path = firstObjectValue(value, ['path', 'file_path', 'filename']);
   const name = firstObjectValue(value, ['name', 'filename']) || (path ? path.split('/').pop() || '' : '');
   const github = githubPartsFromObject(value);
@@ -118,8 +118,8 @@ export function missionArtifacts(mission: any): MissionArtifact[] {
     const sourceUrl = candidate.sourceUrl;
 
     if (repo && ref && candidate.path) {
-      if (!viewUrl) viewUrl = previewPath(repo, ref, candidate.path, false);
-      if (!downloadUrl) downloadUrl = previewPath(repo, ref, candidate.path, true);
+      viewUrl = previewPath(repo, ref, candidate.path, false);
+      downloadUrl = previewPath(repo, ref, candidate.path, true);
     }
 
     const previewable = Boolean(viewUrl) && kind !== 'unknown';
