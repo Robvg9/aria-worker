@@ -3110,7 +3110,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified' && event?.payload?.verified !== false)
     || mission?.checkpoint?.verification?.verified === true
     || String(mission?.checkpoint?.verification?.status ?? '').toLowerCase() === 'verified';
-  const recoveryVisible=(status==='running'||status==='waiting') && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30;
+
   const nowText=terminal
     ? status==='succeeded'
       ? (verified ? 'Misión completada y verificada.' : 'Misión completada.')
