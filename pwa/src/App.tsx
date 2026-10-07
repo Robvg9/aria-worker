@@ -868,19 +868,11 @@ function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any, miss
   const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
   if (value === 'running' && leased) return 60;
   if (value === 'waiting' && leased) return 45;
-
-  // A mission without a lease is only foreground-recoverable for a bounded
-  // window. Historical/stale rows must fall back to history, never "Ahora".
-  if (value === 'running' || value === 'waiting') {
-    const pendingJobs = mission?.checkpoint?.pending_jobs;
-    const hasPendingJob = pendingJobs && typeof pendingJobs === 'object' && Object.keys(pendingJobs).length > 0;
-    const age = Date.now() - missionActivityTimestamp(mission);
-    if (!hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) {
-      return value === 'running' ? 35 : 30;
-    }
-    return 0;
-  }
-
+  const recoveryStatus = String(mission?.checkpoint?.recovery?.status ?? '');
+  const pendingJobs = mission?.checkpoint?.pending_jobs;
+  const hasPendingJob = pendingJobs && typeof pendingJobs === 'object' && Object.keys(pendingJobs).length > 0;
+  const age = Date.now() - missionActivityTimestamp(mission);
+  if (value === 'running' && recoveryStatus === 'verification_retry_requested' && !hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) return 55;
   return 0;
 }
 
@@ -1601,7 +1593,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
-  const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
+  const [ideaProposals, setIdeaProposals] = useState<any[]>(() => readCached('meditation_ideas', session.userId) ?? []);
   const [ideaText, setIdeaText] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [ideaError, setIdeaError] = useState('');
@@ -1927,7 +1919,7 @@ function Chat({
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [mission, setMission] = useState<Mission | null>(() => readCached('active_mission', session.userId));
   const [events, setEvents] = useState<MissionEvent[]>([]);
-  const [operationalHealth, setOperationalHealth] = useState<any>(null);
+  const [operationalHealth, setOperationalHealth] = useState<any>(() => readCached('operational_health', session.userId));
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const initialNavigation = navigationFromHash();
   const [showMission, setShowMission] = useState(false);
@@ -2465,7 +2457,10 @@ function Meditation({ session }: { session: Session }) {
   async function loadIdeas() {
     try {
       const data = await api('/meditation/ideas', session.accessToken);
-      if (Array.isArray(data?.items)) setIdeaProposals(data.items);
+      if (Array.isArray(data?.items)) {
+        setIdeaProposals(data.items);
+        writeCached('meditation_ideas', session.userId, data.items);
+      }
       setIdeaError('');
     } catch (x) {
       setIdeaError(x instanceof Error ? x.message : 'No se pudieron cargar las propuestas de ideas.');
@@ -2508,14 +2503,14 @@ function Meditation({ session }: { session: Session }) {
     }
   }
 
-  async function convertIdeaMission(proposalId: string, templateMissionId: string) {
+  async function convertIdeaMission(proposalId: string, planId: string) {
     if (ideaBusy) return;
     setIdeaBusy(true);
     setIdeaError('');
     try {
       await api('/meditation/ideas/' + encodeURIComponent(proposalId) + '/convert', session.accessToken, {
         method: 'POST',
-        body: JSON.stringify({ template_mission_id: templateMissionId })
+        body: JSON.stringify({ plan_id: planId })
       });
       await Promise.all([loadIdeas(), load()]);
     } catch (x) {
@@ -2543,9 +2538,9 @@ function Meditation({ session }: { session: Session }) {
     return map[String(value ?? '')] || 'Estado registrado';
   }
 
-  function convertedTemplate(proposal: any, templateId: string) {
+  function convertedPlan(proposal: any, planId: string) {
     return Array.isArray(proposal?.converted_missions)
-      ? proposal.converted_missions.find((x: any) => String(x?.template_mission_id) === String(templateId))
+      ? proposal.converted_missions.find((x: any) => String(x?.plan_id) === String(planId))
       : null;
   }
 
@@ -2602,7 +2597,7 @@ function Meditation({ session }: { session: Session }) {
         setO(nextOverview); writeCached('meditation_overview',session.userId,nextOverview); successes++;
       }
       if(capability?.capabilities){setCaps(capability.capabilities);writeCached('capabilities',session.userId,capability.capabilities);successes++;}
-      if(health?.health){setOperationalHealth(health.health);successes++;}
+      if(health?.health){setOperationalHealth(health.health);writeCached('operational_health',session.userId,health.health);successes++;}
       setLastSyncAt(successes?Date.now():null);
       setError(successes===3?'':successes>0?'No se pudieron actualizar todos los datos de Meditación IA; la vista conserva lo último disponible.':'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar ahora.');
     }finally{setSyncing(false);}
@@ -3148,8 +3143,9 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   if(!mission)return <section className='executionHero executionHeroEmpty'><div className='executionHeroTop'><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>Sin misión activa</div><div className='muted'>Cuando ARIA tome una misión, aquí verás qué está haciendo y el resultado.</div></div><span className='pill neutral'>SIN MISIÓN</span></div></section>;
   const status=String(mission.status??'unknown').toLowerCase(), terminal=['succeeded','failed','blocked','cancelled'].includes(status), latest=events.length?events[events.length-1]:null;
   const leaseValid=Boolean(mission.lease_owner && mission.lease_until && new Date(String(mission.lease_until)).getTime()>Date.now());
-  const recoveryVisible=(status==='running'||status==='waiting') && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30;
-  const displayedStatus=recoveryVisible?'Recuperando':statusLabel(status);
+  const verificationRetry=String(mission?.checkpoint?.recovery?.status||'')==='verification_retry_requested';
+  const recoveryVisible=verificationRetry && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30;
+  const displayedStatus=recoveryVisible?'Comprobando de nuevo':statusLabel(status);
   const sessionSnapshot = {
     mission_id: String(mission.mission_id ?? ''),
     status,
@@ -3173,11 +3169,13 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
       : statusLabel(status)
     : status==='queued'
       ? 'La misión está en cola; ARIA la ejecutará cuando la cola esté activa.'
-      : currentStep
-        ? directActionText(currentStep,latest)
-        : latest
-          ? executionEventDetail(latest)
-          : 'ARIA está preparando el siguiente movimiento.';
+      : verificationRetry && recoveryVisible
+        ? 'ARIA está volviendo a comprobar la misma evidencia; no repetirá los cambios ya realizados.'
+        : currentStep
+          ? directActionText(currentStep,latest)
+          : latest
+            ? executionEventDetail(latest)
+            : 'ARIA está preparando el siguiente movimiento.';
   const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
   const goalPreview=missionHumanTitle(mission);
   const recentEvents=events.slice(-6).reverse();
@@ -3205,15 +3203,30 @@ function Capabilities({ session }: { session: Session }) {
   return <CapabilityCenter caps={caps} userId={session.userId} token={session.accessToken} />;
 }
 
-function MeditationBackgroundSync({ session }: { session: Session }) {
-  useLiveSync(async () => {
-    const [overview, capability] = await Promise.all([
-      api('/meditation/overview', session.accessToken).catch(() => null),
-      api('/capabilities', session.accessToken).catch(() => null),
-    ]);
-    if (overview) writeCached('meditation_overview', session.userId, overview);
-    if (capability?.capabilities) writeCached('capabilities', session.userId, capability.capabilities);
-  }, session.accessToken, 10000);
+function PwaDataPreloader({ session }: { session: Session }) {
+  useEffect(() => {
+    let cancelled = false;
+    const warm = async () => {
+      const [system, missions, overview, ideas, capabilities, health] = await Promise.all([
+        api('/system', session.accessToken).catch(() => null),
+        api('/missions?limit=100', session.accessToken).catch(() => null),
+        api('/meditation/overview', session.accessToken).catch(() => null),
+        api('/meditation/ideas?limit=100', session.accessToken).catch(() => null),
+        api('/capabilities', session.accessToken).catch(() => null),
+        api('/diagnostics/health', session.accessToken).catch(() => null)
+      ]);
+      if (cancelled) return;
+      if (system?.aria) writeCached('system', session.userId, system.aria);
+      if (overview) writeCached('meditation_overview', session.userId, overview);
+      if (Array.isArray(ideas?.items)) writeCached('meditation_ideas', session.userId, ideas.items);
+      if (capabilities?.capabilities) writeCached('capabilities', session.userId, capabilities.capabilities);
+      if (health?.health) writeCached('operational_health', session.userId, health.health);
+      if (Array.isArray(missions?.missions)) writeCached('active_mission', session.userId, selectLiveMission(missions) ?? null);
+    };
+    void warm();
+    const timer = window.setInterval(() => void warm(), 30000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [session.accessToken, session.userId]);
   return null;
 }
 
@@ -3497,8 +3510,7 @@ export default function App() {
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}
     >
       <PwaNotificationCenter session={session} />
-      {/* Meditación IA sincroniza sus datos solo dentro de su propia pantalla.
-          No duplicar consultas pesadas en Chat/Proyectos durante segundo plano. */}
+      <PwaDataPreloader session={session} />
       {page === 'projects'
         ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
