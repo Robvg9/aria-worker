@@ -888,8 +888,8 @@ function selectLiveMission(overview: any): any | null {
   const candidates=[...(Array.isArray(overview?.missions)?overview.missions:[]),overview?.active_mission].filter(Boolean);
   const unique=Array.from(new Map(candidates.map((m:any)=>[String(m.mission_id),m])).values());
   return unique
-    .filter((m:any)=>activeMissionRank(m.status,m.lease_owner,m.lease_until)>=30)
-    .sort((a:any,b:any)=>activeMissionRank(b.status,b.lease_owner,b.lease_until)-activeMissionRank(a.status,a.lease_owner,a.lease_until)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
+    .filter((m:any)=>activeMissionRank(m.status,m.lease_owner,m.lease_until,m)>=30)
+    .sort((a:any,b:any)=>activeMissionRank(b.status,b.lease_owner,b.lease_until,b)-activeMissionRank(a.status,a.lease_owner,a.lease_until,a)||new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
 }
 function selectForegroundMission(overview: any): any | null {
   const candidates=[...(Array.isArray(overview?.missions)?overview.missions:[]),overview?.foreground_mission,overview?.active_mission].filter(Boolean);
@@ -3107,6 +3107,10 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const currentStep=steps.find((s:any)=>String(s.status)==='running')??(latestStepId?steps.find((s:any)=>String(s.id)===latestStepId):null)??steps.find((s:any)=>Number(s.index)===Number(mission.current_step)+1)??steps.find((s:any)=>!['succeeded','skipped'].includes(String(s.status)))??null;
   const total=Number(mission.total_steps??mission.step_count??steps.length), completed=Math.max(Number(mission.completed_steps??0),steps.filter((s:any)=>['succeeded','skipped'].includes(String(s.status))).length), currentIndex=Number(currentStep?.index??0)||0;
   const percent=total>0?Math.min(100,Math.max(0,completed/total*100)):0;
+  const verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified' && event?.payload?.verified !== false)
+    || mission?.checkpoint?.verification?.verified === true
+    || String(mission?.checkpoint?.verification?.status ?? '').toLowerCase() === 'verified';
+  const recoveryVisible=(status==='running'||status==='waiting') && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30;
   const nowText=terminal
     ? status==='succeeded'
       ? (verified ? 'Misión completada y verificada.' : 'Misión completada.')
@@ -3121,9 +3125,6 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   const resultText=missionResultText(mission)||(status==='succeeded'?'La misión terminó correctamente y ARIA registró su cierre.':status==='failed'?'La misión terminó con un fallo que quedó registrado.':statusLabel(status));
   const goalPreview=missionHumanTitle(mission);
   const recentEvents=events.slice(-6).reverse();
-  const verified=events.some((event:any)=>String(event.event_type).toLowerCase()==='mission_verified' && event?.payload?.verified !== false)
-    || mission?.checkpoint?.verification?.verified === true
-    || String(mission?.checkpoint?.verification?.status ?? '').toLowerCase() === 'verified';
   return <section className={'executionHero '+(terminal?'executionHeroTerminal '+tone(status):'executionHeroRunning')}>
     <div className='executionHeroTop'><div className='executionIdentity'><span className='executionPulse' aria-hidden='true'/><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>{displayedStatus}</div><div className='executionGoal'>{goalPreview}</div></div></div>
     <div className='executionHeroActions'><span className={'pill '+(recoveryVisible?'warning':tone(status))}>{displayedStatus}</span><span className='executionSyncText' data-session-snapshot={JSON.stringify(sessionSnapshot)}>{syncing?'Actualizando…':lastSyncAt?'Actualizado '+new Date(lastSyncAt).toLocaleTimeString('es'):'Estado LIVE'}</span><button className='ghost executionDetailsButton' onClick={onOpen}>Ver misión</button>{!terminal&&onCancel&&<button className='ghost executionDetailsButton dangerAction' onClick={async()=>{if(!window.confirm('¿Cancelar esta misión?'))return;try{await onCancel();}catch{}}}>Cancelar</button>}</div></div>
