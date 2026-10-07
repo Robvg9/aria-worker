@@ -2837,54 +2837,89 @@ function Meditation({ session }: { session: Session }) {
             <div className='ideaProposalList'>
               {!ideaProposals.length
                 ? <div className='emptyState ideaEmpty'>Todavía no hay ideas analizadas.</div>
-                : ideaProposals.slice(0, 20).map((proposal: any) => (
-                  <article className='ideaProposalCard' key={proposal.proposal_id}>
-                    <div className='ideaProposalTop'>
-                      <div>
-                        <div className='eyebrow'>IDEA ANALIZADA</div>
-                        <strong>{proposal.input?.idea || 'Idea sin texto'}</strong>
-                      </div>
-                      <span className={'pill ' + tone(String(proposal.status))}>{ideaStateLabel(proposal.status)}</span>
-                    </div>
-                    <div className='ideaMeaning'>
-                      <b>Qué significa</b>
-                      <span>{proposal.summary?.human_explanation || proposal.summary?.explanation || (proposal.summary?.human_gate_required ? 'Esta idea necesita una decisión o intervención humana antes de poder ejecutarse.' : proposal.classification?.viability === 'high' ? 'ARIA la considera viable y ya preparó posibles misiones.' : proposal.classification?.viability ? 'ARIA revisó su viabilidad y dejó el resultado registrado antes de proponer misiones.' : 'ARIA analizó la idea y dejó registrada una propuesta de trabajo.')}</span>
-                    </div>
-                    <div className='ideaMetaGrid'>
-                      <span><b>Viabilidad</b>{ideaStateLabel(proposal.classification?.viability)}</span>
-                      <span><b>Estado</b>{ideaStateLabel(proposal.classification?.execution_state)}</span>
-                      <span><b>Misiones</b>{Array.isArray(proposal.missions) ? proposal.missions.length : 0}</span>
-                      <span><b>Human Gate</b>{proposal.summary?.human_gate_required ? 'Sí' : 'No'}</span>
-                    </div>
-                    {(proposal.blockers || []).length > 0 && (
-                      <div className='ideaBlockerBox'>
-                        <b>Qué la bloquea</b>
-                        {(proposal.blockers || []).slice(0, 4).map((b: any, i: number) => <small key={i}>{b?.reason || b?.code || 'Bloqueo detectado'}</small>)}
-                      </div>
-                    )}
-                    {proposal.status === 'proposed' && (
-                      <div className='actions'>
-                        <button className='primary' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'accept')}>Aceptar propuesta</button>
-                        <button className='ghost' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'reject')}>Rechazar</button>
-                      </div>
-                    )}
-                    {['accepted','converted'].includes(String(proposal.status)) && Array.isArray(proposal.missions) && (
-                      <div className='ideaMissionTemplates'>
-                        {proposal.missions.map((template: any) => {
-                          const converted = convertedTemplate(proposal, template.mission_id);
-                          return (
-                            <div className='ideaMissionTemplate' key={template.mission_id}>
-                              <div><strong>{template.title}</strong><small>{template.goal}</small></div>
-                              {converted ? <span className='pill good'>MISIÓN CREADA</span> : <button className='ghost' disabled={ideaBusy} onClick={() => void convertIdeaMission(String(proposal.proposal_id), String(template.mission_id))}>Crear misión</button>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </article>
-                ))}
-            </div>
-          </section>
+                : ideaProposals.slice(0, 20).map((proposal: any) => {
+                    const template = Array.isArray(proposal.missions) ? proposal.missions[0] : null;
+                    const plans = Array.isArray(template?.plans) ? template.plans : [];
+                    return (
+                      <article className='ideaProposalCard' key={proposal.proposal_id}>
+                        <div className='ideaProposalTop'>
+                          <div>
+                            <div className='eyebrow'>IDEA ANALIZADA</div>
+                            <strong>{proposal.input?.idea || 'Idea sin texto'}</strong>
+                          </div>
+                          <span className={'pill ' + tone(String(proposal.status))}>{ideaStateLabel(proposal.status)}</span>
+                        </div>
+
+                        <div className='ideaMeaning'>
+                          <b>Qué entendió ARIA</b>
+                          <span>{proposal.summary?.human_explanation || proposal.summary?.explanation || 'ARIA analizó la idea y preparó una ruta gobernada.'}</span>
+                        </div>
+
+                        <div className='ideaMeaning'>
+                          <b>Resultado buscado</b>
+                          <span>{proposal.objective?.text || proposal.summary?.what_i_understood || proposal.input?.idea}</span>
+                        </div>
+
+                        <div className='ideaMetaGrid'>
+                          <span><b>Viabilidad</b>{ideaStateLabel(proposal.classification?.viability)}</span>
+                          <span><b>Estado</b>{ideaStateLabel(proposal.classification?.execution_state)}</span>
+                          <span><b>Rutas</b>{proposal.summary?.plan_count ?? plans.length ?? 0}</span>
+                          <span><b>Human Gate</b>{proposal.summary?.human_gate_required ? 'Sí' : 'No'}</span>
+                        </div>
+
+                        <div className='ideaBlockerBox'>
+                          <b>Dependencias</b>
+                          {(proposal.summary?.dependencies || proposal.blockers || []).slice(0, 4).map((b: any, i: number) =>
+                            <small key={i}>{typeof b === 'string' ? b : (b?.reason || b?.code || 'Sin bloqueo externo detectado.')}</small>
+                          )}
+                          {!((proposal.summary?.dependencies || proposal.blockers || []).length) && <small>No se detectaron bloqueos externos explícitos.</small>}
+                        </div>
+
+                        <div className='ideaMeaning'>
+                          <b>Cómo se comprobará</b>
+                          <span>{proposal.summary?.verification || proposal.objective?.verifier || 'ARIA comprobará el resultado y conservará la evidencia antes de cerrar.'}</span>
+                        </div>
+
+                        {proposal.status === 'proposed' && (
+                          <div className='actions'>
+                            <button className='primary' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'accept')}>Aceptar propuesta</button>
+                            <button className='ghost' disabled={ideaBusy} onClick={() => void decideIdea(String(proposal.proposal_id), 'reject')}>Rechazar</button>
+                          </div>
+                        )}
+
+                        {['accepted','converted'].includes(String(proposal.status)) && plans.length > 0 && (
+                          <div className='ideaMissionTemplates'>
+                            <div className='panelTitle'>ELIGE UNA RUTA</div>
+                            {plans.map((plan: any) => {
+                              const converted = convertedPlan(proposal, String(plan.id));
+                              return (
+                                <div className='ideaMissionTemplate' key={plan.id}>
+                                  <div>
+                                    <strong>{plan.title}</strong>
+                                    <small>{plan.summary}</small>
+                                    <small>{plan.tradeoffs}</small>
+                                    {plan.recommended && <span className='pill good'>RECOMENDADO</span>}
+                                  </div>
+                                  {converted
+                                    ? <span className='pill good'>MISIÓN CREADA</span>
+                                    : <button className='ghost' disabled={ideaBusy || proposal.status === 'converted'} onClick={() => void convertIdeaMission(String(proposal.proposal_id), String(plan.id))}>Elegir esta ruta</button>}
+                                </div>
+                              );
+                            })}
+                            <div className='muted'>Elegir una ruta crea una sola misión. ARIA no ejecuta las otras opciones.</div>
+                          </div>
+                        )}
+
+                        {['accepted','converted'].includes(String(proposal.status)) && plans.length === 0 && Array.isArray(proposal.missions) && proposal.missions.length > 0 && (
+                          <div className='ideaBlockerBox'>
+                            <b>Propuesta antigua</b>
+                            <small>Esta idea fue creada con el analizador anterior y dividía el trabajo en cuatro submisiones. No conviene crear otra desde aquí; analiza de nuevo la idea para obtener Plan A, B o C.</small>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+            </div>          </section>
         </div>
       )}
 
