@@ -233,6 +233,88 @@ async function modelRoutes(){
     .filter(Boolean)
     .sort((x:any,y:any)=>y.score-x.score)
 }
+async function multiProjectRealityBoardPlan(goal:string,context:any){
+  const g=String(goal||"");
+  if(!/(reality\s+board|panel\s+de\s+estado|estado\s+real.*proyectos)/i.test(g)) return null;
+  const gl=g.toLowerCase();
+  if(!/battlecruiser/i.test(gl)||!/(cueva\s*coin|cuevacoin)/i.test(gl)||!/\baria\b/i.test(gl)) return null;
+
+  const scope = `REALITY BOARD MULTI-PROJECT. Debes trabajar sobre los tres proyectos explícitamente solicitados: ARIA, CuevaCoin y BattleCruiser. La aplicación central se implementa en ARIA/aria-worker; CuevaCoin y BattleCruiser se consultan como fuentes reales y no se modifican salvo que el objetivo lo exija explícitamente. No uses datos inventados ni snapshots históricos como LIVE.`;
+  const readPolicy={tool_use:true,verification_read:true,read_only_audit:true,non_mutating:true,destructive_actions_blocked:true,spanish_output_required:true};
+
+  const sources:any[]=[
+    {id:"reality_aria_repo_read",repo:"aria-worker",label:"ARIA",description:"ARIA / aria-worker",input:{owner:"Robvg9",repo:"aria-worker"},target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"}},
+    {id:"reality_cuevacoin_repo_read",repo:"CuevaCoin",label:"CuevaCoin",description:"CuevaCoin",input:{owner:"Robvg9",repo:"CuevaCoin"},target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"CuevaCoin",branch:"main"}},
+    {id:"reality_battlecruiser_repo_read",repo:"battlecruiser",label:"BattleCruiser",description:"BattleCruiser",input:{owner:"Robvg9",repo:"battlecruiser"},target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"battlecruiser",branch:"main"}},
+  ];
+
+  const steps:any[]=sources.map(s=>({
+    id:s.id,
+    operation:"repo_read",
+    executor_type:"connector",
+    target:s.target,
+    input:s.input,
+    risk:"READ",
+    timeout_ms:60000,
+    policy:readPolicy,
+    verify:{response_content_nonempty:true}
+  }));
+
+  const agentsRes=await db.from("agent_catalog").select("agent_id,role,model_id,status,max_risk").eq("status","available").order("agent_id").limit(20);
+  const agents=Array.isArray(agentsRes.data)?agentsRes.data:[];
+  const coder=agents.find((a:any)=>a.agent_id==="aria-agent-coding-v1")||agents.find((a:any)=>/cod|developer|implement/i.test(String(a.role||"")))||agents[0];
+  const reviewer=agents.find((a:any)=>a.agent_id==="aria-agent-reviewer-v1")||agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||")))||agents[0];
+  if(!coder||!reviewer) return null;
+
+  steps.push({
+    id:"reality_board_implementation",
+    operation:"delegate",
+    executor_type:"agent",
+    target:{type:"agent",agent_id:String(coder.agent_id)},
+    capability:"coding",
+    input:{
+      goal:g,
+      prompt:esPrompt(
+        scope+
+        " Implementa una aplicación web funcional llamada ARIA Reality Board dentro de ARIA/aria-worker. "+
+        "Usa las lecturas reales de ARIA, CuevaCoin y BattleCruiser como contexto previo. "+
+        "La aplicación debe consultar fuentes actuales, mostrar qué está terminado/verificado/LIVE/E2E/bloqueado/pendiente/histórico/no confirmado, "+
+        "y explicar en lenguaje humano qué falta. No conviertas un commit o archivo en evidencia de cumplimiento funcional. "+
+        "Crea pruebas focalizadas. Trabaja en una rama gobernada no-main y devuelve branch, archivos, commits y evidencia concreta. "+
+        "Incluye enlaces VER/DESCARGAR para resultados utilizables. "+
+        "PROYECTOS OBLIGATORIOS EN ESTA MISIÓN: ARIA, CuevaCoin, BattleCruiser. "+
+        "NO modifiques CuevaCoin ni BattleCruiser; solo léelos como fuentes para construir el panel central de ARIA. "+
+        "FUENTES: ARIA/aria-worker, Robvg9/CuevaCoin, Robvg9/battlecruiser."
+      ),
+      max_tokens:4200
+    },
+    risk:"LOW_RISK_WRITE",
+    timeout_ms:300000,
+    policy:{...governedWritePolicy,post_merge_verification_required:true,spanish_output_required:true},
+    depends_on:sources.map(s=>s.id),
+    verify:{response_content_nonempty:true}
+  });
+
+  steps.push(agentStep(
+    "reality_board_verification",
+    {agent_id:String(reviewer.agent_id),role:String(reviewer.role||"revisor"),model_id:String(reviewer.model_id||"")},
+    scope+
+    " Verifica el resultado REAL de reality_board_implementation. Inspecciona el código, pruebas y evidencia. Confirma específicamente ARIA, CuevaCoin y BattleCruiser, y comprueba que el panel obtiene datos de fuentes reales en vez de contenido hardcodeado. No modifiques nada. No declares éxito si solo existe un archivo. Devuelve CONCLUSIÓN, EVIDENCIA, FALTANTES, BLOQUEOS y VEREDICTO.",
+    ["reality_board_implementation"]
+  ));
+
+  return {
+    goal:g,
+    steps,
+    planner_version:"aria-planner-v11-multi-project-reality-board-v1",
+    multi_project_reality_board:true,
+    project_scope:["aria","cuevacoin","battlecruiser"],
+    implementation_repository:"Robvg9/aria-worker",
+    source_repositories:["Robvg9/aria-worker","Robvg9/CuevaCoin","Robvg9/battlecruiser"],
+    context:context?.learned_knowledge
+  };
+}
+
 async function ariaPwaMasterMissionPlan(goal:string,context:any){
   const g=String(goal||"");
   if(!/(libro\s+maestro|pwa\s+aria|aria\s+.*pwa|pwa\s+.*aria)/i.test(g)) return null;
@@ -1132,7 +1214,7 @@ if(explicitRequestedDevice.startsWith("windows-")){
   const windowsFastPath=await windowsPcRwhtPlan(goal,context);
   if(windowsFastPath)return windowsFastPath;
 }
-const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context);if(battlecruiserAudit)return out({ok:true,plan:battlecruiserAudit});const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
+const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context);if(battlecruiserAudit)return out({ok:true,plan:battlecruiserAudit});const realityBoard=await multiProjectRealityBoardPlan(goal,context);if(realityBoard)return out({ok:true,plan:realityBoard,planner_version:realityBoard.planner_version,multi_project_reality_board:true});const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
