@@ -1777,6 +1777,77 @@ Deno.serve(async (req) => {
       if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status);
       return json({ ok: true, ...direct.b, trace_id: trace });
     }
+    if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/verify-retry")) {
+      const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/verify-retry$/,""));
+      const original = await missionForUser(missionId, user.id);
+      if (!original) return json({ error: "mission_not_found", trace_id: trace }, 404);
+      const status = String(original.status || "");
+      const verification = original?.checkpoint?.verification;
+      const reason = String(verification?.reason || "").toLowerCase();
+      if (status !== "failed" || reason !== "mutation_verification_evidence_mismatch") {
+        return json({ error: "mission_not_verification_retryable", detail: "Esta misión no tiene una discrepancia de verificación que pueda reanudarse sin repetir los cambios.", trace_id: trace }, 409);
+      }
+      const completedSteps = Array.isArray(original?.checkpoint?.completed_steps) ? original.checkpoint.completed_steps : [];
+      const results = original?.checkpoint?.results && typeof original.checkpoint.results === "object" ? original.checkpoint.results : {};
+      const plan = Array.isArray(original?.checkpoint?.plan) ? original.checkpoint.plan : [];
+      if (!completedSteps.length || !plan.length || !Object.keys(results).length) {
+        return json({ error: "mission_verification_retry_missing_evidence", detail: "No hay suficiente evidencia persistida para reanudar solo la verificación.", trace_id: trace }, 409);
+      }
+      const now = new Date().toISOString();
+      const checkpoint = {
+        ...(original.checkpoint || {}),
+        verification: null,
+        recovery: { status: "verification_retry_requested", reason: "human_requested_verification_retry", preserved_completed_steps: completedSteps },
+        plan,
+        completed_steps: completedSteps,
+        results,
+        pending_jobs: {},
+        active_step: null,
+      };
+      const sb = serviceClient();
+      const { data: updated, error: updateError } = await sb.schema("aria_internal")
+        .from("mission_state")
+        .update({
+          status: "running",
+          current_step: completedSteps.length,
+          total_steps: Math.max(Number(original.total_steps || 0), plan.length),
+          completed_steps: completedSteps.length,
+          next_action: "verify_goal",
+          last_stderr: null,
+          finished_at: null,
+          checkpoint,
+          updated_at: now,
+          lease_owner: null,
+          lease_until: null,
+        })
+        .eq("mission_id", missionId)
+        .eq("status", "failed")
+        .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at,lease_owner,lease_until")
+        .maybeSingle();
+      if (updateError) return json({ error: "mission_verification_retry_failed", detail: updateError.message, trace_id: trace }, 502);
+      if (!updated) return json({ error: "mission_verification_retry_race", detail: "La misión cambió de estado antes de poder reanudarla.", trace_id: trace }, 409);
+      const { error: eventError } = await sb.schema("aria_internal").from("mission_events").insert({
+        mission_id: missionId,
+        step_index: completedSteps.length || null,
+        event_type: "mission_verification_retry_requested",
+        payload: {
+          reason: "human_requested_verification_retry",
+          preserved_completed_steps: completedSteps,
+          source: "aria_pwa",
+          requested_at: now,
+        },
+        created_at: now,
+      });
+      const mission = await enrichMission(updated, sb, true);
+      return json({
+        ok: true,
+        mission,
+        verification_retry: true,
+        preserved_completed_steps: completedSteps.length,
+        evidence_warning: eventError ? "La misión se reanudó, pero ARIA no pudo registrar el evento de reanudación." : null,
+        trace_id: trace
+      });
+    }
     if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/retry")) {
       const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/retry$/,""));
       const original = await missionForUser(missionId, user.id);
