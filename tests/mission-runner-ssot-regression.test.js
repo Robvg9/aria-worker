@@ -37,7 +37,7 @@ test("PWA mission state uses the canonical mission_state source and live leases"
   );
   assert.match(
     appApi,
-    /const activeRank=.*running.*hasLiveLease.*return 60.*if\(s==="waiting"&&hasLiveLease\(m\)\)return 45/s,
+    /const activeRank=.*?if\(s==="running"&&hasLiveLease\(m\)\)return 60;.*?if\(s==="waiting"&&hasLiveLease\(m\)\)return 45;/s,
     "active mission ranking must require a live lease"
   );
   assert.doesNotMatch(
