@@ -1369,24 +1369,40 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
   const humanTitle = status === 'succeeded' ? 'Resultado' : status === 'failed' ? 'Qué falló' : status === 'blocked' ? 'Bloqueo' : status === 'waiting' ? 'Verificación en curso' : 'Situación actual';
   const block = mission?.block_details || null;
   const isHumanGate = block?.kind === 'human_gate';
+  const isVerificationPending = block?.kind === 'verification_pending';
   const verificationMismatch = String(mission?.checkpoint?.verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch';
-  const humanProblemTitle = isHumanGate ? 'Hay una acción tuya pendiente' : verificationMismatch ? 'La comprobación final falló' : status === 'blocked' ? 'La misión está bloqueada' : 'La misión necesita atención';
+  const humanProblemTitle = isHumanGate
+    ? 'Hay una acción tuya pendiente'
+    : isVerificationPending
+      ? 'ARIA está esperando una comprobación'
+      : verificationMismatch
+        ? 'La comprobación final falló'
+        : status === 'blocked'
+          ? 'La misión está bloqueada'
+          : 'La misión necesita atención';
   const diagnosticSummary = diagnosticHumanSummary(diagnostic, mission);
   const humanProblemSummary = isHumanGate
     ? humanizeTechnicalText(block?.explanation || block?.reason || 'ARIA necesita que completes una acción antes de continuar.')
-    : verificationMismatch
-      ? 'ARIA sí hizo el cambio y encontró el archivo, pero el último comprobador devolvió otra ubicación. Por seguridad, la misión quedó detenida.'
-      : humanizeTechnicalText(block?.explanation || block?.reason || diagnosticSummary.problem || 'ARIA no pudo completar la misión con la estrategia actual.');
-  const recoverySteps = verificationMismatch
+    : isVerificationPending
+      ? 'ARIA ya hizo el cambio. No repitas el trabajo: falta una comprobación externa antes de poder cerrar la misión.'
+      : verificationMismatch
+        ? 'ARIA sí hizo el cambio y encontró el archivo, pero el último comprobador devolvió otra ubicación. Por seguridad, la misión quedó detenida.'
+        : humanizeTechnicalText(block?.explanation || block?.reason || diagnosticSummary.problem || 'ARIA no pudo completar la misión con la estrategia actual.');
+  const recoverySteps = isVerificationPending
     ? [
-        'No repitas la escritura: ARIA ya dejó el archivo creado en una rama de trabajo.',
-        block?.link ? 'Abre el cambio real en GitHub y comprueba que el archivo está ahí.' : 'La evidencia técnica conserva la rama y el archivo reales.',
-        'Cuando estés listo, pulsa «Reintentar misión» para que ARIA vuelva a comprobar el resultado con la evidencia correcta.'
+        'No repitas el cambio: ARIA ya lo ejecutó y dejó la evidencia guardada.',
+        'ARIA seguirá comprobando el resultado cuando la verificación externa esté disponible.'
       ]
-    : (block?.steps?.length ? block.steps.map((s:any) => humanizeTechnicalText(String(s))) : [
-        humanizeTechnicalText(block?.remediation || 'Corrige la causa indicada por ARIA.'),
-        'Cuando quede resuelto, vuelve a ejecutar la misión.'
-      ]);
+    : verificationMismatch
+      ? [
+          'No repitas la escritura: ARIA ya dejó el archivo creado en una rama de trabajo.',
+          block?.link ? 'Abre el cambio real en GitHub y comprueba que el archivo está ahí.' : 'La evidencia técnica conserva la rama y el archivo reales.',
+          'Pulsa «Volver a comprobar · sin repetir cambios». ARIA conservará los pasos ya realizados.'
+        ]
+      : (block?.steps?.length ? block.steps.map((s:any) => humanizeTechnicalText(String(s))) : [
+          humanizeTechnicalText(block?.remediation || 'Corrige la causa indicada por ARIA.'),
+          'Cuando quede resuelto, vuelve a ejecutar la misión.'
+        ]);
   const answer = status === 'failed' && verificationMismatch
     ? 'La ejecución principal sí produjo el artefacto. El fallo estuvo en la última comprobación: el verificador dio datos que no correspondían con lo que acababan de registrar los pasos reales. ARIA hizo bien en no aceptar ese resultado.'
     : summary.result || (status === 'succeeded' ? 'La misión terminó y la evidencia quedó disponible.' : 'La misión no tiene todavía un resultado final verificable.');
@@ -1446,7 +1462,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
             )}
             </div>
             {block?.link && <div className='recoveryActions'><a className='ghost recoveryLink' href={block.link} target='_blank' rel='noreferrer'>{block.link_label || 'Abrir recurso relacionado'}</a></div>}
-            {(onHumanGateApprove || onRetry) && (isHumanGate ? onHumanGateApprove : onRetry) && (
+            {(isHumanGate || onRetry || onVerifyRetry) && (isHumanGate ? onHumanGateApprove : (isVerificationPending ? null : (verificationMismatch ? onVerifyRetry : onRetry))) && (
               <div className='missionProblemActions'>
                 {isHumanGate ? (
                   <button className='primary' disabled={approvingGate || cancelling} onClick={async () => {
