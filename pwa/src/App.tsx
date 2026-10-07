@@ -3265,13 +3265,18 @@ function PwaDataPreloader({ session }: { session: Session }) {
   useEffect(() => {
     let cancelled = false;
     const warm = async () => {
-      const [system, missions, overview, ideas, capabilities, health] = await Promise.all([
+      const projectIds = ['battlecruiser','cuevacoin','aria'];
+      const [system, missions, overview, ideas, capabilities, health, ...projectData] = await Promise.all([
         api('/system', session.accessToken).catch(() => null),
         api('/missions?limit=100', session.accessToken).catch(() => null),
         api('/meditation/overview', session.accessToken).catch(() => null),
         api('/meditation/ideas?limit=100', session.accessToken).catch(() => null),
         api('/capabilities', session.accessToken).catch(() => null),
-        api('/diagnostics/health', session.accessToken).catch(() => null)
+        api('/diagnostics/health', session.accessToken).catch(() => null),
+        ...projectIds.flatMap(id => [
+          api('/projects/' + encodeURIComponent(id) + '/missions?limit=100', session.accessToken).catch(() => null),
+          api('/projects/' + encodeURIComponent(id) + '/conversation', session.accessToken).catch(() => null)
+        ])
       ]);
       if (cancelled) return;
       if (system?.aria) writeCached('system', session.userId, system.aria);
@@ -3280,6 +3285,12 @@ function PwaDataPreloader({ session }: { session: Session }) {
       if (capabilities?.capabilities) writeCached('capabilities', session.userId, capabilities.capabilities);
       if (health?.health) writeCached('operational_health', session.userId, health.health);
       if (Array.isArray(missions?.missions)) writeCached('active_mission', session.userId, selectLiveMission(missions) ?? null);
+      projectIds.forEach((id, i) => {
+        const missionData = projectData[i * 2];
+        const conversationData = projectData[i * 2 + 1];
+        if (Array.isArray(missionData?.missions)) writeCached('project_missions', session.userId + ':' + id, missionData.missions);
+        if (conversationData?.conversation_id) writeCached('project_conversation', session.userId + ':' + id, conversationData);
+      });
     };
     void warm();
     const timer = window.setInterval(() => void warm(), 30000);
