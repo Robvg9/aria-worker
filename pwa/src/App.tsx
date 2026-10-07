@@ -1355,11 +1355,12 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
   const isHumanGate = block?.kind === 'human_gate' || block?.verification_pending === true;
   const verificationMismatch = String(mission?.checkpoint?.verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch';
   const humanProblemTitle = isHumanGate ? 'Hay una acción tuya pendiente' : verificationMismatch ? 'La comprobación final falló' : status === 'blocked' ? 'La misión está bloqueada' : 'La misión necesita atención';
+  const diagnosticSummary = diagnosticHumanSummary(diagnostic, mission);
   const humanProblemSummary = isHumanGate
     ? humanizeTechnicalText(block?.explanation || block?.reason || 'ARIA necesita que completes una acción antes de continuar.')
     : verificationMismatch
       ? 'ARIA sí hizo el cambio y encontró el archivo, pero el último comprobador devolvió otra ubicación. Por seguridad, la misión quedó detenida.'
-      : humanizeTechnicalText(block?.explanation || block?.reason || diagnostic?.diagnosis?.root_cause || 'ARIA no pudo completar la misión con la estrategia actual.');
+      : humanizeTechnicalText(block?.explanation || block?.reason || diagnosticSummary.problem || 'ARIA no pudo completar la misión con la estrategia actual.');
   const recoverySteps = verificationMismatch
     ? [
         'No repitas la escritura: ARIA ya dejó el archivo creado en una rama de trabajo.',
@@ -1424,6 +1425,9 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
               {recoverySteps.map((stepText:string,index:number) => (
                 <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>
               ))}
+            {!isHumanGate && !verificationMismatch && diagnosticSummary.action && (
+              <div className='recoveryStep recoveryDiagnosticAction'><span>✓</span><p>{diagnosticSummary.action}</p></div>
+            )}
             </div>
             {block?.link && <div className='recoveryActions'><a className='ghost recoveryLink' href={block.link} target='_blank' rel='noreferrer'>{block.link_label || 'Abrir recurso relacionado'}</a></div>}
             {(onHumanGateApprove || onRetry) && (isHumanGate ? onHumanGateApprove : onRetry) && (
