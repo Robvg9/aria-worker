@@ -107,3 +107,12 @@ assert.ok(pwa.includes("const recoveryVisible=verificationRetry && !leaseValid &
 assert.ok(!pwa.includes("const recoveryVisible=(status==='running'||status==='waiting')&&!leaseValid"), 'PWA must not expose unbounded stale recovery');
 
 console.log("mission-correctness-v1: PASS");
+
+
+test('multi-project goals and evidence-bound synthesis are fail-closed',()=>{
+  const fs=require('node:fs');
+  const runner=fs.readFileSync('supabase/functions/aria-mission-runner-v22/index.ts','utf8');
+  assert.match(runner,/multi_project_surface_mismatch/);
+  assert.match(runner,/evidence_bound_synthesis_contradicts_dependency_evidence/);
+  assert.match(runner,/evidence_bound_synthesis_no_concrete_evidence_anchor/);
+});
