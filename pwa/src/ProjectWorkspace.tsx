@@ -102,7 +102,7 @@ function drawProjectPreview(ctx:CanvasRenderingContext2D, project:Project, frame
   ctx.beginPath(); ctx.arc(1000,63,10+4*pulse,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#d7cfff';
   ctx.font='700 13px Inter, sans-serif';
-  ctx.fillText('LIVE PREVIEW',932,92);
+  ctx.fillText('PROJECT REFERENCE',900,92);
 
   const cards=[{label:'Estado',value:'Activo'},{label:'Contexto',value:project.id==='aria'?'Cerebro':'Operación'},{label:'Misiones',value:'—'},{label:'Conversación',value:'Disponible'}];
   cards.forEach((card,i)=>{
@@ -170,13 +170,19 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const redraw = () => {
     const c=canvasRef.current; if(!c)return; const d=window.devicePixelRatio||1; const ctx=c.getContext('2d'); if(!ctx)return;
     ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,1100,650);
-    if(backgroundImage.current?.complete&&backgroundImage.current.naturalWidth){
-      const img=backgroundImage.current;const scale=Math.min(1100/img.naturalWidth,650/img.naturalHeight);const w=img.naturalWidth*scale,h=img.naturalHeight*scale;
-      ctx.fillStyle='#0e0b17';ctx.fillRect(0,0,1100,650);ctx.drawImage(img,(1100-w)/2,(650-h)/2,w,h);
-    } else {
-      drawProjectPreview(ctx,project,previewFrame);
+    // A configured previewUrl belongs to the real project surface and is rendered by
+    // the iframe below. The canvas must remain transparent so it cannot hide that source.
+    if(!livePreviewUrl){
+      if(backgroundImage.current?.complete&&backgroundImage.current.naturalWidth){
+        const img=backgroundImage.current;const scale=Math.min(1100/img.naturalWidth,650/img.naturalHeight);const w=img.naturalWidth*scale,h=img.naturalHeight*scale;
+        ctx.fillStyle='#0e0b17';ctx.fillRect(0,0,1100,650);ctx.drawImage(img,(1100-w)/2,(650-h)/2,w,h);
+      } else {
+        drawProjectPreview(ctx,project,previewFrame);
+      }
     }
     if(previewPaused){
+      // Keep the reference/live project visible underneath while adding a subtle
+      // annotation grid only when the user explicitly paused the surface.
       ctx.globalAlpha=1;ctx.strokeStyle='rgba(255,255,255,.05)';ctx.lineWidth=1;
       for(let x=0;x<=1100;x+=50){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,650);ctx.stroke();}
       for(let y=0;y<=650;y+=50){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(1100,y);ctx.stroke();}
@@ -264,8 +270,8 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   }
 
   return <section className='panel visualBoardPanel'>
-    <div className='panelHeading'><div><div className='panelTitle'>ARTIA · PROJECT PREVIEW</div><h2>Vista previa de {project.name}</h2><div className='muted'>Mira el proyecto, pausa la vista cuando quieras modificar algo y pinta directamente sobre esa referencia.</div></div><span className={'pill '+(previewPaused?'good':'live')}>{previewPaused?'Pausada · lista para pintar':'Reproduciendo'}</span></div>
-    <div className='visualPreviewControls'><div className='visualPreviewControlGroup'><button type='button' className='ghost' onClick={()=>{setPreviewPaused(v=>!v);if(!previewPaused)setNotice('Vista previa pausada. Ya puedes pintar.');else setNotice('Vista previa reanudada. Las nuevas anotaciones se conservan.')}}>{previewPaused?'▶ Reproducir vista':'⏸ Pausar para pintar'}</button><button type='button' className='ghost' onClick={()=>void togglePreviewFullscreen()} aria-label={previewFullscreen?'Salir de pantalla completa':'Abrir vista previa en pantalla completa'}>{previewFullscreen?'↙ Salir':'⛶ Pantalla completa'}</button></div><span className='muted'>{backgroundDataUrl?'Referencia cargada':'Referencia nativa del proyecto'}</span></div>
+    <div className='panelHeading'><div><div className='panelTitle'>ARTIA · PROJECT PREVIEW</div><h2>Vista previa de {project.name}</h2><div className='muted'>Mira el proyecto, pausa la vista cuando quieras modificar algo y pinta directamente sobre esa referencia.</div></div><span className={'pill '+(previewPaused?'good':livePreviewUrl?'live':'neutral')}>{livePreviewUrl?(previewPaused?'LIVE pausada · lista para pintar':'LIVE'):(previewPaused?'Referencia pausada · lista para pintar':'Referencia visual')}</span></div>
+    <div className='visualPreviewControls'><div className='visualPreviewControlGroup'><button type='button' className='ghost' onClick={()=>{setPreviewPaused(v=>!v);if(!previewPaused)setNotice('Vista previa pausada. Ya puedes pintar.');else setNotice('Vista previa reanudada. Las nuevas anotaciones se conservan.')}}>{previewPaused?'▶ Reproducir vista':'⏸ Pausar para pintar'}</button><button type='button' className='ghost' onClick={()=>void togglePreviewFullscreen()} aria-label={previewFullscreen?'Salir de pantalla completa':'Abrir vista previa en pantalla completa'}>{previewFullscreen?'↙ Salir':'⛶ Pantalla completa'}</button></div><span className='muted'>{backgroundDataUrl?'Referencia cargada':livePreviewUrl?'Fuente LIVE configurada':'Referencia visual local del proyecto'}</span></div>
     <div className='drawToolbar'>
       <label className='fileButton'>📷 Cargar captura de referencia <input type='file' accept='image/*' hidden onChange={e=>{const f=e.target.files?.[0];if(f)loadBackground(f);e.currentTarget.value=''}}/></label>
       {(['pen','marker','line','rect','circle','arrow','text','eraser'] as Tool[]).map(x=><button type='button' key={x} className={'toolButton '+(tool===x?'selected':'')} onClick={()=>setTool(x)} aria-label={x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}>{x==='pen'?'✎':x==='marker'?'🖍':x==='line'?'╱':x==='rect'?'▭':x==='circle'?'◯':x==='arrow'?'➜':x==='text'?'T':'⌫'}<span>{x==='pen'?'Lápiz':x==='marker'?'Marcador':x==='line'?'Línea':x==='rect'?'Rectángulo':x==='circle'?'Círculo':x==='arrow'?'Flecha':x==='text'?'Texto':'Borrador'}</span></button>)}
