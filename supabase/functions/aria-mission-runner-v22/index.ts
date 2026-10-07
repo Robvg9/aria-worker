@@ -322,6 +322,25 @@ async function validateLearningGate(goal: string, steps: any[]) {
   }
 }
 
+function isReadOnlyAuditMission(mission:any, steps:any[]): boolean {
+  const explicitMode = String(mission?.metadata?.learning_gate_mode || "").toLowerCase();
+  if (explicitMode === "hard") return false;
+  const list = Array.isArray(steps) ? steps : [];
+  if (!list.length) return false;
+  const readOnlyOps = new Set([
+    "repo_read","tree_read","file_read","github.repo_read","github.tree_read","github.file_read",
+    "text_generation","analysis","delegate"
+  ]);
+  const allReadOnly = list.every((step:any) => {
+    const risk = String(step?.risk || "READ").toUpperCase();
+    const op = String(step?.operation || "").toLowerCase();
+    return risk === "READ" && (readOnlyOps.has(op) || step?.policy?.read_only_audit === true || step?.policy?.verification_read === true);
+  });
+  if (!allReadOnly) return false;
+  return String(mission?.metadata?.goal_source || "").toLowerCase() === "user"
+    || list.every((step:any) => step?.policy?.read_only_audit === true || step?.policy?.verification_read === true);
+}
+
 async function verifyLearningApplication(goal: string, steps: any[], results: Record<string, unknown>, appliedMemoryIds: unknown) {
   try {
     const { data: result, error } = await sb.rpc("aria_verify_learning_application", {
@@ -3892,12 +3911,23 @@ Deno.serve(async (request) => {
           missing_memory_ids: [],
           skipped_for_rwht_probe: true,
         }
-      : await verifyLearningApplication(
-          String(mission.goal || ""),
-          steps,
-          results,
-          learningGate?.applied_memory_ids || []
-        );
+      : isReadOnlyAuditMission(mission, steps)
+        ? {
+            version: "mastery-learning-loop-v2",
+            passed: true,
+            advisory_only: true,
+            skipped_for_read_only_audit: true,
+            required_memory_ids: [],
+            verified_memory_ids: [],
+            missing_memory_ids: [],
+            reason: "Las misiones de auditoría solo lectura no bloquean su cierre por memorias de aprendizaje globales no relacionadas."
+          }
+        : await verifyLearningApplication(
+            String(mission.goal || ""),
+            steps,
+            results,
+            learningGate?.applied_memory_ids || []
+          );
 
     if (learningApplication.passed !== true) {
       const currentLearningReplans = Number(mission?.checkpoint?.learning_gate?.application_replan_attempts || 0);
@@ -3947,8 +3977,8 @@ Deno.serve(async (request) => {
 
       await updateMission(missionId, {
         status: "queued",
-        current_step: 0,
-        completed_steps: 0,
+        current_step: completed.size,
+        completed_steps: completed.size,
         next_action: applicationBlock.next_action,
         last_stderr: "learning_application_evidence_missing",
         checkpoint: {
@@ -3959,10 +3989,10 @@ Deno.serve(async (request) => {
             application_replan_attempts: nextLearningReplans,
             application_verification: learningApplication,
           },
-          plan: undefined,
-          completed_steps: [],
-          attempts: {},
-          results: {},
+          plan: steps,
+          completed_steps: [...completed],
+          attempts,
+          results,
           pending_jobs: {},
           recovery: {
             status: "replan_learning_application",
