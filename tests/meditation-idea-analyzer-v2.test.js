@@ -24,9 +24,9 @@ for(const fragment of [
 for(const fragment of [
   'ANALIZAR Y PROPONER',
   'ELIGE UNA RUTA',
-  'Plan A · Mínimo',
-  'Plan B · Equilibrado',
-  'Plan C · Robusto',
+  'proposal.missions',
+  'plan.summary',
+  'plan.tradeoffs',
   'const [ideaText, setIdeaText] = useState',
   'const [ideaBusy, setIdeaBusy] = useState',
   'const [ideaError, setIdeaError] = useState',
