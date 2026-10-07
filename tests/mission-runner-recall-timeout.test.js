@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const p=path.resolve(__dirname,'../supabase/functions/aria-mission-runner-v22/index.ts');
+const c=fs.readFileSync(p,'utf8');
+assert.match(c,/MEMORY_RECALL_TIMEOUT_MS\s*=\s*10000/);
+assert.match(c,/new AbortController\(\)/);
+assert.match(c,/signal:\s*controller\.signal/);
+assert.match(c,/clearTimeout\(timer\)/);
+assert.match(c,/memory_recall_timeout/);
+console.log('MISSION RUNNER MEMORY RECALL TIMEOUT CONTRACT: PASS');
