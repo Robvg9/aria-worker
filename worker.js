@@ -1,3 +1,4 @@
+/* ARTIA CuevaCoin preview certification 2026-10-07 */
 // Phase 3 RWHT clean verification trigger.
 // Phase 3 RWHT auth diagnostic trigger: same bounded deploy/certification cycle.
 // Phase 3 auth timeout contract: proxy-first password authentication uses bounded upstream latency.
