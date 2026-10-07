@@ -102,7 +102,8 @@ assert.ok(pwa.includes("const UNLEASED_RECOVERY_MAX_AGE_MS = 30 * 60 * 1000"), '
 assert.ok(pwa.includes("const pendingJobs = mission?.checkpoint?.pending_jobs"), 'PWA recovery must inspect persisted pending jobs');
 assert.ok(pwa.includes("age <= UNLEASED_RECOVERY_MAX_AGE_MS"), 'PWA recovery must reject stale missions');
 assert.ok(pwa.includes("activeMissionRank(m.status,m.lease_owner,m.lease_until,m)"), 'PWA live selection must use the bounded recovery guard');
-assert.ok(pwa.includes("const recoveryVisible=(status==='running'||status==='waiting') && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30"), 'PWA recovery visibility must use the bounded guard');
+assert.ok(pwa.includes("const verificationRetry=String(mission?.checkpoint?.recovery?.status||'')==='verification_retry_requested'"), 'PWA recovery visibility must require an explicit verification retry');
+assert.ok(pwa.includes("const recoveryVisible=verificationRetry && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30"), 'PWA recovery visibility must use the bounded guard');
 assert.ok(!pwa.includes("const recoveryVisible=(status==='running'||status==='waiting')&&!leaseValid"), 'PWA must not expose unbounded stale recovery');
 
 console.log("mission-correctness-v1: PASS");
