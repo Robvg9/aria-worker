@@ -271,7 +271,7 @@ function missionDisplayStepState(step: any, index: number, mission: any): string
   const verification = mission?.checkpoint?.verification;
   if (String(mission?.status || '').toLowerCase() === 'failed'
       && String(verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch'
-      && (index === Number(mission?.total_steps || 0) - 1 || /verif/i.test(String(step?.id || '') + ' ' + String(step?.operation || ''))) return 'failed';
+      && /verif/i.test(String(step?.id || '') + ' ' + String(step?.operation || ''))) return 'failed';
   if (['succeeded','skipped','completed'].includes(base)) return 'done';
   if (base === 'failed' || base === 'blocked') return base;
   if (base === 'running' || base === 'waiting') return base;
@@ -1447,6 +1447,16 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
             </div>
           ) : <div className='muted'>ARIA todavía no ha guardado los pasos concretos de esta misión.</div>}
         </div>
+
+        {verificationMismatch && (
+          <div className='missionFinalVerificationBanner'>
+            <div>
+              <div className='panelTitle'>VERIFICACIÓN FINAL</div>
+              <strong>FALLÓ</strong>
+              <p>Los 5 pasos de la misión terminaron, pero la comprobación final devolvió datos que no coincidían con la evidencia real.</p>
+            </div>
+          </div>
+        )}
 
         {(status === 'failed' || status === 'blocked' || status === 'paused' || status === 'waiting' || isHumanGate) && (
           <div className={'detailResult missionProblemPanel recoveryPanel ' + (isHumanGate ? 'missionProblemHumanGate' : 'missionProblemFailure')}>
