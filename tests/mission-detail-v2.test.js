@@ -18,6 +18,9 @@ assert.match(app, /mutation_verification_evidence_mismatch/);
 assert.match(app, /superseded_by_failure/);
 
 assert.match(api, /\/human-gate\/approve/);
+assert.match(api, /\/verify-retry/);
+assert.match(api, /human_requested_verification_retry/);
+assert.match(api, /preserved_completed_steps/);
 assert.match(api, /status: "approved"/);
 assert.match(api, /approved_by: user\.id/);
 
