@@ -300,20 +300,34 @@ async function emitEvent(missionId: string, event_type: string, payload: unknown
   }
 }
 
+const MEMORY_RECALL_TIMEOUT_MS = 10000;
+
 async function recall(goal: string, auth: AuthContext) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MEMORY_RECALL_TIMEOUT_MS);
   try {
     const response = await fetch(MEMORY, {
       method: "POST",
       headers: downstreamHeaders(auth),
       body: JSON.stringify({ action: "search", query: goal, limit: 8 }),
+      signal: controller.signal,
     });
     const body = await response.json().catch(() => null);
     return {
       available: response.ok && body?.ok === true,
       results: Array.isArray(body?.results) ? body.results : [],
+      timed_out: false,
     };
-  } catch {
-    return { available: false, results: [] };
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "AbortError";
+    return {
+      available: false,
+      results: [],
+      timed_out: timedOut,
+      error: timedOut ? "memory_recall_timeout" : null,
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
