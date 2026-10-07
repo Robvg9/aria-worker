@@ -16,7 +16,19 @@ const TOOL_UNIVERSE_V1={
 
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
-async function auth(r:Request){const h=r.headers.get("authorization")||"";const t=h.startsWith("Bearer ")?h.slice(7):"";if(SECRET&&t&&eq(t,SECRET))return true;const c=r.headers.get("x-aria-autonomy-token");if(!c)return false;const {data,error}=await db.rpc("aria_autonomy_cron_authorize",{p_token:c});return !error&&data===true}
+async function auth(r:Request){
+  const h=r.headers.get("authorization")||"";
+  const t=h.startsWith("Bearer ")?h.slice(7):"";
+  // Canonical server-to-server caller: use the existing Supabase service-role
+  // credential already held by the runner. This avoids a DB RPC on the planner
+  // request path and keeps internal planning deterministic under load.
+  if(KEY&&t&&eq(t,KEY))return true;
+  if(SECRET&&t&&eq(t,SECRET))return true;
+  const c=r.headers.get("x-aria-autonomy-token");
+  if(!c)return false;
+  const {data,error}=await db.rpc("aria_autonomy_cron_authorize",{p_token:c});
+  return !error&&data===true
+}
 const SPANISH_OUTPUT_CONTRACT="RESPONDE ÚNICAMENTE EN ESPAÑOL. Todos los títulos, encabezados, explicaciones, estados y conclusiones dirigidos al usuario deben estar en español. Conserva en inglés solo nombres propios, identificadores técnicos, rutas, códigos, nombres de modelos o valores exactos de evidencia cuando sea necesario. No redactes un informe humano en inglés.";
 const esPrompt=(prompt:string)=>`${SPANISH_OUTPUT_CONTRACT}\n\n${prompt}`;
 const modelStep=(id:string,route:any,prompt:string,depends_on:string[]=[])=>({id,operation:"text_generation",executor_type:"model",target:{type:"model",provider_id:route.provider_id,account_id:route.account_id,model_id:route.model_id},capability:"text_generation",input:{payload:{prompt:esPrompt(prompt),max_tokens:2200,temperature:0}},risk:"READ",timeout_ms:90000,policy:{spanish_output_required:true},depends_on,verify:{response_content_nonempty:true},selection:{review_role:"forensic_reviewer",capability_status:route.capability_status||"unknown",evidence_type:route.evidence_type||"unknown",evidence_ref:route.evidence_ref||null}});
