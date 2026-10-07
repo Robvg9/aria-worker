@@ -3092,7 +3092,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
   if(!mission)return <section className='executionHero executionHeroEmpty'><div className='executionHeroTop'><div><div className='panelTitle'>EJECUCIÓN EN TIEMPO REAL</div><div className='executionHeroTitle'>Sin misión activa</div><div className='muted'>Cuando ARIA tome una misión, aquí verás qué está haciendo y el resultado.</div></div><span className='pill neutral'>SIN MISIÓN</span></div></section>;
   const status=String(mission.status??'unknown').toLowerCase(), terminal=['succeeded','failed','blocked','cancelled'].includes(status), latest=events.length?events[events.length-1]:null;
   const leaseValid=Boolean(mission.lease_owner && mission.lease_until && new Date(String(mission.lease_until)).getTime()>Date.now());
-  const recoveryVisible=(status==='running'||status==='waiting')&&!leaseValid;
+  const recoveryVisible=(status==='running'||status==='waiting') && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30;
   const displayedStatus=recoveryVisible?'Recuperando':statusLabel(status);
   const sessionSnapshot = {
     mission_id: String(mission.mission_id ?? ''),
