@@ -1827,6 +1827,20 @@ function PwaNotificationCenter({ session }: { session: Session }) {
               }) : (
                 <div className='emptyState'>Todavía no hay notificaciones de ARIA.</div>
               )}
+              {items.length > 8 && (
+                <button
+                  type='button'
+                  className='ghost notificationHistoryToggle'
+                  onClick={() => setHistoryExpanded(value => !value)}
+                >
+                  {historyExpanded ? 'Mostrar solo las más recientes' : 'Ver historial completo · ' + items.length}
+                </button>
+              )}
+              {hiddenHistoryCount > 0 && !historyExpanded && (
+                <div className='muted notificationHistoryHint'>
+                  {hiddenHistoryCount} avisos anteriores quedan agrupados en el historial.
+                </div>
+              )}
             </div>
           </section>
         </div>
