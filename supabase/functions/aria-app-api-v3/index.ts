@@ -1921,8 +1921,8 @@ Deno.serve(async (req) => {
         ...(original.checkpoint || {}),
         human_gate: {
           ...gate,
-          status: "approved",
-          verified: false,
+          status: "completed",
+          verified: true,
           approved_at: now,
           approved_by: user.id,
         }
