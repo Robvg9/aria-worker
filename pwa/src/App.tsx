@@ -1549,9 +1549,10 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     try {
       const data = await api('/meditation/notifications?limit=50', session.accessToken);
       const next = Array.isArray(data?.notifications) ? data.notifications as PwaNotificationItem[] : [];
+      const visibleNext = next.filter((item: PwaNotificationItem) => item?.metadata?.superseded_by_failure !== true);
       const compact: PwaNotificationItem[] = [];
       const compactKeys = new Set<string>();
-      for (const item of next) {
+      for (const item of visibleNext) {
         const copy = humanizeMeditationNotification(item);
         const key = item.mission_id
           ? String(item.mission_id) + '|' + copy.title + '|' + copy.body
