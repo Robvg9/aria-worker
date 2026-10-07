@@ -2731,17 +2731,34 @@ function Meditation({ session }: { session: Session }) {
               <span>ARIA está disponible y la ejecución en tiempo real aparecerá aquí cuando una misión pase a ejecución.</span>
             </div>
           </section>}
-      {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (
-        <div className='meditationHealthWarning' role='status'>
-          <strong>⚠️ Atención operativa</strong>
-          <span>{String(operationalHealth.next_actions?.[0] || operationalHealth.message || 'ARIA detectó una condición que necesita revisión.')}</span>
-        </div>
-      )}
+      {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (() => {
+        const blockedCount = Number(o?.counts?.blocked ?? operationalHealth?.summary?.blocked_missions ?? 0);
+        const failedCount = Number(o?.counts?.failed ?? operationalHealth?.summary?.failed_24h ?? 0);
+        const nextAction = String(operationalHealth?.next_actions?.[0] || 'Revisa primero las misiones bloqueadas y después las fallidas.');
+        return (
+          <div className='meditationHealthWarning' role='status'>
+            <strong>⚠️ Núcleo operativo degradado</strong>
+            <span>
+              {blockedCount ? blockedCount + ' misiones bloqueadas' : 'Hay condiciones operativas pendientes'}
+              {failedCount ? ' · ' + failedCount + ' fallos recientes' : ''}.
+              {' '}Las dependencias críticas no se consideran caídas; el problema principal requiere revisión de misiones.
+            </span>
+            <small><b>Cómo arreglarlo:</b> {nextAction}</small>
+            <small>Después abre <b>Bloqueadas</b> y <b>Fallidas</b> en “Más información” para revisar cada causa y su siguiente acción.</small>
+          </div>
+        );
+      })()}
       {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
       <details className='panel collapsiblePanel meditationMoreDetails'>
         <summary><span>MÁS INFORMACIÓN</span><b>Detalles</b></summary>
         <div className='meditationSecondary'>
-                <section className='statsGrid'><StatCard value={queueCount} label='En cola' /><StatCard value={m ? statusLabel(String(m.status)) : '—'} label='Estado actual' /><StatCard value={o ? (o?.counts?.blocked ?? 0) : '—'} label='Bloqueadas' /></section>
+                <section className='statsGrid'>
+                  <StatCard value={Number(o?.counts?.history ?? 0)} label='Historial total' />
+                  <StatCard value={Number(o?.counts?.queued ?? queueCount)} label='En cola' />
+                  <StatCard value={Number(o?.counts?.failed ?? 0)} label='Fallidas' />
+                  <StatCard value={Number(o?.counts?.blocked ?? 0)} label='Bloqueadas' />
+                </section>
+                <div className='muted'>Human Gate, Esperando verificación y Bloqueadas son estados distintos: una misión fallida puede haber ejecutado cambios y fallar después; una bloqueada se detiene antes de completar su ejecución.</div>
                 <details className='panel collapsiblePanel'>
                   <summary><span>HUMAN GATES</span><b>{(o?.human_gates ?? []).length}</b></summary>
                   {(o?.human_gates ?? []).slice(0, 8).map((g: any) => <div className='row live' key={g.id}><span className='dot warning' /><div><strong>{g.risk}</strong><small>{g.mission_goal}</small></div></div>)}
@@ -2808,8 +2825,14 @@ function Meditation({ session }: { session: Session }) {
                 })()}
           
                 <details className='panel collapsiblePanel'>
-                  <summary><span>HISTORIAL</span><b>{(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).length}</b></summary>
+                  <summary><span>HISTORIAL</span><b>{Number(o?.counts?.history ?? 0)}</b></summary>
+                  <div className='muted'>Total real: {Number(o?.counts?.history ?? 0)}. Mostrando las últimas 12 aquí; el resto sigue disponible en el registro de misiones.</div>
                   {(o?.missions ?? []).filter((r: any) => !['queued','planning','running','waiting'].includes(String(r.status))).slice(0, 12).map((r: any, index: number) => <button className={'row ' + tone(String(r.status))} key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className={'dot ' + tone(String(r.status))} /><div><strong>{missionListLabel(r, index)}</strong><small>{missionHumanTitle(r)} · {statusLabel(String(r.status))} · {missionActivityLabel(r)} · {formatDate(r.updated_at)}</small><small>{missionGoalPreview(r, 90)}</small></div><span className='rowArrow'>›</span></button>)}
+                </details>
+                <details className='panel collapsiblePanel'>
+                  <summary><span>FALLIDAS</span><b>{Number(o?.counts?.failed ?? 0)}</b></summary>
+                  {(o?.failed ?? []).map((r: any) => <button className='row bad' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className='dot bad' /><div><strong>{missionHumanTitle(r)}</strong><small>{r.reason_type || 'Fallo registrado'} · {missionGoalPreview(r, 100)}</small><small>{r.instructions?.[1] || r.next_action || 'Revisar evidencia y decidir el siguiente paso.'}</small></div><span className='rowArrow'>›</span></button>)}
+                  {!(o?.failed?.length) && <div className='muted'>No hay fallos recientes en la lista rápida.</div>}
                 </details>
           
         </div>
@@ -2821,7 +2844,7 @@ function Meditation({ session }: { session: Session }) {
               <div>
                 <div className='eyebrow'>MEDITACIÓN IA</div>
                 <h2>Ideas analizadas</h2>
-                <div className='muted'>ARIA analiza una idea, explica qué significa y puede preparar una misión para que tú decidas cuándo crearla.</div>
+                <div className='muted'>Escribe una idea. ARIA explicará lo que entendió, señalará dependencias y te dará tres rutas claras: Plan A, Plan B y Plan C. Solo la ruta que elijas se convertirá en una misión.</div>
               </div>
               <button className='ghost' onClick={() => setIdeasOpen(false)}>Cerrar</button>
             </div>
