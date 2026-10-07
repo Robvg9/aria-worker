@@ -1656,6 +1656,48 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     }
   }
 
+
+  async function openMission(missionId: string) {
+    const [missionResult, eventsResult, diagnosticResult] = await Promise.all([
+      api('/missions/' + encodeURIComponent(missionId), session.accessToken).catch(() => null),
+      api('/missions/' + encodeURIComponent(missionId) + '/events', session.accessToken).catch(() => ({ events: [] })),
+      api('/missions/' + encodeURIComponent(missionId) + '/diagnostic', session.accessToken).catch(() => null)
+    ]);
+    if (!missionResult?.mission) throw new Error('ARIA no pudo recuperar la misión.');
+    setMissionDetail(missionResult.mission);
+    setMissionEvents(eventsResult?.events ?? []);
+    setMissionDiagnostic(diagnosticResult?.diagnostic ?? null);
+  }
+
+  async function retryMission(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/retry', session.accessToken, { method: 'POST' });
+    const newId = data?.mission?.mission_id;
+    if (!newId) throw new Error('ARIA no confirmó el reintento de la misión.');
+    await openMission(String(newId));
+  }
+
+  async function retryMissionVerification(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/verify-retry', session.accessToken, {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    if (data?.verification_retry !== true || !data?.mission?.mission_id) {
+      throw new Error('ARIA no confirmó la reanudación de la verificación.');
+    }
+    await openMission(String(data.mission.mission_id));
+  }
+
+  async function approveHumanGate(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/human-gate/approve', session.accessToken, {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    if (!data?.mission?.mission_id || data?.approved !== true) {
+      throw new Error('ARIA no confirmó la continuación de la misión.');
+    }
+    await openMission(String(data.mission.mission_id));
+  }
+
   async function loadNotifications() {
     try {
       const data = await api('/meditation/notifications?limit=50', session.accessToken);
