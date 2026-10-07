@@ -725,8 +725,7 @@ function validateMutationVerificationConsistency(steps: any[], results: Record<s
   // physical evidence already returned by the governed create/write/read chain.
   // Contradictions are retained as a warning for audit, not treated as a reason
   // to discard a physically verified artifact.
-  const verifierText = verifierTexts.join("
-");
+  const verifierText = verifierTexts.join("\n");
   const shaMentions = (verifierText.match(/\b[0-9a-f]{40}\b/gi) || []);
   const conflictingSha = shaMentions.find((value:string) => value.toLowerCase() !== commit.toLowerCase()) || null;
   const claimsMainAsTarget = /(?:rama|branch)\s*:\s*main/i.test(verifierText);
