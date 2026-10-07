@@ -10,3 +10,12 @@ test("sandbox branch conflicts recover idempotently when the requested branch al
   assert.match(runner,/recovered_existing_branch:true/);
   assert.match(runner,/branch\.startsWith\("aria\/sandbox\/"\)/);
 });
+
+
+test("workflow reads are allowed but workflow writes remain blocked",()=>{
+  const fs=require("node:fs");
+  const runner=fs.readFileSync("supabase/functions/aria-github-app-runtime-v1/index.ts","utf8");
+  assert.match(runner,/function pathSafe\(p:string, mode:"read"\|"write"="write"\)/);
+  assert.match(runner,/pathSafe\(b\.path,"read"\)/);
+  assert.match(runner,/mode==="write"&&x\.startsWith\("\.github\/workflows\/"\)/);
+});
