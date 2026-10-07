@@ -1406,6 +1406,12 @@ function MissionArtifactActions({ mission, compact = false }: { mission: Mission
                   ↓ Descargar
                 </a>
               )}
+              {(artifact.viewUrl || artifact.downloadUrl) && (
+                <div className='missionArtifactHumanLinks'>
+                  {artifact.viewUrl && <span>Para ver esto: <a href={artifact.viewUrl} target='_blank' rel='noreferrer'>abrir resultado</a>.</span>}
+                  {artifact.downloadUrl && <span>Para descargarlo: <a href={artifact.downloadUrl} target='_blank' rel='noreferrer' download={artifact.name}>descargar archivo</a>.</span>}
+                </div>
+              )}
             </div>
           </div>
         ))}
