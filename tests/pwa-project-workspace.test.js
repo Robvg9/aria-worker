@@ -156,3 +156,11 @@ assert.match(projectE2E,/setTimeout\(resolve, 250\)/);
 
 assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
+
+const appCurrent = fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
+assert.match(appCurrent,/replan_required/);
+assert.match(appCurrent,/1 · REPLANIFICANDO/);
+assert.match(appCurrent,/Replanteando la estrategia de la misión/);
+const apiCurrent = fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
+assert.match(apiCurrent,/activeRecoveryStatuses/);
+assert.match(apiCurrent,/replan_learning_application/);
