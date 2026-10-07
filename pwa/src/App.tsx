@@ -1289,7 +1289,7 @@ function CapabilityCenter({
                     <div><div className='eyebrow'>{selectedTest.category}</div><h2>{selectedTest.title}</h2><div className='muted'>{selectedTest.file}</div></div>
                     <button className='ghost' onClick={() => setSelectedTest(null)}>Cerrar</button>
                   </div>
-                  <div className='humanSummaryGrid'>
+                  <div className='humanSummaryGrid diagnosticHumanSummary'>
                     <div><strong>Cómo funciona</strong><p>{selectedTest.how}</p></div>
                     <div><strong>Qué capacidad comprueba</strong><p>{selectedTest.capabilities}</p></div>
                     <div><strong>Ejecución</strong><p>{selectedTest.includedInNpmTest ? 'Forma parte de la batería npm test.' : 'Está catalogado en el repositorio pero no forma parte de npm test.'}</p></div>
