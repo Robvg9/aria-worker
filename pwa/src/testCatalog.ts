@@ -2833,6 +2833,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
   },
   {
+    "id": "mission-runtime-integrity-v1",
+    "file": "tests/mission-runtime-integrity-v1.test.js",
+    "title": "Mission Runtime Integrity V1",
+    "category": "Mission / runtime / ownership",
+    "includedInNpmTest": true,
+    "how": "Comprueba que la creación de misiones preserve el propietario autenticado, que el planificador multi-proyecto cubra todas las superficies solicitadas y que el recovery de replans atascados exista.",
+    "capabilities": "Valida visibilidad de misión, planificación multi-proyecto y recuperación canónica del runner."
+  },
+  {
     "id": "mission-proof-governed-recovery",
     "file": "tests/mission-proof-governed-recovery.test.js",
     "title": "Mission Proof Governed Recovery",
