@@ -591,6 +591,22 @@ button{touch-action:manipulation;}
 
 .missionToast{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:1200;display:flex;align-items:center;gap:10px;max-width:min(92vw,520px);padding:12px 14px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(18,22,30,.96);box-shadow:0 12px 36px rgba(0,0,0,.28);font-size:14px;font-weight:600}.missionToast .ghost{min-width:28px;padding:3px 7px}
 
+.missionArtifactsPanel{margin-top:14px;padding:14px;border:1px solid rgba(99,214,255,.18);border-radius:16px;background:linear-gradient(180deg,rgba(99,214,255,.055),rgba(255,255,255,.025))}
+.missionArtifactsLead{margin-top:6px;color:var(--muted);font-size:11px;line-height:1.45}
+.missionArtifactsList{display:grid;gap:9px;margin-top:12px}
+.missionArtifactRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.07);border-radius:13px;background:rgba(0,0,0,.12)}
+.missionArtifactInfo{min-width:0}
+.missionArtifactInfo strong{display:block;font-size:12px;line-height:1.35;overflow-wrap:anywhere}
+.missionArtifactInfo small{display:block;margin-top:4px;color:var(--muted);font-size:10px;line-height:1.35;overflow-wrap:anywhere}
+.missionArtifactActions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.missionArtifactActions a{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 11px}
+.missionArtifactDownload{cursor:pointer}
+.missionArtifactsCompact{margin-top:12px}
+@media(max-width:700px){
+  .missionArtifactRow{grid-template-columns:1fr}
+  .missionArtifactActions{justify-content:stretch}
+  .missionArtifactActions a{width:100%;box-sizing:border-box}
+}
 /* Mission detail v2 — human-first recovery and plan */
 .missionMetaGrid{grid-template-columns:repeat(4,minmax(0,1fr))}
 .missionPlanPanel{margin-top:0}

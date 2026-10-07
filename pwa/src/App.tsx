@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
 import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
+import { artifactKindLabel, missionArtifacts, type MissionArtifact } from './missionArtifacts';
 import { TEST_CATALOG, TEST_CATALOG_STATS, TEST_CATALOG_VERSION, filterTestCatalog } from './testCatalog';
 import { ensurePwaWebPushSubscription, getNotificationIdFromHash, humanizeMeditationDetail, humanizeMeditationNotification, requestPwaNotificationPermission, showPwaNotification, type PwaNotificationItem } from './notifications';
 
@@ -1380,6 +1381,39 @@ function CapabilityCenter({
 }
 
 
+function MissionArtifactActions({ mission, compact = false }: { mission: Mission; compact?: boolean }) {
+  const artifacts = missionArtifacts(mission);
+  if (!artifacts.length) return null;
+  return (
+    <div className={'missionArtifactsPanel ' + (compact ? 'missionArtifactsCompact' : '')}>
+      <div className='panelTitle'>RESULTADO USABLE</div>
+      <div className='missionArtifactsLead'>ARIA dejó resultados accesibles directamente. No necesitas buscar el archivo en GitHub.</div>
+      <div className='missionArtifactsList'>
+        {artifacts.map((artifact: MissionArtifact) => (
+          <div className='missionArtifactRow' key={artifact.id}>
+            <div className='missionArtifactInfo'>
+              <strong>{artifact.name}</strong>
+              <small>{artifactKindLabel(artifact.kind)}{artifact.path ? ' · ' + artifact.path : ''}</small>
+            </div>
+            <div className='missionArtifactActions'>
+              {artifact.viewUrl && (
+                <a className='primary' href={artifact.viewUrl} target='_blank' rel='noreferrer'>
+                  ↗ Ver lo que hizo
+                </a>
+              )}
+              {artifact.downloadUrl && (
+                <a className='ghost missionArtifactDownload' href={artifact.downloadUrl} target='_blank' rel='noreferrer' download={artifact.name}>
+                  ↓ Descargar
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerifyRetry, onCancel, onHumanGateApprove }: { mission: Mission; events: MissionEvent[]; diagnostic?: any; onClose: () => void; onRetry?: () => Promise<void>; onVerifyRetry?: () => Promise<void>; onCancel?: () => Promise<void>; onHumanGateApprove?: () => Promise<void> }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -1556,6 +1590,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
           <div className='panelTitle'>RESULTADO</div>
           <div className='objectiveStatusBanner'><strong>{summary.objective.label}</strong><span>{humanRecoveryNote || summary.objective.note}</span></div>
           <p className='missionResultPlain'>{answer}</p>
+          <MissionArtifactActions mission={mission} />
         </div>}
 
         {!terminal && onCancel && (
@@ -3243,7 +3278,7 @@ function MeditationLiveExecution({ mission, events, lastSyncAt, syncing, onOpen,
     {status !== 'queued' && <div className='executionProgressRow'><div className='executionProgressMeta'><strong>{total>0?completed+'/'+total:'—'}</strong><span>{total>0?(currentStep?'Paso '+currentIndex+' de '+total:'pasos completados'):'actividad en curso'}</span></div><div className={'progressBar executionProgressBar '+(!terminal?'indeterminate':'')}><span style={terminal&&total>0?{width:percent+'%'}:undefined}/></div></div>}
     <div className='executionHumanNow'><div className='executionLabel'>AHORA</div><strong>{recoveryVisible?'La misión perdió el lease, pero sigue registrada y ARIA está intentando recuperarla.':nowText}</strong><small>{currentStep&&status!=='queued'&&!terminal?'Paso '+currentIndex+(total?' de '+total:'')+' · ARIA comprobará el resultado antes de avanzar.':status==='queued'?'El runner todavía no ha tomado esta misión.':terminal?resultText:latest?executionEventTitle(latest):'Todavía no hay actividad persistida.'}</small></div>
     <div className='executionHumanLog'><div className='executionLogHeader'><div><div className='executionLabel'>ACTIVIDAD</div><strong>Última actividad</strong></div></div>{recentEvents.length?recentEvents.map((event:any)=><div className='executionLogRow' key={String(event.event_id)}><span className='executionLogDot' aria-hidden='true'/><div><strong>{executionEventTitle(event)}</strong><small>{executionEventDetail(event)}</small></div><time>{formatDate(event.created_at)}</time></div>):<div className='executionLogEmpty'>{status==='queued' ? 'La misión está esperando ejecución; aquí aparecerá la actividad cuando el runner la tome.' : latest && !latestEventFresh ? 'No hay actividad nueva confirmada; ARIA no inventará una acción.' : 'Esperando la primera actividad real del runtime…'}</div>}</div>
-    {terminal&&<div className='executionOutcome'><div className='executionLabel'>RESULTADO</div><strong>{resultText}</strong><small>{verified?'Verificación registrada. La misión queda cerrada.':'El estado final y la evidencia disponible quedan conservados.'}</small></div>}
+    {terminal&&<div className='executionOutcome'><div className='executionLabel'>RESULTADO</div><strong>{resultText}</strong><small>{verified?'Verificación registrada. La misión queda cerrada.':'El estado final y la evidencia disponible quedan conservados.'}</small><MissionArtifactActions mission={mission} compact /></div>}
     <div className='executionLiveControl'><span className='muted'>{syncing?'Actualizando estado…':'Estado actualizado automáticamente.'}</span></div>
   </section>;
 }
