@@ -106,7 +106,7 @@ for (const fragment of [
   '{trackMission(responseData.mission.mission_id)}',
   "Background mission tracking must never block the conversational channel.",
   "function missionResultText(mission: any)",
-  "function missionHumanSummary(mission: any)",
+  "function missionHumanSummary(mission: any, events: MissionEvent[] = [])",
   "RESPUESTA / RESULTADO DE ARIA",
   "Qué hizo ARIA",
   "Qué cambió",
