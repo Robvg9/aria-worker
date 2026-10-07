@@ -174,12 +174,17 @@ Deno.serve(async (request) => {
   const missionId = typeof body.mission_id === "string" && body.mission_id.trim()
     ? body.mission_id.trim()
     : undefined;
+  const authenticatedUserId = request.headers.get("x-aria-user-id")?.trim() || "";
+
 
   const visualContext = userMetadata.visual_context && typeof userMetadata.visual_context === "object" ? userMetadata.visual_context : null;
   const hasExplicitVisualContext = Boolean(visualContext?.image_path || visualContext?.annotations?.length || visualContext?.annotation_summary);
   const memoryContext = hasExplicitVisualContext ? [] : await recall(goal);
   const metadata = {
     ...userMetadata,
+    ...(authenticatedUserId && String(userMetadata.goal_source ?? "").toLowerCase() === "user"
+      ? { user_id: authenticatedUserId, owner_user_id: authenticatedUserId }
+      : {}),
     display_title: deriveMissionDisplayTitle(goal, String(userMetadata.project_name ?? "")),
     display_title_version: MISSION_TITLE_VERSION,
     trace_id: traceId,
