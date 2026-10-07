@@ -1841,6 +1841,27 @@ Deno.serve(async (req) => {
         "x-aria-user-id": user.id
       });
       if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status);
+      const createdMissionId = typeof direct.b?.mission?.mission_id === "string"
+        ? direct.b.mission.mission_id
+        : typeof direct.b?.mission_id === "string"
+          ? direct.b.mission_id
+          : null;
+      if (createdMissionId) {
+        const existing = await sb.schema("aria_internal").from("mission_state")
+          .select("metadata").eq("mission_id",createdMissionId).maybeSingle();
+        const md = existing?.data?.metadata && typeof existing.data.metadata === "object" ? existing.data.metadata : {};
+        const ownerId = String(md.user_id || md.owner_user_id || user.id);
+        const nextMetadata = {
+          ...md,
+          user_id: ownerId,
+          owner_user_id: ownerId,
+          goal_source: md.goal_source || "user",
+          source_application: md.source_application || "aria-app-v1",
+        };
+        await sb.schema("aria_internal").from("mission_state")
+          .update({ metadata: nextMetadata })
+          .eq("mission_id",createdMissionId);
+      }
       return json({ ok: true, ...direct.b, trace_id: trace });
     }
     if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/verify-retry")) {
