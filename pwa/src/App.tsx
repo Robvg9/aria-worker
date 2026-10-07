@@ -296,11 +296,20 @@ function missionPlanStateLabel(state: string): string {
   return map[state] || 'Pendiente';
 }
 
-function missionObjectivePresentation(mission: any, result: string) {
+function missionObjectivePresentation(mission: any, result: string, events: MissionEvent[] = []) {
   const text = String(result || '').toLowerCase();
   const status = String(mission?.status || '').toLowerCase();
   const verificationStatus = String(mission?.checkpoint?.verification?.status || '').toLowerCase();
   const goal = String(mission?.goal || '').toLowerCase();
+  const checkpointVerification = mission?.checkpoint?.verification;
+  const eventVerified = events.some((event: any) =>
+    String(event?.event_type || '').toLowerCase() === 'mission_verified' &&
+    event?.payload?.verified === true
+  );
+  const structurallyVerified = checkpointVerification?.verified === true ||
+    verificationStatus === 'verified' ||
+    eventVerified;
+
   if (status === 'failed' || verificationStatus === 'invalidated' || /verificación final fue invalidada|objetivo no demostrado/.test(text)) {
     return {
       verified: false,
@@ -308,6 +317,15 @@ function missionObjectivePresentation(mission: any, result: string) {
       note: 'Los pasos de ejecución terminaron, pero la verificación final fue invalidada o la misión quedó marcada como fallida.'
     };
   }
+
+  if (status === 'succeeded' && structurallyVerified) {
+    return {
+      verified: true,
+      label: 'Objetivo comprobado',
+      note: 'ARIA verificó el objetivo con la evidencia registrada y cerró la misión correctamente.'
+    };
+  }
+
   if (/(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|computer\.use\.autonomous|windows device)/.test(goal) &&
       /(no demostró|objetivo no demostrado|no obtuvo el diagnóstico|no quedó determinado|no contiene.*objetivo)/.test(text)) {
     return {
@@ -316,10 +334,13 @@ function missionObjectivePresentation(mission: any, result: string) {
       note: 'Los pasos de ejecución terminaron, pero la evidencia no demuestra que se haya resuelto el objetivo de la misión.'
     };
   }
+
   return {
-    verified: true,
-    label: 'Objetivo con evidencia disponible',
-    note: 'La respuesta contiene evidencia utilizable; la verificación final depende de las reglas persistidas de la misión.'
+    verified: status !== 'succeeded',
+    label: status === 'succeeded' ? 'Objetivo pendiente de comprobación' : 'Objetivo con evidencia disponible',
+    note: status === 'succeeded'
+      ? 'La misión terminó, pero no existe una marca de verificación coherente que permita afirmar que el objetivo quedó comprobado.'
+      : 'La respuesta contiene evidencia utilizable; la verificación final depende de las reglas persistidas de la misión.'
   };
 }
 
@@ -476,17 +497,19 @@ function directActionText(step: any, latest: any): string {
   return fallback ? 'Estoy ' + (fallback.startsWith('analizar') ? fallback : fallback.replace(/^realizar /, 'realizando ')) + '.' : 'Estoy ejecutando el paso actual y comprobaré el resultado antes de continuar.';
 }
 
-function missionHumanSummary(mission: any) {
+function missionHumanSummary(mission: any, events: MissionEvent[] = []) {
   const steps = Array.isArray(mission?.steps) ? mission.steps : (Array.isArray(mission?.checkpoint?.plan) ? mission.checkpoint.plan : []);
   const completed = steps.filter((step: any) => ['succeeded', 'skipped'].includes(String(step?.status)));
   const operations = completed.map((step: any) => humanOperation(step?.operation, step?.executor_type));
   const uniqueOperations = Array.from(new Set(operations));
   const readOnly = steps.length > 0 && steps.every((step: any) => String(step?.risk || '').toUpperCase() === 'READ' && !/(write|create|update|delete|deploy)/i.test(String(step?.operation || '')));
   const result = missionResultText(mission);
-  const objective = missionObjectivePresentation(mission, result);
+  const objective = missionObjectivePresentation(mission, result, events);
   const hasMemoryRecall = Boolean(mission?.checkpoint?.cognitive_loop?.recalled_before_planning);
   const what = completed.length
-    ? 'ARIA verificó ' + completed.length + ' paso' + (completed.length === 1 ? '' : 's') + ', pero ' + (objective.verified ? 'la respuesta disponible contiene evidencia utilizable del objetivo.' : 'la evidencia no demuestra todavía el objetivo de la misión.')
+    ? objective.verified
+      ? 'ARIA verificó ' + completed.length + ' paso' + (completed.length === 1 ? '' : 's') + ' y confirmó el objetivo con la evidencia registrada.'
+      : 'ARIA verificó ' + completed.length + ' paso' + (completed.length === 1 ? '' : 's') + ', pero la evidencia no demuestra todavía el objetivo de la misión.'
     : 'ARIA todavía no tiene pasos completados para resumir.';
   const how = [hasMemoryRecall ? 'Primero recuperó contexto de su memoria autorizada.' : '', uniqueOperations.length ? 'Después realizó: ' + uniqueOperations.join(', ') + '.' : '', 'Al terminar, comprobó el resultado según las reglas de verificación de la misión.'].filter(Boolean).join(' ');
   const changed = readOnly ? 'No realizó cambios en ARIA ni en sistemas externos; esta misión fue de lectura/análisis.' : 'La misión incluyó operaciones con capacidad de modificar información. Los cambios concretos deben describirse a partir del resultado real de cada paso, nunca suponerse.';
@@ -497,8 +520,8 @@ function missionHumanSummary(mission: any) {
   return { what, how, changed, improvement, expected, result, objective };
 }
 
-function diagnosticHumanSummary(diagnostic: any, mission: any) {
-  const summary = missionHumanSummary(mission);
+function diagnosticHumanSummary(diagnostic: any, mission: any, events: MissionEvent[] = []) {
+  const summary = missionHumanSummary(mission, events);
   const rootCause = String(
     diagnostic?.diagnosis?.root_cause ||
     diagnostic?.root_cause ||
@@ -827,20 +850,37 @@ async function signIn(email: string, password: string) {
     throw proxyError instanceof Error ? proxyError : new Error('No se pudo iniciar sesión.');
   }
 }
-function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any): number {
+const UNLEASED_RECOVERY_MAX_AGE_MS = 30 * 60 * 1000;
+
+function missionActivityTimestamp(mission: any): number {
+  const candidates = [
+    mission?.last_event_at,
+    ...(Array.isArray(mission?.live_events) ? mission.live_events.slice(-5).map((e: any) => e?.created_at) : []),
+    mission?.updated_at
+  ]
+    .map((value: any) => Date.parse(String(value ?? '')))
+    .filter(Number.isFinite);
+  return candidates.length ? Math.max(...candidates) : 0;
+}
+
+function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any, mission?: any): number {
   const value = String(status ?? '').toLowerCase();
   const leased = Boolean(leaseOwner && leaseUntil && new Date(String(leaseUntil)).getTime() > Date.now());
   if (value === 'running' && leased) return 60;
   if (value === 'waiting' && leased) return 45;
-  // An unleased running/waiting mission is recoverable work, not "no mission".
-  // Keep it visible until the canonical runtime reaches a new state.
-  if (value === 'running') return 35;
-  if (value === 'waiting') return 30;
-  if (value === 'planning') return 25;
-  if (value === 'queued') return 20;
-  if (value === 'paused') return 10;
-  if (value === 'succeeded') return 5;
-  if (value === 'failed' || value === 'blocked' || value === 'cancelled') return 4;
+
+  // A mission without a lease is only foreground-recoverable for a bounded
+  // window. Historical/stale rows must fall back to history, never "Ahora".
+  if (value === 'running' || value === 'waiting') {
+    const pendingJobs = mission?.checkpoint?.pending_jobs;
+    const hasPendingJob = pendingJobs && typeof pendingJobs === 'object' && Object.keys(pendingJobs).length > 0;
+    const age = Date.now() - missionActivityTimestamp(mission);
+    if (!hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) {
+      return value === 'running' ? 35 : 30;
+    }
+    return 0;
+  }
+
   return 0;
 }
 
@@ -1359,7 +1399,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
   const [cancelError, setCancelError] = useState('');
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
-  const summary = missionHumanSummary(mission);
+  const summary = missionHumanSummary(mission, events);
   const planSteps = missionPlanSteps(mission);
   const startAt = missionStartedAt(mission, events);
   const finishAt = terminal ? missionFinishedAt(mission, events) : null;
@@ -1380,7 +1420,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerify
         : status === 'blocked'
           ? 'La misión está bloqueada'
           : 'La misión necesita atención';
-  const diagnosticSummary = diagnosticHumanSummary(diagnostic, mission);
+  const diagnosticSummary = diagnosticHumanSummary(diagnostic, mission, events);
   const humanProblemSummary = isHumanGate
     ? humanizeTechnicalText(block?.explanation || block?.reason || 'ARIA necesita que completes una acción antes de continuar.')
     : isVerificationPending
@@ -1557,6 +1597,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<PwaNotificationItem | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const [missionDetail, setMissionDetail] = useState<any>(null);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
@@ -1591,10 +1632,15 @@ function PwaNotificationCenter({ session }: { session: Session }) {
         method: 'POST',
         body: JSON.stringify({ notification_ids: [item.notification_id] })
       });
+      const readAt = new Date().toISOString();
       setItems(current => current.map(x => x.notification_id === item.notification_id
-        ? { ...x, read_at: new Date().toISOString() }
+        ? { ...x, read_at: readAt }
         : x
       ));
+      setSelected(current => current?.notification_id === item.notification_id
+        ? { ...current, read_at: readAt }
+        : current
+      );
       setUnread(current => Math.max(0, current - (item.read_at ? 0 : 1)));
     } catch {}
 
@@ -1702,7 +1748,12 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     }
   }
 
-  const selectedCopy = selected ? humanizeMeditationNotification(selected) : null;
+  const selectedLive = selected
+    ? items.find(item => item.notification_id === selected.notification_id) ?? selected
+    : null;
+  const selectedCopy = selectedLive ? humanizeMeditationNotification(selectedLive) : null;
+  const visibleItems = historyExpanded ? items : items.slice(0, 8);
+  const hiddenHistoryCount = Math.max(0, items.length - visibleItems.length);
 
   return (
     <>
@@ -1736,7 +1787,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
               </div>
             )}
 
-            {selected && selectedCopy && (
+            {selectedLive && selectedCopy && (
               <div className='notificationSelected'>
                 <div className='panelTitle'>{selectedCopy.title.toUpperCase()}</div>
                 <p>{selectedCopy.body}</p>
@@ -1744,8 +1795,8 @@ function PwaNotificationCenter({ session }: { session: Session }) {
                   <div className='muted'>Detalle registrado: {humanizeMeditationDetail(selected)}</div>
                 )}
                 <div className='notificationMeta'>
-                  <span>{formatDate(selected.created_at)}</span>
-                  <span>{selected.read_at ? 'Leída' : 'Sin leer'}</span>
+                  <span>{formatDate(selectedLive.created_at)}</span>
+                  <span>{selectedLive.read_at ? 'Leída' : 'Sin leer'}</span>
                 </div>
                 {missionDetail && (
                   <button className='primary' onClick={() => {
@@ -1757,7 +1808,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
             )}
 
             <div className='notificationList'>
-              {items.length ? items.map(item => {
+              {items.length ? visibleItems.map(item => {
                 const copy = humanizeMeditationNotification(item);
                 return (
                   <button
