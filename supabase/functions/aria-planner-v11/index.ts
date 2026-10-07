@@ -16,16 +16,22 @@ const TOOL_UNIVERSE_V1={
 
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
+async function sha256Hex(value:string){
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map(v=>v.toString(16).padStart(2,"0")).join("");
+}
 async function auth(r:Request){
   const h=r.headers.get("authorization")||"";
   const t=h.startsWith("Bearer ")?h.slice(7):"";
-  // Canonical server-to-server caller: use the existing Supabase service-role
-  // credential already held by the runner. This avoids a DB RPC on the planner
-  // request path and keeps internal planning deterministic under load.
   if(KEY&&t&&eq(t,KEY))return true;
   if(SECRET&&t&&eq(t,SECRET))return true;
   const c=r.headers.get("x-aria-autonomy-token");
   if(!c)return false;
+  try{
+    const h=await sha256Hex(c);
+    const {data,error}=await db.from("runtime_auth_token_hashes").select("token_name,token_hash").eq("token_name","aria_autonomy_cron_token").eq("active",true).maybeSingle();
+    if(!error&&data?.token_hash&&eq(h,String(data.token_hash)))return true;
+  }catch(_){}
   const {data,error}=await db.rpc("aria_autonomy_cron_authorize",{p_token:c});
   return !error&&data===true
 }
