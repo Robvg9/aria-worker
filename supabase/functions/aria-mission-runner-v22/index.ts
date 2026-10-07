@@ -34,6 +34,8 @@ const ECC_POLL_BUDGET_MS = 45_000;
 // using a finite global replan count as the recovery authority.
 const maxReplans = 2;
 const RETRYABLE_STATUSES = new Set(["failed", "timeout"]);
+const VERIFIER_CONTRADICTION_CODE = "mutation_verification_evidence_mismatch";
+const VERIFIER_EVIDENCE_MISSING_CODE = "mutation_verification_verifier_evidence_missing";
 
 const sb = createClient(URL, KEY, {
   auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false },
@@ -659,6 +661,7 @@ function validateMutationVerificationConsistency(steps: any[], results: Record<s
   const branchResult:any = unwrap(results[String(createBranchStep.id)] || {});
   const writeResult:any = unwrap(results[String(writeStep.id)] || {});
   const readResult:any = unwrap(results[String(readStep.id)] || {});
+
   const branch = String(
     branchResult?.branch ||
     branchResult?.ref?.replace(/^refs\/heads\//, "") ||
@@ -684,6 +687,26 @@ function validateMutationVerificationConsistency(steps: any[], results: Record<s
   if (!commit || !/^[0-9a-f]{40}$/i.test(commit)) return { required: true, passed: false, reason: "mutation_verification_commit_missing_or_invalid" };
   if (!path) return { required: true, passed: false, reason: "mutation_verification_path_missing" };
 
+  const writeStatus = String(writeResult?.status || "").toLowerCase();
+  const readStatus = String(readResult?.status || "").toLowerCase();
+  if (writeStatus && writeStatus !== "succeeded") {
+    return { required: true, passed: false, reason: "mutation_verification_structured_write_failed", expected: { branch, commit, path }, structured: { write_status: writeStatus } };
+  }
+  if (readStatus && readStatus !== "succeeded") {
+    return { required: true, passed: false, reason: "mutation_verification_structured_read_failed", expected: { branch, commit, path }, structured: { read_status: readStatus } };
+  }
+
+  const readPath = String(readResult?.path || "").trim();
+  if (readPath && readPath !== path) {
+    return { required: true, passed: false, reason: "mutation_verification_structured_path_mismatch", expected: { branch, commit, path }, structured: { read_path: readPath } };
+  }
+
+  const readHtmlUrl = String(readResult?.html_url || readResult?._links?.html || "").trim();
+  const expectedLocation = branch + "/" + path;
+  if (readHtmlUrl && !readHtmlUrl.includes(expectedLocation)) {
+    return { required: true, passed: false, reason: "mutation_verification_structured_location_mismatch", expected: { branch, commit, path }, structured: { html_url: readHtmlUrl } };
+  }
+
   const verifierSteps = steps.filter((step:any) =>
     /verif/i.test(String(step?.id || "") + " " + String(step?.operation || "")) &&
     !/create_branch|file[_\.]write|file[_\.]read/i.test(String(step?.operation || ""))
@@ -696,26 +719,40 @@ function validateMutationVerificationConsistency(steps: any[], results: Record<s
       return String(result?.response?.content ?? result?.response?.output_text ?? result?.stdout ?? "").trim();
     })
     .filter(Boolean);
-  if (!verifierTexts.length) return { required: true, passed: false, reason: "mutation_verification_verifier_evidence_missing" };
 
-  const verifierText = verifierTexts.join("\n");
-  const hasBranch = verifierText.includes(branch);
-  const hasCommit = verifierText.includes(commit);
-  const hasPath = verifierText.includes(path);
+  // Structured connector evidence is authoritative for mutations. The agent
+  // verifier is advisory: it may explain the result, but it can never override
+  // physical evidence already returned by the governed create/write/read chain.
+  // Contradictions are retained as a warning for audit, not treated as a reason
+  // to discard a physically verified artifact.
+  const verifierText = verifierTexts.join("
+");
+  const shaMentions = (verifierText.match(/\b[0-9a-f]{40}\b/gi) || []);
+  const conflictingSha = shaMentions.find((value:string) => value.toLowerCase() !== commit.toLowerCase()) || null;
   const claimsMainAsTarget = /(?:rama|branch)\s*:\s*main/i.test(verifierText);
-  const claimsDifferentPath = /(?:ruta exacta|path)\s*:\s*\S+/i.test(verifierText) && !hasPath;
+  const pathClaims = [...verifierText.matchAll(/(?:ruta exacta|path)\s*:\s*[`*]*([^\s`*]+)/gi)].map((m:any) => String(m?.[1] || "").replace(/[.,;]+$/,""));
+  const conflictingPath = pathClaims.find((value:string) => value !== path && !value.endsWith("/" + path)) || null;
+  const conflictingBranch = claimsMainAsTarget ? "main" : null;
+  const verifierContradiction = Boolean(conflictingSha || conflictingPath || conflictingBranch);
 
-  if (!hasBranch || !hasCommit || !hasPath || claimsMainAsTarget || claimsDifferentPath) {
-    return {
-      required: true,
-      passed: false,
-      reason: "mutation_verification_evidence_mismatch",
-      expected: { branch, commit, path },
-      verifier_excerpt: verifierText.slice(0, 4000),
-    };
-  }
-
-  return { required: true, passed: true, branch, commit, path, verifier_confirmed: true, source: "structured_mutation_results_plus_verifier_text" };
+  return {
+    required: true,
+    passed: true,
+    branch,
+    commit,
+    path,
+    verifier_confirmed: verifierTexts.length > 0 && !verifierContradiction,
+    verifier_warning: verifierContradiction
+      ? "El texto del agente verificador contradijo la evidencia estructurada. Se conservó como advertencia, pero no pudo invalidar la evidencia física."
+      : null,
+    verifier_warning_code: verifierContradiction
+      ? VERIFIER_CONTRADICTION_CODE
+      : verifierTexts.length === 0
+        ? VERIFIER_EVIDENCE_MISSING_CODE
+        : null,
+    verifier_excerpt: verifierContradiction ? verifierText.slice(0, 4000) : null,
+    source: "structured_mutation_results_primary_verifier_text_nonconflicting",
+  };
 }
 function realHumanGate(mission: any) {
   const gate = mission?.metadata?.human_gate;
@@ -3620,6 +3657,7 @@ Deno.serve(async (request) => {
             completed_steps: completed.size,
             next_action: "terminal: all model routes exhausted",
             last_stderr: "model_execution_failed_all_routes",
+            finished_at: new Date().toISOString(),
             checkpoint: {
               ...checkpoint,
               results,
@@ -3962,10 +4000,11 @@ Deno.serve(async (request) => {
       });
       await updateMission(missionId, {
         status: "failed",
-        current_step: completed.size,
+        current_step: Math.min(steps.length, Math.max(1, completed.size)),
         completed_steps: completed.size,
         next_action: null,
         last_stderr: mutationVerification.reason,
+        finished_at: new Date().toISOString(),
         checkpoint: {
           ...(mission.checkpoint || {}),
           verification: mutationVerification,

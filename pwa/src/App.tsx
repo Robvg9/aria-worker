@@ -168,28 +168,31 @@ function missionResultText(mission: any): string {
   const mutationWriteStep = Object.values(results).find((value:any) => value?.data?.path && (value?.data?.commit_sha || value?.data?.branch));
   const mutationReadStep = Object.values(results).find((value:any) => value?.data?.html_url && value?.data?.path);
   if (String(verification?.status || '').toLowerCase() === 'invalidated') {
+    const reason = String(verification?.reason || '').toLowerCase();
     const expected = verification?.expected || {};
     const claimed = verification?.verifier_claim || {};
-    return [
-      'La verificación final fue INVALIDADA por una contradicción de evidencia.',
-      expected.branch ? 'Rama real: ' + String(expected.branch) + '.' : '',
-      expected.commit ? 'Commit real: ' + String(expected.commit) + '.' : '',
-      expected.path ? 'Archivo real: ' + String(expected.path) + '.' : '',
-      claimed.branch || claimed.commit || claimed.path
-        ? 'El verificador había reportado datos incompatibles: ' + [claimed.branch ? 'rama ' + claimed.branch : '', claimed.commit ? 'commit ' + claimed.commit : '', claimed.path ? 'ruta ' + claimed.path : ''].filter(Boolean).join(', ') + '.'
-        : '',
-      'El artefacto físico existe, pero la misión no puede considerarse exitosa hasta que una verificación gobernada coincida con la evidencia real.'
-    ].filter(Boolean).join(' ');
+    if (reason === 'mutation_verification_evidence_mismatch' || expected?.branch || expected?.path) {
+      const target = [
+        expected?.path ? 'el archivo sí quedó creado' : '',
+        expected?.branch ? 'en la rama de trabajo correcta' : ''
+      ].filter(Boolean).join(' ');
+      return [
+        'La misión falló en la comprobación final.',
+        target ? 'ARIA ' + target + ', pero el último verificador respondió con otra ubicación.' : 'El último verificador respondió con datos que no corresponden a esta ejecución.',
+        'Por seguridad, ARIA detuvo el cierre y no marcó la misión como completada.',
+        expected?.branch && expected?.path ? 'No hace falta repetir la escritura: ya existe una evidencia física que puede volver a comprobarse.' : '',
+        claimed?.branch || claimed?.path || claimed?.commit ? 'El detalle técnico está guardado en “Ver evidencia técnica”.' : ''
+      ].filter(Boolean).join(' ');
+    }
+    return 'La comprobación final no fue válida. ARIA conserva la evidencia necesaria para corregirla y volver a comprobar el resultado.';
   }
   if (mutationWriteStep?.data || mutationReadStep?.data || mutationBranchStep?.data) {
     const branch = String(mutationWriteStep?.data?.branch || mutationBranchStep?.data?.ref || '').replace(/^refs\/heads\//,'');
-    const commit = String(mutationWriteStep?.data?.commit_sha || '');
     const filePath = String(mutationWriteStep?.data?.path || mutationReadStep?.data?.path || '');
     return [
-      branch ? 'Rama creada: ' + branch + '.' : '',
-      commit ? 'Commit real: ' + commit + '.' : '',
-      filePath ? 'Archivo escrito y leído: ' + filePath + '.' : '',
-      mutationReadStep?.data?.html_url ? 'GitHub confirmó físicamente el archivo en la rama.' : ''
+      branch ? 'ARIA creó una rama de trabajo.' : '',
+      filePath ? 'El archivo se escribió y después se leyó para comprobar que existe.' : '',
+      mutationReadStep?.data?.html_url ? 'GitHub confirmó que el archivo está físicamente en esa rama.' : ''
     ].filter(Boolean).join(' ');
   }
   const preferredKeys = ['summary_1', 'crosscheck_1', 'facts_1'];
@@ -223,13 +226,74 @@ function missionResultText(mission: any): string {
 
   const internal = String(mission?.last_stderr || mission?.next_action || '').trim().toLowerCase();
   const human: Record<string,string> = {
-    retryexhaustedreplanned: 'ARIA tuvo que descartar una estrategia que agotó sus reintentos, generó una alternativa y continuó con ella. El detalle verificable de la misión aparece en su respuesta y evidencia.',
-    retry_exhausted_replanned: 'ARIA tuvo que descartar una estrategia que agotó sus reintentos, generó una alternativa y continuó con ella. El detalle verificable de la misión aparece en su respuesta y evidencia.',
-    retry_exhausted_all_strategies: 'ARIA agotó las estrategias gobernadas disponibles para esta misión y necesita una nueva intervención antes de continuar.',
-    executor_error: 'Uno de los ejecutores de ARIA no pudo completar su paso. La misión conserva la evidencia para diagnosticarlo.',
-    verification_failed: 'La comprobación del resultado no fue válida. La misión conserva la evidencia necesaria para corregir el problema.'
+    retryexhaustedreplanned: 'ARIA descartó una estrategia, creó otra y continuó con ella. El detalle verificable está en la evidencia.',
+    retry_exhausted_replanned: 'ARIA descartó una estrategia, creó otra y continuó con ella. El detalle verificable está en la evidencia.',
+    retry_exhausted_all_strategies: 'ARIA agotó las rutas disponibles y necesita una nueva intervención.',
+    executor_error: 'Uno de los pasos no pudo completarse. ARIA conserva la evidencia para corregirlo.',
+    verification_failed: 'La comprobación del resultado no fue válida. ARIA conserva la evidencia necesaria para corregirla.'
   };
   return human[internal] || '';
+}
+
+function missionStartedAt(mission: any, events: any[]): string | null {
+  const explicit = String(mission?.started_at || '').trim();
+  if (explicit) return explicit;
+  const ordered = [...(events || [])].sort((a:any,b:any) => new Date(String(a?.created_at || 0)).getTime() - new Date(String(b?.created_at || 0)).getTime());
+  const startTypes = new Set(['mission_started','cognitive_recall_completed','step_started','executor_selected','mission_created']);
+  const found = ordered.find((e:any) => startTypes.has(String(e?.event_type || '').toLowerCase()));
+  return found?.created_at ? String(found.created_at) : (mission?.created_at ? String(mission.created_at) : null);
+}
+
+function missionFinishedAt(mission: any, events: any[]): string | null {
+  const status = String(mission?.status || '').toLowerCase();
+  const ordered = [...(events || [])].sort((a:any,b:any) => new Date(String(a?.created_at || 0)).getTime() - new Date(String(b?.created_at || 0)).getTime());
+  const terminalTypeByStatus: Record<string,string[]> = {
+    succeeded: ['mission_succeeded','mission_verified'],
+    failed: ['mission_failed'],
+    blocked: ['mission_blocked','mission_failed'],
+    cancelled: ['mission_cancelled']
+  };
+  const candidates = terminalTypeByStatus[status] || [];
+  const found = ordered.filter((e:any) => candidates.includes(String(e?.event_type || '').toLowerCase())).at(-1);
+  if (found?.created_at) return String(found.created_at);
+  return mission?.finished_at ? String(mission.finished_at) : null;
+}
+
+function missionPlanSteps(mission: any): any[] {
+  const raw = Array.isArray(mission?.steps) && mission.steps.length ? mission.steps
+    : Array.isArray(mission?.checkpoint?.plan) ? mission.checkpoint.plan : [];
+  if (raw.length) return raw;
+  return executionPlanForMission(mission).map((title, index) => ({ id: 'fallback_' + (index + 1), title, operation: '', risk: 'READ' }));
+}
+
+function missionDisplayStepState(step: any, index: number, mission: any): string {
+  const base = String(step?.status || 'pending').toLowerCase();
+  const verification = mission?.checkpoint?.verification;
+  if (String(mission?.status || '').toLowerCase() === 'failed'
+      && String(verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch'
+      && /verif/i.test(String(step?.id || '') + ' ' + String(step?.operation || ''))) return 'failed';
+  if (['succeeded','skipped','completed'].includes(base)) return 'done';
+  if (base === 'failed' || base === 'blocked') return base;
+  if (base === 'running' || base === 'waiting') return base;
+  if (String(mission?.status || '').toLowerCase() === 'failed' && Number(mission?.current_step || 0) === index + 1) return 'failed';
+  return base === 'queued' ? 'pending' : 'pending';
+}
+
+function missionStepDescription(step: any, index: number): string {
+  const id = String(step?.id || '').toLowerCase();
+  const op = String(step?.operation || '').toLowerCase();
+  if (/analysis|analys/i.test(id) || (op === 'delegate' && index === 0)) return 'Analizar el objetivo y reunir el contexto necesario antes de tocar nada.';
+  if (/create_branch|github.create_branch/.test(op + ' ' + id)) return 'Crear una rama de trabajo separada para hacer el cambio sin tocar main.';
+  if (/file[_\.]write/.test(op)) return 'Crear o actualizar el archivo requerido y dejar el cambio guardado.';
+  if (/file[_\.]read/.test(op)) return 'Leer el archivo y comprobar que realmente existe y contiene lo esperado.';
+  if (/verif/i.test(id + ' ' + op)) return 'Comprobar el resultado final usando la evidencia real de la ejecución.';
+  if (op === 'delegate') return 'Analizar o revisar el paso con el agente asignado y devolver el resultado.';
+  return humanStepTitle(step, index + 1);
+}
+
+function missionPlanStateLabel(state: string): string {
+  const map: Record<string,string> = { done:'Completado', current:'En curso', running:'En curso', waiting:'Esperando', failed:'Fallido', blocked:'Bloqueado', pending:'Pendiente' };
+  return map[state] || 'Pendiente';
 }
 
 function missionObjectivePresentation(mission: any, result: string) {
@@ -431,6 +495,35 @@ function missionHumanSummary(mission: any) {
     ? (objective.verified ? 'Resultado obtenido:' : 'Resultado de pasos obtenido, pero objetivo no demostrado:')
     : 'Resultado esperado: la misión debía producir un resultado verificable para el objetivo indicado.';
   return { what, how, changed, improvement, expected, result, objective };
+}
+
+function diagnosticHumanSummary(diagnostic: any, mission: any) {
+  const summary = missionHumanSummary(mission);
+  const rootCause = String(
+    diagnostic?.diagnosis?.root_cause ||
+    diagnostic?.root_cause ||
+    diagnostic?.problem ||
+    ''
+  ).trim();
+  return {
+    title: String(summary.objective?.label || 'Resultado de la misión'),
+    root_cause: humanizeTechnicalText(rootCause) || (
+      summary.objective?.verified
+        ? 'La misión quedó verificada.'
+        : 'La misión no quedó demostrada por la verificación final.'
+    ),
+    problem: humanizeTechnicalText(rootCause),
+    action: humanizeTechnicalText(
+      diagnostic?.action ||
+      diagnostic?.recommended_action ||
+      diagnostic?.remediation ||
+      ''
+    ),
+    what_happened: summary.what,
+    what_changed: summary.changed,
+    next_steps: summary.improvement,
+    result: summary.result,
+  };
 }
 
 function cacheKey(kind: string, userId: string) {
@@ -1225,7 +1318,7 @@ function CapabilityCenter({
                     <div><div className='eyebrow'>{selectedTest.category}</div><h2>{selectedTest.title}</h2><div className='muted'>{selectedTest.file}</div></div>
                     <button className='ghost' onClick={() => setSelectedTest(null)}>Cerrar</button>
                   </div>
-                  <div className='humanSummaryGrid'>
+                  <div className='humanSummaryGrid diagnosticHumanSummary'>
                     <div><strong>Cómo funciona</strong><p>{selectedTest.how}</p></div>
                     <div><strong>Qué capacidad comprueba</strong><p>{selectedTest.capabilities}</p></div>
                     <div><strong>Ejecución</strong><p>{selectedTest.includedInNpmTest ? 'Forma parte de la batería npm test.' : 'Está catalogado en el repositorio pero no forma parte de npm test.'}</p></div>
@@ -1255,96 +1348,207 @@ function CapabilityCenter({
 }
 
 
-function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel }: { mission: Mission; events: MissionEvent[]; diagnostic?: any; onClose: () => void; onRetry?: () => Promise<void>; onCancel?: () => Promise<void> }) {
+function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onVerifyRetry, onCancel, onHumanGateApprove }: { mission: Mission; events: MissionEvent[]; diagnostic?: any; onClose: () => void; onRetry?: () => Promise<void>; onVerifyRetry?: () => Promise<void>; onCancel?: () => Promise<void>; onHumanGateApprove?: () => Promise<void> }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [verifyRetrying, setVerifyRetrying] = useState(false);
+  const [approvingGate, setApprovingGate] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [retryError, setRetryError] = useState('');
+  const [gateError, setGateError] = useState('');
   const [cancelError, setCancelError] = useState('');
   const status = String(mission.status);
   const terminal = ['succeeded', 'failed', 'blocked', 'cancelled'].includes(status);
   const summary = missionHumanSummary(mission);
-  const hadFailedAttempt = events.some((e:any) => String(e?.event_type).toLowerCase() === 'step_failed');
-  const hadVerifiedStep = events.some((e:any) => String(e?.event_type).toLowerCase() === 'step_succeeded' && e?.payload?.verified === true);
-  const humanRecoveryNote = status === 'succeeded' && hadFailedAttempt && hadVerifiedStep
-    ? 'ARIA encontró un fallo durante un intento anterior, cambió la estrategia y verificó el intento que cerró la misión.'
+  const planSteps = missionPlanSteps(mission);
+  const startAt = missionStartedAt(mission, events);
+  const finishAt = terminal ? missionFinishedAt(mission, events) : null;
+  const humanRecoveryNote = status === 'succeeded' && events.some((e:any) => String(e?.event_type).toLowerCase() === 'step_failed')
+    ? 'ARIA encontró un problema durante un intento anterior, cambió la estrategia y cerró la misión con una ejecución verificada.'
     : '';
-  const humanTitle = status === 'succeeded' ? 'Resultado' : status === 'failed' ? 'Qué falló' : status === 'blocked' ? 'Diagnóstico del bloqueo' : status === 'waiting' ? 'Verificación en curso' : 'Situación actual';
+  const humanTitle = status === 'succeeded' ? 'Resultado' : status === 'failed' ? 'Qué falló' : status === 'blocked' ? 'Bloqueo' : status === 'waiting' ? 'Verificación en curso' : 'Situación actual';
+  const block = mission?.block_details || null;
+  const isHumanGate = block?.kind === 'human_gate';
+  const isVerificationPending = block?.kind === 'verification_pending';
+  const verificationMismatch = String(mission?.checkpoint?.verification?.reason || '').toLowerCase() === 'mutation_verification_evidence_mismatch';
+  const humanProblemTitle = isHumanGate
+    ? 'Hay una acción tuya pendiente'
+    : isVerificationPending
+      ? 'ARIA está esperando una comprobación'
+      : verificationMismatch
+        ? 'La comprobación final falló'
+        : status === 'blocked'
+          ? 'La misión está bloqueada'
+          : 'La misión necesita atención';
+  const diagnosticSummary = diagnosticHumanSummary(diagnostic, mission);
+  const humanProblemSummary = isHumanGate
+    ? humanizeTechnicalText(block?.explanation || block?.reason || 'ARIA necesita que completes una acción antes de continuar.')
+    : isVerificationPending
+      ? 'ARIA ya hizo el cambio. No repitas el trabajo: falta una comprobación externa antes de poder cerrar la misión.'
+      : verificationMismatch
+        ? 'ARIA sí hizo el cambio y encontró el archivo, pero el último comprobador devolvió otra ubicación. Por seguridad, la misión quedó detenida.'
+        : humanizeTechnicalText(block?.explanation || block?.reason || diagnosticSummary.problem || 'ARIA no pudo completar la misión con la estrategia actual.');
+  const recoverySteps = isVerificationPending
+    ? [
+        'No repitas el cambio: ARIA ya lo ejecutó y dejó la evidencia guardada.',
+        'ARIA seguirá comprobando el resultado cuando la verificación externa esté disponible.'
+      ]
+    : verificationMismatch
+      ? [
+          'No repitas la escritura: ARIA ya dejó el archivo creado en una rama de trabajo.',
+          block?.link ? 'Abre el cambio real en GitHub y comprueba que el archivo está ahí.' : 'La evidencia técnica conserva la rama y el archivo reales.',
+          'Pulsa «Volver a comprobar · sin repetir cambios». ARIA conservará los pasos ya realizados.'
+        ]
+      : (block?.steps?.length ? block.steps.map((s:any) => humanizeTechnicalText(String(s))) : [
+          humanizeTechnicalText(block?.remediation || 'Corrige la causa indicada por ARIA.'),
+          'Cuando quede resuelto, vuelve a ejecutar la misión.'
+        ]);
+  const answer = status === 'failed' && verificationMismatch
+    ? 'La ejecución principal sí produjo el artefacto. El fallo estuvo en la última comprobación: el verificador dio datos que no correspondían con lo que acababan de registrar los pasos reales. ARIA hizo bien en no aceptar ese resultado.'
+    : summary.result || (status === 'succeeded' ? 'La misión terminó y la evidencia quedó disponible.' : 'La misión no tiene todavía un resultado final verificable.');
   return (
     <div className='modalBackdrop' onClick={onClose}>
       <section className='detailModal' onClick={e => e.stopPropagation()}>
-        <div className='detailTop'><div><div className='eyebrow'>RESUMEN DE MISIÓN</div><h2>{missionHumanTitle(mission)}</h2>
-                  <div className='muted'>{missionGoalPreview(mission)}</div><div className='muted missionActivityHint'>{missionActivityLabel(mission)}</div><span className={'pill ' + tone(status)}>{statusLabel(status)}</span></div><button className='ghost' onClick={onClose}>Cerrar</button></div>
-        <div className='detailGrid'>
-          <StatCard value={mission.completed_steps ?? 0} label={'Pasos de ' + (mission.total_steps ?? mission.steps?.length ?? '—')} />
-          <StatCard value={terminal ? 'Final' : 'En curso'} label='Estado' />
-          <StatCard value={formatDate(mission.finished_at)} label='Finalización' />
+        <div className='detailTop'>
+          <div>
+            <div className='eyebrow'>RESUMEN DE MISIÓN</div>
+            <h2>{missionHumanTitle(mission)}</h2>
+            <div className='muted'>{missionGoalPreview(mission)}</div>
+            <div className='muted missionActivityHint'>{missionActivityLabel(mission)}</div>
+            <span className={'pill ' + tone(status)}>{status === 'failed' ? 'FALLIDA' : statusLabel(status)}</span>
+          </div>
+          <button className='ghost' onClick={onClose}>Cerrar</button>
         </div>
-        {mission?.block_details && (status === 'blocked' || status === 'waiting' || status === 'failed' || status === 'paused' || mission.block_details.kind === 'replan_required' || mission.block_details.kind === 'human_gate') && (
-          <div className='detailResult recoveryPanel'>
-            <div className='panelTitle'>{mission.block_details.kind === 'human_gate' ? 'HUMAN GATE · QUÉ FALTA' : 'BLOQUEO · QUÉ FALTA'}</div>
-            <div className='recoveryExplanation'><strong>{humanizeTechnicalText(mission.block_details.explanation || mission.block_details.reason || 'La misión necesita una intervención antes de continuar.')}</strong></div>
-            <div className='recoverySteps'><strong>Cómo desbloquearla</strong>{(mission.block_details.steps?.length ? mission.block_details.steps : [mission.block_details.remediation || mission.block_details.next_action || 'Revisar el diagnóstico y corregir la causa.','Cuando quede resuelto, vuelve a ejecutar la misión.']).map((stepText: string, index: number) => <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{humanizeTechnicalText(stepText)}</p></div>)}</div>
-            <div className='recoveryActions'>
-              {mission.block_details.link && <a className='ghost recoveryLink' href={mission.block_details.link} target='_blank' rel='noreferrer'>{mission.block_details.link_label || 'Abrir recurso relacionado'}</a>}
-              {onRetry && mission.block_details.retry_ready !== false && <button className='primary' disabled={retrying || cancelling} onClick={async () => { setRetrying(true); setRetryError(''); try { await onRetry(); } catch (e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); } }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>}
+
+        <div className='detailGrid missionMetaGrid'>
+          <StatCard value={mission.completed_steps ?? 0} label={(status === 'failed' && verificationMismatch ? 'Pasos ejecutados de ' : 'Pasos completados de ') + (mission.total_steps ?? planSteps.length ?? '—')} />
+          <StatCard value={status === 'failed' ? 'FALLIDA' : statusLabel(status)} label='Estado' />
+          <StatCard value={formatDate(startAt || undefined)} label='Inicio' />
+          <StatCard value={formatDate(finishAt || undefined)} label='Finalización' />
+        </div>
+
+        <div className='detailResult missionPlanPanel'>
+          <div className='panelTitle'>PLAN DE LA MISIÓN</div>
+          {planSteps.length ? (
+            <div className='missionPlanList'>
+              {planSteps.map((step:any,index:number) => {
+                const state=missionDisplayStepState(step,index,mission);
+                return (
+                  <div className={'missionPlanStep missionPlanStep-' + state} key={String(step?.id || index)}>
+                    <span className='missionPlanNumber'>{index + 1}</span>
+                    <div className='missionPlanMain'>
+                      <strong>{humanStepTitle(step,index+1)}</strong>
+                      <p>{missionStepDescription(step,index)}</p>
+                    </div>
+                    <span className='pill missionPlanState'>{missionPlanStateLabel(state)}</span>
+                  </div>
+                );
+              })}
             </div>
+          ) : <div className='muted'>ARIA todavía no ha guardado los pasos concretos de esta misión.</div>}
+        </div>
+
+        {verificationMismatch && (
+          <div className='missionFinalVerificationBanner'>
+            <div>
+              <div className='panelTitle'>VERIFICACIÓN FINAL</div>
+              <strong>FALLÓ</strong>
+              <p>Los 5 pasos de la misión terminaron, pero la comprobación final devolvió datos que no coincidían con la evidencia real.</p>
+            </div>
+          </div>
+        )}
+
+        {(status === 'failed' || status === 'blocked' || status === 'paused' || status === 'waiting' || isHumanGate) && (
+          <div className={'detailResult missionProblemPanel recoveryPanel ' + (isHumanGate ? 'missionProblemHumanGate' : 'missionProblemFailure')}>
+            <div className='panelTitle'>{humanProblemTitle.toUpperCase()}</div>
+            <div className='missionProblemLead'>{humanProblemSummary}</div>
+            <div className='missionRecoveryTitle'>Cómo solucionarlo</div>
+            <div className='recoverySteps'>
+              {recoverySteps.map((stepText:string,index:number) => (
+                <div className='recoveryStep' key={String(index) + stepText}><span>{index + 1}</span><p>{stepText}</p></div>
+              ))}
+            {!isHumanGate && !verificationMismatch && diagnosticSummary.action && (
+              <div className='recoveryStep recoveryDiagnosticAction'><span>✓</span><p>{diagnosticSummary.action}</p></div>
+            )}
+            </div>
+            {block?.link && <div className='recoveryActions'><a className='ghost recoveryLink' href={block.link} target='_blank' rel='noreferrer'>{block.link_label || 'Abrir recurso relacionado'}</a></div>}
+            {(isHumanGate || onRetry || onVerifyRetry) && (isHumanGate ? onHumanGateApprove : (isVerificationPending ? null : (verificationMismatch ? onVerifyRetry : onRetry))) && (
+              <div className='missionProblemActions'>
+                {isHumanGate ? (
+                  <button className='primary' disabled={approvingGate || cancelling} onClick={async () => {
+                    setApprovingGate(true); setGateError('');
+                    try { await onHumanGateApprove!(); } catch(e) { setGateError(e instanceof Error ? e.message : 'No se pudo continuar la misión.'); } finally { setApprovingGate(false); }
+                  }}>{approvingGate ? 'Continuando…' : 'Ya está resuelto · continuar misión'}</button>
+                ) : verificationMismatch && onVerifyRetry ? (
+                  <button className='primary' disabled={verifyRetrying || retrying || cancelling} onClick={async () => {
+                    setVerifyRetrying(true); setRetryError('');
+                    try { await onVerifyRetry(); } catch(e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reanudar la verificación.'); } finally { setVerifyRetrying(false); }
+                  }}>{verifyRetrying ? 'Volviendo a comprobar…' : 'Volver a comprobar · sin repetir cambios'}</button>
+                ) : (
+                  <button className='primary' disabled={retrying || cancelling} onClick={async () => {
+                    setRetrying(true); setRetryError('');
+                    try { await onRetry!(); } catch(e) { setRetryError(e instanceof Error ? e.message : 'No se pudo reintentar la misión.'); } finally { setRetrying(false); }
+                  }}>{retrying ? 'Reintentando…' : 'Reintentar misión'}</button>
+                )}
+              </div>
+            )}
+            {gateError && <div className='errorBox'>{gateError}</div>}
             {retryError && <div className='errorBox'>{retryError}</div>}
-            {cancelError && <div className='errorBox'>{cancelError}</div>}
-            <div className='muted recoveryMode'><strong>Recuperación:</strong> {mission.block_details.recoverable ? 'ARIA puede volver a intentar con una estrategia distinta.' : 'Necesita una capacidad o intervención nueva.'}</div>{mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
+            <div className='missionRecoveryTitle'>Cómo desbloquearla</div>
+            <div className='missionProblemFooter'>{isHumanGate ? 'Después de continuar, ARIA retomará la misión desde el paso pendiente.' : verificationMismatch ? 'La escritura ya está hecha; el reintento debe volver a comprobarla, no volver a inventar el resultado.' : block?.recoverable ? 'La misión conserva la evidencia y puede continuar.' : 'La misión necesita una nueva intervención para seguir.'}</div>
           </div>
         )}
-        {mission?.block_details && (
-          <div className='detailResult'>
-            <div className='panelTitle'>{status === 'blocked' ? 'POR QUÉ QUEDÓ BLOQUEADA' : 'RECUPERACIÓN / VERIFICACIÓN'}</div>
-            <div className='humanSummaryGrid'>
-              <div><strong>Motivo</strong><p>{humanizeTechnicalText(mission.block_details.reason || 'Sin motivo registrado.')}</p></div>
-              <div><strong>Qué está haciendo ARIA</strong><p>{humanizeTechnicalText(mission.block_details.next_action || 'ARIA determinará la siguiente estrategia gobernada.')}</p></div>
-              <div><strong>Cómo solucionarlo</strong><p>{humanizeTechnicalText(mission.block_details.remediation || 'Generar una estrategia alternativa con la evidencia disponible.')}</p></div>
-              <div><strong>¿Se puede recuperar?</strong><p>{mission.block_details.recoverable ? 'Sí. La misión conserva evidencia y puede continuar sin repetir innecesariamente el cambio.' : 'No con la estrategia actual. Requiere una nueva intervención gobernada.'}</p></div>
+
+        {status !== 'succeeded' && (
+          <div className='detailResult missionOutcomePanel'>
+            <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
+            <div className='objectiveStatusBanner'>
+              <strong>{summary.objective.label}</strong>
+              <span>{humanRecoveryNote || summary.objective.note}</span>
             </div>
-            {mission.block_details.evidence && <div className='muted'>Evidencia: paso {String(mission.block_details.evidence.step_id || '—')} · {String(mission.block_details.evidence.operation || 'operación')} · {String(mission.block_details.evidence.verification_status || mission.block_details.evidence.result_status || 'estado registrado')}</div>}
+            <div className='humanSummaryGrid'>
+              <div><strong>Qué hizo ARIA</strong><p>{verificationMismatch ? 'Completó los pasos de creación y comprobación del archivo. El problema apareció al comparar la respuesta final con la evidencia real.' : summary.what}</p></div>
+              <div><strong>Qué pasó</strong><p>{verificationMismatch ? 'La última comprobación dijo que el cambio estaba en otra rama y otro archivo. Esa respuesta no coincidía con la evidencia real.' : summary.how}</p></div>
+              <div><strong>Qué cambió</strong><p>{verificationMismatch ? 'El archivo sí fue creado en una rama de trabajo. No se debe repetir esa escritura solo por el fallo del verificador.' : summary.changed}</p></div>
+              <div><strong>Qué falta</strong><p>{verificationMismatch ? 'Volver a comprobar la misma evidencia con una verificación gobernada y coherente.' : summary.improvement}</p></div>
+              <div><strong>Qué mejora ahora</strong><p>{verificationMismatch ? 'ARIA debe comparar la respuesta final con los datos reales de la ejecución antes de dar la misión por completada.' : summary.improvement}</p></div>
+            </div>
+            <div className='missionAnswer'>
+              <div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div>
+              <p className='missionResultPlain'>{answer}</p>
+            </div>
           </div>
         )}
-        {diagnostic && status !== 'succeeded' && (
-          <div className='detailResult diagnosticPanel diagnosticHumanSummary'>
-            <div className='panelTitle'>RECUPERACIÓN</div>
-            <strong>{humanizeTechnicalText(diagnostic.diagnosis?.root_cause || diagnostic.diagnosis?.observed || 'ARIA conserva un diagnóstico para esta misión.')}</strong>
-            <p className='muted'>{humanizeTechnicalText(diagnostic.diagnosis?.next_action || 'ARIA conserva la evidencia y determinará la siguiente estrategia gobernada.')}</p>
-          </div>
-        )}
-        {status !== 'blocked' && <div className='detailResult'>
-          <div className='panelTitle'>{humanTitle.toUpperCase()}</div>
-          <div className='objectiveStatusBanner'>
-            <strong>{summary.objective.label}</strong>
-            <span>{humanRecoveryNote || summary.objective.note}</span>
-          </div>
-          <div className='humanSummaryGrid'>
-            <div><strong>Qué hizo ARIA</strong><p>{summary.what}</p></div>
-            <div><strong>Cómo lo hizo</strong><p>{summary.how}</p></div>
-            <div><strong>Qué cambió</strong><p>{summary.changed}</p></div>
-            <div><strong>Qué mejora ahora</strong><p>{summary.improvement}</p></div>
-            <div><strong>{summary.result ? 'Resultado obtenido' : 'Resultado esperado'}</strong><p>{summary.expected}</p></div>
-          </div>
-          <div className='missionAnswer'><div className='panelTitle'>RESPUESTA / RESULTADO DE ARIA</div><div className='markdownBody'>{summary.result ? renderMarkdown(summary.result) : <p>{status === 'succeeded' ? 'La misión terminó, pero ARIA no generó un texto final presentable. La evidencia detallada sigue disponible abajo.' : 'ARIA todavía no tiene una respuesta final presentable. El diagnóstico y la evidencia siguen disponibles.'}</p>}</div></div>
+
+        {status === 'succeeded' && <div className='detailResult missionOutcomePanel'>
+          <div className='panelTitle'>RESULTADO</div>
+          <div className='objectiveStatusBanner'><strong>{summary.objective.label}</strong><span>{humanRecoveryNote || summary.objective.note}</span></div>
+          <p className='missionResultPlain'>{answer}</p>
         </div>}
+
         {!terminal && onCancel && (
           <div className='detailResult missionCancelPanel'>
             <div className='panelTitle'>CONTROL DE MISIÓN</div>
-            <p className='muted'>Puedes detener esta misión sin afectar las demás. ARIA guardará la cancelación en su timeline.</p>
-            <button className='ghost dangerAction' disabled={cancelling} onClick={async () => { if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return; setCancelling(true); setCancelError(''); try { await onCancel(); } catch (e) { setCancelError(e instanceof Error ? e.message : 'No se pudo cancelar la misión.'); } finally { setCancelling(false); } }}>{cancelling ? 'Cancelando…' : 'Cancelar misión'}</button>
+            <p className='muted'>Puedes detener esta misión. ARIA guardará la cancelación en la evidencia.</p>
+            <button className='ghost dangerAction' disabled={cancelling || retrying || verifyRetrying || approvingGate} onClick={async () => {
+              if (!window.confirm('¿Cancelar esta misión? ARIA dejará de continuarla y registrará la cancelación.')) return;
+              setCancelling(true); setCancelError('');
+              try { await onCancel(); } catch(e) { setCancelError(e instanceof Error ? e.message : 'No se pudo cancelar la misión.'); } finally { setCancelling(false); }
+            }}>{cancelling ? 'Cancelando…' : 'Cancelar misión'}</button>
             {cancelError && <div className='errorBox'>{cancelError}</div>}
           </div>
         )}
+
         <section className='technicalDetails'>
           <button type='button' className='technicalToggle' onClick={() => setShowTechnical(value => !value)} aria-expanded={showTechnical}>
             <span>{showTechnical ? 'Ocultar evidencia técnica' : 'Ver evidencia técnica'}</span><span>{showTechnical ? '⌃' : '⌄'}</span>
           </button>
           {showTechnical && <div className='detailTimeline'>
             <div className='panelTitle'>TIMELINE REAL</div>
-            {events.length ? events.map((e: any, i: number) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_', ' ')}</strong><small>{formatDate(e.created_at)}</small>{e.payload && <pre>{JSON.stringify(e.payload, null, 2)}</pre>}</div></div>) : <div className='muted'>No hay eventos adicionales disponibles.</div>}
+            {events.length ? events.map((e:any,i:number) => <div className='timelineRow' key={e.event_id ?? String(e.created_at) + '-' + i}><span className='timelineDot' /><div><strong>{String(e.event_type ?? 'evento').replaceAll('_',' ')}</strong><small>{formatDate(e.created_at)}</small>{e.payload && <pre>{JSON.stringify(e.payload,null,2)}</pre>}</div></div>) : <div className='muted'>No hay eventos adicionales disponibles.</div>}
           </div>}
-        </section>   </section>
+        </section>
+      </section>
     </div>
   );
 }
@@ -1410,9 +1614,10 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     try {
       const data = await api('/meditation/notifications?limit=50', session.accessToken);
       const next = Array.isArray(data?.notifications) ? data.notifications as PwaNotificationItem[] : [];
+      const visibleNext = next.filter((item: PwaNotificationItem) => item?.metadata?.superseded_by_failure !== true);
       const compact: PwaNotificationItem[] = [];
       const compactKeys = new Set<string>();
-      for (const item of next) {
+      for (const item of visibleNext) {
         const copy = humanizeMeditationNotification(item);
         const key = item.mission_id
           ? String(item.mission_id) + '|' + copy.title + '|' + copy.body
@@ -1581,6 +1786,9 @@ function PwaNotificationCenter({ session }: { session: Session }) {
           mission={missionDetail}
           events={missionEvents}
           diagnostic={missionDiagnostic}
+          onRetry={() => retryMission(String(missionDetail.mission_id))}
+          onVerifyRetry={() => retryMissionVerification(String(missionDetail.mission_id))}
+          onHumanGateApprove={() => approveHumanGate(String(missionDetail.mission_id))}
           onClose={() => {
             setMissionDetail(null);
             setMissionDiagnostic(null);
@@ -2347,6 +2555,18 @@ function Meditation({ session }: { session: Session }) {
     await openMission(String(newId));
   }
 
+  async function retryMissionVerification(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/verify-retry', session.accessToken, { method: 'POST', body: JSON.stringify({}) });
+    if (data?.verification_retry !== true || !data?.mission?.mission_id) throw new Error('ARIA no confirmó la reanudación de la verificación.');
+    await openMission(String(data.mission.mission_id));
+  }
+
+  async function approveHumanGate(missionId: string) {
+    const data = await api('/missions/' + encodeURIComponent(missionId) + '/human-gate/approve', session.accessToken, { method: 'POST', body: JSON.stringify({}) });
+    if (!data?.mission?.mission_id || data?.approved !== true) throw new Error('ARIA no confirmó la continuación de la misión.');
+    await openMission(String(data.mission.mission_id));
+  }
+
   async function cancelMission(missionId: string) {
     const data = await api('/missions/' + encodeURIComponent(missionId) + '/cancel', session.accessToken, { method: 'POST' });
     if (!data?.mission?.mission_id || data?.cancelled !== true) throw new Error('ARIA no confirmó la cancelación de la misión.');
@@ -2566,7 +2786,7 @@ function Meditation({ session }: { session: Session }) {
         </div>
       )}
 
-      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} diagnostic={missionDiagnostic} onRetry={() => retryMission(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); setMissionDiagnostic(null); }} />}
+      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} diagnostic={missionDiagnostic} onRetry={() => retryMission(String(missionDetail.mission_id))} onVerifyRetry={() => retryMissionVerification(String(missionDetail.mission_id))} onHumanGateApprove={() => approveHumanGate(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); setMissionDiagnostic(null); }} />}
       </div>
     </main>
   );

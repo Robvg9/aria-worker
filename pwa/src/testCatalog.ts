@@ -2842,6 +2842,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida recuperación gobernada, escritura física en GitHub y coherencia del plan de verificación."
   },
   {
+    "id": "mission-detail-v2",
+    "file": "tests/mission-detail-v2.test.js",
+    "title": "Mission Detail V2 — Human Recovery",
+    "category": "Meditación IA",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el detalle de una misión muestre el plan, fechas reales, estado terminal, diagnóstico humano, recuperación y evidencia técnica plegable.",
+    "capabilities": "Detecta regresiones de UX y contrato en pasos de misión, Human Gate, reintento, cancelación, verificación y avisos."
+  },
+  {
     "id": "meditation-web-push",
     "file": "tests/meditation-web-push.test.js",
     "title": "Meditation IA Background Web Push",

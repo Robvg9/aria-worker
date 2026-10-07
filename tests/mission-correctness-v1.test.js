@@ -70,7 +70,7 @@ assert.match(runner, /mutation_verification_evidence_mismatch/);
 assert.match(runner, /mutation_verification_branch_missing_or_main/);
 assert.match(runner, /mutation_verification_commit_missing_or_invalid/);
 assert.match(runner, /mutation_verification_verifier_evidence_missing/);
-assert.match(runner, /structured_mutation_results_plus_verifier_text/);
+assert.match(runner, /structured_mutation_results_primary_verifier_text_nonconflicting/);
 assert.match(runner, /status: "failed"/);
 assert.match(runner, /verification:await_ci_or_live_verification/);
 assert.match(appApi, /missionBlockDetails/);
