@@ -2501,7 +2501,7 @@ async function scheduleMissionKick(missionId: string, reason: string, kind: "ret
     // Re-enter through the canonical governed runtime instead.
     const response = await fetch(CANONICAL, {
       method: "POST",
-      headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" },
+      headers: { ...internalHeaders(), "x-aria-trigger": "mission-tick" },
       body: JSON.stringify({ mission_id: missionId }),
     });
     const payload = await response.json().catch(() => null);
