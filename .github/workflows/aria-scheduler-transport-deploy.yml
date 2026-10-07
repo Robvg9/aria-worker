@@ -1,0 +1,104 @@
+name: Deploy ARIA Scheduler Transport
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker.js"
+      - "supabase/migrations/20261007205000_scheduler_cloudflare_transport_fallback_v1.sql"
+      - "tests/mission-runtime-integrity-v1.test.js"
+      - ".github/workflows/aria-scheduler-transport-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-scheduler-transport-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run focused scheduler + project preview contracts
+        run: |
+          set -euo pipefail
+          node tests/mission-runtime-integrity-v1.test.js
+          node tests/pwa-project-workspace.test.js
+
+      - name: Verify Cloudflare deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Install PWA dependencies
+        working-directory: pwa
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Build PWA
+        working-directory: pwa
+        env:
+          VITE_BUILD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run build
+          grep -q "$GITHUB_SHA" dist/index.html
+          grep -q "sw-$GITHUB_SHA.js" dist/index.html
+          grep -R -q "$GITHUB_SHA" dist/assets
+          cp dist/index.html "dist/index-$GITHUB_SHA.html"
+          cp dist/manifest.json "dist/manifest-$GITHUB_SHA.json"
+          sed "s/__BUILD__/$GITHUB_SHA/g" public/sw.js > "dist/sw-$GITHUB_SHA.js"
+          grep -q "aria-pwa-$GITHUB_SHA" "dist/sw-$GITHUB_SHA.js"
+          rm -f dist/index.html
+
+      - name: Install Wrangler
+        run: npm install --global wrangler@latest
+
+      - name: Deploy ARIA Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          sed -i "s/__PWA_BUILD__/$GITHUB_SHA/g" worker.js
+          wrangler deploy worker.js --name aria
+
+      - name: Smoke test CuevaCoin preview
+        run: |
+          set -euo pipefail
+          headers="$(curl --fail --silent --show-error --max-time 30 --retry 4 --retry-delay 2 -D - -o /tmp/cuevacoin-preview.html -w 'HTTP_STATUS:%{http_code}' "https://aria.robvg9.workers.dev/project-preview/cuevacoin/?probe=$GITHUB_SHA")"
+          echo "$headers"
+          grep -qi "x-aria-preview-source: aria-static-reference" <<<"$headers"
+          grep -qi "CuevaCoin" /tmp/cuevacoin-preview.html
+
+      - name: Smoke test scheduler transport auth boundary
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --max-time 20 -o /tmp/scheduler-body -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{}' "https://aria.robvg9.workers.dev/scheduler/tick?probe=$GITHUB_SHA")"
+          echo "SCHEDULER_NO_TOKEN_STATUS=$code"
+          test "$code" = "401"
+          grep -q "unauthorized" /tmp/scheduler-body
+
+      - name: Smoke test scheduler transport with invalid token reaches canonical runtime
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --max-time 30 -o /tmp/scheduler-invalid-body -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'x-aria-autonomy-token: ARIA_INVALID_PROBE_TOKEN' --data '{}' "https://aria.robvg9.workers.dev/scheduler/tick?probe=$GITHUB_SHA")"
+          echo "SCHEDULER_INVALID_TOKEN_STATUS=$code"
+          test "$code" = "401"
+
+      - name: Final marker
+        run: echo "ARIA_SCHEDULER_TRANSPORT_DEPLOY_OK sha=$GITHUB_SHA"
