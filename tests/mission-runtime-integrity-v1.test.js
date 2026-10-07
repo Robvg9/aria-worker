@@ -7,6 +7,7 @@ const app=fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/ind
 const direct=fs.readFileSync(path.join(root,'supabase/functions/aria-direct-v1/index.ts'),'utf8');
 const planner=fs.readFileSync(path.join(root,'supabase/functions/aria-planner-v11/index.ts'),'utf8');
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
+const worker=fs.readFileSync(path.join(root,'worker.js'),'utf8');
 const migration=fs.readFileSync(path.join(root,'supabase/migrations/20261007144500_mission_owner_replan_recovery_v1.sql'),'utf8');
 
 assert.match(app,/owner_user_id/);
@@ -23,5 +24,10 @@ assert.match(runner,/El objetivo exige varios proyectos/);
 assert.match(migration,/recover_running_replan_stalls_v1/);
 assert.match(migration,/running_replan_stall_recovered/);
 assert.match(migration,/owner_user_id/);
+assert.match(worker,/schedulerTick/);
+assert.match(worker,/\/scheduler\/tick/);
+assert.match(worker,/x-aria-autonomy-token/);
+assert.match(migration,/aria\.robvg9\.workers\.dev\/scheduler\/tick/);
+assert.match(migration,/Compatibility fallback/);
 
 console.log('MISSION OWNER + MULTI-PROJECT PLANNER + REPLAN RECOVERY CONTRACT: PASS');
