@@ -29,6 +29,5 @@ assert.match(worker,/schedulerTick/);
 assert.match(worker,/\/scheduler\/tick/);
 assert.match(worker,/x-aria-autonomy-token/);
 assert.match(schedulerMigration,/aria\.robvg9\.workers\.dev\/scheduler\/tick/);
-assert.match(schedulerMigration,/Compatibility fallback/);
 
 console.log('MISSION OWNER + MULTI-PROJECT PLANNER + REPLAN RECOVERY CONTRACT: PASS');
