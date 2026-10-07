@@ -2472,9 +2472,11 @@ function Chat({
 function meditationQueueItems(overview: any, activeMission: any): any[] {
   const all = Array.isArray(overview?.missions) ? overview.missions : [];
   const queuedSource = Array.isArray(overview?.queued_missions) ? overview.queued_missions : [];
-  const active = activeMission && ['running','waiting','planning'].includes(String(activeMission.status))
-    ? activeMission
-    : null;
+  const activeRecoveryStatuses = new Set(['replan_required','replan_learning_application','verification_pending','waiting_for_alternative_strategy','retry_scheduled']);
+  const active = activeMission && (
+    ['running','waiting','planning'].includes(String(activeMission.status)) ||
+    (activeRecoveryStatuses.has(String(activeMission?.checkpoint?.recovery?.status || '')) && ['queued','running','planning','waiting'].includes(String(activeMission.status)))
+  ) ? activeMission : null;
   const queuedMap = new Map<string, any>();
   for (const item of [...queuedSource, ...all.filter((m: any) => String(m?.status) === 'queued')]) {
     const id = String(item?.mission_id ?? '');
@@ -2493,6 +2495,8 @@ function meditationQueueItems(overview: any, activeMission: any): any[] {
 }
 
 function queueLabel(item: any, index: number): string {
+  const recovery=String(item?.checkpoint?.recovery?.status || '');
+  if (index === 0 && recovery.startsWith('replan')) return '1 · REPLANIFICANDO';
   if (index === 0 && ['running','waiting','planning'].includes(String(item?.status))) return '1 · EJECUTÁNDOSE';
   return (index + 1) + ' · PRIORIDAD';
 }
