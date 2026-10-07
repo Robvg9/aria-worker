@@ -3478,3 +3478,4 @@ export default function App() {
 
 // RWHT persistence/recovery certification trigger marker.
 // 2026-10-02 PWA certification trigger for fresh Projects/Settings/Responsive E2E; no runtime behavior change.
+// 2026-10-07 Meditation IA state-consistency hardening trigger for production PWA deploy.
