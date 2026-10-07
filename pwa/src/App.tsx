@@ -1402,7 +1402,7 @@ function MissionDetail({ mission, events, diagnostic, onClose, onRetry, onCancel
         </div>
 
         {(status === 'failed' || status === 'blocked' || status === 'paused' || status === 'waiting' || isHumanGate) && (
-          <div className={'detailResult missionProblemPanel ' + (isHumanGate ? 'missionProblemHumanGate' : 'missionProblemFailure')}>
+          <div className={'detailResult missionProblemPanel recoveryPanel ' + (isHumanGate ? 'missionProblemHumanGate' : 'missionProblemFailure')}>
             <div className='panelTitle'>{humanProblemTitle.toUpperCase()}</div>
             <div className='missionProblemLead'>{humanProblemSummary}</div>
             <div className='missionRecoveryTitle'>Cómo solucionarlo</div>
