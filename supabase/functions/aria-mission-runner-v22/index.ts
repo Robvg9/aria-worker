@@ -2352,7 +2352,59 @@ function objectivePlanAlignment(goal:string, steps:any[]){
       forbidden:['create_branch','file_write','open_pr','pr_merge'],
     };
   }
+  // Multi-project goals must preserve every explicitly requested project surface.
+  // A broad project dashboard must never collapse into a single-project audit.
+  const explicitProjectBoard = /(?:debe mostrar|mostrar al menos|incluye al menos|proyectos?[:\s]|three projects|tres proyectos)/i.test(text)
+    && /battlecruiser/i.test(text)
+    && /cueva\s*coin|cuevacoin/i.test(text)
+    && /\baria\b/i.test(text);
+  if (explicitProjectBoard) {
+    const planText = JSON.stringify(steps || []).toLowerCase();
+    const coverage = {
+      battlecruiser: /battlecruiser/.test(planText),
+      cuevacoin: /cueva\s*coin|cuevacoin/.test(planText),
+      aria: /aria[-_ ](?:worker|app|pwa|memory|mission|reality)|project_id["':= ]+aria\b/.test(planText),
+    };
+    const missing = Object.entries(coverage).filter(([,present]) => !present).map(([name]) => name);
+    if (missing.length) {
+      return {
+        ok:false,
+        kind:"multi_project_surface_mismatch",
+        reason:"El objetivo exige varios proyectos, pero el plan no cubre todas las superficies solicitadas.",
+        required:["ARIA","CuevaCoin","BattleCruiser"],
+        missing,
+        forbidden:[],
+      };
+    }
+  }
   return {ok:true};
+}
+
+function evidenceBoundSynthesisVerification(step:any, result:any, results:Record<string, unknown>) {
+  if (step?.policy?.evidence_bound_synthesis !== true) return {required:false,passed:true};
+  const content = String(result?.response?.content ?? result?.response?.output_text ?? result?.stdout ?? "").trim();
+  const dependencyIds = Array.isArray(step?.depends_on) ? step.depends_on.map(String) : [];
+  if (!content) return {required:true,passed:false,reason:"evidence_bound_synthesis_empty_output"};
+  if (!dependencyIds.length) return {required:true,passed:false,reason:"evidence_bound_synthesis_dependencies_missing"};
+  const dependencyResults = dependencyIds.map(id => results[id]).filter(Boolean);
+  const successfulDependencies = dependencyResults.filter((value:any) => String(value?.status || "").toLowerCase()==="succeeded");
+  if (!successfulDependencies.length) return {required:true,passed:false,reason:"evidence_bound_synthesis_no_successful_dependencies"};
+  if (/(no se proporcionaron|no se proporcionó|está vacía|esta vacía|ninguno listado|ninguno encontrado|ausencia total de artefactos|sin resultados.*pasos|fuente.*exclusiva.*vacía|datos.*vacíos)/i.test(content)) {
+    return {required:true,passed:false,reason:"evidence_bound_synthesis_contradicts_dependency_evidence",dependency_count:successfulDependencies.length,response_excerpt:content.slice(0,3000)};
+  }
+  const anchors:string[]=[];
+  for(const value of successfulDependencies){
+    const raw:any=value;
+    for(const candidate of [raw?.data?.full_name,raw?.data?.html_url,raw?.data?.url,raw?.data?.path,raw?.data?.sha,raw?.data?.name,raw?.html_url,raw?.url,raw?.path,raw?.sha]){
+      const anchor=String(candidate||"").trim();
+      if(anchor.length>=6) anchors.push(anchor);
+    }
+  }
+  const matchedAnchor=anchors.find(anchor=>content.toLowerCase().includes(anchor.toLowerCase())) || null;
+  if(anchors.length && !matchedAnchor){
+    return {required:true,passed:false,reason:"evidence_bound_synthesis_no_concrete_evidence_anchor",dependency_count:successfulDependencies.length,available_anchors:anchors.slice(0,20),response_excerpt:content.slice(0,3000)};
+  }
+  return {required:true,passed:true,dependency_count:successfulDependencies.length,matched_anchor:matchedAnchor};
 }
 
 async function executeStep(missionId: string, step: any, auth: AuthContext, mission: any = null) {
@@ -3448,6 +3500,10 @@ Deno.serve(async (request) => {
             },
           };
           result = await executeStep(missionId, executionStep, auth, mission);
+          const synthesisEvidence = evidenceBoundSynthesisVerification(step, result, results);
+          if (synthesisEvidence.required && !synthesisEvidence.passed) {
+            result = { ...result, __aria_evidence_verification: synthesisEvidence };
+          }
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           result = { status: "failed", executor_type: executorType(step), operation: step.operation, error: { code: "executor_error", message: reason } };
