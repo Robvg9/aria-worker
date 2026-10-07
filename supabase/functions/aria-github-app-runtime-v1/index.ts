@@ -20,7 +20,7 @@ async function gh(path:string,init:RequestInit={},token:string){const r=await fe
 async function discoverInstallation(){const jwt=await appJwt(),list=await gh("/app/installations",{},jwt),wanted=Array.isArray(list)?list.find((x:any)=>String(x?.account?.login??"").toLowerCase()===DEFAULT_OWNER.toLowerCase()):null;if(!wanted?.id)throw new Error(`github_installation_not_found:${DEFAULT_OWNER}`);return{id:Number(wanted.id),account:String(wanted.account?.login??DEFAULT_OWNER)}}
 async function installationToken(repository:string){const installation=await discoverInstallation(),jwt=await appJwt(),r=await fetch(`${API}/app/installations/${installation.id}/access_tokens`,{method:"POST",headers:{accept:"application/vnd.github+json",authorization:`Bearer ${jwt}`,"X-GitHub-Api-Version":"2022-11-28","content-type":"application/json","user-agent":"ARIA-github-app-runtime-v1"},body:JSON.stringify({repositories:[repository]})}),j:any=await r.json().catch(()=>null);if(!r.ok||!j?.token)throw new Error(`github_installation_token_${r.status}:${j?.message??"request_failed"}`);return{token:String(j.token),expires_at:j.expires_at??null,installation_id:installation.id,account:installation.account}}
 function repo(b:any){const owner=String(b.owner??DEFAULT_OWNER),rp=String(b.repo??DEFAULT_REPO);if(!/^[A-Za-z0-9_.-]+$/.test(owner)||!/^[A-Za-z0-9_.-]+$/.test(rp)||!ALLOWED.has(`${owner}/${rp}`.toLowerCase()))throw new Error("repository_not_allowlisted");return{owner,repo:rp}}
-function pathSafe(p:string){const x=String(p||"").replace(/^\/+/,"");if(!x||x.includes("..")||x.includes(".git/")||x.startsWith(".github/workflows/"))throw new Error("unsafe_path");return x}
+function pathSafe(p:string, mode:"read"|"write"="write"){const x=String(p||"").replace(/^\/+/, "");if(!x||x.includes("..")||x.includes(".git/")||(mode==="write"&&x.startsWith(".github/workflows/")))throw new Error("unsafe_path");return x}
 function relevantWorkflow(name:string,paths:string[]){
   const n=String(name||"").toLowerCase();
   const p=paths.map(x=>String(x||"").toLowerCase());
@@ -52,7 +52,7 @@ if(op==="code_search"){
   const result=await gh(`/search/code?q=${encodeURIComponent(scoped)}&per_page=30`,{},t.token);
   return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{total_count:Number(result?.total_count||0),items:Array.isArray(result?.items)?result.items.slice(0,30):[]},installation_id:installation.id,account:installation.account});
 }
-if(op==="file_read"){const ref=String(b.branch||b.ref||b.base||"main"),p=pathSafe(b.path);return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/contents/${p}?ref=${encodeURIComponent(ref)}`,{},t.token),installation_id:installation.id,account:installation.account})}
+if(op==="file_read"){const ref=String(b.branch||b.ref||b.base||"main"),p=pathSafe(b.path,"read");return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/contents/${p}?ref=${encodeURIComponent(ref)}`,{},t.token),installation_id:installation.id,account:installation.account})}
 if(op==="ref_read"){
   const branch=String(b.branch||"main");
   if(!/^[A-Za-z0-9._\/-]+$/.test(branch))throw new Error("invalid_ref");
