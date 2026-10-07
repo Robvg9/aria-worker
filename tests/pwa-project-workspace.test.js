@@ -114,8 +114,8 @@ assert.ok(project.includes("setInterval(refresh,15000)"));
 assert.ok(!project.includes("void loadMissions();void loadProjectChat()"));
 assert.ok(!project.includes("setInterval(refresh,5000)"));
 
-assert.ok(project.includes("setConversationId(null);setProjectChatReady(false);setMessages([]);setMissions([])"));
-
+assert.ok(project.includes("setSelectedMission(null);setError('');setProjectChatReady(false);"));
+assert.ok(project.includes("aria_project_missions:"+session.userId) || project.includes("aria_project_missions"));
 assert.ok(project.includes("projectChatReady"), 'project chat readiness state must exist');
 assert.ok(project.includes("disabled={sending||!text.trim()||!projectChatReady}"), 'project chat send must wait for ready conversation');
 assert.ok(project.includes("Cargando conversación"), 'project chat must expose loading state');
