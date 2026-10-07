@@ -51,3 +51,9 @@ test('production migration contains recurrence, candidate, promotion and regress
 });
 
 console.log('MASTERY LEARNING RUNTIME CONTRACT: PASS');
+
+test('read-only user audits do not hard-block on unrelated global learning memory', () => {
+  assert.match(runner, /function isReadOnlyAuditMission/);
+  assert.match(runner, /skipped_for_read_only_audit/);
+  assert.match(runner, /Las misiones de auditoría solo lectura no bloquean su cierre/);
+});
