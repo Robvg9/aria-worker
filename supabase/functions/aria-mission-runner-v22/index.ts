@@ -35,6 +35,7 @@ const ECC_POLL_BUDGET_MS = 45_000;
 const maxReplans = 2;
 const RETRYABLE_STATUSES = new Set(["failed", "timeout"]);
 const VERIFIER_CONTRADICTION_CODE = "mutation_verification_evidence_mismatch";
+const VERIFIER_EVIDENCE_MISSING_CODE = "mutation_verification_verifier_evidence_missing";
 
 const sb = createClient(URL, KEY, {
   auth: { persistSession: false, autoRefreshToken: false, autoRefreshSession: false },
@@ -744,7 +745,11 @@ function validateMutationVerificationConsistency(steps: any[], results: Record<s
     verifier_warning: verifierContradiction
       ? "El texto del agente verificador contradijo la evidencia estructurada. Se conservó como advertencia, pero no pudo invalidar la evidencia física."
       : null,
-    verifier_warning_code: verifierContradiction ? VERIFIER_CONTRADICTION_CODE : null,
+    verifier_warning_code: verifierContradiction
+      ? VERIFIER_CONTRADICTION_CODE
+      : verifierTexts.length === 0
+        ? VERIFIER_EVIDENCE_MISSING_CODE
+        : null,
     verifier_excerpt: verifierContradiction ? verifierText.slice(0, 4000) : null,
     source: "structured_mutation_results_primary_verifier_text_nonconflicting",
   };
