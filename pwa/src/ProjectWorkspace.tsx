@@ -96,15 +96,35 @@ function drawProjectPreview(ctx:CanvasRenderingContext2D, project:Project, frame
   ctx.fillText(project.icon+'  '+project.name,48,62);
   ctx.font='500 15px Inter, sans-serif';
   ctx.fillStyle='#aaa0bd';
-  ctx.fillText('Vista previa del proyecto · referencia visual para hablar con ARIA',48,87);
+  ctx.fillText('Referencia visual del proyecto · no sustituye una fuente LIVE verificada',48,87);
   const pulse=(frame%4)/3;
   ctx.fillStyle='rgba(159,124,255,'+(0.12+0.12*pulse)+')';
   ctx.beginPath(); ctx.arc(1000,63,10+4*pulse,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#d7cfff';
-  ctx.font='700 13px Inter, sans-serif';
+  ctx.font='700 12px Inter, sans-serif';
   ctx.fillText('PROJECT REFERENCE',900,92);
 
-  const cards=[{label:'Estado',value:'Activo'},{label:'Contexto',value:project.id==='aria'?'Cerebro':'Operación'},{label:'Misiones',value:'—'},{label:'Conversación',value:'Disponible'}];
+  const projectCards:Record<string,{label:string,value:string}[]>={
+    battlecruiser:[
+      {label:'Estado',value:'Operativo'},
+      {label:'Contexto',value:'Operación'},
+      {label:'Misiones',value:'—'},
+      {label:'Conversación',value:'Disponible'}
+    ],
+    cuevacoin:[
+      {label:'Estado',value:'Operativo'},
+      {label:'Contexto',value:'Finanzas'},
+      {label:'Cuenta',value:'Protegida'},
+      {label:'Movimientos',value:'—'}
+    ],
+    aria:[
+      {label:'Estado',value:'LIVE'},
+      {label:'Contexto',value:'Cerebro'},
+      {label:'Misiones',value:'Canónica'},
+      {label:'Evidencia',value:'Gobernada'}
+    ]
+  };
+  const cards=projectCards[project.id]||projectCards.aria;
   cards.forEach((card,i)=>{
     const x=24+i*264;
     ctx.fillStyle='#151020'; ctx.fillRect(x,142,246,88);
@@ -115,11 +135,19 @@ function drawProjectPreview(ctx:CanvasRenderingContext2D, project:Project, frame
 
   ctx.fillStyle='#151020'; ctx.fillRect(24,248,1052,280);
   ctx.strokeStyle='#2d2540'; ctx.strokeRect(24,248,1052,280);
-  ctx.font='700 14px Inter, sans-serif'; ctx.fillStyle='#fff'; ctx.fillText('Área de trabajo del proyecto',48,278);
+  ctx.font='700 14px Inter, sans-serif'; ctx.fillStyle='#fff'; ctx.fillText('Área de referencia del proyecto',48,278);
   ctx.font='500 13px Inter, sans-serif'; ctx.fillStyle='#9187a3';
-  const lines=[project.context,'Usa círculos, flechas, texto y trazos para señalar exactamente qué debe cambiar.','Cuando termines, la anotación + instrucción pueden convertirse en una misión gobernada.'];
-  lines.forEach((line,i)=>ctx.fillText(line.slice(0,115),48,309+i*26));
-  const rows=[['Resumen','Estado y contexto principal'],['Chat','Conversación exclusiva del proyecto'],['Misiones','Trabajo, seguimiento y evidencia'],['ARTIA','Vista previa + anotación visual']];
+  const contextLines=project.id==='cuevacoin'
+    ? ['Panel financiero/operativo de referencia para CuevaCoin.','Cuenta, movimientos, transferencias y operaciones se muestran solo como referencia visual.','Las operaciones financieras reales requieren backend LIVE y verificación específica.']
+    : project.id==='aria'
+    ? ['Centro cognitivo de referencia para ARIA.','Misiones, ejecución, verificación, evidencia y capacidades pertenecen al runtime canónico.','Los estados deben proceder de evidencia LIVE y persistida, no de texto inventado.']
+    : [project.context,'Chat, misiones y ARTIA comparten el mismo proyecto y la misma cola canónica de ARIA.','La referencia visual sirve para señalar cambios y no certifica por sí sola una ejecución LIVE.'];
+  contextLines.forEach((line,i)=>ctx.fillText(line.slice(0,115),48,309+i*26));
+  const rows=project.id==='cuevacoin'
+    ? [['Resumen','Balance y contexto principal'],['Chat','Conversación exclusiva de CuevaCoin'],['Misiones','Trabajo, seguimiento y evidencia'],['ARTIA','Referencia visual + anotación']]
+    : project.id==='aria'
+    ? [['Resumen','Estado cognitivo y fuentes'],['Chat','Conversación con ARIA'],['Misiones','Ejecución y verificación'],['ARTIA','Referencia visual + anotación']]
+    : [['Resumen','Estado y contexto principal'],['Chat','Conversación exclusiva del proyecto'],['Misiones','Trabajo, seguimiento y evidencia'],['ARTIA','Referencia visual + anotación']];
   rows.forEach((row,i)=>{
     const y=390+i*31;
     ctx.fillStyle=i===3?'#30225c':'#1b152a'; ctx.fillRect(48,y,1004,23);
@@ -128,7 +156,7 @@ function drawProjectPreview(ctx:CanvasRenderingContext2D, project:Project, frame
   });
   ctx.fillStyle='#0f0b17'; ctx.fillRect(24,548,1052,62);
   ctx.fillStyle='#9f7cff'; ctx.fillRect(24,548,Math.max(120,240+frame*90),4);
-  ctx.fillStyle='#7f7590'; ctx.font='500 12px Inter, sans-serif'; ctx.fillText('La vista previa se puede pausar para anotar encima.',48,585);
+  ctx.fillStyle='#7f7590'; ctx.font='500 12px Inter, sans-serif'; ctx.fillText('Pausa la referencia para anotar sobre el proyecto.',48,585);
 }
 
 function VisualBoard({session,project,conversationId,onChat,onMission}:{session:Session;project:Project;conversationId:string|null;onChat:(message:string,conversationId?:string)=>void;onMission:(payload:any)=>Promise<any>}) {
