@@ -774,7 +774,7 @@ function missionBlockDetails(m:any) {
   };
 
   return {
-    kind: verificationPending ? "human_gate" : replanRequired ? "replan_required" : status === "blocked" ? "hard_block" : "recovery",
+    kind: verificationPending ? (gate?.status === "pending" ? "human_gate" : "verification_pending") : replanRequired ? "replan_required" : status === "blocked" ? "hard_block" : "recovery",
     recoverable,
     retry_ready: recoverable,
     category: verificationMismatch ? "verification" : category,
@@ -789,7 +789,7 @@ function missionBlockDetails(m:any) {
     link_label,
     verification_pending: verificationPending,
     human_gate: Boolean(gate && gate.status === "pending"),
-    continue_label: verificationPending ? "Ya está resuelto · continuar misión" : null,
+    continue_label: gate?.status === "pending" ? "Ya está resuelto · continuar misión" : null,
     evidence,
     updated_at: m?.updated_at || null,
   };
