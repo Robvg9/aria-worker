@@ -35,12 +35,12 @@ for(const fragment of [
   if(!pwa.includes(fragment)) throw new Error('PWA missing idea analyzer marker: '+fragment);
 }
 for(const fragment of [
-  'add column if not exists owner_user_id',
-  'owner_user_id',
-  'meditation_idea_proposal_decide',
-  'meditation_idea_convert_mission_v3',
-  'proposal_not_v3',
-  'meditation_queue_add'
+  'create or replace function aria_internal.meditation_idea_convert_mission_v3',
+  'idea-to-mission-v3',
+  'p_plan_id',
+  'idea_plan_id',
+  'meditation_queue_add',
+  'proposal_not_v3'
 ]) assert.ok(migration.includes(fragment),'migration missing '+fragment);
 
 for(const fragment of [
