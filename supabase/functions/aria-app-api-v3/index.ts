@@ -1870,6 +1870,8 @@ Deno.serve(async (req) => {
           owner_user_id: ownerId,
           goal_source: md.goal_source || "user",
           source_application: md.source_application || "aria-app-v1",
+          execution_lane: md.execution_lane || "user",
+          queue_priority: Math.max(Number(md.queue_priority || 0), 20),
         };
         await sb.schema("aria_internal").from("mission_state")
           .update({ metadata: nextMetadata })
