@@ -8,6 +8,10 @@ const api = fs.readFileSync(path.join(root, 'supabase/functions/aria-app-api-v3/
 const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
 
 assert.match(app, /<div className='panelTitle'>PLAN DE LA MISIÓN<\/div>/);
+assert.match(app, /missionArtifacts/);
+assert.match(app, /RESULTADO USABLE/);
+assert.match(app, /↗ Ver lo que hizo/);
+assert.match(app, /↓ Descargar/);
 assert.match(app, /label='Inicio'/);
 assert.match(app, /label: 'Objetivo comprobado'/);
 assert.match(app, /ARIA verificó el objetivo con la evidencia registrada y cerró la misión correctamente/);
@@ -32,5 +36,11 @@ assert.match(api, /verified: true/);
 
 assert.match(runner, /finished_at: new Date\(\)\.toISOString\(\)/);
 assert.match(runner, /validateMutationVerificationConsistency/);
+const artifacts = fs.readFileSync(path.join(root, 'pwa/src/missionArtifacts.ts'), 'utf8');
+assert.match(artifacts, /function previewPath/);
+assert.match(artifacts, /missionArtifacts/);
+const worker = fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
+assert.match(worker, /\/artifact\/view/);
+assert.match(worker, /Content-Security-Policy|content-security-policy/);
 
 console.log('PASS mission-detail-v2');
