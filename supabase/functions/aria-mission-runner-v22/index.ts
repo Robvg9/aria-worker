@@ -304,7 +304,12 @@ async function recall(goal: string, auth: AuthContext) {
 }
 
 async function createPlan(goal: string, context: unknown, auth: AuthContext) {
-  return createPlanWithTimeout(PLANNER, goal, context, downstreamHeaders(auth));
+  const plannerHeaders: Record<string,string> = {
+    "content-type":"application/json",
+    ...(EDGE_API_KEY ? {apikey:EDGE_API_KEY} : {}),
+    ...(KEY ? {authorization:`Bearer ${KEY}`} : downstreamHeaders(auth)),
+  };
+  return createPlanWithTimeout(PLANNER, goal, context, plannerHeaders);
 }
 
 async function validateLearningGate(goal: string, steps: any[]) {
