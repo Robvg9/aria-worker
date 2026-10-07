@@ -98,9 +98,11 @@ assert.match(plannerScopeSource,/broadAriaPwaScope/);
 assert.ok(plannerScopeSource.indexOf('const isBattleCruiser=explicitBattleCruiserTarget') > plannerScopeSource.indexOf('const broadAriaPwaScope'),'BattleCruiser routing must use explicit scoped intent');
 assert.match(plannerScopeSource,/const explicitBattleCruiser=explicitBattleCruiserTarget && !broadAriaPwaScope/);
 assert.ok(runner.includes('const readOps = new Set(["repo_read", "tree_read"'), 'runner GitHub read allowlist must include tree_read');
-assert.ok(pwa.includes("if (value === 'running') return 35"), 'PWA must keep unleased running missions visible');
-assert.ok(pwa.includes("if (value === 'waiting') return 30"), 'PWA must keep unleased waiting missions visible');
-assert.ok(pwa.includes('const recoveryVisible=(status===\'running\'||status===\'waiting\')&&!leaseValid'), 'PWA recovery visibility marker missing');
-assert.match(pwa,/La misión perdió el lease, pero sigue registrada/);
+assert.ok(pwa.includes("const UNLEASED_RECOVERY_MAX_AGE_MS = 30 * 60 * 1000"), 'PWA recovery must be freshness-bounded');
+assert.ok(pwa.includes("const pendingJobs = mission?.checkpoint?.pending_jobs"), 'PWA recovery must inspect persisted pending jobs');
+assert.ok(pwa.includes("age <= UNLEASED_RECOVERY_MAX_AGE_MS"), 'PWA recovery must reject stale missions');
+assert.ok(pwa.includes("activeMissionRank(m.status,m.lease_owner,m.lease_until,m)"), 'PWA live selection must use the bounded recovery guard');
+assert.ok(pwa.includes("const recoveryVisible=(status==='running'||status==='waiting') && !leaseValid && activeMissionRank(status,mission.lease_owner,mission.lease_until,mission)>=30"), 'PWA recovery visibility must use the bounded guard');
+assert.ok(!pwa.includes("const recoveryVisible=(status==='running'||status==='waiting')&&!leaseValid"), 'PWA must not expose unbounded stale recovery');
 
 console.log("mission-correctness-v1: PASS");
