@@ -364,7 +364,7 @@ jobs:
           cat "$headers"
           test "$code" = "200"
           grep -qi "^content-type: text/html" "$headers"
-          grep -qi "^x-aria-preview-source: github-main" "$headers"
+          grep -qi "^x-aria-preview-source: aria-static-reference" "$headers"
           grep -q "CuevaCoin" "$body"
           echo PROJECT_PREVIEW_CUEVACOIN_LIVE_OK
       - name: Smoke test direct ARIA interface
