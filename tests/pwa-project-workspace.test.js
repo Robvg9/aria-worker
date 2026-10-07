@@ -93,6 +93,11 @@ assert.match(project,/annotations:actions\.slice\(0,128\)/);
 assert.match(project,/mime_type:'image\/png'/);
 assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
 assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
+assert.match(project,/PROJECT REFERENCE/);
+assert.match(project,/if\(!livePreviewUrl\)/);
+assert.match(project,/canvas must remain transparent|The canvas must remain transparent/i);
+assert.match(project,/Fuente LIVE configurada/);
+assert.match(project,/Referencia visual local del proyecto/);
 assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
 
 
