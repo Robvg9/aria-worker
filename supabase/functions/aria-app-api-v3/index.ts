@@ -1864,6 +1864,7 @@ Deno.serve(async (req) => {
           next_action: "human_gate:approved",
           checkpoint: approvedCheckpoint,
           updated_at: now,
+          finished_at: null,
           lease_owner: null,
           lease_until: null
         })
