@@ -1252,6 +1252,84 @@ async function tryCapabilityIntentPlan(goal:string, context:any){
   }catch(_e){ return null; }
 }
 
+function visualProjectMissionPlan(goal:string,context:any){
+  const rawVisual = context?.visual_context ?? context?.metadata?.visual_context;
+  if(!rawVisual || typeof rawVisual !== "object") return null;
+  const projectId = String(context?.project_id ?? context?.metadata?.project_id ?? context?.project?.id ?? "").trim().toLowerCase();
+  if(!["aria","cuevacoin","battlecruiser"].includes(projectId)) return null;
+  const g = String(goal || "");
+  if(!/TRABAJO VISUAL DE PROYECTO|VISUAL_CONTEXT|Certificación visual RWHTVISUALMISSION/i.test(g)) return null;
+
+  const readPolicy = {
+    tool_use:true,
+    verification_read:true,
+    read_only_audit:true,
+    non_mutating:true,
+    destructive_actions_blocked:true,
+    spanish_output_required:true,
+    visual_mission_acceptance:true
+  };
+
+  const projectName = projectId === "battlecruiser" ? "BattleCruiser" : projectId === "cuevacoin" ? "CuevaCoin" : "ARIA";
+  let step:any;
+  if(projectId === "battlecruiser"){
+    const target={type:"connector",connector_id:"github",owner:"Robvg9",repo:"battlecruiser",branch:"main"};
+    step={
+      id:"visual_context_source_read",
+      operation:"repo_read",
+      executor_type:"connector",
+      target,
+      input:{owner:"Robvg9",repo:"battlecruiser"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      verify:{response_content_nonempty:true}
+    };
+  }else if(projectId === "cuevacoin"){
+    const target={type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"};
+    step={
+      id:"visual_context_source_read",
+      operation:"file_read",
+      executor_type:"connector",
+      target,
+      input:{owner:"Robvg9",repo:"aria-worker",branch:"main",path:"docs/reality-board/cuevacoin-authorized-source.json"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      verify:{response_content_nonempty:true}
+    };
+  }else{
+    const target={type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"};
+    step={
+      id:"visual_context_source_read",
+      operation:"repo_read",
+      executor_type:"connector",
+      target,
+      input:{owner:"Robvg9",repo:"aria-worker"},
+      risk:"READ",
+      timeout_ms:60000,
+      policy:readPolicy,
+      verify:{response_content_nonempty:true}
+    };
+  }
+
+  return {
+    goal:g,
+    steps:[step],
+    planner_version:"aria-planner-v11-visual-project-mission-v1",
+    visual_project_mission:true,
+    project_id:projectId,
+    project_name:projectName,
+    visual_context:rawVisual,
+    acceptance_contract:{
+      preserve_visual_context:true,
+      preserve_project_context:true,
+      source_read_before_any_change:true,
+      no_generic_battlecruiser_audit_routing:true
+    }
+  };
+}
+
 Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
 const explicitRequestedDevice=String(
   context?.mission_planner_contract?.requested_device_id ||
@@ -1263,7 +1341,7 @@ if(explicitRequestedDevice.startsWith("windows-")){
   const windowsFastPath=await windowsPcRwhtPlan(goal,context);
   if(windowsFastPath)return windowsFastPath;
 }
-const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context);if(battlecruiserAudit)return out({ok:true,plan:battlecruiserAudit});const realityBoard=await multiProjectRealityBoardPlan(goal,context);if(realityBoard)return out({ok:true,plan:realityBoard,planner_version:realityBoard.planner_version,multi_project_reality_board:true});const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
+const visualProjectMission=visualProjectMissionPlan(goal,context);if(visualProjectMission)return out({ok:true,plan:visualProjectMission,planner_version:visualProjectMission.planner_version,visual_project_mission:true});const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context);if(battlecruiserAudit)return out({ok:true,plan:battlecruiserAudit});const realityBoard=await multiProjectRealityBoardPlan(goal,context);if(realityBoard)return out({ok:true,plan:realityBoard,planner_version:realityBoard.planner_version,multi_project_reality_board:true});const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
