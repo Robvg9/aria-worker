@@ -23,7 +23,7 @@ const HUMAN_API_ERRORS: Record<string,string> = {
 const PROJECTS: Project[] = [
   { id:'battlecruiser', name:'BattleCruiser', description:'Sistema operativo privado para organizar el trabajo y la operación de La Cueva.', icon:'🏴‍☠️', context:'BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio.', previewUrl:'https://battlecruiser.robvg9.workers.dev/', previewMode:'live' },
   { id:'cuevacoin', name:'CuevaCoin', description:'Aplicación financiera/operativa vinculada al ecosistema de negocios.', icon:'🪙', context:'CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.', previewUrl:'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', previewMode:'source' },
-  { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.', previewUrl:'https://aria.robvg9.workers.dev/pwa/', previewMode:'live' }
+  { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.', previewUrl:'https://aria.robvg9.workers.dev/project-preview/aria/', previewMode:'live' }
 ];
 
 async function api(path:string, token:string, init:RequestInit={}) {
@@ -398,7 +398,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   async function loadMissions(){
     try{
-      const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=100',session.accessToken);
+      const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=20',session.accessToken);
       const rows=Array.isArray(d?.missions)?d.missions:[];
       setMissions(rows);
       try{localStorage.setItem('aria_project_missions:'+session.userId+':'+project.id,JSON.stringify(rows));}catch{}
