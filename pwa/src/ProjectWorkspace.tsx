@@ -398,7 +398,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   async function loadMissions(){
     try{
-      const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=100',session.accessToken);
+      const d=await api('/projects/'+encodeURIComponent(project.id)+'/missions?limit=20',session.accessToken);
       const rows=Array.isArray(d?.missions)?d.missions:[];
       setMissions(rows);
       try{localStorage.setItem('aria_project_missions:'+session.userId+':'+project.id,JSON.stringify(rows));}catch{}
@@ -501,7 +501,14 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     try{
       const d=await api('/missions',session.accessToken,{method:'POST',body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:payload.visual_context||null})});
       if(!d?.mission?.mission_id)throw new Error('ARIA no confirmó la creación de la misión.');
+      const createdMission=d.mission;
+      setMissions(current=>{
+        const next=[createdMission,...current.filter((m:any)=>String(m?.mission_id||'')!==String(createdMission.mission_id))].slice(0,20);
+        try{localStorage.setItem('aria_project_missions:'+session.userId+':'+project.id,JSON.stringify(next));}catch{}
+        return next;
+      });
       setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);
+      return createdMission;
     }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.')}finally{setSending(false)}
   }
 
