@@ -75,7 +75,7 @@ const downstreamHeaders = (auth: AuthContext) => {
   if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
   if (auth.kind === "authorization" && auth.token) headers.authorization = `Bearer ${auth.token}`;
   else if (auth.kind === "autonomy-token" && auth.token) headers["x-aria-autonomy-token"] = auth.token;
-  else if (SECRET) headers.authorization = `Bearer ${SECRET}`;
+  else if (SECRET || KEY) headers.authorization = `Bearer ${SECRET || KEY}`;
   return headers;
 };
 
