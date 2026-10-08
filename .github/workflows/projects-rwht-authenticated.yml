@@ -30,7 +30,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  group: aria-authenticated-pwa-rwht-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
