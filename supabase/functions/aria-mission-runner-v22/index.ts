@@ -73,6 +73,7 @@ const tokenOf = (request: Request) => authContextOf(request).token;
 const downstreamHeaders = (auth: AuthContext) => {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
+  if (KEY) headers["x-aria-internal-service-key"] = KEY;
   if (auth.kind === "authorization" && auth.token) headers.authorization = `Bearer ${auth.token}`;
   else if (auth.kind === "autonomy-token" && auth.token) headers["x-aria-autonomy-token"] = auth.token;
   else if (SECRET || KEY) headers.authorization = `Bearer ${SECRET || KEY}`;
@@ -81,9 +82,8 @@ const downstreamHeaders = (auth: AuthContext) => {
 
 const internalHeaders = () => ({
   "content-type": "application/json",
-  // Downstream internal runtimes validate the shared ARIA runtime secret.
-  // Prefer it over the Supabase service-role key for service-to-service calls.
   authorization: `Bearer ${SECRET || KEY}`,
+  ...(KEY ? { "x-aria-internal-service-key": KEY } : {}),
   ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {}),
 });
 
