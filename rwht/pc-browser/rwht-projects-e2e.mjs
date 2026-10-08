@@ -47,10 +47,12 @@ async function login(page) {
     { timeout: 30000 }
   );
 
-  const persisted = await readSession(page).catch(() => null);
+  const persistedBeforeHydration = await readSession(page).catch(() => null);
+  const hydrated = persistedBeforeHydration?.accessToken ? null : await hydrateAriaSessionFromStoredSupabaseAuth(page);
+  const persisted = hydrated || persistedBeforeHydration;
   if (persisted?.accessToken && persisted.userId) {
     const live = await ensureLiveSession(page);
-    if (live) return { mode: 'preseeded_or_existing_session', status: 'authenticated', attempts: 0 };
+    if (live) return { mode: hydrated ? 'preseeded_supabase_session_hydrated' : 'preseeded_or_existing_session', status: 'authenticated', attempts: 0 };
   }
 
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
@@ -66,6 +68,36 @@ async function login(page) {
   const authenticated = await ensureLiveSession(page);
   if (!authenticated) throw new Error('authenticated_session_not_verified_after_login');
   return { mode: 'password_ui_fallback', status: 'authenticated', attempts: 1 };
+}
+
+async function hydrateAriaSessionFromStoredSupabaseAuth(page) {
+  const candidate = await page.evaluate(() => {
+    const keys = Object.keys(localStorage);
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      if (!raw || !raw.includes('"access_token"') || !raw.includes('"refresh_token"')) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        const value = Array.isArray(parsed) ? parsed[0] : parsed;
+        const accessToken = String(value?.access_token || '');
+        const refreshToken = String(value?.refresh_token || '');
+        const userId = String(value?.user?.id || '');
+        if (!accessToken || !refreshToken || !userId) continue;
+        return {
+          accessToken,
+          refreshToken,
+          userId,
+          expiresAt: Number(value?.expires_at ? value.expires_at * 1000 : Date.now() + Math.max(60, Number(value?.expires_in || 3600)) * 1000),
+          email: value?.user?.email || null,
+          sourceKey: key
+        };
+      } catch {}
+    }
+    return null;
+  });
+  if (!candidate?.accessToken || !candidate?.refreshToken || !candidate?.userId) return null;
+  await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), candidate);
+  return candidate;
 }
 
 async function readSession(page) {
