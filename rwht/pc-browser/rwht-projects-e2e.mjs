@@ -310,10 +310,13 @@ async function run() {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
-  const bootstrapSession = await signInViaAuthApi();
+  // Prefer a preseeded authenticated browser state when the workflow provides one.
+  // This avoids turning a valid persisted session into an unnecessary password-auth
+  // request through the live PWA auth proxy, which is intentionally a separate fallback.
+  const bootstrapSession = STORAGE_STATE ? null : await signInViaAuthApi();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    ...(!EMAIL || !PASSWORD ? (STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) : {})
+    ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
   });
   if (bootstrapSession) {
     await context.addInitScript((session) => {
