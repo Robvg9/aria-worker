@@ -295,7 +295,9 @@ export async function toolLoop(agent: any, missionId: string, stepId: string, pr
         const retryableQuota = /(^|[^0-9])429([^0-9]|$)|rate.?limit|quota|too many requests/i.test(reason);
         const retryableProviderAvailability =
           /(^|[^0-9])503([^0-9]|$)|high demand|temporarily unavailable|overloaded|service unavailable/i.test(reason);
-        const canFallback = round === 0 && !sawToolCall && (retryableQuota || retryableProviderAvailability);
+        const retryableCredential =
+          /(^|[^0-9])401([^0-9]|$)|(^|[^0-9])403([^0-9]|$)|unauthorized|forbidden|invalid credential|credential unavailable|invalid api key|authentication failed/i.test(reason);
+        const canFallback = round === 0 && !sawToolCall && (retryableQuota || retryableProviderAvailability || retryableCredential);
         if (!canFallback) throw error;
         await recordDiagnostic(missionId, stepId, {
           status:"fallback",
