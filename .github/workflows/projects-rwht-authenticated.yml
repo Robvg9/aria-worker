@@ -20,7 +20,9 @@ permissions:
   issues: write
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  # Projects + ARTIA must never compete with the other authenticated RWHT suites.
+  # Shared concurrency previously cancelled this certification before its E2E started.
+  group: aria-projects-artia-rwht
   cancel-in-progress: false
 
 jobs:
