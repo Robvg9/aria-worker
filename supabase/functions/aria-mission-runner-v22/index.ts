@@ -1022,10 +1022,14 @@ async function githubExecute(step: any, token: string | null, mission: any = nul
     }
   }
   if (!token && !SECRET) throw new Error("github_runtime_auth_unavailable");
-  const response = await fetch(GITHUB_APP, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify({
+  const githubController = new AbortController();
+  const githubTimeout = setTimeout(() => githubController.abort(), 45000);
+  let response: Response;
+  try {
+    response = await fetch(GITHUB_APP, {
+      method: "POST",
+      headers: internalHeaders(),
+      body: JSON.stringify({
       operation,
       owner: input.owner || step.target?.owner || "Robvg9",
       repo,
@@ -1042,9 +1046,18 @@ async function githubExecute(step: any, token: string | null, mission: any = nul
       auto_merge: input.auto_merge,
       commit_title: input.commit_title,
       commit_message: input.commit_message,
-      risk_level: String(step.risk || "READ").toLowerCase().includes("low") ? "low" : "high",
-    }),
-  });
+        risk_level: String(step.risk || "READ").toLowerCase().includes("low") ? "low" : "high",
+      }),
+      signal: githubController.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("github_runtime_timeout_after_45s");
+    }
+    throw error;
+  } finally {
+    clearTimeout(githubTimeout);
+  }
   const result = await response.json().catch(() => null);
   if (!response.ok || result?.ok !== true) throw new Error(String(result?.error || `github_http_${response.status}`));
   return {
