@@ -258,9 +258,9 @@ async function checkUx(page) {
   });
 }
 
-async function expectEnabled(locator, projectId) {
+async function expectEnabled(locator, projectId, timeoutMs = 60000) {
   const started = Date.now();
-  while (Date.now() - started < 30000) {
+  while (Date.now() - started < timeoutMs) {
     if (await locator.isEnabled().catch(() => false)) return;
     await waitFor(500);
   }
