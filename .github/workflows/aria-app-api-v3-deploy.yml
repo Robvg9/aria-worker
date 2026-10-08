@@ -36,6 +36,42 @@ jobs:
           }
           console.log('ARIA APP API v3 source contract: PASS');
           NODE
+      - name: Observe and kick ARIA Reality Board mission
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const project = process.env.SUPABASE_PROJECT_REF;
+          const token = process.env.SUPABASE_ACCESS_TOKEN;
+          const missionId = "mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d";
+          const endpoint = "https://api.supabase.com/v1/projects/" + project + "/database/query";
+          async function sql(query, readOnly) {
+            const res = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ query, read_only: readOnly })
+            });
+            const text = await res.text();
+            if (!res.ok) throw new Error("supabase_http_" + res.status + ": " + text);
+            return JSON.parse(text);
+          }
+          const stateQuery = `select mission_id,status,current_step,total_steps,completed_steps,next_action,last_stderr,updated_at,lease_owner,lease_until,finished_at from aria_internal.mission_state where mission_id='${missionId}';`;
+          console.log("BEFORE");
+          console.log(JSON.stringify(await sql(stateQuery, true), null, 2));
+          console.log("KICK");
+          console.log(JSON.stringify(await sql(`select aria_internal.runner_tick_for_mission('${missionId}') as request_id;`, false), null, 2));
+          await new Promise(r => setTimeout(r, 60000));
+          console.log("AFTER");
+          console.log(JSON.stringify(await sql(stateQuery, true), null, 2));
+          const events = await sql(`select event_type,created_at,payload->>'step_id' as step_id,payload->>'reason' as reason,payload->>'error_code' as error_code from aria_internal.mission_events where mission_id='${missionId}' order by created_at desc limit 20;`, true);
+          console.log("EVENTS");
+          console.log(JSON.stringify(events, null, 2));
+          NODE
       - name: Deploy ARIA APP API v3
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
