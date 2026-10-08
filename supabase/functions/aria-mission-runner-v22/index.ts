@@ -437,6 +437,11 @@ const AGENT_RECOVERY_FALLBACKS: Record<string, string> = {
   "aria-agent-reviewer-v1": "aria-agent-verifier-openrouter-v1",
   "aria-agent-verifier-openrouter-v1": "aria-agent-coding-openrouter-v1",
   "aria-agent-verifier-gemini35-v1": "aria-agent-verifier-openrouter-v1",
+  // Coding-v1 is currently bound to a provider/account route that can return 401.
+  // Use the separately verified coding-capable Google Direct recovery agent instead
+  // of treating the route as terminally unavailable.
+  "aria-agent-coding-v1": "aria-agent-android-coding-openrouter-v1",
+  "aria-agent-coding-openrouter-v1": "aria-agent-android-coding-openrouter-v1",
 };
 
 function recoveryTargetsAndroid(recovery: any, step: any) {
@@ -1942,9 +1947,11 @@ async function agentExecute(missionId: string, step: any, auth: AuthContext) {
     const providerStatus = Number(body?.error?.provider_status ?? body?.provider_status ?? response.status);
     const message = String(body?.error?.message || body?.error || `agent_execution_${response.status}`);
     const retryableProviderFailure =
-      providerStatus === 429
+      providerStatus === 401
+      || providerStatus === 403
+      || providerStatus === 429
       || providerStatus >= 500
-      || /quota|rate.?limit|too many requests|resource exhausted|timed out|timeout|network|fetch failed|connection reset|gateway/i.test(message);
+      || /quota|rate.?limit|too many requests|resource exhausted|unauthorized|forbidden|invalid credential|timed out|timeout|network|fetch failed|connection reset|gateway/i.test(message);
 
     if (!retryableProviderFailure) throw new Error(message);
 
