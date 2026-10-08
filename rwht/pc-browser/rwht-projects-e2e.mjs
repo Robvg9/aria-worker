@@ -20,6 +20,26 @@ const PROJECTS = [
 
 function waitFor(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
+async function waitForPreviewContent(page, expectedSrc, projectId) {
+  const normalizedExpected = String(expectedSrc).replace(/\/$/, '');
+  const started = Date.now();
+  while (Date.now() - started < 30000) {
+    const frame = page.frames().find((item) => {
+      const actual = String(item.url() || '').replace(/\/$/, '');
+      return actual === normalizedExpected || actual.startsWith(normalizedExpected + '?') || actual.startsWith(normalizedExpected + '#');
+    });
+    if (frame) {
+      const bodyText = await frame.locator('body').innerText().catch(() => '');
+      const title = await frame.title().catch(() => '');
+      if (bodyText.trim().length >= 20 || title.trim()) {
+        return { loaded: true, url: frame.url(), title: title.trim(), body_text: bodyText.trim().slice(0, 4000) };
+      }
+    }
+    await waitFor(500);
+  }
+  throw new Error('artia_preview_content_not_loaded_' + projectId);
+}
+
 async function login(page) {
   await page.waitForFunction(
     () => Boolean(localStorage.getItem('aria_session_v2')) || Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.authScreen')) || Boolean(document.querySelector('input[type="password"]')),
@@ -356,6 +376,26 @@ async function run() {
 
     const cards = page.locator('.projectGrid .projectCard');
     if (await cards.count() !== 3) throw new Error('project_card_count_failed');
+
+    // The preview belongs to the selected project's normal workspace, not only ARTIA.
+    const overviewPreviewResults = [];
+    for (const expected of [
+      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/' },
+      { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
+      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/pwa/' }
+    ]) {
+      await page.locator('.projectGrid .projectCard').filter({ hasText: expected.name }).first().click();
+      await page.locator('.projectTabs .tabButton').filter({ hasText: 'Resumen' }).click();
+      await page.waitForSelector('.projectOverviewPreview', { state: 'visible', timeout: 30000 });
+      const overviewIframe = page.locator('.projectOverviewPreview iframe').first();
+      if (await overviewIframe.count() !== 1) throw new Error('project_overview_preview_missing_' + expected.id);
+      const overviewSrc = await overviewIframe.getAttribute('src');
+      if (overviewSrc !== expected.src) throw new Error('project_overview_preview_src_mismatch_' + expected.id);
+      const overviewLoaded = await waitForPreviewContent(page, expected.src, expected.id);
+      const overviewSearchable = (overviewLoaded.title + ' ' + overviewLoaded.body_text).toLowerCase();
+      if (!overviewSearchable.includes(expected.name.toLowerCase())) throw new Error('project_overview_preview_content_mismatch_' + expected.id);
+      overviewPreviewResults.push({ id: expected.id, src: overviewSrc, loaded: true });
+    }
     const tabs = page.locator('.projectTabs .tabButton');
     report.tabs = await tabs.allTextContents();
     if (report.tabs.map((x) => x.trim()).join('|') !== 'Resumen|Chat|Misiones|ARTIA') throw new Error('project_tab_contract_failed');
@@ -437,7 +477,6 @@ async function run() {
       aria: { src: 'https://aria.robvg9.workers.dev/pwa/', mode: 'live' }
     };
     const visualMissions = [];
-    const visualFixture = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+Xq8YQwAAAABJRU5ErkJggg==';
     for (const visualProject of PROJECTS) {
       await page.locator('.projectGrid .projectCard').filter({ hasText: visualProject.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
@@ -446,6 +485,9 @@ async function run() {
       const visualIframe = page.locator('.artiaPreviewShell iframe').first();
       if (await visualIframe.count() !== 1) throw new Error('artia_visual_iframe_missing_' + visualProject.id);
       if (await visualIframe.getAttribute('src') !== expectedPreview.src) throw new Error('artia_visual_iframe_src_mismatch_' + visualProject.id);
+      const visualPreviewContent = await waitForPreviewContent(page, expectedPreview.src, visualProject.id);
+      const visualSearchable = (visualPreviewContent.title + ' ' + visualPreviewContent.body_text).toLowerCase();
+      if (!visualSearchable.includes(visualProject.name.toLowerCase())) throw new Error('artia_visual_preview_content_mismatch_' + visualProject.id);
       const visualBadge = page.locator('.artiaPreviewShell .projectReferenceBadge').first();
       if (expectedPreview.mode === 'source') {
         await visualBadge.waitFor({ state: 'visible', timeout: 10000 });
@@ -458,12 +500,6 @@ async function run() {
       await page.getByRole('button', { name: 'Rectángulo' }).click();
       const rectTool = page.getByRole('button', { name: 'Rectángulo' }).first();
       if (!(await rectTool.evaluate((node) => node.classList.contains('selected')))) throw new Error('artia_rect_tool_not_selected_' + visualProject.id);
-      await page.locator('.fileButton input[type="file"]').setInputFiles({
-        name: 'artia-reference-' + visualProject.id + '.png',
-        mimeType: 'image/png',
-        buffer: Buffer.from(visualFixture, 'base64')
-      });
-      await page.getByText('Referencia cargada').waitFor({ state: 'visible', timeout: 10000 });
       const visualGoalMarker = 'RWHTVISUALMISSION' + visualProject.id.toUpperCase() + Date.now();
       await page.locator('.visualInstruction').fill('Certificación visual ' + visualGoalMarker + ': comprobar que esta superficie acepta una misión dibujada y conserva el contexto del proyecto.');
       const visualCanvas = page.locator('.artiaPreviewShell canvas').first();
@@ -475,12 +511,15 @@ async function run() {
       }, null, { timeout: 10000 });
       const visualBox = await visualCanvas.boundingBox();
       if (!visualBox || visualBox.width < 400 || visualBox.height < 200) throw new Error('artia_canvas_not_ready_' + visualProject.id);
+      const beforeDraw = await visualCanvas.evaluate((node) => (node instanceof HTMLCanvasElement ? node.toDataURL('image/png') : ''));
       await page.mouse.move(visualBox.x + visualBox.width * 0.20, visualBox.y + visualBox.height * 0.20);
       await page.mouse.down();
       await new Promise(resolve => setTimeout(resolve, 120));
       await page.mouse.move(visualBox.x + visualBox.width * 0.55, visualBox.y + visualBox.height * 0.45, { steps: 12 });
       await page.mouse.up();
       await page.waitForFunction(() => [...document.querySelectorAll('.visualHint')].some(n => /Anotaciones:\s*[1-9]\d*/.test(n.textContent || '')), null, { timeout: 10000 });
+      const afterDraw = await visualCanvas.evaluate((node) => (node instanceof HTMLCanvasElement ? node.toDataURL('image/png') : ''));
+      if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);
       const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
       if (!(await visualMissionButton.isEnabled())) throw new Error('artia_visual_mission_button_not_enabled_' + visualProject.id);
       await visualMissionButton.click();
@@ -537,6 +576,8 @@ async function run() {
     await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
 
     report.preview_results = previewResults;
+    report.overview_preview_results = overviewPreviewResults;
+    if (overviewPreviewResults.length !== PROJECTS.length) throw new Error('overview_preview_coverage_failed');
     report.visual_missions = visualMissions;
     report.visual_mission = visualMissions[0] || null;
     if (visualMissions.length !== PROJECTS.length) throw new Error('visual_mission_coverage_failed');
