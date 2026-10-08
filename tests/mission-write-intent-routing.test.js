@@ -23,4 +23,17 @@ const missionText='Crea un pequeño artefacto web funcional llamado “ARIA Miss
 assert.match(missionText,/\brevisable\b/i);
 assert.match(missionText,/\bcrea\b/i);
 
+
+// Recovery guard: an artifact write mission must have a material alternative after
+// the agent/delegate route fails; connector mutation + physical read verification
+// are the governed escape hatch.
+assert.match(planner,/function githubArtifactProofRecoveryPlan\(goal:string, context:any\)/);
+assert.ok(planner.includes('recovery_route:"agent_to_github_connector"'));
+assert.ok(planner.includes('artifact_path:"public/aria-mission-proof.html"'));
+assert.ok(planner.includes('operation:"create_branch"'));
+assert.ok(planner.includes('operation:"file_write"'));
+assert.ok(planner.includes('operation:"file_read"'));
+assert.ok(planner.includes('non_main_branch_required:true'));
+
+
 console.log('MISSION WRITE INTENT ROUTING REGRESSION: PASS');
