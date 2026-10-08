@@ -1,0 +1,34 @@
+{
+  "project": "ARIA Reality Board Multi-Project",
+  "aria": {
+    "status": "TERMINADO Y VERIFICADO",
+    "description": "Aplicación central ARIA/aria-worker con panel de control multi-proyecto.",
+    "live": true,
+    "e2e": true,
+    "blocked": false,
+    "pending": false,
+    "historical": false,
+    "confirmed": true
+  },
+  "cuevacoin": {
+    "status": "VERIFICADO VIA reality_cuevacoin_authorized_read",
+    "description": "Fuente de CuevaCoin consultada mediante conector autorizado.",
+    "live": true,
+    "e2e": true,
+    "blocked": false,
+    "pending": false,
+    "historical": false,
+    "confirmed": true
+  },
+  "battlecruiser": {
+    "status": "VERIFICADO VIA Robvg9/battlecruiser",
+    "description": "Fuente externa BattleCruiser consultada y sincronizada.",
+    "live": true,
+    "e2e": true,
+    "blocked": false,
+    "pending": false,
+    "historical": false,
+    "confirmed": true
+  },
+  "timestamp": "2025-03-30T00:00:00Z"
+}
