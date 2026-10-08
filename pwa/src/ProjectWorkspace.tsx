@@ -422,7 +422,13 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         try{localStorage.setItem('aria_project_conversation:'+session.userId+':'+projectId,JSON.stringify({conversation_id:d.conversation_id,messages:normalized}));}catch{}
         setProjectChatReady(true);
       }catch(e){
-        if(projectId===project.id)setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
+        if(projectId===project.id){
+          // The conversation readback may be temporarily unavailable during heavy
+          // browser-side API load. Keep the composer usable so the next write can
+          // create/reuse the canonical project conversation, then verify server state.
+          setProjectChatReady(true);
+          setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
+        }
       }finally{
         if(projectChatLoadRef.current?.projectId===projectId)projectChatLoadRef.current=null;
       }
