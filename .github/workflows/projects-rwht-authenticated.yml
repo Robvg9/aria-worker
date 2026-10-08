@@ -242,3 +242,4 @@ jobs:
 
 # Final certification trigger 2026-10-01.
 # Post-Supabase-recovery certification rerun: 2026-10-08.
+# 2026-10-08: rerun after canonical App API GET timeout extension for Projects + ARTIA.
