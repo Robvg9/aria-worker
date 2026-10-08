@@ -81,7 +81,9 @@ const downstreamHeaders = (auth: AuthContext) => {
 
 const internalHeaders = () => ({
   "content-type": "application/json",
-  authorization: `Bearer ${KEY || SECRET}`,
+  // Downstream internal runtimes validate the shared ARIA runtime secret.
+  // Prefer it over the Supabase service-role key for service-to-service calls.
+  authorization: `Bearer ${SECRET || KEY}`,
   ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {}),
 });
 
