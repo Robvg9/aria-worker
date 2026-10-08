@@ -1,0 +1,48 @@
+{
+  "source_contract_version": "cuevacoin-authorized-source-v1",
+  "project": "CuevaCoin",
+  "source_kind": "ChatBending/Notion + GitHub metadata",
+  "freshness_policy": "HISTORICAL_NOT_LIVE",
+  "live_claim_allowed": false,
+  "captured_for": "ARIA Reality Board",
+  "notion": {
+    "page_title": "CuevaCoin",
+    "page_url": "https://app.notion.com/p/3ebfeb355ec1-813a-86b3-d861ee5b4ce3",
+    "page_last_edited_at": "2026-09-30T11:41:21.694Z",
+    "last_verified_date": "2026-09-30",
+    "documented_status": "Sin empezar",
+    "active_phase": "Posterior a ARIA",
+    "next_action": "Esperar cierre de ARIA",
+    "open_blockers": "No iniciar hasta cerrar ARIA",
+    "recent_evidence_rule": "Estado físico debe prevalecer sobre documentación histórica",
+    "source_of_truth": "https://github.com/Robvg9",
+    "critical_artifacts": "Repositorio real auditado"
+  },
+  "notion_checkpoint": {
+    "title": "CUEVACOIN — CHECKPOINT /CC — Estado consolidado 2026-08-29",
+    "indexed_update_at": "2026-08-30T13:43:00Z",
+    "claims": [
+      "El checkpoint documenta una auditoría del Supabase real de CuevaCoin.",
+      "El checkpoint reporta problemas históricos de atomicidad/idempotencia server-side y una race condition financiera en la transferencia.",
+      "El checkpoint indica que el frontend debía enviar idempotencyKey y que la verificación física/actual debía prevalecer sobre la documentación."
+    ],
+    "freshness": "HISTORICAL_NOT_LIVE"
+  },
+  "github_metadata_checked": {
+    "repository": "Robvg9/CuevaCoin",
+    "private": true,
+    "default_branch": "main",
+    "last_pushed_at": "2026-08-30T16:02:45Z",
+    "repository_updated_at": "2026-08-30T16:03:28Z",
+    "access_policy": "Runtime GitHub installation used by this mission cannot read this private repository directly."
+  },
+  "truth_rule": {
+    "current_status": "NO_CONFIRMADO",
+    "display_as_live": false,
+    "required_for_live": [
+      "evidence física o runtime actual de CuevaCoin",
+      "fecha de verificación posterior a la documentación anterior",
+      "fuente verificable y accesible al runtime"
+    ]
+  }
+}
