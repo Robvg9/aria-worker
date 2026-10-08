@@ -72,33 +72,90 @@ async function login(page) {
 }
 
 async function hydrateAriaSessionFromStoredSupabaseAuth(page) {
-  const candidate = await page.evaluate(() => {
-    const keys = Object.keys(localStorage);
-    for (const key of keys) {
-      const raw = localStorage.getItem(key);
-      if (!raw || !raw.includes('"access_token"') || !raw.includes('"refresh_token"')) continue;
+  const localCandidate = await page.evaluate(() => {
+    const decodeCandidate = (raw) => {
+      if (!raw || typeof raw !== 'string') return null;
+      const variants = [raw, decodeURIComponent(raw)];
+      if (raw.startsWith('base64-')) {
+        try {
+          variants.push(Buffer.from(raw.slice(7).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+        } catch {}
+      }
+      for (const variant of variants) {
+        try {
+          const parsed = JSON.parse(variant);
+          const value = Array.isArray(parsed) ? parsed[0] : parsed;
+          const accessToken = String(value?.access_token || '');
+          const refreshToken = String(value?.refresh_token || '');
+          const userId = String(value?.user?.id || '');
+          if (accessToken && refreshToken && userId) {
+            return {
+              accessToken,
+              refreshToken,
+              userId,
+              expiresAt: Number(value?.expires_at ? value.expires_at * 1000 : Date.now() + Math.max(60, Number(value?.expires_in || 3600)) * 1000),
+              email: value?.user?.email || null
+            };
+          }
+        } catch {}
+      }
+      return null;
+    };
+    for (const key of Object.keys(localStorage)) {
+      const candidate = decodeCandidate(localStorage.getItem(key));
+      if (candidate) return candidate;
+    }
+    return null;
+  });
+
+  if (localCandidate?.accessToken) {
+    await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), localCandidate);
+    return { ...localCandidate, source: 'localStorage' };
+  }
+
+  const cookies = await page.context().cookies();
+  const grouped = new Map();
+  for (const cookie of cookies) {
+    if (!/(auth|access|refresh|token)/i.test(cookie.name)) continue;
+    const base = cookie.name.replace(/\.\d+$/, '');
+    const list = grouped.get(base) || [];
+    list.push(cookie);
+    grouped.set(base, list);
+  }
+  const decodeCookieParts = (items) => {
+    const ordered = items.sort((a,b) => a.name.localeCompare(b.name)).map(x => x.value).join('');
+    const variants = [ordered, decodeURIComponent(ordered)];
+    if (ordered.startsWith('base64-')) {
+      try { variants.push(Buffer.from(ordered.slice(7).replace(/-/g,'+').replace(/_/g,'/'),'base64').toString('utf8')); } catch {}
+    }
+    for (const variant of variants) {
       try {
-        const parsed = JSON.parse(raw);
+        const parsed = JSON.parse(variant);
         const value = Array.isArray(parsed) ? parsed[0] : parsed;
         const accessToken = String(value?.access_token || '');
         const refreshToken = String(value?.refresh_token || '');
         const userId = String(value?.user?.id || '');
-        if (!accessToken || !refreshToken || !userId) continue;
-        return {
+        if (accessToken && refreshToken && userId) return {
           accessToken,
           refreshToken,
           userId,
           expiresAt: Number(value?.expires_at ? value.expires_at * 1000 : Date.now() + Math.max(60, Number(value?.expires_in || 3600)) * 1000),
-          email: value?.user?.email || null,
-          sourceKey: key
+          email: value?.user?.email || null
         };
       } catch {}
     }
     return null;
-  });
-  if (!candidate?.accessToken || !candidate?.refreshToken || !candidate?.userId) return null;
-  await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), candidate);
-  return candidate;
+  };
+
+  for (const items of grouped.values()) {
+    const candidate = decodeCookieParts(items);
+    if (candidate) {
+      await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), candidate);
+      return { ...candidate, source: 'cookie' };
+    }
+  }
+
+  return null;
 }
 
 async function readSession(page) {
