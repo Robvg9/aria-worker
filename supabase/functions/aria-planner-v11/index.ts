@@ -301,28 +301,17 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
   const reviewer=agents.find((a:any)=>a.agent_id==="aria-agent-reviewer-v1")||agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||"")))||agents[0];
   if(!coder||!reviewer) return null;
 
-  const routes=await modelRoutes();
-  const cuevacoinRoute=routes.find((x:any)=>x.provider_id==="openrouter")||routes[0];
-  if(!cuevacoinRoute) return null;
-
-  const cuevacoinNotionEvidence = [
-    "AUTORIZACIÓN: ChatBending/Notion es una fuente documental autorizada para CuevaCoin.",
-    "FUENTE 1: página 'CuevaCoin' en ChatBending 2.0 — Project Context.",
-    "URL: https://app.notion.com/p/3ebfeb355ec18197ad1fc6574398eb76",
-    "ÚLTIMA EDICIÓN DE ESA PÁGINA: 2026-09-30T11:41:21.694Z.",
-    "PROPIEDADES DOCUMENTADAS: Active Phase='Posterior a ARIA'; Critical Artifacts='Repositorio real auditado'; Next Action='Esperar cierre de ARIA'; Open Blockers='No iniciar hasta cerrar ARIA'; Project='CuevaCoin'; Recent Evidence='Estado físico debe prevalecer sobre documentación histórica'; Source of Truth='https://github.com/Robvg9'; Status='Sin empezar'; Last Verified='2026-09-30'.",
-    "NOTA DE VERDAD: esta página está fechada 2026-09-30 y NO debe tratarse como estado LIVE del 2026-10-08.",
-    "FUENTE 2: checkpoint CUEVACOIN — Estado consolidado 2026-08-29. Última actualización indexada 2026-08-30.",
-    "Ese checkpoint indica que el auditoría documental detectó problemas de atomicidad/idempotencia/race condition en transferencias y advierte que el estado debe seguir verificándose físicamente.",
-    "REGLA: si no existe una fuente más reciente y verificable, el resultado correcto es HISTÓRICO/NO CONFIRMADO, no 'completado' ni 'LIVE'."
-  ].join("\\n");
-
-  steps.push(modelStep(
-    "reality_cuevacoin_authorized_read",
-    cuevacoinRoute,
-    `FUENTE CUEVACOIN PARA ARIA REALITY BOARD. Analiza únicamente la evidencia documental autorizada de ChatBending/Notion que se proporciona abajo. No presentes esos datos como LIVE si su fecha es anterior a hoy. Debes producir una ficha de verdad para el panel con: estado documentado, fecha de la fuente, qué está confirmado, qué es histórico, qué NO está confirmado actualmente, bloqueos documentados y qué comprobación física sería necesaria para convertirlo en LIVE/verificado. No inventes ni extrapoles. Objetivo completo: ${g}\\n\\n${cuevacoinNotionEvidence}`,
-    []
-  ));
+  steps.push({
+    id:"reality_cuevacoin_authorized_source_read",
+    operation:"file_read",
+    executor_type:"connector",
+    target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"},
+    input:{owner:"Robvg9",repo:"aria-worker",path:"docs/reality-board/cuevacoin-authorized-source.json"},
+    risk:"READ",
+    timeout_ms:60000,
+    policy:{tool_use:true,verification_read:true,read_only_audit:true,non_mutating:true,destructive_actions_blocked:true,spanish_output_required:true},
+    verify:{response_content_nonempty:true}
+  });
 
   steps.push({
     id:"reality_board_implementation",
@@ -368,7 +357,7 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
     planner_version:"aria-planner-v11-multi-project-reality-board-v2-authorized-cuevacoin",
     multi_project_reality_board:true,
     project_scope:["aria","cuevacoin","battlecruiser"],
-    cuevacoin_reader:"chatbending_notion_evidence_bound_model",
+    cuevacoin_reader:"aria_repo_authorized_historical_source",
     implementation_repository:"Robvg9/aria-worker",
     source_repositories:["Robvg9/aria-worker","private:CuevaCoin:authorized-source","Robvg9/battlecruiser"],
     context:context?.learned_knowledge
