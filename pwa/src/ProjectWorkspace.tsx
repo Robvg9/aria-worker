@@ -1,4 +1,5 @@
 // ARTIA RELEASE: project previews for ARIA + CuevaCoin
+// LIVE preview contract: ARIA uses the canonical PWA; CuevaCoin uses the governed visual source preview so ARTIA can pause and annotate it.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 
