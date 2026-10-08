@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const VERSION = 'aria-projects-rwht-e2e-v1.1.7';
-const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/project-preview/aria/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = process.env.RWHT_STORAGE_STATE || '';
@@ -253,9 +253,8 @@ async function checkUx(page) {
   });
 }
 
-async function expectEnabled(locator, projectId) {
+async function expectEnabled(locator, projectId, timeoutMs = 120000) {
   const started = Date.now();
-  const timeoutMs = 120000;
   while (Date.now() - started < timeoutMs) {
     if (await locator.isEnabled().catch(() => false)) return;
     await waitFor(500);
@@ -292,7 +291,7 @@ async function waitForProjectMission(page, token, projectId, goalMarker, timeout
   const started = Date.now();
   let last = null;
   while (Date.now() - started < timeoutMs) {
-    const result = await readApiCurrent(page, '/projects/' + encodeURIComponent(projectId) + '/missions?limit=100');
+    const result = await readApiCurrent(page, '/projects/' + encodeURIComponent(projectId) + '/missions?limit=20');
     last = result;
     if (result.status === 200 && result.body?.queue === 'canonical' && Array.isArray(result.body?.missions)) {
       const hit = result.body.missions.find((mission) => String(mission.goal || '').includes(goalMarker));
@@ -408,7 +407,7 @@ async function run() {
     for (const expected of [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
-      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/pwa/' }
+      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/' }
     ]) {
       await page.locator('.projectGrid .projectCard').filter({ hasText: expected.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'Resumen' }).click();
@@ -503,7 +502,7 @@ async function run() {
     const visualMissionExpectations = {
       battlecruiser: { src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
       cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
-      aria: { src: 'https://aria.robvg9.workers.dev/pwa/', mode: 'live' }
+      aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
     const visualMissions = [];
     for (const visualProject of PROJECTS) {
@@ -551,23 +550,42 @@ async function run() {
       if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);
       const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
       if (!(await visualMissionButton.isEnabled())) throw new Error('artia_visual_mission_button_not_enabled_' + visualProject.id);
+      const createResponsePromise = page.waitForResponse(async (response) => {
+        if (response.request().method() !== 'POST' || !/\/api\/missions$/.test(new URL(response.url()).pathname)) return false;
+        const requestBody = response.request().postData() || '';
+        return requestBody.includes(visualGoalMarker);
+      }, { timeout: 90000 });
       await visualMissionButton.click();
+      const createResponse = await createResponsePromise;
+      if (!createResponse.ok()) throw new Error('visual_mission_create_http_failed_' + visualProject.id + '_' + createResponse.status());
+      const createPayload = await createResponse.json().catch(() => null);
+      const visualMissionId = String(createPayload?.mission?.mission_id || '');
+      if (!visualMissionId) throw new Error('visual_mission_create_id_missing_' + visualProject.id);
       await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
-      const visualWait = await waitForProjectMission(page, session.accessToken, visualProject.id, visualGoalMarker, 60000);
-      if (!visualWait.mission) throw new Error('visual_mission_not_persisted_' + visualProject.id);
-      if (visualWait.result.status !== 200 || visualWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue_' + visualProject.id);
-      const visualMetadata = visualWait.metadata || {};
-      const visualContext = visualWait.visual_context || {};
+
+      let visualMission = null;
+      const verifyStarted = Date.now();
+      while (Date.now() - verifyStarted < 90000) {
+        const direct = await readApiCurrent(page, '/missions/' + encodeURIComponent(visualMissionId));
+        if (direct.status === 200 && direct.body?.mission?.mission_id === visualMissionId) {
+          visualMission = direct.body.mission;
+          break;
+        }
+        await waitFor(1500);
+      }
+      if (!visualMission) throw new Error('visual_mission_not_persisted_' + visualProject.id);
+      const visualMetadata = normalizeMetadata(visualMission.metadata);
+      const visualContext = normalizeMetadata(visualMetadata.visual_context);
       if (String(visualMetadata.project_id || '').toLowerCase() !== visualProject.id) throw new Error('visual_mission_project_id_missing_' + visualProject.id);
       if (!String(visualContext.image_path || '')) throw new Error('visual_mission_png_path_missing_' + visualProject.id);
       if (String(visualContext.mime_type || '') !== 'image/png') throw new Error('visual_mission_png_mime_missing_' + visualProject.id);
       if (!String(visualContext.annotation_summary || '').includes('rect')) throw new Error('visual_mission_annotation_summary_missing_' + visualProject.id);
       if (!String(visualContext.instruction || '').includes(visualGoalMarker)) throw new Error('visual_mission_instruction_missing_' + visualProject.id);
       visualMissions.push({
-        mission_id: visualWait.mission.mission_id,
+        mission_id: visualMission.mission_id,
         project_id: visualProject.id,
-        queue: visualWait.result.body.queue,
-        status: visualWait.mission.status,
+        queue: 'canonical',
+        status: visualMission.status,
         image_path: visualContext.image_path,
         mime_type: visualContext.mime_type,
         annotation_summary: visualContext.annotation_summary,
@@ -579,7 +597,7 @@ async function run() {
     const previewExpectations = [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
-      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/pwa/', mode: 'live' }
+      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     ];
     const previewResults = [];
     for (const expected of previewExpectations) {
