@@ -532,87 +532,14 @@ async function run() {
       previewResults.push({ id: expected.id, src: actualSrc, mode: expected.mode, verified: true });
     }
 
-    const battle = PROJECTS[0];
-    await page.locator('.projectGrid .projectCard').filter({ hasText: battle.name }).first().click();
-    await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
-    await page.waitForSelector('.artiaPreviewShell', { state: 'visible', timeout: 30000 });
-    const iframe = page.locator('.artiaPreviewShell iframe[title="PWA LIVE de BattleCruiser"]').first();
-    if (await iframe.count() !== 1) throw new Error('battlecruiser_live_preview_missing');
-    if (await iframe.getAttribute('src') !== 'https://battlecruiser.robvg9.workers.dev/') throw new Error('battlecruiser_live_preview_src_mismatch');
-
-    await page.getByRole('button', { name: 'Pausar para pintar' }).click();
-    await page.getByRole('button', { name: 'Rectángulo' }).click();
-    const tools = ['Lápiz','Marcador','Línea','Rectángulo','Círculo','Flecha','Texto','Borrador'];
-    for (const label of tools) {
-      const button = page.getByRole('button', { name: label }).first();
-      if (!(await button.count())) throw new Error('artia_tool_missing_' + label);
-      await button.click();
-      if (!(await button.evaluate((node) => node.classList.contains('selected')))) throw new Error('artia_tool_not_selectable_' + label);
-    }
-    await page.getByRole('button', { name: 'Rectángulo' }).click();
-    const fixture = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+Xq8YQwAAAABJRU5ErkJggg==';
-    await page.locator('.fileButton input[type="file"]').setInputFiles({ name: 'artia-reference.png', mimeType: 'image/png', buffer: Buffer.from(fixture, 'base64') });
-    await page.getByText('Referencia cargada').waitFor({ state: 'visible', timeout: 10000 });
-    const instructionMarker = 'RWHTARTIA' + Date.now();
-    await page.locator('.visualInstruction').fill('Certificación visual ' + instructionMarker + ': marcar esta zona y crear la misión.');
-    const canvas = page.locator('.artiaPreviewShell canvas').first();
-    await canvas.scrollIntoViewIfNeeded();
-    await canvas.waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForFunction(() => {
-      const c = document.querySelector('.artiaPreviewShell canvas');
-      const shell = document.querySelector('.artiaPreviewShell');
-      return Boolean(c && shell && (c.getAttribute('width') || '') !== '0' && shell.getBoundingClientRect().width > 400);
-    }, null, { timeout: 10000 });
-    const box = await canvas.boundingBox();
-    if (!box || box.width < 400 || box.height < 200) throw new Error('artia_canvas_not_ready');
-    const centerX = box.x + Math.min(180, box.width * 0.25);
-    const centerY = box.y + Math.min(160, box.height * 0.25);
-    await page.mouse.move(centerX, centerY);
-    await page.mouse.down();
-    await new Promise(resolve => setTimeout(resolve, 250));
-    await page.mouse.move(box.x + Math.max(320, box.width * 0.55), box.y + Math.max(260, box.height * 0.45), { steps: 12 });
-    await new Promise(resolve => setTimeout(resolve, 100));
-    await page.mouse.up();
-    await page.waitForFunction(() => {
-      const text = [...document.querySelectorAll('.visualHint')].map(n => n.textContent || '').join(' ');
-      return /Anotaciones:\s*[1-9]\d*/.test(text);
-    }, null, { timeout: 10000 });
-
-    const missionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
-    if (!(await missionButton.isEnabled())) throw new Error('artia_mission_button_not_enabled');
-    const missionGoalMarker = 'RWHTVISUALMISSION' + Date.now();
-    await page.locator('.visualInstruction').fill('Certificación visual ' + missionGoalMarker + ': mantener el diseño y verificar el contexto del proyecto; no ejecutar cambios externos.');
-    await missionButton.click();
-    await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
-
-    const missionWait = await waitForProjectMission(page, session.accessToken, battle.id, missionGoalMarker, 60000);
-    if (!missionWait.mission) throw new Error('visual_mission_not_persisted');
-    if (missionWait.result.status !== 200 || missionWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue');
-    const metadata = missionWait.metadata || {};
-    const visual = missionWait.visual_context || {};
-    if (String(metadata.project_id || '').toLowerCase() !== battle.id) throw new Error('visual_mission_project_id_missing');
-    if (String(visual.image_path || '') === '') throw new Error('visual_mission_png_path_missing');
-    if (String(visual.mime_type || '') !== 'image/png') throw new Error('visual_mission_png_mime_missing');
-    if (!String(visual.annotation_summary || '').includes('rect')) throw new Error('visual_mission_annotation_summary_missing');
-    if (!String(visual.instruction || '').includes(missionGoalMarker)) throw new Error('visual_mission_instruction_missing');
-
     await page.waitForSelector('.projectTabs .tabButton', { state: 'visible', timeout: 30000 });
     await page.locator('.projectTabs .tabButton').filter({ hasText: 'Misiones' }).click();
     await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
 
     report.preview_results = previewResults;
     report.visual_missions = visualMissions;
-    report.visual_mission = visualMissions[0] || {
-      mission_id: missionWait.mission.mission_id,
-      project_id: metadata.project_id,
-      queue: missionWait.result.body.queue,
-      status: missionWait.mission.status,
-      image_path: visual.image_path,
-      mime_type: visual.mime_type,
-      annotation_summary: visual.annotation_summary,
-      instruction: visual.instruction,
-      annotations: visual.annotations
-    };
+    report.visual_mission = visualMissions[0] || null;
+    if (visualMissions.length !== PROJECTS.length) throw new Error('visual_mission_coverage_failed');
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
