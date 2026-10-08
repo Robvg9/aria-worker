@@ -178,6 +178,12 @@ async function ensureLiveSession(page) {
   return null;
 }
 
+async function seedFreshSessionForReload(page, session) {
+  const next = { ...session, expiresAt: Date.now() + 60 * 60 * 1000 };
+  await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), next);
+  return next;
+}
+
 async function waitForPersistedSession(page, expectedUserId, timeoutMs = 30000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -441,6 +447,7 @@ async function run() {
       const conversationId = String(conversation.body?.conversation_id || '');
       if (!conversationId) throw new Error('project_conversation_id_missing_' + project.id);
 
+      session = await seedFreshSessionForReload(page, session);
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
       await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
       await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
