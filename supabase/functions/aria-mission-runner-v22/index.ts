@@ -416,6 +416,18 @@ function normalizeExecutionStep(step: any, mission: any) {
   const target = { ...(step?.target || {}) };
   const normalized = { ...(step || {}), target };
 
+  // Planner/source-contract evolution can rename a canonical evidence step while
+  // older dependency references remain in a persisted plan. Normalize those
+  // references here so a harmless identifier migration cannot stall a mission.
+  const dependencyAliases: Record<string, string> = {
+    "reality_cuevacoin_authorized_read": "reality_cuevacoin_authorized_source_read",
+  };
+  if (Array.isArray(normalized.depends_on)) {
+    normalized.depends_on = normalized.depends_on.map((dep: any) =>
+      dependencyAliases[String(dep)] || String(dep)
+    );
+  }
+
   if (!normalized.executor_type && type) normalized.executor_type = type;
   if (!target.type && type) target.type = type;
 
