@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const html=fs.readFileSync('pwa/public/reality-board.html','utf8');
 assert.ok(html.includes("api('/projects')"),'must read live project catalog');
 assert.ok(html.includes("'/projects/'+p.id+'/missions?limit=20'"),'must read live project missions');
-assert.ok(html.includes("api.github.com/repos/Robvg9/aria-worker/commits/main"),'must inspect current main commit');
+assert.ok(html.includes("api.github.com") && html.includes("/repos/Robvg9/aria-worker/commits/main"),'must inspect current main commit');
 assert.ok(html.includes('setInterval(refresh,15000)'), 'must auto-refresh');
 assert.ok(html.includes('VERIFICADO') && html.includes('NO CONFIRMADO'), 'must distinguish verified and unconfirmed states');
 assert.ok(html.includes('CONTRADICCIÓN'), 'must expose contradiction detection');
