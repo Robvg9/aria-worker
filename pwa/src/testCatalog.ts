@@ -2878,6 +2878,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones de UX y contrato en pasos de misión, Human Gate, reintento, cancelación, verificación y avisos."
   },
   {
+    "id": "reality-board-contract",
+    "file": "tests/reality-board-contract.test.js",
+    "title": "ARIA Reality Board Truth Contract",
+    "category": "Proyectos / verdad operativa",
+    "includedInNpmTest": true,
+    "how": "Comprueba que el panel Reality Board consulte fuentes actuales y no presente snapshots o estados LIVE/E2E hardcodeados como verdad.",
+    "capabilities": "Detecta datos estáticos disfrazados de LIVE, ausencia de actualización automática, falta de detección de contradicciones y navegación incompleta al resultado."
+  },
+  {
     "id": "meditation-web-push",
     "file": "tests/meditation-web-push.test.js",
     "title": "Meditation IA Background Web Push",
