@@ -90,6 +90,7 @@ assert.match(hardBlockRecoveryMigration, /mission_recovery_epoch/);
 assert.match(hardBlockRecoveryMigration, /aria_reopen_recoverable_hard_blocks/);
 assert.match(hardBlockRecoveryMigration, /hard_block_reopened_after_recovery_epoch/);
 assert.match(runner, /aria_internal\.aria_reopen_recoverable_hard_blocks/);
+assert.match(recoveryMigration, /aria_mission_claim_by_id_lease/);
 
 
 const plannerScopeSource=planner;
