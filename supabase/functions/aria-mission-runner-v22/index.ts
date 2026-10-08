@@ -2406,9 +2406,9 @@ function objectivePlanAlignment(goal:string, steps:any[]){
   if (explicitProjectBoard) {
     const planText = JSON.stringify(steps || []).toLowerCase();
     const coverage = {
-      battlecruiser: /battlecruiser/.test(planText),
-      cuevacoin: /cueva\s*coin|cuevacoin/.test(planText),
-      aria: /aria[-_ ](?:worker|app|pwa|memory|mission|reality)|project_id["':= ]+aria\b/.test(planText),
+      battlecruiser: /battlecruiser|reality_battlecruiser_repo_read|project_scope.*battlecruiser/.test(planText),
+      cuevacoin: /cueva\s*coin|cuevacoin|reality_cuevacoin_repo_read|project_scope.*cuevacoin/.test(planText),
+      aria: /aria[-_ ](?:worker|app|pwa|memory|mission|reality)|reality_aria_repo_read|project_scope.*(?:^|[\[," ])aria(?:$|[\],"])/.test(planText),
     };
     const missing = Object.entries(coverage).filter(([,present]) => !present).map(([name]) => name);
     if (missing.length) {
