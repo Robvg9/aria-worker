@@ -167,6 +167,9 @@ assert.match(plannerSource, /visual_project_mission:true/);
 
 assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
+const appPreloaderGuard = fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
+assert.match(appPreloaderGuard,/if \(page === 'projects'\) return;/);
+assert.match(appPreloaderGuard,/PwaDataPreloader session=\{session\} page=\{page\}/);
 
 const appCurrent = fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 assert.match(appCurrent,/replan_required/);
