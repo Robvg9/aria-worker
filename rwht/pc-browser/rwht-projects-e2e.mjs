@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const VERSION = 'aria-projects-rwht-e2e-v1.1.7';
-const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
+const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/project-preview/aria/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = process.env.RWHT_STORAGE_STATE || '';
@@ -388,7 +388,7 @@ async function run() {
     for (const expected of [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
-      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/pwa/' }
+      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/' }
     ]) {
       await page.locator('.projectGrid .projectCard').filter({ hasText: expected.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'Resumen' }).click();
@@ -481,7 +481,7 @@ async function run() {
     const visualMissionExpectations = {
       battlecruiser: { src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
       cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
-      aria: { src: 'https://aria.robvg9.workers.dev/pwa/', mode: 'live' }
+      aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
     const visualMissions = [];
     for (const visualProject of PROJECTS) {
@@ -581,7 +581,7 @@ async function run() {
     const previewExpectations = [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
-      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/pwa/', mode: 'live' }
+      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     ];
     const previewResults = [];
     for (const expected of previewExpectations) {
