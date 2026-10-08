@@ -241,3 +241,4 @@ jobs:
         run: rm -f "$RUNNER_TEMP/aria-rwht-auth-state.json"
 
 # Final certification trigger 2026-10-01.
+# Post-Supabase-recovery certification rerun: 2026-10-08.
