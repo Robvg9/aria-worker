@@ -253,7 +253,7 @@ async function waitForProjectMission(page, token, projectId, goalMarker, timeout
   const started = Date.now();
   let last = null;
   while (Date.now() - started < timeoutMs) {
-    const result = await readApi(page, token, '/projects/' + encodeURIComponent(projectId) + '/missions?limit=100');
+    const result = await readApiCurrent(page, '/projects/' + encodeURIComponent(projectId) + '/missions?limit=100');
     last = result;
     if (result.status === 200 && result.body?.queue === 'canonical' && Array.isArray(result.body?.missions)) {
       const hit = result.body.missions.find((mission) => String(mission.goal || '').includes(goalMarker));
@@ -430,6 +430,83 @@ async function run() {
 
     if (new Set(report.projects.map((project) => project.chat.conversation_id)).size !== 3) throw new Error('project_conversation_ids_not_isolated');
 
+    // ARTIA must accept real visual mission creation for every project, not only BattleCruiser.
+    const visualMissionExpectations = {
+      battlecruiser: { src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
+      cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
+      aria: { src: 'https://aria.robvg9.workers.dev/pwa/', mode: 'live' }
+    };
+    const visualMissions = [];
+    const visualFixture = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+Xq8YQwAAAABJRU5ErkJggg==';
+    for (const visualProject of PROJECTS) {
+      await page.locator('.projectGrid .projectCard').filter({ hasText: visualProject.name }).first().click();
+      await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
+      await page.waitForSelector('.artiaPreviewShell', { state: 'visible', timeout: 30000 });
+      const expectedPreview = visualMissionExpectations[visualProject.id];
+      const visualIframe = page.locator('.artiaPreviewShell iframe').first();
+      if (await visualIframe.count() !== 1) throw new Error('artia_visual_iframe_missing_' + visualProject.id);
+      if (await visualIframe.getAttribute('src') !== expectedPreview.src) throw new Error('artia_visual_iframe_src_mismatch_' + visualProject.id);
+      const visualBadge = page.locator('.artiaPreviewShell .projectReferenceBadge').first();
+      if (expectedPreview.mode === 'source') {
+        await visualBadge.waitFor({ state: 'visible', timeout: 10000 });
+        if (!(await visualBadge.innerText()).includes('VISTA DESDE CÓDIGO REAL')) throw new Error('artia_visual_source_badge_missing_' + visualProject.id);
+      } else if (await visualBadge.count() > 0 && await visualBadge.isVisible().catch(() => false)) {
+        throw new Error('artia_visual_live_badge_mislabelled_' + visualProject.id);
+      }
+
+      await page.getByRole('button', { name: 'Pausar para pintar' }).click();
+      await page.getByRole('button', { name: 'Rectángulo' }).click();
+      const rectTool = page.getByRole('button', { name: 'Rectángulo' }).first();
+      if (!(await rectTool.evaluate((node) => node.classList.contains('selected')))) throw new Error('artia_rect_tool_not_selected_' + visualProject.id);
+      await page.locator('.fileButton input[type="file"]').setInputFiles({
+        name: 'artia-reference-' + visualProject.id + '.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(visualFixture, 'base64')
+      });
+      await page.getByText('Referencia cargada').waitFor({ state: 'visible', timeout: 10000 });
+      const visualGoalMarker = 'RWHTVISUALMISSION' + visualProject.id.toUpperCase() + Date.now();
+      await page.locator('.visualInstruction').fill('Certificación visual ' + visualGoalMarker + ': comprobar que esta superficie acepta una misión dibujada y conserva el contexto del proyecto.');
+      const visualCanvas = page.locator('.artiaPreviewShell canvas').first();
+      await visualCanvas.scrollIntoViewIfNeeded();
+      await page.waitForFunction(() => {
+        const c = document.querySelector('.artiaPreviewShell canvas');
+        const shell = document.querySelector('.artiaPreviewShell');
+        return Boolean(c && shell && (c.getAttribute('width') || '') !== '0' && shell.getBoundingClientRect().width > 400);
+      }, null, { timeout: 10000 });
+      const visualBox = await visualCanvas.boundingBox();
+      if (!visualBox || visualBox.width < 400 || visualBox.height < 200) throw new Error('artia_canvas_not_ready_' + visualProject.id);
+      await page.mouse.move(visualBox.x + visualBox.width * 0.20, visualBox.y + visualBox.height * 0.20);
+      await page.mouse.down();
+      await new Promise(resolve => setTimeout(resolve, 120));
+      await page.mouse.move(visualBox.x + visualBox.width * 0.55, visualBox.y + visualBox.height * 0.45, { steps: 12 });
+      await page.mouse.up();
+      await page.waitForFunction(() => [...document.querySelectorAll('.visualHint')].some(n => /Anotaciones:\s*[1-9]\d*/.test(n.textContent || '')), null, { timeout: 10000 });
+      const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
+      if (!(await visualMissionButton.isEnabled())) throw new Error('artia_visual_mission_button_not_enabled_' + visualProject.id);
+      await visualMissionButton.click();
+      await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
+      const visualWait = await waitForProjectMission(page, session.accessToken, visualProject.id, visualGoalMarker, 60000);
+      if (!visualWait.mission) throw new Error('visual_mission_not_persisted_' + visualProject.id);
+      if (visualWait.result.status !== 200 || visualWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue_' + visualProject.id);
+      const visualMetadata = visualWait.metadata || {};
+      const visualContext = visualWait.visual_context || {};
+      if (String(visualMetadata.project_id || '').toLowerCase() !== visualProject.id) throw new Error('visual_mission_project_id_missing_' + visualProject.id);
+      if (!String(visualContext.image_path || '')) throw new Error('visual_mission_png_path_missing_' + visualProject.id);
+      if (String(visualContext.mime_type || '') !== 'image/png') throw new Error('visual_mission_png_mime_missing_' + visualProject.id);
+      if (!String(visualContext.annotation_summary || '').includes('rect')) throw new Error('visual_mission_annotation_summary_missing_' + visualProject.id);
+      if (!String(visualContext.instruction || '').includes(visualGoalMarker)) throw new Error('visual_mission_instruction_missing_' + visualProject.id);
+      visualMissions.push({
+        mission_id: visualWait.mission.mission_id,
+        project_id: visualProject.id,
+        queue: visualWait.result.body.queue,
+        status: visualWait.mission.status,
+        image_path: visualContext.image_path,
+        mime_type: visualContext.mime_type,
+        annotation_summary: visualContext.annotation_summary,
+        instruction: visualContext.instruction
+      });
+    }
+
     // ARTIA preview certification: every project must expose a real preview surface.
     const previewExpectations = [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
@@ -455,86 +532,14 @@ async function run() {
       previewResults.push({ id: expected.id, src: actualSrc, mode: expected.mode, verified: true });
     }
 
-    const battle = PROJECTS[0];
-    await page.locator('.projectGrid .projectCard').filter({ hasText: battle.name }).first().click();
-    await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
-    await page.waitForSelector('.artiaPreviewShell', { state: 'visible', timeout: 30000 });
-    const iframe = page.locator('.artiaPreviewShell iframe[title="PWA LIVE de BattleCruiser"]').first();
-    if (await iframe.count() !== 1) throw new Error('battlecruiser_live_preview_missing');
-    if (await iframe.getAttribute('src') !== 'https://battlecruiser.robvg9.workers.dev/') throw new Error('battlecruiser_live_preview_src_mismatch');
-
-    await page.getByRole('button', { name: 'Pausar para pintar' }).click();
-    await page.getByRole('button', { name: 'Rectángulo' }).click();
-    const tools = ['Lápiz','Marcador','Línea','Rectángulo','Círculo','Flecha','Texto','Borrador'];
-    for (const label of tools) {
-      const button = page.getByRole('button', { name: label }).first();
-      if (!(await button.count())) throw new Error('artia_tool_missing_' + label);
-      await button.click();
-      if (!(await button.evaluate((node) => node.classList.contains('selected')))) throw new Error('artia_tool_not_selectable_' + label);
-    }
-    await page.getByRole('button', { name: 'Rectángulo' }).click();
-    const fixture = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+Xq8YQwAAAABJRU5ErkJggg==';
-    await page.locator('.fileButton input[type="file"]').setInputFiles({ name: 'artia-reference.png', mimeType: 'image/png', buffer: Buffer.from(fixture, 'base64') });
-    await page.getByText('Referencia cargada').waitFor({ state: 'visible', timeout: 10000 });
-    const instructionMarker = 'RWHTARTIA' + Date.now();
-    await page.locator('.visualInstruction').fill('Certificación visual ' + instructionMarker + ': marcar esta zona y crear la misión.');
-    const canvas = page.locator('.artiaPreviewShell canvas').first();
-    await canvas.scrollIntoViewIfNeeded();
-    await canvas.waitFor({ state: 'visible', timeout: 10000 });
-    await page.waitForFunction(() => {
-      const c = document.querySelector('.artiaPreviewShell canvas');
-      const shell = document.querySelector('.artiaPreviewShell');
-      return Boolean(c && shell && (c.getAttribute('width') || '') !== '0' && shell.getBoundingClientRect().width > 400);
-    }, null, { timeout: 10000 });
-    const box = await canvas.boundingBox();
-    if (!box || box.width < 400 || box.height < 200) throw new Error('artia_canvas_not_ready');
-    const centerX = box.x + Math.min(180, box.width * 0.25);
-    const centerY = box.y + Math.min(160, box.height * 0.25);
-    await page.mouse.move(centerX, centerY);
-    await page.mouse.down();
-    await new Promise(resolve => setTimeout(resolve, 250));
-    await page.mouse.move(box.x + Math.max(320, box.width * 0.55), box.y + Math.max(260, box.height * 0.45), { steps: 12 });
-    await new Promise(resolve => setTimeout(resolve, 100));
-    await page.mouse.up();
-    await page.waitForFunction(() => {
-      const text = [...document.querySelectorAll('.visualHint')].map(n => n.textContent || '').join(' ');
-      return /Anotaciones:\s*[1-9]\d*/.test(text);
-    }, null, { timeout: 10000 });
-
-    const missionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
-    if (!(await missionButton.isEnabled())) throw new Error('artia_mission_button_not_enabled');
-    const missionGoalMarker = 'RWHTVISUALMISSION' + Date.now();
-    await page.locator('.visualInstruction').fill('Certificación visual ' + missionGoalMarker + ': mantener el diseño y verificar el contexto del proyecto; no ejecutar cambios externos.');
-    await missionButton.click();
-    await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
-
-    const missionWait = await waitForProjectMission(page, session.accessToken, battle.id, missionGoalMarker, 60000);
-    if (!missionWait.mission) throw new Error('visual_mission_not_persisted');
-    if (missionWait.result.status !== 200 || missionWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue');
-    const metadata = missionWait.metadata || {};
-    const visual = missionWait.visual_context || {};
-    if (String(metadata.project_id || '').toLowerCase() !== battle.id) throw new Error('visual_mission_project_id_missing');
-    if (String(visual.image_path || '') === '') throw new Error('visual_mission_png_path_missing');
-    if (String(visual.mime_type || '') !== 'image/png') throw new Error('visual_mission_png_mime_missing');
-    if (!String(visual.annotation_summary || '').includes('rect')) throw new Error('visual_mission_annotation_summary_missing');
-    if (!String(visual.instruction || '').includes(missionGoalMarker)) throw new Error('visual_mission_instruction_missing');
-
     await page.waitForSelector('.projectTabs .tabButton', { state: 'visible', timeout: 30000 });
     await page.locator('.projectTabs .tabButton').filter({ hasText: 'Misiones' }).click();
     await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
 
     report.preview_results = previewResults;
-    report.visual_mission = {
-      mission_id: missionWait.mission.mission_id,
-      project_id: metadata.project_id,
-      queue: missionWait.result.body.queue,
-      status: missionWait.mission.status,
-      image_path: visual.image_path,
-      mime_type: visual.mime_type,
-      annotation_summary: visual.annotation_summary,
-      instruction: visual.instruction,
-      annotations: visual.annotations
-    };
+    report.visual_missions = visualMissions;
+    report.visual_mission = visualMissions[0] || null;
+    if (visualMissions.length !== PROJECTS.length) throw new Error('visual_mission_coverage_failed');
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
@@ -570,6 +575,7 @@ async function run() {
     reload_auth_verified: report.reload_auth_verified,
     projects_verified: report.projects.length + '/' + PROJECTS.length,
     conversation_ids_isolated: new Set(report.projects.map((project) => project.chat.conversation_id)).size === report.projects.length,
+    visual_missions_verified: (report.visual_missions || []).filter((x) => x?.mission_id).length + '/' + PROJECTS.length,
     visual_mission_verified: Boolean(report.visual_mission?.mission_id),
     png_persisted: Boolean(report.visual_mission?.image_path),
     canonical_queue: report.visual_mission?.queue || null,
