@@ -95,7 +95,7 @@ assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
 assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
 assert.match(project,/previewMode:'source'/);
 assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/cuevacoin\//);
-assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/pwa\//);
+assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/aria\//);
 assert.doesNotMatch(project,/No hay una PWA LIVE configurada para este proyecto/);
 assert.match(project,/VISTA DESDE CÓDIGO REAL · main/);
 assert.match(project,/PROJECT REFERENCE/);
