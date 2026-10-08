@@ -158,7 +158,7 @@ assert.match(projectE2E,/internalHosts = new Set/);
 assert.match(projectE2E,/artia_canvas_not_ready/);
 assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
 assert.match(projectE2E,/await waitFor\(500\)/);
-const plannerSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/aria-planner-v11/index.ts'), 'utf8');
+const plannerSource = fs.readFileSync(path.join(root, 'supabase/functions/aria-planner-v11/index.ts'), 'utf8');
 assert.match(plannerSource, /function visualProjectMissionPlan\(goal:string,context:any\)/);
 const visualRouteIndex = plannerSource.indexOf('const visualProjectMission=visualProjectMissionPlan');
 const battleCruiserAuditIndex = plannerSource.indexOf('const battlecruiserAudit=await battlecruiserReadonlyAuditPlan');
