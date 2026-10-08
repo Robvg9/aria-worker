@@ -11,7 +11,17 @@ const internal = sb.schema("aria_internal");
 const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const eq = (a: string, b: string) => { const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b); if (x.length !== y.length) return false; let d = 0; for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i]; return d === 0; };
 const tokenOf = (r: Request) => { const h = r.headers.get("authorization") ?? ""; return h.startsWith("Bearer ") ? h.slice(7) : r.headers.get("x-aria-autonomy-token"); };
-async function auth(r: Request) { const t = tokenOf(r); if (t && SECRET && eq(t, SECRET)) return true; if (!t) return false; const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: t }); return !error && data === true; }
+async function auth(r: Request) {
+  const t = tokenOf(r);
+  if (t && SECRET && eq(t, SECRET)) return true;
+  // Internal runner-to-agent calls may carry the Supabase service key when the
+  // shared runtime secret is unavailable in the caller context. This never
+  // grants end-user UI access; it authenticates only the internal function hop.
+  if (t && KEY && eq(t, KEY)) return true;
+  if (!t) return false;
+  const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: t });
+  return !error && data === true;
+}
 const profiles: Record<string, { role: string; system: string }> = {
   "aria-agent-planner-v1": { role: "planner", system: "You are ARIA's planning specialist. Produce concise actionable planning guidance. Never claim execution you did not perform." },
   "aria-agent-reviewer-v1": { role: "reviewer", system: "You are ARIA's verification specialist. Inspect available evidence, distinguish fact from hypothesis, and report target-aligned findings." },
