@@ -23,7 +23,12 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
-          q='select mission_id,status,current_step,total_steps,completed_steps,next_action,last_stderr,updated_at,lease_owner,lease_until,finished_at from aria_internal.mission_state where mission_id='''mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d''';'
+          q=$(cat <<'SQL'
+select mission_id,status,current_step,total_steps,completed_steps,next_action,last_stderr,updated_at,lease_owner,lease_until,finished_at
+from aria_internal.mission_state
+where mission_id='mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d';
+SQL
+          )
           curl --silent --show-error --fail-with-body --max-time 30 \
             -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
@@ -36,7 +41,10 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          q='select aria_internal.runner_tick_for_mission('''mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d''') as request_id;'
+          q=$(cat <<'SQL'
+select aria_internal.runner_tick_for_mission('mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d') as request_id;
+SQL
+          )
           curl --silent --show-error --fail-with-body --max-time 30 \
             -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
