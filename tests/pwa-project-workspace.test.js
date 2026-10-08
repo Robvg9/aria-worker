@@ -133,6 +133,11 @@ assert.ok(!project.includes("setInterval(refresh,5000)"));
 assert.ok(project.includes("setSelectedMission(null);setError('');setProjectChatReady(false);"));
 assert.ok(project.includes("aria_project_missions"), 'project missions must consume the global preload cache');
 assert.ok(project.includes("projectChatReady"), 'project chat readiness state must exist');
+assert.ok(project.includes("function ProjectOverviewPreview"), 'project overview must expose a real preview surface');
+assert.ok(project.includes("aria-label={'Previsualización de '+project.name}"), 'project preview must identify the selected project');
+assert.ok(project.includes("onLoad={()=>setLoadState('loaded')}"), 'project preview must record successful iframe load');
+assert.ok(project.includes("No hay fuente de previsualización configurada"), 'project preview must fail clearly when no source exists');
+assert.ok(project.includes("setActions([]);") && project.includes("[project.id]"), 'ARTIA drawing state must reset when changing project');
 assert.ok(project.includes("disabled={sending||!text.trim()||!projectChatReady}"), 'project chat send must wait for ready conversation');
 assert.ok(project.includes("Cargando conversación"), 'project chat must expose loading state');
 
