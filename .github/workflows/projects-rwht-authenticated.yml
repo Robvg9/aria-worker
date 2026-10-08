@@ -118,8 +118,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node <<'NODE'
-          const fs = require('node:fs');
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
           const reportPath = 'rwht/pc-browser/projects-e2e-artifacts/projects-rwht-report.json';
           let report = null;
           try { report = JSON.parse(fs.readFileSync(reportPath, 'utf8')); } catch {}

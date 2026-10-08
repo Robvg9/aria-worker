@@ -102,8 +102,9 @@ async function apiAuthStatus(page, accessToken) {
 
 async function signInViaAuthApi() {
   if (!EMAIL || !PASSWORD) return null;
+  const origin = new URL(BASE_URL).origin;
   const endpoints = [
-    BASE_URL.replace(/\/$/, '') + '/auth/token?grant_type=password',
+    origin + '/auth/token?grant_type=password',
     'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
   ];
   for (const endpoint of endpoints) {
@@ -169,7 +170,7 @@ async function ensureLiveSession(page) {
   let session = await readSession(page);
   if (!session?.accessToken) return null;
   const status = await apiAuthStatus(page, session.accessToken);
-  if (status === 200) return session;
+  if (status === 200 || status === 204) return session;
   const refreshed = await refreshStoredSession(page);
   if (refreshed) {
     const refreshedStatus = await apiAuthStatus(page, refreshed.accessToken);
@@ -371,8 +372,15 @@ async function run() {
     report.auth_attempts = Number(report.login?.attempts?.length || 0);
     let session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
-    const liveSession = await ensureLiveSession(page);
-    if (!liveSession?.accessToken || !liveSession.userId) throw new Error('authenticated_live_session_not_verified');
+    let liveSession = await ensureLiveSession(page);
+    if (!liveSession?.accessToken && bootstrapSession?.accessToken && bootstrapSession?.userId) {
+      await page.evaluate((value) => localStorage.setItem('aria_session_v2', JSON.stringify(value)), bootstrapSession);
+      liveSession = await ensureLiveSession(page);
+    }
+    if (!liveSession?.accessToken || !liveSession.userId) {
+      const authStatus = session?.accessToken ? await apiAuthStatus(page, session.accessToken) : 0;
+      throw new Error('authenticated_live_session_not_verified_status_' + authStatus);
+    }
     session = liveSession;
     report.auth_verified = true;
 
