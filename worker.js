@@ -19,7 +19,7 @@ const DIRECT_ARIA = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-
 const CRON_AUTH_URL = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-cron-auth-v1";
 const SUPABASE_AUTH = "https://icuqsstxfdbvjytkhlog.supabase.co";
 const SUPABASE_APP_API = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3";
-const APP_API_GET_TIMEOUT_MS = 45000;
+const APP_API_GET_TIMEOUT_MS = 65000;
 const APP_API_POST_TIMEOUT_MS = 75000;
 const PWA_BUILD = "__PWA_BUILD__";
 const PWA_RELEASE = "2026.09.24-pwa-v10";
@@ -291,3 +291,4 @@ if(url.pathname==="/project-preview"||url.pathname==="/project-preview/"||url.pa
 // Final certification trigger: all universal gates must run on this exact HEAD.
 
 // Final certification trigger: universal gates on exact final HEAD.
+// 2026-10-08 Projects + ARTIA: allow slow-but-valid Supabase App API GETs to finish instead of surfacing transient 504s during browser certification.
