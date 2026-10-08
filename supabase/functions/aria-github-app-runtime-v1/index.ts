@@ -4,7 +4,7 @@ const APP_ID=Number(Deno.env.get("ARIA_GITHUB_APP_ID")??"4835157");
 const API="https://api.github.com";
 const DEFAULT_OWNER=Deno.env.get("ARIA_GITHUB_OWNER")??"Robvg9";
 const DEFAULT_REPO=Deno.env.get("ARIA_GITHUB_REPOSITORY")??"aria-worker";
-const ALLOWED=new Set((Deno.env.get("ARIA_GITHUB_ALLOWED_REPOS")??"Robvg9/aria-worker,Robvg9/battlecruiser").split(",").map(x=>x.trim().toLowerCase()).filter(Boolean));
+const ALLOWED=new Set((Deno.env.get("ARIA_GITHUB_ALLOWED_REPOS")??"Robvg9/aria-worker,Robvg9/battlecruiser,Robvg9/CuevaCoin").split(",").map(x=>x.trim().toLowerCase()).filter(Boolean));
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
 const tok=(r:Request)=>{const h=r.headers.get("authorization")??"";return h.startsWith("Bearer ")?h.slice(7):r.headers.get("x-aria-autonomy-token")};
