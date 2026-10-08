@@ -1,3 +1,4 @@
+// Canonical release marker: owner propagation + ARTIA mission visibility.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
