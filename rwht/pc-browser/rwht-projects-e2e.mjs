@@ -7,6 +7,7 @@ const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = process.env.RWHT_STORAGE_STATE || '';
+const BOOTSTRAP_SESSION_PATH = process.env.RWHT_BOOTSTRAP_SESSION_PATH || '';
 const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 150000);
 const SETTLE_MS = Number(process.env.RWHT_SETTLE_MS || 1200);
@@ -130,6 +131,15 @@ async function apiAuthStatus(page, accessToken) {
       return 0;
     }
   }, accessToken);
+}
+
+function readBootstrapSession() {
+  if (!BOOTSTRAP_SESSION_PATH) return null;
+  try {
+    const session = JSON.parse(fs.readFileSync(BOOTSTRAP_SESSION_PATH, 'utf8'));
+    if (session?.accessToken && session?.refreshToken && session?.userId) return session;
+  } catch {}
+  return null;
 }
 
 async function signInViaAuthApi() {
@@ -354,7 +364,7 @@ async function run() {
   // Build a fresh session when CI credentials are present. The custom ARIA PWA stores
   // its canonical session in localStorage, so a generic Playwright storageState alone
   // is not sufficient for this application.
-  const bootstrapSession = await signInViaAuthApi();
+  const bootstrapSession = readBootstrapSession() || await signInViaAuthApi();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
