@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 const SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")??"";
+const SERVICE_KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")??"";
 const APP_ID=Number(Deno.env.get("ARIA_GITHUB_APP_ID")??"4835157");
 const API="https://api.github.com";
 const DEFAULT_OWNER=Deno.env.get("ARIA_GITHUB_OWNER")??"Robvg9";
@@ -8,7 +9,7 @@ const ALLOWED=new Set((Deno.env.get("ARIA_GITHUB_ALLOWED_REPOS")??"Robvg9/aria-w
 const out=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
 const eq=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b);if(x.length!==y.length)return false;let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0};
 const tok=(r:Request)=>{const h=r.headers.get("authorization")??"";return h.startsWith("Bearer ")?h.slice(7):r.headers.get("x-aria-autonomy-token")};
-async function auth(r:Request){const t=tok(r);return!!(t&&SECRET&&eq(t,SECRET))}
+async function auth(r:Request){const t=tok(r);if(!t)return false;if(SECRET&&eq(t,SECRET))return true;if(SERVICE_KEY&&eq(t,SERVICE_KEY))return true;return false}
 function b64(s:string){const c=s.replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");const p=c+"=".repeat((4-c.length%4)%4);return Uint8Array.from(atob(p),x=>x.charCodeAt(0))}
 function u64(b:Uint8Array){let s="";for(const x of b)s+=String.fromCharCode(x);return btoa(s).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_")}
 function u64j(v:unknown){return u64(new TextEncoder().encode(JSON.stringify(v)))}
