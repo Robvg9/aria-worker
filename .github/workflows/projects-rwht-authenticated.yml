@@ -84,15 +84,19 @@ jobs:
         run: |
           set -euo pipefail
           base="${RWHT_URL%/}"
+          expected_version="$(sed -n "s/.*aria-test-catalog-version' content='\([^']*\)'.*/\1/p" pwa/index.html)"
+          expected_total="$(sed -n "s/.*aria-test-catalog-total' content='\([^']*\)'.*/\1/p" pwa/index.html)"
+          test -n "$expected_version"
+          test -n "$expected_total"
           html=""
           for attempt in $(seq 1 60); do
             html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/?probe=${GITHUB_SHA}-projects-catalog-${attempt}" 2>/dev/null || true)"
-            if (grep -q "name='aria-test-catalog-version' content='2026-10-02-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-02-canonical"' <<<"$html") &&
-               (grep -q "name='aria-test-catalog-total' content='293'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="293"' <<<"$html"); then break; fi
+            if grep -Fq "aria-test-catalog-version' content='${expected_version}'" <<<"$html" &&
+               grep -Fq "aria-test-catalog-total' content='${expected_total}'" <<<"$html"; then break; fi
             test "$attempt" -lt 60 && sleep 2
           done
           test -n "$html"
-          echo PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK
+          echo "PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK version=${expected_version} total=${expected_total}"
 
       - name: Execute authenticated Projects + ARTIA E2E
         working-directory: rwht/pc-browser
