@@ -1,0 +1,88 @@
+name: ARIA ARTIA Closure V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aria-artia-closure-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  closure:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Read mission before
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          q="$(cat <<'SQL'
+select mission_id,status,current_step,total_steps,completed_steps,next_action,last_stderr,
+       metadata->>'user_id' as user_id, metadata->>'owner_user_id' as owner_user_id,
+       updated_at,lease_owner,lease_until,finished_at
+from aria_internal.mission_state
+where mission_id='mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d';
+SQL
+          )"
+          curl --silent --show-error --fail-with-body --max-time 30             -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query"             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN"             -H "Content-Type: application/json"             --data "$(jq -n --arg q "$q" '{query:$q,read_only:true}')" | tee before.json
+
+      - name: Kick exact mission
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          q="$(cat <<'SQL'
+select aria_internal.runner_tick_for_mission('mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d') as request_id;
+SQL
+          )"
+          curl --silent --show-error --fail-with-body --max-time 30             -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query"             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN"             -H "Content-Type: application/json"             --data "$(jq -n --arg q "$q" '{query:$q,read_only:false}')" | tee kick.json
+
+      - name: Observe after 45 seconds
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          sleep 45
+          q="$(cat <<'SQL'
+select mission_id,status,current_step,total_steps,completed_steps,next_action,last_stderr,
+       metadata->>'user_id' as user_id, metadata->>'owner_user_id' as owner_user_id,
+       updated_at,lease_owner,lease_until,finished_at
+from aria_internal.mission_state
+where mission_id='mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d';
+SQL
+          )"
+          curl --silent --show-error --fail-with-body --max-time 30             -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query"             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN"             -H "Content-Type: application/json"             --data "$(jq -n --arg q "$q" '{query:$q,read_only:true}')" | tee after.json
+
+      - name: Persist event tail
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          q="$(cat <<'SQL'
+select event_type,created_at,payload->>'step_id' as step_id,
+       payload->>'reason' as reason,payload->>'error_code' as error_code
+from aria_internal.mission_events
+where mission_id='mission_d0bb5430-bbe7-423a-aecf-e985eb1dcf5d'
+order by created_at desc
+limit 20;
+SQL
+          )"
+          curl --silent --show-error --fail-with-body --max-time 30             -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query"             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN"             -H "Content-Type: application/json"             --data "$(jq -n --arg q "$q" '{query:$q,read_only:true}')" | tee events.json
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-artia-closure-v2
+          path: |
+            before.json
+            kick.json
+            after.json
+            events.json
