@@ -279,7 +279,7 @@ async function waitForProjectMission(page, token, projectId, goalMarker, timeout
   const started = Date.now();
   let last = null;
   while (Date.now() - started < timeoutMs) {
-    const result = await readApiCurrent(page, '/projects/' + encodeURIComponent(projectId) + '/missions?limit=100');
+    const result = await readApiCurrent(page, '/projects/' + encodeURIComponent(projectId) + '/missions?limit=20');
     last = result;
     if (result.status === 200 && result.body?.queue === 'canonical' && Array.isArray(result.body?.missions)) {
       const hit = result.body.missions.find((mission) => String(mission.goal || '').includes(goalMarker));
@@ -529,11 +529,35 @@ async function run() {
       if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);
       const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
       if (!(await visualMissionButton.isEnabled())) throw new Error('artia_visual_mission_button_not_enabled_' + visualProject.id);
+      const visualMissionResponsePromise = page.waitForResponse(async (response) => {
+        if (response.request().method() !== 'POST' || !/\/api\/missions$/.test(new URL(response.url()).pathname)) return false;
+        const body = response.request().postData() || '';
+        return body.includes(visualGoalMarker);
+      }, { timeout: 60000 });
       await visualMissionButton.click();
+      const visualMissionResponse = await visualMissionResponsePromise;
+      if (!visualMissionResponse.ok()) throw new Error('visual_mission_create_http_failed_' + visualProject.id + '_' + visualMissionResponse.status());
+      const visualMissionPayload = await visualMissionResponse.json().catch(() => null);
+      const visualMissionId = String(visualMissionPayload?.mission?.mission_id || '');
+      if (!visualMissionId) throw new Error('visual_mission_create_id_missing_' + visualProject.id);
       await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
-      const visualWait = await waitForProjectMission(page, session.accessToken, visualProject.id, visualGoalMarker, 60000);
-      if (!visualWait.mission) throw new Error('visual_mission_not_persisted_' + visualProject.id);
-      if (visualWait.result.status !== 200 || visualWait.result.body?.queue !== 'canonical') throw new Error('visual_mission_not_canonical_queue_' + visualProject.id);
+
+      let visualWait = null;
+      const directStarted = Date.now();
+      while (Date.now() - directStarted < 60000) {
+        const direct = await readApi(page, session.accessToken, '/missions/' + encodeURIComponent(visualMissionId));
+        if (direct.status === 200 && direct.body?.mission?.mission_id === visualMissionId) {
+          visualWait = {
+            result: direct,
+            mission: direct.body.mission,
+            metadata: normalizeMetadata(direct.body.mission.metadata),
+            visual_context: normalizeMetadata(normalizeMetadata(direct.body.mission.metadata).visual_context)
+          };
+          break;
+        }
+        await waitFor(1500);
+      }
+      if (!visualWait?.mission) throw new Error('visual_mission_not_persisted_' + visualProject.id);
       const visualMetadata = visualWait.metadata || {};
       const visualContext = visualWait.visual_context || {};
       if (String(visualMetadata.project_id || '').toLowerCase() !== visualProject.id) throw new Error('visual_mission_project_id_missing_' + visualProject.id);
