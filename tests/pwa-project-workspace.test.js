@@ -157,7 +157,7 @@ const projectE2E = fs.readFileSync(path.join(root, 'rwht/pc-browser/rwht-project
 assert.match(projectE2E,/internalHosts = new Set/);
 assert.match(projectE2E,/artia_canvas_not_ready/);
 assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
-assert.match(projectE2E,/setTimeout\(resolve, 250\)/);
+assert.match(projectE2E,/await waitFor\(500\)/);
 
 assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
