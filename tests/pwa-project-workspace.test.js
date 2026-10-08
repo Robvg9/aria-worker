@@ -95,7 +95,7 @@ assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
 assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
 assert.match(project,/previewMode:'source'/);
 assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/cuevacoin\//);
-assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/pwa\//);
+assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/aria\//);
 assert.doesNotMatch(project,/No hay una PWA LIVE configurada para este proyecto/);
 assert.match(project,/VISTA DESDE CÓDIGO REAL · main/);
 assert.match(project,/PROJECT REFERENCE/);
@@ -169,3 +169,9 @@ assert.match(appCurrent,/REPLANIFICANDO/);
 const apiCurrent = fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 assert.match(apiCurrent,/activeRecoveryStatuses/);
 assert.match(apiCurrent,/replan_learning_application/);
+
+assert.match(project,/projectOverviewPreview/);
+
+const worker=fs.readFileSync(path.join(root,'worker.js'),'utf8');
+assert.match(worker,/serveAriaProjectPreview/);
+assert.match(worker,/\/project-preview\/aria/);
