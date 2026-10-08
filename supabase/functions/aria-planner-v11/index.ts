@@ -261,15 +261,31 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
   const scope = `REALITY BOARD MULTI-PROJECT. Debes trabajar sobre los tres proyectos explícitamente solicitados: ARIA, CuevaCoin y BattleCruiser. La aplicación central se implementa en ARIA/aria-worker; CuevaCoin y BattleCruiser se consultan como fuentes reales y no se modifican salvo que el objetivo lo exija explícitamente. No uses datos inventados ni snapshots históricos como LIVE.`;
   const readPolicy={tool_use:true,verification_read:true,read_only_audit:true,non_mutating:true,destructive_actions_blocked:true,spanish_output_required:true};
 
+  // ARIA and BattleCruiser are available through the current GitHub connector.
+  // CuevaCoin is private and is not accessible to that installation, so it
+  // intentionally uses a different authorized reader route.
   const sources:any[]=[
-    {id:"reality_aria_repo_read",repo:"aria-worker",label:"ARIA",description:"ARIA / aria-worker",input:{owner:"Robvg9",repo:"aria-worker"},target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"}},
-    {id:"reality_cuevacoin_repo_read",repo:"CuevaCoin",label:"CuevaCoin",description:"CuevaCoin",input:{owner:"Robvg9",repo:"CuevaCoin"},target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"CuevaCoin",branch:"main"}},
-    {id:"reality_battlecruiser_repo_read",repo:"battlecruiser",label:"BattleCruiser",description:"BattleCruiser",input:{owner:"Robvg9",repo:"battlecruiser"},target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"battlecruiser",branch:"main"}},
+    {
+      id:"reality_aria_repo_read",
+      kind:"repo",
+      label:"ARIA",
+      input:{owner:"Robvg9",repo:"aria-worker"},
+      target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"},
+      operation:"repo_read"
+    },
+    {
+      id:"reality_battlecruiser_repo_read",
+      kind:"repo",
+      label:"BattleCruiser",
+      input:{owner:"Robvg9",repo:"battlecruiser"},
+      target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"battlecruiser",branch:"main"},
+      operation:"repo_read"
+    }
   ];
 
-  const steps:any[]=sources.filter(s=>s.label!=="CuevaCoin").map(s=>({
+  const steps:any[]=sources.map(s=>({
     id:s.id,
-    operation:"repo_read",
+    operation:s.operation,
     executor_type:"connector",
     target:s.target,
     input:s.input,
@@ -279,17 +295,30 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
     verify:{response_content_nonempty:true}
   }));
 
-  // CuevaCoin is a private repository and may not be installed in the GitHub App
-  // used by the runtime. Read it through the governed research agent instead of
-  // making the entire mission depend on an unavailable connector installation.
-  const coder={agent_id:"aria-agent-coding-v1",role:"coding",model_id:"aria-agent-coding-v1"};
-  const reviewer={agent_id:"aria-agent-reviewer-v1",role:"reviewer",model_id:"aria-agent-reviewer-v1"};
-  steps.push(agentStep(
-    "reality_cuevacoin_repo_read",
-    reviewer,
-    "Inspecciona mediante las herramientas autorizadas el repositorio privado Robvg9/CuevaCoin. Solo lectura. Recopila hechos verificables actuales para ARIA Reality Board: rama principal, commit actual si es accesible, estructura/archivos relevantes, CI/deploy disponible y bloqueos. Usa el acceso GitHub autorizado del agente, no inventes datos, y distingue CONFIRMADO de NO CONFIRMADO. Devuelve referencias concretas de archivos, commits o URLs.",
-    []
-  ));
+  const agentsRes=await db.from("agent_catalog").select("agent_id,role,model_id,status,max_risk").eq("status","available").order("agent_id").limit(20);
+  const agents=Array.isArray(agentsRes.data)?agentsRes.data:[];
+  const coder=agents.find((a:any)=>a.agent_id==="aria-agent-coding-v1")||agents.find((a:any)=>/cod|developer|implement/i.test(String(a.role||"")))||agents[0];
+  const reviewer=agents.find((a:any)=>a.agent_id==="aria-agent-reviewer-v1")||agents.find((a:any)=>/review|revisor|forensic|investig/i.test(String(a.role||"")))||agents[0];
+  if(!coder||!reviewer) return null;
+
+  steps.push({
+    id:"reality_cuevacoin_authorized_read",
+    operation:"delegate",
+    executor_type:"agent",
+    target:{type:"agent",agent_id:String(reviewer.agent_id)},
+    capability:"research",
+    input:{
+      goal:"CuevaCoin — fuente real autorizada para ARIA Reality Board",
+      prompt:esPrompt(
+        `FUENTE CUEVACOIN. Investiga el estado actual y verificable de CuevaCoin usando únicamente fuentes a las que tengas acceso autorizado. El conector GitHub directo del runtime NO tiene acceso al repositorio privado CuevaCoin; no debes repetir esa ruta ni intentar saltarte permisos. Prioriza ChatBending/Notion y cualquier fuente conectada/autorizada disponible. Separa CONFIRMADO, HISTÓRICO, BLOQUEADO y NO CONFIRMADO. No inventes estado. Devuelve las fuentes concretas, fecha/hora de cada dato relevante y qué evidencia respalda cada afirmación. Objetivo: ${g}`
+      ),
+      max_tokens:2600
+    },
+    risk:"READ",
+    timeout_ms:150000,
+    policy:{tool_use:true,verification_read:true,read_only_audit:true,spanish_output_required:true,destructive_actions_blocked:true},
+    verify:{response_content_nonempty:true}
+  });
 
   steps.push({
     id:"reality_board_implementation",
@@ -309,14 +338,15 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
         "Incluye enlaces VER/DESCARGAR para resultados utilizables. "+
         "PROYECTOS OBLIGATORIOS EN ESTA MISIÓN: ARIA, CuevaCoin, BattleCruiser. "+
         "NO modifiques CuevaCoin ni BattleCruiser; solo léelos como fuentes para construir el panel central de ARIA. "+
-        "FUENTES: ARIA/aria-worker, Robvg9/CuevaCoin, Robvg9/battlecruiser."
+        "La fuente CuevaCoin será la salida de reality_cuevacoin_authorized_read, no un acceso GitHub directo. "+
+        "FUENTES: ARIA/aria-worker, reality_cuevacoin_authorized_read, Robvg9/battlecruiser."
       ),
       max_tokens:4200
     },
     risk:"LOW_RISK_WRITE",
     timeout_ms:300000,
     policy:{...governedWritePolicy,post_merge_verification_required:true,spanish_output_required:true},
-    depends_on:sources.map(s=>s.id),
+    depends_on:["reality_aria_repo_read","reality_battlecruiser_repo_read","reality_cuevacoin_authorized_read"],
     verify:{response_content_nonempty:true}
   });
 
@@ -324,18 +354,19 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
     "reality_board_verification",
     {agent_id:String(reviewer.agent_id),role:String(reviewer.role||"revisor"),model_id:String(reviewer.model_id||"")},
     scope+
-    " Verifica el resultado REAL de reality_board_implementation. Inspecciona el código, pruebas y evidencia. Confirma específicamente ARIA, CuevaCoin y BattleCruiser, y comprueba que el panel obtiene datos de fuentes reales en vez de contenido hardcodeado. No modifiques nada. No declares éxito si solo existe un archivo. Devuelve CONCLUSIÓN, EVIDENCIA, FALTANTES, BLOQUEOS y VEREDICTO.",
+    " Verifica el resultado REAL de reality_board_implementation. Inspecciona el código, pruebas y evidencia. Confirma específicamente ARIA, CuevaCoin y BattleCruiser, y comprueba que el panel obtiene datos de fuentes reales en vez de contenido hardcodeado. Comprueba también que CuevaCoin fue respaldado por una fuente autorizada distinta del conector GitHub que ya falló. No modifiques nada. No declares éxito si solo existe un archivo. Devuelve CONCLUSIÓN, EVIDENCIA, FALTANTES, BLOQUEOS y VEREDICTO.",
     ["reality_board_implementation"]
   ));
 
   return {
     goal:g,
     steps,
-    planner_version:"aria-planner-v11-multi-project-reality-board-v1",
+    planner_version:"aria-planner-v11-multi-project-reality-board-v2-authorized-cuevacoin",
     multi_project_reality_board:true,
     project_scope:["aria","cuevacoin","battlecruiser"],
+    cuevacoin_reader:"authorized_agent_or_chatbending",
     implementation_repository:"Robvg9/aria-worker",
-    source_repositories:["Robvg9/aria-worker","Robvg9/CuevaCoin","Robvg9/battlecruiser"],
+    source_repositories:["Robvg9/aria-worker","private:CuevaCoin:authorized-source","Robvg9/battlecruiser"],
     context:context?.learned_knowledge
   };
 }
