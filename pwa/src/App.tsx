@@ -3326,10 +3326,14 @@ function Capabilities({ session }: { session: Session }) {
   return <CapabilityCenter caps={caps} userId={session.userId} token={session.accessToken} />;
 }
 
-function PwaDataPreloader({ session }: { session: Session }) {
+function PwaDataPreloader({ session, page }: { session: Session; page: string }) {
   useEffect(() => {
     let cancelled = false;
     const warm = async () => {
+      // Projects loads its own project-scoped missions/conversation. Do not run
+      // the global warm-up there: the previous 12-request burst saturated the
+      // App API and made valid project readbacks appear unavailable.
+      if (page === 'projects') return;
       const projectIds = ['battlecruiser','cuevacoin','aria'];
       const [system, missions, overview, ideas, capabilities, health, ...projectData] = await Promise.all([
         api('/system', session.accessToken).catch(() => null),
@@ -3644,7 +3648,7 @@ export default function App() {
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}
     >
       <PwaNotificationCenter session={session} />
-      <PwaDataPreloader session={session} />
+      <PwaDataPreloader session={session} page={page} />
       {page === 'projects'
         ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
