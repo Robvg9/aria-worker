@@ -168,6 +168,14 @@ async function waitForPersistedSession(page, expectedUserId, timeoutMs = 30000) 
   throw new Error('reload_auth_session_not_persisted');
 }
 
+async function readApiCurrent(page, apiPath) {
+  const stored = await readSession(page).catch(() => null);
+  if (!stored?.accessToken) throw new Error('authenticated_session_missing_before_api_read');
+  const live = await ensureLiveSession(page);
+  if (!live?.accessToken) throw new Error('authenticated_session_refresh_failed_before_api_read');
+  return readApi(page, live.accessToken, apiPath);
+}
+
 async function readApi(page, token, apiPath) {
   return page.evaluate(async ({ token: authToken, apiPath: endpoint }) => {
     const response = await fetch('/api' + endpoint, {
@@ -323,11 +331,14 @@ async function run() {
     await waitFor(SETTLE_MS);
     report.login = await login(page);
     report.auth_attempts = Number(report.login?.attempts?.length || 0);
-    const session = await readSession(page);
+    let session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
+    const liveSession = await ensureLiveSession(page);
+    if (!liveSession?.accessToken || !liveSession.userId) throw new Error('authenticated_live_session_not_verified');
+    session = liveSession;
     report.auth_verified = true;
 
-    const projectsApi = await readApi(page, session.accessToken, '/projects');
+    const projectsApi = await readApiCurrent(page, '/projects');
     if (projectsApi.status !== 200 || !Array.isArray(projectsApi.body?.projects)) throw new Error('projects_api_unavailable_' + projectsApi.status);
     report.project_count = projectsApi.body.projects.length;
     report.project_ids = projectsApi.body.projects.map((project) => String(project.id)).sort();
@@ -376,7 +387,7 @@ async function run() {
       let conversation = null;
       let messages = [];
       for (let attempt = 1; attempt <= 8; attempt += 1) {
-        conversation = await readApi(page, session.accessToken, '/projects/' + project.id + '/conversation');
+        conversation = await readApiCurrent(page, '/projects/' + project.id + '/conversation');
         if (conversation.status === 200) {
           messages = Array.isArray(conversation.body?.conversation?.messages) ? conversation.body.conversation.messages : [];
           if (messages.some((message) => typeof message?.content === 'string' && message.content.includes(marker))) break;
@@ -394,6 +405,9 @@ async function run() {
       await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
       await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
       await waitForPersistedSession(page, session.userId);
+      const refreshedAfterReload = await ensureLiveSession(page);
+      if (!refreshedAfterReload?.accessToken || refreshedAfterReload.userId !== session.userId) throw new Error('reload_live_session_not_verified');
+      session = refreshedAfterReload;
       report.reload_auth_verified = true;
       const selectedProject = page.locator('.projectGrid .projectCard.selected').filter({ hasText: project.name }).first();
       await selectedProject.waitFor({ state: 'visible', timeout: RELOAD_CHAT_TIMEOUT_MS });
@@ -525,6 +539,9 @@ async function run() {
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
     const finalSession = await waitForPersistedSession(page, session.userId);
+    const finalLiveSession = await ensureLiveSession(page);
+    if (!finalLiveSession?.accessToken || finalLiveSession.userId !== session.userId) throw new Error('final_live_session_not_verified');
+    session = finalLiveSession;
     await page.waitForFunction(() => Boolean(document.querySelector('.projectGrid .projectCard.selected')?.textContent?.includes('BattleCruiser')), null, { timeout: 30000 });
 
     if (consoleErrors.length) throw new Error('projects_console_errors_' + consoleErrors.length);
