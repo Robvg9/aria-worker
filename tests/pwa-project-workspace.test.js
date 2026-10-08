@@ -158,6 +158,12 @@ assert.match(projectE2E,/internalHosts = new Set/);
 assert.match(projectE2E,/artia_canvas_not_ready/);
 assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
 assert.match(projectE2E,/await waitFor\(500\)/);
+const plannerSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/aria-planner-v11/index.ts'), 'utf8');
+assert.match(plannerSource, /function visualProjectMissionPlan\(goal:string,context:any\)/);
+const visualRouteIndex = plannerSource.indexOf('const visualProjectMission=visualProjectMissionPlan');
+const battleCruiserAuditIndex = plannerSource.indexOf('const battlecruiserAudit=await battlecruiserReadonlyAuditPlan');
+assert.ok(visualRouteIndex >= 0 && battleCruiserAuditIndex >= 0 && visualRouteIndex < battleCruiserAuditIndex, 'ARTIA visual mission route must precede BattleCruiser read-only audit routing');
+assert.match(plannerSource, /visual_project_mission:true/);
 
 assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
