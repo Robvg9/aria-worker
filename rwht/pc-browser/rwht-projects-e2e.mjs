@@ -416,6 +416,31 @@ async function run() {
 
     if (new Set(report.projects.map((project) => project.chat.conversation_id)).size !== 3) throw new Error('project_conversation_ids_not_isolated');
 
+    // ARTIA preview certification: every project must expose a real preview surface.
+    const previewExpectations = [
+      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
+      { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
+      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/pwa/', mode: 'live' }
+    ];
+    const previewResults = [];
+    for (const expected of previewExpectations) {
+      await page.locator('.projectGrid .projectCard').filter({ hasText: expected.name }).first().click();
+      await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
+      await page.waitForSelector('.artiaPreviewShell', { state: 'visible', timeout: 30000 });
+      const previewFrame = page.locator('.artiaPreviewShell iframe').first();
+      if (await previewFrame.count() !== 1) throw new Error('artia_preview_missing_' + expected.id);
+      const actualSrc = await previewFrame.getAttribute('src');
+      if (actualSrc !== expected.src) throw new Error('artia_preview_src_mismatch_' + expected.id + '_' + String(actualSrc));
+      const badge = page.locator('.artiaPreviewShell .projectReferenceBadge').first();
+      if (expected.mode === 'source') {
+        await badge.waitFor({ state: 'visible', timeout: 10000 });
+        if (!(await badge.innerText()).includes('VISTA DESDE CÓDIGO REAL')) throw new Error('artia_source_badge_missing_' + expected.id);
+      } else if (await badge.count() > 0 && await badge.isVisible().catch(() => false)) {
+        throw new Error('artia_live_preview_mislabelled_' + expected.id);
+      }
+      previewResults.push({ id: expected.id, src: actualSrc, mode: expected.mode, verified: true });
+    }
+
     const battle = PROJECTS[0];
     await page.locator('.projectGrid .projectCard').filter({ hasText: battle.name }).first().click();
     await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
@@ -484,6 +509,7 @@ async function run() {
     await page.locator('.projectTabs .tabButton').filter({ hasText: 'Misiones' }).click();
     await page.waitForSelector('.catalogList', { state: 'visible', timeout: 30000 });
 
+    report.preview_results = previewResults;
     report.visual_mission = {
       mission_id: missionWait.mission.mission_id,
       project_id: metadata.project_id,
