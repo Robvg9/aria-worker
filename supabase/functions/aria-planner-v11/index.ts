@@ -267,7 +267,7 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
     {id:"reality_battlecruiser_repo_read",repo:"battlecruiser",label:"BattleCruiser",description:"BattleCruiser",input:{owner:"Robvg9",repo:"battlecruiser"},target:{type:"connector",connector_id:"github",owner:"Robvg9",repo:"battlecruiser",branch:"main"}},
   ];
 
-  const steps:any[]=sources.map(s=>({
+  const steps:any[]=sources.filter(s=>s.label!=="CuevaCoin").map(s=>({
     id:s.id,
     operation:"repo_read",
     executor_type:"connector",
@@ -279,12 +279,17 @@ async function multiProjectRealityBoardPlan(goal:string,context:any){
     verify:{response_content_nonempty:true}
   }));
 
-  // Keep the multi-project planning path deterministic and cheap: these are the
-  // canonical governed agent IDs already used by ARIA for coding/review. Agent
-  // availability is enforced later by the execution runtime, not by a blocking
-  // planner discovery query.
+  // CuevaCoin is a private repository and may not be installed in the GitHub App
+  // used by the runtime. Read it through the governed research agent instead of
+  // making the entire mission depend on an unavailable connector installation.
   const coder={agent_id:"aria-agent-coding-v1",role:"coding",model_id:"aria-agent-coding-v1"};
   const reviewer={agent_id:"aria-agent-reviewer-v1",role:"reviewer",model_id:"aria-agent-reviewer-v1"};
+  steps.push(agentStep(
+    "reality_cuevacoin_repo_read",
+    reviewer,
+    "Inspecciona mediante las herramientas autorizadas el repositorio privado Robvg9/CuevaCoin. Solo lectura. Recopila hechos verificables actuales para ARIA Reality Board: rama principal, commit actual si es accesible, estructura/archivos relevantes, CI/deploy disponible y bloqueos. Usa el acceso GitHub autorizado del agente, no inventes datos, y distingue CONFIRMADO de NO CONFIRMADO. Devuelve referencias concretas de archivos, commits o URLs.",
+    []
+  ));
 
   steps.push({
     id:"reality_board_implementation",
