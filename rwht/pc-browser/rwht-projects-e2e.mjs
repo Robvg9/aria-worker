@@ -102,18 +102,23 @@ async function apiAuthStatus(page, accessToken) {
 
 async function signInViaAuthApi() {
   if (!EMAIL || !PASSWORD) return null;
+  // Prefer direct Supabase Auth from the CI runner. Node fetch is not subject to browser
+  // CORS, so the certification does not depend on the PWA auth proxy being healthy.
   const origin = new URL(BASE_URL).origin;
   const endpoints = [
-    origin + '/auth/token?grant_type=password',
-    'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
+    'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password',
+    origin + '/auth/token?grant_type=password'
   ];
   for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json', apikey: ANON, accept: 'application/json' },
         body: JSON.stringify({ email: EMAIL.trim(), password: PASSWORD }),
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       });
       const body = await response.json().catch(() => null);
       if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
@@ -126,7 +131,11 @@ async function signInViaAuthApi() {
           authEndpoint: endpoint
         };
       }
-    } catch {}
+    } catch {
+      // Try the same credentials through the public ARIA auth proxy as a fallback.
+    } finally {
+      clearTimeout(timer);
+    }
   }
   return null;
 }
@@ -310,10 +319,10 @@ async function run() {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
-  // Prefer a preseeded authenticated browser state when the workflow provides one.
-  // This avoids turning a valid persisted session into an unnecessary password-auth
-  // request through the live PWA auth proxy, which is intentionally a separate fallback.
-  const bootstrapSession = STORAGE_STATE ? null : await signInViaAuthApi();
+  // Build a fresh session when CI credentials are present. The custom ARIA PWA stores
+  // its canonical session in localStorage, so a generic Playwright storageState alone
+  // is not sufficient for this application.
+  const bootstrapSession = await signInViaAuthApi();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
