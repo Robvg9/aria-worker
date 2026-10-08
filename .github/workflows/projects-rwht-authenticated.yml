@@ -15,6 +15,10 @@ on:
       - '.github/workflows/projects-rwht-authenticated.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 concurrency:
   group: aria-authenticated-pwa-rwht
   cancel-in-progress: false
@@ -106,9 +110,56 @@ jobs:
             rwht/pc-browser/projects-e2e-artifacts
           if-no-files-found: warn
 
+      - name: Persist Projects + ARTIA certification result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CERT_ISSUE: "1011"
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const reportPath = 'rwht/pc-browser/projects-e2e-artifacts/projects-rwht-report.json';
+          let report = null;
+          try { report = JSON.parse(fs.readFileSync(reportPath, 'utf8')); } catch {}
+          const status = report?.verified === true ? 'PASS' : 'FAIL';
+          const body = [
+            '## Projects + ARTIA RWHT — ' + status,
+            '',
+            '- **Commit ejecutado:** `' + process.env.GITHUB_SHA + '`',
+            '- **Workflow run:** ' + process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID,
+            '- **Resultado reportado:** `' + status + '`',
+            '- **Proyectos:** `' + (report?.project_count ?? '—') + '`',
+            '- **Previews overview:** `' + JSON.stringify(report?.overview_preview_results ?? []) + '`',
+            '- **Previews ARTIA:** `' + JSON.stringify(report?.preview_results ?? []) + '`',
+            '- **Misiones visuales:** `' + JSON.stringify(report?.visual_missions ?? []) + '`',
+            '- **Errores de página:** `' + (report?.page_errors?.length ?? '—') + '`',
+            '- **Errores de consola:** `' + (report?.console_errors?.length ?? '—') + '`',
+            '- **Failed responses:** `' + (report?.failed_responses?.length ?? '—') + '`',
+            '',
+            'Fuente: artifact `aria-projects-rwht-evidence` del mismo run.'
+          ].join('\n');
+          const res = await fetch('https://api.github.com/repos/Robvg9/aria-worker/issues/' + process.env.CERT_ISSUE + '/comments', {
+            method: 'POST',
+            headers: {
+              authorization: 'Bearer ' + process.env.GH_TOKEN,
+              accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({ body })
+          });
+          if (!res.ok) {
+            const responseText = await res.text();
+            throw new Error('GitHub issue comment failed: ' + res.status + ' ' + responseText.slice(0, 500));
+          }
+          console.log('PROJECTS_ARTIA_CERTIFICATION_EVIDENCE_PERSISTED');
+          NODE
+
       - name: Remove temporary authentication state
         if: always()
         shell: bash
-        run: rm -f "${RUNNER_TEMP}/aria-rwht-auth-state.json"
+        run: rm -f "$RUNNER_TEMP/aria-rwht-auth-state.json"
 
 # Final certification trigger 2026-10-01.
