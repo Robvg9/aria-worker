@@ -2833,6 +2833,24 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Valida gobernanza, ejecución controlada, contexto, memoria, verificación y continuidad de ECC."
   },
   {
+    "id": "mission-planner-auth-forwarding",
+    "file": "tests/mission-planner-auth-forwarding.test.js",
+    "title": "Mission Planner Auth Forwarding",
+    "category": "Mission / runtime / autenticación",
+    "includedInNpmTest": false,
+    "how": "Comprueba que la autenticación de servicio se propague correctamente al planificador de misiones.",
+    "capabilities": "Valida continuidad de autenticación, planificación y ejecución canónica."
+  },
+  {
+    "id": "mission-runner-recall-timeout",
+    "file": "tests/mission-runner-recall-timeout.test.js",
+    "title": "Mission Runner Recall Timeout",
+    "category": "Mission / runtime / recuperación",
+    "includedInNpmTest": false,
+    "how": "Comprueba que el runner maneje correctamente timeouts durante la recuperación y recall de contexto.",
+    "capabilities": "Valida resiliencia del runner, timeouts y continuidad de misiones."
+  },
+  {
     "id": "mission-runtime-integrity-v1",
     "file": "tests/mission-runtime-integrity-v1.test.js",
     "title": "Mission Runtime Integrity V1",
