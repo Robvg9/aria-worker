@@ -12,11 +12,11 @@ const out = (body: unknown, status = 200) => new Response(JSON.stringify(body), 
 const eq = (a: string, b: string) => { const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b); if (x.length !== y.length) return false; let d = 0; for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i]; return d === 0; };
 const tokenOf = (r: Request) => { const h = r.headers.get("authorization") ?? ""; return h.startsWith("Bearer ") ? h.slice(7) : r.headers.get("x-aria-autonomy-token"); };
 async function auth(r: Request) {
+  const internalKey = r.headers.get("x-aria-internal-service-key") ?? "";
+  if (KEY && internalKey && eq(internalKey, KEY)) return true;
+
   const t = tokenOf(r);
   if (t && SECRET && eq(t, SECRET)) return true;
-  // Internal runner-to-agent calls may carry the Supabase service key when the
-  // shared runtime secret is unavailable in the caller context. This never
-  // grants end-user UI access; it authenticates only the internal function hop.
   if (t && KEY && eq(t, KEY)) return true;
   if (!t) return false;
   const { data, error } = await sb.rpc("aria_autonomy_cron_authorize", { p_token: t });
