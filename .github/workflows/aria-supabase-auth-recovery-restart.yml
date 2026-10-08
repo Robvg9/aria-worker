@@ -1,0 +1,54 @@
+name: ARIA Supabase Auth Recovery Restart
+
+on:
+  push:
+    paths:
+      - '.github/workflows/aria-supabase-auth-recovery-restart.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restart-and-health:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Restart Supabase project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_PROJECT_REF"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/restart" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Accept: application/json"
+          echo
+          echo SUPABASE_RESTART_REQUESTED
+
+      - name: Wait for Supabase ACTIVE_HEALTHY
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            payload="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
+              --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              --header "Accept: application/json")" || payload='{}'
+            status="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status",""))' "$payload" 2>/dev/null || true)"
+            echo "PROJECT_STATUS=$status"
+            if [ "$status" = "ACTIVE_HEALTHY" ]; then
+              echo SUPABASE_ACTIVE_HEALTHY
+              exit 0
+            fi
+            sleep 5
+          done
+          echo SUPABASE_HEALTH_TIMEOUT
+          exit 2
