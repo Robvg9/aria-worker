@@ -484,6 +484,19 @@ function applyRecoveryAgentFallbacks(steps: any[], recovery: any) {
           : AGENT_RECOVERY_FALLBACKS[current])
       : AGENT_RECOVERY_FALLBACKS[current];
     if (!fallback) return step;
+    // Never route a non-Android web/PWA coding recovery into the Android coder.
+    if (!androidRecovery && (fallback === "aria-agent-android-coding-openrouter-v1")) {
+      return {
+        ...step,
+        target: { ...(step.target || {}), agent_id: "aria-agent-coding-openrouter-v1" },
+        input: {
+          ...(step.input || {}),
+          recovery_rerouted_from_agent: current,
+          recovery_rerouted: true,
+          recovery_route_reason: "non_android_task_must_not_use_android_coder",
+        },
+      };
+    }
     return {
       ...step,
       target: { ...(step.target || {}), agent_id: fallback },
