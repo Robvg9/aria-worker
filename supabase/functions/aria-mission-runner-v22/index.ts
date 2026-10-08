@@ -2256,7 +2256,672 @@ async function enforceFailureMemory(missionId:string, goal:string, steps:any[], 
     "Cambia executor_type, operación, recurso o combinación de ellos; conserva el objetivo original.",
     "Si una alternativa tampoco puede demostrarse viable, explica el bloqueo en lugar de repetir.",
     "RUTAS EXCLUIDAS: " + JSON.stringify(forbiddenText).slice(0, 12000),
-  ].join("\n      cuevacoin: /cueva\s*coin|cuevacoin|reality_cuevacoin_repo_read|reality_cuevacoin_authorized_read|reality_cuevacoin_authorized_source_read|project_scope.*cuevacoin/.test(planText),\n");
+  ].join("\n");
+
+  try {
+    const alternativeRaw = await createPlan(alternativeGoal, {
+      ...cognitiveContext,
+      failure_memory: {
+        goal_signature: goalSignature,
+        forbidden_routes: forbiddenText,
+        source: "persistent_strategy_failure_ledger",
+      },
+    }, auth);
+    const alternative = (Array.isArray(alternativeRaw) ? alternativeRaw : []).map((step:any) => normalizeExecutionStep(step, mission));
+    if (!alternative.length) {
+      const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+      if (deterministic) {
+        const alternativePlan = [deterministic];
+        const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+        await emitEvent(missionId, "mission_replanned", {
+          reason: "persistent_failure_memory_deterministic_fallback",
+          planner_bypassed: true,
+          previous_plan_fingerprint: planFingerprint,
+          new_plan_fingerprint: deterministicPlanFingerprint,
+          excluded_routes: forbiddenText,
+          new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        });
+        return {
+          allowed: true,
+          goal_signature: goalSignature,
+          plan_fingerprint: deterministicPlanFingerprint,
+          previous_plan_fingerprint: planFingerprint,
+          blocked_routes: blocked,
+          excluded_matches: matched,
+          steps: alternativePlan,
+          changed_by_memory: true,
+          planner_bypassed: true,
+        };
+      }
+      return { allowed: false, goal_signature: goalSignature, plan_fingerprint: planFingerprint, blocked_routes: matched, reason: "alternative_plan_empty" };
+    }
+
+    const alternativePlanFingerprint = await strategyFingerprint(alternative);
+    const alternativeBlocked:any[] = [];
+    for (const step of alternative) {
+      const fp = await strategyRouteFingerprint(step);
+      const row = blockedByFingerprint.get(fp);
+      if (row) alternativeBlocked.push({ step_id:String(step?.id || ""), fingerprint:fp, row, strategy:strategyRouteDescriptor(step) });
+    }
+    if (alternativePlanFingerprint === planFingerprint || alternativeBlocked.length) {
+      const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+      if (deterministic) {
+        const alternativePlan = [deterministic];
+        const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+        await emitEvent(missionId, "mission_replanned", {
+          reason: "persistent_failure_memory_deterministic_fallback",
+          planner_bypassed: true,
+          previous_plan_fingerprint: planFingerprint,
+          new_plan_fingerprint: deterministicPlanFingerprint,
+          excluded_routes: forbiddenText,
+          new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        });
+        return {
+          allowed: true,
+          goal_signature: goalSignature,
+          plan_fingerprint: deterministicPlanFingerprint,
+          previous_plan_fingerprint: planFingerprint,
+          blocked_routes: blocked,
+          excluded_matches: matched,
+          steps: alternativePlan,
+          changed_by_memory: true,
+          planner_bypassed: true,
+        };
+      }
+      return {
+        allowed: false,
+        goal_signature: goalSignature,
+        plan_fingerprint: planFingerprint,
+        blocked_routes: matched,
+        alternative_blocked_routes: alternativeBlocked,
+        reason: alternativePlanFingerprint === planFingerprint ? "alternative_strategy_identical" : "alternative_contains_blocked_route",
+      };
+    }
+
+    await emitEvent(missionId, "mission_replanned", {
+      goal_signature: goalSignature,
+      previous_plan_fingerprint: planFingerprint,
+      new_plan_fingerprint: alternativePlanFingerprint,
+      excluded_routes: forbiddenText,
+      new_steps: alternative.map((step:any)=>strategyRouteDescriptor(step)),
+    });
+    return {
+      allowed: true,
+      goal_signature: goalSignature,
+      plan_fingerprint: alternativePlanFingerprint,
+      previous_plan_fingerprint: planFingerprint,
+      blocked_routes: blocked,
+      excluded_matches: matched,
+      steps: alternative,
+      changed_by_memory: true,
+    };
+  } catch (error) {
+    const deterministic = await buildFailureMemoryDeterministicAlternative(goal, blocked, mission);
+    if (deterministic) {
+      const alternativePlan = [deterministic];
+      const deterministicPlanFingerprint = await strategyFingerprint(alternativePlan);
+      await emitEvent(missionId, "mission_replanned", {
+        reason: "persistent_failure_memory_deterministic_fallback",
+        planner_bypassed: true,
+        previous_plan_fingerprint: planFingerprint,
+        new_plan_fingerprint: deterministicPlanFingerprint,
+        excluded_routes: forbiddenText,
+        new_steps: alternativePlan.map((step:any)=>strategyRouteDescriptor(step)),
+        planner_error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        allowed: true,
+        goal_signature: goalSignature,
+        plan_fingerprint: deterministicPlanFingerprint,
+        previous_plan_fingerprint: planFingerprint,
+        blocked_routes: blocked,
+        excluded_matches: matched,
+        steps: alternativePlan,
+        changed_by_memory: true,
+        planner_bypassed: true,
+        planner_error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    return {
+      allowed: false,
+      goal_signature: goalSignature,
+      plan_fingerprint: planFingerprint,
+      blocked_routes: matched,
+      reason: "alternative_planner_failed",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function objectivePlanAlignment(goal:string, steps:any[]){
+  const text=String(goal||'').toLowerCase();
+  const ops=(steps||[]).map((s:any)=>String(s?.operation||'').toLowerCase());
+  const executors=(steps||[]).map((s:any)=>executorType(s));
+  const isComputerDiagnostic=(
+    /(diagnostica|diagnóstico|diagnostico|causa raíz|causa raiz|comprueba|comprueba|check|revisa|revisar|averigua)/.test(text) &&
+    /(windows|computer\.use|computer use|windows device)/.test(text)
+  );
+  // Only treat RWHT as an explicit human-facing test intent. Do not let
+  // identifiers such as "aria/sandbox/rwht-battlecruiser-..." trigger the RWHT path.
+  // RWHT must be a standalone intent token. Keep path/branch identifiers such as
+  // "aria/sandbox/rwht-battlecruiser-..." from activating the RWHT computer-use route.
+  const rwhtProbe=text.replace(/[()[\\]{}:;,!.?]/g,' ');
+  const isRwht=/(^|\\s)rwht(?=$|\\s)/i.test(rwhtProbe)
+    || /(real world human|auditoría física|auditoria fisica|recorre.*interfaz|prueba física|prueba fisica|prueba de interfaz|botón|botones)/.test(text);
+  const hasDevice=executors.includes('device');
+  const hasAutonomous=ops.includes('computer.use.autonomous');
+  const hasGithubWrite=ops.some((op:string)=>['create_branch','file_write','open_pr','pr_merge'].includes(op));
+  if(isRwht && !hasAutonomous){
+    return {
+      ok:false,
+      kind:'rwht_capability_mismatch',
+      reason:'El objetivo exige una prueba RWHT, pero el plan no contiene ejecución autónoma de Computer Use en un dispositivo.',
+      required:['executor_type=device','operation=computer.use.autonomous'],
+      forbidden:[],
+    };
+  }
+  if(isComputerDiagnostic && (!hasDevice || hasGithubWrite)){
+    return {
+      ok:false,
+      kind:'diagnostic_surface_mismatch',
+      reason: hasGithubWrite
+        ? 'El objetivo es un diagnóstico de Windows/Computer Use, pero el plan intenta modificar GitHub en lugar de inspeccionar el dispositivo.'
+        : 'El objetivo es un diagnóstico de Windows/Computer Use, pero el plan no contiene ningún paso sobre el dispositivo Windows.',
+      required:['executor_type=device','diagnóstico de solo lectura sobre Windows'],
+      forbidden:['create_branch','file_write','open_pr','pr_merge'],
+    };
+  }
+  // Multi-project goals must preserve every explicitly requested project surface.
+  // A broad project dashboard must never collapse into a single-project audit.
+  const explicitProjectBoard = /(?:debe mostrar|mostrar al menos|incluye al menos|proyectos?[:\s]|three projects|tres proyectos)/i.test(text)
+    && /battlecruiser/i.test(text)
+    && /cueva\s*coin|cuevacoin/i.test(text)
+    && /\baria\b/i.test(text);
+  if (explicitProjectBoard) {
+    const planText = JSON.stringify(steps || []).toLowerCase();
+    const coverage = {
+      battlecruiser: /battlecruiser|reality_battlecruiser_repo_read|project_scope.*battlecruiser/.test(planText),
+      cuevacoin: /cueva\s*coin|cuevacoin|reality_cuevacoin_repo_read|reality_cuevacoin_authorized_read|reality_cuevacoin_authorized_source_read|project_scope.*cuevacoin/.test(planText),
+      aria: /aria[-_ ](?:worker|app|pwa|memory|mission|reality)|reality_aria_repo_read|project_scope.*(?:^|[\[," ])aria(?:$|[\],"])/.test(planText),
+    };
+    const missing = Object.entries(coverage).filter(([,present]) => !present).map(([name]) => name);
+    if (missing.length) {
+      return {
+        ok:false,
+        kind:"multi_project_surface_mismatch",
+        reason:"El objetivo exige varios proyectos, pero el plan no cubre todas las superficies solicitadas.",
+        required:[
+          "La aplicación debe cubrir ARIA, CuevaCoin y BattleCruiser",
+          "Debe leer fuentes actuales y producir estado verificable",
+          "Debe construir la aplicación Reality Board y no solo un informe de un proyecto",
+          "Debe ejecutar código/tests/deploy/E2E para el resultado solicitado"
+        ],
+        missing,
+        forbidden:[],
+      };
+    }
+  }
+  return {ok:true};
+}
+
+function evidenceBoundSynthesisVerification(step:any, result:any, results:Record<string, unknown>) {
+  if (step?.policy?.evidence_bound_synthesis !== true) return {required:false,passed:true};
+  const content = String(result?.response?.content ?? result?.response?.output_text ?? result?.stdout ?? "").trim();
+  const dependencyIds = Array.isArray(step?.depends_on) ? step.depends_on.map(String) : [];
+  if (!content) return {required:true,passed:false,reason:"evidence_bound_synthesis_empty_output"};
+  if (!dependencyIds.length) return {required:true,passed:false,reason:"evidence_bound_synthesis_dependencies_missing"};
+  const dependencyResults = dependencyIds.map(id => results[id]).filter(Boolean);
+  const successfulDependencies = dependencyResults.filter((value:any) => String(value?.status || "").toLowerCase()==="succeeded");
+  if (!successfulDependencies.length) return {required:true,passed:false,reason:"evidence_bound_synthesis_no_successful_dependencies"};
+  if (/(no se proporcionaron|no se proporcionó|está vacía|esta vacía|ninguno listado|ninguno encontrado|ausencia total de artefactos|sin resultados.*pasos|fuente.*exclusiva.*vacía|datos.*vacíos)/i.test(content)) {
+    return {required:true,passed:false,reason:"evidence_bound_synthesis_contradicts_dependency_evidence",dependency_count:successfulDependencies.length,response_excerpt:content.slice(0,3000)};
+  }
+  const anchors:string[]=[];
+  for(const value of successfulDependencies){
+    const raw:any=value;
+    for(const candidate of [raw?.data?.full_name,raw?.data?.html_url,raw?.data?.url,raw?.data?.path,raw?.data?.sha,raw?.data?.name,raw?.html_url,raw?.url,raw?.path,raw?.sha]){
+      const anchor=String(candidate||"").trim();
+      if(anchor.length>=6) anchors.push(anchor);
+    }
+  }
+  const matchedAnchor=anchors.find(anchor=>content.toLowerCase().includes(anchor.toLowerCase())) || null;
+  if(anchors.length && !matchedAnchor){
+    return {required:true,passed:false,reason:"evidence_bound_synthesis_no_concrete_evidence_anchor",dependency_count:successfulDependencies.length,available_anchors:anchors.slice(0,20),response_excerpt:content.slice(0,3000)};
+  }
+  return {required:true,passed:true,dependency_count:successfulDependencies.length,matched_anchor:matchedAnchor};
+}
+
+async function executeStep(missionId: string, step: any, auth: AuthContext, mission: any = null) {
+  validateStep(step);
+  const type = executorType(step);
+  if (type === "connector") return connectorExecute(missionId, step, auth.token, mission);
+  if (type === "device") return deviceExecute(missionId, step);
+  if (type === "model") return modelExecute(missionId, step, auth);
+  if (type === "agent") return agentExecute(missionId, step, auth);
+  if (type === "eas") return easExecute(step);
+  throw new Error(`unknown_executor_type:${type}`);
+}
+
+function dependenciesSatisfied(step: any, completed: Set<string>) {
+  return (Array.isArray(step?.depends_on) ? step.depends_on : []).every((dependency: any) => completed.has(String(dependency)));
+}
+
+function readyBatch(steps: any[], completed: Set<string>) {
+  const ready = steps.filter((step) => !completed.has(String(step.id)) && dependenciesSatisfied(step, completed));
+  if (ready.length > 1 && ready.slice(0, 2).every((step) => String(step.risk || "READ").toUpperCase() === "READ" && executorType(step) !== "device")) {
+    return ready.slice(0, 2);
+  }
+  return ready.slice(0, 1);
+}
+
+function dependencyEvidenceForStep(step: any, results: Record<string, unknown>) {
+  const ids = Array.isArray(step?.depends_on) ? step.depends_on.map(String) : [];
+  if (!ids.length) return [];
+  const maxEach = 9000;
+  const maxTotal = 70000;
+  const out:any[] = [];
+  let total = 0;
+  for (const id of ids) {
+    const raw = results[id];
+    if (raw === undefined) continue;
+    const compact = raw && typeof raw === "object"
+      ? {
+          status: (raw as any)?.status ?? null,
+          executor_type: (raw as any)?.executor_type ?? null,
+          operation: (raw as any)?.operation ?? null,
+          verified: (raw as any)?.verified ?? null,
+          response: (raw as any)?.response?.content ?? (raw as any)?.response?.output_text ?? null,
+          stdout: (raw as any)?.stdout ?? null,
+          result: (raw as any)?.result ?? null,
+          data: (raw as any)?.data ?? null,
+          error: (raw as any)?.error ?? null,
+        }
+      : raw;
+    const text=JSON.stringify(compact);
+    const remaining=Math.max(0,maxTotal-total);
+    const evidence=text.slice(0,Math.min(maxEach,remaining));
+    out.push({step_id:id,evidence});
+    total+=evidence.length;
+    if(total>=maxTotal)break;
+  }
+  return out;
+}
+
+
+async function scheduleMissionKick(missionId: string, reason: string, kind: "retry" | "continuation") {
+  try {
+    // The old runner_tick_for_mission RPC is absent from the current schema.
+    // Re-enter through the canonical governed runtime instead.
+    const response = await fetch(CANONICAL, {
+      method: "POST",
+      headers: { ...internalHeaders(), "x-aria-trigger": "mission-tick" },
+      body: JSON.stringify({ mission_id: missionId }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(String(payload?.error || payload?.status || `canonical_runner_http_${response.status}`));
+    }
+    console.log(`[aria-runner] ${kind} dispatch`, JSON.stringify({
+      mission_id: missionId,
+      reason,
+      request_id: payload?.invocation_id ?? null,
+      runtime_status: payload?.status ?? null,
+    }));
+    return {
+      status: "kick_requested",
+      request_id: payload?.invocation_id ?? null,
+      runtime_status: payload?.status ?? null,
+    };
+  } catch (error) {
+    console.error(`[aria-runner] ${kind} dispatch error`, JSON.stringify({
+      mission_id: missionId,
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return { status: "kick_failed", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function scheduleMissionRetryKick(missionId: string, reason: string) {
+  return scheduleMissionKick(missionId, reason, "retry");
+}
+
+async function scheduleMissionContinuationKick(missionId: string, reason: string) {
+  return scheduleMissionKick(missionId, reason, "continuation");
+}
+
+async function chainNextMeditationMission(depth: number) {
+  if (depth >= 8) return { status: "chain_limit_reached", depth };
+  const next = await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
+  const nextMissionId = next?.mission_id ? String(next.mission_id) : null;
+  if (!nextMissionId) return { status: "idle", depth };
+  try {
+    const response = await fetch(CANONICAL, {
+      method: "POST",
+      headers: { ...internalHeaders(), "x-aria-trigger": "meditation-ia" },
+      body: JSON.stringify({ mission_id: nextMissionId, chain_depth: depth + 1 })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || payload.ok !== true) throw new Error(String(payload?.error || payload?.status || `chained_runtime_http_${response.status}`));
+    return { status: "chained", mission_id: nextMissionId, child_status: payload.status || null, child_runtime: payload.runtime || null, child_chain: payload.chained || null, depth: depth + 1 };
+  } catch (error) {
+    // Do not requeue here: the child may already have been accepted/executing.
+    // Leaving the lease fenced lets stale-mission recovery decide safely without duplicating side effects.
+    return {
+      status: "chain_invoke_failed",
+      mission_id: nextMissionId,
+      error: error instanceof Error ? error.message : String(error),
+      depth,
+      recovery: "lease_preserved_for_stale_recovery",
+    };
+  }
+}
+
+Deno.serve(async (request) => {
+  if (request.method !== "POST") return out({ error: "method_not_allowed" }, 405);
+  if (!(await authorized(request))) return out({ error: "unauthorized" }, 401);
+
+  const body = await request.json().catch(() => ({}));
+  const requestedMissionId = typeof body?.mission_id === "string" ? body.mission_id : null;
+  const chainDepth = Math.max(0, Math.min(8, Number(body?.chain_depth || 0)));
+  const meditationChain = request.headers.get("x-aria-trigger") === "meditation-ia";
+  // The temporary RWHT exclusivity guard must never become a global mission blocker.
+  // It is only active when an explicit RWHT-exclusive trigger is supplied, and it
+  // protects the original mission probe without blocking other mission IDs.
+  const rwhtExclusive = request.headers.get("x-aria-trigger") === "rwht-exclusive";
+  const rwhtGuardMission = "mission_rwht_final_20260920_02";
+  if (rwhtExclusive && requestedMissionId !== rwhtGuardMission) {
+    return out({ ok:true, status:"paused_load_guard", runtime:V, reason:"temporary_rwht_exclusive_run" });
+  }
+  const auth = authContextOf(request);
+  const token = auth.token;
+
+  if (typeof body?.action === "string" && body.action === "human_gate_decide") {
+    const missionId = typeof body?.mission_id === "string" ? body.mission_id : "";
+    const decision = String(body?.decision || "").toLowerCase();
+    if (!missionId) return out({ ok: false, error: "mission_id_required" }, 400);
+    if (!["approve", "reject", "cancel"].includes(decision)) return out({ ok: false, error: "invalid_human_gate_decision" }, 400);
+    try {
+      const result = await rpc("mission_human_gate_decide", {
+        p_mission_id: missionId,
+        p_decision: decision,
+        p_approver_id: String(body?.approver_id || "runtime_authenticated_human"),
+        p_action_hash: typeof body?.action_hash === "string" ? body.action_hash : null,
+        p_note: typeof body?.note === "string" ? body.note : null,
+      });
+      const decisionStatus = decision === "approve" ? "human_gate_approved" : decision === "reject" ? "human_gate_rejected" : "human_gate_cancelled";
+      return out({ ok: true, status: decisionStatus, mission_id: missionId, decision, result });
+    } catch (error) {
+      return out({
+        ok: false,
+        status: "human_gate_decision_rejected",
+        mission_id: missionId,
+        error: error instanceof Error ? error.message : String(error),
+      }, 409);
+    }
+  }
+
+  let activeMissionId: string | null = null;
+
+  try {
+    let staleRecovery: { status: "ok" | "deferred"; reason?: string } = { status: "ok" };
+    let hardBlockRecovery = 0;
+    try {
+      await rpc("aria_autonomy_recover_stale_missions", { p_stale_after: "00:02:00" });
+    } catch (recoveryError) {
+      const reason = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+      if (/schema cache|retrying|statement timeout|timeout/i.test(reason)) {
+        staleRecovery = { status: "deferred", reason };
+      } else {
+        throw recoveryError;
+      }
+    }
+
+    try {
+      const reopened = await rpc("aria_internal.aria_reopen_recoverable_hard_blocks", { p_limit: 20 });
+      hardBlockRecovery = Number(reopened || 0);
+      if (hardBlockRecovery > 0 && requestedMissionId) {
+        await emitEvent(String(requestedMissionId), "hard_blocks_reopened", {
+          reopened: hardBlockRecovery,
+          recovery_epoch: "advanced",
+          reason: "new governed recovery capability",
+        }).catch(() => undefined);
+      }
+    } catch {
+      hardBlockRecovery = 0;
+    }
+
+    const mission = requestedMissionId
+      ? await rpc("aria_mission_claim_by_id_lease", { p_mission_id: requestedMissionId, p_worker_id: V, p_lease_for: LEASE_FOR })
+      : await rpc("aria_mission_claim_next_lease", { p_worker_id: V, p_lease_for: LEASE_FOR });
+    if (!mission) return out({ ok: true, status: "idle", runtime: V_LOGICAL, invocation_id: V, stale_recovery: staleRecovery, hard_block_recovery: hardBlockRecovery });
+
+    const missionId = String(mission.mission_id);
+    activeMissionId = missionId;
+    await renewLease(missionId);
+
+    const recalled = await recall(String(mission.goal || ""), token);
+    const previousRecovery = mission?.checkpoint?.recovery && typeof mission.checkpoint.recovery === "object"
+      ? mission.checkpoint.recovery
+      : null;
+    const cognitiveContext = {
+      version: "cognitive-loop-v2",
+      available: recalled.available,
+      recall_count: recalled.results.length,
+      memory_ids: recalled.results.map((item: any) => item.memory_id || item.id).filter(Boolean),
+      mission_planner_contract: {
+        requested_capability: typeof mission?.metadata?.requested_capability === "string" ? mission.metadata.requested_capability : null,
+        requested_device_id: typeof mission?.metadata?.requested_device_id === "string" ? mission.metadata.requested_device_id : (typeof mission?.metadata?.device_id === "string" ? mission.metadata.device_id : null),
+        verification_marker: typeof mission?.metadata?.verification_marker === "string" ? mission.metadata.verification_marker : null,
+        command: typeof mission?.metadata?.command === "string" ? mission.metadata.command : null,
+        cwd: typeof mission?.metadata?.cwd === "string" ? mission.metadata.cwd : null,
+        start_url: typeof mission?.metadata?.start_url === "string" ? mission.metadata.start_url : null,
+        timeout_ms: Number.isInteger(mission?.metadata?.timeout_ms) ? mission.metadata.timeout_ms : null,
+        risk: typeof mission?.metadata?.risk === "string" ? mission.metadata.risk : null,
+        source: typeof mission?.metadata?.source === "string" ? mission.metadata.source : null,
+        roadmap_block: typeof mission?.metadata?.roadmap_block === "string" ? mission.metadata.roadmap_block : null,
+      },
+      recovery: previousRecovery?.replan_required === true ? {
+        replan_required: true,
+        replan_count: Number(previousRecovery?.replan_count || 0),
+        failure_reason: previousRecovery?.failure_reason || null,
+        failed_step_ids: Array.isArray(previousRecovery?.failed_step_ids) ? previousRecovery.failed_step_ids : [],
+        failed_step_details: previousRecovery?.block_details || null,
+        previous_plan_summary: Array.isArray(previousRecovery?.previous_plan)
+          ? previousRecovery.previous_plan.map((step: any) => ({
+              id: step?.id,
+              executor_type: step?.executor_type,
+              operation: step?.operation,
+              risk: step?.risk,
+              target: step?.target,
+            })).slice(0, 20)
+          : [],
+      } : null,
+    };
+    await emitEvent(missionId, "cognitive_recall_completed", cognitiveContext);
+
+    let steps: any[];
+    const recoveryState = mission?.checkpoint?.recovery && typeof mission.checkpoint.recovery === "object"
+      ? mission.checkpoint.recovery
+      : null;
+    const recoveryNeedsFreshPlan = recoveryState?.replan_required === true
+      && !["retry_scheduled", "replanned"].includes(String(recoveryState?.status || ""));
+    if (Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length && !recoveryNeedsFreshPlan) {
+      steps = mission.checkpoint.plan;
+    } else {
+      try {
+        const directLocalRecovery = recoveryNeedsFreshPlan ? await buildLocalQwenRecoveryStep(mission, recoveryState) : null;
+        if (directLocalRecovery) {
+          steps = [directLocalRecovery];
+          await emitEvent(missionId, "recovery_attempted", {
+            recovery_route: "cloud_to_local_qwen",
+            planner_bypassed: true,
+            step_id: directLocalRecovery.id,
+            device_id: directLocalRecovery.target.device_id,
+            local_model: "qwen3:0.6b",
+          });
+        } else {
+          steps = await createPlan(String(mission.goal || ""), { ...cognitiveContext, ...(recoveryNeedsFreshPlan ? { recovery_strategy_required: true, identical_strategy_detected: true, failed_step_id: String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || ""), failed_executor_type: String(recoveryState?.executor_type || recoveryState?.previous_plan?.[0]?.executor_type || ""), failed_operation: String(recoveryState?.operation || recoveryState?.previous_plan?.[0]?.operation || ""), failed_error: recoveryState?.block_details || recoveryState?.previous_results?.[String(recoveryState?.failed_step_ids?.[0] || recoveryState?.failed_step_id || "")]?.error || null, previous_plan: Array.isArray(recoveryState?.previous_plan) ? recoveryState.previous_plan : [], previous_results: recoveryState?.previous_results && typeof recoveryState.previous_results === "object" ? recoveryState.previous_results : {} } : {}) }, token);
+        }
+      } catch (planErr) {
+        const reason = planErr instanceof Error ? planErr.message : String(planErr);
+        if (recoveryState?.status === "waiting_for_alternative_strategy") {
+          const failureMemoryRoutes = Array.isArray(recoveryState?.block_details?.failure_memory?.blocked_routes)
+            ? recoveryState.block_details.failure_memory.blocked_routes.map((item:any) => item?.row || item).filter(Boolean)
+            : [];
+          const deterministic = await buildFailureMemoryDeterministicAlternative(
+            String(mission.goal || ""),
+            failureMemoryRoutes,
+            mission
+          );
+          if (deterministic) {
+            steps = [deterministic];
+            await emitEvent(missionId, "mission_replanned", {
+              reason: "persistent_failure_memory_deterministic_fallback",
+              planner_bypassed: true,
+              planner_error: reason,
+              previous_plan: Array.isArray(recoveryState?.previous_plan) ? recoveryState.previous_plan.map((step:any) => strategyRouteDescriptor(step)) : [],
+              new_steps: steps.map((step:any) => strategyRouteDescriptor(step)),
+            });
+          } else {
+            await updateMission(missionId, {
+
+          status: "paused",
+          next_action: reason === "planner_timeout" ? "recovery:planner_timeout" : `recovery:planner_error:${reason}`,
+          last_stderr: reason,
+          lease_owner: null,
+          lease_until: null,
+          checkpoint: {
+            ...(mission.checkpoint || {}),
+            cognitive_context: cognitiveContext,
+            planner_diagnostic: {
+              code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
+              message: reason,
+              at: new Date().toISOString(),
+              recoverable: true,
+            },
+          },
+        });
+            await emitEvent(missionId, "planner_failed", {
+              code: reason === "planner_timeout" ? "planner_timeout" : "planner_error",
+              message: reason,
+            });
+            return out({ ok: false, status: "paused", mission_id: missionId, runtime: V, error: reason });
+          }
+        }
+      }
+    }
+    if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
+    steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
+
+    const normalizedSteps = steps.map((step: any) => normalizeExecutionStep(step, mission));
+    const inferredExecutorSteps = normalizedSteps
+      .map((step: any, index: number) => ({
+        index: index + 1,
+        step_id: String(step?.id || `step_${index + 1}`),
+        executor_type: String(step?.executor_type || ""),
+        device_id: step?.target?.device_id || null,
+      }))
+      .filter((item: any) => item.executor_type);
+    if (inferredExecutorSteps.length) {
+      await emitEvent(missionId, "executor_selected", {
+        count: inferredExecutorSteps.length,
+        steps: inferredExecutorSteps,
+        reason: "execution contract normalization",
+      });
+    }
+    steps = normalizedSteps;
+
+    const failureMemoryGate = await enforceFailureMemory(
+      missionId,
+      String(mission.goal || ""),
+      steps,
+      cognitiveContext,
+      auth,
+      mission
+    );
+    if (!failureMemoryGate.allowed) {
+      const blockDetails = {
+        kind: "strategy_excluded_by_failure_memory",
+        recoverable: true,
+        reason: "ARIA encontró una ruta previamente bloqueada por fallos repetidos y no pudo demostrar una alternativa nueva.",
+        next_action: "recovery: choose a different executor or resource",
+        remediation: "La ruta excluida no se vuelve a ejecutar. ARIA conserva la causa y requiere una estrategia materialmente distinta.",
+        failure_memory: failureMemoryGate,
+      };
+      await updateMission(missionId, {
+        status: "waiting",
+        current_step: 0,
+        completed_steps: 0,
+        next_action: blockDetails.next_action,
+        last_stderr: "strategy_excluded_by_failure_memory",
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          failure_memory: failureMemoryGate,
+          recovery: {
+            status: "waiting_for_alternative_strategy",
+            replan_required: true,
+            strategy_change_required: true,
+            block_details: blockDetails,
+          },
+          plan: steps,
+          active_step: null,
+          pending_jobs: {},
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      await emitEvent(missionId, "recovery_attempted", blockDetails);
+      return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, block_details: blockDetails });
+    }
+    if (failureMemoryGate.changed_by_memory === true && Array.isArray(failureMemoryGate.steps)) {
+      steps = failureMemoryGate.steps;
+      await emitEvent(missionId, "mission_replanned", {
+        reason: "persistent_failure_memory_forced_strategy_change",
+        previous_plan_fingerprint: failureMemoryGate.previous_plan_fingerprint,
+        new_plan_fingerprint: failureMemoryGate.plan_fingerprint,
+      });
+    }
+
+    const recoveryPreviousPlan = previousRecovery?.replan_required === true && Array.isArray(previousRecovery?.previous_plan)
+      ? previousRecovery.previous_plan
+      : [];
+    if (recoveryPreviousPlan.length && planStrategySignature(steps) === planStrategySignature(recoveryPreviousPlan)) {
+      const failedStepIds = Array.isArray(previousRecovery?.failed_step_ids) ? previousRecovery.failed_step_ids.map(String) : [];
+      const failedStepId = failedStepIds[0] || null;
+      const previousResults = previousRecovery?.previous_results && typeof previousRecovery.previous_results === "object"
+        ? previousRecovery.previous_results
+        : {};
+      const failedEvidence = failedStepId && previousResults[failedStepId] ? previousResults[failedStepId] : null;
+      const failureError = failedEvidence?.error && typeof failedEvidence.error === "object"
+        ? failedEvidence.error
+        : null;
+      const failureCode = String(failureError?.code || failedEvidence?.error_code || "executor_error");
+      const failureMessage = String(failureError?.message || failedEvidence?.message || failureCode);
+      const originalGoal = String(mission.goal || "");
+
+      // One governed escape hatch: before declaring an identical strategy terminal,
+      // ask the planner for a materially different strategy using explicit failure
+      // evidence. This is especially important for protocol missions such as All For One.
+      const recoveryGoal = [
+        originalGoal,
+        "",
+        "RECUPERACIÓN OBLIGATORIA DE UNA ESTRATEGIA FALLIDA:",
+        "La estrategia anterior ya falló y el plan generado ahora es idéntico.",
+        "NO repitas el mismo executor_type + operation + target.",
+        "Debes cambiar la ruta de ejecución o dividir el trabajo en especialistas adecuados.",
+        `PASO FALLIDO: ${failedStepId || "desconocido"}`,
+        `ERROR CONFIRMADO: ${failureCode} — ${failureMessage}`,
+        "EVIDENCIA PREVIA: " + JSON.stringify({
+          failed_step: failedEvidence?.operation || null,
+          executor_type: failedEvidence?.executor_type || null,
+          target: failedEvidence?.target || null,
+          result: failedEvidence?.result || failedEvidence?.response || null,
+        }).slice(0,9000),
+        originalGoal.toLowerCase().includes("all for one")
+          ? "PROTOCOLO ALL FOR ONE: usa obligatoriamente una revisión forense multi-modelo + multi-agente, sin convertir la auditoría en una prueba física de interfaz."
+          : "Construye una alternativa gobernada que ataque directamente el objetivo original y cambie la capacidad utilizada."
+      ].join("\n");
 
       try {
         const alternateSteps = await createPlan(recoveryGoal, {
