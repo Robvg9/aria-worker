@@ -1,0 +1,14 @@
+const assert=require('node:assert');
+const fs=require('node:fs');
+const html=fs.readFileSync('pwa/public/reality-board.html','utf8');
+assert.ok(html.includes("api('/projects')"),'must read live project catalog');
+assert.ok(html.includes("'/projects/'+p.id+'/missions?limit=20'"),'must read live project missions');
+assert.ok(html.includes("https://api.github.com/repos/Robvg9/aria-worker/commits/main"),'must inspect current main commit');
+assert.ok(html.includes('setInterval(refresh,15000)'), 'must auto-refresh');
+assert.ok(html.includes('VERIFICADO') && html.includes('NO CONFIRMADO'), 'must distinguish verified and unconfirmed states');
+assert.ok(html.includes('CONTRADICCIÓN'), 'must expose contradiction detection');
+assert.ok(!html.includes('2025-03-30T00:00:00Z'), 'must not embed stale snapshot timestamp');
+assert.ok(!html.includes('live:true'), 'must not hardcode LIVE truth');
+assert.ok(!html.includes('e2e:true'), 'must not hardcode E2E truth');
+assert.ok(html.includes('/pwa/#projects'), 'must provide human navigation to project workspace');
+console.log('reality-board-contract: PASS');
