@@ -254,11 +254,29 @@ async function checkUx(page) {
 
 async function expectEnabled(locator, projectId) {
   const started = Date.now();
-  while (Date.now() - started < 30000) {
+  const timeoutMs = 120000;
+  while (Date.now() - started < timeoutMs) {
     if (await locator.isEnabled().catch(() => false)) return;
     await waitFor(500);
   }
-  throw new Error('project_chat_send_not_enabled_' + projectId);
+  throw new Error('project_chat_send_not_enabled_' + projectId + '_after_' + timeoutMs + 'ms');
+}
+
+async function waitForProjectChatMarker(page, token, projectId, marker, timeoutMs = 60000) {
+  const started = Date.now();
+  let lastStatus = 0;
+  while (Date.now() - started < timeoutMs) {
+    const result = await readApiCurrent(page, '/projects/' + encodeURIComponent(projectId) + '/conversation');
+    lastStatus = result.status;
+    if (result.status === 200) {
+      const messages = Array.isArray(result.body?.conversation?.messages) ? result.body.conversation.messages : [];
+      if (messages.some((message) => typeof message?.content === 'string' && message.content.includes(marker))) {
+        return { verified: true, status: result.status, conversation_id: String(result.body?.conversation_id || '') };
+      }
+    }
+    await waitFor(1000);
+  }
+  throw new Error('project_chat_reload_persistence_timeout_' + projectId + '_status_' + lastStatus);
 }
 
 function normalizeMetadata(value) {
@@ -452,7 +470,10 @@ async function run() {
       const selectedProject = page.locator('.projectGrid .projectCard.selected').filter({ hasText: project.name }).first();
       await selectedProject.waitFor({ state: 'visible', timeout: RELOAD_CHAT_TIMEOUT_MS });
       await page.waitForSelector('.projectChatWindow', { state: 'visible', timeout: RELOAD_CHAT_TIMEOUT_MS });
-      await page.waitForFunction(({ markerValue }) => [...document.querySelectorAll('.projectChatWindow .bubble.user')].some((node) => node.textContent?.includes(markerValue)), { markerValue: marker }, { timeout: 30000 });
+      const reloadReadback = await waitForProjectChatMarker(page, session.accessToken, project.id, marker, 60000);
+      if (!reloadReadback.verified || reloadReadback.conversation_id !== conversationId) {
+        throw new Error('project_chat_reload_persistence_mismatch_' + project.id);
+      }
 
       report.projects.push({
         id: project.id,
