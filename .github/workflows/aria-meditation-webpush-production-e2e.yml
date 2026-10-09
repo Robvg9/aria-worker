@@ -84,20 +84,36 @@ jobs:
           test -n "${SUPABASE_ACCESS_TOKEN}"
           supabase link --project-ref "${SUPABASE_PROJECT_REF}"
 
-      - name: Wait for LIVE PWA
+      - name: Wait for LIVE PWA exact build SHA
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 60); do
-            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/?probe=$GITHUB_SHA-webpush-$attempt" 2>/dev/null || true)"
-            if grep -q "aria-test-catalog-version" <<<"$html" || grep -q "ARIA" <<<"$html"; then
-              echo "PWA_LIVE_OK"
-              exit 0
+          base="${RWHT_URL%/}/"
+          html=""
+          version=""
+          for attempt in $(seq 1 90); do
+            html="$(curl --fail --silent --show-error --retry 1 --retry-delay 1 "${base}?probe=$GITHUB_SHA-webpush-$attempt" 2>/dev/null || true)"
+            version="$(curl --fail --silent --show-error --retry 1 --retry-delay 1 "${base}version.json?probe=$GITHUB_SHA-webpush-$attempt" 2>/dev/null || true)"
+            if grep -q "aria-test-catalog-version" <<<"$html" &&
+               grep -q "$GITHUB_SHA" <<<"$html" &&
+               VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          try:
+              raise SystemExit(0 if json.loads(os.environ["VERSION"]).get("build") == os.environ["GITHUB_SHA"] else 1)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              echo "PWA_LIVE_EXACT_SHA_OK build=$GITHUB_SHA"
+              break
             fi
-            sleep 2
+            test "$attempt" -lt 90 && sleep 2
           done
-          echo "PWA_LIVE_NOT_READY" >&2
-          exit 1
+          grep -q "$GITHUB_SHA" <<<"$html"
+          VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"]).get("build") == os.environ["GITHUB_SHA"]
+          PY
 
       - name: Install Xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
