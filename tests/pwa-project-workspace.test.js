@@ -23,7 +23,7 @@ const visualMissionArrayDeclaration = projectsRwht.indexOf('const visualMissions
 const visualMissionLoop = projectsRwht.indexOf('const visualMissionExpectations = {');
 const visualMissionFinalize = projectsRwht.indexOf('report.visual_missions = visualMissions;');
 assert.ok(visualMissionArrayDeclaration >= 0 && visualMissionArrayDeclaration < visualMissionLoop && visualMissionFinalize > visualMissionLoop, 'visual mission results must remain in scope through preview certification and final report');
-assert.equal((projectsRwht.match(/const visualMissions = report\\.visual_missions;/g) || []).length, 1, 'shared visualMissions array must have a single outer-scope declaration');
+assert.equal(projectsRwht.split('const visualMissions = report.visual_missions;').length - 1, 1, 'shared visualMissions array must have a single outer-scope declaration');
 
 assert.match(project,/CHAT EXCLUSIVO/);
 assert.match(project,/same queue|misma cola|una sola cola/i);
