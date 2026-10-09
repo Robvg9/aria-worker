@@ -19,6 +19,8 @@ assert.match(project,/zIndex:1/);
 assert.match(projectsRwht,/artia_canvas_hit_test_failed/);
 assert.match(projectsRwht,/const visibleCanvas = drawGeometry\.visible_canvas/);
 assert.match(projectsRwht,/in_project_body_viewport/, 'RWHT draw points must stay inside the visible clipped viewport, not behind the project tabs');
+assert.equal((projectsRwht.match(/const visualMissions = report\.visual_missions/g) || []).length, 1, 'visual mission report array must be declared once outside the separate ARTIA and preview gates');
+assert.match(projectsRwht,/const visualMissions = report\.visual_missions;\s*if \(!STEPS_7_8_ONLY\) \{\s*\/\/ ARTIA must accept real visual mission creation/, 'visual mission results must remain in scope for the preview certification gate');
 assert.match(project,/CHAT EXCLUSIVO/);
 assert.match(project,/same queue|misma cola|una sola cola/i);
 assert.match(project,/visual_context/);
