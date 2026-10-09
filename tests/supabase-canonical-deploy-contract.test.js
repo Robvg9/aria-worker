@@ -58,6 +58,9 @@ assert.ok(pwaDeploy.includes('cp dist/manifest.json "dist/manifest-${GITHUB_SHA}
 assert.ok(pwaDeploy.includes('sed "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js > "dist/sw-${GITHUB_SHA}.js"'));
 assert.ok(pwaDeploy.includes('grep -q "aria-pwa-${GITHUB_SHA}" "dist/sw-${GITHUB_SHA}.js"'));
 assert.ok(pwaDeploy.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js'));
+assert.ok(pwaDeploy.includes('echo "AUTH_DIRECT_UPSTREAM_UNAVAILABLE=$direct_code"'), 'transient Supabase Auth 5xx must be diagnosed, not confused with a broken PWA deploy');
+assert.ok(pwaDeploy.includes('echo "AUTH_PROXY_UPSTREAM_UNAVAILABLE=$proxy_code"'), 'transient Auth proxy 5xx must be diagnosed without cancelling exact-SHA delivery');
+assert.match(pwaDeploy,/version\.json\?gate=\$HEAD_SHA/, 'delivery gate must require the exact deployed SHA in the LIVE version endpoint');
 
 const workflowDir='.github/workflows';
 const workflowFiles=fs.readdirSync(workflowDir).filter(name=>name.endsWith('.yml')||name.endsWith('.yaml'));
