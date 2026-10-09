@@ -29,6 +29,12 @@ assertContains(appApi,'const mission = direct.b?.mission ?? direct.b?.result ?? 
 assertContains(appApi,'visualState: "mission_queued"','chat mission queued UI state missing');
 
 assertContains(appApi,'path.endsWith("/missions")','mission route missing');
+assertContains(appApi,'const readMissionByRequestId = async () => {','mission create must reconcile an ambiguous intake acknowledgement using the client request id');
+assertContains(appApi,'mission intake recovered by canonical request id','lost DIRECT responses must be recovered from the canonical mission row before returning an error');
+assertContains(appApi,'mission metadata backfill failed nonfatal','post-create owner/lane metadata enrichment must not turn a persisted mission into HTTP 500');
+assertContains(appApi,'acknowledgement_source: recoveredByRequestId ? "canonical_request_readback"','mission create response must declare which canonical acknowledgement path confirmed creation');
+assertContains(appApi,'mission: responseMission','project mission creation must always return the nested mission.mission_id expected by ARTIA');
+assertContains(appApi,'return json({\n          error: direct?.b?.error ?? (directTransportError ? "mission_intake_transport_unconfirmed" : "aria_direct_failed")','unconfirmed mission creation must fail closed when canonical request read-back finds no mission');
 assertContains(appApi,'path.endsWith("/cancel")','mission cancellation route missing');
 assertContains(appApi,'mission_cancelled','mission cancellation evidence event missing');
 assertContains(appApi,'cancelled_by_user','mission cancellation must record the requesting user');
