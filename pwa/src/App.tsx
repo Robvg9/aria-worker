@@ -2853,13 +2853,13 @@ function Meditation({ session }: { session: Session }) {
           
                 <details className='panel collapsiblePanel'>
                   <summary><span>ESPERANDO VERIFICACIÓN</span><b>{(o?.verification_pending ?? []).length}</b></summary>
-                  {(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row live' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{humanizeDiagnosticLabel(b.reason || 'Falta una verificación externa')} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
+                  {(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row live' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong>{' — '}<small>{humanizeDiagnosticLabel(b.reason || 'Falta una verificación externa')} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
                   {!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}
                 </details>
           
                 <details className='panel collapsiblePanel'>
                   <summary><span>BLOQUEADAS</span><b>{(o?.blocked ?? []).length}</b></summary>
-                  {(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{humanizeDiagnosticLabel(b.reason_type || 'Misión bloqueada')}</strong><small>{humanizeDiagnosticLabel(b.reason || 'Revisar evidencia y seleccionar otra estrategia')} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
+                  {(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{humanizeDiagnosticLabel(b.reason_type || 'Misión bloqueada')}</strong>{' — '}<small>{humanizeDiagnosticLabel(b.reason || 'Revisar evidencia y seleccionar otra estrategia')} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
                   {!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}
                 </details>
           
@@ -2917,7 +2917,7 @@ function Meditation({ session }: { session: Session }) {
                 </details>
                 <details className='panel collapsiblePanel'>
                   <summary><span>FALLIDAS</span><b>{Number(o?.counts?.failed ?? 0)}</b></summary>
-                  {(o?.failed ?? []).map((r: any) => <button className='row bad' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className='dot bad' /><div><strong>{missionHumanTitle(r)}</strong><small>{humanizeDiagnosticLabel(r.reason_type || 'Fallo registrado')} · {missionGoalPreview(r, 100)}</small><small>{humanizeDiagnosticLabel(r.instructions?.[1] || r.next_action || 'Revisar evidencia y decidir el siguiente paso.')}</small></div><span className='rowArrow'>›</span></button>)}
+                  {(o?.failed ?? []).map((r: any) => <button className='row bad' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className='dot bad' /><div><strong>{missionHumanTitle(r)}</strong>{' — '}<small>{humanizeDiagnosticLabel(r.reason_type || 'Fallo registrado')} · {missionGoalPreview(r, 100)}</small><small>{humanizeDiagnosticLabel(r.instructions?.[1] || r.next_action || 'Revisar evidencia y decidir el siguiente paso.')}</small></div><span className='rowArrow'>›</span></button>)}
                   {!(o?.failed?.length) && <div className='muted'>No hay fallos recientes en la lista rápida.</div>}
                 </details>
           
