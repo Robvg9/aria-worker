@@ -86,6 +86,12 @@ Evidence / provider reports: [DesktopCommanderMCP #811](https://github.com/wonde
 
 This is a resilience guard, not a fix for a hosted Remote MCP / Realtime backend outage. A successful HTTP preflight is not proof of a joined WebSocket channel. If a known hosted failure remains active, vendor-side recovery or a working alternate transport is still required.
 
+## Gateway timeouts and token-log boundary
+
+The Windows agent no longer starts heartbeat while a startup enrollment request is still pending. The artificial 5-second race did not cancel the underlying HTTPS request and could leave overlapping gateway requests. Gateway transport timeouts are not retried immediately because a server-side request may still be running; non-timeout transient transport errors and retryable HTTP responses retain bounded retries.
+
+The `aria-device-gateway` Edge Function now computes SHA-256 in memory and passes only a lowercase 64-character digest to the service-role-only `authenticate_device_gateway_hash` / `enroll_device_hash` RPCs. The previous RPCs accepted the raw bearer token as a PostgreSQL bind parameter; slow-query logging can persist bind values. The legacy route format is still accepted at the Edge Function boundary for old agents, but it is hashed before any database RPC. Do not expose authorization headers, tokens, or token digests in diagnostics.
+
 ## Persistent ARIA-agent diagnostics
 
 The watchdog redirects each ARIA agent launch to timestamped files in `D:\\ARIA-Windows-Agent\\Logs`:
