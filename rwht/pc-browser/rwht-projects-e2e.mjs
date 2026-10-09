@@ -13,6 +13,8 @@ const TIMEOUT_MS = Number(process.env.RWHT_TIMEOUT_MS || 150000);
 const SETTLE_MS = Number(process.env.RWHT_SETTLE_MS || 1200);
 const RELOAD_CHAT_TIMEOUT_MS = Number(process.env.RWHT_RELOAD_CHAT_TIMEOUT_MS || 60000);
 const ARTIFACT_DIR = process.env.RWHT_ARTIFACT_DIR || path.resolve(process.cwd(), 'projects-rwht-artifacts');
+const CERT_SCOPE = String(process.env.RWHT_CERT_SCOPE || 'full').trim().toLowerCase();
+const STEPS_7_8_ONLY = CERT_SCOPE === 'steps-7-8';
 const PROJECTS = [
   { id: 'battlecruiser', name: 'BattleCruiser' },
   { id: 'cuevacoin', name: 'CuevaCoin' },
@@ -507,6 +509,9 @@ async function run() {
   const startedAt = new Date().toISOString();
   const report = {
     version: VERSION,
+    certification_scope: CERT_SCOPE,
+    steps_7_8: null,
+    external_preview_page_errors: [],
     started_at: startedAt,
     finished_at: null,
     target: BASE_URL + '#projects',
@@ -587,6 +592,7 @@ async function run() {
 
     // The preview belongs to the selected project's normal workspace, not only ARTIA.
     const overviewPreviewResults = report.overview_preview_results;
+    if (!STEPS_7_8_ONLY) {
     for (const expected of [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
@@ -603,6 +609,7 @@ async function run() {
       const overviewSearchable = (overviewLoaded.title + ' ' + overviewLoaded.body_text).toLowerCase();
       if (!overviewSearchable.includes(expected.name.toLowerCase())) throw new Error('project_overview_preview_content_mismatch_' + expected.id);
       overviewPreviewResults.push({ id: expected.id, src: overviewSrc, loaded: true });
+    }
     }
     const tabs = page.locator('.projectTabs .tabButton');
     report.tabs = await tabs.allTextContents();
@@ -692,6 +699,7 @@ async function run() {
 
     if (new Set(report.projects.map((project) => project.chat.conversation_id)).size !== 3) throw new Error('project_conversation_ids_not_isolated');
 
+    if (!STEPS_7_8_ONLY) {
     // ARTIA must accept real visual mission creation for every project, not only BattleCruiser.
     const visualMissionExpectations = {
       battlecruiser: { src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'auth-required' },
@@ -834,6 +842,8 @@ async function run() {
       });
     }
 
+    }
+    if (!STEPS_7_8_ONLY) {
     // ARTIA preview certification: every project must expose a real preview surface.
     const previewExpectations = [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'auth-required' },
@@ -872,6 +882,12 @@ async function run() {
     report.visual_missions = visualMissions;
     report.visual_mission = visualMissions[0] || null;
     if (visualMissions.length !== PROJECTS.length) throw new Error('visual_mission_coverage_failed');
+    } else {
+      report.preview_results = [];
+      report.visual_missions = [];
+      report.visual_mission = null;
+      report.scope_note = 'Steps 7-8 only: drawing missions and the full ARTIA preview gate are left to later certification steps.';
+    }
 
     // The visual/preview loops deliberately end on ARIA. Capture the actual
     // selected project before reload and assert that same selection is preserved,
@@ -935,6 +951,9 @@ async function run() {
     if (boardInitial.errorVisible) throw new Error('reality_board_api_load_failed_' + boardInitial.errorText.slice(0, 300));
     if (boardInitial.summaryCount < 4 || boardInitial.projectCount !== 3) throw new Error('reality_board_project_coverage_failed');
     if (!boardInitial.liveBuildSha) throw new Error('reality_board_live_build_sha_missing');
+    if (process.env.RWHT_CERT_SHA && boardInitial.liveBuildSha !== process.env.RWHT_CERT_SHA) {
+      throw new Error('reality_board_live_sha_mismatch_expected_' + process.env.RWHT_CERT_SHA + '_actual_' + boardInitial.liveBuildSha);
+    }
     if (!boardInitial.projectText.includes('ARIA') || !boardInitial.projectText.includes('CuevaCoin') || !boardInitial.projectText.includes('BattleCruiser')) throw new Error('reality_board_human_project_labels_missing');
     if (!boardInitial.truthText.includes('ARIA · versión desplegada') || !boardInitial.truthText.includes('Projects + ARTIA')) throw new Error('reality_board_truth_sources_missing');
     if (!boardInitial.nextText.includes('CuevaCoin') || !boardInitial.nextText.includes('BattleCruiser')) throw new Error('reality_board_human_next_actions_missing');
@@ -968,10 +987,25 @@ async function run() {
     };
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'reality-board-final.png'), fullPage: true }).catch(() => {});
 
+    const isKnownExternalPreviewError = (item) => /https:\/\/battlecruiser\.robvg9\.workers\.dev\//i.test(String(item?.stack || ''));
+    report.external_preview_page_errors = pageErrors.filter(isKnownExternalPreviewError);
+    const inScopePageErrors = STEPS_7_8_ONLY ? pageErrors.filter((item) => !isKnownExternalPreviewError(item)) : pageErrors;
     if (consoleErrors.length) throw new Error('projects_console_errors_' + consoleErrors.length);
-    if (pageErrors.length) throw new Error('projects_page_errors_' + pageErrors.length);
+    if (inScopePageErrors.length) throw new Error('projects_page_errors_' + inScopePageErrors.length);
     if (failedResponses.length) throw new Error('projects_failed_responses_' + failedResponses.length);
 
+    const persistedChats = report.projects.length === PROJECTS.length
+      && new Set(report.projects.map((project) => project.chat?.conversation_id)).size === PROJECTS.length
+      && report.projects.every((project) => project.chat?.server_persistence_verified === true && project.chat?.reload_persistence_verified === true);
+    const exactRealityBoard = report.reality_board?.verified === true
+      && Boolean(process.env.RWHT_CERT_SHA)
+      && report.reality_board.live_build_sha === process.env.RWHT_CERT_SHA;
+    report.steps_7_8 = {
+      step_7: { status: exactRealityBoard ? 'PASS' : 'FAIL', live_build_sha: report.reality_board?.live_build_sha || null, expected_sha: process.env.RWHT_CERT_SHA || null, reality_board_verified: report.reality_board?.verified === true },
+      step_8: { status: report.auth_verified && report.reload_auth_verified && persistedChats ? 'PASS' : 'FAIL', authenticated: report.auth_verified, reload_auth_verified: report.reload_auth_verified, projects_with_persisted_chat: report.projects.filter((project) => project.chat?.server_persistence_verified && project.chat?.reload_persistence_verified).length, distinct_conversations: new Set(report.projects.map((project) => project.chat?.conversation_id)).size },
+      phase_total: 'OPEN; later steps remain independent gates'
+    };
+    if (STEPS_7_8_ONLY && (!exactRealityBoard || !persistedChats)) throw new Error('steps_7_8_acceptance_contract_failed');
     report.reload_auth_verified = true;
     report.verified = true;
   } catch (error) {
