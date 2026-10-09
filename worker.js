@@ -147,10 +147,10 @@ async function schedulerTick(request,env){
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);
   const token=request.headers.get("x-aria-autonomy-token")||"";
   if(!token)return json({error:"unauthorized"},401);
-  const upstream=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-autonomy-token":token},body:await request.text()});
+  const upstream=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","x-aria-autonomy-token":token},body:await request.text()});
   return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:{"content-type":upstream.headers.get("content-type")||"application/json; charset=utf-8","cache-control":"no-store","x-aria-scheduler-route":"cloudflare"}});
 }
-async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
+async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
 // 2026-10-07 scheduler transport fallback
 const PROJECT_PREVIEW_ASSETS = Object.freeze({
   battlecruiser: '/project-previews/battlecruiser-reference.html',
