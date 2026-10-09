@@ -467,7 +467,9 @@ jobs:
           assert x['resource']=='https://aria.robvg9.workers.dev/mcp'
           assert x['authorization_servers']==['https://aria.robvg9.workers.dev']
           assert x['bearer_methods_supported']==['header']
-          assert x['scopes_supported']==['aria.mcp.inbound']
+          scopes = x.get('scopes_supported',[])
+          assert 'aria.mcp.inbound' in scopes
+          assert 'aria.project.cuevacoin.control' in scopes
           PY
           oauth="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 "$base/.well-known/oauth-authorization-server")"
           OAUTH="$oauth" python - <<'PY'
@@ -481,7 +483,9 @@ jobs:
           assert x['token_endpoint_auth_methods_supported']==['none']
           assert x['response_types_supported']==['code']
           assert 'authorization_code' in x['grant_types_supported']
-          assert x['scopes_supported']==['aria.mcp.inbound']
+          scopes = x.get('scopes_supported',[])
+          assert 'aria.mcp.inbound' in scopes
+          assert 'aria.project.cuevacoin.control' in scopes
           PY
           headers="$(mktemp)"
           code="$(curl --silent --show-error --retry 3 --retry-delay 2 -D "$headers" -o /tmp/mcp-body -w '%{http_code}' "$base/mcp" -H 'Accept: application/json, text/event-stream')"
