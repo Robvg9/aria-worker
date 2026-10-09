@@ -6,6 +6,9 @@ import { missionGoalPreview, missionHumanTitle, missionListLabel } from './missi
 type Session = { accessToken: string; userId: string };
 type ChatMessage = { id:string; role:'user'|'aria'; text:string; processingMs?:number };
 type Project = { id: string; name: string; description: string; icon: string; context: string; previewUrl?: string; previewMode?: 'live' | 'source' | 'reference' | 'auth-required' };
+type BattleCruiserClientConfig = { supabase_url:string; publishable_key:string };
+type ActiveBattleCruiserConnection = { accessToken:string; refreshToken:string; expiresAt:number; user:{id:string;email:string|null}; clientConfig:BattleCruiserClientConfig };
+let activeBattleCruiserConnection: ActiveBattleCruiserConnection | null = null;
 type Tool = 'pen'|'marker'|'line'|'rect'|'circle'|'arrow'|'text'|'eraser';
 type Point = { x:number; y:number };
 type DrawAction = { tool:Tool; color:string; size:number; points:Point[]; text?:string };
@@ -26,9 +29,51 @@ const PROJECTS: Project[] = [
   { id:'aria', name:'ARIA', description:'Núcleo cognitivo autónomo, gobernado y verificable.', icon:'🧠', context:'ARIA es el sistema cognitivo operativo. Usa el estado LIVE, main y evidencia persistida como fuentes prioritarias.', previewUrl:'https://aria.robvg9.workers.dev/project-preview/aria/', previewMode:'live' }
 ];
 
+
+async function getActiveBattleCruiserAccessToken():Promise<string|null>{
+  const current=activeBattleCruiserConnection;
+  if(!current)return null;
+  if(current.expiresAt>Date.now()+45000)return current.accessToken;
+  if(!current.refreshToken){if(current.expiresAt<=Date.now())activeBattleCruiserConnection=null;return current.expiresAt>Date.now()?current.accessToken:null;}
+  const controller=new AbortController();
+  const timeout=window.setTimeout(()=>controller.abort(),7000);
+  try{
+    const response=await fetch(current.clientConfig.supabase_url+'/auth/v1/token?grant_type=refresh_token',{
+      method:'POST',
+      headers:{apikey:current.clientConfig.publishable_key,'content-type':'application/json'},
+      body:JSON.stringify({refresh_token:current.refreshToken}),
+      cache:'no-store',
+      signal:controller.signal
+    });
+    const data:any=await response.json().catch(()=>null);
+    if(!response.ok||!data?.access_token){
+      if(current.expiresAt<=Date.now())activeBattleCruiserConnection=null;
+      return current.expiresAt>Date.now()?current.accessToken:null;
+    }
+    activeBattleCruiserConnection={
+      accessToken:String(data.access_token),
+      refreshToken:String(data.refresh_token||current.refreshToken),
+      expiresAt:Date.now()+Math.max(60,Number(data.expires_in)||3600)*1000,
+      user:{id:String(data.user?.id||current.user.id),email:typeof data.user?.email==='string'?data.user.email:current.user.email},
+      clientConfig:current.clientConfig
+    };
+    return activeBattleCruiserConnection.accessToken;
+  }catch{
+    if(current.expiresAt<=Date.now())activeBattleCruiserConnection=null;
+    return current.expiresAt>Date.now()?current.accessToken:null;
+  }finally{window.clearTimeout(timeout);}
+}
+
 async function api(path:string, token:string, init:RequestInit={}) {
   const headers = new Headers(init.headers);
   headers.set('authorization','Bearer '+token);
+  const requestBodyText=typeof init.body==='string'?init.body:'';
+  const isBattleCruiserChat=path==='/conversation'&&/"project_id"\\s*:\\s*"battlecruiser"/.test(requestBodyText);
+  const isBattleCruiserProjectMissions=path.startsWith('/projects/battlecruiser/missions');
+  if(isBattleCruiserChat||isBattleCruiserProjectMissions){
+    const bcToken=await getActiveBattleCruiserAccessToken();
+    if(bcToken)headers.set('x-battlecruiser-access-token',bcToken);
+  }
   if (init.body) headers.set('content-type','application/json');
   const method=String(init.method||'GET').toUpperCase();
   const controller=new AbortController();
