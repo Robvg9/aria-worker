@@ -132,7 +132,9 @@ test('Device gateway sends only SHA-256 digests to PostgreSQL auth and enrollmen
   assert.ok(deviceGateway.includes("supabase.rpc('authenticate_device_gateway_hash'"));
   assert.ok(deviceGateway.includes('p_token_hash:tokenHash'));
   assert.ok(deviceGateway.includes("supabase.rpc('enroll_device_hash'"));
-  assert.ok(deviceGateway.includes("else if(typeof b.token==='string'&&b.token.length>=32)tokenHash=await hash(b.token)"));
+  assert.ok(deviceGateway.includes("const tokenHash=await hash(b.token)"));
+  assert.ok(!deviceGateway.includes("typeof b.token_hash==='string'"));
+  assert.ok(!deviceGateway.includes('p_token:b.token'));
   assert.ok(!deviceGateway.includes("supabase.rpc('authenticate_device_gateway',{"));
   assert.ok(!deviceGateway.includes("supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token})"));
   assert.ok(gatewayHashMigration.includes('CREATE OR REPLACE FUNCTION public.authenticate_device_gateway_hash'));
@@ -143,8 +145,8 @@ test('Device gateway sends only SHA-256 digests to PostgreSQL auth and enrollmen
 });
 
 test('Windows agent uses hashed enrollment, serializes startup, and does not duplicate a timed-out gateway request', () => {
-  assert.ok(ariaAgent.includes("token_hash:tokenHash"));
-  assert.ok(!ariaAgent.includes("token:DEVICE_TOKEN"));
+  assert.ok(ariaAgent.includes("token:DEVICE_TOKEN"));
+  assert.ok(!ariaAgent.includes("token_hash:tokenHash"));
   assert.ok(ariaAgent.includes("await enroll();"));
   assert.ok(!ariaAgent.includes("Promise.race([enroll()"));
   assert.ok(ariaAgent.includes("error?.message === 'gateway_timeout'"));
