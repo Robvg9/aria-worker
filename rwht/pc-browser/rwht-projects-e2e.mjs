@@ -672,10 +672,18 @@ async function run() {
       if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);
       const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
       if (!(await visualMissionButton.isEnabled())) throw new Error('artia_visual_mission_button_not_enabled_' + visualProject.id);
-      const createResponsePromise = page.waitForResponse(async (response) => {
-        if (response.request().method() !== 'POST' || !/\/api\/missions$/.test(new URL(response.url()).pathname)) return false;
-        const requestBody = response.request().postData() || '';
-        return requestBody.includes(visualGoalMarker);
+      const createResponsePromise = page.waitForResponse((response) => {
+        if (response.request().method() !== 'POST') return false;
+        try {
+          const url = new URL(response.url());
+          // Correlate by canonical endpoint, then prove the marker/project/PNG from
+          // the returned mission and server readback below. Do not depend on Playwright
+          // being able to re-serialize postData for fetch() requests.
+          return url.origin === new URL(BASE_URL).origin
+            && url.pathname.replace(/\/+$/, '') === '/api/missions';
+        } catch {
+          return false;
+        }
       }, { timeout: 90000 });
       await visualMissionButton.click();
       const createResponse = await createResponsePromise;

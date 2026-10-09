@@ -156,6 +156,7 @@ assert.ok(project.includes("drawingActionRef.current=a.length"));
 const projectE2E = fs.readFileSync(path.join(root, 'rwht/pc-browser/rwht-projects-e2e.mjs'), 'utf8');
 assert.match(projectE2E,/internalHosts = new Set/);
 assert.match(projectE2E,/artia_canvas_not_ready/);
+assert.ok(projectE2E.includes("url.pathname.replace(/\\/+$/, '') === '/api/missions'"),'ARTIA E2E must match the normalized canonical mission endpoint and verify mission metadata separately');
 assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
 assert.match(projectE2E,/await waitFor\(500\)/);
 assert.ok(project.includes('async function waitForProjectAssistant('),'project chat must poll canonical conversation when an async executor is accepted');
