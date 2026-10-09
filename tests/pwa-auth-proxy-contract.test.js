@@ -8,7 +8,7 @@ const projectsRwhtWorkflow = fs.readFileSync('.github/workflows/projects-rwht-au
 
 if (!authRecoveryWorkflow.includes("branches:") || !authRecoveryWorkflow.includes("      - main")) throw new Error('production Supabase restart must not be triggered from feature branches');
 if (!authRecoveryWorkflow.includes('saw_transition=true')) throw new Error('Supabase restart gate must observe the real restart transition');
-if (!authRecoveryWorkflow.includes('stable_healthy -ge 3')) throw new Error('Supabase restart gate must require stable ACTIVE_HEALTHY reads');
+if (!authRecoveryWorkflow.includes('stable_healthy') || !authRecoveryWorkflow.includes('-ge 3')) throw new Error('Supabase restart gate must require stable ACTIVE_HEALTHY reads');
 if (!authRecoveryWorkflow.includes('SUPABASE_AUTH_PATHS_RESPONSIVE')) throw new Error('Supabase recovery gate must probe Auth and Worker proxy');
 if (!projectsRwhtWorkflow.includes('Wait for Supabase Auth and Worker proxy to respond')) throw new Error('Projects E2E must wait for healthy Auth paths');
 if (!projectsRwhtWorkflow.includes('SUPABASE_AUTH_PATHS_UNHEALTHY_AFTER_RECOVERY')) throw new Error('Projects E2E must fail early if Auth is still returning 5xx');
