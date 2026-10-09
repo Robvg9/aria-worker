@@ -740,8 +740,28 @@ async function run() {
       await page.waitForFunction(() => {
         const c = document.querySelector('.artiaPreviewShell canvas');
         const shell = document.querySelector('.artiaPreviewShell');
-        return Boolean(c && shell && (c.getAttribute('width') || '') !== '0' && shell.getBoundingClientRect().width > 400);
-      }, null, { timeout: 10000 });
+        if (!c || !shell) return false;
+        const rect = c.getBoundingClientRect();
+        return c.width > 0 && c.height > 0 && rect.width > 400 && rect.height > 200 && shell.getBoundingClientRect().width > 400;
+      }, null, { timeout: 30000 }).catch(async (error) => {
+        const state = await page.evaluate(() => {
+          const c = document.querySelector('.artiaPreviewShell canvas');
+          const shell = document.querySelector('.artiaPreviewShell');
+          const r = c?.getBoundingClientRect();
+          const s = shell?.getBoundingClientRect();
+          return {
+            canvas_found: Boolean(c),
+            canvas_width_attr: c?.getAttribute('width') ?? null,
+            canvas_height_attr: c?.getAttribute('height') ?? null,
+            canvas_width: c?.width ?? null,
+            canvas_height: c?.height ?? null,
+            canvas_rect: r ? { width: r.width, height: r.height, x: r.x, y: r.y } : null,
+            shell_rect: s ? { width: s.width, height: s.height, x: s.x, y: s.y } : null,
+            project_tab: document.querySelector('.projectTabs .tabButton.active')?.textContent?.trim() ?? null
+          };
+        });
+        throw new Error('artia_canvas_not_ready_' + visualProject.id + '_' + JSON.stringify(state) + '; cause=' + String(error?.message || error));
+      });
       const visualBox = await visualCanvas.boundingBox();
       if (!visualBox || visualBox.width < 400 || visualBox.height < 200) throw new Error('artia_canvas_not_ready_' + visualProject.id);
       const beforeDraw = await visualCanvas.evaluate((node) => (node instanceof HTMLCanvasElement ? node.toDataURL('image/png') : ''));
@@ -750,7 +770,10 @@ async function run() {
       await new Promise(resolve => setTimeout(resolve, 120));
       await page.mouse.move(visualBox.x + visualBox.width * 0.55, visualBox.y + visualBox.height * 0.45, { steps: 12 });
       await page.mouse.up();
-      await page.waitForFunction(() => [...document.querySelectorAll('.visualHint')].some(n => /Anotaciones:\s*[1-9]\d*/.test(n.textContent || '')), null, { timeout: 10000 });
+      await page.waitForFunction(() => [...document.querySelectorAll('.visualHint')].some(n => /Anotaciones:\s*[1-9]\d*/.test(n.textContent || '')), null, { timeout: 30000 }).catch(async (error) => {
+        const hints = await page.locator('.visualHint').allInnerTexts().catch(() => []);
+        throw new Error('artia_drawing_annotation_not_observed_' + visualProject.id + '_hints=' + JSON.stringify(hints) + '; cause=' + String(error?.message || error));
+      });
       const afterDraw = await visualCanvas.evaluate((node) => (node instanceof HTMLCanvasElement ? node.toDataURL('image/png') : ''));
       if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);
       const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
