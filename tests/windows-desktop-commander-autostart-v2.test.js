@@ -80,7 +80,7 @@ test('Supervisor distinguishes process liveness from remote channel health', () 
   assert.match(supervisor, /function Get-RemoteChannelState/);
   assert.match(supervisor, /Channel subscribed/);
   assert.match(supervisor, /IncreaseConnectionPool/);
-  assert.match(supervisor, /channel_subscribed/);
+  assert.match(supervisor, /channel_last_subscribed/);
   assert.match(supervisor, /channel_degraded/);
   assert.match(supervisor, /channel_unverified/);
   assert.match(supervisor, /process_alive = \(\$ProcessId -gt 0\)/);
