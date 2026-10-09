@@ -121,5 +121,5 @@ test('Watchdog persists ARIA agent stdout and stderr for safe gateway diagnosis'
   assert.match(runAgent, /agent_stdout_log = \$AgentStdoutPath/);
   assert.match(runAgent, /agent_stderr_log = \$AgentStderrPath/);
   assert.match(runAgent, /AGENT_LOGS stdout=/);
-  assert.doesNotMatch(runAgent, /Write-Log[^\\n]*\\$env:ARIA_DEVICE_TOKEN/);
+  assert.ok(!runAgent.split('\n').some(line => line.includes('Write-Log') && line.includes('$env:ARIA_DEVICE_TOKEN')));
 });
