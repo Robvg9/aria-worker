@@ -184,7 +184,7 @@ async function internal(url: string, payload: unknown, timeoutMs?: number) {
   if (!SECRET) throw new Error("runtime_secret_not_configured");
   const headers: Record<string,string> = { "content-type": "application/json", authorization: `Bearer ${SECRET}` };
   if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
-  const controller = Number.isFinite(timeoutMs) ? new AbortController() : null;
+  const controller = timeoutMs !== undefined && Number.isFinite(timeoutMs) ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs))) : null;
   try {
     const r = await fetch(url, {
