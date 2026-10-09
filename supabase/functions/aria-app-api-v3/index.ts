@@ -600,7 +600,7 @@ async function completeConversationInBackground(args:{
   } catch(error) {
     // Do not leave the project chat with a user bubble and an endless spinner.
     // Persist an explicit failure; never manufacture a successful assistant answer.
-    const message="ARIA no pudo completar esta respuesta porque la ruta de ejecución no respondió dentro del límite. El mensaje quedó guardado; puedes reintentarlo cuando el servicio esté disponible.";
+    const message="No se pudo completar la respuesta de ARIA porque la ruta de ejecución no respondió dentro del límite. El mensaje quedó guardado; puedes reintentarlo cuando el servicio esté disponible.";
     try {
       await persistConversationMessage(
         userId,
