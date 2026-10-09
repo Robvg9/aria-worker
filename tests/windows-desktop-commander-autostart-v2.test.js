@@ -104,10 +104,10 @@ test('Supervisor recovers a persistently degraded remote channel with bounded re
 
 test('Supervisor leaves the process running during known hosted capacity/session failures', () => {
   assert.match(supervisor, /lastHostedFailure/);
-  assert.match(supervisor, /HostedFailure = \\[bool\\]\\$hostedFailure/);
-  assert.match(supervisor, /Do not worsen known hosted Realtime\\/session outages/);
+  assert.ok(supervisor.includes('HostedFailure = [bool]$hostedFailure'));
+  assert.ok(supervisor.includes('Do not worsen known hosted Realtime/session outages'));
   assert.match(supervisor, /CHANNEL_BACKEND_DEGRADED_NO_RESTART/);
   assert.match(supervisor, /ChannelDetail -match/);
   assert.match(supervisor, /IncreaseConnectionPool/);
-  assert.match(supervisor, /reset reason:\\\\s\\*/);
+  assert.ok(supervisor.includes('reset reason:'));
 });
