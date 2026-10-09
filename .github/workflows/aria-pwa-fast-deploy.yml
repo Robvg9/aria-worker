@@ -113,3 +113,25 @@ jobs:
           test -s /tmp/aria-pwa-js
           test -s /tmp/aria-pwa-css
           echo "PWA_FAST_DEPLOY_OK build=$GITHUB_SHA js=$js_asset css=$css_asset"
+
+      - name: Verify deployed versioned Service Worker JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev/pwa/"
+          worker_url="\${base}sw-\${GITHUB_SHA}.js?probe=\${GITHUB_SHA}-sw-syntax"
+          worker_file="\${RUNNER_TEMP}/aria-sw-\${GITHUB_SHA}.js"
+          headers_file="\${RUNNER_TEMP}/aria-sw-\${GITHUB_SHA}.headers"
+          curl --fail --silent --show-error --retry 2 --retry-delay 1 \\
+            -D "\${headers_file}" -o "\${worker_file}" "\${worker_url}"
+          grep -qiE '^content-type: *application/javascript' "\${headers_file}"
+          test -s "\${worker_file}"
+          grep -q "aria-pwa-\${GITHUB_SHA}" "\${worker_file}"
+          grep -q "self.addEventListener('push'" "\${worker_file}"
+          grep -q "aria-push-receipts-v1" "\${worker_file}"
+          if grep -qiE '<!doctype html|<html([ >])' "\${worker_file}"; then
+            echo "::error::Versioned Service Worker URL returned HTML instead of JavaScript"
+            exit 1
+          fi
+          node --check "\${worker_file}"
+          echo "PWA_LIVE_SERVICE_WORKER_SYNTAX_OK build=\${GITHUB_SHA} url=\${worker_url}"
