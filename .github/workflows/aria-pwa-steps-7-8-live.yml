@@ -1,0 +1,178 @@
+name: ARIA PWA Steps 7-8 LIVE Certification
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: aria-pwa-steps-7-8-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RWHT_CERT_SHA: ${{ github.sha }}
+      RWHT_CERT_SCOPE: steps-7-8
+      RWHT_URL: https://aria.robvg9.workers.dev/pwa/
+      RWHT_HEADLESS: 'true'
+      RWHT_NO_SCREENSHOTS: 'false'
+      RWHT_ALLOW_MUTATIONS: 'false'
+      RWHT_REQUIRE_AUTH: 'true'
+      RWHT_ROUTES: '#projects'
+      RWHT_RELOAD_AUTH: 'true'
+      RWHT_LOGIN_WAIT_MS: '40000'
+      RWHT_AUTH_ATTEMPTS: '1'
+      RWHT_EXPECTED_AUTH_TEXT: 'COLA COMPARTIDA'
+      RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
+      RWHT_PASSWORD: ${{ secrets.RWHT_PASSWORD }}
+      RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
+      RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
+      RWHT_ARTIFACT_DIR: rwht/pc-browser/projects-e2e-artifacts
+      CERT_ISSUE: '1011'
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout exact push SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Require and prepare an authenticated session source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RWHT_EMAIL" || -z "$RWHT_PASSWORD" ]]; then
+            if [[ -z "$RWHT_STORAGE_STATE_B64" && -z "$RWHT_STORAGE_STATE_GZIP_B64" ]]; then
+              echo "::error title=Steps 7-8 certification blocked::No authenticated RWHT session source configured."
+              exit 1
+            fi
+          fi
+          if [[ -n "$RWHT_STORAGE_STATE_B64" ]]; then
+            printf '%s' "$RWHT_STORAGE_STATE_B64" | base64 --decode > "$RUNNER_TEMP/aria-rwht-auth-state.json"
+            chmod 600 "$RUNNER_TEMP/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=$RUNNER_TEMP/aria-rwht-auth-state.json" >> "$GITHUB_ENV"
+          elif [[ -n "$RWHT_STORAGE_STATE_GZIP_B64" ]]; then
+            printf '%s' "$RWHT_STORAGE_STATE_GZIP_B64" | base64 --decode | gzip -dc > "$RUNNER_TEMP/aria-rwht-auth-state.json"
+            chmod 600 "$RUNNER_TEMP/aria-rwht-auth-state.json"
+            echo "RWHT_STORAGE_STATE=$RUNNER_TEMP/aria-rwht-auth-state.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Wait for Auth endpoints and exact-SHA deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          key='sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
+          base="${RWHT_URL%/}"
+          version=""
+          for attempt in $(seq 1 120); do
+            version="$(curl --silent --show-error --max-time 15 --retry 1 --retry-delay 1 "${base}/version.json?probe=${RWHT_CERT_SHA}-steps-7-8-${attempt}" 2>/dev/null || true)"
+            if VERSION="$version" EXPECTED="$RWHT_CERT_SHA" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"]).get("build") == os.environ["EXPECTED"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then break; fi
+            test "$attempt" -lt 120 && sleep 2
+          done
+          VERSION="$version" EXPECTED="$RWHT_CERT_SHA" python - <<'PY'
+          import json, os
+          value = json.loads(os.environ["VERSION"])
+          print("LIVE_PWA_BUILD=" + str(value.get("build")))
+          assert value.get("build") == os.environ["EXPECTED"]
+          PY
+          main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          echo "CURRENT_MAIN_SHA=$main_sha"
+          test "$main_sha" = "$RWHT_CERT_SHA"
+          body='{"refresh_token":"steps-7-8-health-probe-invalid-refresh-token"}'
+          direct="$(curl -sS --max-time 15 -o /tmp/auth-direct.json -w '%{http_code}' 'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=refresh_token' -H "apikey: $key" -H 'content-type: application/json' -d "$body" || true)"
+          proxy="$(curl -sS --max-time 15 -o /tmp/auth-proxy.json -w '%{http_code}' 'https://aria.robvg9.workers.dev/auth/token?grant_type=refresh_token' -H "apikey: $key" -H 'content-type: application/json' -d "$body" || true)"
+          echo "AUTH_DIRECT_STATUS=$direct AUTH_PROXY_STATUS=$proxy"
+          [[ "$direct" == "400" || "$direct" == "401" ]]
+          [[ "$proxy" == "400" || "$proxy" == "401" ]]
+          board_url="${base}/reality-board.html?probe=${RWHT_CERT_SHA}-steps-7-8"
+          board_code="$(curl --silent --show-error --max-time 20 -o /tmp/reality-board.html -w '%{http_code}' "$board_url")"
+          echo "REALITY_BOARD_HTTP=$board_code"
+          test "$board_code" = "200"
+          grep -q 'id="summary"' /tmp/reality-board.html
+          grep -q 'id="projects"' /tmp/reality-board.html
+          grep -q 'id="truth"' /tmp/reality-board.html
+          echo "REALITY_BOARD_HTML_CONTRACT=PASS"
+
+      - name: Install PC RWHT dependencies
+        working-directory: rwht/pc-browser
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: rwht/pc-browser
+        timeout-minutes: 8
+        run: npx playwright install --with-deps chromium
+
+      - name: Run authenticated Steps 7-8 PWA and Persistence E2E
+        run: node rwht/pc-browser/rwht-projects-e2e.mjs
+
+      - name: Upload Steps 7-8 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-pwa-steps-7-8-evidence
+          path: rwht/pc-browser/projects-e2e-artifacts/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Persist Steps 7-8 evidence in Issue 1011
+        if: always()
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = 'rwht/pc-browser/projects-e2e-artifacts/projects-rwht-report.json';
+          let report = null;
+          try { report = JSON.parse(fs.readFileSync(path, 'utf8')); } catch {}
+          const s7 = report?.steps_7_8?.step_7 || {};
+          const s8 = report?.steps_7_8?.step_8 || {};
+          const ok = report?.verified === true && s7.status === 'PASS' && s8.status === 'PASS';
+          const status = ok ? 'PASS' : 'FAIL';
+          const body = [
+            '## /ARIA-PWA Steps 7-8 LIVE Certification — ' + status,
+            '',
+            'Exact SHA: ' + process.env.RWHT_CERT_SHA,
+            'Workflow: ' + process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID,
+            'Reality Board verified: ' + String(report?.reality_board?.verified === true) + '; live SHA: ' + String(s7.live_build_sha || report?.reality_board?.live_build_sha || 'not verified') + '; project cards: ' + String(report?.reality_board?.project_cards ?? '—') + '/3; manual refresh responses: ' + String(report?.reality_board?.manual_refresh_api_responses?.length ?? 0),
+            'Persistence/reload: ' + String(s8.status || 'FAIL') + '; persisted projects: ' + String(s8.projects_with_persisted_chat ?? 0) + '/3; distinct conversations: ' + String(s8.distinct_conversations ?? 0) + '/3; auth: ' + String(s8.authenticated === true) + '; reload auth: ' + String(s8.reload_auth_verified === true),
+            'External BattleCruiser preview page errors separately recorded: ' + String(report?.external_preview_page_errors?.length ?? 0),
+            'Failure: ' + String(report?.failure || 'none').slice(0, 800),
+            'Overall /ARIA-PWA phase remains OPEN. This record closes only steps 7-8; steps 9-13 remain independent gates.'
+          ].join('\n');
+          const response = await fetch('https://api.github.com/repos/Robvg9/aria-worker/issues/' + process.env.CERT_ISSUE + '/comments', {
+            method: 'POST',
+            headers: {
+              authorization: 'Bearer ' + process.env.GH_TOKEN,
+              accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({ body })
+          });
+          console.log('ISSUE_COMMENT_STATUS=' + response.status);
+          if (!response.ok) throw new Error('Issue 1011 evidence persistence failed: ' + (await response.text()).slice(0, 500));
+          NODE
+
+      - name: Remove temporary authentication state
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/aria-rwht-auth-state.json"
