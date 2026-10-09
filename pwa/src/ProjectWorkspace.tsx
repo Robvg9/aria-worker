@@ -303,24 +303,13 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
 
   async function connectBattleCruiserAccount(){
     setConnecting(true);setConnectionError('');setConnectionNotice('');
-    const username=bcUsername.trim();
+    const email=bcUsername.trim();
     const password=bcPassword;
     try{
       const config=report?.client_config;
       if(!config?.supabase_url||!config.publishable_key)throw new Error('El backend de BattleCruiser aún no publicó una configuración pública válida.');
-      if(!username||!password)throw new Error('Escribe el usuario y la contraseña de BattleCruiser.');
-      let email=username;
-      if(!username.includes('@')){
-        const lookupResponse=await fetch(config.supabase_url+'/rest/v1/rpc/obtener_email_login_por_nombre',{
-          method:'POST',
-          headers:{apikey:config.publishable_key,'content-type':'application/json'},
-          body:JSON.stringify({p_nombre:username}),
-          cache:'no-store'
-        });
-        const lookupValue=await lookupResponse.json().catch(()=>null);
-        email=typeof lookupValue==='string'?lookupValue:Array.isArray(lookupValue)&&typeof lookupValue[0]==='string'?lookupValue[0]:'';
-        if(!lookupResponse.ok||!email)throw new Error('BattleCruiser no pudo resolver ese usuario. Verifica el nombre de usuario.');
-      }
+      if(!email||!password)throw new Error('Escribe el correo y la contraseña de BattleCruiser.');
+      if(!email.includes('@'))throw new Error('La búsqueda por nombre de usuario está restringida por los permisos actuales de BattleCruiser. Introduce el correo asociado a tu cuenta.');
       const authResponse=await fetch(config.supabase_url+'/auth/v1/token?grant_type=password',{
         method:'POST',
         headers:{apikey:config.publishable_key,'content-type':'application/json'},
@@ -411,13 +400,13 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
           <button type='button' className='ghost' onClick={disconnectBattleCruiser}>Cerrar conexión BC</button>
         </div>
       </div>:<form onSubmit={event=>{event.preventDefault();void connectBattleCruiserAccount();}} style={{display:'grid',gap:10,marginTop:10,maxWidth:460}}>
-        <label style={{display:'grid',gap:5}}>Usuario o correo de BattleCruiser
-          <input value={bcUsername} onChange={event=>setBcUsername(event.target.value)} autoComplete='username' disabled={connecting} placeholder='Tu usuario de BattleCruiser' required />
+        <label style={{display:'grid',gap:5}}>Correo electrónico de BattleCruiser
+          <input type='email' value={bcUsername} onChange={event=>setBcUsername(event.target.value)} autoComplete='username' disabled={connecting} placeholder='correo@ejemplo.com' required />
         </label>
         <label style={{display:'grid',gap:5}}>Contraseña de BattleCruiser
           <input value={bcPassword} onChange={event=>setBcPassword(event.target.value)} type='password' autoComplete='current-password' disabled={connecting} placeholder='Se envía directamente a Supabase BattleCruiser' required />
         </label>
-        <p className='muted'>La contraseña se envía desde este navegador directamente al Auth de BattleCruiser; no pasa por el API de ARIA. La sesión verificada permanece solo en memoria y se usa como usuario actual, nunca como acceso administrador.</p>
+        <p className='muted'>Usa el correo asociado a tu cuenta: el backend actual restringe la búsqueda pública por nombre de usuario. La contraseña se envía desde este navegador directamente al Auth de BattleCruiser; no pasa por el API de ARIA. El token solo queda en memoria y nunca concede permisos administrativos.</p>
         <button type='submit' className='primary' disabled={connecting||loading||!report?.client_config}>{connecting?'Conectando…':'Conectar backend BattleCruiser'}</button>
       </form>}
       {connectionError&&<p className='notice' role='alert' style={{marginTop:10}}>{connectionError}</p>}{connectionNotice&&<p className='muted' role='status' style={{marginTop:10}}>{connectionNotice}</p>}
