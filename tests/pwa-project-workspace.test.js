@@ -304,6 +304,9 @@ assert.match(project,/isBattleCruiserMissionIntake=path==='\/missions'&&requestB
 assert.match(project,/void connectBattleCruiserAccount\(\)/);
 assert.match(project,/ariaUserId:session\.userId/);
 assert.match(project,/current\.ariaUserId/);
+assert.match(project,/function ariaUserIdFromAccessToken\(token:string\):string\\|null/);
+assert.match(project,/current\.ariaUserId!==ariaUserId/);
+assert.match(project,/getActiveBattleCruiserAccessToken\(ariaUserIdFromAccessToken\(token\)\)/);
 assert.match(project,/event\.target\.value/);
 assert.match(project,/activeBattleCruiserConnection\?\.ariaUserId===session\.userId/);
 assert.ok(apiCurrent.includes(String.raw`path.match(/\/projects\/([^/]+)\/connections\/verify$/)`), 'BattleCruiser session verify route must use a valid path-matching expression');
