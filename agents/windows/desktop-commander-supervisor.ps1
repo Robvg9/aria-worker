@@ -45,6 +45,8 @@ function Write-Status([string]$State,[int]$ProcessId=0,[string]$ErrorText=$null)
     $obj = [ordered]@{
         updated_at = (Get-Date -Format o)
         state = $State
+        process_alive = ($ProcessId -gt 0)
+        channel_state = if ($State -eq 'channel_subscribed') { 'subscribed' } elseif ($State -eq 'channel_degraded') { 'degraded' } elseif ($State -eq 'channel_unverified') { 'unverified' } else { 'unknown' }
         pid = if($ProcessId -gt 0){$ProcessId}else{$null}
         version = $DcVersion
         node = $NodePath
@@ -63,6 +65,59 @@ function Find-DesktopCommander {
         }
     } catch { Write-Log "PROCESS_SCAN_ERROR $(($_.Exception).Message)" }
     return 0
+}
+
+function Get-RemoteChannelState {
+    # A live node.exe process is not proof that the Remote MCP channel is usable.
+    # Desktop Commander reports an affirmative subscription with "Channel subscribed".
+    $stdout = Join-Path $LogDir 'desktop-commander.stdout.log'
+    $stderr = Join-Path $LogDir 'desktop-commander.stderr.log'
+    $lines = @()
+    if (Test-Path $stdout) {
+        try { $lines = @(Get-Content -Path $stdout -Tail 300 -ErrorAction Stop) } catch {}
+    }
+
+    $lastSuccess = -1
+    $lastFailure = -1
+    $lastFailureLine = $null
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = [string]$lines[$i]
+        if ($line -match '(?i)Channel subscribed|Status:\s*Online') {
+            $lastSuccess = $i
+        }
+        if ($line -match '(?i)IncreaseConnectionPool|Channel error:|Channel subscription timed out|Device registered, but NOT reachable|Realtime channel is not open|socket closed:\s*1006|Failed to connect to Desktop Commander MCP|Failed to connect to Remote MCP') {
+            $lastFailure = $i
+            $lastFailureLine = $line
+        }
+    }
+
+    # Use stderr as a fallback diagnostic when stdout has no channel evidence.
+    if ($lastSuccess -lt 0 -and $lastFailure -lt 0 -and (Test-Path $stderr)) {
+        try {
+            $errLines = @(Get-Content -Path $stderr -Tail 80 -ErrorAction Stop)
+            if ($errLines.Count -gt 0) {
+                $lastFailureLine = ($errLines | Select-Object -Last 1)
+                $joinedErr = $errLines -join [Environment]::NewLine
+                if ($joinedErr -match '(?i)error|failed|not connected|timeout|IncreaseConnectionPool') {
+                    return [pscustomobject]@{ State = 'channel_degraded'; Detail = [string]$lastFailureLine }
+                }
+            }
+        } catch {}
+    }
+
+    if ($lastFailure -gt $lastSuccess) {
+        return [pscustomobject]@{ State = 'channel_degraded'; Detail = [string]$lastFailureLine }
+    }
+    if ($lastSuccess -ge 0) {
+        return [pscustomobject]@{ State = 'channel_subscribed'; Detail = 'Observed Channel subscribed with no newer channel error in the captured stdout tail.' }
+    }
+    return [pscustomobject]@{ State = 'channel_unverified'; Detail = 'Process exists, but no Channel subscribed confirmation is present in recent stdout.' }
+}
+
+function Write-ObservedChannelStatus([int]$ProcessId) {
+    $channel = Get-RemoteChannelState
+    Write-Status $channel.State $ProcessId $channel.Detail
+    Write-Log "REMOTE_CHANNEL_STATE state=$($channel.State) pid=$ProcessId detail=$($channel.Detail)"
 }
 
 function Start-DesktopCommander {
@@ -85,7 +140,7 @@ while ($true) {
     try {
         $desktopCommanderPid = Find-DesktopCommander
         if ($desktopCommanderPid -gt 0) {
-            Write-Status 'running' $desktopCommanderPid
+            Write-ObservedChannelStatus $desktopCommanderPid
             Start-Sleep -Seconds 10
             continue
         }
@@ -95,8 +150,8 @@ while ($true) {
         $desktopCommanderPid = Find-DesktopCommander
 
         if ($desktopCommanderPid -gt 0) {
-            Write-Log "CHILD_CONFIRMED pid=$desktopCommanderPid"
-            Write-Status 'running' $desktopCommanderPid
+            Write-Log "CHILD_CONFIRMED process_alive=True pid=$desktopCommanderPid; remote channel still requires explicit confirmation"
+            Write-ObservedChannelStatus $desktopCommanderPid
             Start-Sleep -Seconds 10
             continue
         }
