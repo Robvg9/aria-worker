@@ -146,7 +146,7 @@ assert.match(projectsSource, /external_preview_console_errors/);
 assert.match(projectsSource, /canonical_queue/);
 assert.match(projectsSource, /report\.reality_board/);
 assert.match(projectsSource, /reality_board_live_sha_not_rendered/);
-assert.match(projectsSource, /reality_board_manual_refresh/);
+assert.match(projectsSource, /manual_refresh_api_responses/);
 assert.match(projectsSource, /reality_board_project_api_read_failed/);
 const projectsWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
 assert.match(projectsWorkflow, /ARIA Projects Browser RWHT Authenticated/);
