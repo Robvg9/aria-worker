@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
-const project=fs.readFileSync(path.join(root,'pwa/src/ProjectWorkspace.tsx'),'utf8');
+const project=fs.readFileSync(path.join(root,'pwa/src/ProjectWorkspace.tsx'),'utf8').replace(/\r\n/g,'\n');
 const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
 const api=fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
@@ -77,8 +77,8 @@ assert.match(css,/\.visualPreviewControls/);
 assert.match(fs.readFileSync(path.join(root,'supabase/migrations/20260922171331_harden_meditation_notification_label_execute.sql'),'utf8'),/revoke execute/i);
 console.log('PWA PROJECTS + ARTIA VISUAL + SHARED QUEUE + VERIFICATION CONTRACT: PASS');
 
-assert(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/'"));
-assert.ok(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', previewMode:'source'"), 'BattleCruiser must use the governed source reference rather than its unauthenticated login screen');
+assert(project.includes("previewUrl:'https://battlecruiser.robvg9.workers.dev/'"));
+assert.ok(project.includes("previewUrl:'https://battlecruiser.robvg9.workers.dev/', previewMode:'auth-required'"), 'ARTIA must embed the canonical LIVE BattleCruiser frontend and state that a user session is required');
 assert.match(worker,/battlecruiser: '\/project-previews\/battlecruiser-reference\.html'/);
 assert.match(worker,/url\.pathname==="\/project-preview\/battlecruiser"/);
 assert.match(battlecruiserReference,/REFERENCIA VISUAL · BATTLECRUISER/);
@@ -245,3 +245,73 @@ assert.match(appCurrent,/REPLANIFICANDO/);
 const apiCurrent = fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 assert.match(apiCurrent,/activeRecoveryStatuses/);
 assert.match(apiCurrent,/replan_learning_application/);
+
+
+// BattleCruiser is a separate first-class resource binding; it must never reuse ARIA's backend.
+assert.match(apiCurrent,/backend_project_ref: "papxnkkjtkxsitcsvcme"/);
+assert.match(apiCurrent,/backend_api_url: "https:\/\/papxnkkjtkxsitcsvcme\.supabase\.co"/);
+assert.match(apiCurrent,/backend_dashboard_url: "https:\/\/supabase\.com\/dashboard\/project\/papxnkkjtkxsitcsvcme"/);
+assert.match(apiCurrent,/frontend_live_url: "https:\/\/battlecruiser\.robvg9\.workers\.dev\//);
+assert.match(apiCurrent,/repository_url: "https:\/\/github\.com\/Robvg9\/battlecruiser\/tree\/main"/);
+assert.match(apiCurrent,/backend_access_state: "requires_authorized_authenticated_context"/);
+assert.match(apiCurrent,/resources: project\.resources/);
+assert.match(apiCurrent,/The ARIA project ref icuqsstxfdbvjytkhlog never substitutes for BattleCruiser|El Supabase de ARIA \(icuqsstxfdbvjytkhlog\) nunca sustituye al de BattleCruiser/);
+assert.match(project,/https:\/\/github\.com\/Robvg9\/battlecruiser\/tree\/main/);
+assert.match(project,/https:\/\/battlecruiser\.robvg9\.workers\.dev\//);
+assert.match(project,/papxnkkjtkxsitcsvcme/);
+console.log('ARIA BATTLECRUISER CANONICAL PROJECT RESOURCE BINDING: PASS');
+
+assert.ok(project.includes('FUENTES CANÓNICAS · {project.name.toUpperCase()}'), 'BattleCruiser source links must show the selected project heading');
+assert.match(project,/Frontend LIVE ↗/);
+assert.match(project,/Código · main ↗/);
+assert.match(project,/Backend · Supabase ↗/);
+assert.match(project,/la conexión de Supabase de ARIA/i);
+console.log('BATTLECRUISER PROJECT LINKS ARE VISIBLE WITHOUT CLAIMING BACKEND AUTH: PASS');
+
+assert.ok(apiCurrent.includes("const projectConnectionsPath = path.match"), 'ARIA API must expose an authenticated, project-scoped connection health endpoint');
+assert.ok(apiCurrent.includes('fetchBounded(frontendUrl + "/app.js")'), 'connection health must probe the actual deployed BattleCruiser app');
+assert.ok(apiCurrent.includes('fetchBounded(frontendUrl + "/js/core.js")'), 'connection health must read the deployed frontend config to verify the backend project identity');
+assert.ok(apiCurrent.includes('backend_data: { status: "not_checked_requires_authenticated_context", verified: false'), 'health probes must not claim protected data access without an authenticated BC session');
+assert.ok(apiCurrent.includes('configuredBackendUrl !== backendUrl'), 'the connection check must reject a frontend configured to a different Supabase project');
+assert.match(project,/api\('\/projects\/'.*\/connections/);
+assert.match(project,/ProjectResourceConnections/);
+assert.match(project,/BACKEND AUTH/);
+assert.match(project,/DATOS PROTEGIDOS/);
+console.log('BATTLECRUISER CONNECTION HEALTH GATE IS READ-ONLY AND FAILS CLOSED: PASS');
+
+assert.match(project,/Conectar sesión autenticada de BattleCruiser/i);
+assert.doesNotMatch(project,/obtener_email_login_por_nombre/);
+assert.match(project,/Correo electrónico de BattleCruiser/);
+assert.match(project,/La búsqueda por nombre de usuario está restringida por los permisos actuales de BattleCruiser/);
+assert.match(project,/auth\/v1\/token\?grant_type=password/);
+assert.match(project,/x-battlecruiser-access-token/);
+assert.match(project,/La contraseña se envía desde este navegador directamente al Auth de BattleCruiser/);
+assert.match(project,/activeBattleCruiserConnection=null/);
+assert.match(apiCurrent,/projectConnectionVerifyPath/);
+assert.match(apiCurrent,/battlecruiser_session_invalid/);
+assert.match(apiCurrent,/perfil_usuario_actual/);
+assert.match(apiCurrent,/permisos_usuario_actual/);
+assert.match(apiCurrent,/battleCruiserLiveUserContext/);
+assert.match(apiCurrent,/token_persisted: false/);
+assert.match(apiCurrent,/mutations_performed: false/);
+assert.ok(!apiCurrent.includes('SUPABASE_ANON_KEY'), 'ARIA API must not depend on the legacy anon-key reauthentication flow');
+console.log('BATTLECRUISER USER-BOUND SESSION + READ-ONLY CONTEXT CONTRACT: PASS');
+
+
+
+
+
+// Keep the BattleCruiser user session scoped, ephemeral and attached to the exact project operations.
+assert.match(project,/isBattleCruiserMissionIntake=path==='\/missions'&&requestBodyText\.includes\('\"project_id\":\"battlecruiser\"'\)/);
+assert.match(project,/void connectBattleCruiserAccount\(\)/);
+assert.match(project,/ariaUserId:session\.userId/);
+assert.match(project,/current\.ariaUserId/);
+assert.ok(project.includes('function ariaUserIdFromAccessToken(token:string):string|null'), 'BattleCruiser session ownership must be derived from the active ARIA token');
+assert.match(project,/current\.ariaUserId!==ariaUserId/);
+assert.match(project,/getActiveBattleCruiserAccessToken\(ariaUserIdFromAccessToken\(token\)\)/);
+assert.match(project,/event\.target\.value/);
+assert.match(project,/activeBattleCruiserConnection\?\.ariaUserId===session\.userId/);
+assert.ok(apiCurrent.includes(String.raw`path.match(/\/projects\/([^/]+)\/connections\/verify$/)`), 'BattleCruiser session verify route must use a valid path-matching expression');
+assert.ok(apiCurrent.includes(String.raw`configText.match(/SUPABASE_URL\s*=\s*["']([^"']+)["']/)`), 'BattleCruiser live context must parse the expected backend URL correctly');
+assert.match(project,/if\(isBattleCruiserChat\|\|isBattleCruiserMissionIntake\|\|isBattleCruiserProjectMissions\)/);
+console.log('BATTLECRUISER SESSION LIFECYCLE + MISSION CONTEXT CONTRACT: PASS');
