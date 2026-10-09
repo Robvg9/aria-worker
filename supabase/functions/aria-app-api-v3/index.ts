@@ -420,7 +420,7 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:512,temperature:0.3}};
     multimodal=true;
   }
-  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}}),45000);
+  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}},45000);
   if(!x.r.ok||x.b?.status!=="succeeded") throw new Error("executor_http_"+x.r.status+"_"+(x.b?.error?.code??x.b?.reason??"execution_failed"));
   return x.b;
 }
