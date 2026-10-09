@@ -36,6 +36,10 @@ assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped noti
 
 assert(app.includes("from './notifications'"), 'PWA notification helper import missing');
 assert(app.includes('PwaNotificationCenter'), 'PWA notification center missing');
+assert(app.includes('const [missionDetailOpen, setMissionDetailOpen] = useState(false);'), 'mission modal visibility must be separate from cached mission detail data');
+assert(app.includes('async function openNotification(item: PwaNotificationItem, openMissionAfterSelection = false)'), 'native click path must be distinguishable from notification-list selection');
+assert(app.includes('void openNotification(item, true);'), 'native notification deep links must open mission detail directly');
+assert(app.includes('{missionDetail && missionDetailOpen && ('), 'mission detail must render only when explicitly opened, avoiding stacked modal backdrops');
 assert(app.includes('const selectedLive = selected'), 'selected notification must derive from current ledger state');
 assert(app.includes('setSelected(current => current?.notification_id === item.notification_id'), 'selected notification read state must update immediately');
 assert(app.includes('const visibleItems = historyExpanded ? items : items.slice(0, 8)'), 'notification history must be compact by default');
@@ -63,7 +67,8 @@ assert(meditationE2E.includes('pwa_service_worker_not_active'), 'push probe must
 assert(meditationE2E.includes('WEBPUSH_E2E_CONTROL_PAGE_CLOSED_BEFORE_RECEIPT'), 'push receipt must be read after the helper page is closed');
 assert(meditationE2E.includes("new ExtendableEvent('notificationclick')"), 'click-through test must preserve native Service Worker waitUntil lifecycle');
 assert(meditationE2E.includes('verified_notification_for_clickthrough_not_found'), 'click-through E2E must use a real persisted verified notification');
-assert(meditationE2E.includes("getByRole('button', { name:'Abrir misión completa' })"), 'click-through E2E must open the full mission detail');
+assert(meditationE2E.includes("await probePage.locator('.notificationBackdrop').waitFor({ state:'detached'"), 'native notification click-through must close its panel before mission detail is checked');
+assert(meditationE2E.includes('notification_click_did_not_mark_read_in_server_ledger'), 'click-through E2E must verify server-side read persistence');
 assert(meditationE2E.includes('notification_click_through_verified'), 'click-through proof must be recorded in the RWHT evidence');
 assert(app.includes('const livePermission = typeof window !== \'undefined\' && \'Notification\' in window'));
 assert(app.includes('const recentUnread = compact.filter'));
