@@ -18,7 +18,7 @@ The ARIA Supabase project `icuqsstxfdbvjytkhlog` remains exclusively ARIA's own 
 
 1. Project chat and mission intake must receive these canonical resource identifiers as server-owned context (not trust a client override).
 2. Project UI should offer direct links to the LIVE app, the canonical source repository, and the correct Supabase project.
-3. ARTIA's existing BattleCruiser view remains a static source reference unless the user explicitly selects the actual LIVE app. Never label the source mock as LIVE.
+3. ARTIA's BattleCruiser preview embeds the canonical LIVE frontend at `https://battlecruiser.robvg9.workers.dev/` with `previewMode='auth-required'`. It may show the sign-in screen; never claim the private dashboard is authenticated merely because the page loaded. The annotation canvas overlays the real frontend; the static source reference remains only a fallback asset.
 4. Frontend/repository access and backend data access are separate capabilities. A live URL or successful Auth health probe is not proof that protected rows/RPCs are accessible.
 5. Protected backend access must use a separately configured, least-privilege server-side role/credential. Never expose privileged credentials in browser code, chat, logs, source control, or the ARIA Supabase project's credentials.
 6. Do not grant `anon` access just to suppress a permission error. Use an authenticated BattleCruiser user JWT for normal app-level operations or a specifically authorized read-only server credential for diagnostics.
