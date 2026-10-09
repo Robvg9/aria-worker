@@ -1,5 +1,6 @@
 /* ARTIA CuevaCoin preview certification 2026-10-07 */
 /* 2026-10-08: force exact-main PWA/ARTIA production delivery after preview fixes. */
+/* 2026-10-09: release latest canonical ARTIA mission visual-context fix #1037 so the official RWHT can certify the exact LIVE SHA. */
 // Phase 3 RWHT clean verification trigger.
 // Phase 3 RWHT auth diagnostic trigger: same bounded deploy/certification cycle.
 // Phase 3 auth timeout contract: proxy-first password authentication uses bounded upstream latency.
