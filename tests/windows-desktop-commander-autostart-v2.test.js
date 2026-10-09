@@ -101,3 +101,13 @@ test('Supervisor recovers a persistently degraded remote channel with bounded re
   assert.match(supervisor, /Stop-Process -Id \$ProcessId -Force -ErrorAction Stop/);
   assert.match(supervisor, /Invoke-ChannelRecovery -ProcessId \$desktopCommanderPid -State \$channel.State/);
 });
+
+test('Supervisor leaves the process running during known hosted capacity/session failures', () => {
+  assert.match(supervisor, /lastHostedFailure/);
+  assert.match(supervisor, /HostedFailure = \\[bool\\]\\$hostedFailure/);
+  assert.match(supervisor, /Do not worsen known hosted Realtime\\/session outages/);
+  assert.match(supervisor, /CHANNEL_BACKEND_DEGRADED_NO_RESTART/);
+  assert.match(supervisor, /ChannelDetail -match/);
+  assert.match(supervisor, /IncreaseConnectionPool/);
+  assert.match(supervisor, /reset reason:\\\\s\\*/);
+});
