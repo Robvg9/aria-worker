@@ -180,7 +180,30 @@ async function requireUser(token: string) {
   if (error || !claims?.sub) throw Object.assign(new Error("invalid_or_expired_session"), { status: 401 });
   return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
 }
-async function internal(url: string, payload: unknown) { if (!SECRET) throw new Error("runtime_secret_not_configured"); const headers: Record<string,string> = { "content-type": "application/json", authorization: `Bearer ${SECRET}` }; if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY; const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) }); const b = await r.json().catch(() => null); return { r, b }; }
+async function internal(url: string, payload: unknown, timeoutMs?: number) {
+  if (!SECRET) throw new Error("runtime_secret_not_configured");
+  const headers: Record<string,string> = { "content-type": "application/json", authorization: `Bearer ${SECRET}` };
+  if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
+  const controller = Number.isFinite(timeoutMs) ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs))) : null;
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      ...(controller ? { signal: controller.signal } : {})
+    });
+    const b = await r.json().catch(() => null);
+    return { r, b };
+  } catch (error) {
+    if (controller && (error as any)?.name === "AbortError") {
+      throw new Error("internal_request_timeout_" + Number(timeoutMs));
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 async function persistConversationMessage(userId:string,conversationId:string,role:"user"|"assistant"|"system",content:string,parts:any[],traceId:string,visualState:string|null,providerId:string|null,modelId:string|null,title:string,project:any){
   const sb=serviceClient();
   const saved=await sb.rpc("aria_app_persist_message",{
@@ -397,7 +420,7 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     payload={contents:[{role:"user",parts:[{text:prompt},{inlineData:{mimeType:String(visualContext.mime_type||"image/png"),data:base64}}]}],generationConfig:{maxOutputTokens:512,temperature:0.3}};
     multimodal=true;
   }
-  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}});
+  const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}}),45000);
   if(!x.r.ok||x.b?.status!=="succeeded") throw new Error("executor_http_"+x.r.status+"_"+(x.b?.error?.code??x.b?.reason??"execution_failed"));
   return x.b;
 }
