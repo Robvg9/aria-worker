@@ -8,6 +8,9 @@ const test = require('node:test');
 const runAgent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'run-agent.ps1'), 'utf8');
 const installer = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'install-v2.ps1'), 'utf8');
 const supervisor = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'desktop-commander-supervisor.ps1'), 'utf8');
+const ariaAgent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'aria-agent.js'), 'utf8');
+const deviceGateway = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-device-gateway', 'index.ts'), 'utf8');
+const gatewayHashMigration = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'migrations', '20261009000000_device_gateway_hash_auth_v1.sql'), 'utf8');
 
 test('ARIA watchdog owns Desktop Commander startup without a second scheduler', () => {
   assert.match(runAgent, /Ensure-DesktopCommanderSupervisor/);
@@ -122,4 +125,29 @@ test('Watchdog persists ARIA agent stdout and stderr for safe gateway diagnosis'
   assert.match(runAgent, /agent_stderr_log = \$AgentStderrPath/);
   assert.match(runAgent, /AGENT_LOGS stdout=/);
   assert.ok(!runAgent.split('\n').some(line => line.includes('Write-Log') && line.includes('$env:ARIA_DEVICE_TOKEN')));
+});
+
+
+test('Device gateway sends only SHA-256 digests to PostgreSQL auth and enrollment RPCs', () => {
+  assert.ok(deviceGateway.includes("supabase.rpc('authenticate_device_gateway_hash'"));
+  assert.ok(deviceGateway.includes('p_token_hash:tokenHash'));
+  assert.ok(deviceGateway.includes("supabase.rpc('enroll_device_hash'"));
+  assert.ok(deviceGateway.includes("else if(typeof b.token==='string'&&b.token.length>=32)tokenHash=await hash(b.token)"));
+  assert.ok(!deviceGateway.includes("supabase.rpc('authenticate_device_gateway',{"));
+  assert.ok(!deviceGateway.includes("supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token})"));
+  assert.ok(gatewayHashMigration.includes('CREATE OR REPLACE FUNCTION public.authenticate_device_gateway_hash'));
+  assert.ok(gatewayHashMigration.includes('CREATE OR REPLACE FUNCTION public.enroll_device_hash'));
+  assert.ok(gatewayHashMigration.includes("p_token_hash !~ '^[0-9a-f]{64}$'"));
+  assert.ok(gatewayHashMigration.includes('GRANT EXECUTE ON FUNCTION public.authenticate_device_gateway_hash(text,text)'));
+  assert.ok(gatewayHashMigration.includes('GRANT EXECUTE ON FUNCTION public.enroll_device_hash(text,text)'));
+});
+
+test('Windows agent uses hashed enrollment, serializes startup, and does not duplicate a timed-out gateway request', () => {
+  assert.ok(ariaAgent.includes("token_hash:tokenHash"));
+  assert.ok(!ariaAgent.includes("token:DEVICE_TOKEN"));
+  assert.ok(ariaAgent.includes("await enroll();"));
+  assert.ok(!ariaAgent.includes("Promise.race([enroll()"));
+  assert.ok(ariaAgent.includes("error?.message === 'gateway_timeout'"));
+  assert.ok(ariaAgent.includes('retry_count:0'));
+  assert.ok(ariaAgent.includes('requestTimeoutMs'));
 });
