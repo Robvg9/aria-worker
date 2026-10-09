@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync('.github/workflows/supabase-canonical-deploy.yml','utf8');
 const pwaDeploy=fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','utf8');
+const deliveryGate=fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 
 const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-memory-v2'];
@@ -60,7 +61,7 @@ assert.ok(pwaDeploy.includes('grep -q "aria-pwa-${GITHUB_SHA}" "dist/sw-${GITHUB
 assert.ok(pwaDeploy.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js'));
 assert.ok(pwaDeploy.includes('echo "AUTH_DIRECT_UPSTREAM_UNAVAILABLE=$direct_code"'), 'transient Supabase Auth 5xx must be diagnosed, not confused with a broken PWA deploy');
 assert.ok(pwaDeploy.includes('echo "AUTH_PROXY_UPSTREAM_UNAVAILABLE=$proxy_code"'), 'transient Auth proxy 5xx must be diagnosed without cancelling exact-SHA delivery');
-assert.match(pwaDeploy,/version\.json\?gate=\$HEAD_SHA/, 'delivery gate must require the exact deployed SHA in the LIVE version endpoint');
+assert.match(deliveryGate,/version\.json\?gate=\$HEAD_SHA/, 'delivery gate must require the exact deployed SHA in the LIVE version endpoint');
 
 const workflowDir='.github/workflows';
 const workflowFiles=fs.readdirSync(workflowDir).filter(name=>name.endsWith('.yml')||name.endsWith('.yaml'));
