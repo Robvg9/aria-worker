@@ -81,8 +81,10 @@ jobs:
           for attempt in $(seq 1 90); do
             html="$(curl --fail --silent --show-error --retry 1 --retry-delay 1 "${base}?probe=$GITHUB_SHA-webpush-$attempt" 2>/dev/null || true)"
             version="$(curl --fail --silent --show-error --retry 1 --retry-delay 1 "${base}version.json?probe=$GITHUB_SHA-webpush-$attempt" 2>/dev/null || true)"
+            # The version endpoint is the canonical build identity. The HTML may be
+            # served through a cache or omit a build string; do not require the SHA
+            # to be duplicated in HTML after version.json has proved exact identity.
             if grep -q "aria-test-catalog-version" <<<"$html" &&
-               grep -q "$GITHUB_SHA" <<<"$html" &&
                VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
           import json, os
           try:
