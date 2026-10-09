@@ -261,7 +261,7 @@ assert.match(project,/https:\/\/battlecruiser\.robvg9\.workers\.dev\//);
 assert.match(project,/papxnkkjtkxsitcsvcme/);
 console.log('ARIA BATTLECRUISER CANONICAL PROJECT RESOURCE BINDING: PASS');
 
-assert.match(project,/FUENTES CANÓNICAS · BATTLECRUISER/);
+assert.match(project,/FUENTES CANÓNICAS · \\{project\\.name\\.toUpperCase\\(\\)\\}/);
 assert.match(project,/Frontend LIVE ↗/);
 assert.match(project,/Código · main ↗/);
 assert.match(project,/Backend · Supabase ↗/);
