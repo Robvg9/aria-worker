@@ -7,7 +7,7 @@ type Session = { accessToken: string; userId: string };
 type ChatMessage = { id:string; role:'user'|'aria'; text:string; processingMs?:number };
 type Project = { id: string; name: string; description: string; icon: string; context: string; previewUrl?: string; previewMode?: 'live' | 'source' | 'reference' | 'auth-required' };
 type BattleCruiserClientConfig = { supabase_url:string; publishable_key:string };
-type ActiveBattleCruiserConnection = { accessToken:string; refreshToken:string; expiresAt:number; user:{id:string;email:string|null}; clientConfig:BattleCruiserClientConfig; verifiedChecks?:any };
+type ActiveBattleCruiserConnection = { ariaUserId:string; accessToken:string; refreshToken:string; expiresAt:number; user:{id:string;email:string|null}; clientConfig:BattleCruiserClientConfig; verifiedChecks?:any };
 let activeBattleCruiserConnection: ActiveBattleCruiserConnection | null = null;
 type Tool = 'pen'|'marker'|'line'|'rect'|'circle'|'arrow'|'text'|'eraser';
 type Point = { x:number; y:number };
@@ -51,6 +51,7 @@ async function getActiveBattleCruiserAccessToken():Promise<string|null>{
       return current.expiresAt>Date.now()?current.accessToken:null;
     }
     activeBattleCruiserConnection={
+      ariaUserId:current.ariaUserId,
       accessToken:String(data.access_token),
       refreshToken:String(data.refresh_token||current.refreshToken),
       expiresAt:Date.now()+Math.max(60,Number(data.expires_in)||3600)*1000,
@@ -275,7 +276,7 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
   const [connecting,setConnecting]=useState(false);
   const [bcUsername,setBcUsername]=useState('');
   const [bcPassword,setBcPassword]=useState('');
-  const [connectedUser,setConnectedUser]=useState<BattleCruiserVerifiedConnection|null>(()=>activeBattleCruiserConnection?{user:activeBattleCruiserConnection.user,checks:activeBattleCruiserConnection.verifiedChecks}:null);
+  const [connectedUser,setConnectedUser]=useState<BattleCruiserVerifiedConnection|null>(()=>activeBattleCruiserConnection?.ariaUserId===session.userId?{user:activeBattleCruiserConnection.user,checks:activeBattleCruiserConnection.verifiedChecks}:null);
   const [refreshTick,setRefreshTick]=useState(0);
 
   useEffect(()=>{
@@ -323,6 +324,7 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
       });
       if(verification?.ok!==true||verification?.authenticated!==true||!verification?.user?.id)throw new Error('No se pudo verificar la sesión autenticada de BattleCruiser.');
       const connection:ActiveBattleCruiserConnection={
+        ariaUserId:session.userId,
         accessToken:String(authData.access_token),
         refreshToken:String(authData.refresh_token),
         expiresAt:Date.now()+Math.max(60,Number(authData.expires_in)||3600)*1000,
@@ -396,7 +398,7 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
           <button type='button' className='ghost' onClick={()=>setRefreshTick(v=>v+1)}>Actualizar salud ↻</button>
           <button type='button' className='ghost' onClick={disconnectBattleCruiser}>Cerrar conexión BC</button>
         </div>
-      </div>:<form onSubmit={event=>{event.preventDefault();void connectBattleCruiser();}} style={{display:'grid',gap:10,marginTop:10,maxWidth:460}}>
+      </div>:<form onSubmit={event=>{event.preventDefault();void connectBattleCruiserAccount();}} style={{display:'grid',gap:10,marginTop:10,maxWidth:460}}>
         <label style={{display:'grid',gap:5}}>Usuario o correo de BattleCruiser
           <input value={bcUsername} onChange={event=>setBcUsername(event.target.value)} autoComplete='username' disabled={connecting} placeholder='Tu usuario de BattleCruiser' required />
         </label>
@@ -595,6 +597,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
 // Projects certification trigger: final RWHT must execute against the exact main PWA build.
 
 export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>void}) {
+  useEffect(()=>()=>{if(activeBattleCruiserConnection?.ariaUserId===session.userId)activeBattleCruiserConnection=null;},[session.userId]);
   const PROJECT_KEY='aria_project_selection_v2:'+session.userId;
   const TAB_KEY=(projectId:string)=>'aria_project_tab_v2:'+session.userId+':'+projectId;
   const [project,setProject]=useState<Project>(()=>{try{const id=localStorage.getItem(PROJECT_KEY);return PROJECTS.find(p=>p.id===id)||PROJECTS[0]}catch{return PROJECTS[0]}});
