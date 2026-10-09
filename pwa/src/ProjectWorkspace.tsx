@@ -191,6 +191,80 @@ function ProjectOverviewPreview({project}:{project:Project}) {
   </section>;
 }
 
+
+type ProjectConnectionCheck = {
+  status?: string;
+  http_status?: number | null;
+  version?: string | null;
+  service?: string | null;
+  verified?: boolean;
+  note?: string;
+};
+type ProjectConnectionReport = {
+  ok?: boolean;
+  project_id?: string;
+  checks?: {
+    frontend?: ProjectConnectionCheck;
+    backend_auth?: ProjectConnectionCheck;
+    backend_data?: ProjectConnectionCheck;
+    repository?: ProjectConnectionCheck & { url?: string };
+  };
+};
+
+function ProjectResourceConnections({project,session}:{project:Project;session:Session}) {
+  const [report,setReport]=useState<ProjectConnectionReport|null>(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState('');
+  const [refreshTick,setRefreshTick]=useState(0);
+  useEffect(()=>{
+    let active=true;
+    setLoading(true);setError('');
+    api('/projects/'+encodeURIComponent(project.id)+'/connections',session.accessToken)
+      .then(value=>{if(active)setReport(value as ProjectConnectionReport)})
+      .catch(e=>{if(active)setError(e instanceof Error?e.message:'No se pudo comprobar la conexión.')})
+      .finally(()=>{if(active)setLoading(false)});
+    return()=>{active=false};
+  },[project.id,session.accessToken,refreshTick]);
+
+  const frontend=report?.checks?.frontend;
+  const auth=report?.checks?.backend_auth;
+  const data=report?.checks?.backend_data;
+  const repository=report?.checks?.repository;
+  const statusText=(value?:string)=>{
+    const map:Record<string,string>={
+      reachable:'Disponible',unavailable:'No responde',healthy:'Auth saludable',
+      frontend_backend_config_mismatch:'Configuración no coincide',
+      public_api_key_not_found:'Clave pública no encontrada',
+      not_checked_requires_authenticated_context:'Protegido · falta validar sesión',
+      configured_not_verified_by_runtime:'Enlace listo · acceso no verificado',
+      not_configured:'Sin configurar'
+    };
+    return value?(map[value]||value):'Pendiente';
+  };
+  const statusClass=(value?:string)=>value==='reachable'||value==='healthy'?'good':value==='unavailable'||value==='frontend_backend_config_mismatch'?'bad':'neutral';
+
+  return <section className='panel projectResourceConnections' aria-label={'Fuentes canónicas de '+project.name}>
+    <div className='panelHeading'>
+      <div><div className='panelTitle'>FUENTES CANÓNICAS · {project.name.toUpperCase()}</div><h2>Conexiones del proyecto</h2><p className='muted'>Código, frontend LIVE y backend propio. ARIA conserva separado su Supabase.</p></div>
+      <button type='button' className='ghost' disabled={loading} onClick={()=>setRefreshTick(v=>v+1)}>{loading?'Comprobando…':'Comprobar de nuevo ↻'}</button>
+    </div>
+    <div style={{display:'flex',flexWrap:'wrap',gap:8,marginTop:12}}>
+      <a className='ghost' href='https://battlecruiser.robvg9.workers.dev/' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Frontend LIVE ↗</a>
+      <a className='ghost' href='https://github.com/Robvg9/battlecruiser/tree/main' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Código · main ↗</a>
+      <a className='ghost' href='https://supabase.com/dashboard/project/papxnkkjtkxsitcsvcme' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Backend · Supabase ↗</a>
+    </div>
+    <div className='statsGrid' style={{marginTop:14}}>
+      <div className='statCard'><div className='statLabel'>FRONTEND LIVE</div><div className='statValue' style={{fontSize:16}}>{statusText(frontend?.status)}</div><div className='muted'>{frontend?.version?'Versión '+frontend.version:frontend?.http_status?'HTTP '+frontend.http_status:'app.js'}</div></div>
+      <div className='statCard'><div className='statLabel'>BACKEND AUTH</div><div className='statValue' style={{fontSize:16}}>{statusText(auth?.status)}</div><div className='muted'>{auth?.service?(auth.service+(auth.version?' · '+auth.version:'')):auth?.http_status?'HTTP '+auth.http_status:'Identidad Supabase del proyecto'}</div></div>
+      <div className='statCard'><div className='statLabel'>DATOS PROTEGIDOS</div><div className='statValue' style={{fontSize:16}}>{statusText(data?.status)}</div><div className='muted'>No se prueba sin una sesión BC autorizada.</div></div>
+      <div className='statCard'><div className='statLabel'>GITHUB SOURCE</div><div className='statValue' style={{fontSize:16}}>{statusText(repository?.status)}</div><div className='muted'>El enlace existe; el runtime aún no certifica autorización Git.</div></div>
+    </div>
+    {error&&<p className='notice' role='status'>{error}</p>}
+    {!report&&!loading&&!error&&<p className='muted'>Aún no hay resultado de verificación.</p>}
+    <p className='muted' style={{marginTop:12}}>La comprobación de Auth no garantiza permiso a tablas/RPC ni sustituye una prueba autenticada. No se abren permisos anónimos para obtener un PASS.</p>
+  </section>;
+}
+
 function VisualBoard({session,project,conversationId,onChat,onMission}:{session:Session;project:Project;conversationId:string|null;onChat:(message:string,conversationId?:string)=>void;onMission:(payload:any)=>Promise<any>}) {
   const livePreviewUrl = project.previewUrl || null;
   const previewMode = project.previewMode || (livePreviewUrl ? 'live' : 'reference');
@@ -589,16 +663,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   return <main className='appShell projectShell'>
     <section className='projectGrid' aria-label='Seleccionar proyecto'>{PROJECTS.map(p=><button type='button' key={p.id} className={'projectCard '+(p.id===project.id?'selected':'')} onClick={()=>selectProject(p)}><span className='projectIcon'>{p.icon}</span><div><strong>{p.name}</strong><small>{p.id==='battlecruiser'?'Operación':p.id==='cuevacoin'?'Finanzas':'Cerebro'}</small></div></button>)}</section>
     {tab!=='chat' && <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted'>{project.context}</p></div></section>}
-    {tab!=='chat'&&project.id==='battlecruiser'&&<section className='panel' aria-label='Fuentes canónicas de BattleCruiser'>
-      <div className='panelTitle'>FUENTES CANÓNICAS · BATTLECRUISER</div>
-      <p className='muted'>ARIA mantiene separados el código, la aplicación LIVE y el backend original. Estos enlaces abren cada fuente sin cambiar la conexión de Supabase de ARIA.</p>
-      <div style={{display:'flex',flexWrap:'wrap',gap:8,marginTop:12}}>
-        <a className='ghost' href='https://battlecruiser.robvg9.workers.dev/' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Frontend LIVE ↗</a>
-        <a className='ghost' href='https://github.com/Robvg9/battlecruiser/tree/main' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Código · main ↗</a>
-        <a className='ghost' href='https://supabase.com/dashboard/project/papxnkkjtkxsitcsvcme' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Backend · Supabase ↗</a>
-      </div>
-      <p className='muted' style={{marginTop:12}}>Backend protegido: la conexión administrativa y las pruebas autenticadas siguen pendientes. No se conceden permisos anónimos ni se sustituyen datos por los de ARIA.</p>
-    </section>}
+    {tab!=='chat'&&project.id==='battlecruiser'&&<ProjectResourceConnections project={project} session={session}/>}
     <div className='capTabs projectTabs' aria-label='Secciones del proyecto'>{(['overview','chat','missions','visual'] as const).map(t=><button type='button' key={t} className={'tabButton '+(tab===t?'selected':'')} onClick={()=>selectTab(t)}>{t==='overview'?'Resumen':t==='chat'?'Chat':t==='missions'?'Misiones':'ARTIA'}</button>)}</div>
     <div className='projectBodyViewport'>
       {error&&<div className='errorBox'>{error}</div>}
