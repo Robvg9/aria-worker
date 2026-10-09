@@ -1546,11 +1546,8 @@ if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e)},502);}
 }
 if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){
-  if(typeof b.device_id!=='string')return json({error:'device_id_required'},400);
-  let tokenHash='';
-  if(typeof b.token_hash==='string'&&/^[0-9a-f]{64}$/.test(b.token_hash))tokenHash=b.token_hash;
-  else if(typeof b.token==='string'&&b.token.length>=32)tokenHash=await hash(b.token);
-  else return json({error:'device_id_and_token_hash_required'},400);
+  if(typeof b.device_id!=='string'||typeof b.token!=='string'||b.token.length<32)return json({error:'device_id_and_token_required'},400);
+  const tokenHash=await hash(b.token);
   const {data,error}=await supabase.rpc('enroll_device_hash',{p_device_id:b.device_id,p_token_hash:tokenHash});
   if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);
   return json(data);
