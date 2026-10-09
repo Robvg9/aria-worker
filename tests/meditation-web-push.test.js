@@ -47,7 +47,7 @@ assert(physicalE2E.includes("function withTimeout"), 'physical Web Push E2E must
 assert(physicalE2E.includes("service_worker_registration"), 'physical Web Push E2E must identify a service worker registration timeout');
 assert(physicalE2E.includes("serviceWorker.register(url, { scope: '/pwa/' })"), 'physical Web Push E2E must explicitly register the build-matched service worker');
 assert(physicalE2E.includes("deliver_push_message"), 'physical Web Push E2E must bound push delivery');
-assert(physicalE2E.includes("failed_at_stage: report.stage"), 'physical Web Push E2E must persist the exact failing stage');
+assert(physicalE2E.includes("report.failed_at_stage = report.stage"), 'physical Web Push E2E must persist the exact failing stage');
 
 console.log('MEDITATION IA BACKGROUND WEB PUSH CONTRACT: PASS');
 console.log(JSON.stringify({
