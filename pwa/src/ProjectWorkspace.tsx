@@ -32,7 +32,7 @@ async function api(path:string, token:string, init:RequestInit={}) {
   if (init.body) headers.set('content-type','application/json');
   const method=String(init.method||'GET').toUpperCase();
   const controller=new AbortController();
-  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path.endsWith('/conversation')?30000:30000);
+  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path.endsWith('/missions')?165000:30000);
   try {
     const response = await fetch(API+path,{...init,headers,cache:'no-store',signal:controller.signal});
     const raw = await response.text();
@@ -44,7 +44,10 @@ async function api(path:string, token:string, init:RequestInit={}) {
     }
     return data;
   } catch (e) {
-    if (e instanceof DOMException && e.name==='AbortError') throw new Error(method==='GET'?'ARIA tardó demasiado en actualizar el chat.':'ARIA lleva demasiado tiempo procesando esta solicitud. Puedes reintentar sin perder el mensaje.');
+    if (e instanceof DOMException && e.name==='AbortError') {
+      if(method!=='GET'&&path.endsWith('/missions')) throw new Error('La creación de misión sigue sin confirmación canónica. No la vuelvas a enviar hasta comprobar el resultado.');
+      throw new Error(method==='GET'?'ARIA tardó demasiado en actualizar el chat.':'ARIA lleva demasiado tiempo procesando esta solicitud. Puedes reintentar sin perder el mensaje.');
+    }
     throw e;
   } finally {
     window.clearTimeout(timeout);
@@ -397,6 +400,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const projectChatLoadRef=useRef<{projectId:string;promise:Promise<void>}|null>(null);
   const projectChatReadGenerationRef=useRef(0);
   const projectChatWriteInFlightRef=useRef(false);
+  const missionRequestRef=useRef<{requestId:string;projectId:string;goal:string;uncertain:boolean}|null>(null);
 
   useEffect(()=>{try{localStorage.setItem(PROJECT_KEY,project.id);localStorage.setItem(TAB_KEY(project.id),tab)}catch{}},[project.id,tab,session.userId]);
 
@@ -558,22 +562,79 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     }catch(e){await loadProjectChat().catch(()=>{});setError(e instanceof Error?e.message:'No se pudo hablar con ARIA.')}finally{projectChatWriteInFlightRef.current=false;setSending(false)}
   }
 
+  async function findMissionByRequestId(projectId:string,requestId:string,timeoutMs=45000):Promise<any|null>{
+    const deadline=Date.now()+timeoutMs;
+    while(Date.now()<deadline){
+      try{
+        const list=await api('/projects/'+encodeURIComponent(projectId)+'/missions?limit=20',session.accessToken);
+        const rows=Array.isArray(list?.missions)?list.missions:[];
+        const match=rows.find((row:any)=>{
+          let metadata:any=row?.metadata;
+          if(typeof metadata==='string'){try{metadata=JSON.parse(metadata)}catch{metadata={}}}
+          return String(metadata?.request_id||'')===requestId&&String(metadata?.project_id||'')===projectId;
+        });
+        const missionId=String(match?.mission_id||'');
+        if(missionId){
+          const detail=await api('/missions/'+encodeURIComponent(missionId),session.accessToken);
+          const mission=detail?.mission;
+          let metadata:any=mission?.metadata;
+          if(typeof metadata==='string'){try{metadata=JSON.parse(metadata)}catch{metadata={}}}
+          if(mission?.mission_id===missionId&&String(metadata?.request_id||'')===requestId&&String(metadata?.project_id||'')===projectId)return mission;
+        }
+      }catch{
+        // The server may still be finishing the original request. Reconcile by ID, never by replaying the write.
+      }
+      await new Promise(resolve=>window.setTimeout(resolve,1500));
+    }
+    return null;
+  }
+
   async function createMission(payload:any={}):Promise<boolean>{
     const clean=String(payload.goal??goal).trim();if(!clean||sending)return false;
+    const previous=missionRequestRef.current;
+    const samePending=previous?.projectId===project.id&&previous.goal===clean;
+    if(samePending&&previous.uncertain){
+      setSending(true);setError('');
+      try{
+        const recovered=await findMissionByRequestId(previous.projectId,previous.requestId);
+        if(recovered){missionRequestRef.current=null;setGoal('');void loadMissions();return true;}
+        setError('La solicitud anterior sigue sin confirmación canónica. No he enviado otra misión para evitar duplicados. Referencia: '+previous.requestId);
+        return false;
+      }finally{setSending(false)}
+    }
+    const requestId=samePending?previous.requestId:crypto.randomUUID();
+    const requestProjectId=project.id;
+    missionRequestRef.current={requestId,projectId:requestProjectId,goal:clean,uncertain:false};
     setSending(true);setError('');
     try{
-      const d=await api('/missions',session.accessToken,{method:'POST',body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:payload.visual_context||null})});
-      // The canonical API exposes both mission.mission_id and top-level mission_id.
-      // Normalize the documented response shapes instead of reporting a false failure
-      // after DIRECT already persisted and even completed the mission.
+      const d=await api('/missions',session.accessToken,{
+        method:'POST',
+        headers:{'x-aria-request-id':requestId},
+        body:JSON.stringify({goal:clean,project_id:requestProjectId,project:{id:project.id,name:project.name,context:project.context},visual_context:payload.visual_context||null})
+      });
+      // The canonical API exposes nested and top-level IDs; never infer success from an animation.
       const createdMissionId=String(d?.mission?.mission_id??d?.mission_id??d?.result?.mission_id??'').trim();
-      if(!createdMissionId){
-        const detail=String(d?.detail??d?.error??d?.message??'respuesta sin identificador canónico').slice(0,180);
-        throw new Error('ARIA no confirmó la creación de la misión ('+detail+').');
-      }
+      if(!createdMissionId)throw new Error('Respuesta de ARIA sin identificador canónico.');
+      missionRequestRef.current=null;
       setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);
       return true;
-    }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.');return false}finally{setSending(false)}
+    }catch(e){
+      const message=e instanceof Error?e.message:'No se pudo crear la misión.';
+      const definitelyRejected=/goal_required|invalid_or_expired_session|mission_request_id_reused|project_not_found|missing_authorization/i.test(message);
+      if(!definitelyRejected){
+        const recovered=await findMissionByRequestId(requestProjectId,requestId,45000).catch(()=>null);
+        if(recovered){
+          missionRequestRef.current=null;setGoal('');void loadMissions();return true;
+        }
+        // Keep the same key for follow-up checks and refuse to issue a blind duplicate.
+        missionRequestRef.current={requestId,projectId:requestProjectId,goal:clean,uncertain:true};
+        setError('La creación no recibió confirmación a tiempo y no pude verificar todavía el resultado canónico. No vuelvas a enviarla: ARIA conservará la referencia '+requestId+' para comprobarla sin duplicar la misión.');
+      }else{
+        missionRequestRef.current=null;
+        setError(message);
+      }
+      return false;
+    }finally{setSending(false)}
   }
 
   return <main className='appShell projectShell'>
