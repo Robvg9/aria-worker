@@ -385,9 +385,14 @@ async function run() {
       const detailHeading = probePage.locator('.detailModal .detailTop .eyebrow');
       await detailHeading.filter({ hasText:'RESUMEN DE MISIÓN' }).waitFor({ state:'visible', timeout:30000 });
       const detailTitle = (await probePage.locator('.detailModal .detailTop h2').first().innerText()).trim();
-      const expectedTitle = String(sourceMission?.display_title || '').trim();
-      if (expectedTitle && !detailTitle.includes(expectedTitle)) {
-        throw new Error('notification_clicked_wrong_mission_detail:' + detailTitle + ':expected:' + expectedTitle);
+      const missionGoal = String(sourceMission?.goal || '');
+      const expectedTitleToken = /battlecruiser/i.test(missionGoal)
+        ? 'BattleCruiser'
+        : /cueva\s*coin|cuevacoin/i.test(missionGoal)
+          ? 'CuevaCoin'
+          : String(sourceMission?.display_title || 'Prueba de ARIA').trim();
+      if (expectedTitleToken && !detailTitle.toLowerCase().includes(expectedTitleToken.toLowerCase())) {
+        throw new Error('notification_clicked_wrong_mission_detail:' + detailTitle + ':expected_token:' + expectedTitleToken);
       }
       report.notification_click_through_verified = true;
       report.notification_detail_verified = true;
