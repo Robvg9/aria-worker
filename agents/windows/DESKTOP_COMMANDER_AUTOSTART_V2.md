@@ -63,6 +63,18 @@ The supervisor only manages the local DC process. It does not:
 
 Desktop Commander pairing/authentication remains a Human Gate.
 
+## Remote-channel health reporting
+
+A live `node.exe` proves only that a local process exists. It does not prove the hosted Remote MCP channel is subscribed or usable.
+
+The supervisor writes separate fields in `desktop-commander-supervisor.json`:
+- `process_alive`: whether a Desktop Commander process was found.
+- `channel_state=last_subscribed`: the logs contain a `Channel subscribed` / `Status: Online` confirmation with no newer recognized channel error in the captured stdout tail. This is log evidence, not a live remote ping.
+- `channel_state=degraded`: a recognized channel failure is newer than the latest success, or stderr shows a connection error.
+- `channel_state=unverified`: a process exists but no positive subscription evidence was found.
+
+Recognized failures include `IncreaseConnectionPool`, `Channel error`, subscription timeout, unreachable-device messages, and WebSocket 1006 closure. A log state never replaces a real remote invocation or the provider's device Online status.
+
 ## Certification
 
 A complete certification requires both Windows PCs to pass:
