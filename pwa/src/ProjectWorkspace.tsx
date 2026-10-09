@@ -32,7 +32,10 @@ async function api(path:string, token:string, init:RequestInit={}) {
   if (init.body) headers.set('content-type','application/json');
   const method=String(init.method||'GET').toUpperCase();
   const controller=new AbortController();
-  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path.endsWith('/conversation')?30000:30000);
+  // Canonical visual mission intake has shown ~40s latency even when it succeeds.
+  // Give it a bounded 120s window so the UI doesn't report a false failure after the server has committed.
+  const timeoutMs=method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path==='/missions'?120000:30000;
+  const timeout=window.setTimeout(()=>controller.abort(),timeoutMs);
   try {
     const response = await fetch(API+path,{...init,headers,cache:'no-store',signal:controller.signal});
     const raw = await response.text();
@@ -397,6 +400,8 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const projectChatLoadRef=useRef<{projectId:string;promise:Promise<void>}|null>(null);
   const projectChatReadGenerationRef=useRef(0);
   const projectChatWriteInFlightRef=useRef(false);
+  // Retain an uncertain request identity across retries; API v3 reconciles it before calling DIRECT again.
+  const createMissionRequestRef=useRef<{key:string;requestId:string}|null>(null);
 
   useEffect(()=>{try{localStorage.setItem(PROJECT_KEY,project.id);localStorage.setItem(TAB_KEY(project.id),tab)}catch{}},[project.id,tab,session.userId]);
 
@@ -560,9 +565,13 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   async function createMission(payload:any={}):Promise<boolean>{
     const clean=String(payload.goal??goal).trim();if(!clean||sending)return false;
+    const visualContext=payload.visual_context||null;
+    const requestKey=JSON.stringify({projectId:project.id,goal:clean,visual_context:visualContext});
+    let request=createMissionRequestRef.current;
+    if(!request||request.key!==requestKey){request={key:requestKey,requestId:crypto.randomUUID()};createMissionRequestRef.current=request;}
     setSending(true);setError('');
     try{
-      const d=await api('/missions',session.accessToken,{method:'POST',body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:payload.visual_context||null})});
+      const d=await api('/missions',session.accessToken,{method:'POST',headers:{'x-aria-request-id':request.requestId},body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});
       // The canonical API exposes both mission.mission_id and top-level mission_id.
       // Normalize the documented response shapes instead of reporting a false failure
       // after DIRECT already persisted and even completed the mission.
@@ -571,6 +580,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         const detail=String(d?.detail??d?.error??d?.message??'respuesta sin identificador canónico').slice(0,180);
         throw new Error('ARIA no confirmó la creación de la misión ('+detail+').');
       }
+      createMissionRequestRef.current=null;
       setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);
       return true;
     }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.');return false}finally{setSending(false)}
