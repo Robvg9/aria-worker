@@ -1558,6 +1558,82 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && path.endsWith("/absorb/register")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbRegister(user.id,String(body?.absorption_id||""),body?.binding||{})),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
     if (req.method === "POST" && path.endsWith("/absorb/enable")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbEnable(user.id,String(body?.absorption_id||""))),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
 
+    const projectConnectionsPath = path.match(/\/projects\/([^/]+)\/connections$/);
+    if (req.method === "GET" && projectConnectionsPath) {
+      const projectId = decodeURIComponent(projectConnectionsPath[1]).toLowerCase();
+      const project = getProject(projectId);
+      if (!project) return json({ error: "project_not_found", trace_id: trace }, 404);
+      if (projectId !== "battlecruiser" || !project.resources) {
+        return json({
+          ok: true,
+          project_id: project.id,
+          resources: project.resources ?? null,
+          checks: { frontend: { status: "not_configured" }, backend_auth: { status: "not_configured" }, backend_data: { status: "not_checked_requires_authenticated_context" }, repository: { status: "configured_not_verified_by_runtime" } },
+          trace_id: trace
+        });
+      }
+
+      const resources = project.resources;
+      const fetchBounded = async (url: string, headers?: Record<string, string>) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+          const response = await fetch(url, { method: "GET", headers, cache: "no-store", signal: controller.signal });
+          const body = await response.text();
+          return { response, body };
+        } catch (error) {
+          return { response: null, body: "", error: error instanceof Error ? error.message : String(error) };
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      const frontendUrl = String(resources.frontend_live_url).replace(/\/+$/, "");
+      const backendUrl = String(resources.backend_api_url).replace(/\/+$/, "");
+      const [appProbe, configProbe] = await Promise.all([
+        fetchBounded(frontendUrl + "/app.js"),
+        fetchBounded(frontendUrl + "/js/core.js")
+      ]);
+      const appVersionMatch = appProbe.body.match(/const VERSION\s*=\s*["']([^"']+)["']/);
+      const frontend = {
+        status: appProbe.response?.ok && appVersionMatch ? "reachable" : "unavailable",
+        http_status: appProbe.response ? appProbe.response.status : null,
+        version: appVersionMatch?.[1] ?? null
+      };
+
+      const supabaseUrlMatch = configProbe.body.match(/SUPABASE_URL\s*=\s*["']([^"']+)["']/);
+      const publishableKeyMatch = configProbe.body.match(/SUPABASE_ANON_KEY\s*=\s*["']([^"']+)["']/);
+      const configuredBackendUrl = supabaseUrlMatch?.[1]?.replace(/\/+$/, "") ?? null;
+      let backendAuth: Record<string, unknown>;
+      if (!configProbe.response?.ok || !configuredBackendUrl || configuredBackendUrl !== backendUrl) {
+        backendAuth = { status: "frontend_backend_config_mismatch", frontend_config_http_status: configProbe.response?.status ?? null };
+      } else if (!publishableKeyMatch?.[1]) {
+        backendAuth = { status: "public_api_key_not_found", frontend_config_http_status: configProbe.response.status };
+      } else {
+        const healthProbe = await fetchBounded(backendUrl + "/auth/v1/health", { apikey: publishableKeyMatch[1] });
+        const health = healthProbe.body ? (() => { try { return JSON.parse(healthProbe.body); } catch { return null; } })() : null;
+        backendAuth = {
+          status: healthProbe.response?.ok ? "healthy" : "unavailable",
+          http_status: healthProbe.response?.status ?? null,
+          service: typeof health?.name === "string" ? health.name : null,
+          version: typeof health?.version === "string" ? health.version : null
+        };
+      }
+
+      return json({
+        ok: true,
+        project_id: project.id,
+        resources,
+        checks: {
+          frontend,
+          repository: { status: "configured_not_verified_by_runtime", url: resources.repository_url },
+          backend_auth: backendAuth,
+          backend_data: { status: "not_checked_requires_authenticated_context", verified: false, note: "Auth health does not prove authenticated table/RPC access. Never grant anon for this probe." }
+        },
+        trace_id: trace
+      });
+    }
+
     if (req.method === "GET" && path.endsWith("/projects")) {
       return json({ ok: true, projects: PROJECTS, trace_id: trace });
     }
