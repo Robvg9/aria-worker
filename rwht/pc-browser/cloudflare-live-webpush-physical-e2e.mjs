@@ -12,6 +12,7 @@ fs.mkdirSync(artifacts, { recursive: true });
 const browser = await chromium.launch({ headless: false });
 const report = {
   status: 'failed',
+  stage: 'startup',
   origin,
   cloudflare_live: false,
   service_worker_registered: false,
@@ -24,26 +25,65 @@ const report = {
   error: null
 };
 
+async function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(label + '_timeout_after_' + timeoutMs + 'ms')), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
 try {
   const context = await browser.newContext();
   await context.grantPermissions(['notifications'], { origin });
 
   const page = await context.newPage();
+  report.stage = 'open_live_pwa';
   await page.goto(base + '?probe=' + encodeURIComponent(report.notification_id), {
     waitUntil: 'domcontentloaded',
     timeout: 60000
   });
   report.cloudflare_live = true;
 
-  const registration = await page.evaluate(async () => {
+  report.stage = 'register_and_activate_service_worker';
+  const registration = await withTimeout(page.evaluate(async () => {
     if (!('serviceWorker' in navigator)) throw new Error('service_worker_api_missing');
-    const ready = await navigator.serviceWorker.ready;
-    return { scope: ready.scope, active: Boolean(ready.active) };
-  });
+    const build = String(document.querySelector('meta[name="aria-build"]')?.getAttribute('content') || '').trim();
+    if (!build) throw new Error('aria_build_sha_missing');
+    const url = '/pwa/sw-' + build + '.js';
+    const reg = await navigator.serviceWorker.register(url, { scope: '/pwa/' });
+    const active = reg.active;
+    if (active?.state === 'activated') return { scope: reg.scope, active: true, script_url: url, build };
+    const worker = reg.installing || reg.waiting || reg.active;
+    if (!worker) throw new Error('service_worker_registration_has_no_worker');
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('service_worker_activation_timeout_after_20000ms')), 20000);
+      const finish = () => {
+        if (worker.state === 'activated') {
+          clearTimeout(timer);
+          resolve();
+        } else if (worker.state === 'redundant') {
+          clearTimeout(timer);
+          reject(new Error('service_worker_became_redundant'));
+        }
+      };
+      worker.addEventListener('statechange', finish);
+      finish();
+    });
+    return { scope: reg.scope, active: Boolean(reg.active?.state === 'activated'), script_url: url, build };
+  }), 30000, 'service_worker_registration');
   report.service_worker_registered = Boolean(registration.active);
   report.registration_scope = registration.scope;
   assert.ok(report.service_worker_registered, 'Cloudflare PWA Service Worker did not become active');
 
+  report.stage = 'discover_cdp_registration';
   const firstCdp = await context.newCDPSession(page);
   const registrations = new Map();
   firstCdp.on('ServiceWorker.workerRegistrationUpdated', params => {
@@ -51,7 +91,7 @@ try {
       if (reg?.scopeURL) registrations.set(String(reg.scopeURL), String(reg.registrationId));
     }
   });
-  await firstCdp.send('ServiceWorker.enable');
+  await withTimeout(firstCdp.send('ServiceWorker.enable'), 15000, 'cdp_service_worker_enable');
 
   let registrationId = null;
   for (let i = 0; i < 10 && !registrationId; i += 1) {
@@ -65,13 +105,15 @@ try {
   report.registration_id = registrationId;
 
   // Close the only PWA page before delivering the push.
+  report.stage = 'close_pwa_before_push';
   await page.close();
   report.pwa_page_closed_before_push = true;
 
   const controller = await context.newPage();
   const controllerCdp = await context.newCDPSession(controller);
   await controllerCdp.send('ServiceWorker.enable');
-  await controllerCdp.send('ServiceWorker.deliverPushMessage', {
+  report.stage = 'deliver_background_push';
+  await withTimeout(controllerCdp.send('ServiceWorker.deliverPushMessage', {
     origin,
     registrationId,
     data: JSON.stringify({
@@ -81,10 +123,11 @@ try {
       mission_id: 'physical-webpush-probe',
       url: '/pwa/#notification=' + encodeURIComponent(report.notification_id)
     })
-  });
+  }), 15000, 'deliver_push_message');
   report.push_delivered_to_service_worker = true;
 
   const probe = await context.newPage();
+  report.stage = 'verify_background_receipt_and_notification';
   await probe.goto(base + '#home', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
   let receipt = null;
@@ -126,6 +169,7 @@ try {
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
   report.error = String(error?.message || error);
+  report.failed_at_stage = report.stage;
   fs.writeFileSync(path.join(artifacts, 'cloudflare-live-webpush-physical-e2e.json'), JSON.stringify(report, null, 2));
   console.error(JSON.stringify(report, null, 2));
   process.exitCode = 2;

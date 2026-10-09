@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.8';
+const VERSION = 'aria-pc-browser-rwht-v1.3.9';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -684,8 +684,27 @@ async function auditRoute(page, url, routeIndex, config) {
       }
     }
 
-    let controlsNow = await discoverInteractive(page);
     const original = initialControls[index];
+    // Re-open the exact ancestor accordions captured by the prior snapshot before
+    // rediscovering controls. Native <details> descendants disappear from the visible
+    // control list while closed, so waiting for hydration alone can never reproduce them.
+    if (original.selector_hint) {
+      const parentSelector = String(original.selector_hint).split('>').slice(0, -1).join('>');
+      if (parentSelector) {
+        await page.evaluate((selector) => {
+          const anchor = document.querySelector(selector);
+          if (!anchor) return false;
+          let current = anchor;
+          while (current && current !== document.body) {
+            if (current instanceof HTMLDetailsElement) current.open = true;
+            current = current.parentElement;
+          }
+          return true;
+        }, parentSelector).catch(() => false);
+        await page.waitForTimeout(150);
+      }
+    }
+    let controlsNow = await discoverInteractive(page);
     // Controls backed by async mission/chat/meditation data can appear after the
     // route surface itself is visible. Give the same route a short deterministic
     // hydration window before declaring the snapshot unreproducible.

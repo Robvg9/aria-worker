@@ -410,6 +410,27 @@ function humanizeTechnicalText(value: any): string {
   return text;
 }
 
+function humanizeDiagnosticLabel(value: any): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const key = raw.toLowerCase().replace(/[\s-]+/g, '_');
+  const known: Record<string,string> = {
+    payment: 'Pago',
+    stale_unleased_retry_reconciled: 'La misión pendiente de recuperación fue conciliada',
+    identical_replan_strategy_blocked: 'ARIA evitó repetir una estrategia que ya había fallado',
+    stale_active_without_goal_id: 'Misión antigua sin objetivo asociado',
+    retry_exhausted_strategy: 'Se agotaron los intentos con la estrategia actual',
+    strategy_excluded_by_failure_memory: 'Se descartó una ruta que ya había fallado',
+    stale_mission_recovered_automatically: 'La misión antigua fue recuperada automáticamente',
+    duplicate_inflight_goal_prevented: 'Se evitó ejecutar el mismo objetivo dos veces',
+    planner_error: 'Error al preparar el plan',
+    planner_timeout: 'La preparación del plan excedió el tiempo permitido',
+    executor_error: 'Error durante la ejecución',
+  };
+  if (known[key]) return known[key];
+  return humanizeTechnicalText(raw).replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function humanStepTitle(step: any, fallbackIndex = 1): string {
   const raw = String(step?.title ?? step?.operation ?? '').trim();
   const op = String(step?.operation ?? '').trim().toLowerCase();
@@ -2833,13 +2854,13 @@ function Meditation({ session }: { session: Session }) {
           
                 <details className='panel collapsiblePanel'>
                   <summary><span>ESPERANDO VERIFICACIÓN</span><b>{(o?.verification_pending ?? []).length}</b></summary>
-                  {(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row live' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
+                  {(o?.verification_pending ?? []).slice(0, 8).map((b: any) => <button className='row live' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot warning' /><div><strong>{b.goal}</strong>{' — '}<small>{humanizeDiagnosticLabel(b.reason || 'Falta una verificación externa')} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
                   {!(o?.verification_pending?.length) && <div className='muted'>No hay verificaciones externas pendientes.</div>}
                 </details>
           
                 <details className='panel collapsiblePanel'>
                   <summary><span>BLOQUEADAS</span><b>{(o?.blocked ?? []).length}</b></summary>
-                  {(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{b.reason_type}</strong><small>{b.reason} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
+                  {(o?.blocked ?? []).slice(0, 8).map((b: any) => <button className='row bad' key={b.mission_id} onClick={() => void openMission(b.mission_id)}><span className='dot bad' /><div><strong>{humanizeDiagnosticLabel(b.reason_type || 'Misión bloqueada')}</strong>{' — '}<small>{humanizeDiagnosticLabel(b.reason || 'Revisar evidencia y seleccionar otra estrategia')} · Abrir diagnóstico</small></div><span className='rowArrow'>›</span></button>)}
                   {!(o?.blocked?.length) && <div className='muted'>No hay misiones bloqueadas visibles.</div>}
                 </details>
           
@@ -2897,7 +2918,7 @@ function Meditation({ session }: { session: Session }) {
                 </details>
                 <details className='panel collapsiblePanel'>
                   <summary><span>FALLIDAS</span><b>{Number(o?.counts?.failed ?? 0)}</b></summary>
-                  {(o?.failed ?? []).map((r: any) => <button className='row bad' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className='dot bad' /><div><strong>{missionHumanTitle(r)}</strong><small>{r.reason_type || 'Fallo registrado'} · {missionGoalPreview(r, 100)}</small><small>{r.instructions?.[1] || r.next_action || 'Revisar evidencia y decidir el siguiente paso.'}</small></div><span className='rowArrow'>›</span></button>)}
+                  {(o?.failed ?? []).map((r: any) => <button className='row bad' key={r.mission_id} onClick={() => void openMission(r.mission_id)}><span className='dot bad' /><div><strong>{missionHumanTitle(r)}</strong>{' — '}<small>{humanizeDiagnosticLabel(r.reason_type || 'Fallo registrado')} · {missionGoalPreview(r, 100)}</small><small>{humanizeDiagnosticLabel(r.instructions?.[1] || r.next_action || 'Revisar evidencia y decidir el siguiente paso.')}</small></div><span className='rowArrow'>›</span></button>)}
                   {!(o?.failed?.length) && <div className='muted'>No hay fallos recientes en la lista rápida.</div>}
                 </details>
           

@@ -15,6 +15,7 @@ const schemaSync = read('supabase/migrations/20261006190100_meditation_web_push_
 const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const helper = read('pwa/src/notifications.ts');
 const sw = read('pwa/public/sw.js');
+const physicalE2E = read('rwht/pc-browser/cloudflare-live-webpush-physical-e2e.mjs');
 
 assert(migration.includes('meditation_push_subscriptions'), 'background push subscription table missing');
 assert(migration.includes('meditation_push_deliveries'), 'push delivery evidence table missing');
@@ -42,6 +43,11 @@ assert(sw.includes("addEventListener('push'"), 'service worker push event handle
 assert(sw.includes('self.registration.showNotification'), 'service worker must display background notifications');
 assert(sw.includes('notification_id'), 'push payload must preserve notification identity');
 assert(sw.includes('/pwa/#notification='), 'background notification deep link missing');
+assert(physicalE2E.includes("function withTimeout"), 'physical Web Push E2E must bound operations instead of hanging indefinitely');
+assert(physicalE2E.includes("service_worker_registration"), 'physical Web Push E2E must identify a service worker registration timeout');
+assert(physicalE2E.includes("serviceWorker.register(url, { scope: '/pwa/' })"), 'physical Web Push E2E must explicitly register the build-matched service worker');
+assert(physicalE2E.includes("deliver_push_message"), 'physical Web Push E2E must bound push delivery');
+assert(physicalE2E.includes("report.failed_at_stage = report.stage"), 'physical Web Push E2E must persist the exact failing stage');
 
 console.log('MEDITATION IA BACKGROUND WEB PUSH CONTRACT: PASS');
 console.log(JSON.stringify({
