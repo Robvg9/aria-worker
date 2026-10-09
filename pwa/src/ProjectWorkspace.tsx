@@ -437,18 +437,21 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return promise;
   }
 
-  async function waitForProjectAssistant(previousAssistantCount:number, requestProject:Project, timeoutMs=145000){
+  async function waitForProjectAssistant(requestProject:Project, timeoutMs=145000){
     const deadline=Date.now()+timeoutMs;
     while(Date.now()<deadline){
       try{
         const d=await api('/projects/'+encodeURIComponent(requestProject.id)+'/conversation',session.accessToken);
-        if(d?.conversation_id&&Array.isArray(d?.conversation?.messages)){
-          const normalized=d.conversation.messages
+        const rows=Array.isArray(d?.conversation?.messages)?d.conversation.messages:[];
+        if(d?.conversation_id&&rows.length){
+          const normalized=rows
             .map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')}))
             .filter((m:any)=>m.text.trim());
-          const assistantCount=normalized.filter((m:any)=>m.role==='aria').length;
+          const lastUserIndex=rows.reduce((last:number,m:any,index:number)=>m?.role==='user'?index:last,-1);
+          const assistantAfterLatestUser=lastUserIndex>=0
+            && rows.slice(lastUserIndex+1).some((m:any)=>m?.role==='assistant'&&String(m?.content||'').trim().length>0);
           try{localStorage.setItem('aria_project_conversation:'+session.userId+':'+requestProject.id,JSON.stringify({conversation_id:d.conversation_id,messages:normalized}));}catch{}
-          if(assistantCount>previousAssistantCount){
+          if(assistantAfterLatestUser){
             if(requestProject.id===project.id){
               setConversationId(d.conversation_id);
               setMessages(normalized);
@@ -514,7 +517,6 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   async function send(){
     const clean=text.trim();if(!clean||sending)return;
     const requestProject=project;
-    const previousAssistantCount=messages.filter(m=>m.role==='aria').length;
     const clientMessageId=crypto.randomUUID();
     setSending(true);setError('');processingStartedAtRef.current=Date.now();setProcessingElapsedMs(0);setLastProcessingMs(null);
     setMessages(m=>[...m,{id:crypto.randomUUID(),role:'user',text:clean}]);setText('');
@@ -529,7 +531,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         // The local executor accepted an idempotent background job. Keep the user
         // informed and poll the canonical server conversation until its answer persists.
         setError('');
-        const completed=await waitForProjectAssistant(previousAssistantCount,requestProject,145000);
+        const completed=await waitForProjectAssistant(requestProject,145000);
         if(!completed)throw new Error('ARIA aceptó el trabajo, pero la respuesta no quedó registrada dentro del límite de verificación.');
       }else if(p?.text){
         setMessages(m=>[...m,{id:crypto.randomUUID(),role:'aria',text:p.text,processingMs:Number.isFinite(serverProcessingMs)?serverProcessingMs:undefined}]);
