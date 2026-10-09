@@ -86,6 +86,14 @@ Evidence / provider reports: [DesktopCommanderMCP #811](https://github.com/wonde
 
 This is a resilience guard, not a fix for a hosted Remote MCP / Realtime backend outage. A successful HTTP preflight is not proof of a joined WebSocket channel. If a known hosted failure remains active, vendor-side recovery or a working alternate transport is still required.
 
+## Persistent ARIA-agent diagnostics
+
+The watchdog redirects each ARIA agent launch to timestamped files in `D:\\ARIA-Windows-Agent\\Logs`:
+- `agent-stdout-YYYYMMDD-HHmmss-fff.log`
+- `agent-stderr-YYYYMMDD-HHmmss-fff.log`
+
+The active paths are also written to `status.json` and the watchdog records an `AGENT_LOGS` line. Use these logs to distinguish a gateway HTTP authorization response from DNS/TLS/socket errors. Never log or print `ARIA_DEVICE_TOKEN`, DPAPI plaintext, or authorization headers when diagnosing the bridge.
+
 ## Certification
 
 A complete certification requires both Windows PCs to pass:
