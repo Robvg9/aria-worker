@@ -730,6 +730,26 @@ async function run() {
       }
 
       await page.getByRole('button', { name: 'Pausar para pintar' }).click();
+      await page.waitForFunction(() => {
+        const canvas = document.querySelector('.artiaPreviewShell canvas');
+        const iframe = document.querySelector('.artiaPreviewShell iframe');
+        const pauseControlActive = [...document.querySelectorAll('.visualPreviewControlGroup button')].some((button) => /Reproducir vista/.test(button.innerText || ''));
+        const hint = String(document.querySelector('.visualHint')?.textContent || '');
+        return Boolean(pauseControlActive && canvas && getComputedStyle(canvas).pointerEvents === 'auto'
+          && (!iframe || getComputedStyle(iframe).pointerEvents === 'none')
+          && /La vista está pausada/.test(hint));
+      }, null, { timeout: 15000 }).catch(async (error) => {
+        const state = await page.evaluate(() => ({
+          url: location.href,
+          selected_project: document.querySelector('.projectGrid .projectCard.selected')?.innerText?.trim() || null,
+          selected_tab: document.querySelector('.projectTabs .tabButton.selected')?.innerText?.trim() || null,
+          visual_board_present: Boolean(document.querySelector('.visualBoardPanel')),
+          canvas_pointer_events: getComputedStyle(document.querySelector('.artiaPreviewShell canvas')).pointerEvents,
+          iframe_pointer_events: document.querySelector('.artiaPreviewShell iframe') ? getComputedStyle(document.querySelector('.artiaPreviewShell iframe')).pointerEvents : null,
+          hint: document.querySelector('.visualHint')?.textContent || null
+        }));
+        throw new Error('artia_pause_state_not_applied_' + visualProject.id + '_' + JSON.stringify(state) + '; cause=' + String(error?.message || error));
+      });
       await page.getByRole('button', { name: 'Rectángulo' }).click();
       const rectTool = page.getByRole('button', { name: 'Rectángulo' }).first();
       if (!(await rectTool.evaluate((node) => node.classList.contains('selected')))) throw new Error('artia_rect_tool_not_selected_' + visualProject.id);
@@ -771,8 +791,25 @@ async function run() {
       await page.mouse.move(visualBox.x + visualBox.width * 0.55, visualBox.y + visualBox.height * 0.45, { steps: 12 });
       await page.mouse.up();
       await page.waitForFunction(() => [...document.querySelectorAll('.visualHint')].some(n => /Anotaciones:\s*[1-9]\d*/.test(n.textContent || '')), null, { timeout: 30000 }).catch(async (error) => {
-        const hints = await page.locator('.visualHint').allInnerTexts().catch(() => []);
-        throw new Error('artia_drawing_annotation_not_observed_' + visualProject.id + '_hints=' + JSON.stringify(hints) + '; cause=' + String(error?.message || error));
+        const state = await page.evaluate(() => {
+          const c = document.querySelector('.artiaPreviewShell canvas');
+          const iframe = document.querySelector('.artiaPreviewShell iframe');
+          const rect = c?.getBoundingClientRect();
+          return {
+            url: location.href,
+            selected_project: document.querySelector('.projectGrid .projectCard.selected')?.innerText?.trim() || null,
+            selected_tab: document.querySelector('.projectTabs .tabButton.selected')?.innerText?.trim() || null,
+            visual_board_present: Boolean(document.querySelector('.visualBoardPanel')),
+            canvas_found: Boolean(c),
+            canvas_pointer_events: c ? getComputedStyle(c).pointerEvents : null,
+            iframe_pointer_events: iframe ? getComputedStyle(iframe).pointerEvents : null,
+            canvas_rect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
+            hints: [...document.querySelectorAll('.visualHint')].map(n => n.textContent || ''),
+            body_tail: (document.body?.innerText || '').slice(-1600)
+          };
+        });
+        await page.screenshot({ path: path.join(ARTIFACT_DIR, 'artia-drawing-failure-' + visualProject.id + '.png'), fullPage: true }).catch(() => {});
+        throw new Error('artia_drawing_annotation_not_observed_' + visualProject.id + '_' + JSON.stringify(state) + '; cause=' + String(error?.message || error));
       });
       const afterDraw = await visualCanvas.evaluate((node) => (node instanceof HTMLCanvasElement ? node.toDataURL('image/png') : ''));
       if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);

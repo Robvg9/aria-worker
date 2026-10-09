@@ -496,7 +496,14 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   useEffect(()=>{const c=canvasRef.current;if(!c)return;const d=window.devicePixelRatio||1;c.width=1100*d;c.height=650*d;redraw();const f=()=>{const dpr=window.devicePixelRatio||1;c.width=1100*dpr;c.height=650*dpr;redraw()};window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f)},[]);
   useEffect(()=>redraw(),[actions,backgroundDataUrl,previewPaused,previewFrame,project.id,livePreviewUrl]);
   useEffect(()=>{if(previewPaused)return;const timer=window.setInterval(()=>setPreviewFrame(v=>(v+1)%4),1200);return()=>window.clearInterval(timer)},[previewPaused]);
+  const resetProjectIdRef=useRef(project.id);
   useEffect(()=>{
+    // useState already initializes a new VisualBoard with the clean defaults.
+    // Skip a redundant reset on first mount: automation and fast users can press
+    // "Pausar para pintar" before passive effects run, and the initial reset then
+    // races their click by turning the live iframe back on and disabling the canvas.
+    if(resetProjectIdRef.current===project.id)return;
+    resetProjectIdRef.current=project.id;
     setActions([]);
     setInstruction('');
     setBusy(false);
