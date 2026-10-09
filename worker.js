@@ -8,6 +8,7 @@
 // Phase 3 RWHT auth diagnostic trigger: same bounded deploy/certification cycle.
 // Phase 3 auth timeout contract: proxy-first password authentication uses bounded upstream latency.
 // Phase 3 canonical runtime certification trigger: behavior unchanged; force exact-SHA LIVE delivery after restoring versioned runtime-gateway source.
+/* 2026-10-09: Projects RWHT should certify the canonical mission-create acknowledgement recovery after the Supabase App API fix is LIVE. */
 const SUPABASE_MCP = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
 const SUPABASE_OAUTH = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
 const SUPABASE_BROWSER_OAUTH = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-mcp-inbound-grok-v1";
