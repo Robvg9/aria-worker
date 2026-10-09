@@ -408,7 +408,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     }catch(e){setError(e instanceof Error?e.message:'No se pudieron cargar las misiones.')}
   }
 
-  async function loadProjectChat(){
+  async function loadProjectChat(options:{quiet?:boolean}={}){
     const projectId=project.id;
     const existing=projectChatLoadRef.current;
     if(existing?.projectId===projectId)return existing.promise;
@@ -432,7 +432,9 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         // error rather than surfacing a stale failure over the newer write/poll cycle.
         if(projectId===project.id&&readGeneration===projectChatReadGenerationRef.current){
           setProjectChatReady(true);
-          setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
+          // After a verified response, this final refresh is best-effort; do not
+          // overwrite the successful server result with a secondary read timeout.
+          if(!options.quiet)setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
         }
       }finally{
         if(projectChatLoadRef.current?.promise===promise)projectChatLoadRef.current=null;
@@ -550,7 +552,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         setMessages(m=>[...m,{id:crypto.randomUUID(),role:'aria',text:p.text,processingMs:Number.isFinite(serverProcessingMs)?serverProcessingMs:undefined}]);
       }
       if(d.mission?.mission_id)await loadMissions();
-      await loadProjectChat();
+      await loadProjectChat({quiet:true});
     }catch(e){await loadProjectChat().catch(()=>{});setError(e instanceof Error?e.message:'No se pudo hablar con ARIA.')}finally{setSending(false)}
   }
 
