@@ -1605,11 +1605,13 @@ Deno.serve(async (req) => {
       const publishableKeyMatch = configProbe.body.match(/SUPABASE_[A-Z_]*KEY\s*=\s*["']([^"']+)["']/);
       const configuredBackendUrl = supabaseUrlMatch?.[1]?.replace(/\/+$/, "") ?? null;
       let backendAuth: Record<string, unknown>;
+      let clientConfig: Record<string, string> | null = null;
       if (!configProbe.response?.ok || !configuredBackendUrl || configuredBackendUrl !== backendUrl) {
         backendAuth = { status: "frontend_backend_config_mismatch", frontend_config_http_status: configProbe.response?.status ?? null };
       } else if (!publishableKeyMatch?.[1] || !(publishableKeyMatch[1].startsWith("sb_publishable_") || publishableKeyMatch[1].startsWith("eyJ"))) {
         backendAuth = { status: "public_api_key_not_found_or_not_publishable", frontend_config_http_status: configProbe.response.status };
       } else {
+        clientConfig = { supabase_url: backendUrl, publishable_key: publishableKeyMatch[1] };
         const healthProbe = await fetchBounded(backendUrl + "/auth/v1/health", { apikey: publishableKeyMatch[1] });
         const health = healthProbe.body ? (() => { try { return JSON.parse(healthProbe.body); } catch { return null; } })() : null;
         backendAuth = {
@@ -1624,6 +1626,7 @@ Deno.serve(async (req) => {
         ok: true,
         project_id: project.id,
         resources,
+        client_config: backendAuth.status === "healthy" ? clientConfig : null,
         checks: {
           frontend,
           repository: { status: "configured_not_verified_by_runtime", url: resources.repository_url },
