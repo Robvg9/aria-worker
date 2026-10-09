@@ -234,6 +234,83 @@ jobs:
           PY
           echo "PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK build=$RWHT_CERT_SHA version=${expected_version} total=${expected_total}"
 
+      - name: Verify Meditation IA overview runtime and database contract on LIVE
+        shell: bash
+        env:
+          RWHT_BOOTSTRAP_SESSION_PATH: ${{ runner.temp }}/aria-rwht-bootstrap-session.json
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const apiKey = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
+          const candidates = [
+            process.env.RWHT_BOOTSTRAP_SESSION_PATH,
+            process.env.RWHT_STORAGE_STATE
+          ].filter(Boolean);
+          let accessToken = '';
+          for (const candidate of candidates) {
+            try {
+              const source = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+              accessToken = String(source.accessToken || source.access_token || '');
+              if (!accessToken && Array.isArray(source.origins)) {
+                for (const origin of source.origins) {
+                  const item = (origin.localStorage || []).find((entry) => entry.name === 'aria_session_v2');
+                  if (!item?.value) continue;
+                  const saved = JSON.parse(item.value);
+                  accessToken = String(saved.accessToken || saved.access_token || '');
+                  if (accessToken) break;
+                }
+              }
+              if (accessToken) break;
+            } catch {}
+          }
+          if (!accessToken) throw new Error('authenticated_overview_probe_token_missing');
+          const url = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3/meditation/overview';
+          let last = 'not_attempted';
+          for (let attempt = 1; attempt <= 4; attempt++) {
+            const controller = new AbortController();
+            const started = Date.now();
+            const timer = setTimeout(() => controller.abort(), 20000);
+            try {
+              const response = await fetch(url, {
+                headers: {
+                  apikey: apiKey,
+                  authorization: 'Bearer ' + accessToken,
+                  'x-aria-pwa-build': process.env.RWHT_CERT_SHA || '',
+                  accept: 'application/json',
+                  'cache-control': 'no-store'
+                },
+                cache: 'no-store',
+                signal: controller.signal
+              });
+              const body = await response.json().catch(() => null);
+              last = 'http_' + response.status + (body?.error ? '_' + String(body.error).slice(0,80) : '');
+              const good = response.ok && body?.ok === true &&
+                body?.source_of_truth === 'aria_internal.mission_state' &&
+                body?.counts && Number.isFinite(Number(body.counts.total));
+              console.log(JSON.stringify({
+                attempt,
+                status: response.status,
+                duration_ms: Date.now() - started,
+                overview_contract_ok: good,
+                mission_total: good ? Number(body.counts.total) : null,
+                mission_active: good ? Number(body.counts.active) : null
+              }));
+              if (good) {
+                console.log('MEDITATION_OVERVIEW_LIVE_CONTRACT_OK');
+                process.exit(0);
+              }
+            } catch (error) {
+              last = error?.name === 'AbortError' ? 'timeout_20s' : String(error?.name || 'request_failed');
+              console.log(JSON.stringify({ attempt, duration_ms: Date.now() - started, overview_contract_ok: false, error: last }));
+            } finally {
+              clearTimeout(timer);
+            }
+            if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 15000));
+          }
+          throw new Error('live_meditation_overview_contract_unavailable:' + last);
+          NODE
+
       - name: Execute authenticated Projects + ARTIA E2E
         working-directory: rwht/pc-browser
         env:
