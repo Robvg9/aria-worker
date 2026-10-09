@@ -145,6 +145,7 @@ assert.ok(project.includes("setSelectedMission(null);setError('');setProjectChat
 assert.ok(project.includes("aria_project_missions"), 'project missions must consume the global preload cache');
 assert.ok(project.includes("projectChatReady"), 'project chat readiness state must exist');
 assert.ok(project.includes("function ProjectOverviewPreview"), 'project overview must expose a real preview surface');
+assert.ok(project.includes("data-project-id={project.id} data-preview-mode={mode}"), 'project overview must expose the exact project identity and truth boundary for E2E verification');
 assert.ok(project.includes("href='/pwa/reality-board.html'"), 'project overview must provide a direct entry to the separate Reality Board app');
 assert.ok(project.includes('¿Qué falta por cerrar?'), 'Reality Board entry must explain its purpose in human language');
 assert.ok(project.includes("aria-label={'Previsualización de '+project.name}"), 'project preview must identify the selected project');

@@ -380,7 +380,19 @@ async function run() {
       // Close the PWA page before the notification is delivered.
       await page.close();
 
-      const controllerPage = await context.newPage({ url: 'about:blank' });
+      // The CDP ServiceWorker domain must be attached to the PWA origin so
+      // Chrome resolves the active registration rather than an about:blank target.
+      const controllerPage = await context.newPage();
+      await controllerPage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
+      await withTimeout(
+        controllerPage.evaluate(async () => {
+          const registration = await navigator.serviceWorker.ready;
+          if (!registration.active) throw new Error('pwa_service_worker_not_active');
+          return registration.active.scriptURL;
+        }),
+        15000,
+        'pwa_service_worker_ready_for_push_probe'
+      );
       const origin = String(new URL(base).origin);
       const pushDelivery = await deliverBackgroundPushViaCdp(
         controllerPage,
@@ -388,6 +400,9 @@ async function run() {
         pushProbeNotificationId,
         pushProbeMissionId
       );
+      report.push_delivery_registration = pushDelivery;
+      await controllerPage.close();
+      console.log('WEBPUSH_E2E_CONTROL_PAGE_CLOSED_BEFORE_RECEIPT');
 
       const probePage = await context.newPage();
       probePage.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
@@ -405,7 +420,7 @@ async function run() {
       assert.equal(
         pushReceipt?.receipt?.notification_id,
         pushProbeNotificationId,
-        'background push did not reach the Service Worker after the PWA page was closed'
+        'Service Worker did not persist the injected push receipt after the primary PWA page closed'
       );
       assert.equal(
         pushReceipt?.shown_notifications,
