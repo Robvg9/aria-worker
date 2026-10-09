@@ -145,6 +145,10 @@ assert.ok(project.includes("setSelectedMission(null);setError('');setProjectChat
 assert.ok(project.includes("aria_project_missions"), 'project missions must consume the global preload cache');
 assert.ok(project.includes("projectChatReady"), 'project chat readiness state must exist');
 assert.match(project,/const projectChatReadGenerationRef=useRef\(0\)/,'project chat reads must be generation-scoped');
+assert.match(project,/const projectChatWriteInFlightRef=useRef\(false\)/,'a new server read must not surface a timeout as a chat failure while a write is processing');
+assert.ok(project.includes("!options.quiet&&!projectChatWriteInFlightRef.current"), 'transient conversation read errors are suppressed only during an active chat write');
+assert.ok(project.includes("if(!clean||sending||projectChatWriteInFlightRef.current)return;"), 'chat send is idempotently guarded against overlapping submissions');
+assert.ok(project.includes("finally{projectChatWriteInFlightRef.current=false;setSending(false)}"), 'chat write state is always released');
 assert.ok(project.includes("readGeneration!==projectChatReadGenerationRef.current"), 'a stale chat read must not overwrite a later send or project selection');
 assert.ok(project.includes("projectChatReadGenerationRef.current+=1;"), 'sending a new turn must invalidate older conversation reads');
 assert.ok(project.includes("projectChatLoadRef.current?.promise===promise"), 'an older load must not clear a newer in-flight read');
