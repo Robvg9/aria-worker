@@ -241,3 +241,26 @@ assert.match(appCurrent,/REPLANIFICANDO/);
 const apiCurrent = fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 assert.match(apiCurrent,/activeRecoveryStatuses/);
 assert.match(apiCurrent,/replan_learning_application/);
+
+
+// Regression: visual mission intake can outlive 30 seconds while still persisting
+// canonically. The UI must wait long enough, correlate the write, reconcile a lost
+// acknowledgement, and refuse a blind duplicate when the outcome is uncertain.
+assert.ok(project.includes("path.endsWith('/missions')?165000:30000"), 'mission POST timeout must exceed the observed 39.651s backend latency');
+assert.ok(project.includes("headers:{'x-aria-request-id':requestId}"), 'visual mission writes must carry a stable request ID to the canonical API');
+assert.ok(project.includes('const missionRequestRef=useRef<{requestId:string;projectId:string;goal:string;uncertain:boolean}|null>(null);'), 'uncertain mission submissions must retain their correlation key across rerenders');
+assert.ok(project.includes('async function findMissionByRequestId(projectId:string,requestId:string,timeoutMs=45000)'), 'UI must reconcile delayed writes against the canonical project queue');
+assert.ok(project.includes('if(samePending&&previous.uncertain)'), 'an uncertain request must be reconciled, not POSTed again');
+assert.ok(project.includes('No he enviado otra misión para evitar duplicados'), 'uncertain submissions must not invite a blind retry');
+assert.ok(api.includes('const suppliedRequestId = req.headers.get("x-aria-request-id");'), 'API must distinguish explicit idempotency keys from per-request trace IDs');
+assert.ok(api.includes('idempotent_replay: true'), 'retry with an existing request ID must return the existing canonical mission');
+assert.ok(api.includes('mission_request_id_reused'), 'same request ID must reject a different goal/project instead of silently reusing another mission');
+assert.ok(api.includes('mission_idempotency_check_failed'), 'API must fail closed if it cannot determine whether the request already created a mission');
+const missionIdempotencyPreflightIndex=api.indexOf('if (suppliedRequestId) {');
+const missionDirectWriteIndex=api.indexOf('direct = await internal(DIRECT, {',missionIdempotencyPreflightIndex);
+assert.ok(missionIdempotencyPreflightIndex>=0&&missionDirectWriteIndex>missionIdempotencyPreflightIndex, 'canonical request read-back must occur before DIRECT to prevent sequential retry duplicates');
+assert.ok(projectE2E.includes('timeout: 240000'), 'Projects ARTIA E2E must allow delayed canonical acknowledgements to finish');
+assert.ok(projectE2E.includes('ui_acknowledged: missionAcknowledged'), 'E2E artifacts must separate UI acknowledgement from canonical mission persistence');
+assert.ok(projectE2E.includes('visual_mission_annotations_missing_'), 'E2E must verify the saved annotation array, not only a summary string');
+assert.ok(projectE2E.includes('_canonical_mission='), 'UI failure artifacts must retain the canonical mission ID and status');
+console.log('PROJECTS ARTIA MISSION ACK TIMEOUT + IDEMPOTENCY REGRESSION CONTRACT: PASS');
