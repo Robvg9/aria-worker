@@ -70,8 +70,9 @@ async function api(path:string, token:string, init:RequestInit={}) {
   headers.set('authorization','Bearer '+token);
   const requestBodyText=typeof init.body==='string'?init.body:'';
   const isBattleCruiserChat=path==='/conversation'&&requestBodyText.includes('"project_id":"battlecruiser"');
+  const isBattleCruiserMissionIntake=path==='/missions'&&requestBodyText.includes('"project_id":"battlecruiser"');
   const isBattleCruiserProjectMissions=path.startsWith('/projects/battlecruiser/missions');
-  if(isBattleCruiserChat||isBattleCruiserProjectMissions){
+  if(isBattleCruiserChat||isBattleCruiserMissionIntake||isBattleCruiserProjectMissions){
     const bcToken=await getActiveBattleCruiserAccessToken();
     if(bcToken)headers.set('x-battlecruiser-access-token',bcToken);
   }
