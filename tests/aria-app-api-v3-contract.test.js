@@ -30,7 +30,7 @@ assertContains(appApi,'visualState: "mission_queued"','chat mission queued UI st
 
 assertContains(appApi,'path.endsWith("/missions")','mission route missing');
 assertContains(appApi,'const readMissionByRequestId = async () => {','mission create must reconcile an ambiguous intake acknowledgement using the client request id');
-assertContains(appApi,'const priorMission = await readMissionByRequestId();','mission intake must read back a previous canonical row before retrying DIRECT');
+assertContains(appApi,'priorMission = await readMissionByRequestId();','mission intake must read back a previous canonical row before retrying DIRECT');
 assertContains(appApi,'acknowledgement_source: "canonical_request_idempotent_replay"','replayed request IDs must return the already persisted mission instead of creating duplicates');
 assertContains(appApi,'idempotent_replay: true','idempotent mission acknowledgement must be explicit for diagnostics');
 assertContains(appApi,'mission intake recovered by canonical request id','lost DIRECT responses must be recovered from the canonical mission row before returning an error');
