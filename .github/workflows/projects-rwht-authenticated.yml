@@ -1,18 +1,15 @@
 name: ARIA Projects Browser RWHT Authenticated
 
 on:
-  push:
+  # Run the authenticated UI E2E only after the exact release SHA finished deploying.
+  # A push-triggered test used to race the PWA deploy and certify an older LIVE build.
+  workflow_run:
+    workflows:
+      - Deploy ARIA Cloudflare Worker
+    types:
+      - completed
     branches:
       - main
-    paths:
-      - 'pwa/**'
-      - 'supabase/functions/aria-app-api-v3/**'
-      - 'rwht/pc-browser/rwht-pc-browser.mjs'
-      - 'rwht/pc-browser/rwht-projects-e2e.mjs'
-      - 'tests/**project-workspace.test.js'
-      - 'tests/pc-rwht-browser.test.js'
-      - 'supabase/migrations/**'
-      - '.github/workflows/projects-rwht-authenticated.yml'
   workflow_dispatch:
 
 permissions:
@@ -27,9 +24,11 @@ concurrency:
 
 jobs:
   projects-rwht:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
+      RWHT_CERT_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_HEADLESS: 'true'
       RWHT_NO_SCREENSHOTS: 'false'
@@ -46,6 +45,8 @@ jobs:
       RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -165,14 +166,30 @@ jobs:
           test -n "$expected_version"
           test -n "$expected_total"
           html=""
+          live_version=""
           for attempt in $(seq 1 60); do
-            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/?probe=${GITHUB_SHA}-projects-catalog-${attempt}" 2>/dev/null || true)"
-            if grep -Fq "aria-test-catalog-version' content='${expected_version}'" <<<"$html" &&
-               grep -Fq "aria-test-catalog-total' content='${expected_total}'" <<<"$html"; then break; fi
+            live_version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/version.json?probe=${RWHT_CERT_SHA}-projects-version-${attempt}" 2>/dev/null || true)"
+            if VERSION="$live_version" EXPECTED="$RWHT_CERT_SHA" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"])["build"] == os.environ["EXPECTED"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/?probe=${RWHT_CERT_SHA}-projects-catalog-${attempt}" 2>/dev/null || true)"
+              if grep -Fq "aria-test-catalog-version' content='${expected_version}'" <<<"$html" &&
+                 grep -Fq "aria-test-catalog-total' content='${expected_total}'" <<<"$html"; then break; fi
+            fi
             test "$attempt" -lt 60 && sleep 2
           done
           test -n "$html"
-          echo "PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK version=${expected_version} total=${expected_total}"
+          VERSION="$live_version" EXPECTED="$RWHT_CERT_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"])["build"] == os.environ["EXPECTED"]
+          PY
+          echo "PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK build=$RWHT_CERT_SHA version=${expected_version} total=${expected_total}"
 
       - name: Execute authenticated Projects + ARTIA E2E
         working-directory: rwht/pc-browser
@@ -207,7 +224,7 @@ jobs:
           const body = [
             '## Projects + ARTIA RWHT — ' + status,
             '',
-            '- **Commit ejecutado:** `' + process.env.GITHUB_SHA + '`',
+            '- **Commit ejecutado:** `' + (process.env.RWHT_CERT_SHA || process.env.GITHUB_SHA) + '`',
             '- **Workflow run:** ' + process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID,
             '- **Resultado reportado:** `' + status + '`',
             '- **Proyectos:** `' + (report?.project_count ?? '—') + '`',
