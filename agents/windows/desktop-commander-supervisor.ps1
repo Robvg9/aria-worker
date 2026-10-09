@@ -32,6 +32,13 @@ $DcVersion = '0.2.52'
 $McpServerUrl = 'https://mcp.desktopcommander.app'
 $MutexName = 'Global\ARIA-DesktopCommander-Supervisor-v2'
 
+# Bounded recovery for a live process whose remote channel is persistently degraded.
+$ChannelDegradedSince = $null
+$ChannelRestartTimes = New-Object 'System.Collections.Generic.List[datetime]'
+$ChannelRestartThresholdSeconds = 180
+$ChannelRestartMaxPerHour = 2
+$ChannelRestartLimitLastLog = $null
+
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $created = $false
 $mutex = New-Object System.Threading.Mutex($false, $MutexName, [ref]$created)
@@ -85,7 +92,7 @@ function Get-RemoteChannelState {
         if ($line -match '(?i)Channel subscribed|Status:\s*Online') {
             $lastSuccess = $i
         }
-        if ($line -match '(?i)IncreaseConnectionPool|Channel error:|Channel subscription timed out|Device registered, but NOT reachable|Realtime channel is not open|socket closed:\s*1006|Failed to connect to Desktop Commander MCP|Failed to connect to Remote MCP') {
+        if ($line -match '(?i)IncreaseConnectionPool|Channel error:|Channel subscription timed out|Device registered, but NOT reachable|Realtime channel is not open|socket closed:\s*1006|Failed to connect to Desktop Commander MCP|Failed to connect to Remote MCP|Recreating channel|Failed to set session|Failed to set status offline|Failed to update transport capability') {
             $lastFailure = $i
             $lastFailureLine = $line
         }
@@ -118,6 +125,52 @@ function Write-ObservedChannelStatus([int]$ProcessId) {
     $channel = Get-RemoteChannelState
     Write-Status $channel.State $ProcessId $channel.Detail
     Write-Log "REMOTE_CHANNEL_STATE state=$($channel.State) pid=$ProcessId detail=$($channel.Detail)"
+    return $channel
+}
+
+function Invoke-ChannelRecovery([int]$ProcessId,[string]$State) {
+    $now = Get-Date
+    for ($i = $script:ChannelRestartTimes.Count - 1; $i -ge 0; $i--) {
+        if ($script:ChannelRestartTimes[$i] -lt $now.AddHours(-1)) {
+            $script:ChannelRestartTimes.RemoveAt($i)
+        }
+    }
+
+    if ($State -ne 'channel_degraded') {
+        $script:ChannelDegradedSince = $null
+        return $false
+    }
+
+    if ($null -eq $script:ChannelDegradedSince) {
+        $script:ChannelDegradedSince = $now
+        Write-Log 'CHANNEL_DEGRADED_TIMER_STARTED threshold_seconds=180'
+        return $false
+    }
+
+    $degradedSeconds = [int]($now - $script:ChannelDegradedSince).TotalSeconds
+    if ($degradedSeconds -lt $script:ChannelRestartThresholdSeconds) { return $false }
+
+    if ($script:ChannelRestartTimes.Count -ge $script:ChannelRestartMaxPerHour) {
+        if ($null -eq $script:ChannelRestartLimitLastLog -or ($now - $script:ChannelRestartLimitLastLog).TotalMinutes -ge 10) {
+            Write-Log "CHANNEL_RESTART_LIMIT_REACHED window_minutes=60 max=$script:ChannelRestartMaxPerHour state=$State"
+            $script:ChannelRestartLimitLastLog = $now
+        }
+        $script:ChannelDegradedSince = $now
+        return $false
+    }
+
+    try {
+        Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+        $script:ChannelRestartTimes.Add($now)
+        Write-Log "CHANNEL_RESTART_REQUESTED reason=persistent_channel_degraded duration_seconds=$degradedSeconds pid=$ProcessId restart_count_hour=$($script:ChannelRestartTimes.Count)"
+        Write-Status 'channel_restart_requested' $ProcessId 'Channel stayed degraded for 180 seconds; supervisor will restart the child process.'
+        $script:ChannelDegradedSince = $now
+        return $true
+    } catch {
+        Write-Log "CHANNEL_RESTART_FAILED pid=$ProcessId error=$($_.Exception.Message)"
+        $script:ChannelDegradedSince = $now
+        return $false
+    }
 }
 
 function Start-DesktopCommander {
@@ -140,7 +193,8 @@ while ($true) {
     try {
         $desktopCommanderPid = Find-DesktopCommander
         if ($desktopCommanderPid -gt 0) {
-            Write-ObservedChannelStatus $desktopCommanderPid
+            $channel = Write-ObservedChannelStatus $desktopCommanderPid
+            Invoke-ChannelRecovery -ProcessId $desktopCommanderPid -State $channel.State | Out-Null
             Start-Sleep -Seconds 10
             continue
         }
@@ -151,7 +205,8 @@ while ($true) {
 
         if ($desktopCommanderPid -gt 0) {
             Write-Log "CHILD_CONFIRMED process_alive=True pid=$desktopCommanderPid; remote channel still requires explicit confirmation"
-            Write-ObservedChannelStatus $desktopCommanderPid
+            $channel = Write-ObservedChannelStatus $desktopCommanderPid
+            Invoke-ChannelRecovery -ProcessId $desktopCommanderPid -State $channel.State | Out-Null
             Start-Sleep -Seconds 10
             continue
         }
