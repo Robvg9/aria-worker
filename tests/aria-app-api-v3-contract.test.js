@@ -158,6 +158,9 @@ assertContains(appApi,'aria_meditation_mission_status_counts_v1','Meditation IA 
 assertContains(appApi,'.or(ownerFilterParts)','Meditation IA overview mission candidates must be scoped by owner in the database');
 assertContains(appApi,'pending_jobs:checkpoint->pending_jobs','overview candidate read must project only the small pending-jobs checkpoint field');
 assertContains(appApi,'recovery_status:checkpoint->recovery->>status','overview candidate read must project recovery status instead of transferring entire checkpoints');
+assertContains(appApi,'if(visibleIds.length){','Meditation IA overview must skip the gate-event lookup when no visible missions exist');
+assertContains(appApi,'const {data:eventRows,error:eventError}=await sb.schema("aria_internal").from("mission_events")','overview gate events must use a dedicated, scoped query');
+assertContains(appApi,'.in("mission_id",visibleIds)\n      .in("event_type",["human_gate_requested","self_improvement_human_gate"])','overview gate-event lookup must filter by visible mission IDs before loading payloads');
 if(appApi.includes('const countStatus=async(status:string|null)=>')) throw new Error('Meditation IA overview must not perform sequential exact-count scans');
 for(const fragment of [
   "create index if not exists mission_state_user_updated_idx",

@@ -15,6 +15,7 @@ const schemaSync = read('supabase/migrations/20261006190100_meditation_web_push_
 const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const helper = read('pwa/src/notifications.ts');
 const sw = read('pwa/public/sw.js');
+const workflow = read('.github/workflows/aria-meditation-webpush-production-e2e.yml');
 
 assert(migration.includes('meditation_push_subscriptions'), 'background push subscription table missing');
 assert(migration.includes('meditation_push_deliveries'), 'push delivery evidence table missing');
@@ -22,6 +23,10 @@ assert(migration.includes('aria_get_web_push_runtime_config'), 'Vault runtime co
 assert(migration.includes('trg_meditation_notifications_web_push'), 'notification-to-web-push trigger missing');
 assert(migration.includes('aria-app-api-v3/meditation/push/dispatch'), 'push trigger must target the existing app API function');
 assert(schemaSync.includes('add column if not exists active boolean'), 'production web-push schema reconciliation missing');
+
+assert(workflow.includes('json.loads(os.environ["VERSION"]).get("build") == os.environ["GITHUB_SHA"]'), 'live Web Push gate must verify the exact deployed SHA via version.json');
+assert(workflow.includes('grep -q "aria-test-catalog-version" <<<"$html"'), 'live Web Push gate must confirm the PWA test catalog is present');
+assert(!workflow.includes('grep -q "$GITHUB_SHA" <<<"$html"'), 'exact SHA must not depend on cached HTML duplicating version.json');
 
 assert(api.includes('npm:web-push@3.6.7'), 'server-side Web Push implementation missing');
 assert(api.includes('/meditation/push/status'), 'PWA Web Push status endpoint missing');
