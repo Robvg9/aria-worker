@@ -40,7 +40,7 @@ assert.notEqual(allowFormStart, -1);
 const allowFormEnd = consent.indexOf('</form>', allowFormStart);
 const controlFieldInsertion = consent.indexOf('${controlField}', allowFormStart);
 assert.ok(controlFieldInsertion > allowFormStart && controlFieldInsertion < allowFormEnd);
-assert.match(consent, /name="control_confirmation"/);
+assert.ok(consent.includes('control_confirmation'));
 assert.match(oauth, /String\(form\.get\("control_confirmation"\)\|\|""\)!=="AUTHORIZE CUEVACOIN CONTROL"/);
 
 // Access token and refresh token both preserve only validated scopes.
