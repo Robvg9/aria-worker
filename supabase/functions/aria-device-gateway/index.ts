@@ -31,9 +31,9 @@ async function auth(r:Request,id?:string){
   if(cached)authCache.delete(cacheKey);
   // aria_internal is intentionally not exposed through PostgREST. Use the
   // public SECURITY DEFINER RPC as the single authenticated gateway path.
-  const {data,error}=await supabase.rpc('authenticate_device_gateway',{
+  const {data,error}=await supabase.rpc('authenticate_device_gateway_hash',{
     p_device_id:deviceId,
-    p_token:m[1]
+    p_token_hash:tokenHash
   });
   if(error||!data)return{error:json({error:'unauthorized'},401)};
   if(data.status==='disabled')return{error:json({error:'device_disabled'},403)};
@@ -1545,7 +1545,16 @@ if((req.method==='GET'||req.method==='POST')&&p==='/v1/rwht-final-probe'){
     return new Response(text,{status:response.status,headers:{'content-type':response.headers.get('content-type')||'application/json','cache-control':'no-store'}});
   }catch(e){return json({ok:false,status:'probe_failed',error:e instanceof Error?e.message:String(e)},502);}
 }
-if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){if(typeof b.device_id!=='string'||typeof b.token!=='string')return json({error:'device_id_and_token_required'},400);const {data,error}=await supabase.rpc('enroll_device',{p_device_id:b.device_id,p_token:b.token});if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);return json(data)}if(req.method==='POST'&&p==='/v1/meditation/tick-service'){
+if(req.method==='GET'&&p==='/health')return json({ok:true,service:'aria-device-gateway',version:'12',canonical_runtime:true,meditation_owned_missions:true,goal_completion_sync:true,recursive_failure_guard:true,idea_to_mission:true});if(req.method==='POST'&&p==='/v1/devices/enroll'){
+  if(typeof b.device_id!=='string')return json({error:'device_id_required'},400);
+  let tokenHash='';
+  if(typeof b.token_hash==='string'&&/^[0-9a-f]{64}$/.test(b.token_hash))tokenHash=b.token_hash;
+  else if(typeof b.token==='string'&&b.token.length>=32)tokenHash=await hash(b.token);
+  else return json({error:'device_id_and_token_hash_required'},400);
+  const {data,error}=await supabase.rpc('enroll_device_hash',{p_device_id:b.device_id,p_token_hash:tokenHash});
+  if(error)return json({error:'enrollment_failed',code:error.code??null,message:error.message??null},409);
+  return json(data);
+}if(req.method==='POST'&&p==='/v1/meditation/tick-service'){
  try{
   if(!await autonomyServiceAuthorized(req))return json({error:'unauthorized'},401);
   const {data:control,error:ce}=await supabase.schema('aria_internal').from('meditation_control').select('controller_id,owner_user_id,desired_mode,session_id,metadata').eq('controller_id','primary').maybeSingle();
