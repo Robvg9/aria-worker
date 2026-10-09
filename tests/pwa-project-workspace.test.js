@@ -75,7 +75,7 @@ assert.match(fs.readFileSync(path.join(root,'supabase/migrations/20260922171331_
 console.log('PWA PROJECTS + ARTIA VISUAL + SHARED QUEUE + VERIFICATION CONTRACT: PASS');
 
 assert(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/'"));
-assert.match(project,/previewMode:'source'.*BattleCruiser|context:'BattleCruiser[\s\S]{0,300}previewMode:'source'/);
+assert.ok(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', previewMode:'source'"), 'BattleCruiser must use the governed source reference rather than its unauthenticated login screen');
 assert.match(worker,/battlecruiser: '\/project-previews\/battlecruiser-reference\.html'/);
 assert.match(worker,/url\.pathname==="\/project-preview\/battlecruiser"/);
 assert.match(battlecruiserReference,/REFERENCIA VISUAL · BATTLECRUISER/);
