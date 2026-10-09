@@ -379,6 +379,8 @@ async function checkUx(page) {
     return {
       horizontal_overflow: scrollWidth > viewportWidth + 2,
       body_scroll_width: scrollWidth,
+      viewport_width: viewportWidth,
+      viewport_height: viewportHeight,
       window_scroll_y: window.scrollY,
       document_scroll_top: document.documentElement.scrollTop,
       body_scroll_top: document.body.scrollTop,
@@ -574,7 +576,7 @@ async function run() {
     if (report.ux.error) throw new Error(report.ux.error);
     if (report.ux.project_shell_overflow_anchor !== 'none') throw new Error('projects_scroll_anchor_not_disabled');
     if (Number(report.ux.project_shell_scroll_top) !== 0 || Number(report.ux.first_project_card_top) < 0) throw new Error('projects_scroll_anchor_contract_failed');
-    if (Number(report.ux.project_tabs_top) < 0 || Number(report.ux.project_tabs_bottom) > window.innerHeight) throw new Error('projects_tabs_must_remain_visible');
+    if (Number(report.ux.project_tabs_top) < 0 || Number(report.ux.project_tabs_bottom) > Number(report.ux.viewport_height)) throw new Error('projects_tabs_must_remain_visible');
     if (!report.ux.project_body_viewport_scrollable || !['auto','scroll'].includes(report.ux.project_body_viewport_overflow_y)) throw new Error('projects_body_viewport_must_own_scrolling');
     if (report.ux.horizontal_overflow || report.ux.unnamed_interactive.length || report.ux.offscreen_interactive.length || report.ux.unlabeled_inputs.length) {
       throw new Error('projects_ux_contract_failed');
