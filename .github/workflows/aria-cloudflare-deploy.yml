@@ -62,7 +62,7 @@ jobs:
           grep -Fq 'x-aria-grok-consent","elevated-form-v1' worker.js
           grep -Fq 'control_confirmation' supabase/functions/aria-mcp-inbound-grok-v1/index.ts
           grep -Fq 'AUTHORIZE CUEVACOIN CONTROL' supabase/functions/aria-mcp-inbound-grok-v1/index.ts
-          node tests/oauth-control-consent-ui.test.js
+          node tests/grok-optional-certification-contract.test.js
 
       - name: Verify Wrangler assets configuration
         run: |
