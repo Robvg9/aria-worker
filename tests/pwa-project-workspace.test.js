@@ -181,6 +181,9 @@ assert.ok(project.includes("return false}finally{setSending(false)}"), 'mission 
 assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
 assert.match(projectE2E,/await waitFor\(500\)/);
 assert.ok(projectE2E.includes("const overviewPreviewResults = report.overview_preview_results;"), 'E2E must persist overview previews incrementally even if a later step fails');
+assert.ok(projectE2E.includes("const selectedBeforeFinalReload ="), 'final reload verification must capture the actual selected project before navigation');
+assert.ok(projectE2E.includes("report.final_selected_project = expectedSelectedProject.id;"), 'E2E evidence must disclose which project selection was preserved');
+assert.ok(projectE2E.includes("projectName: expectedSelectedProject.name"), 'final reload check must match the selection it just observed, not a stale hard-coded project');
 assert.ok(projectE2E.includes("const visualMissions = report.visual_missions;"), 'E2E must retain partial visual mission evidence on failure');
 assert.ok(projectE2E.includes("const previewResults = report.preview_results;"), 'E2E must retain partial ARTIA preview evidence on failure');
 assert.ok(project.includes('async function waitForProjectAssistant('),'project chat must poll canonical conversation when an async executor is accepted');

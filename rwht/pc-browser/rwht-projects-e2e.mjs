@@ -838,13 +838,21 @@ async function run() {
     report.visual_mission = visualMissions[0] || null;
     if (visualMissions.length !== PROJECTS.length) throw new Error('visual_mission_coverage_failed');
 
+    // The visual/preview loops deliberately end on ARIA. Capture the actual
+    // selected project before reload and assert that same selection is preserved,
+    // rather than hard-coding BattleCruiser after the loop changed the selection.
+    const selectedBeforeFinalReload = (await page.locator('.projectGrid .projectCard.selected').innerText().catch(() => '')).trim();
+    const expectedSelectedProject = PROJECTS.find((project) => selectedBeforeFinalReload.includes(project.name));
+    if (!expectedSelectedProject) throw new Error('final_selected_project_unavailable_before_reload');
+    report.final_selected_project = expectedSelectedProject.id;
+
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.projectShell', { state: 'visible', timeout: 60000 });
     const finalSession = await waitForPersistedSession(page, session.userId);
     const finalLiveSession = await ensureLiveSession(page);
     if (!finalLiveSession?.accessToken || finalLiveSession.userId !== session.userId) throw new Error('final_live_session_not_verified');
     session = finalLiveSession;
-    await page.waitForFunction(() => Boolean(document.querySelector('.projectGrid .projectCard.selected')?.textContent?.includes('BattleCruiser')), null, { timeout: 30000 });
+    await page.waitForFunction(({ projectName }) => Boolean(document.querySelector('.projectGrid .projectCard.selected')?.textContent?.includes(projectName)), { projectName: expectedSelectedProject.name }, { timeout: 30000 });
 
     if (consoleErrors.length) throw new Error('projects_console_errors_' + consoleErrors.length);
     if (pageErrors.length) throw new Error('projects_page_errors_' + pageErrors.length);
