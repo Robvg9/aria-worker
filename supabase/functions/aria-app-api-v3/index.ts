@@ -1558,7 +1558,7 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && path.endsWith("/absorb/register")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbRegister(user.id,String(body?.absorption_id||""),body?.binding||{})),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
     if (req.method === "POST" && path.endsWith("/absorb/enable")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbEnable(user.id,String(body?.absorption_id||""))),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
 
-    const projectConnectionVerifyPath = path.match(/\\/projects\\/([^/]+)\\/connections\\/verify$/);
+    const projectConnectionVerifyPath = path.match(/\/projects\/([^/]+)\/connections\/verify$/);
     if (req.method === "POST" && projectConnectionVerifyPath) {
       const projectId = decodeURIComponent(projectConnectionVerifyPath[1]).toLowerCase();
       const project = getProject(projectId);
@@ -1568,8 +1568,8 @@ Deno.serve(async (req) => {
       const bcAccessToken = String(req.headers.get("x-battlecruiser-access-token") || "").trim();
       if (!bcAccessToken) return json({ error: "battlecruiser_session_required", trace_id: trace }, 401);
 
-      const frontendUrl = String(project.resources.frontend_live_url).replace(/\\/+$/, "");
-      const backendUrl = String(project.resources.backend_api_url).replace(/\\/+$/, "");
+      const frontendUrl = String(project.resources.frontend_live_url).replace(/\/+$/, "");
+      const backendUrl = String(project.resources.backend_api_url).replace(/\/+$/, "");
       const configController = new AbortController();
       const configTimer = setTimeout(() => configController.abort(), 8000);
       let configResponse: Response | null = null;
@@ -1582,8 +1582,8 @@ Deno.serve(async (req) => {
       } finally {
         clearTimeout(configTimer);
       }
-      const configuredUrl = configText.match(/SUPABASE_URL\\s*=\\s*["']([^"']+)["']/)?.[1]?.replace(/\\/+$/, "") ?? null;
-      const publishableKey = configText.match(/SUPABASE_[A-Z_]*KEY\\s*=\\s*["']([^"']+)["']/)?.[1] ?? null;
+      const configuredUrl = configText.match(/SUPABASE_URL\s*=\s*["']([^"']+)["']/)?.[1]?.replace(/\/+$/, "") ?? null;
+      const publishableKey = configText.match(/SUPABASE_[A-Z_]*KEY\s*=\s*["']([^"']+)["']/)?.[1] ?? null;
       if (!configResponse?.ok || configuredUrl !== backendUrl || !publishableKey ||
           !(publishableKey.startsWith("sb_publishable_") || publishableKey.startsWith("eyJ"))) {
         return json({ error: "battlecruiser_backend_identity_or_public_key_mismatch", trace_id: trace }, 409);
