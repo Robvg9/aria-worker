@@ -22,7 +22,7 @@ assert(api.includes('local_fallback_used'));
 assert(api.includes('async function completeConversationInBackground'), 'cloud chat execution must finish outside the synchronous request');
 assert(api.includes('EdgeRuntime.waitUntil(completeConversationInBackground('), 'chat endpoint must acknowledge quickly and persist the assistant response asynchronously');
 assert(api.includes('visualState:"processing"'), 'async chat acknowledgement must explicitly tell the client to poll canonical conversation state');
-assert(api.includes('ARIA no pudo completar esta respuesta'), 'background execution failures must be persisted explicitly rather than leave an endless spinner');
+assert(api.includes('No se pudo completar la respuesta de ARIA'), 'background execution failures must be persisted explicitly rather than leave an endless spinner');
 assert(api.includes('localRoute'));
 assert(api.includes('cloudFallbacks'));
 assert(api.includes('candidateRoutes'));
