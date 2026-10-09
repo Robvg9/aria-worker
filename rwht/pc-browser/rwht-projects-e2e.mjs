@@ -710,6 +710,35 @@ async function run() {
         await waitFor(1500);
       }
       if (!visualMission || !visualMissionId) throw new Error('visual_mission_not_persisted_' + visualProject.id);
+      // A certification-created mission must not remain in the live queue after proof.
+      // Cancel it through the canonical API, then read the persisted row back again.
+      const terminalStatuses = new Set(['succeeded','failed','blocked','cancelled']);
+      let cleanupStatus = String(visualMission.status || '');
+      if (!terminalStatuses.has(cleanupStatus)) {
+        const liveForCleanup = await ensureLiveSession(page);
+        if (!liveForCleanup?.accessToken || liveForCleanup.userId !== session.userId) throw new Error('visual_mission_cleanup_session_missing_' + visualProject.id);
+        const cancelResult = await page.evaluate(async ({ missionId, token }) => {
+          try {
+            const response = await fetch('/api/missions/' + encodeURIComponent(missionId) + '/cancel', {
+              method: 'POST',
+              headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+              cache: 'no-store'
+            });
+            const body = await response.json().catch(() => null);
+            return { status: response.status, body };
+          } catch (error) {
+            return { status: 0, body: { error: error instanceof Error ? error.message : String(error) } };
+          }
+        }, { missionId: visualMissionId, token: liveForCleanup.accessToken });
+        const afterCancel = await readApiCurrent(page, '/missions/' + encodeURIComponent(visualMissionId));
+        const afterMission = afterCancel.status === 200 ? afterCancel.body?.mission : null;
+        cleanupStatus = String(afterMission?.status || '');
+        if (!terminalStatuses.has(cleanupStatus)) {
+          throw new Error('visual_mission_cleanup_left_active_' + visualProject.id + '_http_' + cancelResult.status + '_status_' + cleanupStatus);
+        }
+        visualMission = afterMission;
+      }
+
       const visualMetadata = normalizeMetadata(visualMission.metadata);
       const visualContext = normalizeMetadata(visualMetadata.visual_context);
       if (String(visualMetadata.project_id || '').toLowerCase() !== visualProject.id) throw new Error('visual_mission_project_id_missing_' + visualProject.id);
@@ -722,6 +751,7 @@ async function run() {
         project_id: visualProject.id,
         queue: 'canonical',
         status: visualMission.status,
+        cleanup_terminal_status: cleanupStatus,
         image_path: visualContext.image_path,
         mime_type: visualContext.mime_type,
         annotation_summary: visualContext.annotation_summary,
