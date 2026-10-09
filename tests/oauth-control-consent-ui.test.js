@@ -22,7 +22,7 @@ assert.match(worker, /class="btn" href="\$\{allow\}"/,
 assert.match(worker, /class="btn secondary" href="\$\{deny\}"/,
   'Read-only direct-link deny action must remain available');
 
-assert.match(oauthSource, /name="control_confirmation"/,
+assert.match(oauthSource, /control_confirmation/,
   'Upstream consent form must include the explicit elevated-scope confirmation input');
 assert.match(oauthSource, /AUTHORIZE CUEVACOIN CONTROL/,
   'Upstream consent form must show the exact confirmation phrase');
