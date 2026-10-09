@@ -1920,7 +1920,8 @@ Deno.serve(async (req) => {
       const body = await req.json().catch(() => null);
       const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
       if (!goal) return json({ error: "goal_required", stage: "input", trace_id: trace }, 400);
-      const requestId = req.headers.get("x-aria-request-id") ?? trace;
+      const suppliedRequestId = req.headers.get("x-aria-request-id");
+      const requestId = suppliedRequestId ?? trace;
       const pwaBuild = req.headers.get("x-aria-pwa-build") ?? null;
       const project = normalizeProjectContext(body);
       const visual_context = normalizeVisualContext(body);
@@ -1938,6 +1939,62 @@ Deno.serve(async (req) => {
         runtime_version: "aria-mission-runner-v22-universal",
         diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
       };
+      const service = serviceClient();
+      // A stable client request ID is an idempotency key. Check the canonical row
+      // before calling DIRECT so a retry after a lost/slow response cannot enqueue
+      // the same visual mission twice.
+      const readMissionByRequestId = async () => {
+        const { data, error } = await service.schema("aria_internal").from("mission_state")
+          .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
+          .eq("metadata->>request_id", requestId)
+          .eq("metadata->>user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw new Error("mission_request_readback_failed:" + error.message);
+        return data ?? null;
+      };
+      if (suppliedRequestId) {
+        try {
+          const prior = await readMissionByRequestId();
+          if (prior?.mission_id) {
+            const priorMetadata = prior.metadata && typeof prior.metadata === "object" ? prior.metadata : {};
+            const sameGoal = String(prior.goal ?? "").trim() === goal;
+            const sameProject = String(priorMetadata.project_id ?? "") === String(project?.id ?? "");
+            if (!sameGoal || !sameProject) {
+              return json({
+                error: "mission_request_id_reused",
+                stage: "idempotency",
+                detail: "Este identificador ya pertenece a otra solicitud. No se creó otra misión.",
+                trace_id: trace,
+                request_id: requestId
+              }, 409);
+            }
+            const priorMissionId = String(prior.mission_id);
+            return json({
+              ok: true,
+              accepted: true,
+              mission: { ...prior, mission_id: priorMissionId },
+              mission_id: priorMissionId,
+              trace_id: trace,
+              acknowledgement_source: "canonical_request_readback",
+              idempotent_replay: true
+            }, 200);
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error("[aria-app-api-v3] mission idempotency preflight failed", JSON.stringify({
+            trace_id: trace, request_id: requestId, project_id: project?.id ?? null, detail
+          }));
+          return json({
+            error: "mission_idempotency_check_failed",
+            stage: "canonical_mission_intake",
+            detail: "No se pudo comprobar el resultado previo de la solicitud. No se creó otra misión; consulta el estado canónico antes de reintentar.",
+            trace_id: trace,
+            request_id: requestId
+          }, 503);
+        }
+      }
       let direct: any = null;
       let directTransportError: string | null = null;
       try {
@@ -1971,21 +2028,6 @@ Deno.serve(async (req) => {
             : null;
       let canonicalMission: any = null;
       let recoveredByRequestId = false;
-      const service = serviceClient();
-
-      // The request id is written by the canonical intake before the runner kick.
-      // It lets a retry/reconnect distinguish "response lost" from "mission not created".
-      const readMissionByRequestId = async () => {
-        const { data, error } = await service.schema("aria_internal").from("mission_state")
-          .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
-          .eq("metadata->>request_id", requestId)
-          .eq("metadata->>user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (error) throw new Error("mission_request_readback_failed:" + error.message);
-        return data ?? null;
-      };
 
       if (!direct?.r?.ok || !createdMissionId) {
         try {
