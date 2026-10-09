@@ -308,5 +308,5 @@ assert.match(project,/event\.target\.value/);
 assert.match(project,/activeBattleCruiserConnection\?\.ariaUserId===session\.userId/);
 assert.ok(apiCurrent.includes(String.raw`path.match(/\/projects\/([^/]+)\/connections\/verify$/)`), 'BattleCruiser session verify route must use a valid path-matching expression');
 assert.ok(apiCurrent.includes(String.raw`configText.match(/SUPABASE_URL\s*=\s*["']([^"']+)["']/)`), 'BattleCruiser live context must parse the expected backend URL correctly');
-assert.ok(apiCurrent.includes(String.raw`const isBattleCruiserMissionIntake=path==='/missions'&&requestBodyText.includes('"project_id":"battlecruiser"')`) === false, 'Mission token forwarding lives in the PWA API helper, not the server API.');
+assert.match(project,/if\(isBattleCruiserChat\|\|isBattleCruiserMissionIntake\|\|isBattleCruiserProjectMissions\)/);
 console.log('BATTLECRUISER SESSION LIFECYCLE + MISSION CONTEXT CONTRACT: PASS');
