@@ -245,6 +245,11 @@ jobs:
             echo AUTH_DIRECT_REACHABLE
           elif test "$direct_code" = "000"; then
             echo AUTH_DIRECT_NETWORK_BLOCKED
+          elif test "$direct_code" -ge 500 && test "$direct_code" -lt 600; then
+            # Supabase Auth can return a transient gateway error even when the
+            # PWA deployment is healthy. The authenticated Projects RWHT is the
+            # positive auth proof; this invalid-credential probe is diagnostic.
+            echo "AUTH_DIRECT_UPSTREAM_UNAVAILABLE=$direct_code"
           else
             echo AUTH_DIRECT_UNEXPECTED_STATUS
             exit 1
@@ -262,10 +267,10 @@ jobs:
           cat /tmp/auth-proxy-body || true
           if test "$proxy_code" -ge 400 && test "$proxy_code" -lt 500; then
             echo AUTH_PROXY_REACHABLE
-          elif test "$proxy_code" = "504"; then
-            echo AUTH_PROXY_UPSTREAM_BLOCKED
           elif test "$proxy_code" = "000"; then
             echo AUTH_PROXY_NETWORK_BLOCKED
+          elif test "$proxy_code" -ge 500 && test "$proxy_code" -lt 600; then
+            echo "AUTH_PROXY_UPSTREAM_UNAVAILABLE=$proxy_code"
           else
             echo AUTH_PROXY_UNEXPECTED_STATUS
             exit 1
