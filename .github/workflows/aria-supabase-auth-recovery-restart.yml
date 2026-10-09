@@ -1,4 +1,4 @@
-# 2026-10-09 [supabase-restart]: deliberate production recovery after verified LIVE Auth 504, RPC 522, and SQL connection timeouts.
+# 2026-10-09 [supabase-restart]: controlled recovery for verified ARIA PostgREST 504 burst (174/35m) and OAuth Edge WallClockTime at 150s; require observed restart and stable health before PASS.
 name: ARIA Supabase Auth Recovery Restart
 
 on:
