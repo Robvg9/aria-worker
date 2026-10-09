@@ -66,6 +66,89 @@ function normalizeProjectContext(body: any) {
     resources: project.resources
   };
 }
+
+async function battleCruiserLiveUserContext(accessToken: string | null) {
+  if (!accessToken) return null;
+  try {
+    const project = getProject("battlecruiser");
+    if (!project?.resources) return null;
+    const frontendUrl = String(project.resources.frontend_live_url).replace(/\\/+$/, "");
+    const backendUrl = String(project.resources.backend_api_url).replace(/\\/+$/, "");
+    const configController = new AbortController();
+    const configTimer = setTimeout(() => configController.abort(), 6000);
+    let configResponse: Response;
+    let configText = "";
+    try {
+      configResponse = await fetch(frontendUrl + "/js/core.js", { cache: "no-store", signal: configController.signal });
+      configText = await configResponse.text();
+    } finally {
+      clearTimeout(configTimer);
+    }
+    const configuredUrl = configText.match(/SUPABASE_URL\\s*=\\s*["']([^"']+)["']/)?.[1]?.replace(/\\/+$/, "") ?? null;
+    const publishableKey = configText.match(/SUPABASE_[A-Z_]*KEY\\s*=\\s*["']([^"']+)["']/)?.[1] ?? null;
+    if (!configResponse.ok || configuredUrl !== backendUrl || !publishableKey ||
+        !(publishableKey.startsWith("sb_publishable_") || publishableKey.startsWith("eyJ"))) return null;
+
+    const request = async (url: string, method: "GET" | "POST", body?: string) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: {
+            apikey: publishableKey,
+            authorization: "Bearer " + accessToken,
+            ...(body ? { "content-type": "application/json" } : {})
+          },
+          ...(body ? { body } : {}),
+          cache: "no-store",
+          signal: controller.signal
+        });
+        const raw = await response.text();
+        let data: any = null;
+        try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
+        return { response, data };
+      } catch {
+        return { response: null, data: null };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const [auth, profile, permissions] = await Promise.all([
+      request(backendUrl + "/auth/v1/user", "GET"),
+      request(backendUrl + "/rest/v1/rpc/perfil_usuario_actual", "POST", "{}"),
+      request(backendUrl + "/rest/v1/rpc/permisos_usuario_actual", "POST", "{}")
+    ]);
+    if (!auth.response?.ok || !auth.data?.id) return null;
+    const rawProfile = Array.isArray(profile.data) ? profile.data[0] : profile.data;
+    const safeProfile = rawProfile && typeof rawProfile === "object" ? {
+      id: typeof rawProfile.id === "string" ? rawProfile.id : null,
+      nombre: typeof rawProfile.nombre === "string" ? rawProfile.nombre.slice(0, 160) : null,
+      role_id: typeof rawProfile.role_id === "string" ? rawProfile.role_id : null,
+      rol: typeof rawProfile.rol === "string" ? rawProfile.rol.slice(0, 100) : null,
+      activo: typeof rawProfile.activo === "boolean" ? rawProfile.activo : null
+    } : null;
+    const safePermissions = Array.isArray(permissions.data)
+      ? permissions.data.slice(0, 100)
+      : permissions.data && typeof permissions.data === "object"
+        ? Object.fromEntries(Object.entries(permissions.data).slice(0, 100))
+        : null;
+    return {
+      source: "battlecruiser_supabase_user_jwt",
+      read_only: true,
+      auth_user_verified: true,
+      user: { id: String(auth.data.id), email: typeof auth.data.email === "string" ? auth.data.email : null },
+      profile_rpc_status: profile.response?.ok ? "available" : "not_available",
+      profile: safeProfile,
+      permissions_rpc_status: permissions.response?.ok ? "available" : "not_available",
+      permissions: safePermissions,
+      mutations_performed: false
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeVisualContext(body: any) {
   const raw = body?.visual_context;
   if (!raw || typeof raw !== "object") return null;
@@ -1887,6 +1970,9 @@ Deno.serve(async (req) => {
       const parts = Array.isArray(body?.parts) ? body.parts : [];
       const text = parts.filter((p:any)=>p?.type==="text").map((p:any)=>String(p.text??"").trim()).filter(Boolean).join("\n");
       const project = normalizeProjectContext(body);
+      const battleCruiserLiveContext = project?.id === "battlecruiser"
+        ? await battleCruiserLiveUserContext(req.headers.get("x-battlecruiser-access-token"))
+        : null;
       const visual_context = normalizeVisualContext(body);
       const attachments = normalizeAttachments(parts);
       const clientMessageId = typeof body?.clientMessageId === "string" && body.clientMessageId.trim() ? body.clientMessageId.trim() : null;
@@ -2061,6 +2147,7 @@ Deno.serve(async (req) => {
         "No digas que careces de acceso a herramientas, persistencia o ejecución si el contexto demuestra lo contrario.",
         "No inventes acciones ejecutadas. Distingue siempre entre en cola, ejecutando, bloqueada, completada o fallida.",
         project ? "PROYECTO ACTIVO: " + JSON.stringify(project) + ". Mantén la conversación dentro de este proyecto y no la desvíes al estado global de ARIA salvo que el usuario lo pida." : "",
+        battleCruiserLiveContext ? "CONTEXTO LIVE AUTENTICADO DE BATTLECRUISER (solo lectura; la sesión corresponde a un usuario real y no concede privilegios adicionales): " + JSON.stringify(battleCruiserLiveContext) : "",
         visual_context ? "DISEÑO VISUAL Y ANOTACIONES: " + JSON.stringify(visual_context) : "",
         attachments.length ? "ADJUNTOS DE ESTA CONVERSACIÓN: " + JSON.stringify(attachments) : "",
         liveText,
@@ -2118,6 +2205,9 @@ Deno.serve(async (req) => {
       const requestId = req.headers.get("x-aria-request-id") ?? trace;
       const pwaBuild = req.headers.get("x-aria-pwa-build") ?? null;
       const project = normalizeProjectContext(body);
+      const battleCruiserLiveContext = project?.id === "battlecruiser"
+        ? await battleCruiserLiveUserContext(req.headers.get("x-battlecruiser-access-token"))
+        : null;
       const visual_context = normalizeVisualContext(body);
       const intakeMetadata = {
         source_application: "aria-app-v1",
@@ -2126,6 +2216,7 @@ Deno.serve(async (req) => {
         project_id: project?.id ?? null,
         project_name: project?.name ?? null,
         project_context: project?.context ?? null,
+        battlecruiser_live_context: battleCruiserLiveContext,
         visual_context,
         trace_id: trace,
         request_id: requestId,
