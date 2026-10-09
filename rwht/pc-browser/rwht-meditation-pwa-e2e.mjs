@@ -427,7 +427,8 @@ async function run() {
       assert.equal(clickResult.click_handler_dispatched, true, 'notification_click_handler_not_dispatched');
       report.notification_click_target = clickResult.target;
       await probePage.locator('.notificationSelected').waitFor({ state:'visible', timeout:30000 });
-      console.log('WEBPUSH_E2E_NOTIFICATION_SELECTED id=' + pushProbeNotificationId);
+      await probePage.locator('.notificationMeta').getByText('Leída', { exact:true }).waitFor({ state:'visible', timeout:15000 });
+      console.log('WEBPUSH_E2E_NOTIFICATION_SELECTED_AND_READ id=' + pushProbeNotificationId);
       await probePage.getByRole('button', { name:'Abrir misión completa' }).waitFor({ state:'visible', timeout:30000 });
       const selectedNotificationText = await probePage.locator('.notificationSelected').innerText();
       assert.ok(/completada y verificada/i.test(selectedNotificationText), 'notification_click_did_not_select_verified_notification');
@@ -435,14 +436,17 @@ async function run() {
       const detailHeading = probePage.locator('.detailModal .detailTop .eyebrow');
       await detailHeading.filter({ hasText:'RESUMEN DE MISIÓN' }).waitFor({ state:'visible', timeout:30000 });
       const detailTitle = (await probePage.locator('.detailModal .detailTop h2').first().innerText()).trim();
-      const missionGoal = String(sourceMission?.goal || '');
-      const expectedTitleToken = /battlecruiser/i.test(missionGoal)
-        ? 'BattleCruiser'
-        : /cueva\s*coin|cuevacoin/i.test(missionGoal)
-          ? 'CuevaCoin'
-          : String(sourceMission?.display_title || 'Prueba de ARIA').trim();
-      if (expectedTitleToken && !detailTitle.toLowerCase().includes(expectedTitleToken.toLowerCase())) {
-        throw new Error('notification_clicked_wrong_mission_detail:' + detailTitle + ':expected_token:' + expectedTitleToken);
+      const missionGoal = String(sourceMission?.goal || '').trim();
+      const expectedGoalPreview = missionGoal.length > 110
+        ? missionGoal.slice(0, 109).trimEnd() + '…'
+        : missionGoal;
+      const visibleGoalPreview = (await probePage.locator('.detailModal .detailTop .muted').first().innerText()).trim();
+      if (!expectedGoalPreview || visibleGoalPreview !== expectedGoalPreview) {
+        throw new Error('notification_clicked_wrong_mission_detail:' + JSON.stringify({
+          title: detailTitle,
+          visible_goal: visibleGoalPreview,
+          expected_goal: expectedGoalPreview
+        }));
       }
       report.notification_click_through_verified = true;
       console.log('WEBPUSH_E2E_MISSION_DETAIL_VERIFIED id=' + pushProbeMissionId + ' title=' + detailTitle);
