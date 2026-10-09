@@ -268,3 +268,15 @@ assert.match(project,/Backend · Supabase ↗/);
 assert.match(project,/la conexión de Supabase de ARIA/i);
 console.log('BATTLECRUISER PROJECT LINKS ARE VISIBLE WITHOUT CLAIMING BACKEND AUTH: PASS');
 
+assert.ok(apiCurrent.includes("const projectConnectionsPath = path.match"), 'ARIA API must expose an authenticated, project-scoped connection health endpoint');
+assert.ok(apiCurrent.includes('fetchBounded(frontendUrl + "/app.js")'), 'connection health must probe the actual deployed BattleCruiser app');
+assert.ok(apiCurrent.includes('fetchBounded(frontendUrl + "/js/core.js")'), 'connection health must read the deployed frontend config to verify the backend project identity');
+assert.ok(apiCurrent.includes('backend_data: { status: "not_checked_requires_authenticated_context", verified: false'), 'health probes must not claim protected data access without an authenticated BC session');
+assert.ok(apiCurrent.includes('configuredBackendUrl !== backendUrl'), 'the connection check must reject a frontend configured to a different Supabase project');
+assert.match(project,/api\('\/projects\/'.*\/connections/);
+assert.match(project,/ProjectResourceConnections/);
+assert.match(project,/BACKEND AUTH/);
+assert.match(project,/DATOS PROTEGIDOS/);
+console.log('BATTLECRUISER CONNECTION HEALTH GATE IS READ-ONLY AND FAILS CLOSED: PASS');
+
+
