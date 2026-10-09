@@ -75,6 +75,49 @@ jobs:
             echo "RWHT_STORAGE_STATE=${RUNNER_TEMP}/aria-rwht-auth-state.json" >> "${GITHUB_ENV}"
           fi
 
+      - name: Wait for Supabase Auth and Worker proxy to respond
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const apiKey = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
+          const body = JSON.stringify({ refresh_token: 'rwht-health-probe-invalid-refresh-token' });
+          const endpoints = [
+            'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=refresh_token',
+            'https://aria.robvg9.workers.dev/auth/token?grant_type=refresh_token'
+          ];
+          async function probe(url) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 8000);
+            try {
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: { apikey: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+                body,
+                cache: 'no-store',
+                signal: controller.signal
+              });
+              return response.status;
+            } catch {
+              return 0;
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            const statuses = await Promise.all(endpoints.map(probe));
+            console.log(JSON.stringify({ attempt, direct_auth_status: statuses[0], worker_proxy_status: statuses[1] }));
+            // Invalid refresh-token requests must reach Auth and return a client error;
+            // 0/5xx means infrastructure is still recovering. No real account token is used.
+            if (statuses.every((status) => status === 400 || status === 401)) {
+              console.log('SUPABASE_AUTH_PATHS_RESPONSIVE');
+              process.exit(0);
+            }
+            if (attempt < 12) await new Promise((resolve) => setTimeout(resolve, 10000));
+          }
+          throw new Error('SUPABASE_AUTH_PATHS_UNHEALTHY_AFTER_RECOVERY');
+          NODE
+
       - name: Bootstrap fresh authenticated PWA session
         shell: bash
         env:
