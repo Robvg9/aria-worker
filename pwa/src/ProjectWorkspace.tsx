@@ -550,7 +550,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
     drawing.current=true;startPoint.current=p;drawingPointsRef.current=[p];
     if(tool==='text'){
       const text=instruction.trim();
-      if(text)setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.slice(0,120)]);
+      if(text)setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.slice(0,120)}]);
       else setNotice('Escribe primero el texto que quieras colocar sobre la vista.');
       drawing.current=false;drawingActionRef.current=null;drawingPointsRef.current=[];return;
     }
