@@ -135,6 +135,16 @@ async function proxyOAuth(request,url){
     const html=await upstream.text();
     const pending=(html.match(/name=["']pending_id["'][^>]*value=["']([^"']+)["']/i)||[])[1];
     if(!pending){return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:h})}
+    const requestedScopes=String(url.searchParams.get("scope")||"aria.mcp.inbound").split(/\s+/).filter(Boolean);
+    // Elevated CuevaCoin authorization needs the upstream consent form's exact control_confirmation input.
+    // The legacy direct-link shim only supports base read-only access; never render it for elevated scopes.
+    if(requestedScopes.includes("aria.project.cuevacoin.control")){
+      const elevatedHeaders=new Headers(h);
+      elevatedHeaders.set("content-type","text/html; charset=utf-8");
+      elevatedHeaders.set("cache-control","no-store");
+      elevatedHeaders.set("x-aria-grok-consent","elevated-form-v1");
+      return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:elevatedHeaders});
+    }
     const client=(html.match(/<strong>([^<]+)<\/strong>/i)||[])[1]||"Grok Custom Connector";
     return new Response(authorizationPage(pending,PUBLIC_ISSUER,client),{status:200,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","x-aria-grok-consent":"direct-link-v2"}});
   }
