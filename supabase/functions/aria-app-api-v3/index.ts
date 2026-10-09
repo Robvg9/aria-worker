@@ -1558,6 +1558,91 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && path.endsWith("/absorb/register")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbRegister(user.id,String(body?.absorption_id||""),body?.binding||{})),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
     if (req.method === "POST" && path.endsWith("/absorb/enable")) { const body=await req.json().catch(()=>({})); try { return json({ok:true,absorption:presentAbsorption(await absorbEnable(user.id,String(body?.absorption_id||""))),trace_id:trace}); } catch(e) { return json({error:String(e?.message||e),trace_id:trace},Number(e?.status)||409); } }
 
+    const projectConnectionVerifyPath = path.match(/\\/projects\\/([^/]+)\\/connections\\/verify$/);
+    if (req.method === "POST" && projectConnectionVerifyPath) {
+      const projectId = decodeURIComponent(projectConnectionVerifyPath[1]).toLowerCase();
+      const project = getProject(projectId);
+      if (!project || projectId !== "battlecruiser" || !project.resources) {
+        return json({ error: "project_not_found", trace_id: trace }, 404);
+      }
+      const bcAccessToken = String(req.headers.get("x-battlecruiser-access-token") || "").trim();
+      if (!bcAccessToken) return json({ error: "battlecruiser_session_required", trace_id: trace }, 401);
+
+      const frontendUrl = String(project.resources.frontend_live_url).replace(/\\/+$/, "");
+      const backendUrl = String(project.resources.backend_api_url).replace(/\\/+$/, "");
+      const configController = new AbortController();
+      const configTimer = setTimeout(() => configController.abort(), 8000);
+      let configResponse: Response | null = null;
+      let configText = "";
+      try {
+        configResponse = await fetch(frontendUrl + "/js/core.js", { cache: "no-store", signal: configController.signal });
+        configText = await configResponse.text();
+      } catch {
+        return json({ error: "battlecruiser_public_config_unavailable", trace_id: trace }, 502);
+      } finally {
+        clearTimeout(configTimer);
+      }
+      const configuredUrl = configText.match(/SUPABASE_URL\\s*=\\s*["']([^"']+)["']/)?.[1]?.replace(/\\/+$/, "") ?? null;
+      const publishableKey = configText.match(/SUPABASE_[A-Z_]*KEY\\s*=\\s*["']([^"']+)["']/)?.[1] ?? null;
+      if (!configResponse?.ok || configuredUrl !== backendUrl || !publishableKey ||
+          !(publishableKey.startsWith("sb_publishable_") || publishableKey.startsWith("eyJ"))) {
+        return json({ error: "battlecruiser_backend_identity_or_public_key_mismatch", trace_id: trace }, 409);
+      }
+
+      const boundedRequest = async (url: string, method: "GET" | "POST", body?: string) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+          const response = await fetch(url, {
+            method,
+            headers: {
+              apikey: publishableKey,
+              authorization: "Bearer " + bcAccessToken,
+              ...(body ? { "content-type": "application/json" } : {})
+            },
+            ...(body ? { body } : {}),
+            cache: "no-store",
+            signal: controller.signal
+          });
+          const text = await response.text();
+          let data: any = null;
+          try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+          return { response, data };
+        } catch {
+          return { response: null, data: null };
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      const userProbe = await boundedRequest(backendUrl + "/auth/v1/user", "GET");
+      if (!userProbe.response?.ok || !userProbe.data?.id) {
+        return json({ error: "battlecruiser_session_invalid", trace_id: trace }, 401);
+      }
+      const [profileProbe, permissionProbe] = await Promise.all([
+        boundedRequest(backendUrl + "/rest/v1/rpc/perfil_usuario_actual", "POST", "{}"),
+        boundedRequest(backendUrl + "/rest/v1/rpc/permisos_usuario_actual", "POST", "{}")
+      ]);
+      return json({
+        ok: true,
+        project_id: project.id,
+        authenticated: true,
+        token_persisted: false,
+        access_scope: "current_user_jwt_only",
+        user: {
+          id: String(userProbe.data.id),
+          email: typeof userProbe.data.email === "string" ? userProbe.data.email : null
+        },
+        checks: {
+          auth_user: { status: "verified", http_status: userProbe.response.status },
+          profile_rpc: { status: profileProbe.response?.ok ? "available" : "not_available_for_this_session", http_status: profileProbe.response?.status ?? null },
+          permissions_rpc: { status: permissionProbe.response?.ok ? "available" : "not_available_for_this_session", http_status: permissionProbe.response?.status ?? null },
+          backend_data: { status: profileProbe.response?.ok || permissionProbe.response?.ok ? "authenticated_rpc_access_verified" : "authenticated_session_verified_rpc_access_limited", verified: true }
+        },
+        trace_id: trace
+      });
+    }
+
     const projectConnectionsPath = path.match(/\/projects\/([^/]+)\/connections$/);
     if (req.method === "GET" && projectConnectionsPath) {
       const projectId = decodeURIComponent(projectConnectionsPath[1]).toLowerCase();
