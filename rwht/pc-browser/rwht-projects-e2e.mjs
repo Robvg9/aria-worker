@@ -378,6 +378,9 @@ async function checkUx(page) {
       project_shell_scroll_top: root.scrollTop,
       first_project_card_top: firstProjectCard?.getBoundingClientRect().top ?? null,
       project_shell_overflow_anchor: getComputedStyle(root).overflowAnchor,
+      active_element_tag: document.activeElement?.tagName ?? null,
+      active_element_label: (document.activeElement?.getAttribute('aria-label') || document.activeElement?.getAttribute('title') || document.activeElement?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0,120),
+      active_element_inside_project_shell: !!document.activeElement && root.contains(document.activeElement),
       unnamed_interactive: unnamed,
       offscreen_interactive: offscreen,
       unlabeled_inputs: unlabeled
