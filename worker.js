@@ -1,3 +1,4 @@
+/* 2026-10-09: rerun scheduler deploy after syncing planner-v2 integrity contract. */
 /* 2026-10-09: rerun exact-SHA LIVE certification after aligning the scheduler source-read contract. */
 /* ARTIA CuevaCoin preview certification 2026-10-07 */
 /* 2026-10-08: force exact-main PWA/ARTIA production delivery after preview fixes. */
