@@ -319,7 +319,10 @@ console.log('BATTLECRUISER SESSION LIFECYCLE + MISSION CONTEXT CONTRACT: PASS');
 
 
 // BattleCruiser Projects now uses the canonical LIVE site, with truthful auth-required mode.
-assert.ok(project.includes("window.scrollTo(0,0)"), 'entering Projects must reset stale scroll so project cards are inside the viewport');
+assert.ok(project.includes("workspace.scrollTop=0"), 'entering Projects must reset its own scroll container');
+assert.ok(project.includes("appFrame.scrollTop=0"), 'entering Projects must reset the app-frame scroll container');
+assert.ok(project.includes("document.documentElement.scrollTop=0")&&project.includes("document.body.scrollTop=0")&&project.includes("window.scrollTo(0,0)"), 'entering Projects must reset every document scroll root');
+assert.ok(projectsRwht.includes("project_shell_scroll_top")&&projectsRwht.includes("first_project_card_top"), 'the Projects E2E artifact must preserve scroll diagnostics if the viewport regression recurs');
 assert.ok(projectsRwht.includes("src: 'https://battlecruiser.robvg9.workers.dev/'"), 'Projects/ARTIA RWHT must target the real BattleCruiser LIVE frontend');
 assert.ok(projectsRwht.includes("mode: 'auth-required'"), 'RWHT must certify the LIVE preview auth-required boundary, not a source mock');
 assert.ok(!projectsRwht.includes("https://aria.robvg9.workers.dev/project-preview/battlecruiser/"), 'RWHT must not require the obsolete static BattleCruiser reference');
