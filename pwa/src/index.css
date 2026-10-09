@@ -196,7 +196,7 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
 
 /* ARIA Project Workspaces / ARTIA */
 .statButton{width:100%;text-align:left;cursor:pointer}
-.projectShell{max-width:1240px}
+.projectShell{max-width:1240px;overflow-anchor:none}
 .projectGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
 .projectCard{display:flex;align-items:center;gap:12px;text-align:left;padding:15px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#191328,#120e1c);color:var(--text)}
 .projectCard.selected{border-color:#7658df;box-shadow:0 0 0 1px rgba(159,124,255,.15),0 12px 40px rgba(84,60,160,.15)}
