@@ -68,7 +68,7 @@ async function api(path:string, token:string, init:RequestInit={}) {
   const headers = new Headers(init.headers);
   headers.set('authorization','Bearer '+token);
   const requestBodyText=typeof init.body==='string'?init.body:'';
-  const isBattleCruiserChat=path==='/conversation'&&/"project_id"\\s*:\\s*"battlecruiser"/.test(requestBodyText);
+  const isBattleCruiserChat=path==='/conversation'&&requestBodyText.includes('"project_id":"battlecruiser"');
   const isBattleCruiserProjectMissions=path.startsWith('/projects/battlecruiser/missions');
   if(isBattleCruiserChat||isBattleCruiserProjectMissions){
     const bcToken=await getActiveBattleCruiserAccessToken();
@@ -398,10 +398,10 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
         </div>
       </div>:<form onSubmit={event=>{event.preventDefault();void connectBattleCruiser();}} style={{display:'grid',gap:10,marginTop:10,maxWidth:460}}>
         <label style={{display:'grid',gap:5}}>Usuario o correo de BattleCruiser
-          <input value={bcUsername} onChange={value=>setBcUsername(value)} autoComplete='username' disabled={connecting} placeholder='Tu usuario de BattleCruiser' required />
+          <input value={bcUsername} onChange={event=>setBcUsername(event.target.value)} autoComplete='username' disabled={connecting} placeholder='Tu usuario de BattleCruiser' required />
         </label>
         <label style={{display:'grid',gap:5}}>Contraseña de BattleCruiser
-          <input value={bcPassword} onChange={value=>setBcPassword(value)} type='password' autoComplete='current-password' disabled={connecting} placeholder='Se envía directamente a Supabase BattleCruiser' required />
+          <input value={bcPassword} onChange={event=>setBcPassword(event.target.value)} type='password' autoComplete='current-password' disabled={connecting} placeholder='Se envía directamente a Supabase BattleCruiser' required />
         </label>
         <p className='muted'>La contraseña se envía desde este navegador directamente al Auth de BattleCruiser; no pasa por el API de ARIA. La sesión verificada permanece solo en memoria y se usa como usuario actual, nunca como acceso administrador.</p>
         <button type='submit' className='primary' disabled={connecting||loading||!report?.client_config}>{connecting?'Conectando…':'Conectar backend BattleCruiser'}</button>
