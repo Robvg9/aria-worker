@@ -493,6 +493,9 @@ async function run() {
     project_ids: [],
     tabs: [],
     projects: [],
+    overview_preview_results: [],
+    preview_results: [],
+    visual_missions: [],
     visual_mission: null,
     ux: null,
     console_errors: [],
@@ -554,7 +557,7 @@ async function run() {
     if (await cards.count() !== 3) throw new Error('project_card_count_failed');
 
     // The preview belongs to the selected project's normal workspace, not only ARTIA.
-    const overviewPreviewResults = [];
+    const overviewPreviewResults = report.overview_preview_results;
     for (const expected of [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://aria.robvg9.workers.dev/project-preview/battlecruiser/' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
@@ -655,7 +658,7 @@ async function run() {
       cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
       aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
-    const visualMissions = [];
+    const visualMissions = report.visual_missions;
     for (const visualProject of PROJECTS) {
       await page.locator('.projectGrid .projectCard').filter({ hasText: visualProject.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
@@ -794,7 +797,7 @@ async function run() {
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
       { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     ];
-    const previewResults = [];
+    const previewResults = report.preview_results;
     for (const expected of previewExpectations) {
       await page.locator('.projectGrid .projectCard').filter({ hasText: expected.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
