@@ -341,6 +341,10 @@ async function checkUx(page) {
     const viewportHeight = window.innerHeight;
     const scrollWidth = Math.max(document.body.scrollWidth, document.documentElement.scrollWidth);
     const firstProjectCard = root.querySelector('.projectGrid .projectCard');
+    const projectTabs = root.querySelector('.projectTabs');
+    const bodyViewport = root.querySelector('.projectBodyViewport');
+    const bodyViewportStyle = bodyViewport ? getComputedStyle(bodyViewport) : null;
+    const bodyViewportScrollable = Boolean(bodyViewport && bodyViewportStyle && ['auto','scroll'].includes(bodyViewportStyle.overflowY) && bodyViewport.scrollHeight > bodyViewport.clientHeight + 1);
     const unnamed = [];
     const offscreen = [];
     const unlabeled = [];
@@ -359,7 +363,10 @@ async function checkUx(page) {
       if (rect.width > 0 && rect.height > 0) {
         const outside = rect.right <= 0 || rect.left >= viewportWidth || rect.bottom <= 0 || rect.top >= viewportHeight;
         const huge = rect.width > viewportWidth * 1.2 || rect.height > viewportHeight * 1.2;
-        if (outside || huge) offscreen.push({ tag: element.tagName, id: element.id || null, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+        // The project content area is intentionally scrollable. Its below-the-fold controls are reachable.
+        // Cards and section navigation outside that body remain subject to the strict offscreen gate.
+        const insideScrollableBody = Boolean(bodyViewportScrollable && bodyViewport && bodyViewport.contains(element));
+        if ((outside && !insideScrollableBody) || huge) offscreen.push({ tag: element.tagName, id: element.id || null, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
       }
     }
     for (const element of root.querySelectorAll('input,textarea,select')) {
@@ -377,6 +384,12 @@ async function checkUx(page) {
       body_scroll_top: document.body.scrollTop,
       project_shell_scroll_top: root.scrollTop,
       first_project_card_top: firstProjectCard?.getBoundingClientRect().top ?? null,
+      project_tabs_top: projectTabs?.getBoundingClientRect().top ?? null,
+      project_tabs_bottom: projectTabs?.getBoundingClientRect().bottom ?? null,
+      project_body_viewport_scrollable: bodyViewportScrollable,
+      project_body_viewport_overflow_y: bodyViewportStyle?.overflowY ?? null,
+      project_body_viewport_client_height: bodyViewport?.clientHeight ?? null,
+      project_body_viewport_scroll_height: bodyViewport?.scrollHeight ?? null,
       project_shell_overflow_anchor: getComputedStyle(root).overflowAnchor,
       active_element_tag: document.activeElement?.tagName ?? null,
       active_element_label: (document.activeElement?.getAttribute('aria-label') || document.activeElement?.getAttribute('title') || document.activeElement?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0,120),
@@ -561,6 +574,8 @@ async function run() {
     if (report.ux.error) throw new Error(report.ux.error);
     if (report.ux.project_shell_overflow_anchor !== 'none') throw new Error('projects_scroll_anchor_not_disabled');
     if (Number(report.ux.project_shell_scroll_top) !== 0 || Number(report.ux.first_project_card_top) < 0) throw new Error('projects_scroll_anchor_contract_failed');
+    if (Number(report.ux.project_tabs_top) < 0 || Number(report.ux.project_tabs_bottom) > window.innerHeight) throw new Error('projects_tabs_must_remain_visible');
+    if (!report.ux.project_body_viewport_scrollable || !['auto','scroll'].includes(report.ux.project_body_viewport_overflow_y)) throw new Error('projects_body_viewport_must_own_scrolling');
     if (report.ux.horizontal_overflow || report.ux.unnamed_interactive.length || report.ux.offscreen_interactive.length || report.ux.unlabeled_inputs.length) {
       throw new Error('projects_ux_contract_failed');
     }
