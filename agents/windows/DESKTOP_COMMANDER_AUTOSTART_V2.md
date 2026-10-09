@@ -75,6 +75,12 @@ The supervisor writes separate fields in `desktop-commander-supervisor.json`:
 
 Recognized failures include `IncreaseConnectionPool`, `Channel error`, subscription timeout, unreachable-device messages, and WebSocket 1006 closure. A log state never replaces a real remote invocation or the provider's device Online status.
 
+## Bounded recovery for a degraded remote channel
+
+The supervisor treats repeated channel-recreation / session-establishment failures as a degraded channel, even when the local Node process remains alive. If that state persists for 180 seconds, it restarts only the Desktop Commander child process. Automatic restarts are capped at two per rolling hour. Once the cap is reached, the supervisor preserves the degraded status and logs `CHANNEL_RESTART_LIMIT_REACHED` rather than creating an unbounded restart loop.
+
+This is a resilience workaround, not a fix for a hosted Remote MCP / Realtime backend outage. A successful HTTP preflight is not proof of a joined WebSocket channel. If the hosted service remains degraded after bounded restarts, vendor-side recovery or a working alternate transport is still required.
+
 ## Certification
 
 A complete certification requires both Windows PCs to pass:
