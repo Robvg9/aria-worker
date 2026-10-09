@@ -35,8 +35,11 @@ on:
   workflow_dispatch:
 
 concurrency:
+  # Never interrupt a production deploy after it starts. The PWA fast lane
+  # shares this group; cancellation here previously killed the exact-SHA deploy
+  # and made the post-merge Delivery Gate fail before LIVE verification.
   group: aria-cloudflare-production-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
