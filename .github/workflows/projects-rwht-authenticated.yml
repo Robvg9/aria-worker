@@ -243,55 +243,123 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const apiKey = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
+          const origin = new URL(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').origin;
           const candidates = [
             process.env.RWHT_BOOTSTRAP_SESSION_PATH,
             process.env.RWHT_STORAGE_STATE
           ].filter(Boolean);
-          let accessToken = '';
+          let session = null;
           for (const candidate of candidates) {
             try {
               const source = JSON.parse(fs.readFileSync(candidate, 'utf8'));
-              accessToken = String(source.accessToken || source.access_token || '');
-              if (!accessToken && Array.isArray(source.origins)) {
-                for (const origin of source.origins) {
-                  const item = (origin.localStorage || []).find((entry) => entry.name === 'aria_session_v2');
+              if (source?.accessToken || source?.access_token) {
+                session = {
+                  ...source,
+                  accessToken: String(source.accessToken || source.access_token || ''),
+                  refreshToken: String(source.refreshToken || source.refresh_token || ''),
+                  userId: String(source.userId || source.user_id || '')
+                };
+                break;
+              }
+              if (Array.isArray(source.origins)) {
+                for (const originState of source.origins) {
+                  const items = Array.isArray(originState.localStorage) ? originState.localStorage : [];
+                  const item = items.find((entry) => entry.name === 'aria_session_v2');
                   if (!item?.value) continue;
                   const saved = JSON.parse(item.value);
-                  accessToken = String(saved.accessToken || saved.access_token || '');
-                  if (accessToken) break;
+                  if (saved?.accessToken) {
+                    session = saved;
+                    break;
+                  }
                 }
               }
-              if (accessToken) break;
+              if (session?.accessToken) break;
             } catch {}
           }
-          if (!accessToken) throw new Error('authenticated_overview_probe_token_missing');
-          const url = 'https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3/meditation/overview';
-          let last = 'not_attempted';
-          for (let attempt = 1; attempt <= 4; attempt++) {
+          if (!session?.accessToken) throw new Error('authenticated_overview_probe_token_missing');
+
+          async function request(path, token, timeoutMs = 20000) {
             const controller = new AbortController();
             const started = Date.now();
-            const timer = setTimeout(() => controller.abort(), 20000);
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
             try {
-              const response = await fetch(url, {
-                headers: {
-                  apikey: apiKey,
-                  authorization: 'Bearer ' + accessToken,
-                  'x-aria-pwa-build': process.env.RWHT_CERT_SHA || '',
-                  accept: 'application/json',
-                  'cache-control': 'no-store'
-                },
+              const response = await fetch(origin + path, {
+                headers: { authorization: 'Bearer ' + token, accept: 'application/json', 'cache-control': 'no-store' },
                 cache: 'no-store',
                 signal: controller.signal
               });
-              const body = await response.json().catch(() => null);
-              last = 'http_' + response.status + (body?.error ? '_' + String(body.error).slice(0,80) : '');
-              const good = response.ok && body?.ok === true &&
+              return { response, body: await response.json().catch(() => null), duration_ms: Date.now() - started };
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+
+          async function refreshSession() {
+            if (!session?.refreshToken) return false;
+            const body = JSON.stringify({ refresh_token: session.refreshToken });
+            const endpoints = [
+              origin + '/auth/token?grant_type=refresh_token',
+              'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=refresh_token'
+            ];
+            for (const url of endpoints) {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 10000);
+              try {
+                const response = await fetch(url, {
+                  method: 'POST',
+                  headers: { apikey: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+                  body,
+                  cache: 'no-store',
+                  signal: controller.signal
+                });
+                const value = await response.json().catch(() => null);
+                if (response.ok && value?.access_token && value?.refresh_token && value?.user?.id) {
+                  session = {
+                    ...session,
+                    accessToken: value.access_token,
+                    refreshToken: value.refresh_token,
+                    userId: value.user.id,
+                    expiresAt: Date.now() + Math.max(60, Number(value.expires_in || 3600)) * 1000,
+                    email: value.user.email || session.email || null
+                  };
+                  const bootstrapPath = process.env.RWHT_BOOTSTRAP_SESSION_PATH;
+                  if (bootstrapPath) fs.writeFileSync(bootstrapPath, JSON.stringify(session), { mode: 0o600 });
+                  console.log('OVERVIEW_PROBE_SESSION_REFRESHED');
+                  return true;
+                }
+              } catch {} finally {
+                clearTimeout(timer);
+              }
+            }
+            return false;
+          }
+
+          const authProbe = await request('/api/session', session.accessToken);
+          let authStatus = authProbe.response.status;
+          if (![200, 204].includes(authStatus) && await refreshSession()) {
+            const refreshedAuth = await request('/api/session', session.accessToken);
+            authStatus = refreshedAuth.response.status;
+          }
+          if (![200, 204].includes(authStatus)) throw new Error('worker_authenticated_session_unavailable_http_' + authStatus);
+          console.log(JSON.stringify({ worker_session_status: authStatus, worker_session_ms: authProbe.duration_ms }));
+
+          let last = 'not_attempted';
+          for (let attempt = 1; attempt <= 4; attempt++) {
+            try {
+              const result = await request('/api/meditation/overview', session.accessToken, 20000);
+              const body = result.body;
+              last = 'http_' + result.response.status + (body?.error ? '_' + String(body.error).slice(0, 80) : '');
+              if (result.response.status === 401 && await refreshSession()) {
+                attempt--;
+                continue;
+              }
+              const good = result.response.ok && body?.ok === true &&
                 body?.source_of_truth === 'aria_internal.mission_state' &&
                 body?.counts && Number.isFinite(Number(body.counts.total));
               console.log(JSON.stringify({
                 attempt,
-                status: response.status,
-                duration_ms: Date.now() - started,
+                status: result.response.status,
+                duration_ms: result.duration_ms,
                 overview_contract_ok: good,
                 mission_total: good ? Number(body.counts.total) : null,
                 mission_active: good ? Number(body.counts.active) : null
@@ -302,9 +370,7 @@ jobs:
               }
             } catch (error) {
               last = error?.name === 'AbortError' ? 'timeout_20s' : String(error?.name || 'request_failed');
-              console.log(JSON.stringify({ attempt, duration_ms: Date.now() - started, overview_contract_ok: false, error: last }));
-            } finally {
-              clearTimeout(timer);
+              console.log(JSON.stringify({ attempt, overview_contract_ok: false, error: last }));
             }
             if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 15000));
           }
