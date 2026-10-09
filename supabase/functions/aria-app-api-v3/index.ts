@@ -72,8 +72,8 @@ async function battleCruiserLiveUserContext(accessToken: string | null) {
   try {
     const project = getProject("battlecruiser");
     if (!project?.resources) return null;
-    const frontendUrl = String(project.resources.frontend_live_url).replace(/\\/+$/, "");
-    const backendUrl = String(project.resources.backend_api_url).replace(/\\/+$/, "");
+    const frontendUrl = String(project.resources.frontend_live_url).replace(/\/+$/, "");
+    const backendUrl = String(project.resources.backend_api_url).replace(/\/+$/, "");
     const configController = new AbortController();
     const configTimer = setTimeout(() => configController.abort(), 6000);
     let configResponse: Response;
@@ -84,8 +84,8 @@ async function battleCruiserLiveUserContext(accessToken: string | null) {
     } finally {
       clearTimeout(configTimer);
     }
-    const configuredUrl = configText.match(/SUPABASE_URL\\s*=\\s*["']([^"']+)["']/)?.[1]?.replace(/\\/+$/, "") ?? null;
-    const publishableKey = configText.match(/SUPABASE_[A-Z_]*KEY\\s*=\\s*["']([^"']+)["']/)?.[1] ?? null;
+    const configuredUrl = configText.match(/SUPABASE_URL\s*=\s*["']([^"']+)["']/)?.[1]?.replace(/\/+$/, "") ?? null;
+    const publishableKey = configText.match(/SUPABASE_[A-Z_]*KEY\s*=\s*["']([^"']+)["']/)?.[1] ?? null;
     if (!configResponse.ok || configuredUrl !== backendUrl || !publishableKey ||
         !(publishableKey.startsWith("sb_publishable_") || publishableKey.startsWith("eyJ"))) return null;
 
