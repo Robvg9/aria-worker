@@ -9,6 +9,8 @@ on:
       - "worker.js"
       - "wrangler.toml"
       - ".github/workflows/aria-pwa-fast-deploy.yml"
+      - ".github/workflows/aria-meditation-webpush-production-e2e.yml"
+      - "rwht/pc-browser/rwht-meditation-pwa-e2e.mjs"
   workflow_dispatch:
 
 concurrency:

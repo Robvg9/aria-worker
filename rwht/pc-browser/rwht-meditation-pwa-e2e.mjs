@@ -346,6 +346,9 @@ async function run() {
       );
 
       const probePage = await context.newPage();
+      probePage.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+      probePage.on('pageerror', e => pageErrors.push(String(e?.message || e)));
+      probePage.on('response', response => { if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() }); });
       await probePage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
 
       let pushReceipt = null;
