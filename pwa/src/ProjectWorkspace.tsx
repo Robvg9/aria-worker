@@ -7,7 +7,7 @@ type Session = { accessToken: string; userId: string };
 type ChatMessage = { id:string; role:'user'|'aria'; text:string; processingMs?:number };
 type Project = { id: string; name: string; description: string; icon: string; context: string; previewUrl?: string; previewMode?: 'live' | 'source' | 'reference' | 'auth-required' };
 type BattleCruiserClientConfig = { supabase_url:string; publishable_key:string };
-type ActiveBattleCruiserConnection = { accessToken:string; refreshToken:string; expiresAt:number; user:{id:string;email:string|null}; clientConfig:BattleCruiserClientConfig };
+type ActiveBattleCruiserConnection = { accessToken:string; refreshToken:string; expiresAt:number; user:{id:string;email:string|null}; clientConfig:BattleCruiserClientConfig; verifiedChecks?:any };
 let activeBattleCruiserConnection: ActiveBattleCruiserConnection | null = null;
 type Tool = 'pen'|'marker'|'line'|'rect'|'circle'|'arrow'|'text'|'eraser';
 type Point = { x:number; y:number };
@@ -271,6 +271,7 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState('');
   const [connectionError,setConnectionError]=useState('');
+  const [connectionNotice,setConnectionNotice]=useState('');
   const [connecting,setConnecting]=useState(false);
   const [bcUsername,setBcUsername]=useState('');
   const [bcPassword,setBcPassword]=useState('');
@@ -288,7 +289,7 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
   },[project.id,session.accessToken,refreshTick]);
 
   async function connectBattleCruiserAccount(){
-    setConnecting(true);setConnectionError('');
+    setConnecting(true);setConnectionError('');setConnectionNotice('');
     const username=bcUsername.trim();
     const password=bcPassword;
     try{
@@ -346,7 +347,7 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
     activeBattleCruiserConnection=null;
     setConnectedUser(null);
     setConnectionError('');
-    setNotice('Se cerró la conexión de BattleCruiser dentro de esta pestaña. La sesión de ARIA sigue intacta.');
+    setConnectionNotice('Se cerró la conexión de BattleCruiser dentro de esta pestaña. La sesión de ARIA sigue intacta.');
   }
 
   const frontend=report?.checks?.frontend;
@@ -400,12 +401,12 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
           <input value={bcUsername} onChange={value=>setBcUsername(value)} autoComplete='username' disabled={connecting} placeholder='Tu usuario de BattleCruiser' required />
         </label>
         <label style={{display:'grid',gap:5}}>Contraseña de BattleCruiser
-          <input value={bcPassword} onChange={value=>setBcPassword(value)} inputType='password' autoComplete='current-password' disabled={connecting} placeholder='Se envía directamente a Supabase BattleCruiser' required />
+          <input value={bcPassword} onChange={value=>setBcPassword(value)} type='password' autoComplete='current-password' disabled={connecting} placeholder='Se envía directamente a Supabase BattleCruiser' required />
         </label>
         <p className='muted'>La contraseña se envía desde este navegador directamente al Auth de BattleCruiser; no pasa por el API de ARIA. La sesión verificada permanece solo en memoria y se usa como usuario actual, nunca como acceso administrador.</p>
         <button type='submit' className='primary' disabled={connecting||loading||!report?.client_config}>{connecting?'Conectando…':'Conectar backend BattleCruiser'}</button>
       </form>}
-      {connectionError&&<p className='notice' role='alert' style={{marginTop:10}}>{connectionError}</p>}
+      {connectionError&&<p className='notice' role='alert' style={{marginTop:10}}>{connectionError}</p>}{connectionNotice&&<p className='muted' role='status' style={{marginTop:10}}>{connectionNotice}</p>}
     </section>
     {error&&<p className='notice' role='status'>{error}</p>}
     {!report&&!loading&&!error&&<p className='muted'>Aún no hay resultado de verificación.</p>}
