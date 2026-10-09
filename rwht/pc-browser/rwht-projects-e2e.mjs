@@ -427,8 +427,19 @@ async function run() {
     ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {})
   });
   if (bootstrapSession) {
+    // Seed only the top-level ARIA document. Embedded sandboxed project previews
+    // must not attempt to read/write localStorage or create false PWA page errors.
     await context.addInitScript((session) => {
-      localStorage.setItem('aria_session_v2', JSON.stringify(session));
+      try {
+        if (window.top !== window) return;
+      } catch {
+        return;
+      }
+      try {
+        localStorage.setItem('aria_session_v2', JSON.stringify(session));
+      } catch {
+        // Local storage is intentionally unavailable inside sandboxed previews.
+      }
     }, bootstrapSession);
   }
   const page = await context.newPage();

@@ -58,6 +58,13 @@ assertContains(appApi,'target?.model_id','conversation model id validation missi
 assertContains(appApi,'conversation_model_execution_failed','conversation failure boundary missing');
 assertContains(appApi,'conversationRoutes','conversation route catalog missing');
 assertContains(appApi,'executeConversationWithFallback','conversation fallback boundary missing');
+assert.match(appApi,/async function internal\(url: string, payload: unknown, timeoutMs\?: number\)/,'internal requests must support a caller-supplied timeout');
+assertContains(appApi,'internal_request_timeout_','aborted executor requests must be surfaced as transient timeout failures');
+assertContains(appApi,'return !seen.has(key);','provider fallback must exclude the already-failed route before selecting its next cloud alternative');
+assertContains(appApi,'multimodal}},45000);','cloud model execution must have a bounded 45-second request before trying a different route');
+assert.match(appApi,/async function internal\(url: string, payload: unknown, timeoutMs\?: number\)/,'internal executor calls must support an explicit bounded timeout');
+assertContains(appApi,'internal_request_timeout_','internal fetch timeout must be observable so transient provider failures can trigger fallback');
+assertContains(appApi,'multimodal}},45000);','cloud model execution must have a bounded 45-second request before trying a different route');
 assertContains(appApi,'input:{payload}','conversation execution payload wrapper missing');
 assertContains(appApi,'prompt,max_tokens:512,temperature:0.3','conversation payload must include canonical prompt parameters');
 assertContains(appApi,'/v1/meditation/tick-service','Meditation activation must trigger the canonical cloud tick');
