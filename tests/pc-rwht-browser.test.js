@@ -25,6 +25,8 @@ assert.match(runner, /selector_hint/);
 assert.match(runner, /RWHT_STORAGE_STATE/);
 assert.match(runner, /authentication_human_gate/);
 assert.match(runner, /discoverInteractive/);
+assert.match(runner, /parentSelector = String\(original\.selector_hint\)\.split\('>'\)\.slice\(0, -1\)\.join\('>'\)/, 'RWHT must locate captured controls inside collapsed accordions before replay');
+assert.match(runner, /current instanceof HTMLDetailsElement/);
 assert.match(runner, /checkUx/);
 assert.match(runner, /horizontal_overflow/);
 assert.match(runner, /unnamed_interactive/);
@@ -134,6 +136,9 @@ const appSource = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'App.
 assert.match(appSource, /chatWindowRef/);
 assert.match(appSource, /data-testid='chat-window'/);
 assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
+assert.match(appSource, /function humanizeDiagnosticLabel/);
+assert.match(appSource, /stale_unleased_retry_reconciled: 'La misión pendiente de recuperación fue conciliada'/);
+assert.match(appSource, /identical_replan_strategy_blocked: 'ARIA evitó repetir una estrategia que ya había fallado'/);
 
 const projectsSource = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-projects-e2e.mjs'), 'utf8');
 assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.1\.8/);
