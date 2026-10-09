@@ -10,6 +10,7 @@ const runtimePath = path.join(root, 'supabase/functions/aria-github-app-runtime-
 const migrationPath = path.join(root, 'supabase/migrations/20261009150000_aria_mcp_cuevacoin_control_oauth_scope_v1.sql');
 const oauth = fs.readFileSync(oauthPath, 'utf8');
 const runtime = fs.readFileSync(runtimePath, 'utf8');
+const worker = fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
 const migration = fs.readFileSync(migrationPath, 'utf8');
 
 function between(source, startMarker, endMarker) {
@@ -24,6 +25,11 @@ function between(source, startMarker, endMarker) {
 assert.match(oauth, /owner:"Robvg9",repo:"CuevaCoin",projectRef:"zqgmjwfvluboiporytcq"/);
 assert.match(oauth, /const CUEVACOIN_CONTROL_SCOPE = "aria\.project\.cuevacoin\.control"/);
 assert.match(oauth, /const SUPPORTED_SCOPES = \[SCOPE, CUEVACOIN_CONTROL_SCOPE\]/);
+assert.match(worker, /const SCOPES = \["aria\.mcp\.inbound", "aria\.project\.cuevacoin\.control"\]/);
+assert.match(worker, /scopes_supported:SCOPES/);
+assert.match(oauth, /scopes_supported: SUPPORTED_SCOPES/);
+assert.ok(oauth.includes('cuevacoin_connection_status'));
+assert.ok(oauth.includes('cuevacoin_project_control'));
 
 // Pending OAuth state now stores scope, and the migration backfills old state safely.
 const authorizeBlock = between(oauth, 'if (req.method === "GET" && path.endsWith("/authorize"))', 'if (req.method === "POST" && path.endsWith("/authorize/consent"))');
