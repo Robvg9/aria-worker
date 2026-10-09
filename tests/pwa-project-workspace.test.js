@@ -347,3 +347,10 @@ assert.ok(viewportIndex>tabsIndex && connectionIndex>viewportIndex, 'BC connecti
 assert.ok(projectsRwht.includes("projects_tabs_must_remain_visible"), 'RWHT must keep project section tabs in the initial viewport');
 assert.ok(projectsRwht.includes("projects_body_viewport_must_own_scrolling") && projectsRwht.includes("insideScrollableBody"), 'RWHT must distinguish reachable controls inside the intentional inner scroll area from inaccessible top-level controls');
 console.log('PROJECT NAVIGATION VISIBLE + SCROLLABLE BODY LAYOUT CONTRACT: PASS');
+
+
+// Badge text is authored uppercase in the product UI; the E2E contract must compare the semantic label case-insensitively.
+assert.ok(projectsRwht.includes("visualBadge.innerText()).toLowerCase().includes('requiere sesión')"), 'ARTIA visual-mission auth-required assertion must accept the product badge regardless of text case');
+assert.ok(projectsRwht.includes("badge.innerText()).toLowerCase().includes('requiere sesión')"), 'ARTIA overview preview auth-required assertion must accept the product badge regardless of text case');
+assert.ok(!projectsRwht.includes("innerText()).includes('requiere sesión')"), 'no case-sensitive lowercase-only auth-required badge assertion may remain');
+console.log('ARTIA AUTH-REQUIRED BADGE CASE-INSENSITIVE CONTRACT: PASS');
