@@ -3650,10 +3650,14 @@ export default function App() {
   }
 
   function handleGlobalPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    // Global swipe navigation is a touch gesture only. Desktop mouse drags are
+    // used for ARTIA drawing and must never change the active PWA route.
+    if (e.pointerType !== 'touch') return;
     beginGlobalSwipe(e.clientX, e.clientY, e.target);
   }
 
   function handleGlobalPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType !== 'touch') return;
     finishGlobalSwipe(e.clientX, e.clientY);
   }
 
