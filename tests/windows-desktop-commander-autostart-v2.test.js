@@ -75,3 +75,17 @@ test('Installer preserves canonical device identity and does not reuse legacy id
 test('Logon bootstrap waits briefly for Windows networking', () => {
   assert.match(installer, /<Delay>PT30S<\/Delay>/);
 });
+
+test('Supervisor distinguishes process liveness from remote channel health', () => {
+  assert.match(supervisor, /function Get-RemoteChannelState/);
+  assert.match(supervisor, /Channel subscribed/);
+  assert.match(supervisor, /IncreaseConnectionPool/);
+  assert.match(supervisor, /channel_subscribed/);
+  assert.match(supervisor, /channel_degraded/);
+  assert.match(supervisor, /channel_unverified/);
+  assert.match(supervisor, /process_alive = \(\$ProcessId -gt 0\)/);
+  assert.match(supervisor, /channel_state = if/);
+  assert.doesNotMatch(supervisor, /Write-Status 'running'/);
+  assert.match(supervisor, /Write-ObservedChannelStatus \$desktopCommanderPid/);
+});
+
