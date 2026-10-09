@@ -14,6 +14,9 @@ const projectsRwht=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-projects
 for(const id of ['battlecruiser','cuevacoin','aria'])assert.match(project,new RegExp(id));
 assert.match(app,/ProjectWorkspace/);
 assert.match(app,/onProjects/);
+assert.match(app,/if \(e\.pointerType !== 'touch'\) return/, 'global swipe navigation must ignore mouse drags used by ARTIA');
+assert.match(project,/zIndex:1/);
+assert.match(projectsRwht,/artia_canvas_hit_test_failed/);
 assert.match(project,/CHAT EXCLUSIVO/);
 assert.match(project,/same queue|misma cola|una sola cola/i);
 assert.match(project,/visual_context/);
