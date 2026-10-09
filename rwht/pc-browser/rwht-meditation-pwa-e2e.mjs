@@ -217,6 +217,47 @@ async function readPushReceipt(page) {
   });
 }
 
+async function dispatchNotificationClickViaServiceWorker(context, page, notificationId) {
+  const scriptUrl = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    return registration.active?.scriptURL || '';
+  });
+  assert.ok(scriptUrl, 'active_service_worker_script_url_missing');
+  let worker = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    worker = context.serviceWorkers().find(candidate => candidate.url() === scriptUrl) || null;
+    if (worker) break;
+    await waitFor(250);
+  }
+  assert.ok(worker, 'active_service_worker_execution_context_missing');
+  return worker.evaluate(async ({ notificationId }) => {
+    const registration = self.registration;
+    const tag = 'aria-meditation-' + notificationId;
+    const notifications = await registration.getNotifications({ tag });
+    if (notifications.length !== 1) {
+      throw new Error('native_notification_not_unique_before_click:' + notifications.length);
+    }
+    const notification = notifications[0];
+    const target = String(notification.data?.url || '');
+    const expectedTarget = '/pwa/#notification=' + encodeURIComponent(notificationId);
+    if (target !== expectedTarget) throw new Error('native_notification_target_mismatch:' + target);
+    const pending = [];
+    const event = new Event('notificationclick');
+    Object.defineProperty(event, 'notification', { value: notification });
+    Object.defineProperty(event, 'waitUntil', {
+      value: promise => pending.push(Promise.resolve(promise))
+    });
+    self.dispatchEvent(event);
+    await Promise.all(pending);
+    return {
+      notification_id: notificationId,
+      target,
+      click_handler_dispatched: true,
+      remaining_notifications: (await registration.getNotifications({ tag })).length
+    };
+  }, { notificationId });
+}
+
 async function expectApi(page, apiPath, token) {
   return page.evaluate(async ({ apiPath, token }) => {
     const r = await fetch('/api' + apiPath, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' } });
@@ -237,7 +278,7 @@ async function run() {
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', e => pageErrors.push(String(e?.message || e)));
   page.on('response', response => { if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() }); });
-  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
+  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
   try {
     await page.goto(base + '#projects', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(1200);
@@ -268,9 +309,29 @@ async function run() {
     assert.ok(session?.accessToken && session?.userId, 'aria session missing after login');
     const backgroundPushEnabled = /^(1|true|yes)$/i.test(String(process.env.RWHT_BACKGROUND_PUSH_E2E || 'false'));
     if (backgroundPushEnabled) {
-      const pushProbeMissionId = 'mission_webpush_e2e_' + Date.now();
-      const pushProbeNotificationId = crypto.randomUUID();
       await verifyWebPushConfig(page, session.accessToken);
+
+      // Use an actual persisted, verified mission notification instead of an invented ID.
+      const notificationSource = await expectApi(page, '/meditation/notifications?limit=50', session.accessToken);
+      assert.equal(notificationSource.status, 200, 'notification_source_api_http_' + notificationSource.status);
+      const sourceNotifications = Array.isArray(notificationSource.body?.notifications) ? notificationSource.body.notifications : [];
+      const sourceNotification = sourceNotifications
+        .filter(item => item?.kind === 'mission_completed_verified' && item?.notification_id && item?.mission_id)
+        .sort((a, b) => Date.parse(String(b?.created_at || '')) - Date.parse(String(a?.created_at || '')))[0];
+      assert.ok(sourceNotification, 'verified_notification_for_clickthrough_not_found');
+      const pushProbeNotificationId = String(sourceNotification.notification_id);
+      const pushProbeMissionId = String(sourceNotification.mission_id);
+      const sourceMissionResult = await expectApi(page, '/missions/' + encodeURIComponent(pushProbeMissionId), session.accessToken);
+      assert.equal(sourceMissionResult.status, 200, 'notification_mission_api_http_' + sourceMissionResult.status);
+      const sourceMission = sourceMissionResult.body?.mission;
+      assert.equal(String(sourceMission?.status || ''), 'succeeded', 'notification_mission_is_not_succeeded');
+      const sourceEventsResult = await expectApi(page, '/missions/' + encodeURIComponent(pushProbeMissionId) + '/events', session.accessToken);
+      assert.equal(sourceEventsResult.status, 200, 'notification_mission_events_api_http_' + sourceEventsResult.status);
+      const sourceEvents = Array.isArray(sourceEventsResult.body?.events) ? sourceEventsResult.body.events : [];
+      assert.ok(sourceEvents.some(event => String(event?.event_type || '') === 'mission_verified' &&
+        (event?.payload?.verified === true || String(event?.payload?.verified || '') === 'true')),
+        'notification_mission_verified_evidence_missing');
+      report.notification_detail_mission_id = pushProbeMissionId;
 
       // Close the PWA page before the notification is delivered.
       await page.close();
@@ -310,6 +371,27 @@ async function run() {
         'notification permission was not granted'
       );
 
+      // Exercise the real Service Worker notificationclick handler against the actual
+      // native notification, then prove the deep link opens the persisted mission detail.
+      const clickResult = await dispatchNotificationClickViaServiceWorker(context, probePage, pushProbeNotificationId);
+      assert.equal(clickResult.notification_id, pushProbeNotificationId, 'notification_click_id_mismatch');
+      assert.equal(clickResult.click_handler_dispatched, true, 'notification_click_handler_not_dispatched');
+      report.notification_click_target = clickResult.target;
+      await probePage.locator('.notificationSelected').waitFor({ state:'visible', timeout:30000 });
+      await probePage.getByRole('button', { name:'Abrir misión completa' }).waitFor({ state:'visible', timeout:30000 });
+      const selectedNotificationText = await probePage.locator('.notificationSelected').innerText();
+      assert.ok(/completada y verificada/i.test(selectedNotificationText), 'notification_click_did_not_select_verified_notification');
+      await probePage.getByRole('button', { name:'Abrir misión completa' }).click();
+      const detailHeading = probePage.locator('.detailModal .detailTop .eyebrow');
+      await detailHeading.filter({ hasText:'RESUMEN DE MISIÓN' }).waitFor({ state:'visible', timeout:30000 });
+      const detailTitle = (await probePage.locator('.detailModal .detailTop h2').first().innerText()).trim();
+      const expectedTitle = String(sourceMission?.display_title || '').trim();
+      if (expectedTitle && !detailTitle.includes(expectedTitle)) {
+        throw new Error('notification_clicked_wrong_mission_detail:' + detailTitle + ':expected:' + expectedTitle);
+      }
+      report.notification_click_through_verified = true;
+      report.notification_detail_verified = true;
+      report.notification_detail_title = detailTitle;
       report.background_push_verified = true;
       report.background_push_registration_scope = pushDelivery.scope || null;
 
