@@ -418,6 +418,7 @@ jobs:
             '- **Previews overview:** `' + JSON.stringify(report?.overview_preview_results ?? []) + '`',
             '- **Previews ARTIA:** `' + JSON.stringify(report?.preview_results ?? []) + '`',
             '- **Misiones visuales:** `' + JSON.stringify(report?.visual_missions ?? []) + '`',
+            '- **Reality Board:** `' + JSON.stringify(report?.reality_board ?? null) + '`',
             '- **Errores de página:** `' + (report?.page_errors?.length ?? '—') + '`',
             '- **Errores de consola:** `' + (report?.console_errors?.length ?? '—') + '`',
             '- **Failed responses:** `' + (report?.failed_responses?.length ?? '—') + '`',
