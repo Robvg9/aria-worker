@@ -245,3 +245,18 @@ assert.match(appCurrent,/REPLANIFICANDO/);
 const apiCurrent = fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 assert.match(apiCurrent,/activeRecoveryStatuses/);
 assert.match(apiCurrent,/replan_learning_application/);
+
+
+// BattleCruiser is a separate first-class resource binding; it must never reuse ARIA's backend.
+assert.match(apiCurrent,/backend_project_ref: "papxnkkjtkxsitcsvcme"/);
+assert.match(apiCurrent,/backend_api_url: "https:\/\/papxnkkjtkxsitcsvcme\.supabase\.co"/);
+assert.match(apiCurrent,/backend_dashboard_url: "https:\/\/supabase\.com\/dashboard\/project\/papxnkkjtkxsitcsvcme"/);
+assert.match(apiCurrent,/frontend_live_url: "https:\/\/battlecruiser\.robvg9\.workers\.dev\//);
+assert.match(apiCurrent,/repository_url: "https:\/\/github\.com\/Robvg9\/battlecruiser\/tree\/main"/);
+assert.match(apiCurrent,/backend_access_state: "requires_authorized_authenticated_context"/);
+assert.match(apiCurrent,/resources: project\.resources/);
+assert.match(apiCurrent,/The ARIA project ref icuqsstxfdbvjytkhlog never substitutes for BattleCruiser|El Supabase de ARIA \(icuqsstxfdbvjytkhlog\) nunca sustituye al de BattleCruiser/);
+assert.match(project,/https:\/\/github\.com\/Robvg9\/battlecruiser\/tree\/main/);
+assert.match(project,/https:\/\/battlecruiser\.robvg9\.workers\.dev\//);
+assert.match(project,/papxnkkjtkxsitcsvcme/);
+console.log('ARIA BATTLECRUISER CANONICAL PROJECT RESOURCE BINDING: PASS');
