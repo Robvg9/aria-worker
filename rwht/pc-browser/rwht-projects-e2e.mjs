@@ -720,13 +720,13 @@ async function run() {
         const text = node.textContent || '';
         return text.includes('Misión confirmada por ARIA con el diseño y las anotaciones.')
           || /visual_mission_create_not_confirmed|ARIA no confirmó la creación de la misión|No se pudo guardar el diseño|No se pudo enviar el diseño/i.test(text);
-      }), null, { timeout: 120000 });
+      }), null, { timeout: 240000 });
       const missionNotice = (await page.locator('.visualBoardPanel .notice').last().innerText().catch(() => '')).trim();
-      if (!missionNotice.includes('Misión confirmada por ARIA con el diseño y las anotaciones.')) {
-        throw new Error('visual_mission_submission_failed_' + visualProject.id + '_' + missionNotice.slice(0, 240));
-      }
+      const missionAcknowledged = missionNotice.includes('Misión confirmada por ARIA con el diseño y las anotaciones.');
 
-      // Read the canonical project-mission list instead of assuming a particular
+      // Read the canonical project-mission list even when the UI reports a failure.
+      // A slow API response can outlive the browser's wait; preserve the real mission
+      // and distinguish a missed acknowledgement from a mission that was never created.
       // browser response URL. The live UI can succeed while proxies/redirects make
       // a response listener miss the POST event; server read-back is the authority.
       let visualMission = null;
@@ -788,6 +788,8 @@ async function run() {
       if (!String(visualContext.image_path || '')) throw new Error('visual_mission_png_path_missing_' + visualProject.id);
       if (String(visualContext.mime_type || '') !== 'image/png') throw new Error('visual_mission_png_mime_missing_' + visualProject.id);
       if (!String(visualContext.annotation_summary || '').includes('rect')) throw new Error('visual_mission_annotation_summary_missing_' + visualProject.id);
+      const visualAnnotations = Array.isArray(visualContext.annotations) ? visualContext.annotations : [];
+      if (!visualAnnotations.length) throw new Error('visual_mission_annotations_missing_' + visualProject.id);
       if (!String(visualContext.instruction || '').includes(visualGoalMarker)) throw new Error('visual_mission_instruction_missing_' + visualProject.id);
       visualMissions.push({
         mission_id: visualMission.mission_id,
@@ -797,9 +799,15 @@ async function run() {
         cleanup_terminal_status: cleanupStatus,
         image_path: visualContext.image_path,
         mime_type: visualContext.mime_type,
+        annotation_count: visualAnnotations.length,
+        ui_acknowledged: missionAcknowledged,
+        ui_notice: missionNotice.slice(0, 400),
         annotation_summary: visualContext.annotation_summary,
         instruction: visualContext.instruction
       });
+      if (!missionAcknowledged) {
+        throw new Error('visual_mission_submission_failed_' + visualProject.id + '_canonical_mission=' + visualMissionId + '_status=' + String(visualMission.status || '') + '_' + missionNotice.slice(0, 240));
+      }
     }
 
     // ARTIA preview certification: every project must expose a real preview surface.
