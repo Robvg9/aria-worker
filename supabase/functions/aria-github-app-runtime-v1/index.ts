@@ -131,7 +131,7 @@ if(op==="create_branch"){const branch=String(b.branch||""),ref=String(b.ref||b.b
 if(op==="reviewed_file_write"){
 const branch=String(b.branch||""),p=pathSafe(b.path),content=String(b.content??""),risk=String(b.risk_level||"").toLowerCase();
 if(owner.toLowerCase()!=="robvg9"||rp.toLowerCase()!=="cuevacoin")throw new Error("reviewed_write_cuevacoin_only");
-if(!/^aria\\/repair\\/cuevacoin-[A-Za-z0-9._/-]{1,160}$/.test(branch))throw new Error("cuevacoin_governed_branch_required");
+if(!(branch.startsWith("aria/repair/cuevacoin-")&&/^[A-Za-z0-9._/-]{1,200}$/.test(branch)&&!branch.includes("..")))throw new Error("cuevacoin_governed_branch_required");
 if(!["moderate","high","destructive"].includes(risk))throw new Error("reviewed_write_risk_required");
 if(b.manual_review_required!==true||String(b.change_summary||"").trim().length<12)throw new Error("manual_review_required");
 if(content.length>180000)throw new Error("cuevacoin_file_too_large");
