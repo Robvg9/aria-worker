@@ -2048,29 +2048,36 @@ Deno.serve(async (req) => {
       // canonical mission id, an ancillary lane/priority write must never turn the
       // successful creation into HTTP 500. Record the backfill failure for audit.
       let metadataBackfillWarning: string | null = null;
-      try {
-        const existingMetadata = canonicalMission?.metadata && typeof canonicalMission.metadata === "object"
-          ? canonicalMission.metadata
-          : intakeMetadata;
-        const ownerId = String(existingMetadata.user_id || existingMetadata.owner_user_id || user.id);
-        const nextMetadata = {
-          ...existingMetadata,
-          user_id: ownerId,
-          owner_user_id: ownerId,
-          goal_source: existingMetadata.goal_source || "user",
-          source_application: existingMetadata.source_application || "aria-app-v1",
-          execution_lane: existingMetadata.execution_lane || "user",
-          queue_priority: Math.max(Number(existingMetadata.queue_priority || 0), 20),
-        };
-        const { error } = await service.schema("aria_internal").from("mission_state")
-          .update({ metadata: nextMetadata })
-          .eq("mission_id", createdMissionId);
-        if (error) throw new Error(error.message);
-      } catch (error) {
-        metadataBackfillWarning = error instanceof Error ? error.message : String(error);
-        console.error("[aria-app-api-v3] mission metadata backfill failed nonfatal", JSON.stringify({
-          trace_id: trace, request_id: requestId, mission_id: createdMissionId,
-          detail: metadataBackfillWarning
+      if (canonicalMission?.metadata && typeof canonicalMission.metadata === "object") {
+        try {
+          const existingMetadata = canonicalMission.metadata;
+          const ownerId = String(existingMetadata.user_id || existingMetadata.owner_user_id || user.id);
+          const nextMetadata = {
+            ...existingMetadata,
+            user_id: ownerId,
+            owner_user_id: ownerId,
+            goal_source: existingMetadata.goal_source || "user",
+            source_application: existingMetadata.source_application || "aria-app-v1",
+            execution_lane: existingMetadata.execution_lane || "user",
+            queue_priority: Math.max(Number(existingMetadata.queue_priority || 0), 20),
+          };
+          const { error } = await service.schema("aria_internal").from("mission_state")
+            .update({ metadata: nextMetadata })
+            .eq("mission_id", createdMissionId);
+          if (error) throw new Error(error.message);
+        } catch (error) {
+          metadataBackfillWarning = error instanceof Error ? error.message : String(error);
+          console.error("[aria-app-api-v3] mission metadata backfill failed nonfatal", JSON.stringify({
+            trace_id: trace, request_id: requestId, mission_id: createdMissionId,
+            detail: metadataBackfillWarning
+          }));
+        }
+      } else {
+        // Do not overwrite metadata when read-back is unavailable. The mission
+        // creation acknowledgement is backed by DIRECT; lane backfill can wait.
+        metadataBackfillWarning = "canonical_mission_metadata_unavailable_skip_backfill";
+        console.warn("[aria-app-api-v3] mission metadata backfill skipped", JSON.stringify({
+          trace_id: trace, request_id: requestId, mission_id: createdMissionId, reason: metadataBackfillWarning
         }));
       }
 
