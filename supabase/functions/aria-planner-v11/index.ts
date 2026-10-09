@@ -1269,55 +1269,108 @@ function visualProjectMissionPlan(goal:string,context:any){
     spanish_output_required:true,
     visual_mission_acceptance:true
   };
-
   const projectName = projectId === "battlecruiser" ? "BattleCruiser" : projectId === "cuevacoin" ? "CuevaCoin" : "ARIA";
-  let step:any;
-  if(projectId === "battlecruiser"){
-    const target={type:"connector",connector_id:"github",owner:"Robvg9",repo:"battlecruiser",branch:"main"};
-    step={
-      id:"visual_context_source_read",
-      operation:"repo_read",
-      executor_type:"connector",
-      target,
-      input:{owner:"Robvg9",repo:"battlecruiser"},
-      risk:"READ",
-      timeout_ms:60000,
-      policy:readPolicy,
-      verify:{response_content_nonempty:true}
-    };
-  }else if(projectId === "cuevacoin"){
-    const target={type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"};
-    step={
-      id:"visual_context_source_read",
-      operation:"file_read",
-      executor_type:"connector",
-      target,
-      input:{owner:"Robvg9",repo:"aria-worker",branch:"main",path:"docs/reality-board/cuevacoin-authorized-source.json"},
-      risk:"READ",
-      timeout_ms:60000,
-      policy:readPolicy,
-      verify:{response_content_nonempty:true}
-    };
-  }else{
-    const target={type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"};
-    step={
-      id:"visual_context_source_read",
-      operation:"repo_read",
-      executor_type:"connector",
-      target,
-      input:{owner:"Robvg9",repo:"aria-worker"},
-      risk:"READ",
-      timeout_ms:60000,
-      policy:readPolicy,
-      verify:{response_content_nonempty:true}
+  const targetRepo = projectId === "battlecruiser"
+    ? {owner:"Robvg9",repo:"battlecruiser",branch:"main"}
+    : projectId === "cuevacoin"
+      ? {owner:"Robvg9",repo:"CuevaCoin",branch:"main"}
+      : {owner:"Robvg9",repo:"aria-worker",branch:"main"};
+  const readTarget = projectId === "cuevacoin"
+    ? {type:"connector",connector_id:"github",owner:"Robvg9",repo:"aria-worker",branch:"main"}
+    : {type:"connector",connector_id:"github",...targetRepo};
+  const readInput = projectId === "cuevacoin"
+    ? {owner:"Robvg9",repo:"aria-worker",branch:"main",path:"docs/reality-board/cuevacoin-authorized-source.json"}
+    : {owner:targetRepo.owner,repo:targetRepo.repo};
+  const step:any = {
+    id:"visual_context_source_read",
+    operation:projectId === "cuevacoin" ? "file_read" : "repo_read",
+    executor_type:"connector",
+    target:readTarget,
+    input:readInput,
+    risk:"READ",
+    timeout_ms:60000,
+    policy:readPolicy,
+    verify:{response_content_nonempty:true}
+  };
+
+  const contextText = JSON.stringify({
+    ...context,
+    project_id:projectId,
+    visual_context:rawVisual,
+    visual_project_scope:{
+      project_id:projectId,
+      project_name:projectName,
+      target_repository:targetRepo,
+      source_repository:projectId === "cuevacoin" ? {owner:"Robvg9",repo:"aria-worker",path:"docs/reality-board/cuevacoin-authorized-source.json"} : targetRepo,
+      source_is_live:projectId === "aria",
+      access_rule:projectId === "cuevacoin"
+        ? "CuevaCoin is a separate private project. Verify repository write permission before editing. If the runtime cannot access it, stop with a truthful blocked result; never modify aria-worker as a substitute."
+        : "Implement only in the selected project repository, on a non-main governed branch."
+    }
+  }).slice(0,10000);
+
+  // The authenticated RWHT creates a clearly marked probe mission and cancels it after
+  // verifying the canonical row, PNG and project context. Keep probes read-only.
+  const certificationProbe = /Certificación visual RWHTVISUALMISSION/i.test(g);
+  if(certificationProbe){
+    return {
+      goal:g,
+      steps:[step],
+      planner_version:"aria-planner-v11-visual-project-certification-probe-v2",
+      visual_project_mission:true,
+      visual_project_certification_probe:true,
+      project_id:projectId,
+      project_name:projectName,
+      visual_context:rawVisual,
+      acceptance_contract:{
+        preserve_visual_context:true,
+        preserve_project_context:true,
+        png_persisted:true,
+        canonical_readback_required:true,
+        probe_must_be_terminalized:true,
+        mutation_forbidden:true
+      }
     };
   }
 
+  const analysis = agentStep(
+    "visual_project_analysis",
+    {agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},
+    `Analiza la misión visual real para ${projectName}. Inspecciona la fuente del proyecto leída en visual_context_source_read y la descripción estructurada de las anotaciones. Determina exactamente qué cambio solicita el usuario, los archivos afectados, riesgos, permisos y pruebas necesarias. No modifiques nada en esta fase. Conserva la separación entre CONFIRMADO y NO CONFIRMADO. Objetivo original: ${g}. CONTEXTO VISUAL: ${contextText}`,
+    ["visual_context_source_read"]
+  );
+  const implementation = {
+    id:"visual_project_implementation",
+    operation:"delegate",
+    executor_type:"agent",
+    target:{type:"agent",agent_id:"aria-agent-coding-v1"},
+    capability:"coding",
+    input:{
+      goal:"Implementar la misión visual gobernada para "+projectName,
+      prompt:esPrompt(
+        "IMPLEMENTACIÓN REAL DE UNA MISIÓN VISUAL. El código y las anotaciones describen una solicitud del usuario; no basta con resumirlas o leer el repositorio. Usa el análisis visual_project_analysis y la evidencia visual_context_source_read. Haz los cambios solicitados exclusivamente en "+projectName+" ("+JSON.stringify(targetRepo)+") y en una rama gobernada no-main. Usa visual_context, annotation_summary, annotations e instruction como parte de los requisitos. Añade pruebas focalizadas y verifica los artefactos reales. Para CuevaCoin, confirma primero que tienes acceso autorizado de escritura al repositorio privado; si no, devuelve un bloqueo explícito con la capacidad/permisión que falta y NO sustituyas el destino por aria-worker. No hagas merge ni declares éxito solo por texto. Objetivo original: "+g+". Contexto: "+contextText
+      ),
+      max_tokens:3200
+    },
+    risk:"LOW_RISK_WRITE",
+    timeout_ms:180000,
+    policy:{...governedWritePolicy,visual_project_mission:true,project_scoped_write:true,non_main_branch_required:true,source_read_before_any_change:true},
+    depends_on:["visual_context_source_read","visual_project_analysis"],
+    verify:{response_content_nonempty:true},
+    selection:{review_role:"coder",write_route:"github_app_governed_or_agent_runtime",project_id:projectId}
+  };
+  const verification = agentStep(
+    "visual_project_verification",
+    {agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"},
+    `Verifica de forma independiente la misión visual de ${projectName}. Comprueba rama no-main, diff real, archivos presentes, pruebas y evidencia del objetivo visible en las anotaciones; confirma que el cambio fue hecho en el proyecto seleccionado y no en otro. Si hubo falta de permisos o una afirmación sin evidencia, marca BLOQUEADO/NO VERIFICADO. No modifiques nada. Objetivo original: ${g}. Contexto: ${contextText}`,
+    ["visual_project_implementation"]
+  );
   return {
     goal:g,
-    steps:[step],
-    planner_version:"aria-planner-v11-visual-project-mission-v1",
+    steps:[step,{...analysis,depends_on:["visual_context_source_read"]},implementation,verification],
+    planner_version:"aria-planner-v11-visual-project-governed-change-v2",
     visual_project_mission:true,
+    visual_project_action:true,
     project_id:projectId,
     project_name:projectName,
     visual_context:rawVisual,
@@ -1325,6 +1378,9 @@ function visualProjectMissionPlan(goal:string,context:any){
       preserve_visual_context:true,
       preserve_project_context:true,
       source_read_before_any_change:true,
+      implementation_required:true,
+      independent_verification_required:true,
+      non_main_branch_required:true,
       no_generic_battlecruiser_audit_routing:true
     }
   };
