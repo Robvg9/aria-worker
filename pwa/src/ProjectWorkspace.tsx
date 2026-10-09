@@ -335,7 +335,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       const visualContext={project_preview:true,preview_paused:true,preview_url:livePreviewUrl,preview_mode:previewMode,instruction:instruction.trim(),annotation_summary:'Proyecto='+project.name+'. Fuente de previsualización='+previewMode+'. La vista está pausada para anotar. Lienzo 1100x650. Anotaciones: '+annotationSummary+'.',annotations:actions.slice(0,128).map(a=>({tool:a.tool,color:a.color,size:a.size,points:a.points.slice(0,512).map(pt=>({x:Math.round(pt.x*100)/100,y:Math.round(pt.y*100)/100})),text:a.text??null})),image_path:path,mime_type:'image/png'};
       const text='TRABAJO VISUAL DE PROYECTO. Proyecto: '+project.name+'. Fuente de previsualización: '+(livePreviewUrl||'no configurada')+' · modo='+previewMode+'. El usuario pausó la superficie visual y realizó estas anotaciones: '+annotationSummary+'. INSTRUCCIÓN DEL USUARIO: '+(instruction.trim()||'Interpreta las anotaciones como instrucciones exactas y pregunta solo si algo es realmente ambiguo.')+'\\n\\nVISUAL_CONTEXT:\\n'+visualContext.annotation_summary;
       const activeConversationId=conversationId||crypto.randomUUID();
-      if(createMission){await onMission({goal:text,visual_context:visualContext});setNotice('Misión confirmada por ARIA con el diseño y las anotaciones.')}
+      if(createMission){const result=await onMission({goal:text,visual_context:visualContext});if(result!==true)throw new Error('ARIA no confirmó la creación de la misión. Revisa el error del proyecto antes de volver a intentarlo.');setNotice('Misión confirmada por ARIA con el diseño y las anotaciones.')}
       else{const parts:any[]=[{type:'text',text},{type:'file',fileId:path,path,mimeType:'image/png',filename:project.id+'-visual.png'}]; const response=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts,clientMessageId:crypto.randomUUID(),conversationId:activeConversationId,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});const reply=response.parts?.find((p:any)=>p.type==='text')?.text||'Diseño visual enviado a ARIA.';onChat(reply,activeConversationId);setNotice('Diseño enviado a ARIA en el chat exclusivo del proyecto.')}
     }catch(e){setNotice(e instanceof Error?e.message:'No se pudo enviar el diseño.')}finally{setBusy(false)}
   }
@@ -541,14 +541,15 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     }catch(e){await loadProjectChat().catch(()=>{});setError(e instanceof Error?e.message:'No se pudo hablar con ARIA.')}finally{setSending(false)}
   }
 
-  async function createMission(payload:any={}){
-    const clean=String(payload.goal??goal).trim();if(!clean||sending)return;
+  async function createMission(payload:any={}):Promise<boolean>{
+    const clean=String(payload.goal??goal).trim();if(!clean||sending)return false;
     setSending(true);setError('');
     try{
       const d=await api('/missions',session.accessToken,{method:'POST',body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:payload.visual_context||null})});
       if(!d?.mission?.mission_id)throw new Error('ARIA no confirmó la creación de la misión.');
       setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);
-    }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.')}finally{setSending(false)}
+      return true;
+    }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.');return false}finally{setSending(false)}
   }
 
   return <main className='appShell projectShell'>
