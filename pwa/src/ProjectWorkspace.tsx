@@ -395,6 +395,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const [selectedMission,setSelectedMission]=useState<any|null>(null);
   const projectChatRef=useRef<HTMLTextAreaElement|null>(null);
   const projectChatLoadRef=useRef<{projectId:string;promise:Promise<void>}|null>(null);
+  const projectChatReadGenerationRef=useRef(0);
 
   useEffect(()=>{try{localStorage.setItem(PROJECT_KEY,project.id);localStorage.setItem(TAB_KEY(project.id),tab)}catch{}},[project.id,tab,session.userId]);
 
@@ -411,28 +412,30 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     const projectId=project.id;
     const existing=projectChatLoadRef.current;
     if(existing?.projectId===projectId)return existing.promise;
+    const readGeneration=++projectChatReadGenerationRef.current;
     setProjectChatReady(false);
     const promise=(async()=>{
       try{
         const d=await api('/projects/'+encodeURIComponent(projectId)+'/conversation',session.accessToken);
+        // A read started before a write or a project switch must not overwrite newer chat state.
+        if(projectId!==project.id||readGeneration!==projectChatReadGenerationRef.current)return;
         if(!d?.conversation_id)throw new Error('ARIA no confirmó la conversación del proyecto.');
-        if(projectId!==project.id)return;
-        setConversationId(d.conversation_id);
         const rows=Array.isArray(d.conversation?.messages)?d.conversation.messages:[];
         const normalized=rows.map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')})).filter((m:any)=>m.text.trim());
+        setConversationId(d.conversation_id);
         setMessages(normalized);
+        setError('');
         try{localStorage.setItem('aria_project_conversation:'+session.userId+':'+projectId,JSON.stringify({conversation_id:d.conversation_id,messages:normalized}));}catch{}
         setProjectChatReady(true);
       }catch(e){
-        if(projectId===project.id){
-          // The conversation readback may be temporarily unavailable during heavy
-          // browser-side API load. Keep the composer usable so the next write can
-          // create/reuse the canonical project conversation, then verify server state.
+        // A slow initial read can finish after the user sends a message. Ignore its
+        // error rather than surfacing a stale failure over the newer write/poll cycle.
+        if(projectId===project.id&&readGeneration===projectChatReadGenerationRef.current){
           setProjectChatReady(true);
           setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
         }
       }finally{
-        if(projectChatLoadRef.current?.projectId===projectId)projectChatLoadRef.current=null;
+        if(projectChatLoadRef.current?.promise===promise)projectChatLoadRef.current=null;
       }
     })();
     projectChatLoadRef.current={projectId,promise};
@@ -526,6 +529,8 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     const clean=text.trim();if(!clean||sending)return;
     const requestProject=project;
     const clientMessageId=crypto.randomUUID();
+    projectChatReadGenerationRef.current+=1;
+    projectChatLoadRef.current=null;
     setSending(true);setError('');processingStartedAtRef.current=Date.now();setProcessingElapsedMs(0);setLastProcessingMs(null);
     setMessages(m=>[...m,{id:crypto.randomUUID(),role:'user',text:clean}]);setText('');
     try{
