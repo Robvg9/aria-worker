@@ -193,6 +193,11 @@ const visualRouteIndex = plannerSource.indexOf('const visualProjectMission=visua
 const battleCruiserAuditIndex = plannerSource.indexOf('const battlecruiserAudit=await battlecruiserReadonlyAuditPlan');
 assert.ok(visualRouteIndex >= 0 && battleCruiserAuditIndex >= 0 && visualRouteIndex < battleCruiserAuditIndex, 'ARTIA visual mission route must precede BattleCruiser read-only audit routing');
 assert.match(plannerSource, /visual_project_mission:true/);
+assert.match(plannerSource, /visual_project_certification_probe:true/);
+assert.match(plannerSource, /visual_project_implementation/);
+assert.match(plannerSource, /source_read_before_any_change:true/);
+assert.match(plannerSource, /independent_verification_required:true/);
+assert.match(plannerSource, /non_main_branch_required:true/);
 
 assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
