@@ -209,8 +209,12 @@ while ($true) {
             $node = $nodeCommand.Source
         }
 
+        $agentLogStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+        $AgentStdoutPath = Join-Path $PublicDir "agent-stdout-$agentLogStamp.log"
+        $AgentStderrPath = Join-Path $PublicDir "agent-stderr-$agentLogStamp.log"
         Write-Log "START device=$($env:ARIA_DEVICE_ID) node=$node"
-        $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
+        Write-Log "AGENT_LOGS stdout=$AgentStdoutPath stderr=$AgentStderrPath"
+        $process = Start-Process -FilePath $node -ArgumentList @($AgentPath) -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $AgentStdoutPath -RedirectStandardError $AgentStderrPath
         Write-Log "AGENT_STARTED pid=$($process.Id)"
         $consecutiveErrors = 0
         try { Set-Content -Path $PidPath -Value $process.Id -Encoding ASCII -Force } catch {}
@@ -218,6 +222,8 @@ while ($true) {
             state = 'agent_running'
             agent_pid = $process.Id
             node_path = $node
+            agent_stdout_log = $AgentStdoutPath
+            agent_stderr_log = $AgentStderrPath
             started_at = (Get-Date -Format o)
         }
 
