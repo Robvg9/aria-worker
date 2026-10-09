@@ -51,6 +51,8 @@ assert(helper.includes('/pwa/#notification='), 'notification deep link missing')
 
 assert(sw.includes('notificationclick'), 'service-worker notificationclick handler missing');
 assert(app.includes("String(hash).startsWith('#notification=')"), 'native notification hash must route to Meditation IA');
+assert(app.includes("window.addEventListener('hashchange', openNotificationFromHash)"), 'notification deep links must be processed when a hash changes in an already-open PWA');
+assert(app.includes("window.removeEventListener('hashchange', openNotificationFromHash)"), 'notification hash listener must be cleaned up');
 assert(app.includes("return { page: 'meditation', screen: 0, newMission: false };"), 'notification hash must mount the notification-owning page');
 assert(meditationE2E.includes('dispatchNotificationClickViaServiceWorker'), 'authenticated E2E must exercise Service Worker notificationclick');
 assert(meditationE2E.includes("new ExtendableEvent('notificationclick')"), 'click-through test must preserve native Service Worker waitUntil lifecycle');
