@@ -160,7 +160,7 @@ assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
 assert.match(projectE2E,/await waitFor\(500\)/);
 assert.ok(project.includes('async function waitForProjectAssistant('),'project chat must poll canonical conversation when an async executor is accepted');
 assert.ok(project.includes('if(d?.processing===true)'),'project chat must handle background local-executor responses');
-assert.ok(project.includes('assistantCount>previousAssistantCount'),'project chat polling must wait for a newly persisted assistant answer');
+assert.ok(project.includes('assistantAfterLatestUser'),'project chat polling must wait for an assistant answer after the latest user turn');
 
 assert.match(projectE2E,/window\.top !== window/,'RWHT auth bootstrap must skip sandboxed embedded preview frames');
 assert.match(projectE2E,/localStorage\.setItem\('aria_session_v2',[\s\S]{0,250}catch \{/,'RWHT must fail safely when localStorage is unavailable in an embedded frame');
