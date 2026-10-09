@@ -509,7 +509,13 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   if(step?.target) seen.add(String(step.target.provider_id)+"|"+String(step.target.account_id)+"|"+String(step.target.model_id));
 
   const localRoute=routes.find((route:any)=>route.provider_id==="local_windows") || null;
-  const cloudFallbacks=routes.filter((route:any)=>route.provider_id!=="local_windows").slice(0,1);
+  // The primary route is already in `seen`; select one genuinely different cloud
+  // route instead of slicing routes first and accidentally selecting the same provider.
+  const cloudFallbacks=routes.filter((route:any)=>{
+    if(route.provider_id==="local_windows") return false;
+    const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
+    return !seen.has(key);
+  }).slice(0,1);
   const candidateRoutes=[...cloudFallbacks,...(localRoute?[localRoute]:[])];
 
   for(const route of candidateRoutes){
