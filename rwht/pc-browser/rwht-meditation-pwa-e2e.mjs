@@ -53,7 +53,8 @@ async function login(page) {
 
   const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
   await password.waitFor({ state:'visible', timeout:30000 });
-  const maxAttempts = Math.max(1, Math.min(1, Number(process.env.RWHT_AUTH_ATTEMPTS || 1)));
+  const configuredAttempts = Number(process.env.RWHT_AUTH_ATTEMPTS || 2);
+  const maxAttempts = Number.isFinite(configuredAttempts) ? Math.max(1, Math.min(3, Math.floor(configuredAttempts))) : 2;
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await authForm.fill(EMAIL);
@@ -67,16 +68,25 @@ async function login(page) {
         const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
           const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
         });
-        return !pwd;
-      }, null, { timeout:60000 });
+        let session = null;
+        try { session = JSON.parse(localStorage.getItem('aria_session_v2') || 'null'); } catch {}
+        const authenticated = !pwd && typeof session?.accessToken === 'string' && Boolean(session?.userId);
+        const error = document.querySelector('.authCard .errorBox');
+        // Stop when the real auth error appears instead of waiting another minute
+        // for a password field that remains visible after a failed login.
+        return authenticated || Boolean(error && String(error.textContent || '').trim());
+      }, null, { timeout:45000 });
       const session = await readSession(page);
       if (session?.accessToken && session?.userId) {
         return { mode:'password', status:'authenticated', attempts:[...attempts,{attempt,status:'authenticated'}] };
       }
-      throw new Error('authenticated_session_not_persisted');
+      const visibleAuthError = await page.locator('.authCard .errorBox').innerText().catch(() => '');
+      throw new Error(visibleAuthError.trim() || 'authenticated_session_not_persisted');
     } catch (error) {
-      attempts.push({ attempt, status:'failed', error:String(error?.message || error).slice(0,300) });
+      const errorMessage = String(error?.message || error).slice(0,300);
+      attempts.push({ attempt, status:'failed', error:errorMessage });
       if (attempt < maxAttempts) {
+        console.log('WEBPUSH_AUTH_RETRY attempt=' + attempt + '/' + maxAttempts + ' reason=' + errorMessage);
         await page.reload({ waitUntil:'domcontentloaded', timeout:30000 }).catch(() => {});
         await waitFor(2000 * attempt);
       }
