@@ -77,8 +77,8 @@ assert.match(css,/\.visualPreviewControls/);
 assert.match(fs.readFileSync(path.join(root,'supabase/migrations/20260922171331_harden_meditation_notification_label_execute.sql'),'utf8'),/revoke execute/i);
 console.log('PWA PROJECTS + ARTIA VISUAL + SHARED QUEUE + VERIFICATION CONTRACT: PASS');
 
-assert(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/'"));
-assert.ok(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', previewMode:'source'"), 'BattleCruiser must use the governed source reference rather than its unauthenticated login screen');
+assert(project.includes("previewUrl:'https://battlecruiser.robvg9.workers.dev/'"));
+assert.ok(project.includes("previewUrl:'https://battlecruiser.robvg9.workers.dev/', previewMode:'auth-required'"), 'ARTIA must embed the canonical LIVE BattleCruiser frontend and state that a user session is required');
 assert.match(worker,/battlecruiser: '\/project-previews\/battlecruiser-reference\.html'/);
 assert.match(worker,/url\.pathname==="\/project-preview\/battlecruiser"/);
 assert.match(battlecruiserReference,/REFERENCIA VISUAL · BATTLECRUISER/);
