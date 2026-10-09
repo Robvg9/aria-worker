@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.1.7';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.8';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/project-preview/aria/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -853,6 +853,85 @@ async function run() {
     if (!finalLiveSession?.accessToken || finalLiveSession.userId !== session.userId) throw new Error('final_live_session_not_verified');
     session = finalLiveSession;
     await page.waitForFunction(({ projectName }) => Boolean(document.querySelector('.projectGrid .projectCard.selected')?.textContent?.includes(projectName)), { projectName: expectedSelectedProject.name }, { timeout: 30000 });
+    if (!report.reality_board?.verified) await page.screenshot({ path: path.join(ARTIFACT_DIR, 'projects-final.png'), fullPage: true }).catch(() => {});
+
+    // Verify the independent Reality Board against live API responses, exact deployment SHA,
+    // current GitHub main and the source freshness contract. The app must surface uncertainty
+    // instead of promoting historical sources or a mismatched E2E run to LIVE truth.
+    const boardUrl = new URL('reality-board.html', BASE_URL.endsWith('/') ? BASE_URL : BASE_URL + '/').href;
+    const boardApiResponses = [];
+    const boardOrigin = new URL(BASE_URL).origin;
+    const onBoardResponse = (response) => {
+      try {
+        const u = new URL(response.url());
+        if (u.origin === boardOrigin && u.pathname.startsWith('/api/projects')) {
+          boardApiResponses.push({ path: u.pathname, status: response.status() });
+        }
+      } catch {}
+    };
+    page.on('response', onBoardResponse);
+    await page.goto(boardUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForFunction(() => {
+      const err = document.querySelector('#err');
+      const hasError = Boolean(err && getComputedStyle(err).display !== 'none' && String(err.textContent || '').trim());
+      return hasError || (document.querySelectorAll('#summary .row').length >= 4 && document.querySelectorAll('#projects .row').length === 3 && String(document.querySelector('#updated')?.textContent || '').includes('Actualizado:'));
+    }, null, { timeout: 60000 });
+    const boardInitial = await page.evaluate(() => {
+      const err = document.querySelector('#err');
+      const errorVisible = Boolean(err && getComputedStyle(err).display !== 'none' && String(err.textContent || '').trim());
+      const truthText = String(document.querySelector('#truth')?.innerText || '');
+      const projectText = String(document.querySelector('#projects')?.innerText || '');
+      const nextText = String(document.querySelector('#next')?.innerText || '');
+      const summaryCount = document.querySelectorAll('#summary .row').length;
+      const projectCount = document.querySelectorAll('#projects .row').length;
+      const liveBuild = fetch('/pwa/version.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+      return Promise.resolve(liveBuild).then(build => ({
+        errorVisible,
+        errorText: String(err?.textContent || '').trim(),
+        summaryCount,
+        projectCount,
+        truthText,
+        projectText,
+        nextText,
+        updatedText: String(document.querySelector('#updated')?.textContent || ''),
+        liveBuildSha: String(build?.build || '')
+      }));
+    });
+    if (boardInitial.errorVisible) throw new Error('reality_board_api_load_failed_' + boardInitial.errorText.slice(0, 300));
+    if (boardInitial.summaryCount < 4 || boardInitial.projectCount !== 3) throw new Error('reality_board_project_coverage_failed');
+    if (!boardInitial.liveBuildSha) throw new Error('reality_board_live_build_sha_missing');
+    if (!boardInitial.projectText.includes('ARIA') || !boardInitial.projectText.includes('CuevaCoin') || !boardInitial.projectText.includes('BattleCruiser')) throw new Error('reality_board_human_project_labels_missing');
+    if (!boardInitial.truthText.includes('ARIA · versión desplegada') || !boardInitial.truthText.includes('Projects + ARTIA')) throw new Error('reality_board_truth_sources_missing');
+    if (!boardInitial.nextText.includes('CuevaCoin') || !boardInitial.nextText.includes('BattleCruiser')) throw new Error('reality_board_human_next_actions_missing');
+    if (!boardInitial.truthText.includes(boardInitial.liveBuildSha)) throw new Error('reality_board_live_sha_not_rendered');
+    if (!boardInitial.truthText.includes('HISTÓRICO') && !boardInitial.truthText.includes('NO CONFIRMADO')) throw new Error('reality_board_uncertainty_not_rendered');
+
+    const initialBoardApiCount = boardApiResponses.length;
+    if (initialBoardApiCount < 4) throw new Error('reality_board_initial_load_did_not_query_all_project_sources');
+    await page.getByRole('button', { name: 'Actualizar ahora' }).click();
+    const refreshDeadline = Date.now() + 30000;
+    while (Date.now() < refreshDeadline && boardApiResponses.length - initialBoardApiCount < 4) await waitFor(250);
+    await waitFor(500);
+    page.off('response', onBoardResponse);
+    const manualRefreshResponses = boardApiResponses.slice(initialBoardApiCount);
+    if (manualRefreshResponses.length < 4) throw new Error('reality_board_manual_refresh_did_not_query_all_project_sources');
+    const badBoardReads = [...boardApiResponses, ...manualRefreshResponses].filter(x => x.status !== 200);
+    if (badBoardReads.length) throw new Error('reality_board_project_api_read_failed_' + JSON.stringify(badBoardReads.slice(0, 8)));
+    report.reality_board = {
+      url: boardUrl,
+      verified: true,
+      live_build_sha: boardInitial.liveBuildSha,
+      projects: ['aria', 'cuevacoin', 'battlecruiser'],
+      summary_cards: boardInitial.summaryCount,
+      project_cards: boardInitial.projectCount,
+      truth_section_rendered: true,
+      human_next_actions_rendered: true,
+      initial_api_responses: boardApiResponses.slice(0, initialBoardApiCount),
+      manual_refresh_api_responses: manualRefreshResponses,
+      source_policy: 'CuevaCoin historical is never called LIVE; source ARTIA preview is not equated with project runtime',
+      updated_text: boardInitial.updatedText
+    };
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, 'reality-board-final.png'), fullPage: true }).catch(() => {});
 
     if (consoleErrors.length) throw new Error('projects_console_errors_' + consoleErrors.length);
     if (pageErrors.length) throw new Error('projects_page_errors_' + pageErrors.length);

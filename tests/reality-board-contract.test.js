@@ -6,6 +6,12 @@ assert.ok(html.includes("'/projects/'+p.id+'/missions?limit=20'"),'must read liv
 assert.ok(html.includes("api.github.com") && html.includes("/repos/Robvg9/aria-worker/commits/main"),'must inspect current main commit');
 assert.ok(html.includes('setInterval(refresh,15000)'), 'must auto-refresh');
 assert.ok(html.includes('VERIFICADO') && html.includes('NO CONFIRMADO'), 'must distinguish verified and unconfirmed states');
+assert.ok(html.includes("'/pwa/version.json'"), 'must read the actual deployed PWA build SHA');
+assert.ok(html.includes("/repos/Robvg9/aria-worker/actions/runs?per_page=30"), 'must inspect the dedicated Projects + ARTIA E2E runs');
+assert.ok(html.includes("e2e.head_sha===liveSha"), 'must bind E2E status to the exact LIVE SHA');
+assert.ok(html.includes("live_claim_allowed===false") && html.includes("HISTORICAL_NOT_LIVE"), 'must not call historical CuevaCoin evidence LIVE');
+assert.ok(html.includes('QUÉ FALTA PARA CERRAR') && html.includes("Referencia visual ARTIA"), 'must explain remaining work in human language');
+assert.ok(html.includes('cachedJson') && html.includes('300000'), 'must cache GitHub requests to avoid quota exhaustion during 15-second refreshes');
 assert.ok(html.includes('CONTRADICCIÓN'), 'must expose contradiction detection');
 assert.ok(!html.includes('2025-03-30T00:00:00Z'), 'must not embed stale snapshot timestamp');
 assert.ok(!html.includes('live:true'), 'must not hardcode LIVE truth');

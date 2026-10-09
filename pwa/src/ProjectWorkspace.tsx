@@ -567,6 +567,12 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     <div className='projectBodyViewport'>
       {error&&<div className='errorBox'>{error}</div>}
       {tab==='overview'&&<>
+        <section className='panel realityBoardEntry' aria-label='ARIA Reality Board'>
+          <div className='panelHeading'>
+            <div><div className='panelTitle'>ESTADO GLOBAL</div><h2>¿Qué falta por cerrar?</h2><p className='muted'>Consulta fuentes actuales, versión LIVE, estado de misiones, verificaciones y las acciones que realmente faltan para ARIA, CuevaCoin y BattleCruiser.</p></div>
+            <a className='ghost' href='/pwa/reality-board.html' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',justifyContent:'center',textDecoration:'none',whiteSpace:'nowrap'}}>Abrir Reality Board ↗</a>
+          </div>
+        </section>
         <section className='panel'><div className='panelTitle'>COLA COMPARTIDA</div><h2>Una sola cola, tres espacios de trabajo</h2><p className='muted'>Todo entra en el mismo planner, executor, verification y evidence fabric de ARIA. El proyecto añade contexto y filtrado, no un runtime paralelo.</p><div className='statsGrid'><div className='statCard'><div className='statValue violet'>{missions.length}</div><div className='statLabel'>Misiones</div></div><div className='statCard'><div className='statValue cyan'>{missions.filter(m=>['running','queued','planning','waiting','paused'].includes(String(m.status))).length}</div><div className='statLabel'>Activas / en cola</div></div><div className='statCard'><div className='statValue green'>{missions.filter(m=>String(m.status)==='succeeded').length}</div><div className='statLabel'>Completadas verificadas</div></div><div className='statCard'><div className='statValue gold'>{missions.filter(m=>['blocked','failed'].includes(String(m.status))).length}</div><div className='statLabel'>Requieren atención</div></div></div></section>
         <ProjectOverviewPreview project={project}/>
       </>}
