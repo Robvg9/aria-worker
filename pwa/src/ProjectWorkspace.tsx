@@ -589,6 +589,16 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   return <main className='appShell projectShell'>
     <section className='projectGrid' aria-label='Seleccionar proyecto'>{PROJECTS.map(p=><button type='button' key={p.id} className={'projectCard '+(p.id===project.id?'selected':'')} onClick={()=>selectProject(p)}><span className='projectIcon'>{p.icon}</span><div><strong>{p.name}</strong><small>{p.id==='battlecruiser'?'Operación':p.id==='cuevacoin'?'Finanzas':'Cerebro'}</small></div></button>)}</section>
     {tab!=='chat' && <section className='panel projectHero'><div><div className='eyebrow'>PROYECTO ACTUAL</div><h2>{project.icon} {project.name}</h2><p className='muted'>{project.context}</p></div></section>}
+    {tab!=='chat'&&project.id==='battlecruiser'&&<section className='panel' aria-label='Fuentes canónicas de BattleCruiser'>
+      <div className='panelTitle'>FUENTES CANÓNICAS · BATTLECRUISER</div>
+      <p className='muted'>ARIA mantiene separados el código, la aplicación LIVE y el backend original. Estos enlaces abren cada fuente sin cambiar la conexión de Supabase de ARIA.</p>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8,marginTop:12}}>
+        <a className='ghost' href='https://battlecruiser.robvg9.workers.dev/' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Frontend LIVE ↗</a>
+        <a className='ghost' href='https://github.com/Robvg9/battlecruiser/tree/main' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Código · main ↗</a>
+        <a className='ghost' href='https://supabase.com/dashboard/project/papxnkkjtkxsitcsvcme' target='_blank' rel='noreferrer' style={{display:'inline-flex',alignItems:'center',textDecoration:'none'}}>Backend · Supabase ↗</a>
+      </div>
+      <p className='muted' style={{marginTop:12}}>Backend protegido: la conexión administrativa y las pruebas autenticadas siguen pendientes. No se conceden permisos anónimos ni se sustituyen datos por los de ARIA.</p>
+    </section>}
     <div className='capTabs projectTabs' aria-label='Secciones del proyecto'>{(['overview','chat','missions','visual'] as const).map(t=><button type='button' key={t} className={'tabButton '+(tab===t?'selected':'')} onClick={()=>selectTab(t)}>{t==='overview'?'Resumen':t==='chat'?'Chat':t==='missions'?'Misiones':'ARTIA'}</button>)}</div>
     <div className='projectBodyViewport'>
       {error&&<div className='errorBox'>{error}</div>}
