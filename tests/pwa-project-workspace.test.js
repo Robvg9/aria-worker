@@ -146,6 +146,9 @@ assert.ok(project.includes("aria_project_missions"), 'project missions must cons
 assert.ok(project.includes("projectChatReady"), 'project chat readiness state must exist');
 assert.ok(project.includes("function ProjectOverviewPreview"), 'project overview must expose a real preview surface');
 assert.ok(project.includes("data-project-id={project.id} data-preview-mode={mode}"), 'project overview must expose the exact project identity and truth boundary for E2E verification');
+assert.ok(project.includes("d?.mission?.mission_id??d?.mission_id??d?.result?.mission_id"), 'project mission intake must accept both canonical nested and top-level mission acknowledgements');
+assert.ok(project.includes("const createdMissionId=String("), 'project mission intake must normalize the canonical mission ID before confirming success');
+assert.ok(project.includes("respuesta sin identificador canónico"), 'mission creation failure must explain that no canonical ID was returned rather than hiding the response cause');
 assert.ok(project.includes("href='/pwa/reality-board.html'"), 'project overview must provide a direct entry to the separate Reality Board app');
 assert.ok(project.includes('¿Qué falta por cerrar?'), 'Reality Board entry must explain its purpose in human language');
 assert.ok(project.includes("aria-label={'Previsualización de '+project.name}"), 'project preview must identify the selected project');
