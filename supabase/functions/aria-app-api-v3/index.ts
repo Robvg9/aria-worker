@@ -22,9 +22,34 @@ const MEDIA_BUCKET = "aria-app-media";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,apikey,x-client-info,x-aria-trace-id,x-aria-request-id,x-aria-pwa-build,content-type", "access-control-allow-methods": "GET,POST,OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
 const PROJECTS = Object.freeze([
-  { id: "battlecruiser", name: "BattleCruiser", icon: "🏴‍☠️", context: "BattleCruiser es un proyecto operativo privado. Usa estado LIVE y ChatBending como contexto autorizado y no inventes estado técnico o de negocio." },
-  { id: "cuevacoin", name: "CuevaCoin", icon: "🪙", context: "CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados." },
-  { id: "aria", name: "ARIA", icon: "🧠", context: "ARIA es el sistema cognitivo operativo. Usa estado LIVE, main y evidencia persistida como fuentes prioritarias." },
+  {
+    id: "battlecruiser",
+    name: "BattleCruiser",
+    icon: "🏴‍☠️",
+    context: "BattleCruiser es un proyecto operativo privado. AUTORIDADES CANÓNICAS: repositorio main https://github.com/Robvg9/battlecruiser/tree/main; frontend LIVE https://battlecruiser.robvg9.workers.dev/; backend Supabase propio project ref papxnkkjtkxsitcsvcme y API https://papxnkkjtkxsitcsvcme.supabase.co. El Supabase de ARIA (icuqsstxfdbvjytkhlog) nunca sustituye al de BattleCruiser. La referencia ARTIA es estática y no certifica la app LIVE. Tras Resume el 2026-10-09, DNS y Auth health respondieron; REST anónimo de tablas protegidas devuelve 42501 como corresponde, y el acceso autenticado a datos todavía requiere verificación. No inventes estado técnico o de negocio; introspección del proyecto correcto antes de cualquier SQL.",
+    resources: {
+      repository_url: "https://github.com/Robvg9/battlecruiser/tree/main",
+      frontend_live_url: "https://battlecruiser.robvg9.workers.dev/",
+      backend_project_ref: "papxnkkjtkxsitcsvcme",
+      backend_api_url: "https://papxnkkjtkxsitcsvcme.supabase.co",
+      backend_dashboard_url: "https://supabase.com/dashboard/project/papxnkkjtkxsitcsvcme",
+      backend_access_state: "requires_authorized_authenticated_context"
+    }
+  },
+  {
+    id: "cuevacoin",
+    name: "CuevaCoin",
+    icon: "🪙",
+    context: "CuevaCoin es un proyecto financiero/operativo. Los cambios requieren verificación adicional antes de considerarse terminados.",
+    resources: null
+  },
+  {
+    id: "aria",
+    name: "ARIA",
+    icon: "🧠",
+    context: "ARIA es el sistema cognitivo operativo. Usa estado LIVE, main y evidencia persistida como fuentes prioritarias.",
+    resources: null
+  },
 ] as const);
 function getProject(value: unknown) {
   const id = String(value ?? "").trim().toLowerCase();
@@ -33,7 +58,13 @@ function getProject(value: unknown) {
 function normalizeProjectContext(body: any) {
   const project = getProject(body?.project_id ?? body?.project?.id);
   if (!project) return null;
-  return { id: project.id, name: project.name, icon: project.icon, context: project.context };
+  return {
+    id: project.id,
+    name: project.name,
+    icon: project.icon,
+    context: project.context,
+    resources: project.resources
+  };
 }
 function normalizeVisualContext(body: any) {
   const raw = body?.visual_context;
