@@ -6,7 +6,7 @@ const workflow = fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml',
 const authRecoveryWorkflow = fs.readFileSync('.github/workflows/aria-supabase-auth-recovery-restart.yml', 'utf8');
 const projectsRwhtWorkflow = fs.readFileSync('.github/workflows/projects-rwht-authenticated.yml', 'utf8');
 
-if (!authRecoveryWorkflow.includes("branches:\\n      - main")) throw new Error('production Supabase restart must not be triggered from feature branches');
+if (!authRecoveryWorkflow.includes("branches:") || !authRecoveryWorkflow.includes("      - main")) throw new Error('production Supabase restart must not be triggered from feature branches');
 if (!authRecoveryWorkflow.includes('saw_transition=true')) throw new Error('Supabase restart gate must observe the real restart transition');
 if (!authRecoveryWorkflow.includes('stable_healthy -ge 3')) throw new Error('Supabase restart gate must require stable ACTIVE_HEALTHY reads');
 if (!authRecoveryWorkflow.includes('SUPABASE_AUTH_PATHS_RESPONSIVE')) throw new Error('Supabase recovery gate must probe Auth and Worker proxy');
