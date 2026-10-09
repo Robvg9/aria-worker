@@ -56,12 +56,29 @@ async function login(page) {
     if (live) return { mode: hydrated ? 'preseeded_supabase_session_hydrated' : 'preseeded_or_existing_session', status: 'authenticated', attempts: 0 };
   }
 
+  // A stale localStorage token can leave the PWA dashboard shell visible without
+  // an authenticated API session. Re-authenticate once through the API before
+  // trying UI selectors; Supabase Auth may recover between the initial bootstrap
+  // and this point. Do not confuse a missing login form with successful login.
+  if (EMAIL && PASSWORD) {
+    const fresh = await signInViaAuthApi();
+    if (fresh?.accessToken && fresh.refreshToken && fresh.userId) {
+      await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), fresh);
+      const live = await ensureLiveSession(page);
+      if (live) return { mode: 'fresh_auth_api_recovery', status: 'authenticated', attempts: 1, auth_endpoint: fresh.authEndpoint || null };
+    }
+  }
+
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
 
   const email = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   const password = page.locator('input[aria-label="Contraseña"],input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-  await email.waitFor({ state: 'visible', timeout: 60000 });
-  await password.waitFor({ state: 'visible', timeout: 30000 });
+  try {
+    await email.waitFor({ state: 'visible', timeout: 12000 });
+    await password.waitFor({ state: 'visible', timeout: 8000 });
+  } catch {
+    throw new Error('auth_provider_unavailable_no_login_form_after_api_recovery');
+  }
   await email.fill(EMAIL);
   await password.fill(PASSWORD);
   await password.press('Enter');
@@ -489,8 +506,20 @@ async function run() {
   try {
     await page.goto(BASE_URL + '#home', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitFor(SETTLE_MS);
-    report.login = await login(page);
-    report.auth_attempts = Number(report.login?.attempts?.length || 0);
+    try {
+      report.login = await login(page);
+    } catch (authError) {
+      const stored = await readSession(page).catch(() => null);
+      report.login = {
+        mode: 'failed',
+        status: 'unavailable',
+        attempts: 1,
+        stale_local_session_detected: Boolean(stored?.accessToken),
+        error: authError instanceof Error ? authError.message : String(authError)
+      };
+      throw authError;
+    }
+    report.auth_attempts = Number(report.login?.attempts || 0);
     let session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
     let liveSession = await ensureLiveSession(page);
