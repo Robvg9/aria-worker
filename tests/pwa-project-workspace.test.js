@@ -170,6 +170,8 @@ const overviewProbeIndex = projectsRwhtWorkflow.indexOf('Verify Meditation IA ov
 const authenticatedE2EIndex = projectsRwhtWorkflow.indexOf('Execute authenticated Projects + ARTIA E2E');
 assert.ok(overviewProbeIndex >= 0 && authenticatedE2EIndex > overviewProbeIndex, 'Projects + ARTIA E2E must first prove authenticated Meditation overview/database is ready on LIVE');
 assert.ok(projectsRwhtWorkflow.includes("request('/api/meditation/overview', session.accessToken"), 'overview preflight must use the authenticated Worker proxy path followed by the PWA');
+assert.match(projectsRwhtWorkflow,/group:\s*aria-projects-artia-rwht-\$\{\{\s*github\.event_name/,'Projects ARTIA RWHT must isolate concurrency by deployed SHA so a stalled old run cannot block a new release');
+assert.match(projectsRwhtWorkflow,/name: Install Chromium[\\s\\S]{0,180}timeout-minutes: 8/,'Chromium installation must have a bounded step timeout');
 
 assert.match(projectE2E,/internalHosts = new Set/);
 assert.match(projectE2E,/artia_canvas_not_ready/);
