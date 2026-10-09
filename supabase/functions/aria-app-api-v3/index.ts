@@ -1915,50 +1915,186 @@ Deno.serve(async (req) => {
       const pwaBuild = req.headers.get("x-aria-pwa-build") ?? null;
       const project = normalizeProjectContext(body);
       const visual_context = normalizeVisualContext(body);
-      const direct = await internal(DIRECT, {
-        goal,
-        mission_id: typeof body?.missionId === "string" ? body.missionId : undefined,
-        metadata: {
-          source_application: "aria-app-v1",
-          user_id: user.id,
-          goal_source: "user",
-          project_id: project?.id ?? null,
-          project_name: project?.name ?? null,
-          project_context: project?.context ?? null,
-          visual_context,
+      const intakeMetadata = {
+        source_application: "aria-app-v1",
+        user_id: user.id,
+        goal_source: "user",
+        project_id: project?.id ?? null,
+        project_name: project?.name ?? null,
+        project_context: project?.context ?? null,
+        visual_context,
+        trace_id: trace,
+        request_id: requestId,
+        pwa_build: pwaBuild,
+        runtime_version: "aria-mission-runner-v22-universal",
+        diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
+      };
+      let direct: any = null;
+      let directTransportError: string | null = null;
+      try {
+        direct = await internal(DIRECT, {
+          goal,
+          mission_id: typeof body?.missionId === "string" ? body.missionId : undefined,
+          metadata: intakeMetadata,
+          "x-aria-user-id": user.id
+        });
+      } catch (error) {
+        // A transport failure can happen after DIRECT has committed the mission.
+        // Reconcile by request_id below before reporting a failure to the browser.
+        directTransportError = error instanceof Error ? error.message : String(error);
+        console.error("[aria-app-api-v3] mission intake transport error", JSON.stringify({
           trace_id: trace,
           request_id: requestId,
-          pwa_build: pwaBuild,
-          runtime_version: "aria-mission-runner-v22-universal",
-          diagnostic_contract_version: "aria-operational-diagnostics-v1.0.0",
-        },
-        "x-aria-user-id": user.id
-      });
-      if (!direct.r.ok) return json({ error: direct.b?.error ?? "aria_direct_failed", trace_id: trace }, direct.r.status);
-      const createdMissionId = typeof direct.b?.mission?.mission_id === "string"
-        ? direct.b.mission.mission_id
-        : typeof direct.b?.mission_id === "string"
-          ? direct.b.mission_id
-          : null;
-      if (createdMissionId) {
-        const existing = await sb.schema("aria_internal").from("mission_state")
-          .select("metadata").eq("mission_id",createdMissionId).maybeSingle();
-        const md = existing?.data?.metadata && typeof existing.data.metadata === "object" ? existing.data.metadata : {};
-        const ownerId = String(md.user_id || md.owner_user_id || user.id);
-        const nextMetadata = {
-          ...md,
-          user_id: ownerId,
-          owner_user_id: ownerId,
-          goal_source: md.goal_source || "user",
-          source_application: md.source_application || "aria-app-v1",
-          execution_lane: md.execution_lane || "user",
-          queue_priority: Math.max(Number(md.queue_priority || 0), 20),
-        };
-        await sb.schema("aria_internal").from("mission_state")
-          .update({ metadata: nextMetadata })
-          .eq("mission_id",createdMissionId);
+          project_id: project?.id ?? null,
+          detail: directTransportError
+        }));
       }
-      return json({ ok: true, ...direct.b, trace_id: trace });
+
+      const directPayload = direct?.b && typeof direct.b === "object" && !Array.isArray(direct.b)
+        ? direct.b
+        : {};
+      let createdMissionId = typeof directPayload?.mission?.mission_id === "string"
+        ? directPayload.mission.mission_id
+        : typeof directPayload?.result?.mission_id === "string"
+          ? directPayload.result.mission_id
+          : typeof directPayload?.mission_id === "string"
+            ? directPayload.mission_id
+            : null;
+      let canonicalMission: any = null;
+      let recoveredByRequestId = false;
+      const service = serviceClient();
+
+      // The request id is written by the canonical intake before the runner kick.
+      // It lets a retry/reconnect distinguish "response lost" from "mission not created".
+      const readMissionByRequestId = async () => {
+        const { data, error } = await service.schema("aria_internal").from("mission_state")
+          .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
+          .eq("metadata->>request_id", requestId)
+          .eq("metadata->>user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw new Error("mission_request_readback_failed:" + error.message);
+        return data ?? null;
+      };
+
+      if (!direct?.r?.ok || !createdMissionId) {
+        try {
+          const found = await readMissionByRequestId();
+          if (found?.mission_id) {
+            canonicalMission = found;
+            createdMissionId = String(found.mission_id);
+            recoveredByRequestId = true;
+            console.warn("[aria-app-api-v3] mission intake recovered by canonical request id", JSON.stringify({
+              trace_id: trace,
+              request_id: requestId,
+              mission_id: createdMissionId,
+              prior_http_status: direct?.r?.status ?? null,
+              transport_error: directTransportError
+            }));
+          }
+        } catch (error) {
+          console.error("[aria-app-api-v3] mission request readback failed", JSON.stringify({
+            trace_id: trace,
+            request_id: requestId,
+            project_id: project?.id ?? null,
+            detail: error instanceof Error ? error.message : String(error)
+          }));
+        }
+      }
+
+      if (!createdMissionId) {
+        const status = direct?.r?.status && direct.r.status >= 400 ? direct.r.status : 502;
+        return json({
+          error: direct?.b?.error ?? (directTransportError ? "mission_intake_transport_unconfirmed" : "aria_direct_failed"),
+          stage: "canonical_mission_intake",
+          detail: directTransportError ?? direct?.b?.detail ?? "No se encontró una misión canónica asociada a esta solicitud.",
+          trace_id: trace,
+          request_id: requestId
+        }, status);
+      }
+      if (direct?.r && !direct.r.ok && !canonicalMission) {
+        return json({
+          error: directPayload?.error ?? "aria_direct_failed",
+          stage: "canonical_mission_intake",
+          detail: directPayload?.detail ?? "La respuesta de ARIA falló y no se pudo confirmar una misión persistida.",
+          trace_id: trace,
+          request_id: requestId
+        }, direct.r.status);
+      }
+
+      if (!canonicalMission) {
+        try {
+          const { data, error } = await service.schema("aria_internal").from("mission_state")
+            .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,last_stdout,last_stderr,finished_at,checkpoint,metadata,created_at,updated_at")
+            .eq("mission_id", createdMissionId)
+            .maybeSingle();
+          if (error) {
+            console.error("[aria-app-api-v3] mission canonical readback warning", JSON.stringify({
+              trace_id: trace, request_id: requestId, mission_id: createdMissionId, detail: error.message
+            }));
+          } else {
+            canonicalMission = data ?? null;
+          }
+        } catch (error) {
+          console.error("[aria-app-api-v3] mission canonical readback warning", JSON.stringify({
+            trace_id: trace, request_id: requestId, mission_id: createdMissionId,
+            detail: error instanceof Error ? error.message : String(error)
+          }));
+        }
+      }
+
+      // Metadata backfill is not mission creation. Once DIRECT has returned a
+      // canonical mission id, an ancillary lane/priority write must never turn the
+      // successful creation into HTTP 500. Record the backfill failure for audit.
+      let metadataBackfillWarning: string | null = null;
+      if (canonicalMission?.metadata && typeof canonicalMission.metadata === "object") {
+        try {
+          const existingMetadata = canonicalMission.metadata;
+          const ownerId = String(existingMetadata.user_id || existingMetadata.owner_user_id || user.id);
+          const nextMetadata = {
+            ...existingMetadata,
+            user_id: ownerId,
+            owner_user_id: ownerId,
+            goal_source: existingMetadata.goal_source || "user",
+            source_application: existingMetadata.source_application || "aria-app-v1",
+            execution_lane: existingMetadata.execution_lane || "user",
+            queue_priority: Math.max(Number(existingMetadata.queue_priority || 0), 20),
+          };
+          const { error } = await service.schema("aria_internal").from("mission_state")
+            .update({ metadata: nextMetadata })
+            .eq("mission_id", createdMissionId);
+          if (error) throw new Error(error.message);
+        } catch (error) {
+          metadataBackfillWarning = error instanceof Error ? error.message : String(error);
+          console.error("[aria-app-api-v3] mission metadata backfill failed nonfatal", JSON.stringify({
+            trace_id: trace, request_id: requestId, mission_id: createdMissionId,
+            detail: metadataBackfillWarning
+          }));
+        }
+      } else {
+        // Do not overwrite metadata when read-back is unavailable. The mission
+        // creation acknowledgement is backed by DIRECT; lane backfill can wait.
+        metadataBackfillWarning = "canonical_mission_metadata_unavailable_skip_backfill";
+        console.warn("[aria-app-api-v3] mission metadata backfill skipped", JSON.stringify({
+          trace_id: trace, request_id: requestId, mission_id: createdMissionId, reason: metadataBackfillWarning
+        }));
+      }
+
+      // Keep the front-end contract explicit: it must receive mission.mission_id.
+      const responseMission = canonicalMission
+        ? { ...canonicalMission, mission_id: createdMissionId }
+        : (directPayload?.mission ?? directPayload?.result ?? { mission_id: createdMissionId, goal, status: "accepted" });
+      return json({
+        ...directPayload,
+        ok: true,
+        mission: responseMission,
+        mission_id: createdMissionId,
+        trace_id: trace,
+        accepted: true,
+        acknowledgement_source: recoveredByRequestId ? "canonical_request_readback" : canonicalMission ? "canonical_mission_readback" : "canonical_direct",
+        ...(metadataBackfillWarning ? { metadata_backfill_warning: metadataBackfillWarning } : {})
+      }, 200);
     }
     if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/verify-retry")) {
       const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/verify-retry$/,""));
