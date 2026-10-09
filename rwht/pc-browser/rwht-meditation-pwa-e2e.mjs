@@ -8,6 +8,16 @@ function envBool(name, fallback = false) { const value = process.env[name]; retu
 
 async function waitFor(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label + '_timeout_after_' + timeoutMs + 'ms')), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
 const STORAGE_STATE = String(process.env.RWHT_STORAGE_STATE || '');
@@ -230,7 +240,8 @@ async function dispatchNotificationClickViaServiceWorker(context, page, notifica
     await waitFor(250);
   }
   assert.ok(worker, 'active_service_worker_execution_context_missing');
-  return worker.evaluate(async ({ notificationId }) => {
+  console.log('WEBPUSH_CLICK_WORKER_FOUND script_url=' + scriptUrl);
+  const evaluation = worker.evaluate(async ({ notificationId }) => {
     const registration = self.registration;
     const tag = 'aria-meditation-' + notificationId;
     const notifications = await registration.getNotifications({ tag });
@@ -253,14 +264,29 @@ async function dispatchNotificationClickViaServiceWorker(context, page, notifica
       click_handler_dispatched: true
     };
   }, { notificationId });
+  return withTimeout(evaluation, 12000, 'notification_click_worker_dispatch');
 }
 
 async function expectApi(page, apiPath, token) {
-  return page.evaluate(async ({ apiPath, token }) => {
-    const r = await fetch('/api' + apiPath, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' } });
-    const body = await r.json().catch(() => null);
-    return { status: r.status, body };
+  const result = await page.evaluate(async ({ apiPath, token }) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const r = await fetch('/api' + apiPath, {
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+      const body = await r.json().catch(() => null);
+      return { status: r.status, body, error: null };
+    } catch (error) {
+      return { status: 0, body: null, error: String(error?.name || error?.message || error) };
+    } finally {
+      clearTimeout(timer);
+    }
   }, { apiPath, token });
+  if (result.error) throw new Error('api_request_failed:' + apiPath + ':' + result.error);
+  return result;
 }
 
 async function run() {
@@ -281,6 +307,7 @@ async function run() {
     await page.waitForTimeout(1200);
     const loginResult = await login(page);
     assert.equal(loginResult.status, 'authenticated');
+    console.log('WEBPUSH_E2E_AUTH_OK');
     const persisted = await readSession(page);
     assert.ok(persisted?.accessToken && persisted?.userId, 'authenticated session was not persisted');
     report.auth_verified = true;
@@ -307,6 +334,7 @@ async function run() {
     const backgroundPushEnabled = /^(1|true|yes)$/i.test(String(process.env.RWHT_BACKGROUND_PUSH_E2E || 'false'));
     if (backgroundPushEnabled) {
       await verifyWebPushConfig(page, session.accessToken);
+      console.log('WEBPUSH_E2E_CONFIG_OK');
 
       // Use an actual persisted, verified mission notification instead of an invented ID.
       const notificationSource = await expectApi(page, '/meditation/notifications?limit=50', session.accessToken);
@@ -329,6 +357,7 @@ async function run() {
         (event?.payload?.verified === true || String(event?.payload?.verified || '') === 'true')),
         'notification_mission_verified_evidence_missing');
       report.notification_detail_mission_id = pushProbeMissionId;
+      console.log('WEBPUSH_E2E_REAL_NOTIFICATION_OK id=' + pushProbeNotificationId + ' mission=' + pushProbeMissionId);
 
       // Close the PWA page before the notification is delivered.
       await page.close();
@@ -373,11 +402,14 @@ async function run() {
 
       // Exercise the real Service Worker notificationclick handler against the actual
       // native notification, then prove the deep link opens the persisted mission detail.
+      console.log('WEBPUSH_E2E_CLICK_DISPATCH_BEGIN id=' + pushProbeNotificationId);
       const clickResult = await dispatchNotificationClickViaServiceWorker(context, probePage, pushProbeNotificationId);
+      console.log('WEBPUSH_E2E_CLICK_DISPATCH_RETURNED id=' + pushProbeNotificationId);
       assert.equal(clickResult.notification_id, pushProbeNotificationId, 'notification_click_id_mismatch');
       assert.equal(clickResult.click_handler_dispatched, true, 'notification_click_handler_not_dispatched');
       report.notification_click_target = clickResult.target;
       await probePage.locator('.notificationSelected').waitFor({ state:'visible', timeout:30000 });
+      console.log('WEBPUSH_E2E_NOTIFICATION_SELECTED id=' + pushProbeNotificationId);
       await probePage.getByRole('button', { name:'Abrir misión completa' }).waitFor({ state:'visible', timeout:30000 });
       const selectedNotificationText = await probePage.locator('.notificationSelected').innerText();
       assert.ok(/completada y verificada/i.test(selectedNotificationText), 'notification_click_did_not_select_verified_notification');
@@ -395,9 +427,11 @@ async function run() {
         throw new Error('notification_clicked_wrong_mission_detail:' + detailTitle + ':expected_token:' + expectedTitleToken);
       }
       report.notification_click_through_verified = true;
+      console.log('WEBPUSH_E2E_MISSION_DETAIL_VERIFIED id=' + pushProbeMissionId + ' title=' + detailTitle);
       report.notification_detail_verified = true;
       report.notification_detail_title = detailTitle;
       report.background_push_verified = true;
+      console.log('WEBPUSH_E2E_PUSH_RECEIPT_OK id=' + pushProbeNotificationId);
       report.background_push_registration_scope = pushDelivery.scope || null;
 
       await probePage.close();
