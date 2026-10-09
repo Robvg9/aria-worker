@@ -105,6 +105,7 @@ assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-
 assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/aria\//);
 assert.doesNotMatch(project,/No hay una PWA LIVE configurada para este proyecto/);
 assert.match(project,/REFERENCIA VISUAL · ESTRUCTURA REAL · NO LIVE/);
+assert.match(project,/REFERENCIA VISUAL · CÓDIGO REAL · main · NO LIVE/);
 assert.match(project,/PROJECT REFERENCE/);
 assert.match(project,/CuevaCoin/);
 assert.match(project,/CuevaCoin\.\s*'Panel financiero|Panel financiero\/operativo/);
