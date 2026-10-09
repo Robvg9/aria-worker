@@ -99,5 +99,5 @@ test('Supervisor recovers a persistently degraded remote channel with bounded re
   assert.match(supervisor, /persistent_channel_degraded/);
   assert.match(supervisor, /CHANNEL_RESTART_LIMIT_REACHED/);
   assert.match(supervisor, /Stop-Process -Id \$ProcessId -Force -ErrorAction Stop/);
-  assert.match(supervisor, /Invoke-ChannelRecovery -ProcessId \$desktopCommanderPid -State \\$channel.State/);
+  assert.match(supervisor, /Invoke-ChannelRecovery -ProcessId \$desktopCommanderPid -State \$channel.State/);
 });
