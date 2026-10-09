@@ -290,14 +290,30 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
   const [bcPassword,setBcPassword]=useState('');
   const [connectedUser,setConnectedUser]=useState<BattleCruiserVerifiedConnection|null>(()=>activeBattleCruiserConnection?.ariaUserId===session.userId?{user:activeBattleCruiserConnection.user,checks:activeBattleCruiserConnection.verifiedChecks}:null);
   const [refreshTick,setRefreshTick]=useState(0);
+  const initialViewportResetDoneRef=useRef(false);
 
   useEffect(()=>{
     let active=true;
     setLoading(true);setError('');
+    const resetAfterInitialConnectionLayout=()=>{
+      if(initialViewportResetDoneRef.current)return;
+      initialViewportResetDoneRef.current=true;
+      // The connection panel grows asynchronously when config arrives. Restore the
+      // fixed-height project shell after the final state update, not just on mount.
+      window.requestAnimationFrame(()=>window.requestAnimationFrame(()=>{
+        const workspace=document.querySelector<HTMLElement>('.projectShell');
+        if(workspace)workspace.scrollTop=0;
+        const viewport=workspace?.querySelector<HTMLElement>('.projectBodyViewport');
+        if(viewport)viewport.scrollTop=0;
+        const appFrame=document.querySelector<HTMLElement>('.globalPageFrame');
+        if(appFrame)appFrame.scrollTop=0;
+        document.documentElement.scrollTop=0;document.body.scrollTop=0;window.scrollTo(0,0);
+      }));
+    };
     api('/projects/'+encodeURIComponent(project.id)+'/connections',session.accessToken)
       .then(value=>{if(active)setReport(value as ProjectConnectionReport)})
       .catch(e=>{if(active)setError(e instanceof Error?e.message:'No se pudo comprobar la conexión.')})
-      .finally(()=>{if(active)setLoading(false)});
+      .finally(()=>{if(active){setLoading(false);resetAfterInitialConnectionLayout();}});
     return()=>{active=false};
   },[project.id,session.accessToken,refreshTick]);
 
