@@ -77,9 +77,14 @@ Recognized failures include `IncreaseConnectionPool`, `Channel error`, subscript
 
 ## Bounded recovery for a degraded remote channel
 
-The supervisor treats repeated channel-recreation / session-establishment failures as a degraded channel, even when the local Node process remains alive. If that state persists for 180 seconds, it restarts only the Desktop Commander child process. Automatic restarts are capped at two per rolling hour. Once the cap is reached, the supervisor preserves the degraded status and logs `CHANNEL_RESTART_LIMIT_REACHED` rather than creating an unbounded restart loop.
+The supervisor distinguishes known hosted transport/capacity failures from a generic local child failure.
 
-This is a resilience workaround, not a fix for a hosted Remote MCP / Realtime backend outage. A successful HTTP preflight is not proof of a joined WebSocket channel. If the hosted service remains degraded after bounded restarts, vendor-side recovery or a working alternate transport is still required.
+- For `IncreaseConnectionPool`, `fetch failed` during session establishment, upstream proxy overflow, or Cloudflare 525 / SSL handshake errors, **do not restart the child automatically**. These signatures have been reported across independent hosts during Remote Desktop Commander incidents. Repeated restarts and re-authentication can create additional private-channel joins/token refreshes while the hosted pool is degraded. The supervisor keeps one client alive, reports `channel_degraded`, and rate-limits `CHANNEL_BACKEND_DEGRADED_NO_RESTART` diagnostics to once per five minutes.
+- For a persistent degraded channel with no recognized hosted-failure signature, the supervisor may restart only the Desktop Commander child after 180 seconds. Automatic restarts are capped at two per rolling hour; after the cap, `CHANNEL_RESTART_LIMIT_REACHED` is logged rather than entering an unbounded loop.
+
+Evidence / provider reports: [DesktopCommanderMCP #811](https://github.com/wonderwhy-er/DesktopCommanderMCP/issues/811), [DesktopCommanderMCP #738](https://github.com/wonderwhy-er/DesktopCommanderMCP/issues/738), [Remote Desktop Commander #32](https://github.com/desktop-commander/remote-desktop-commander/issues/32).
+
+This is a resilience guard, not a fix for a hosted Remote MCP / Realtime backend outage. A successful HTTP preflight is not proof of a joined WebSocket channel. If a known hosted failure remains active, vendor-side recovery or a working alternate transport is still required.
 
 ## Certification
 
