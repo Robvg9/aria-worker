@@ -30,9 +30,20 @@ const PROJECTS: Project[] = [
 ];
 
 
-async function getActiveBattleCruiserAccessToken():Promise<string|null>{
+function ariaUserIdFromAccessToken(token:string):string|null{
+  try{
+    const part=String(token||'').split('.')[1];
+    if(!part)return null;
+    const base64=part.replace(/-/g,'+').replace(/_/g,'/');
+    const padded=base64+'='.repeat((4-base64.length%4)%4);
+    const payload=JSON.parse(atob(padded));
+    return typeof payload?.sub==='string'&&payload.sub.trim()?payload.sub:null;
+  }catch{return null;}
+}
+
+async function getActiveBattleCruiserAccessToken(ariaUserId:string|null):Promise<string|null>{
   const current=activeBattleCruiserConnection;
-  if(!current)return null;
+  if(!current||!ariaUserId||current.ariaUserId!==ariaUserId)return null;
   if(current.expiresAt>Date.now()+45000)return current.accessToken;
   if(!current.refreshToken){if(current.expiresAt<=Date.now())activeBattleCruiserConnection=null;return current.expiresAt>Date.now()?current.accessToken:null;}
   const controller=new AbortController();
@@ -73,7 +84,7 @@ async function api(path:string, token:string, init:RequestInit={}) {
   const isBattleCruiserMissionIntake=path==='/missions'&&requestBodyText.includes('"project_id":"battlecruiser"');
   const isBattleCruiserProjectMissions=path.startsWith('/projects/battlecruiser/missions');
   if(isBattleCruiserChat||isBattleCruiserMissionIntake||isBattleCruiserProjectMissions){
-    const bcToken=await getActiveBattleCruiserAccessToken();
+    const bcToken=await getActiveBattleCruiserAccessToken(ariaUserIdFromAccessToken(token));
     if(bcToken)headers.set('x-battlecruiser-access-token',bcToken);
   }
   if (init.body) headers.set('content-type','application/json');
