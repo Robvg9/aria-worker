@@ -672,38 +672,73 @@ async function run() {
       if (!beforeDraw || !afterDraw || beforeDraw === afterDraw) throw new Error('artia_canvas_drawing_not_observed_' + visualProject.id);
       const visualMissionButton = page.getByRole('button', { name: 'Crear misión con este diseño' }).first();
       if (!(await visualMissionButton.isEnabled())) throw new Error('artia_visual_mission_button_not_enabled_' + visualProject.id);
-      const createResponsePromise = page.waitForResponse((response) => {
-        if (response.request().method() !== 'POST') return false;
-        try {
-          const url = new URL(response.url());
-          // Correlate by canonical endpoint, then prove the marker/project/PNG from
-          // the returned mission and server readback below. Do not depend on Playwright
-          // being able to re-serialize postData for fetch() requests.
-          return url.origin === new URL(BASE_URL).origin
-            && url.pathname.replace(/\/+$/, '') === '/api/missions';
-        } catch {
-          return false;
-        }
-      }, { timeout: 90000 });
       await visualMissionButton.click();
-      const createResponse = await createResponsePromise;
-      if (!createResponse.ok()) throw new Error('visual_mission_create_http_failed_' + visualProject.id + '_' + createResponse.status());
-      const createPayload = await createResponse.json().catch(() => null);
-      const visualMissionId = String(createPayload?.mission?.mission_id || '');
-      if (!visualMissionId) throw new Error('visual_mission_create_id_missing_' + visualProject.id);
-      await page.getByText('Misión confirmada por ARIA con el diseño y las anotaciones.').waitFor({ state: 'visible', timeout: 60000 });
+      await page.waitForFunction(() => [...document.querySelectorAll('.visualBoardPanel .notice')].some((node) => {
+        const text = node.textContent || '';
+        return text.includes('Misión confirmada por ARIA con el diseño y las anotaciones.')
+          || /visual_mission_create_not_confirmed|ARIA no confirmó la creación de la misión|No se pudo guardar el diseño|No se pudo enviar el diseño/i.test(text);
+      }), null, { timeout: 120000 });
+      const missionNotice = (await page.locator('.visualBoardPanel .notice').last().innerText().catch(() => '')).trim();
+      if (!missionNotice.includes('Misión confirmada por ARIA con el diseño y las anotaciones.')) {
+        throw new Error('visual_mission_submission_failed_' + visualProject.id + '_' + missionNotice.slice(0, 240));
+      }
 
+      // Read the canonical project-mission list instead of assuming a particular
+      // browser response URL. The live UI can succeed while proxies/redirects make
+      // a response listener miss the POST event; server read-back is the authority.
       let visualMission = null;
+      let visualMissionId = '';
       const verifyStarted = Date.now();
       while (Date.now() - verifyStarted < 90000) {
-        const direct = await readApiCurrent(page, '/missions/' + encodeURIComponent(visualMissionId));
-        if (direct.status === 200 && direct.body?.mission?.mission_id === visualMissionId) {
-          visualMission = direct.body.mission;
-          break;
+        const listed = await readApiCurrent(page, '/projects/' + encodeURIComponent(visualProject.id) + '/missions?limit=20');
+        const rows = Array.isArray(listed.body?.missions) ? listed.body.missions : [];
+        const match = rows.find((row) => {
+          const metadata = normalizeMetadata(row?.metadata);
+          const context = normalizeMetadata(metadata.visual_context);
+          const goal = String(row?.goal || row?.title || row?.name || '');
+          return goal.includes(visualGoalMarker) || String(context.instruction || '').includes(visualGoalMarker);
+        });
+        const candidateId = String(match?.mission_id || '');
+        if (candidateId) {
+          const direct = await readApiCurrent(page, '/missions/' + encodeURIComponent(candidateId));
+          if (direct.status === 200 && direct.body?.mission?.mission_id === candidateId) {
+            visualMission = direct.body.mission;
+            visualMissionId = candidateId;
+            break;
+          }
         }
         await waitFor(1500);
       }
-      if (!visualMission) throw new Error('visual_mission_not_persisted_' + visualProject.id);
+      if (!visualMission || !visualMissionId) throw new Error('visual_mission_not_persisted_' + visualProject.id);
+      // A certification-created mission must not remain in the live queue after proof.
+      // Cancel it through the canonical API, then read the persisted row back again.
+      const terminalStatuses = new Set(['succeeded','failed','blocked','cancelled']);
+      let cleanupStatus = String(visualMission.status || '');
+      if (!terminalStatuses.has(cleanupStatus)) {
+        const liveForCleanup = await ensureLiveSession(page);
+        if (!liveForCleanup?.accessToken || liveForCleanup.userId !== session.userId) throw new Error('visual_mission_cleanup_session_missing_' + visualProject.id);
+        const cancelResult = await page.evaluate(async ({ missionId, token }) => {
+          try {
+            const response = await fetch('/api/missions/' + encodeURIComponent(missionId) + '/cancel', {
+              method: 'POST',
+              headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+              cache: 'no-store'
+            });
+            const body = await response.json().catch(() => null);
+            return { status: response.status, body };
+          } catch (error) {
+            return { status: 0, body: { error: error instanceof Error ? error.message : String(error) } };
+          }
+        }, { missionId: visualMissionId, token: liveForCleanup.accessToken });
+        const afterCancel = await readApiCurrent(page, '/missions/' + encodeURIComponent(visualMissionId));
+        const afterMission = afterCancel.status === 200 ? afterCancel.body?.mission : null;
+        cleanupStatus = String(afterMission?.status || '');
+        if (!terminalStatuses.has(cleanupStatus)) {
+          throw new Error('visual_mission_cleanup_left_active_' + visualProject.id + '_http_' + cancelResult.status + '_status_' + cleanupStatus);
+        }
+        visualMission = afterMission;
+      }
+
       const visualMetadata = normalizeMetadata(visualMission.metadata);
       const visualContext = normalizeMetadata(visualMetadata.visual_context);
       if (String(visualMetadata.project_id || '').toLowerCase() !== visualProject.id) throw new Error('visual_mission_project_id_missing_' + visualProject.id);
@@ -716,6 +751,7 @@ async function run() {
         project_id: visualProject.id,
         queue: 'canonical',
         status: visualMission.status,
+        cleanup_terminal_status: cleanupStatus,
         image_path: visualContext.image_path,
         mime_type: visualContext.mime_type,
         annotation_summary: visualContext.annotation_summary,
