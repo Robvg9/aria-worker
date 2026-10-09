@@ -78,6 +78,7 @@ type NavigationState = {
 };
 
 function navigationFromHash(hash = window.location.hash): NavigationState {
+  if (String(hash).startsWith('#notification=')) return { page: 'meditation', screen: 0, newMission: false };
   switch (hash) {
     case '#chat': return { page: 'aria', screen: 1, newMission: false };
     case '#mission': return { page: 'aria', screen: 0, newMission: true };

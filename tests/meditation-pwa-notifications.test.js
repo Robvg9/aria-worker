@@ -17,6 +17,7 @@ const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const app = read('pwa/src/App.tsx');
 const helper = read('pwa/src/notifications.ts');
 const sw = read('pwa/public/sw.js');
+const meditationE2E = read('rwht/pc-browser/rwht-meditation-pwa-e2e.mjs');
 
 assert(migration.includes('drop trigger if exists trg_meditation_android_notification_delivery'), 'legacy Android notification trigger not retired in V1 contract');
 assert(migration.includes('drop function if exists aria_internal.enqueue_android_notification_jobs'), 'legacy Android notification enqueue function not retired in V1 contract');
@@ -49,6 +50,12 @@ assert(helper.includes('PushManager'), 'background Web Push API surface missing'
 assert(helper.includes('/pwa/#notification='), 'notification deep link missing');
 
 assert(sw.includes('notificationclick'), 'service-worker notificationclick handler missing');
+assert(app.includes("String(hash).startsWith('#notification=')"), 'native notification hash must route to Meditation IA');
+assert(app.includes("return { page: 'meditation', screen: 0, newMission: false };"), 'notification hash must mount the notification-owning page');
+assert(meditationE2E.includes('dispatchNotificationClickViaServiceWorker'), 'authenticated E2E must exercise Service Worker notificationclick');
+assert(meditationE2E.includes('verified_notification_for_clickthrough_not_found'), 'click-through E2E must use a real persisted verified notification');
+assert(meditationE2E.includes("getByRole('button', { name:'Abrir misión completa' })"), 'click-through E2E must open the full mission detail');
+assert(meditationE2E.includes('notification_click_through_verified'), 'click-through proof must be recorded in the RWHT evidence');
 assert(app.includes('const livePermission = typeof window !== \'undefined\' && \'Notification\' in window'));
 assert(app.includes('const recentUnread = compact.filter'));
 assert(app.includes('const notificationCandidates = firstSync.current'));
