@@ -169,8 +169,8 @@ const projectsRwhtWorkflow = fs.readFileSync(path.join(root, '.github/workflows/
 const overviewProbeIndex = projectsRwhtWorkflow.indexOf('Verify Meditation IA overview runtime and database contract on LIVE');
 const authenticatedE2EIndex = projectsRwhtWorkflow.indexOf('Execute authenticated Projects + ARTIA E2E');
 assert.ok(overviewProbeIndex >= 0 && authenticatedE2EIndex > overviewProbeIndex, 'Projects + ARTIA E2E must first prove authenticated Meditation overview/database is ready on LIVE');
-assert.ok(projectsRwhtWorkflow.includes("body?.source_of_truth === 'aria_internal.mission_state'"), 'overview preflight must require canonical mission source of truth');
-assert.ok(projectsRwhtWorkflow.includes("body?.counts && Number.isFinite(Number(body.counts.total))"), 'overview preflight must require real canonical mission counts');
+assert.ok(projectsRwhtWorkflow.includes("request('/api/meditation/overview', session.accessToken"), 'overview preflight must use the authenticated Worker proxy path followed by the PWA');
+
 assert.match(projectE2E,/internalHosts = new Set/);
 assert.match(projectE2E,/artia_canvas_not_ready/);
 assert.ok(projectE2E.includes("canonical project-mission list"), 'ARTIA E2E must use canonical server read-back instead of trusting a browser response listener');
