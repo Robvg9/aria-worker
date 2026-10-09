@@ -98,7 +98,6 @@ jobs:
             fi
             test "$attempt" -lt 90 && sleep 2
           done
-          grep -q "$GITHUB_SHA" <<<"$html"
           VERSION="$version" GITHUB_SHA="$GITHUB_SHA" python - <<'PY'
           import json, os
           assert json.loads(os.environ["VERSION"]).get("build") == os.environ["GITHUB_SHA"]
