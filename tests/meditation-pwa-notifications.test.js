@@ -56,6 +56,8 @@ assert(app.includes("window.removeEventListener('hashchange', openNotificationFr
 assert(app.includes("return { page: 'meditation', screen: 0, newMission: false };"), 'notification hash must mount the notification-owning page');
 assert(meditationE2E.includes('dispatchNotificationClickViaServiceWorker'), 'authenticated E2E must exercise Service Worker notificationclick');
 assert(meditationE2E.includes("await controllerPage.goto(base + '#meditation'"), 'push probe must attach CDP to the real PWA origin');
+assert(meditationE2E.includes("waitForLoadState('load'"), 'push probe must wait for the window-load listener that registers the Service Worker');
+assert(meditationE2E.includes("getRegistration('/pwa/')"), 'push probe must verify a real registration after load, not await an unstarted registration');
 assert(meditationE2E.includes('pwa_service_worker_not_active'), 'push probe must require an active PWA service worker before injecting the event');
 assert(meditationE2E.includes('WEBPUSH_E2E_CONTROL_PAGE_CLOSED_BEFORE_RECEIPT'), 'push receipt must be read after the helper page is closed');
 assert(meditationE2E.includes("new ExtendableEvent('notificationclick')"), 'click-through test must preserve native Service Worker waitUntil lifecycle');
