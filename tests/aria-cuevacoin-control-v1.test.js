@@ -82,4 +82,11 @@ assert.ok(inboundDeployWorkflow.includes('aria.project.cuevacoin.control'));
 assert.match(inboundDeployWorkflow, /WORKER_PRM_OK/);
 console.log('aria-mcp-inbound-deploy-no-historical-overwrite: PASS');
 
+
+// Production Cloudflare OAuth smoke checks must accept both the base and governed CuevaCoin scopes.
+const cloudflareDeployWorkflow = fs.readFileSync(path.join(root, '.github/workflows/aria-cloudflare-deploy.yml'), 'utf8');
+assert.ok(!cloudflareDeployWorkflow.includes("scopes_supported']==['aria.mcp.inbound']"), 'OAuth smoke test must not require the obsolete single-scope list');
+assert.ok(cloudflareDeployWorkflow.includes("aria.project.cuevacoin.control"), 'OAuth smoke test must require the new governed CuevaCoin scope');
+console.log('cloudflare-oauth-scope-parity-contract: PASS');
+
 console.log('aria-cuevacoin-control-v1: PASS');
