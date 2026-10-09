@@ -56,12 +56,29 @@ async function login(page) {
     if (live) return { mode: hydrated ? 'preseeded_supabase_session_hydrated' : 'preseeded_or_existing_session', status: 'authenticated', attempts: 0 };
   }
 
+  // A stale localStorage token can leave the PWA dashboard shell visible without
+  // an authenticated API session. Re-authenticate once through the API before
+  // trying UI selectors; Supabase Auth may recover between the initial bootstrap
+  // and this point. Do not confuse a missing login form with successful login.
+  if (EMAIL && PASSWORD) {
+    const fresh = await signInViaAuthApi();
+    if (fresh?.accessToken && fresh.refreshToken && fresh.userId) {
+      await page.evaluate((session) => localStorage.setItem('aria_session_v2', JSON.stringify(session)), fresh);
+      const live = await ensureLiveSession(page);
+      if (live) return { mode: 'fresh_auth_api_recovery', status: 'authenticated', attempts: 1, auth_endpoint: fresh.authEndpoint || null };
+    }
+  }
+
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
 
   const email = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   const password = page.locator('input[aria-label="Contraseña"],input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
-  await email.waitFor({ state: 'visible', timeout: 60000 });
-  await password.waitFor({ state: 'visible', timeout: 30000 });
+  try {
+    await email.waitFor({ state: 'visible', timeout: 12000 });
+    await password.waitFor({ state: 'visible', timeout: 8000 });
+  } catch {
+    throw new Error('auth_provider_unavailable_no_login_form_after_api_recovery');
+  }
   await email.fill(EMAIL);
   await password.fill(PASSWORD);
   await password.press('Enter');
@@ -489,8 +506,20 @@ async function run() {
   try {
     await page.goto(BASE_URL + '#home', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitFor(SETTLE_MS);
-    report.login = await login(page);
-    report.auth_attempts = Number(report.login?.attempts?.length || 0);
+    try {
+      report.login = await login(page);
+    } catch (authError) {
+      const stored = await readSession(page).catch(() => null);
+      report.login = {
+        mode: 'failed',
+        status: 'unavailable',
+        attempts: 1,
+        stale_local_session_detected: Boolean(stored?.accessToken),
+        error: authError instanceof Error ? authError.message : String(authError)
+      };
+      throw authError;
+    }
+    report.auth_attempts = Number(report.login?.attempts || 0);
     let session = await readSession(page);
     if (!session?.accessToken || !session.userId) throw new Error('authenticated_session_not_persisted');
     let liveSession = await ensureLiveSession(page);
@@ -527,7 +556,7 @@ async function run() {
     // The preview belongs to the selected project's normal workspace, not only ARTIA.
     const overviewPreviewResults = [];
     for (const expected of [
-      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/' },
+      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://aria.robvg9.workers.dev/project-preview/battlecruiser/' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
       { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/' }
     ]) {
@@ -622,7 +651,7 @@ async function run() {
 
     // ARTIA must accept real visual mission creation for every project, not only BattleCruiser.
     const visualMissionExpectations = {
-      battlecruiser: { src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
+      battlecruiser: { src: 'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', mode: 'source' },
       cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
       aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
@@ -641,7 +670,7 @@ async function run() {
       const visualBadge = page.locator('.artiaPreviewShell .projectReferenceBadge').first();
       if (expectedPreview.mode === 'source') {
         await visualBadge.waitFor({ state: 'visible', timeout: 10000 });
-        if (!(await visualBadge.innerText()).includes('VISTA DESDE CÓDIGO REAL')) throw new Error('artia_visual_source_badge_missing_' + visualProject.id);
+        if (!(await visualBadge.innerText()).includes('REFERENCIA VISUAL')) throw new Error('artia_visual_source_badge_missing_' + visualProject.id);
       } else if (await visualBadge.count() > 0 && await visualBadge.isVisible().catch(() => false)) {
         throw new Error('artia_visual_live_badge_mislabelled_' + visualProject.id);
       }
@@ -761,7 +790,7 @@ async function run() {
 
     // ARTIA preview certification: every project must expose a real preview surface.
     const previewExpectations = [
-      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
+      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', mode: 'source' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
       { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     ];
@@ -777,7 +806,7 @@ async function run() {
       const badge = page.locator('.artiaPreviewShell .projectReferenceBadge').first();
       if (expected.mode === 'source') {
         await badge.waitFor({ state: 'visible', timeout: 10000 });
-        if (!(await badge.innerText()).includes('VISTA DESDE CÓDIGO REAL')) throw new Error('artia_source_badge_missing_' + expected.id);
+        if (!(await badge.innerText()).includes('REFERENCIA VISUAL')) throw new Error('artia_source_badge_missing_' + expected.id);
       } else if (await badge.count() > 0 && await badge.isVisible().catch(() => false)) {
         throw new Error('artia_live_preview_mislabelled_' + expected.id);
       }

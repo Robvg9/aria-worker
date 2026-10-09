@@ -7,6 +7,8 @@ const project=fs.readFileSync(path.join(root,'pwa/src/ProjectWorkspace.tsx'),'ut
 const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
 const api=fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
+const worker=fs.readFileSync(path.join(root,'worker.js'),'utf8');
+const battlecruiserReference=fs.readFileSync(path.join(root,'pwa/public/project-previews/battlecruiser-reference.html'),'utf8');
 
 for(const id of ['battlecruiser','cuevacoin','aria'])assert.match(project,new RegExp(id));
 assert.match(app,/ProjectWorkspace/);
@@ -72,11 +74,16 @@ assert.match(css,/\.visualPreviewControls/);
 assert.match(fs.readFileSync(path.join(root,'supabase/migrations/20260922171331_harden_meditation_notification_label_execute.sql'),'utf8'),/revoke execute/i);
 console.log('PWA PROJECTS + ARTIA VISUAL + SHARED QUEUE + VERIFICATION CONTRACT: PASS');
 
-assert(project.includes("previewUrl:'https://battlecruiser.robvg9.workers.dev/"));
-assert.match(project,/PWA LIVE de/);
+assert(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/'"));
+assert.ok(project.includes("previewUrl:'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', previewMode:'source'"), 'BattleCruiser must use the governed source reference rather than its unauthenticated login screen');
+assert.match(worker,/battlecruiser: '\/project-previews\/battlecruiser-reference\.html'/);
+assert.match(worker,/url\.pathname==="\/project-preview\/battlecruiser"/);
+assert.match(battlecruiserReference,/REFERENCIA VISUAL · BATTLECRUISER/);
+assert.match(battlecruiserReference,/no muestra datos LIVE/i);
+assert.match(project,/Previsualización de/);
 assert.match(project,/<iframe/);
 assert.match(project,/pointerEvents:previewPaused\?'none':'auto'/);
-console.log('BATTLECRUISER LIVE PWA ARTIA CONTRACT: PASS');
+console.log('BATTLECRUISER SOURCE REFERENCE + ARTIA CONTRACT: PASS');
 
 assert.match(project,/requestFullscreen/);
 assert.match(project,/fullscreenchange/);
@@ -97,7 +104,7 @@ assert.match(project,/previewMode:'source'/);
 assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/cuevacoin\//);
 assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/aria\//);
 assert.doesNotMatch(project,/No hay una PWA LIVE configurada para este proyecto/);
-assert.match(project,/VISTA DESDE CÓDIGO REAL · main/);
+assert.match(project,/REFERENCIA VISUAL · ESTRUCTURA REAL · NO LIVE/);
 assert.match(project,/PROJECT REFERENCE/);
 assert.match(project,/CuevaCoin/);
 assert.match(project,/CuevaCoin\.\s*'Panel financiero|Panel financiero\/operativo/);
@@ -169,6 +176,10 @@ assert.ok(project.includes('assistantAfterLatestUser'),'project chat polling mus
 
 assert.match(projectE2E,/window\.top !== window/,'RWHT auth bootstrap must skip sandboxed embedded preview frames');
 assert.match(projectE2E,/localStorage\.setItem\('aria_session_v2',[\s\S]{0,250}catch \{/,'RWHT must fail safely when localStorage is unavailable in an embedded frame');
+assert.ok(projectE2E.includes("const fresh = await signInViaAuthApi()"), 'RWHT must retry API authentication once when a persisted session is stale');
+assert.ok(projectE2E.includes("auth_provider_unavailable_no_login_form_after_api_recovery"), 'RWHT must distinguish upstream auth outage from a missing UI login form');
+assert.ok(projectE2E.includes("stale_local_session_detected: Boolean(stored?.accessToken)"), 'RWHT evidence must report stale session recovery attempts');
+assert.ok(projectE2E.includes("Number(report.login?.attempts || 0)"), 'RWHT must correctly persist the numeric auth attempt count');
 const plannerSource = fs.readFileSync(path.join(root, 'supabase/functions/aria-planner-v11/index.ts'), 'utf8');
 assert.match(plannerSource, /function visualProjectMissionPlan\(goal:string,context:any\)/);
 const visualRouteIndex = plannerSource.indexOf('const visualProjectMission=visualProjectMissionPlan');

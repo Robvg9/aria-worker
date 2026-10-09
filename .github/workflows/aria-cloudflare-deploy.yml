@@ -375,6 +375,21 @@ jobs:
           grep -qi "^x-aria-preview-source: aria-static-reference" "$headers"
           grep -q "CuevaCoin" "$body"
           echo PROJECT_PREVIEW_CUEVACOIN_LIVE_OK
+      - name: Smoke test BattleCruiser project preview source
+        run: |
+          set -euo pipefail
+          base="https://aria.robvg9.workers.dev"
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -D "$headers" -o "$body" -w '%{http_code}' "$base/project-preview/battlecruiser/?probe=${GITHUB_SHA}")"
+          echo "BATTLECRUISER_PROJECT_PREVIEW_STATUS=$code"
+          test "$code" = "200"
+          grep -qi "^content-type: text/html" "$headers"
+          grep -qi "^x-aria-preview-source: aria-static-reference" "$headers"
+          grep -qi "REFERENCIA VISUAL.*BATTLECRUISER" "$body"
+          grep -qi "no muestra datos LIVE" "$body"
+          echo PROJECT_PREVIEW_BATTLECRUISER_REFERENCE_LIVE_OK
+
       - name: Smoke test direct ARIA interface
         run: |
           set -euo pipefail
