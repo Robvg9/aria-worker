@@ -1,3 +1,4 @@
+/* 2026-10-09: rerun exact-SHA LIVE certification after aligning the scheduler source-read contract. */
 /* ARTIA CuevaCoin preview certification 2026-10-07 */
 /* 2026-10-08: force exact-main PWA/ARTIA production delivery after preview fixes. */
 /* 2026-10-09: release latest canonical ARTIA mission visual-context fix #1037 so the official RWHT can certify the exact LIVE SHA. */
