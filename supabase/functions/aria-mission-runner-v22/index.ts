@@ -2722,6 +2722,16 @@ Deno.serve(async (request) => {
       available: recalled.available,
       recall_count: recalled.results.length,
       memory_ids: recalled.results.map((item: any) => item.memory_id || item.id).filter(Boolean),
+      // Preserve persisted project intent across the runner -> planner handoff.
+      // ARTIA missions otherwise fall through to generic planning and can pause with planner_empty_steps.
+      project_id: typeof mission?.metadata?.project_id === "string"
+        ? mission.metadata.project_id
+        : (typeof mission?.project_id === "string" ? mission.project_id : null),
+      visual_context: mission?.metadata?.visual_context && typeof mission.metadata.visual_context === "object"
+        ? mission.metadata.visual_context
+        : (mission?.checkpoint?.visual_context && typeof mission.checkpoint.visual_context === "object"
+          ? mission.checkpoint.visual_context
+          : (mission?.visual_context && typeof mission.visual_context === "object" ? mission.visual_context : null)),
       mission_planner_contract: {
         requested_capability: typeof mission?.metadata?.requested_capability === "string" ? mission.metadata.requested_capability : null,
         requested_device_id: typeof mission?.metadata?.requested_device_id === "string" ? mission.metadata.requested_device_id : (typeof mission?.metadata?.device_id === "string" ? mission.metadata.device_id : null),
