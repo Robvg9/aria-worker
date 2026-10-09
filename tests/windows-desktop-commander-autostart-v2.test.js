@@ -89,3 +89,15 @@ test('Supervisor distinguishes process liveness from remote channel health', () 
   assert.match(supervisor, /Write-ObservedChannelStatus \$desktopCommanderPid/);
 });
 
+
+test('Supervisor recovers a persistently degraded remote channel with bounded restarts', () => {
+  assert.match(supervisor, /Recreating channel/);
+  assert.match(supervisor, /Failed to set session/);
+  assert.match(supervisor, /function Invoke-ChannelRecovery/);
+  assert.match(supervisor, /ChannelRestartThresholdSeconds = 180/);
+  assert.match(supervisor, /ChannelRestartMaxPerHour = 2/);
+  assert.match(supervisor, /persistent_channel_degraded/);
+  assert.match(supervisor, /CHANNEL_RESTART_LIMIT_REACHED/);
+  assert.match(supervisor, /Stop-Process -Id \\$ProcessId -Force -ErrorAction Stop/);
+  assert.match(supervisor, /Invoke-ChannelRecovery -ProcessId \\$desktopCommanderPid -State \\$channel.State/);
+});
