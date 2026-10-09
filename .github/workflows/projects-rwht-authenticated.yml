@@ -8,6 +8,8 @@ on:
     # The job below accepts only successful push-to-main or merged-PR deploys and verifies the exact LIVE SHA.
     workflows:
       - Deploy ARIA Cloudflare Worker
+      - Deploy ARIA PWA Fast Lane
+      - Deploy ARIA APP API v3
     types:
       - completed
   workflow_dispatch:
