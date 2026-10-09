@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'pwa', 'src', 'App.tsx'), 'utf8');
@@ -89,5 +90,7 @@ for (const fragment of [
 
 assert.doesNotMatch(runner, /console\.(log|error)\([^\n]*(password|refreshToken|accessToken)/i);
 assert.doesNotMatch(runner, /key\.startsWith\(chatPrefix \+ ':'\)/);
+
+execFileSync(process.execPath, ['--check', path.join(root, 'rwht', 'pc-browser', 'rwht-persistence-recovery-e2e.mjs')], { stdio: 'pipe' });
 
 console.log('PWA PERSISTENCE + RECOVERY CONTRACT: PASS');
