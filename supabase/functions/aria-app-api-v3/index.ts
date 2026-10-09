@@ -544,6 +544,83 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   throw error;
 }
 
+
+async function completeConversationInBackground(args:{
+  userId:string;
+  conversationId:string;
+  step:any;
+  prompt:string;
+  visualContext:any;
+  clientMessageId:string|null;
+  traceId:string;
+  title:string;
+  project:any;
+  debateRequested:boolean;
+}) {
+  const {userId,conversationId,step,prompt,visualContext,clientMessageId,traceId,title,project,debateRequested}=args;
+  const visual_context=visualContext;
+  try {
+    let debate:any=null;
+    if(debateRequested) {
+      try { debate=await executeDebate(step, prompt, conversationId, visual_context, clientMessageId, false); }
+      catch { debate=null; }
+    }
+    const execution:any=debate
+      ? {result:debate.result,route:debate.second,fallback_count:0,failures:[],debate:true}
+      : await executeConversationWithFallback(step,prompt,conversationId,visualContext,clientMessageId,false);
+    const result=execution?.result;
+    if(result?.status==="processing" && result?.job_id) {
+      await completeLocalChatInBackground(
+        userId,
+        conversationId,
+        String(result.job_id),
+        traceId,
+        String(result.provider_id||"local_windows"),
+        String(result.model_id||"qwen3:0.6b"),
+        title,
+        project
+      );
+      return;
+    }
+    const content=typeof result?.response?.content==="string"?result.response.content.trim():"";
+    if(!content) throw new Error("empty_conversation_response");
+    await persistConversationMessage(
+      userId,
+      conversationId,
+      "assistant",
+      content,
+      [{type:"text",text:content}],
+      traceId,
+      "success",
+      String(execution?.route?.provider_id||step?.target?.provider_id||"unknown"),
+      String(execution?.route?.model_id||step?.target?.model_id||"unknown"),
+      title,
+      project
+    );
+  } catch(error) {
+    // Do not leave the project chat with a user bubble and an endless spinner.
+    // Persist an explicit failure; never manufacture a successful assistant answer.
+    const message="No se pudo completar la respuesta de ARIA porque la ruta de ejecución no respondió dentro del límite. El mensaje quedó guardado; puedes reintentarlo cuando el servicio esté disponible.";
+    try {
+      await persistConversationMessage(
+        userId,
+        conversationId,
+        "assistant",
+        message,
+        [{type:"text",text:message}],
+        traceId,
+        "error",
+        String(step?.target?.provider_id||"unknown"),
+        String(step?.target?.model_id||"unknown"),
+        title,
+        project
+      );
+    } catch {
+      // The canonical user message remains persisted and the client will report the readback timeout.
+    }
+  }
+}
+
 function missionPhase(m:any) {
   const status=String(m?.status||"");
   const done=Number(m?.completed_steps||0);
@@ -1779,87 +1856,45 @@ Deno.serve(async (req) => {
         "MENSAJE DEL USUARIO — RESPONDE A ESTO DIRECTAMENTE:\n" + text
       ].filter(Boolean).join("\n\n");
       const modelStartedAt = Date.now();
-      let execution:any;
-      let debate:any = null;
-      try {
-        if (shouldDebate(text, lane.lane)) {
-          try { debate = await executeDebate(step, prompt, conversationId, visual_context, clientMessageId, true); } catch { debate = null; }
-        }
-        execution = debate ? { result: debate.result, route: debate.second, fallback_count: 0, failures: [], debate: true } : await executeConversationWithFallback(step, prompt, conversationId, visual_context, clientMessageId, false);
-      } catch (e) {
-        return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: String((e as any)?.message ?? e), fallback_attempts: Array.isArray((e as any)?.failures) ? (e as any).failures.map((x:any)=>({provider_id:x.provider_id,model_id:x.model_id,error:x.error})) : [], processing_ms: Date.now() - requestStartedAt, model_ms: Date.now() - modelStartedAt, input_persistence_ms: initialPersistenceMs, persistence_warning: persistenceWarning, trace_id: trace }, 502);
-      }
-      const result=execution.result;
-      if(result?.status==="processing" && result?.job_id){
-        const title=project?.name ? project.name+" · Chat" : "ARIA · Chat";
-        EdgeRuntime.waitUntil(
-          completeLocalChatInBackground(
-            user.id,
-            conversationId,
-            String(result.job_id),
-            trace,
-            String(result.provider_id||"local_windows"),
-            String(result.model_id||"qwen3:0.6b"),
-            title,
-            project
-          )
-        );
-        return json({
-          ok:true,
-          conversationId,
-          visualState:"processing",
-          processing:true,
-          job_id:String(result.job_id),
-          parts:[],
-          cognitive:{
-            recall_count:memory.length,
-            provider_id:result.provider_id,
-            model_id:result.model_id,
-            fallback_count:execution.fallback_count,
-            fast_lane:lane.lane,
-            fast_lane_reason:lane.reason,
-            debate_used:false,
-            processing_ms:Date.now()-requestStartedAt,
-            input_persistence_ms:initialPersistenceMs,
-            assistant_persistence_ms:null,
-            persistence_warning:persistenceWarning
-          },
-          trace_id:trace
-        });
-      }
-      const content = typeof result?.response?.content === "string" ? result.response.content.trim() : "";
-      if (!content) {
-        return json({ error: "conversation_model_execution_failed", stage: "model_execution", detail: "empty_conversation_response", processing_ms: Date.now() - requestStartedAt, model_ms: Date.now() - modelStartedAt, trace_id: trace }, 502);
-      }
-      const assistantPersistStartedAt = Date.now();
-      try {
-        await persistConversationMessage(user.id,conversationId,"assistant",content,[{type:"text",text:content}],trace,"success",execution.route.provider_id,execution.route.model_id,project?.name ? project.name+" · Chat" : "ARIA · Chat",project);
-        assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
-      } catch(e) {
-        persistenceWarning = persistenceWarning || String((e as any)?.message ?? e);
-        assistantPersistenceMs = Date.now() - assistantPersistStartedAt;
-      }
-      return json({
-        ok: true,
+      const debateRequested = shouldDebate(text, lane.lane);
+      const title=project?.name ? project.name+" · Chat" : "ARIA · Chat";
+      // Never hold the HTTP request open for two 45-second model attempts.
+      // The canonical user message is already persisted; the client will poll the
+      // canonical conversation until the assistant reply (or explicit failure) is persisted.
+      const jobId=("chat_"+conversationId+"_"+(clientMessageId||trace)).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,120);
+      EdgeRuntime.waitUntil(completeConversationInBackground({
+        userId:user.id,
         conversationId,
-        visualState: "success",
-        parts: [{ type: "text", text: content }],
-        cognitive: {
-          recall_count: memory.length,
-          provider_id: execution.route.provider_id,
-          model_id: execution.route.model_id,
-          fallback_count: execution.fallback_count,
+        step,
+        prompt,
+        visualContext:visual_context,
+        clientMessageId,
+        traceId:trace,
+        title,
+        project,
+        debateRequested
+      }));
+      return json({
+        ok:true,
+        conversationId,
+        visualState:"processing",
+        processing:true,
+        job_id:jobId,
+        parts:[],
+        cognitive:{
+          recall_count:memory.length,
+          provider_id:step?.target?.provider_id ?? null,
+          model_id:step?.target?.model_id ?? null,
+          fallback_count:0,
           fast_lane: lane.lane,
           fast_lane_reason: lane.reason,
-          debate_used: Boolean(execution.debate),
-          debate_models: execution.debate ? [execution.route?.model_id, debate?.first?.model_id] : [],
-          processing_ms: Date.now() - requestStartedAt,
-          model_ms: Date.now() - modelStartedAt,
-          input_persistence_ms: initialPersistenceMs,
-          assistant_persistence_ms: assistantPersistenceMs,
-          persistence_warning: persistenceWarning
+          debate_used:debateRequested,
+          processing_ms:Date.now()-requestStartedAt,
+          input_persistence_ms:initialPersistenceMs,
+          assistant_persistence_ms:null,
+          persistence_warning:persistenceWarning
         },
-        trace_id: trace
+        trace_id:trace
       });
     }
     if (req.method === "POST" && path.endsWith("/missions")) {

@@ -55,7 +55,9 @@ assertContains(appApi,'recall(text, user.id)','conversation recall must use auth
 assertContains(appApi,'target?.provider_id','conversation model provider validation missing');
 assertContains(appApi,'target?.account_id','conversation model account validation missing');
 assertContains(appApi,'target?.model_id','conversation model id validation missing');
-assertContains(appApi,'conversation_model_execution_failed','conversation failure boundary missing');
+assertContains(appApi,'async function completeConversationInBackground','conversation failure boundary missing');
+assertContains(appApi,'EdgeRuntime.waitUntil(completeConversationInBackground(','conversation responses must not block the HTTP request on model execution');
+assertContains(appApi,'No se pudo completar la respuesta de ARIA','background execution failure must be persisted as an explicit assistant failure');
 assertContains(appApi,'conversationRoutes','conversation route catalog missing');
 assertContains(appApi,'executeConversationWithFallback','conversation fallback boundary missing');
 assert.match(appApi,/async function internal\(url: string, payload: unknown, timeoutMs\?: number\)/,'internal requests must support a caller-supplied timeout');

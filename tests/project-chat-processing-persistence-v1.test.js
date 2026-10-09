@@ -19,6 +19,10 @@ assert(api.includes('enqueue_execution_job_gateway'));
 assert(api.includes('get_execution_job_gateway'));
 assert(api.includes('local_qwen_enqueue_failed'));
 assert(api.includes('local_fallback_used'));
+assert(api.includes('async function completeConversationInBackground'), 'cloud chat execution must finish outside the synchronous request');
+assert(api.includes('EdgeRuntime.waitUntil(completeConversationInBackground('), 'chat endpoint must acknowledge quickly and persist the assistant response asynchronously');
+assert(api.includes('visualState:"processing"'), 'async chat acknowledgement must explicitly tell the client to poll canonical conversation state');
+assert(api.includes('No se pudo completar la respuesta de ARIA'), 'background execution failures must be persisted explicitly rather than leave an endless spinner');
 assert(api.includes('localRoute'));
 assert(api.includes('cloudFallbacks'));
 assert(api.includes('candidateRoutes'));
@@ -32,6 +36,8 @@ assert(api.includes('routes:routes.filter((route:any)=>route.provider_id!=="loca
 
 assert(api.includes('if (persistedUserMessage?.conversation_id) conversationId = String(persistedUserMessage.conversation_id)'));
 assert(project.includes('chatThinking'));
+assert(project.includes("path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000"), 'project conversation reads must have bounded latency under load');
+assert(project.includes("delayMs=Math.min(6000,Math.round(delayMs*1.35))"), 'canonical chat readback must back off when Supabase is under load');
 assert(project.includes('Procesamiento en curso'));
 assert(project.includes('Procesado en {formatProcessingTime(m.processingMs)}'));
 assert(app.includes('chatThinking'));

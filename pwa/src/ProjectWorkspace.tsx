@@ -32,7 +32,7 @@ async function api(path:string, token:string, init:RequestInit={}) {
   if (init.body) headers.set('content-type','application/json');
   const method=String(init.method||'GET').toUpperCase();
   const controller=new AbortController();
-  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?45000:path.endsWith('/conversation')?150000:30000);
+  const timeout=window.setTimeout(()=>controller.abort(),method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path.endsWith('/conversation')?30000:30000);
   try {
     const response = await fetch(API+path,{...init,headers,cache:'no-store',signal:controller.signal});
     const raw = await response.text();
@@ -439,32 +439,38 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return promise;
   }
 
-  async function waitForProjectAssistant(requestProject:Project, timeoutMs=145000){
+  async function waitForProjectAssistant(requestProject:Project, timeoutMs=120000){
     const deadline=Date.now()+timeoutMs;
+    let delayMs=1500;
     while(Date.now()<deadline){
       try{
         const d=await api('/projects/'+encodeURIComponent(requestProject.id)+'/conversation',session.accessToken);
         const rows=Array.isArray(d?.conversation?.messages)?d.conversation.messages:[];
         if(d?.conversation_id&&rows.length){
           const normalized=rows
-            .map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')}))
+            .map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||''),visualState:String(m.visual_state||''),providerId:String(m.provider_id||''),modelId:String(m.model_id||'')}))
             .filter((m:any)=>m.text.trim());
           const lastUserIndex=rows.reduce((last:number,m:any,index:number)=>m?.role==='user'?index:last,-1);
           const assistantAfterLatestUser=lastUserIndex>=0
-            && rows.slice(lastUserIndex+1).some((m:any)=>m?.role==='assistant'&&String(m?.content||'').trim().length>0);
+            ? rows.slice(lastUserIndex+1).find((m:any)=>m?.role==='assistant'&&String(m?.content||'').trim().length>0)
+            : null;
           try{localStorage.setItem('aria_project_conversation:'+session.userId+':'+requestProject.id,JSON.stringify({conversation_id:d.conversation_id,messages:normalized}));}catch{}
           if(assistantAfterLatestUser){
             if(requestProject.id===project.id){
               setConversationId(d.conversation_id);
               setMessages(normalized);
+              if(String(assistantAfterLatestUser.visual_state||'')==='error') {
+                setError(String(assistantAfterLatestUser.content||'ARIA no pudo completar esta respuesta.'));
+              }
             }
-            return true;
+            return String(assistantAfterLatestUser.visual_state||'')!=='error';
           }
         }
       }catch{
-        // A 503 during background generation is transient; retry the same canonical conversation.
+        // Transient read errors use bounded exponential backoff instead of creating more load.
       }
-      await new Promise(resolve=>setTimeout(resolve,2000));
+      await new Promise(resolve=>setTimeout(resolve,delayMs));
+      delayMs=Math.min(6000,Math.round(delayMs*1.35));
     }
     return false;
   }
