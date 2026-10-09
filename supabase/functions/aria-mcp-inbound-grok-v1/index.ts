@@ -116,11 +116,11 @@ async function cuevaCoinProjectControl(args:Record<string,unknown>,clientId:stri
  if(Object.prototype.hasOwnProperty.call(CUEVACOIN_GITHUB_OPERATION_MAP,operation)){
   const payload:Record<string,unknown>={...args};delete payload.operation;
   if(operation==="github_create_branch"||operation==="github_file_write"||operation==="github_open_pr"||operation==="github_pr_merge"){
-   if(!/^aria\\/repair\\/cuevacoin-[A-Za-z0-9._/-]{1,160}$/.test(String(args.branch||"")))throw Error("cuevacoin_governed_branch_required");
+   if(!(String(args.branch||"").startsWith("aria/repair/cuevacoin-")&&/^[A-Za-z0-9._/-]{1,200}$/.test(String(args.branch||""))&&!String(args.branch||"").includes("..")))throw Error("cuevacoin_governed_branch_required");
   }
   if(operation==="github_file_write"){
    const risk=String(args.risk_level||"low").toLowerCase();
-   if(risk==="low"){payload.risk_level="low";}
+   if(risk==="low"){payload.risk_level="low";delete payload.manual_review_required;}
    else{
     if(!["moderate","high","destructive"].includes(risk))throw Error("valid_risk_level_required");
     if(args.manual_review_required!==true)throw Error("manual_review_required");
@@ -129,7 +129,7 @@ async function cuevaCoinProjectControl(args:Record<string,unknown>,clientId:stri
     payload.risk_level=risk;payload.manual_review_required=true;payload.change_summary=String(args.change_summary).slice(0,500);
    }
    if(String(args.content||"").length>180000)throw Error("cuevacoin_file_too_large");
-   delete payload.change_approval;delete payload.manual_review_required;
+   delete payload.change_approval;
   }
   if(operation==="github_pr_merge"){
    const n=Number(args.number);
@@ -144,7 +144,8 @@ async function cuevaCoinProjectControl(args:Record<string,unknown>,clientId:stri
    requireCuevaCoinWriteConfirmation(args,operation);
   }
   payload.owner=CUEVACOIN_PROJECT.owner;payload.repo=CUEVACOIN_PROJECT.repo;
-  const result=await callCuevaCoinGitHub(CUEVACOIN_GITHUB_OPERATION_MAP[operation],payload);
+  const runtimeOperation=operation==="github_file_write"&&String(args.risk_level||"low").toLowerCase()!=="low"?"reviewed_file_write":CUEVACOIN_GITHUB_OPERATION_MAP[operation];
+  const result=await callCuevaCoinGitHub(runtimeOperation,payload);
   return{ok:true,project:"CuevaCoin",subsystem:"github",operation,client_id:clientId,data:result.data??null,manual_review_required:operation==="github_file_write"&&String(args.risk_level||"low").toLowerCase()!=="low",completed_at:new Date().toISOString()};
  }
  const token=await readCuevaCoinManagementToken();if(!token)throw Error("cuevacoin_supabase_management_token_human_gate");
