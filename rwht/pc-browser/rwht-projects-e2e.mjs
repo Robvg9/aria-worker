@@ -784,12 +784,50 @@ async function run() {
       });
       const visualBox = await visualCanvas.boundingBox();
       if (!visualBox || visualBox.width < 400 || visualBox.height < 200) throw new Error('artia_canvas_not_ready_' + visualProject.id);
+      const drawPoints = {
+        start: { x: visualBox.x + visualBox.width * 0.20, y: visualBox.y + visualBox.height * 0.20 },
+        end: { x: visualBox.x + visualBox.width * 0.55, y: visualBox.y + visualBox.height * 0.45 }
+      };
+      // Do not let a bad hit target silently become a global PWA swipe. Prove that
+      // both ends of the real mouse gesture are actually over the annotation canvas.
+      const hitTest = await page.evaluate(({ start, end }) => {
+        const canvas = document.querySelector('.artiaPreviewShell canvas');
+        const describe = (point) => {
+          const target = document.elementFromPoint(point.x, point.y);
+          return {
+            x: point.x, y: point.y,
+            is_canvas: Boolean(canvas && target === canvas),
+            tag: target?.tagName || null,
+            class_name: target ? String(target.className?.baseVal || target.className || '').slice(0, 180) : null,
+            text: String(target?.textContent || '').trim().slice(0, 120)
+          };
+        };
+        const rect = canvas?.getBoundingClientRect();
+        return {
+          hash: location.hash,
+          project: document.querySelector('.projectGrid .projectCard.selected')?.innerText?.trim() || null,
+          tab: document.querySelector('.projectTabs .tabButton.selected')?.innerText?.trim() || null,
+          canvas_pointer_events: canvas ? getComputedStyle(canvas).pointerEvents : null,
+          canvas_rect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
+          viewport: { width: innerWidth, height: innerHeight },
+          start: describe(start),
+          end: describe(end)
+        };
+      }, drawPoints);
+      if (!hitTest.start.is_canvas || !hitTest.end.is_canvas) {
+        await page.screenshot({ path: path.join(ARTIFACT_DIR, 'artia-hit-test-failure-' + visualProject.id + '.png'), fullPage: true }).catch(() => {});
+        throw new Error('artia_canvas_hit_test_failed_' + visualProject.id + '_' + JSON.stringify(hitTest));
+      }
       const beforeDraw = await visualCanvas.evaluate((node) => (node instanceof HTMLCanvasElement ? node.toDataURL('image/png') : ''));
-      await page.mouse.move(visualBox.x + visualBox.width * 0.20, visualBox.y + visualBox.height * 0.20);
+      await page.mouse.move(drawPoints.start.x, drawPoints.start.y);
       await page.mouse.down();
       await new Promise(resolve => setTimeout(resolve, 120));
-      await page.mouse.move(visualBox.x + visualBox.width * 0.55, visualBox.y + visualBox.height * 0.45, { steps: 12 });
+      await page.mouse.move(drawPoints.end.x, drawPoints.end.y, { steps: 12 });
       await page.mouse.up();
+      const routeAfterDrawingGesture = await page.evaluate(() => location.hash);
+      if (routeAfterDrawingGesture !== '#projects') {
+        throw new Error('artia_drawing_gesture_changed_global_route_' + visualProject.id + '_to_' + routeAfterDrawingGesture);
+      }
       await page.waitForFunction(() => [...document.querySelectorAll('.visualHint')].some(n => /Anotaciones:\s*[1-9]\d*/.test(n.textContent || '')), null, { timeout: 30000 }).catch(async (error) => {
         const state = await page.evaluate(() => {
           const c = document.querySelector('.artiaPreviewShell canvas');
