@@ -143,6 +143,9 @@ async function proxyOAuth(request,url){
       elevatedHeaders.set("content-type","text/html; charset=utf-8");
       elevatedHeaders.set("cache-control","no-store");
       elevatedHeaders.set("x-aria-grok-consent","elevated-form-v1");
+      // The Supabase gateway's "default-src 'none'; sandbox" CSP breaks this HTML's inline CSS and blocks form submission.
+      // Replace it only for this fixed, script-free elevated consent document with a least-privilege policy.
+      elevatedHeaders.set("content-security-policy","default-src 'none'; style-src 'unsafe-inline'; style-src-attr 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; script-src 'none'; connect-src 'none'; img-src 'none'; font-src 'none'");
       return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:elevatedHeaders});
     }
     const client=(html.match(/<strong>([^<]+)<\/strong>/i)||[])[1]||"Grok Custom Connector";

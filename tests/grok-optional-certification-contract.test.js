@@ -14,6 +14,12 @@ const elevatedBranch = worker.slice(start, end);
 if (!elevatedBranch.includes('requestedScopes.includes("aria.project.cuevacoin.control")')) throw new Error('CuevaCoin control scope must have its own consent rendering path');
 if (!elevatedBranch.includes('return new Response(html,{status:upstream.status')) throw new Error('elevated scope must preserve upstream consent HTML');
 if (!elevatedBranch.includes('elevated-form-v1')) throw new Error('missing elevated consent UI marker');
+const elevatedCsp = (elevatedBranch.match(/elevatedHeaders[.]set[(]"content-security-policy","([^"]+)"[)]/) || [])[1] || "";
+if (!elevatedCsp) throw new Error('elevated consent response must replace the gateway sandbox CSP');
+for (const directive of ["style-src 'unsafe-inline'", "style-src-attr 'unsafe-inline'", "form-action 'self'", "base-uri 'none'", "frame-ancestors 'none'", "script-src 'none'"]) {
+  if (!elevatedCsp.includes(directive)) throw new Error('elevated consent CSP missing required directive: ' + directive);
+}
+if (elevatedCsp.split(";").some(directive => directive.trim() === "sandbox")) throw new Error('elevated consent CSP must not sandbox form submission');
 if (!worker.includes('x-aria-grok-consent":"direct-link-v2')) throw new Error('legacy read-only Grok UI compatibility was removed');
 if (!oauthSource.includes('control_confirmation')) throw new Error('upstream consent form must include explicit control confirmation');
 if (!oauthSource.includes('AUTHORIZE CUEVACOIN CONTROL')) throw new Error('upstream consent form must show the exact phrase');
