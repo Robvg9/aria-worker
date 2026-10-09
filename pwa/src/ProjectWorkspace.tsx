@@ -396,6 +396,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const projectChatRef=useRef<HTMLTextAreaElement|null>(null);
   const projectChatLoadRef=useRef<{projectId:string;promise:Promise<void>}|null>(null);
   const projectChatReadGenerationRef=useRef(0);
+  const projectChatWriteInFlightRef=useRef(false);
 
   useEffect(()=>{try{localStorage.setItem(PROJECT_KEY,project.id);localStorage.setItem(TAB_KEY(project.id),tab)}catch{}},[project.id,tab,session.userId]);
 
@@ -434,7 +435,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
           setProjectChatReady(true);
           // After a verified response, this final refresh is best-effort; do not
           // overwrite the successful server result with a secondary read timeout.
-          if(!options.quiet)setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
+          if(!options.quiet&&!projectChatWriteInFlightRef.current)setError(e instanceof Error?e.message:'No se pudo cargar el chat del proyecto.');
         }
       }finally{
         if(projectChatLoadRef.current?.promise===promise)projectChatLoadRef.current=null;
@@ -528,7 +529,8 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   async function openMission(missionId:string){try{setError('');const d=await api('/missions/'+encodeURIComponent(missionId),session.accessToken);if(!d?.mission)throw new Error('No se pudo abrir el detalle de la misión.');setSelectedMission(d.mission)}catch(e){setError(e instanceof Error?e.message:'No se pudo abrir el detalle de la misión.')}}
 
   async function send(){
-    const clean=text.trim();if(!clean||sending)return;
+    const clean=text.trim();if(!clean||sending||projectChatWriteInFlightRef.current)return;
+    projectChatWriteInFlightRef.current=true;
     const requestProject=project;
     const clientMessageId=crypto.randomUUID();
     projectChatReadGenerationRef.current+=1;
@@ -553,7 +555,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
       }
       if(d.mission?.mission_id)await loadMissions();
       await loadProjectChat({quiet:true});
-    }catch(e){await loadProjectChat().catch(()=>{});setError(e instanceof Error?e.message:'No se pudo hablar con ARIA.')}finally{setSending(false)}
+    }catch(e){await loadProjectChat().catch(()=>{});setError(e instanceof Error?e.message:'No se pudo hablar con ARIA.')}finally{projectChatWriteInFlightRef.current=false;setSending(false)}
   }
 
   async function createMission(payload:any={}):Promise<boolean>{
