@@ -377,6 +377,7 @@ async function checkUx(page) {
       body_scroll_top: document.body.scrollTop,
       project_shell_scroll_top: root.scrollTop,
       first_project_card_top: firstProjectCard?.getBoundingClientRect().top ?? null,
+      project_shell_overflow_y: getComputedStyle(root).overflowY,
       project_shell_overflow_anchor: getComputedStyle(root).overflowAnchor,
       active_element_tag: document.activeElement?.tagName ?? null,
       active_element_label: (document.activeElement?.getAttribute('aria-label') || document.activeElement?.getAttribute('title') || document.activeElement?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0,120),
@@ -559,6 +560,7 @@ async function run() {
 
     report.ux = await checkUx(page);
     if (report.ux.error) throw new Error(report.ux.error);
+    if (report.ux.project_shell_overflow_y !== 'clip') throw new Error('projects_shell_must_not_be_scrollable');
     if (report.ux.project_shell_overflow_anchor !== 'none') throw new Error('projects_scroll_anchor_not_disabled');
     if (Number(report.ux.project_shell_scroll_top) !== 0 || Number(report.ux.first_project_card_top) < 0) throw new Error('projects_scroll_anchor_contract_failed');
     if (report.ux.horizontal_overflow || report.ux.unnamed_interactive.length || report.ux.offscreen_interactive.length || report.ux.unlabeled_inputs.length) {
