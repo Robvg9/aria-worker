@@ -1602,13 +1602,13 @@ Deno.serve(async (req) => {
       };
 
       const supabaseUrlMatch = configProbe.body.match(/SUPABASE_URL\s*=\s*["']([^"']+)["']/);
-      const publishableKeyMatch = configProbe.body.match(/SUPABASE_ANON_KEY\s*=\s*["']([^"']+)["']/);
+      const publishableKeyMatch = configProbe.body.match(/SUPABASE_[A-Z_]*KEY\s*=\s*["']([^"']+)["']/);
       const configuredBackendUrl = supabaseUrlMatch?.[1]?.replace(/\/+$/, "") ?? null;
       let backendAuth: Record<string, unknown>;
       if (!configProbe.response?.ok || !configuredBackendUrl || configuredBackendUrl !== backendUrl) {
         backendAuth = { status: "frontend_backend_config_mismatch", frontend_config_http_status: configProbe.response?.status ?? null };
-      } else if (!publishableKeyMatch?.[1]) {
-        backendAuth = { status: "public_api_key_not_found", frontend_config_http_status: configProbe.response.status };
+      } else if (!publishableKeyMatch?.[1] || !(publishableKeyMatch[1].startsWith("sb_publishable_") || publishableKeyMatch[1].startsWith("eyJ"))) {
+        backendAuth = { status: "public_api_key_not_found_or_not_publishable", frontend_config_http_status: configProbe.response.status };
       } else {
         const healthProbe = await fetchBounded(backendUrl + "/auth/v1/health", { apikey: publishableKeyMatch[1] });
         const health = healthProbe.body ? (() => { try { return JSON.parse(healthProbe.body); } catch { return null; } })() : null;
