@@ -181,7 +181,10 @@ assert.ok(missionEventsIndexMigration.includes('(event_type, created_at desc)'))
 assert.ok(project.includes("drawingActionRef"));
 assert.ok(project.includes("drawingPointsRef"));
 assert.ok(project.includes("const points=['pen','marker','eraser'].includes(tool)?[...drawingPointsRef.current]:[startPoint.current||p,p]"));
-assert.ok(project.includes("drawingActionRef.current=a.length"));
+assert.ok(project.includes("const actionIndex=actions.length;"));
+assert.ok(project.includes("const actionIndex=drawingActionRef.current;"), 'pointer lifecycle must snapshot the action index before queuing React state');
+assert.ok(!project.includes("drawingActionRef.current=a.length"), 'React state updater must not mutate the drawing action ref because it may execute after pointerUp clears it');
+assert.ok(project.includes("const finalPoints=['pen','marker','eraser'].includes(tool)?points:[points[0],points[points.length-1]||points[0]]"), 'pointerUp must capture stable points before queuing the final state update');
 
 const projectE2E = fs.readFileSync(path.join(root, 'rwht/pc-browser/rwht-projects-e2e.mjs'), 'utf8');
 const projectsRwhtWorkflow = fs.readFileSync(path.join(root, '.github/workflows/projects-rwht-authenticated.yml'), 'utf8');

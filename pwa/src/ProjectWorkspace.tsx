@@ -545,31 +545,44 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const pointFromEvent=(e:React.PointerEvent)=>{const c=canvasRef.current;if(!c)return null;const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*1100/r.width,y:(e.clientY-r.top)*650/r.height}};
   const pointerDown=(e:React.PointerEvent)=>{
     if(!previewPaused){setNotice('Pausa la vista previa antes de pintar.');return;}
-    const p=pointFromEvent(e);if(!p)return;canvasRef.current?.setPointerCapture(e.pointerId);drawing.current=true;startPoint.current=p;drawingPointsRef.current=[p];
-    if(tool==='text'){const text=instruction.trim();if(text)setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.slice(0,120)}]);else setNotice('Escribe primero el texto que quieras colocar sobre la vista.');drawing.current=false;drawingActionRef.current=null;return;}
-    setActions(a=>{drawingActionRef.current=a.length;return [...a,{tool,color,size,points:[p]}]});
+    const p=pointFromEvent(e);if(!p)return;
+    canvasRef.current?.setPointerCapture(e.pointerId);
+    drawing.current=true;startPoint.current=p;drawingPointsRef.current=[p];
+    if(tool==='text'){
+      const text=instruction.trim();
+      if(text)setActions(a=>[...a,{tool:'text',color,size,points:[p],text:text.slice(0,120)]);
+      else setNotice('Escribe primero el texto que quieras colocar sobre la vista.');
+      drawing.current=false;drawingActionRef.current=null;drawingPointsRef.current=[];return;
+    }
+    // Capture the index before scheduling React state. State updater callbacks may
+    // run after pointerUp clears mutable refs, so no updater may read this ref later.
+    const actionIndex=actions.length;
+    drawingActionRef.current=actionIndex;
+    setActions([...actions,{tool,color,size,points:[p]}]);
   };
   const pointerMove=(e:React.PointerEvent)=>{
     if(!drawing.current||!previewPaused)return;
     const p=pointFromEvent(e);if(!p)return;
     drawingPointsRef.current.push(p);
+    const actionIndex=drawingActionRef.current;
+    if(actionIndex==null)return;
     const points=['pen','marker','eraser'].includes(tool)?[...drawingPointsRef.current]:[startPoint.current||p,p];
-    setActions(a=>{
-      const index=drawingActionRef.current;
-      if(index==null||!a[index])return a;
-      const next=[...a];next[index]={...next[index],points};return next;
+    setActions(previous=>{
+      if(actionIndex<0||actionIndex>=previous.length)return previous;
+      const next=[...previous];next[actionIndex]={...next[actionIndex],points};return next;
     });
   };
   const pointerUp=()=>{
     if(drawing.current){
-      const points=drawingPointsRef.current.length?drawingPointsRef.current:[startPoint.current!];
-      setActions(a=>{
-        const index=drawingActionRef.current;
-        if(index==null||!a[index])return a;
-        const next=[...a];
-        next[index]={...next[index],points:['pen','marker','eraser'].includes(tool)?points:[points[0],points[points.length-1]||points[0]]};
-        return next;
-      });
+      const actionIndex=drawingActionRef.current;
+      const points=drawingPointsRef.current.length?[...drawingPointsRef.current]:startPoint.current?[startPoint.current]:[];
+      if(actionIndex!=null&&points.length){
+        const finalPoints=['pen','marker','eraser'].includes(tool)?points:[points[0],points[points.length-1]||points[0]];
+        setActions(previous=>{
+          if(actionIndex<0||actionIndex>=previous.length)return previous;
+          const next=[...previous];next[actionIndex]={...next[actionIndex],points:finalPoints};return next;
+        });
+      }
     }
     drawing.current=false;startPoint.current=null;drawingActionRef.current=null;drawingPointsRef.current=[];
   };
