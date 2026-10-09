@@ -75,10 +75,10 @@ assert.doesNotMatch(oauth, /return\s*\{\s*managementToken\s*:/i);
 // The dedicated OAuth workflow must deploy checked-in code, not overwrite it from an old SHA.
 const inboundDeployWorkflow = fs.readFileSync(path.join(root, '.github/workflows/deploy-aria-mcp-inbound-grok.yml'), 'utf8');
 assert.match(inboundDeployWorkflow, /workflow_dispatch:/);
-assert.doesNotMatch(inboundDeployWorkflow, /\\n  push:/);
-assert.doesNotMatch(inboundDeployWorkflow, /git show 3162e4aa18cb046e08b83c6ec09f9e1a1a580444:supabase\\/functions\\/aria-mcp-inbound-grok-v1\\/index\\.ts/);
+assert.ok(!/^\\s*push:/m.test(inboundDeployWorkflow), 'OAuth deployment must not auto-deploy concurrently with canonical Supabase deploy');
+assert.doesNotMatch(inboundDeployWorkflow, /git show 3162e4aa/);
 assert.doesNotMatch(inboundDeployWorkflow, /git push origin HEAD:main/);
-assert.match(inboundDeployWorkflow, /aria\\.project\\.cuevacoin\\.control/);
+assert.ok(inboundDeployWorkflow.includes('aria.project.cuevacoin.control'));
 assert.match(inboundDeployWorkflow, /WORKER_PRM_OK/);
 console.log('aria-mcp-inbound-deploy-no-historical-overwrite: PASS');
 
