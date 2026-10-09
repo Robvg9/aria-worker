@@ -38,6 +38,7 @@ $ChannelRestartTimes = New-Object 'System.Collections.Generic.List[datetime]'
 $ChannelRestartThresholdSeconds = 180
 $ChannelRestartMaxPerHour = 2
 $ChannelRestartLimitLastLog = $null
+$ChannelBackendDegradedLastLog = $null
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $created = $false
@@ -87,12 +88,18 @@ function Get-RemoteChannelState {
     $lastSuccess = -1
     $lastFailure = -1
     $lastFailureLine = $null
+    $lastHostedFailure = -1
+    $lastHostedFailureLine = $null
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $line = [string]$lines[$i]
         if ($line -match '(?i)Channel subscribed|Status:\s*Online') {
             $lastSuccess = $i
         }
-        if ($line -match '(?i)IncreaseConnectionPool|Channel error:|Channel subscription timed out|Device registered, but NOT reachable|Realtime channel is not open|socket closed:\s*1006|Failed to connect to Desktop Commander MCP|Failed to connect to Remote MCP|Recreating channel|Failed to set session|Failed to set status offline|Failed to update transport capability') {
+        if ($line -match '(?i)IncreaseConnectionPool|fetch failed|upstream connect error|reset reason:\s*overflow|Cloudflare.{0,30}525|SSL handshake failed') {
+            $lastHostedFailure = $i
+            $lastHostedFailureLine = $line
+        }
+        if ($line -match '(?i)IncreaseConnectionPool|Channel error:|Channel subscription timed out|Device registered, but NOT reachable|Realtime channel is not open|socket closed:\s*1006|Failed to connect to Desktop Commander MCP|Failed to connect to Remote MCP|Recreating channel|Failed to set session|Failed to set status offline|Failed to update transport capability|fetch failed|upstream connect error|reset reason:\s*overflow|Cloudflare.{0,30}525|SSL handshake failed') {
             $lastFailure = $i
             $lastFailureLine = $line
         }
@@ -106,19 +113,22 @@ function Get-RemoteChannelState {
                 $lastFailureLine = ($errLines | Select-Object -Last 1)
                 $joinedErr = $errLines -join [Environment]::NewLine
                 if ($joinedErr -match '(?i)error|failed|not connected|timeout|IncreaseConnectionPool') {
-                    return [pscustomobject]@{ State = 'channel_degraded'; Detail = [string]$lastFailureLine }
+                    $hostedFailure = $joinedErr -match '(?i)IncreaseConnectionPool|fetch failed|upstream connect error|reset reason:\s*overflow|Cloudflare.{0,30}525|SSL handshake failed'
+                    return [pscustomobject]@{ State = 'channel_degraded'; Detail = [string]$lastFailureLine; HostedFailure = [bool]$hostedFailure }
                 }
             }
         } catch {}
     }
 
     if ($lastFailure -gt $lastSuccess) {
-        return [pscustomobject]@{ State = 'channel_degraded'; Detail = [string]$lastFailureLine }
+        $hostedFailure = $lastHostedFailure -gt $lastSuccess
+        $detail = if ($hostedFailure) { [string]$lastHostedFailureLine } else { [string]$lastFailureLine }
+        return [pscustomobject]@{ State = 'channel_degraded'; Detail = $detail; HostedFailure = [bool]$hostedFailure }
     }
     if ($lastSuccess -ge 0) {
-        return [pscustomobject]@{ State = 'channel_last_subscribed'; Detail = 'Last observed Channel subscribed; no newer channel error appears in the captured stdout tail. This is log evidence, not a live remote ping.' }
+        return [pscustomobject]@{ State = 'channel_last_subscribed'; Detail = 'Last observed Channel subscribed; no newer channel error appears in the captured stdout tail. This is log evidence, not a live remote ping.'; HostedFailure = $false }
     }
-    return [pscustomobject]@{ State = 'channel_unverified'; Detail = 'Process exists, but no Channel subscribed confirmation is present in recent stdout.' }
+    return [pscustomobject]@{ State = 'channel_unverified'; Detail = 'Process exists, but no Channel subscribed confirmation is present in recent stdout.'; HostedFailure = $false }
 }
 
 function Write-ObservedChannelStatus([int]$ProcessId) {
@@ -128,7 +138,7 @@ function Write-ObservedChannelStatus([int]$ProcessId) {
     return $channel
 }
 
-function Invoke-ChannelRecovery([int]$ProcessId,[string]$State) {
+function Invoke-ChannelRecovery([int]$ProcessId,[string]$State,[string]$ChannelDetail,[bool]$HostedFailure=$false) {
     $now = Get-Date
     for ($i = $script:ChannelRestartTimes.Count - 1; $i -ge 0; $i--) {
         if ($script:ChannelRestartTimes[$i] -lt $now.AddHours(-1)) {
@@ -138,6 +148,17 @@ function Invoke-ChannelRecovery([int]$ProcessId,[string]$State) {
 
     if ($State -ne 'channel_degraded') {
         $script:ChannelDegradedSince = $null
+        return $false
+    }
+
+    # Do not worsen known hosted Realtime/session outages by repeatedly restarting
+    # the client: each restart can create another private-channel join/token refresh.
+    if ($HostedFailure -or $ChannelDetail -match '(?i)IncreaseConnectionPool|fetch failed|upstream connect error|reset reason:\s*overflow|Cloudflare.{0,30}525|SSL handshake failed') {
+        $script:ChannelDegradedSince = $null
+        if ($null -eq $script:ChannelBackendDegradedLastLog -or ($now - $script:ChannelBackendDegradedLastLog).TotalMinutes -ge 5) {
+            Write-Log "CHANNEL_BACKEND_DEGRADED_NO_RESTART reason=hosted_transport_or_capacity detail=$ChannelDetail"
+            $script:ChannelBackendDegradedLastLog = $now
+        }
         return $false
     }
 
@@ -194,7 +215,7 @@ while ($true) {
         $desktopCommanderPid = Find-DesktopCommander
         if ($desktopCommanderPid -gt 0) {
             $channel = Write-ObservedChannelStatus $desktopCommanderPid
-            Invoke-ChannelRecovery -ProcessId $desktopCommanderPid -State $channel.State | Out-Null
+            Invoke-ChannelRecovery -ProcessId $desktopCommanderPid -State $channel.State -ChannelDetail $channel.Detail -HostedFailure ([bool]$channel.HostedFailure) | Out-Null
             Start-Sleep -Seconds 10
             continue
         }
