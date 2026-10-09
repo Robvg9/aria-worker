@@ -412,7 +412,7 @@ function humanizeTechnicalText(value: any): string {
 function humanizeDiagnosticLabel(value: any): string {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
-  const key = raw.toLowerCase().replace(/[\\s-]+/g, '_');
+  const key = raw.toLowerCase().replace(/[\s-]+/g, '_');
   const known: Record<string,string> = {
     payment: 'Pago',
     stale_unleased_retry_reconciled: 'La misión pendiente de recuperación fue conciliada',
@@ -427,7 +427,7 @@ function humanizeDiagnosticLabel(value: any): string {
     executor_error: 'Error durante la ejecución',
   };
   if (known[key]) return known[key];
-  return humanizeTechnicalText(raw).replace(/[_]+/g, ' ').replace(/\\s+/g, ' ').trim();
+  return humanizeTechnicalText(raw).replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function humanStepTitle(step: any, fallbackIndex = 1): string {
