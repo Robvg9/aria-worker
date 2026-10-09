@@ -17,9 +17,9 @@ permissions:
   issues: write
 
 concurrency:
-  # Projects + ARTIA must never compete with the other authenticated RWHT suites.
-  # Shared concurrency previously cancelled this certification before its E2E started.
-  group: aria-projects-artia-rwht
+  # Isolate each deployed SHA so a stalled old browser install cannot block a newer
+  # release certification. The same SHA still has only one active Projects + ARTIA run.
+  group: aria-projects-artia-rwht-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -198,6 +198,7 @@ jobs:
 
       - name: Install Chromium
         working-directory: rwht/pc-browser
+        timeout-minutes: 8
         run: npx playwright install --with-deps chromium
 
       - name: Verify canonical test catalog on LIVE PWA
