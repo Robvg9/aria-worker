@@ -2,6 +2,7 @@
 /* 2026-10-08: force exact-main PWA/ARTIA production delivery after preview fixes. */
 /* 2026-10-09: release latest canonical ARTIA mission visual-context fix #1037 so the official RWHT can certify the exact LIVE SHA. */
 /* 2026-10-09: certify workflow_run releases from already-merged PRs; compare RWHT against exact deployed SHA. */
+/* 2026-10-09: release indexed single-query Meditation IA overview; authenticated Projects + ARTIA RWHT gates the live overview before drawing/mission checks. */
 // Phase 3 RWHT clean verification trigger.
 // Phase 3 RWHT auth diagnostic trigger: same bounded deploy/certification cycle.
 // Phase 3 auth timeout contract: proxy-first password authentication uses bounded upstream latency.
