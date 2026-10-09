@@ -558,10 +558,11 @@ async function completeConversationInBackground(args:{
   debateRequested:boolean;
 }) {
   const {userId,conversationId,step,prompt,visualContext,clientMessageId,traceId,title,project,debateRequested}=args;
+  const visual_context=visualContext;
   try {
     let debate:any=null;
     if(debateRequested) {
-      try { debate=await executeDebate(step,prompt,conversationId,visualContext,clientMessageId,false); }
+      try { debate=await executeDebate(step, prompt, conversationId, visual_context, clientMessageId, false); }
       catch { debate=null; }
     }
     const execution:any=debate
@@ -1855,7 +1856,7 @@ Deno.serve(async (req) => {
         "MENSAJE DEL USUARIO — RESPONDE A ESTO DIRECTAMENTE:\n" + text
       ].filter(Boolean).join("\n\n");
       const modelStartedAt = Date.now();
-      const debateRequested=shouldDebate(text,lane.lane);
+      const debateRequested = shouldDebate(text, lane.lane);
       const title=project?.name ? project.name+" · Chat" : "ARIA · Chat";
       // Never hold the HTTP request open for two 45-second model attempts.
       // The canonical user message is already persisted; the client will poll the
