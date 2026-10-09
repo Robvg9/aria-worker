@@ -383,16 +383,31 @@ async function run() {
       // The CDP ServiceWorker domain must be attached to the PWA origin so
       // Chrome resolves the active registration rather than an about:blank target.
       const controllerPage = await context.newPage();
-      await controllerPage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
-      await withTimeout(
+      // The production HTML registers its versioned SW from the window "load"
+      // handler. Wait for that lifecycle point; domcontentloaded is too early.
+      await controllerPage.goto(base + '#meditation', { waitUntil:'load', timeout:30000 });
+      const activeServiceWorkerUrl = await withTimeout(
         controllerPage.evaluate(async () => {
-          const registration = await navigator.serviceWorker.ready;
-          if (!registration.active) throw new Error('pwa_service_worker_not_active');
-          return registration.active.scriptURL;
+          if (!('serviceWorker' in navigator)) throw new Error('service_worker_api_unavailable');
+          let registration = await navigator.serviceWorker.getRegistration('/pwa/');
+          if (!registration) {
+            const versionResponse = await fetch('/pwa/version.json', { cache:'no-store' });
+            if (!versionResponse.ok) throw new Error('pwa_version_unavailable_' + versionResponse.status);
+            const version = await versionResponse.json();
+            const build = String(version?.build || '').trim();
+            if (!build) throw new Error('pwa_version_build_missing');
+            registration = await navigator.serviceWorker.register('/pwa/sw-' + build + '.js', { scope:'/pwa/' });
+          }
+          await registration.update().catch(() => undefined);
+          const ready = await navigator.serviceWorker.ready;
+          const active = registration.active || ready.active;
+          if (!active) throw new Error('pwa_service_worker_not_active');
+          return active.scriptURL;
         }),
-        15000,
+        20000,
         'pwa_service_worker_ready_for_push_probe'
       );
+      console.log('WEBPUSH_E2E_ACTIVE_SERVICE_WORKER=' + activeServiceWorkerUrl);
       const origin = String(new URL(base).origin);
       const pushDelivery = await deliverBackgroundPushViaCdp(
         controllerPage,

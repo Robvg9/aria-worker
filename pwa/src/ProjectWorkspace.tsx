@@ -554,7 +554,14 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     setSending(true);setError('');
     try{
       const d=await api('/missions',session.accessToken,{method:'POST',body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:payload.visual_context||null})});
-      if(!d?.mission?.mission_id)throw new Error('ARIA no confirmó la creación de la misión.');
+      // The canonical API exposes both mission.mission_id and top-level mission_id.
+      // Normalize the documented response shapes instead of reporting a false failure
+      // after DIRECT already persisted and even completed the mission.
+      const createdMissionId=String(d?.mission?.mission_id??d?.mission_id??d?.result?.mission_id??'').trim();
+      if(!createdMissionId){
+        const detail=String(d?.detail??d?.error??d?.message??'respuesta sin identificador canónico').slice(0,180);
+        throw new Error('ARIA no confirmó la creación de la misión ('+detail+').');
+      }
       setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);
       return true;
     }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.');return false}finally{setSending(false)}
