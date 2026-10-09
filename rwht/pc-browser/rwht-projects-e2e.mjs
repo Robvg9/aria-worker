@@ -906,16 +906,16 @@ async function run() {
     if (!boardInitial.truthText.includes(boardInitial.liveBuildSha)) throw new Error('reality_board_live_sha_not_rendered');
     if (!boardInitial.truthText.includes('HISTÓRICO') && !boardInitial.truthText.includes('NO CONFIRMADO')) throw new Error('reality_board_uncertainty_not_rendered');
 
-    const priorUpdatedText = boardInitial.updatedText;
+    const initialBoardApiCount = boardApiResponses.length;
+    if (initialBoardApiCount < 4) throw new Error('reality_board_initial_load_did_not_query_all_project_sources');
     await page.getByRole('button', { name: 'Actualizar ahora' }).click();
-    await page.waitForFunction((prior) => {
-      const value = String(document.querySelector('#updated')?.textContent || '');
-      return value.includes('Actualizado:') && (value !== prior || document.querySelectorAll('#summary .row').length >= 4);
-    }, priorUpdatedText, { timeout: 30000 });
-    await waitFor(1200);
+    const refreshDeadline = Date.now() + 30000;
+    while (Date.now() < refreshDeadline && boardApiResponses.length - initialBoardApiCount < 4) await waitFor(250);
+    await waitFor(500);
     page.off('response', onBoardResponse);
-    if (boardApiResponses.length < 4) throw new Error('reality_board_refresh_did_not_query_all_project_sources');
-    const badBoardReads = boardApiResponses.filter(x => x.status !== 200);
+    const manualRefreshResponses = boardApiResponses.slice(initialBoardApiCount);
+    if (manualRefreshResponses.length < 4) throw new Error('reality_board_manual_refresh_did_not_query_all_project_sources');
+    const badBoardReads = [...boardApiResponses, ...manualRefreshResponses].filter(x => x.status !== 200);
     if (badBoardReads.length) throw new Error('reality_board_project_api_read_failed_' + JSON.stringify(badBoardReads.slice(0, 8)));
     report.reality_board = {
       url: boardUrl,
@@ -926,7 +926,8 @@ async function run() {
       project_cards: boardInitial.projectCount,
       truth_section_rendered: true,
       human_next_actions_rendered: true,
-      manual_refresh_api_responses: boardApiResponses,
+      initial_api_responses: boardApiResponses.slice(0, initialBoardApiCount),
+      manual_refresh_api_responses: manualRefreshResponses,
       source_policy: 'CuevaCoin historical is never called LIVE; source ARTIA preview is not equated with project runtime',
       updated_text: boardInitial.updatedText
     };
