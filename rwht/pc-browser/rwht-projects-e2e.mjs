@@ -340,6 +340,7 @@ async function checkUx(page) {
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     const scrollWidth = Math.max(document.body.scrollWidth, document.documentElement.scrollWidth);
+    const firstProjectCard = root.querySelector('.projectGrid .projectCard');
     const unnamed = [];
     const offscreen = [];
     const unlabeled = [];
@@ -371,6 +372,11 @@ async function checkUx(page) {
     return {
       horizontal_overflow: scrollWidth > viewportWidth + 2,
       body_scroll_width: scrollWidth,
+      window_scroll_y: window.scrollY,
+      document_scroll_top: document.documentElement.scrollTop,
+      body_scroll_top: document.body.scrollTop,
+      project_shell_scroll_top: root.scrollTop,
+      first_project_card_top: firstProjectCard?.getBoundingClientRect().top ?? null,
       unnamed_interactive: unnamed,
       offscreen_interactive: offscreen,
       unlabeled_inputs: unlabeled
