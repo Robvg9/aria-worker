@@ -1391,10 +1391,19 @@ async function meditationOverview(userId:string){
   const queuedMissions=queuedSources.slice(0,20).map((m:any)=>enrichMission({...m,...(detailedById.get(String(m.mission_id))||{})},sb,false));
   const missions=fastMissions.map((m:any)=>m.mission_id===active?.mission_id?active:m);
   const byId=new Map([...missions,...failedList,...blockedList,...verificationList].map(m=>[m.mission_id,m]));
-  const {data:ev,error:ee}=await sb.schema("aria_internal").from("mission_events")
-    .select("mission_id,step_index,event_type,payload,created_at").in("event_type",["human_gate_requested","self_improvement_human_gate"])
-    .order("created_at",{ascending:false}).limit(100);
-  if(ee)throw new Error(ee.message);
+  // Human-gate events only matter for missions visible in this user's overview.
+  // Bound the event query by those canonical mission IDs before loading payloads;
+  // do not scan the global event ledger and then discard unrelated users' rows.
+  let ev:any[]=[];
+  if(visibleIds.length){
+    const {data:eventRows,error:eventError}=await sb.schema("aria_internal").from("mission_events")
+      .select("mission_id,step_index,event_type,payload,created_at")
+      .in("mission_id",visibleIds)
+      .in("event_type",["human_gate_requested","self_improvement_human_gate"])
+      .order("created_at",{ascending:false}).limit(100);
+    if(eventError)throw new Error(eventError.message);
+    ev=eventRows??[];
+  }
   const gates:any[]=[];
   for(const e of ev??[]){
     const m=byId.get(String(e.mission_id)); if(!m||terminal.has(String(m.status)))continue;
