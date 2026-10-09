@@ -333,6 +333,10 @@ assert.ok(projectsRwht.includes("src: 'https://battlecruiser.robvg9.workers.dev/
 assert.ok(projectsRwht.includes("mode: 'auth-required'"), 'RWHT must certify the LIVE preview auth-required boundary, not a source mock');
 assert.ok(!projectsRwht.includes("https://aria.robvg9.workers.dev/project-preview/battlecruiser/"), 'RWHT must not require the obsolete static BattleCruiser reference');
 assert.ok(projectsRwht.includes("artia_visual_auth_required_badge_missing_") && projectsRwht.includes("artia_auth_required_badge_missing_"), 'both ARTIA visual missions and preview catalog must verify the auth-required badge');
+assert.match(projectsRwht,/const CERT_SCOPE = String\(process\.env\.RWHT_CERT_SCOPE/);
+assert.match(projectsRwht,/reality_board_live_sha_mismatch_expected_/);
+assert.match(projectsRwht,/projects\.every\(\(project\) => project\.chat\?\.server_persistence_verified === true && project\.chat\?\.reload_persistence_verified === true\)/);
+assert.match(projectsRwht,/report\.steps_7_8 =/);
 console.log('BATTLECRUISER LIVE PREVIEW + PROJECTS VIEWPORT REGRESSION CONTRACT: PASS');
 
 
