@@ -75,6 +75,7 @@ async function kickCanonicalRunner(missionId: string, reason: string) {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       authorization: `Bearer ${SHARED_SECRET}`,
+      "x-aria-trigger": "mission-tick",
       ...(EDGE_API_KEY ? { apikey: EDGE_API_KEY } : {})
     };
     const response = await fetch(CANONICAL_RUNTIME, {
