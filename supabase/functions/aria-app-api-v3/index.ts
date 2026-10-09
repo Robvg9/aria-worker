@@ -193,7 +193,14 @@ async function internal(url: string, payload: unknown, timeoutMs?: number) {
       body: JSON.stringify(payload),
       ...(controller ? { signal: controller.signal } : {})
     });
-    const b = await r.json().catch(() => null);
+    let b: any = null;
+    try {
+      b = await r.json();
+    } catch (error) {
+      if (controller && (error as any)?.name === "AbortError") {
+        throw new Error("internal_request_timeout_" + Number(timeoutMs));
+      }
+    }
     return { r, b };
   } catch (error) {
     if (controller && (error as any)?.name === "AbortError") {
