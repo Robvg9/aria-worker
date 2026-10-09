@@ -1,3 +1,4 @@
+/* 2026-10-09: force exact-SHA production certification after async canonical ARTIA mission dispatch fix #1072; no runtime behavior change. */
 /* 2026-10-09: release SHA-isolated Projects ARTIA RWHT with bounded Chromium installation. */
 /* 2026-10-09: rerun scheduler deploy after syncing planner-v2 integrity contract. */
 /* 2026-10-09: rerun exact-SHA LIVE certification after aligning the scheduler source-read contract. */
