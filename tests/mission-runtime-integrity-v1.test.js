@@ -17,7 +17,8 @@ assert.match(direct,/x-aria-user-id/);
 assert.match(direct,/owner_user_id/);
 assert.match(planner,/multiProjectRealityBoardPlan/);
 assert.match(planner,/reality_aria_repo_read/);
-assert.match(planner,/reality_cuevacoin_repo_read/);
+// The canonical read ID was tightened to an authorized source read; accept the legacy alias too.
+assert.match(planner,/reality_cuevacoin_(?:repo_read|authorized_source_read)/);
 assert.match(planner,/reality_battlecruiser_repo_read/);
 assert.match(planner,/aria-planner-v11-multi-project-reality-board-v1/);
 assert.match(runner,/multi_project_surface_mismatch/);
