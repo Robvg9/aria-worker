@@ -598,7 +598,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
 // Projects certification trigger: final RWHT must execute against the exact main PWA build.
 
 export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>void}) {
-  useEffect(()=>()=>{if(activeBattleCruiserConnection?.ariaUserId===session.userId)activeBattleCruiserConnection=null;},[session.userId]);
+  useEffect(()=>{window.scrollTo(0,0);return()=>{if(activeBattleCruiserConnection?.ariaUserId===session.userId)activeBattleCruiserConnection=null;}},[session.userId]);
   const PROJECT_KEY='aria_project_selection_v2:'+session.userId;
   const TAB_KEY=(projectId:string)=>'aria_project_tab_v2:'+session.userId+':'+projectId;
   const [project,setProject]=useState<Project>(()=>{try{const id=localStorage.getItem(PROJECT_KEY);return PROJECTS.find(p=>p.id===id)||PROJECTS[0]}catch{return PROJECTS[0]}});
