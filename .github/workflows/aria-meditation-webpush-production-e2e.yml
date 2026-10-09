@@ -102,9 +102,13 @@ jobs:
       - name: Install Xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
-      - name: Execute production Web Push E2E
+      - name: Execute production Web Push and authenticated click-through E2E
         working-directory: rwht/pc-browser
-        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' node cloudflare-live-webpush-physical-e2e.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          xvfb-run -a --server-args='-screen 0 1920x1080x24' node cloudflare-live-webpush-physical-e2e.mjs
+          xvfb-run -a --server-args='-screen 0 1920x1080x24' node rwht-meditation-pwa-e2e.mjs
 
       - name: Upload Web Push evidence
         if: always()
