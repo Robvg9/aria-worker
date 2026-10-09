@@ -1,7 +1,11 @@
 name: ARIA Supabase Auth Recovery Restart
 
 on:
+  # A production restart is permitted only from main or an explicit manual dispatch.
+  # Feature-branch pushes must never restart the shared production database.
   push:
+    branches:
+      - main
     paths:
       - '.github/workflows/aria-supabase-auth-recovery-restart.yml'
   workflow_dispatch:
@@ -13,7 +17,7 @@ jobs:
   restart-and-health:
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Restart Supabase project
         env:
@@ -31,24 +35,77 @@ jobs:
           echo
           echo SUPABASE_RESTART_REQUESTED
 
-      - name: Wait for Supabase ACTIVE_HEALTHY
+      - name: Wait for observed restart transition and stable ACTIVE_HEALTHY
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
+          saw_transition=false
+          stable_healthy=0
           for i in $(seq 1 90); do
             payload="$(curl --fail-with-body --silent --show-error \
+              --max-time 10 \
               --url "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF" \
               --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
               --header "Accept: application/json")" || payload='{}'
             status="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status",""))' "$payload" 2>/dev/null || true)"
             echo "PROJECT_STATUS=$status"
-            if [ "$status" = "ACTIVE_HEALTHY" ]; then
-              echo SUPABASE_ACTIVE_HEALTHY
-              exit 0
+            if [[ -n "$status" && "$status" != "ACTIVE_HEALTHY" ]]; then
+              saw_transition=true
+              stable_healthy=0
+            elif [[ "$status" == "ACTIVE_HEALTHY" && "$saw_transition" == true ]]; then
+              stable_healthy=$((stable_healthy + 1))
+              echo "STABLE_HEALTHY_CHECKS=$stable_healthy"
+            else
+              # Ignore an immediate/cached ACTIVE_HEALTHY response after the restart
+              # request. It is not proof that the restart completed.
+              echo "PRE_TRANSITION_HEALTH_IGNORED"
             fi
-            sleep 5
+            if [[ "$stable_healthy" -ge 3 ]]; then
+              echo SUPABASE_ACTIVE_HEALTHY_STABLE
+              break
+            fi
+            sleep 10
           done
-          echo SUPABASE_HEALTH_TIMEOUT
-          exit 2
+          if [[ "$saw_transition" != true ]]; then
+            echo SUPABASE_RESTART_TRANSITION_NOT_OBSERVED
+            exit 3
+          fi
+          if [[ "$stable_healthy" -lt 3 ]]; then
+            echo SUPABASE_HEALTH_TIMEOUT
+            exit 2
+          fi
+
+      - name: Verify direct Auth and Worker refresh-token paths are responsive
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          # Deliberately invalid token: a healthy Auth service returns a client
+          # error (normally 400), not 502/504. This probe creates no session and
+          # never uses or logs a real user's credentials.
+          api_key='sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
+          body='{"refresh_token":"rwht-health-probe-invalid-refresh-token"}'
+          direct_url="https://${SUPABASE_PROJECT_REF}.supabase.co/auth/v1/token?grant_type=refresh_token"
+          worker_url="https://aria.robvg9.workers.dev/auth/token?grant_type=refresh_token"
+          healthy=false
+          for attempt in $(seq 1 18); do
+            direct_code="$(curl --silent --show-error --max-time 12 -o "$RUNNER_TEMP/auth-direct-probe.json" -w '%{http_code}' \
+              -X POST "$direct_url" -H "apikey: $api_key" -H 'content-type: application/json' \
+              --data "$body" 2>/dev/null || true)"
+            worker_code="$(curl --silent --show-error --max-time 12 -o "$RUNNER_TEMP/auth-worker-probe.json" -w '%{http_code}' \
+              -X POST "$worker_url" -H "apikey: $api_key" -H 'content-type: application/json' \
+              --data "$body" 2>/dev/null || true)"
+            echo "AUTH_PROBE attempt=$attempt direct=$direct_code worker=$worker_code"
+            if [[ "$direct_code" =~ ^(400|401)$ && "$worker_code" =~ ^(400|401)$ ]]; then
+              healthy=true
+              break
+            fi
+            sleep 10
+          done
+          if [[ "$healthy" != true ]]; then
+            echo SUPABASE_AUTH_PATHS_UNHEALTHY
+            exit 4
+          fi
+          echo SUPABASE_AUTH_PATHS_RESPONSIVE
