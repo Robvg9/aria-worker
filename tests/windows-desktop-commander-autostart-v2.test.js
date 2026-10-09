@@ -144,7 +144,7 @@ test('Device gateway sends only SHA-256 digests to PostgreSQL auth and enrollmen
   assert.ok(gatewayHashMigration.includes('GRANT EXECUTE ON FUNCTION public.enroll_device_hash(text,text)'));
 });
 
-test('Windows agent uses hashed enrollment, serializes startup, and does not duplicate a timed-out gateway request', () => {
+test('Windows agent serializes startup and does not duplicate a timed-out gateway request', () => {
   assert.ok(ariaAgent.includes("token:DEVICE_TOKEN"));
   assert.ok(!ariaAgent.includes("token_hash:tokenHash"));
   assert.ok(ariaAgent.includes("await enroll();"));
