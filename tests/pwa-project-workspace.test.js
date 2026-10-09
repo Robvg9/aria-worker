@@ -17,6 +17,8 @@ assert.match(app,/onProjects/);
 assert.match(app,/if \(e\.pointerType !== 'touch'\) return/, 'global swipe navigation must ignore mouse drags used by ARTIA');
 assert.match(project,/zIndex:1/);
 assert.match(projectsRwht,/artia_canvas_hit_test_failed/);
+assert.match(projectsRwht,/const visibleCanvas = drawGeometry\.visible_canvas/);
+assert.match(projectsRwht,/in_project_body_viewport/, 'RWHT draw points must stay inside the visible clipped viewport, not behind the project tabs');
 assert.match(project,/CHAT EXCLUSIVO/);
 assert.match(project,/same queue|misma cola|una sola cola/i);
 assert.match(project,/visual_context/);
