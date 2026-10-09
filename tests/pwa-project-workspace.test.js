@@ -158,6 +158,8 @@ assert.match(projectE2E,/internalHosts = new Set/);
 assert.match(projectE2E,/artia_canvas_not_ready/);
 assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
 assert.match(projectE2E,/await waitFor\(500\)/);
+assert.match(projectE2E,/window\.top !== window/,'RWHT auth bootstrap must skip sandboxed embedded preview frames');
+assert.match(projectE2E,/localStorage\.setItem\('aria_session_v2',[\s\S]{0,250}catch \{/,'RWHT must fail safely when localStorage is unavailable in an embedded frame');
 const plannerSource = fs.readFileSync(path.join(root, 'supabase/functions/aria-planner-v11/index.ts'), 'utf8');
 assert.match(plannerSource, /function visualProjectMissionPlan\(goal:string,context:any\)/);
 const visualRouteIndex = plannerSource.indexOf('const visualProjectMission=visualProjectMissionPlan');
