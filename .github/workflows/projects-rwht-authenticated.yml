@@ -4,12 +4,12 @@ on:
   # Run the authenticated UI E2E only after the exact release SHA finished deploying.
   # A push-triggered test used to race the PWA deploy and certify an older LIVE build.
   workflow_run:
+    # Cloudflare's merged-PR release event reports the source branch name, not main.
+    # The job below accepts only successful push-to-main or merged-PR deploys and verifies the exact LIVE SHA.
     workflows:
       - Deploy ARIA Cloudflare Worker
     types:
       - completed
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   projects-rwht:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'pull_request_target'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
