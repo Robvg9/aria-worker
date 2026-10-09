@@ -720,7 +720,7 @@ async function run() {
         const text = node.textContent || '';
         return text.includes('Misión confirmada por ARIA con el diseño y las anotaciones.')
           || /visual_mission_create_not_confirmed|ARIA no confirmó la creación de la misión|No se pudo guardar el diseño|No se pudo enviar el diseño/i.test(text);
-      }), null, { timeout: 240000 });
+      }), null, { timeout: 240000 }).catch(() => {});
       const missionNotice = (await page.locator('.visualBoardPanel .notice').last().innerText().catch(() => '')).trim();
       const missionAcknowledged = missionNotice.includes('Misión confirmada por ARIA con el diseño y las anotaciones.');
 
