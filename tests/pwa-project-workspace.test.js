@@ -280,7 +280,9 @@ assert.match(project,/DATOS PROTEGIDOS/);
 console.log('BATTLECRUISER CONNECTION HEALTH GATE IS READ-ONLY AND FAILS CLOSED: PASS');
 
 assert.match(project,/Conectar sesión autenticada de BattleCruiser/i);
-assert.match(project,/obtener_email_login_por_nombre/);
+assert.doesNotMatch(project,/obtener_email_login_por_nombre/);
+assert.match(project,/Correo electrónico de BattleCruiser/);
+assert.match(project,/La búsqueda por nombre de usuario está restringida por los permisos actuales de BattleCruiser/);
 assert.match(project,/auth\/v1\/token\?grant_type=password/);
 assert.match(project,/x-battlecruiser-access-token/);
 assert.match(project,/La contraseña se envía desde este navegador directamente al Auth de BattleCruiser/);
