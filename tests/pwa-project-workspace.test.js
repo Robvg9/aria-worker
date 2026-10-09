@@ -171,6 +171,9 @@ assert.ok(project.includes("if(result!==true)throw new Error('ARIA no confirmó 
 assert.ok(project.includes("return false}finally{setSending(false)}"), 'mission creation failures must be propagated to ARTIA');
 assert.ok(projectE2E.includes("/Anotaciones:\\s*[1-9]\\d*/"));
 assert.match(projectE2E,/await waitFor\(500\)/);
+assert.ok(projectE2E.includes("const overviewPreviewResults = report.overview_preview_results;"), 'E2E must persist overview previews incrementally even if a later step fails');
+assert.ok(projectE2E.includes("const visualMissions = report.visual_missions;"), 'E2E must retain partial visual mission evidence on failure');
+assert.ok(projectE2E.includes("const previewResults = report.preview_results;"), 'E2E must retain partial ARTIA preview evidence on failure');
 assert.ok(project.includes('async function waitForProjectAssistant('),'project chat must poll canonical conversation when an async executor is accepted');
 assert.ok(project.includes('if(d?.processing===true)'),'project chat must handle background local-executor responses');
 assert.ok(project.includes('assistantAfterLatestUser'),'project chat polling must wait for an assistant answer after the latest user turn');
