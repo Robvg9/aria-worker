@@ -437,6 +437,33 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
     return promise;
   }
 
+  async function waitForProjectAssistant(previousAssistantCount:number, requestProject:Project, timeoutMs=145000){
+    const deadline=Date.now()+timeoutMs;
+    while(Date.now()<deadline){
+      try{
+        const d=await api('/projects/'+encodeURIComponent(requestProject.id)+'/conversation',session.accessToken);
+        if(d?.conversation_id&&Array.isArray(d?.conversation?.messages)){
+          const normalized=d.conversation.messages
+            .map((m:any)=>({id:String(m.message_id),role:m.role==='assistant'?'aria':'user',text:String(m.content||'')}))
+            .filter((m:any)=>m.text.trim());
+          const assistantCount=normalized.filter((m:any)=>m.role==='aria').length;
+          try{localStorage.setItem('aria_project_conversation:'+session.userId+':'+requestProject.id,JSON.stringify({conversation_id:d.conversation_id,messages:normalized}));}catch{}
+          if(assistantCount>previousAssistantCount){
+            if(requestProject.id===project.id){
+              setConversationId(d.conversation_id);
+              setMessages(normalized);
+            }
+            return true;
+          }
+        }
+      }catch{
+        // A 503 during background generation is transient; retry the same canonical conversation.
+      }
+      await new Promise(resolve=>setTimeout(resolve,2000));
+    }
+    return false;
+  }
+
   useEffect(()=>{
     if(!sending){setProcessingElapsedMs(0);return;}
     const startedAt=processingStartedAtRef.current??Date.now();
@@ -486,16 +513,27 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
 
   async function send(){
     const clean=text.trim();if(!clean||sending)return;
+    const requestProject=project;
+    const previousAssistantCount=messages.filter(m=>m.role==='aria').length;
+    const clientMessageId=crypto.randomUUID();
     setSending(true);setError('');processingStartedAtRef.current=Date.now();setProcessingElapsedMs(0);setLastProcessingMs(null);
     setMessages(m=>[...m,{id:crypto.randomUUID(),role:'user',text:clean}]);setText('');
     try{
       const id=conversationId||crypto.randomUUID();setConversationId(id);
-      const d=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts:[{type:'text',text:clean}],clientMessageId:crypto.randomUUID(),conversationId:id,project_id:project.id,project:{id:project.id,name:project.name,context:project.context}})});
+      const d=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts:[{type:'text',text:clean}],clientMessageId,conversationId:id,project_id:requestProject.id,project:{id:requestProject.id,name:requestProject.name,context:requestProject.context}})});
       const p=d.parts?.find((x:any)=>x.type==='text');
       const serverProcessingMs=Number(d?.cognitive?.processing_ms);
       if(Number.isFinite(serverProcessingMs)&&serverProcessingMs>=0)setLastProcessingMs(serverProcessingMs);
       else if(processingStartedAtRef.current)setLastProcessingMs(Date.now()-processingStartedAtRef.current);
-      if(p?.text)setMessages(m=>[...m,{id:crypto.randomUUID(),role:'aria',text:p.text,processingMs:Number.isFinite(serverProcessingMs)?serverProcessingMs:undefined}]);
+      if(d?.processing===true){
+        // The local executor accepted an idempotent background job. Keep the user
+        // informed and poll the canonical server conversation until its answer persists.
+        setError('');
+        const completed=await waitForProjectAssistant(previousAssistantCount,requestProject,145000);
+        if(!completed)throw new Error('ARIA aceptó el trabajo, pero la respuesta no quedó registrada dentro del límite de verificación.');
+      }else if(p?.text){
+        setMessages(m=>[...m,{id:crypto.randomUUID(),role:'aria',text:p.text,processingMs:Number.isFinite(serverProcessingMs)?serverProcessingMs:undefined}]);
+      }
       if(d.mission?.mission_id)await loadMissions();
       await loadProjectChat();
     }catch(e){await loadProjectChat().catch(()=>{});setError(e instanceof Error?e.message:'No se pudo hablar con ARIA.')}finally{setSending(false)}
