@@ -1826,12 +1826,17 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   useLiveSync(loadNotifications, session.accessToken, 8000);
 
   useEffect(() => {
-    const id = getNotificationIdFromHash();
-    if (!id || !items.length) return;
-    const item = items.find(x => String(x.notification_id) === id);
-    if (!item) return;
-    window.history.replaceState(null, '', '/pwa/');
-    void openNotification(item);
+    const openNotificationFromHash = () => {
+      const id = getNotificationIdFromHash();
+      if (!id || !items.length) return;
+      const item = items.find(x => String(x.notification_id) === id);
+      if (!item) return;
+      window.history.replaceState(null, '', '/pwa/');
+      void openNotification(item);
+    };
+    openNotificationFromHash();
+    window.addEventListener('hashchange', openNotificationFromHash);
+    return () => window.removeEventListener('hashchange', openNotificationFromHash);
   }, [items]);
 
   async function enableNotifications() {
