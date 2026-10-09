@@ -596,8 +596,19 @@ async function run() {
       await expectEnabled(send, project.id);
       await send.click();
       await page.locator('.projectChatWindow .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
+      // Finish on a real response OR a visible error, so a broken runtime is
+      // reported with evidence instead of waiting four minutes for a bubble that cannot arrive.
+      await page.waitForFunction(({ markerValue }) => {
+        const bubbles=[...document.querySelectorAll('.projectChatWindow .bubble')];
+        const userIndex=bubbles.findIndex(node=>node.classList.contains('user')&&(node.textContent||'').includes(markerValue));
+        const assistantAfterUser=userIndex>=0&&bubbles.slice(userIndex+1).some(node=>node.classList.contains('aria')&&String(node.textContent||'').trim().length>0);
+        const surfacedError=[...document.querySelectorAll('.projectShell .errorBox')].some(node=>String(node.textContent||'').trim().length>0);
+        return assistantAfterUser||surfacedError;
+      }, { markerValue: marker }, { timeout: TIMEOUT_MS });
+      const surfacedChatError=(await page.locator('.projectShell .errorBox').allTextContents()).map(x=>x.trim()).find(Boolean);
+      if(surfacedChatError) throw new Error('project_chat_runtime_error_'+project.id+'_'+surfacedChatError.slice(0,240));
       const assistant = page.locator('.projectChatWindow .bubble.aria').last();
-      await assistant.waitFor({ state: 'visible', timeout: TIMEOUT_MS });
+      await assistant.waitFor({ state: 'visible', timeout: 15000 });
       const responseTextProbe = (await assistant.innerText()).trim();
       if (!responseTextProbe) throw new Error('project_chat_assistant_response_empty_' + project.id);
       const responseText = (await assistant.innerText()).trim();
