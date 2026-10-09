@@ -279,4 +279,21 @@ assert.match(project,/BACKEND AUTH/);
 assert.match(project,/DATOS PROTEGIDOS/);
 console.log('BATTLECRUISER CONNECTION HEALTH GATE IS READ-ONLY AND FAILS CLOSED: PASS');
 
+assert.match(project,/Conectar sesión autenticada de BattleCruiser/i);
+assert.match(project,/obtener_email_login_por_nombre/);
+assert.match(project,/auth\/v1\/token\?grant_type=password/);
+assert.match(project,/x-battlecruiser-access-token/);
+assert.match(project,/La contraseña se envía desde este navegador directamente al Auth de BattleCruiser/);
+assert.match(project,/activeBattleCruiserConnection=null/);
+assert.match(apiCurrent,/projectConnectionVerifyPath/);
+assert.match(apiCurrent,/battlecruiser_session_invalid/);
+assert.match(apiCurrent,/perfil_usuario_actual/);
+assert.match(apiCurrent,/permisos_usuario_actual/);
+assert.match(apiCurrent,/battleCruiserLiveUserContext/);
+assert.match(apiCurrent,/token_persisted: false/);
+assert.match(apiCurrent,/mutations_performed: false/);
+assert.ok(!apiCurrent.includes('SUPABASE_ANON_KEY'), 'ARIA API must not depend on the legacy anon-key reauthentication flow');
+console.log('BATTLECRUISER USER-BOUND SESSION + READ-ONLY CONTEXT CONTRACT: PASS');
+
+
 
