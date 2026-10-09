@@ -45,7 +45,12 @@ for (const fragment of [
   'Núcleo conectado',
   'failed_responses',
   'page_errors',
-  'console_errors'
+  'console_errors',
+  'reality_board_expected_live_sha_missing',
+  'reality_board_live_sha_mismatch_expected_',
+  'reality_board_manual_refresh_live_api_coverage_missing',
+  'report.reality_board.verified = true',
+  "new URL('reality-board.html'"
 ]) {
   assert.ok(runner.includes(fragment), fragment);
 }
