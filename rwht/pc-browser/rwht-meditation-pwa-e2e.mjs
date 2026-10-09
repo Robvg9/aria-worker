@@ -105,13 +105,17 @@ async function readSession(page) {
 
 async function apiAuthStatus(page, accessToken) {
   return page.evaluate(async (token) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch('/api/diagnostics/health', {
         headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       });
       return response.status;
     } catch { return 0; }
+    finally { clearTimeout(timer); }
   }, accessToken);
 }
 
@@ -119,12 +123,15 @@ async function refreshStoredSession(page) {
   const session = await readSession(page);
   if (!session?.refreshToken) return null;
   const result = await page.evaluate(async ({ refreshToken, anon }) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch('/auth/token?grant_type=refresh_token', {
         method: 'POST',
         headers: { 'content-type': 'application/json', apikey: anon, accept: 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken }),
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       });
       const body = await response.json().catch(() => null);
       return {
@@ -134,8 +141,10 @@ async function refreshStoredSession(page) {
         user_id: body?.user?.id || null,
         expires_in: Number(body?.expires_in || 0)
       };
-    } catch {
-      return { status: 0, access_token: null, refresh_token: null, user_id: null, expires_in: 0 };
+    } catch (error) {
+      return { status: 0, access_token: null, refresh_token: null, user_id: null, expires_in: 0, error: String(error?.name || error) };
+    } finally {
+      clearTimeout(timer);
     }
   }, { refreshToken: session.refreshToken, anon: ANON });
   if (result.status !== 200 || !result.access_token || !result.user_id) return null;
@@ -165,15 +174,24 @@ async function ensureLiveSession(page) {
 async function verifyWebPushConfig(page, token) {
   await page.context().grantPermissions(['notifications'], { origin: new URL(page.url()).origin });
   const result = await page.evaluate(async ({ token }) => {
-    const response = await fetch('/api/meditation/push/status', {
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      cache: 'no-store'
-    });
-    const body = await response.json().catch(() => null);
-    if (response.status !== 200 || body?.configured !== true || !body?.vapid_public) {
-      throw new Error('web_push_not_ready:' + response.status + ':' + JSON.stringify(body));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch('/api/meditation/push/status', {
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        cache: 'no-store',
+        signal: controller.signal
+      });
+      const body = await response.json().catch(() => null);
+      if (response.status !== 200 || body?.configured !== true || !body?.vapid_public) {
+        throw new Error('web_push_not_ready:' + response.status + ':' + JSON.stringify(body));
+      }
+      return { configured: true, has_vapid_public: true };
+    } catch (error) {
+      throw new Error('web_push_status_request_failed:' + String(error?.name || error?.message || error));
+    } finally {
+      clearTimeout(timer);
     }
-    return { configured: true, has_vapid_public: true };
   }, { token });
   return result;
 }
@@ -211,7 +229,7 @@ async function deliverBackgroundPushViaCdp(controllerPage, origin, notificationI
 }
 
 async function readPushReceipt(page) {
-  return page.evaluate(async () => {
+  return withTimeout(page.evaluate(async () => {
     const cache = await caches.open('aria-push-receipts-v1');
     const response = await cache.match('/pwa/__aria-push-receipt__');
     const receipt = response ? await response.json().catch(() => null) : null;
@@ -224,7 +242,7 @@ async function readPushReceipt(page) {
       shown_notifications: shown.length,
       permission: 'Notification' in window ? Notification.permission : 'unsupported'
     };
-  });
+  }), 8000, 'read_push_receipt');
 }
 
 async function dispatchNotificationClickViaServiceWorker(context, page, notificationId) {
