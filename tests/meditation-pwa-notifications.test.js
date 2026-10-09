@@ -53,6 +53,7 @@ assert(sw.includes('notificationclick'), 'service-worker notificationclick handl
 assert(app.includes("String(hash).startsWith('#notification=')"), 'native notification hash must route to Meditation IA');
 assert(app.includes("return { page: 'meditation', screen: 0, newMission: false };"), 'notification hash must mount the notification-owning page');
 assert(meditationE2E.includes('dispatchNotificationClickViaServiceWorker'), 'authenticated E2E must exercise Service Worker notificationclick');
+assert(meditationE2E.includes("new ExtendableEvent('notificationclick')"), 'click-through test must preserve native Service Worker waitUntil lifecycle');
 assert(meditationE2E.includes('verified_notification_for_clickthrough_not_found'), 'click-through E2E must use a real persisted verified notification');
 assert(meditationE2E.includes("getByRole('button', { name:'Abrir misión completa' })"), 'click-through E2E must open the full mission detail');
 assert(meditationE2E.includes('notification_click_through_verified'), 'click-through proof must be recorded in the RWHT evidence');
