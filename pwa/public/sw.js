@@ -98,7 +98,7 @@ self.addEventListener('push', event => {
     await cache.put(PUSH_RECEIPT_URL, new Response(JSON.stringify(receipt), {
       headers: { 'content-type': 'application/json' }
     }));
-  })();
+  })());
 });
 
 self.addEventListener('notificationclick', event => {
