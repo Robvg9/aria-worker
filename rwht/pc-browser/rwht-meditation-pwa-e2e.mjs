@@ -456,15 +456,20 @@ async function run() {
       assert.equal(clickResult.notification_id, pushProbeNotificationId, 'notification_click_id_mismatch');
       assert.equal(clickResult.click_handler_dispatched, true, 'notification_click_handler_not_dispatched');
       report.notification_click_target = clickResult.target;
-      await probePage.locator('.notificationSelected').waitFor({ state:'visible', timeout:30000 });
-      await probePage.locator('.notificationMeta').getByText('Leída', { exact:true }).waitFor({ state:'visible', timeout:15000 });
-      console.log('WEBPUSH_E2E_NOTIFICATION_SELECTED_AND_READ id=' + pushProbeNotificationId);
-      await probePage.getByRole('button', { name:'Abrir misión completa' }).waitFor({ state:'visible', timeout:30000 });
-      const selectedNotificationText = await probePage.locator('.notificationSelected').innerText();
-      assert.ok(/completada y verificada/i.test(selectedNotificationText), 'notification_click_did_not_select_verified_notification');
-      await probePage.getByRole('button', { name:'Abrir misión completa' }).click();
+      // A native notification click is expected to open the mission detail directly.
+      // The notification panel must close first; stacked backdrops used to intercept the
+      // "Abrir misión completa" button even though the mission detail was already open.
       const detailHeading = probePage.locator('.detailModal .detailTop .eyebrow');
       await detailHeading.filter({ hasText:'RESUMEN DE MISIÓN' }).waitFor({ state:'visible', timeout:30000 });
+      await probePage.locator('.notificationBackdrop').waitFor({ state:'detached', timeout:15000 });
+      const notificationLedger = await expectApi(probePage, '/meditation/notifications?limit=20', session.accessToken);
+      assert.equal(notificationLedger.status, 200, 'notification_readback_http_' + notificationLedger.status);
+      const notificationReadback = (notificationLedger.body?.notifications || []).find(item =>
+        String(item?.notification_id || '') === pushProbeNotificationId
+      );
+      assert.ok(notificationReadback?.read_at, 'notification_click_did_not_mark_read_in_server_ledger');
+      report.notification_server_read_at = notificationReadback.read_at;
+      console.log('WEBPUSH_E2E_NOTIFICATION_READ_CONFIRMED id=' + pushProbeNotificationId);
       const detailTitle = (await probePage.locator('.detailModal .detailTop h2').first().innerText()).trim();
       const missionGoal = String(sourceMission?.goal || '').trim();
       const expectedGoalPreview = missionGoal.length > 110

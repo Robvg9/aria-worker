@@ -1653,6 +1653,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
   const [selected, setSelected] = useState<PwaNotificationItem | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [missionDetail, setMissionDetail] = useState<any>(null);
+  const [missionDetailOpen, setMissionDetailOpen] = useState(false);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const [ideaProposals, setIdeaProposals] = useState<any[]>(() => readCached('meditation_ideas', session.userId) ?? []);
@@ -1674,9 +1675,10 @@ function PwaNotificationCenter({ session }: { session: Session }) {
     void ensurePwaWebPushSubscription(session.accessToken).catch(() => {});
   }, [permission, session.accessToken]);
 
-  async function openNotification(item: PwaNotificationItem) {
+  async function openNotification(item: PwaNotificationItem, openMissionAfterSelection = false) {
     setSelected(item);
     setOpen(true);
+    setMissionDetailOpen(false);
     setMissionDetail(null);
     setMissionEvents([]);
     setMissionDiagnostic(null);
@@ -1704,7 +1706,16 @@ function PwaNotificationCenter({ session }: { session: Session }) {
         api('/missions/' + encodeURIComponent(item.mission_id) + '/events', session.accessToken).catch(() => ({ events: [] })),
         api('/missions/' + encodeURIComponent(item.mission_id) + '/diagnostic', session.accessToken).catch(() => null)
       ]);
-      if (missionResult?.mission) setMissionDetail(missionResult.mission);
+      if (missionResult?.mission) {
+        setMissionDetail(missionResult.mission);
+        if (openMissionAfterSelection) {
+          // Native notification clicks should land on the mission detail directly.
+          // Close the notification panel first so its backdrop cannot cover the detail.
+          setOpen(false);
+          setSelected(null);
+          setMissionDetailOpen(true);
+        }
+      }
       setMissionEvents(eventsResult?.events ?? []);
       setMissionDiagnostic(diagnosticResult?.diagnostic ?? null);
     }
@@ -1718,7 +1729,10 @@ function PwaNotificationCenter({ session }: { session: Session }) {
       api('/missions/' + encodeURIComponent(missionId) + '/diagnostic', session.accessToken).catch(() => null)
     ]);
     if (!missionResult?.mission) throw new Error('ARIA no pudo recuperar la misión.');
+    setOpen(false);
+    setSelected(null);
     setMissionDetail(missionResult.mission);
+    setMissionDetailOpen(true);
     setMissionEvents(eventsResult?.events ?? []);
     setMissionDiagnostic(diagnosticResult?.diagnostic ?? null);
   }
@@ -1832,7 +1846,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
       const item = items.find(x => String(x.notification_id) === id);
       if (!item) return;
       window.history.replaceState(null, '', '/pwa/');
-      void openNotification(item);
+      void openNotification(item, true);
     };
     openNotificationFromHash();
     window.addEventListener('hashchange', openNotificationFromHash);
@@ -1903,6 +1917,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
                   <button className='primary' onClick={() => {
                     setOpen(false);
                     setSelected(null);
+                    setMissionDetailOpen(true);
                   }}>Abrir misión completa</button>
                 )}
               </div>
@@ -1947,7 +1962,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
         </div>
       )}
 
-      {missionDetail && (
+      {missionDetail && missionDetailOpen && (
         <MissionDetail
           mission={missionDetail}
           events={missionEvents}
@@ -1956,6 +1971,7 @@ function PwaNotificationCenter({ session }: { session: Session }) {
           onVerifyRetry={() => retryMissionVerification(String(missionDetail.mission_id))}
           onHumanGateApprove={() => approveHumanGate(String(missionDetail.mission_id))}
           onClose={() => {
+            setMissionDetailOpen(false);
             setMissionDetail(null);
             setMissionDiagnostic(null);
             setSelected(null);
