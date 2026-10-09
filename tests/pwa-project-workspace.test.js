@@ -169,6 +169,10 @@ assert.ok(project.includes('assistantAfterLatestUser'),'project chat polling mus
 
 assert.match(projectE2E,/window\.top !== window/,'RWHT auth bootstrap must skip sandboxed embedded preview frames');
 assert.match(projectE2E,/localStorage\.setItem\('aria_session_v2',[\s\S]{0,250}catch \{/,'RWHT must fail safely when localStorage is unavailable in an embedded frame');
+assert.ok(projectE2E.includes("const fresh = await signInViaAuthApi()"), 'RWHT must retry API authentication once when a persisted session is stale');
+assert.ok(projectE2E.includes("auth_provider_unavailable_no_login_form_after_api_recovery"), 'RWHT must distinguish upstream auth outage from a missing UI login form');
+assert.ok(projectE2E.includes("stale_local_session_detected: Boolean(stored?.accessToken)"), 'RWHT evidence must report stale session recovery attempts');
+assert.ok(projectE2E.includes("Number(report.login?.attempts || 0)"), 'RWHT must correctly persist the numeric auth attempt count');
 const plannerSource = fs.readFileSync(path.join(root, 'supabase/functions/aria-planner-v11/index.ts'), 'utf8');
 assert.match(plannerSource, /function visualProjectMissionPlan\(goal:string,context:any\)/);
 const visualRouteIndex = plannerSource.indexOf('const visualProjectMission=visualProjectMissionPlan');
