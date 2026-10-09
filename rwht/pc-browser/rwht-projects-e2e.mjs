@@ -556,7 +556,7 @@ async function run() {
     // The preview belongs to the selected project's normal workspace, not only ARTIA.
     const overviewPreviewResults = [];
     for (const expected of [
-      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/' },
+      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://aria.robvg9.workers.dev/project-preview/battlecruiser/' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
       { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/' }
     ]) {
@@ -651,7 +651,7 @@ async function run() {
 
     // ARTIA must accept real visual mission creation for every project, not only BattleCruiser.
     const visualMissionExpectations = {
-      battlecruiser: { src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
+      battlecruiser: { src: 'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', mode: 'source' },
       cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
       aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
@@ -670,7 +670,7 @@ async function run() {
       const visualBadge = page.locator('.artiaPreviewShell .projectReferenceBadge').first();
       if (expectedPreview.mode === 'source') {
         await visualBadge.waitFor({ state: 'visible', timeout: 10000 });
-        if (!(await visualBadge.innerText()).includes('VISTA DESDE CÓDIGO REAL')) throw new Error('artia_visual_source_badge_missing_' + visualProject.id);
+        if (!(await visualBadge.innerText()).includes('REFERENCIA VISUAL')) throw new Error('artia_visual_source_badge_missing_' + visualProject.id);
       } else if (await visualBadge.count() > 0 && await visualBadge.isVisible().catch(() => false)) {
         throw new Error('artia_visual_live_badge_mislabelled_' + visualProject.id);
       }
@@ -790,7 +790,7 @@ async function run() {
 
     // ARTIA preview certification: every project must expose a real preview surface.
     const previewExpectations = [
-      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'live' },
+      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://aria.robvg9.workers.dev/project-preview/battlecruiser/', mode: 'source' },
       { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
       { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     ];
@@ -806,7 +806,7 @@ async function run() {
       const badge = page.locator('.artiaPreviewShell .projectReferenceBadge').first();
       if (expected.mode === 'source') {
         await badge.waitFor({ state: 'visible', timeout: 10000 });
-        if (!(await badge.innerText()).includes('VISTA DESDE CÓDIGO REAL')) throw new Error('artia_source_badge_missing_' + expected.id);
+        if (!(await badge.innerText()).includes('REFERENCIA VISUAL')) throw new Error('artia_source_badge_missing_' + expected.id);
       } else if (await badge.count() > 0 && await badge.isVisible().catch(() => false)) {
         throw new Error('artia_live_preview_mislabelled_' + expected.id);
       }
