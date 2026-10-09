@@ -52,3 +52,5 @@ jobs:
           done
           echo SUPABASE_HEALTH_TIMEOUT
           exit 2
+
+# 2026-10-09: controlled auth recovery after repeated refresh-token 504s; followed by exact-SHA Projects + ARTIA RWHT.
