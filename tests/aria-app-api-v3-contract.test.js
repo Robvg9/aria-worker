@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const read=(...parts)=>fs.readFileSync(path.join(__dirname,'..',...parts),'utf8');
 const appApi=read('supabase','functions','aria-app-api-v3','index.ts');
+const meditationOverviewMigration=read('supabase','migrations','20261009034000_aria_meditation_overview_counts_v1.sql');
 const pwa=read('pwa','src','App.tsx');
 const planner=read('supabase','functions','aria-planner-v11','index.ts');
 const plannerConfig=read('supabase','functions','aria-planner-v11','deno.json');
@@ -147,6 +148,20 @@ console.log('MISSION RECOVERY + RETRY API CONTRACT: PASS');
 assertContains(appApi,'controllerOwnedByUser','mission overview must separate meditation-control ownership from canonical mission visibility'); 
 assertContains(appApi,'scopedSessionId','meditation session scope must not hide canonical user missions when another controller owns the meditation session');
 assertContains(appApi,'source_of_truth:"aria_internal.mission_state"','mission collection must expose its canonical source of truth');
+assertContains(appApi,'aria_meditation_mission_status_counts_v1','Meditation IA overview must use one aggregated status-count RPC');
+assertContains(appApi,'.or(ownerFilterParts)','Meditation IA overview mission candidates must be scoped by owner in the database');
+assertContains(appApi,'pending_jobs:checkpoint->pending_jobs','overview candidate read must project only the small pending-jobs checkpoint field');
+assertContains(appApi,'recovery_status:checkpoint->recovery->>status','overview candidate read must project recovery status instead of transferring entire checkpoints');
+if(appApi.includes('const countStatus=async(status:string|null)=>')) throw new Error('Meditation IA overview must not perform sequential exact-count scans');
+for(const fragment of [
+  "create index if not exists mission_state_user_updated_idx",
+  "create index if not exists mission_state_owner_user_updated_idx",
+  "create index if not exists mission_state_meditation_session_updated_idx",
+  "create or replace function aria_internal.aria_meditation_mission_status_counts_v1",
+  "with owned as materialized",
+  "jsonb_object_agg(status, total)",
+  "to service_role"
+]) assertContains(meditationOverviewMigration,fragment,'Meditation overview performance migration missing contract: '+fragment);
 assertContains(appApi,'path.endsWith("/missions")','canonical authenticated mission collection route missing');
 assertContains(appApi,'const latestUser=[...owned]','live context must keep the latest user mission visible');
 assertContains(appApi,'if(s==="running"&&hasLiveLease(m))return 60','running mission ranking must prefer a live lease');

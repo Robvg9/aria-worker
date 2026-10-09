@@ -1324,29 +1324,35 @@ async function meditationOverview(userId:string){
   if(ce)throw new Error(ce.message);
   const controllerOwnedByUser=String(controller?.owner_user_id||"")===userId;
   const scopedSessionId=controllerOwnedByUser&&controller?.session_id?String(controller.session_id):"";
+  const ownerFilterParts=scopedSessionId
+    ? `metadata->>user_id.eq.${userId},metadata->>owner_user_id.eq.${userId},metadata->>meditation_session_id.eq.${scopedSessionId}`
+    : `metadata->>user_id.eq.${userId},metadata->>owner_user_id.eq.${userId}`;
+  // Scope at the database before transferring rows. The overview only needs two
+  // small checkpoint projections for ranking; full checkpoint JSON is fetched
+  // later only for the visible missions. Pulling 500 global checkpoints forced
+  // huge JSON payloads through PostgREST and helped trigger Edge 546s.
   const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state")
-    .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,metadata,created_at,updated_at,lease_owner,lease_until,checkpoint")
+    .select("mission_id,goal,status,current_step,total_steps,completed_steps,next_action,finished_at,metadata,created_at,updated_at,lease_owner,lease_until,pending_jobs:checkpoint->pending_jobs,recovery_status:checkpoint->recovery->>status")
+    .or(ownerFilterParts)
     .order("updated_at",{ascending:false}).limit(500);
   if(me)throw new Error(me.message);
-  const owned=(all??[]).filter((m:any)=>{
-    const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};
-    return md.user_id===userId||md.owner_user_id===userId||(scopedSessionId&&md.meditation_session_id===scopedSessionId);
-  });
+  const owned=all??[];
   const ranked=owned.map((m:any,i:number)=>({...m,display_title:String(m?.metadata?.display_title||('Misión #'+(owned.length-i))),description:String(m?.goal||"")}));
   const latestUser=[...ranked].filter((m:any)=>String(m?.metadata?.goal_source||"").toLowerCase()==="user")
     .sort((a:any,b:any)=>new Date(String(b.updated_at||0)).getTime()-new Date(String(a.updated_at||0)).getTime())[0]??null;
   const UNLEASED_RECOVERY_MAX_AGE_MS=30*60*1000;
   const hasLiveLease=(m:any)=>Boolean(m?.lease_owner&&m?.lease_until&&new Date(String(m.lease_until)).getTime()>Date.now());
-  const hasPendingJob=(m:any)=>{const jobs=m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
+  const hasPendingJob=(m:any)=>{const jobs=m?.pending_jobs??m?.checkpoint?.pending_jobs;return jobs&&typeof jobs==="object"&&Object.keys(jobs).length>0;};
+  const recoveryStatus=(m:any)=>String(m?.recovery_status??m?.checkpoint?.recovery?.status??"");
   const isRecentRecovery=(m:any)=>{const updated=Date.parse(String(m?.updated_at||""));return Number.isFinite(updated)&&Date.now()-updated<=UNLEASED_RECOVERY_MAX_AGE_MS;};
-  const isVerificationRetry=(m:any)=>String(m?.checkpoint?.recovery?.status||"")==="verification_retry_requested"&&isRecentRecovery(m);
+  const isVerificationRetry=(m:any)=>recoveryStatus(m)==="verification_retry_requested"&&isRecentRecovery(m);
   const activeRecoveryStatuses=new Set(["replan_required","replan_learning_application","verification_pending","waiting_for_alternative_strategy","retry_scheduled"]);
   const activeRank=(m:any)=>{
     const s=String(m?.status||"");
     if(s==="running"&&hasLiveLease(m))return 60;
     if(s==="waiting"&&hasLiveLease(m))return 45;
     if(s==="running"&&!hasLiveLease(m)&&isVerificationRetry(m)&&!hasPendingJob(m))return 55;
-    if(activeRecoveryStatuses.has(String(m?.checkpoint?.recovery?.status||""))&&isRecentRecovery(m)){
+    if(activeRecoveryStatuses.has(recoveryStatus(m))&&isRecentRecovery(m)){
       if(s==="running")return 50;
       if(s==="planning")return 42;
       if(s==="queued")return 38;
@@ -1360,7 +1366,7 @@ async function meditationOverview(userId:string){
   const recentFailed=ranked.filter((m:any)=>String(m.status)==="failed").slice(0,12);
   const recentBlocked=ranked.filter((m:any)=>String(m.status)==="blocked").slice(0,12);
   const recentVerification=ranked.filter((m:any)=>String(m.status)==="waiting"&&m?.block_details?.verification_pending).slice(0,12);
-  const visibleSources=[...ranked.slice(0,20),...(rawActive?[rawActive]:[]),...recentFailed,...recentBlocked,...recentVerification];
+  const visibleSources=[...ranked.slice(0,20),...(rawActive?[rawActive]:[]),...(latestUser?[latestUser]:[]),...recentFailed,...recentBlocked,...recentVerification];
   const visibleIds=Array.from(new Set(visibleSources.map((m:any)=>String(m.mission_id)).filter(Boolean)));
   let detailed:any[]=[];
   if(visibleIds.length){
@@ -1414,15 +1420,19 @@ async function meditationOverview(userId:string){
   }
   const liveSyncAt=new Date().toISOString();
   const activeWithLive=active?{...active,live_events:liveEvents,live_sync_at:liveSyncAt,live_event_count:liveEvents.length,ui_state:isVerificationRetry(active)?"verification_retry":"live_execution"}:null;
-  const ownerFilterParts=scopedSessionId?`metadata->>user_id.eq.${userId},metadata->>owner_user_id.eq.${userId},metadata->>meditation_session_id.eq.${scopedSessionId}`:`metadata->>user_id.eq.${userId},metadata->>owner_user_id.eq.${userId}`;
-  const countStatus=async(status:string|null)=>{
-    let q=sb.schema("aria_internal").from("mission_state").select("mission_id",{count:"exact",head:true}).or(ownerFilterParts);
-    if(status)q=q.eq("status",status);
-    const {count,error}=await q; if(error)throw new Error(error.message); return Number(count||0);
-  };
-  const statusNames=['queued','planning','running','waiting','paused','succeeded','failed','blocked','cancelled']; const statusCounts:any={};
-  for(const statusName of statusNames)statusCounts[statusName]=await countStatus(statusName);
-  statusCounts.total=await countStatus(null);
+  // One indexed aggregate replaces ten sequential exact-count requests. The
+  // previous N+1 count pattern repeatedly scanned the mission table and held the
+  // overview open long enough for the Edge Function to hit its 546 resource limit.
+  const {data:statusSummary,error:statusCountError}=await sb.schema("aria_internal").rpc("aria_meditation_mission_status_counts_v1",{
+    p_user_id:userId,
+    p_session_id:scopedSessionId||null
+  });
+  if(statusCountError)throw new Error(statusCountError.message);
+  const statusNames=['queued','planning','running','waiting','paused','succeeded','failed','blocked','cancelled'];
+  const countByStatus=statusSummary?.statuses&&typeof statusSummary.statuses==="object"?statusSummary.statuses:{};
+  const statusCounts:any={};
+  for(const statusName of statusNames)statusCounts[statusName]=Number(countByStatus[statusName]||0);
+  statusCounts.total=Number(statusSummary?.total||0);
   statusCounts.history=statusCounts.succeeded+statusCounts.failed+statusCounts.blocked+statusCounts.cancelled;
   statusCounts.active=statusCounts.planning+statusCounts.running+statusCounts.waiting+statusCounts.paused;
   return{version:"aria-meditation-dashboard-v6",mode:controllerOwnedByUser?String(controller?.desired_mode??"stopped"):"stopped",controller:controllerOwnedByUser?controller:null,active_mission:activeWithLive,foreground_mission:foreground,queued_missions:await Promise.all(queuedMissions),missions,failed,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:statusCounts.total,total:statusCounts.total,history:statusCounts.history,active:statusCounts.active,human_gates:gates.length,blocked:statusCounts.blocked,failed:statusCounts.failed,verification_pending:verification_pending.length,queued:statusCounts.queued,succeeded:statusCounts.succeeded,cancelled:statusCounts.cancelled},source_of_truth:"aria_internal.mission_state"};
