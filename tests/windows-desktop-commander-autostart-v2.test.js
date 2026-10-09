@@ -111,3 +111,15 @@ test('Supervisor leaves the process running during known hosted capacity/session
   assert.match(supervisor, /IncreaseConnectionPool/);
   assert.ok(supervisor.includes('reset reason:'));
 });
+
+
+test('Watchdog persists ARIA agent stdout and stderr for safe gateway diagnosis', () => {
+  assert.match(runAgent, /AgentStdoutPath/);
+  assert.match(runAgent, /AgentStderrPath/);
+  assert.match(runAgent, /-RedirectStandardOutput \$AgentStdoutPath/);
+  assert.match(runAgent, /-RedirectStandardError \$AgentStderrPath/);
+  assert.match(runAgent, /agent_stdout_log = \$AgentStdoutPath/);
+  assert.match(runAgent, /agent_stderr_log = \$AgentStderrPath/);
+  assert.match(runAgent, /AGENT_LOGS stdout=/);
+  assert.doesNotMatch(runAgent, /Write-Log[^\\n]*\\$env:ARIA_DEVICE_TOKEN/);
+});
