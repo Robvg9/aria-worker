@@ -166,7 +166,7 @@ function ProjectOverviewPreview({project}:{project:Project}) {
   useEffect(()=>setLoadState('loading'),[project.id,project.previewUrl]);
   const previewUrl=project.previewUrl||'';
   const mode=project.previewMode||(previewUrl?'live':'reference');
-  return <section className='panel projectOverviewPreview' aria-label={'Previsualización de '+project.name}>
+  return <section className='panel projectOverviewPreview' aria-label={'Previsualización de '+project.name} data-project-id={project.id} data-preview-mode={mode}>
     <div className='panelHeading'>
       <div><div className='panelTitle'>PREVISUALIZACIÓN · {project.name.toUpperCase()}</div><h2>Así se ve el proyecto</h2><p className='muted'>Esta vista cambia con el proyecto seleccionado. Para dibujar instrucciones y crear una misión usa ARTIA.</p></div>
       <span className={'pill '+(loadState==='failed'?'bad':loadState==='loaded'?(mode==='live'?'good':'neutral'):'live')}>
