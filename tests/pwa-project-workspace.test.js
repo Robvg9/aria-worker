@@ -9,6 +9,7 @@ const api=fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/ind
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
 const worker=fs.readFileSync(path.join(root,'worker.js'),'utf8');
 const battlecruiserReference=fs.readFileSync(path.join(root,'pwa/public/project-previews/battlecruiser-reference.html'),'utf8');
+const projectsRwht=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-projects-e2e.mjs'),'utf8').replace(/\r\n/g,'\n');
 
 for(const id of ['battlecruiser','cuevacoin','aria'])assert.match(project,new RegExp(id));
 assert.match(app,/ProjectWorkspace/);
@@ -315,3 +316,15 @@ assert.ok(apiCurrent.includes(String.raw`path.match(/\/projects\/([^/]+)\/connec
 assert.ok(apiCurrent.includes(String.raw`configText.match(/SUPABASE_URL\s*=\s*["']([^"']+)["']/)`), 'BattleCruiser live context must parse the expected backend URL correctly');
 assert.match(project,/if\(isBattleCruiserChat\|\|isBattleCruiserMissionIntake\|\|isBattleCruiserProjectMissions\)/);
 console.log('BATTLECRUISER SESSION LIFECYCLE + MISSION CONTEXT CONTRACT: PASS');
+
+
+// BattleCruiser Projects now uses the canonical LIVE site, with truthful auth-required mode.
+assert.ok(project.includes("workspace.scrollTop=0"), 'entering Projects must reset its own scroll container');
+assert.ok(project.includes("appFrame.scrollTop=0"), 'entering Projects must reset the app-frame scroll container');
+assert.ok(project.includes("document.documentElement.scrollTop=0")&&project.includes("document.body.scrollTop=0")&&project.includes("window.scrollTo(0,0)"), 'entering Projects must reset every document scroll root');
+assert.ok(projectsRwht.includes("project_shell_scroll_top")&&projectsRwht.includes("first_project_card_top"), 'the Projects E2E artifact must preserve scroll diagnostics if the viewport regression recurs');
+assert.ok(projectsRwht.includes("src: 'https://battlecruiser.robvg9.workers.dev/'"), 'Projects/ARTIA RWHT must target the real BattleCruiser LIVE frontend');
+assert.ok(projectsRwht.includes("mode: 'auth-required'"), 'RWHT must certify the LIVE preview auth-required boundary, not a source mock');
+assert.ok(!projectsRwht.includes("https://aria.robvg9.workers.dev/project-preview/battlecruiser/"), 'RWHT must not require the obsolete static BattleCruiser reference');
+assert.ok(projectsRwht.includes("artia_visual_auth_required_badge_missing_") && projectsRwht.includes("artia_auth_required_badge_missing_"), 'both ARTIA visual missions and preview catalog must verify the auth-required badge');
+console.log('BATTLECRUISER LIVE PREVIEW + PROJECTS VIEWPORT REGRESSION CONTRACT: PASS');

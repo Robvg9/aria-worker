@@ -61,7 +61,10 @@ E. Add write operations only through approved, auditable capabilities and prove 
 ### CI and release gate
 - PR: https://github.com/Robvg9/aria-worker/pull/1074
 - Branch: `feat/battlecruiser-full-project-binding-20261009`
-- Current integration is **not merged or deployed**. The PR remains draft while GitHub Actions checks execute.
+- Integration layer merged to `main` by PR #1074 at merge SHA `acc0b47519cbc11894a03060436c29db1cb65c0c`.
+- Post-merge evidence confirms API v3 deploy, Supabase Runtime deploy and PWA Fast Lane deploy succeeded; the LIVE PWA version endpoint serves the exact merge SHA and the deployed JS contains the BattleCruiser connection UI.
+- Two post-merge checks exposed separate issues now being repaired in branch `fix/battlecruiser-live-projects-rwht-20261009`: (1) the Cloudflare deploy's first version probe failed due to a one-shot propagation race (live probes later showed the exact SHA); (2) Projects/ARTIA RWHT authenticated successfully and fetched the 3-project catalog, but stopped because the app retained scroll position when navigating from `#home` to `#projects`, leaving project-card controls offscreen. The RWHT also still expected the retired static BattleCruiser preview. These are being fixed without relaxing the UX contract.
+- The current work branch resets project workspace scroll, aligns RWHT to BattleCruiser's real LIVE frontend with an explicit `auth-required` badge, adds regressions and changes the deploy probe to wait for the exact version to propagate. CI/E2E still must pass for the final fix SHA; no claim of final certification yet.
 - No BattleCruiser SQL/migrations were run, no BC business data was mutated, no new Supabase project was created, and ARIA's own Supabase connection remains untouched.
 
 ### Remaining closure criteria
@@ -72,3 +75,16 @@ E. Add write operations only through approved, auditable capabilities and prove 
 5. Verify BC Auth session, profile and permission RPCs; verify turn and report RPC results under that user's real permissions.
 6. Send a BattleCruiser-specific chat request and enqueue a non-mutating verification mission; confirm the same project ID and read-only snapshot appear in mission metadata.
 7. For true administrator / unrestricted backend control, add a separately authorized server-side management integration for the existing BC project. This is impossible to certify from the current ChatGPT Supabase connector because it can manage only ARIA's project. Do not substitute ARIA's backend or grant public access.
+
+
+## Post-merge repair checkpoint — 2026-10-09
+
+- Original integration is already on `main` at merge SHA `acc0b47519cbc11894a03060436c29db1cb65c0c`; do not revert it.
+- Actual LIVE PWA verified on RobVG:
+  - `/pwa/version.json` reports exact build SHA `acc0b47519cbc11894a03060436c29db1cb65c0c`.
+  - `/pwa/index.html`, its versioned Service Worker, and the hashed app JS return HTTP 200; the JS includes the BC email-login and connections UI.
+  - The independent app build on RobVG was blocked before bundling at `npm ci` by `ECONNRESET`; this is not a build PASS and GitHub CI remains the authoritative build/deploy path.
+- Authenticated Projects E2E log/artifact proves ARIA auth/session and project catalog succeeded (3/3 IDs), no app page or main-console errors, and no failed network responses were recorded. It stopped at UX check because the ProjectWorkspace route entered with scroll offset ~142px and all project-card buttons were above the viewport. The same E2E definition also still expected the retired static BattleCruiser reference URL; the repair aligns it to the real LIVE URL and the `auth-required` badge.
+- Worker deploy's live smoke step used a one-shot exact-version assertion; the current live endpoint now serves the right merged SHA. Repair replaces the one-shot assertion with bounded polling while retaining the exact-SHA requirement.
+- Branch `fix/battlecruiser-live-projects-rwht-20261009` contains those fixes and regression assertions. Next gate: focused Projects test PASS, authenticated Projects/ARTIA RWHT PASS, Cloudflare deploy exact-SHA PASS, then verify post-deploy LIVE again.
+- Scope boundary is unchanged: this layer gives a logged-in BC user's permission-limited, read-only data snapshot. Full administrative SQL/unrestricted CRUD still requires a separately authorized server-side credential/access path for existing BC Supabase project `papxnkkjtkxsitcsvcme`; never substitute ARIA Supabase or grant `anon`.
