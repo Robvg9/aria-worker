@@ -782,20 +782,51 @@ async function run() {
         });
         throw new Error('artia_canvas_not_ready_' + visualProject.id + '_' + JSON.stringify(state) + '; cause=' + String(error?.message || error));
       });
-      const visualBox = await visualCanvas.boundingBox();
-      if (!visualBox || visualBox.width < 400 || visualBox.height < 200) throw new Error('artia_canvas_not_ready_' + visualProject.id);
+      // Draw only inside the canvas area that is actually visible through the
+      // scrollable Projects body. Its full DOM rect may extend underneath the
+      // fixed project tabs after scrollIntoViewIfNeeded(); those occluded pixels
+      // must not be used as pointer targets.
+      const drawGeometry = await page.evaluate(() => {
+        const canvas = document.querySelector('.artiaPreviewShell canvas');
+        const viewport = document.querySelector('.projectBodyViewport');
+        if (!canvas || !viewport) return null;
+        const r = canvas.getBoundingClientRect();
+        const v = viewport.getBoundingClientRect();
+        const visible = {
+          left: Math.max(r.left, v.left),
+          top: Math.max(r.top, v.top),
+          right: Math.min(r.right, v.right),
+          bottom: Math.min(r.bottom, v.bottom)
+        };
+        return {
+          canvas: { x: r.x, y: r.y, width: r.width, height: r.height },
+          project_body_viewport: { x: v.x, y: v.y, width: v.width, height: v.height },
+          visible_canvas: { ...visible, width: visible.right-visible.left, height: visible.bottom-visible.top }
+        };
+      });
+      if (!drawGeometry?.visible_canvas || drawGeometry.visible_canvas.width < 400 || drawGeometry.visible_canvas.height < 200) {
+        throw new Error('artia_canvas_visible_area_not_ready_' + visualProject.id + '_' + JSON.stringify(drawGeometry));
+      }
+      const visibleCanvas = drawGeometry.visible_canvas;
       const drawPoints = {
-        start: { x: visualBox.x + visualBox.width * 0.20, y: visualBox.y + visualBox.height * 0.20 },
-        end: { x: visualBox.x + visualBox.width * 0.55, y: visualBox.y + visualBox.height * 0.45 }
+        start: { x: visibleCanvas.left + visibleCanvas.width * 0.20, y: visibleCanvas.top + visibleCanvas.height * 0.20 },
+        end: { x: visibleCanvas.left + visibleCanvas.width * 0.55, y: visibleCanvas.top + visibleCanvas.height * 0.55 }
       };
       // Do not let a bad hit target silently become a global PWA swipe. Prove that
-      // both ends of the real mouse gesture are actually over the annotation canvas.
+      // both ends of the real mouse gesture are in the visible clip AND actually hit
+      // the annotation canvas (not an overlapped project tab or neighboring control).
       const hitTest = await page.evaluate(({ start, end }) => {
         const canvas = document.querySelector('.artiaPreviewShell canvas');
+        const viewport = document.querySelector('.projectBodyViewport');
         const describe = (point) => {
           const target = document.elementFromPoint(point.x, point.y);
+          const inViewport = Boolean(viewport && (() => {
+            const v = viewport.getBoundingClientRect();
+            return point.x >= v.left && point.x < v.right && point.y >= v.top && point.y < v.bottom;
+          })());
           return {
             x: point.x, y: point.y,
+            in_project_body_viewport: inViewport,
             is_canvas: Boolean(canvas && target === canvas),
             tag: target?.tagName || null,
             class_name: target ? String(target.className?.baseVal || target.className || '').slice(0, 180) : null,
@@ -803,18 +834,23 @@ async function run() {
           };
         };
         const rect = canvas?.getBoundingClientRect();
+        const v = viewport?.getBoundingClientRect();
         return {
           hash: location.hash,
           project: document.querySelector('.projectGrid .projectCard.selected')?.innerText?.trim() || null,
           tab: document.querySelector('.projectTabs .tabButton.selected')?.innerText?.trim() || null,
           canvas_pointer_events: canvas ? getComputedStyle(canvas).pointerEvents : null,
           canvas_rect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
+          project_body_viewport_rect: v ? { x: v.x, y: v.y, width: v.width, height: v.height } : null,
+          visible_canvas: null,
           viewport: { width: innerWidth, height: innerHeight },
           start: describe(start),
           end: describe(end)
         };
       }, drawPoints);
-      if (!hitTest.start.is_canvas || !hitTest.end.is_canvas) {
+      hitTest.visible_canvas = drawGeometry.visible_canvas;
+      if (!hitTest.start.is_canvas || !hitTest.end.is_canvas
+        || !hitTest.start.in_project_body_viewport || !hitTest.end.in_project_body_viewport) {
         await page.screenshot({ path: path.join(ARTIFACT_DIR, 'artia-hit-test-failure-' + visualProject.id + '.png'), fullPage: true }).catch(() => {});
         throw new Error('artia_canvas_hit_test_failed_' + visualProject.id + '_' + JSON.stringify(hitTest));
       }
