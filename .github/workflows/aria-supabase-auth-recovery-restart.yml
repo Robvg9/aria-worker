@@ -1,3 +1,4 @@
+# 2026-10-09 [supabase-restart]: deliberate production recovery after verified LIVE Auth 504, RPC 522, and SQL connection timeouts.
 name: ARIA Supabase Auth Recovery Restart
 
 on:
