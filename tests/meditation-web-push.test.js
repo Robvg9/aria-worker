@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 function read(rel) {
   return fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
@@ -43,6 +44,7 @@ assert(helper.includes('/meditation/push/subscribe'), 'PWA must persist subscrip
 assert(helper.includes('/meditation/push/status'), 'PWA must obtain live VAPID configuration');
 assert(helper.includes("userVisibleOnly: true"), 'Web Push subscription must require user-visible notifications');
 
+try { new vm.Script(sw, { filename: 'pwa/public/sw.js' }); } catch (error) { throw new Error('Service Worker source must parse before deployment: ' + String(error?.message || error)); }
 assert(sw.includes("addEventListener('push'"), 'service worker push event handler missing');
 assert(sw.includes('self.registration.showNotification'), 'service worker must display background notifications');
 assert(sw.includes('notification_id'), 'push payload must preserve notification identity');
