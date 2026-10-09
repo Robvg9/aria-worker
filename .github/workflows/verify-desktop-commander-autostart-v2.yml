@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'agents/windows/run-agent.ps1'
+      - 'agents/windows/aria-agent.js'
+      - 'supabase/functions/aria-device-gateway/index.ts'
+      - 'supabase/migrations/20261009000000_device_gateway_hash_auth_v1.sql'
       - 'agents/windows/install-v2.ps1'
       - 'agents/windows/desktop-commander-supervisor.ps1'
       - 'agents/windows/DESKTOP_COMMANDER_AUTOSTART_V2.md'
