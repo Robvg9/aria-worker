@@ -46,7 +46,7 @@ function Write-Status([string]$State,[int]$ProcessId=0,[string]$ErrorText=$null)
         updated_at = (Get-Date -Format o)
         state = $State
         process_alive = ($ProcessId -gt 0)
-        channel_state = if ($State -eq 'channel_subscribed') { 'subscribed' } elseif ($State -eq 'channel_degraded') { 'degraded' } elseif ($State -eq 'channel_unverified') { 'unverified' } else { 'unknown' }
+        channel_state = if ($State -eq 'channel_last_subscribed') { 'subscribed' } elseif ($State -eq 'channel_degraded') { 'degraded' } elseif ($State -eq 'channel_unverified') { 'unverified' } else { 'unknown' }
         pid = if($ProcessId -gt 0){$ProcessId}else{$null}
         version = $DcVersion
         node = $NodePath
@@ -109,7 +109,7 @@ function Get-RemoteChannelState {
         return [pscustomobject]@{ State = 'channel_degraded'; Detail = [string]$lastFailureLine }
     }
     if ($lastSuccess -ge 0) {
-        return [pscustomobject]@{ State = 'channel_subscribed'; Detail = 'Observed Channel subscribed with no newer channel error in the captured stdout tail.' }
+        return [pscustomobject]@{ State = 'channel_last_subscribed'; Detail = 'Last observed Channel subscribed; no newer channel error appears in the captured stdout tail. This is log evidence, not a live remote ping.' }
     }
     return [pscustomobject]@{ State = 'channel_unverified'; Detail = 'Process exists, but no Channel subscribed confirmation is present in recent stdout.' }
 }
