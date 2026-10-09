@@ -2,24 +2,9 @@ name: Deploy ARIA Cloudflare Worker
 # 2026-10-05: force production redeploy after mission lifecycle fix #959. No behavior change.
 
 on:
-  # Production deploys are release-bearing on merged PRs and on direct main pushes.
-  # The push path is a deterministic fallback when the pull_request_target close
-  # event is not emitted by an integration or merge transport.
+  # Canonical production release is the resulting push to main (or explicit dispatch).
+  # A second pull_request_target deployment races that push and causes exact-SHA builds to be cancelled.
   push:
-    branches: [main]
-    paths:
-      - 'worker.js'
-      - 'wrangler.toml'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'pwa/**'
-      - 'scripts/cloudflare-workers-build.js'
-      - 'integrations/cloudflare-*.js'
-      - 'autonomy/**'
-      - 'chatbending/**'
-      - '.github/workflows/aria-cloudflare-deploy.yml'
-  pull_request_target:
-    types: [closed]
     branches: [main]
     paths:
       - 'worker.js'
@@ -49,7 +34,7 @@ permissions:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
     steps:
