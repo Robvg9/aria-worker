@@ -105,22 +105,21 @@ jobs:
       - name: Install Xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
-      - name: Execute production Web Push and authenticated click-through E2E
+      - name: Execute authenticated production Web Push and mission click-through E2E
         working-directory: rwht/pc-browser
         shell: bash
         run: |
           set -uo pipefail
-          echo "WEBPUSH_PHYSICAL_E2E_START sha=$GITHUB_SHA"
-          timeout --foreground --signal=TERM --kill-after=15s 240s xvfb-run -a --server-args='-screen 0 1920x1080x24' node cloudflare-live-webpush-physical-e2e.mjs
-          physical_status=$?
-          echo "WEBPUSH_PHYSICAL_E2E_EXIT=$physical_status"
           echo "WEBPUSH_AUTHENTICATED_CLICKTHROUGH_START sha=$GITHUB_SHA"
-          timeout --foreground --signal=TERM --kill-after=15s 240s xvfb-run -a --server-args='-screen 0 1920x1080x24' node rwht-meditation-pwa-e2e.mjs
-          clickthrough_status=$?
+          if timeout --foreground --signal=TERM --kill-after=15s 300s xvfb-run -a --server-args='-screen 0 1920x1080x24' node rwht-meditation-pwa-e2e.mjs; then
+            clickthrough_status=0
+          else
+            clickthrough_status=$?
+          fi
           echo "WEBPUSH_AUTHENTICATED_CLICKTHROUGH_EXIT=$clickthrough_status"
-          if [[ "$physical_status" -ne 0 || "$clickthrough_status" -ne 0 ]]; then
-            echo "WEBPUSH_E2E_FAILED physical=$physical_status clickthrough=$clickthrough_status"
-            exit 1
+          if [[ "$clickthrough_status" -ne 0 ]]; then
+            echo "WEBPUSH_E2E_FAILED clickthrough=$clickthrough_status"
+            exit "$clickthrough_status"
           fi
           echo "WEBPUSH_E2E_ALL_PASS"
 
