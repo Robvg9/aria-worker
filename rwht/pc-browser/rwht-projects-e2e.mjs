@@ -699,6 +699,7 @@ async function run() {
 
     if (new Set(report.projects.map((project) => project.chat.conversation_id)).size !== 3) throw new Error('project_conversation_ids_not_isolated');
 
+    const visualMissions = report.visual_missions;
     if (!STEPS_7_8_ONLY) {
     // ARTIA must accept real visual mission creation for every project, not only BattleCruiser.
     const visualMissionExpectations = {
@@ -706,7 +707,6 @@ async function run() {
       cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
       aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
-    const visualMissions = report.visual_missions;
     for (const visualProject of PROJECTS) {
       await page.locator('.projectGrid .projectCard').filter({ hasText: visualProject.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
