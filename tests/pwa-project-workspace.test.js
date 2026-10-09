@@ -342,6 +342,6 @@ const connectionIndex=projectReturn.indexOf("ProjectResourceConnections");
 const viewportIndex=projectReturn.indexOf("className='projectBodyViewport'");
 assert.ok(selectorIndex>=0 && tabsIndex>selectorIndex && connectionIndex>tabsIndex && viewportIndex>tabsIndex, 'project selector and tabs must precede the long BC connections pane');
 assert.ok(viewportIndex>tabsIndex && connectionIndex>viewportIndex, 'BC connections must be owned by the scrollable project body, not placed above tabs');
-assert.ok(projectsRwht.includes("project_tabs_must_remain_visible"), 'RWHT must keep project section tabs in the initial viewport');
+assert.ok(projectsRwht.includes("projects_tabs_must_remain_visible"), 'RWHT must keep project section tabs in the initial viewport');
 assert.ok(projectsRwht.includes("projects_body_viewport_must_own_scrolling") && projectsRwht.includes("insideScrollableBody"), 'RWHT must distinguish reachable controls inside the intentional inner scroll area from inaccessible top-level controls');
 console.log('PROJECT NAVIGATION VISIBLE + SCROLLABLE BODY LAYOUT CONTRACT: PASS');
