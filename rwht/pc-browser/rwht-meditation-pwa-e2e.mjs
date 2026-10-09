@@ -241,19 +241,16 @@ async function dispatchNotificationClickViaServiceWorker(context, page, notifica
     const target = String(notification.data?.url || '');
     const expectedTarget = '/pwa/#notification=' + encodeURIComponent(notificationId);
     if (target !== expectedTarget) throw new Error('native_notification_target_mismatch:' + target);
-    const pending = [];
-    const event = new Event('notificationclick');
+    // Preserve the browser's native ExtendableEvent.waitUntil lifecycle. Do not
+    // await client.navigate() inside this evaluation: that navigation is the action
+    // under test and can outlive the service-worker evaluation context.
+    const event = new ExtendableEvent('notificationclick');
     Object.defineProperty(event, 'notification', { value: notification });
-    Object.defineProperty(event, 'waitUntil', {
-      value: promise => pending.push(Promise.resolve(promise))
-    });
     self.dispatchEvent(event);
-    await Promise.all(pending);
     return {
       notification_id: notificationId,
       target,
-      click_handler_dispatched: true,
-      remaining_notifications: (await registration.getNotifications({ tag })).length
+      click_handler_dispatched: true
     };
   }, { notificationId });
 }
