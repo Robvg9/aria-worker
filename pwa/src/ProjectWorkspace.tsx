@@ -248,6 +248,7 @@ type ProjectConnectionCheck = {
 type ProjectConnectionReport = {
   ok?: boolean;
   project_id?: string;
+  client_config?: BattleCruiserClientConfig | null;
   checks?: {
     frontend?: ProjectConnectionCheck;
     backend_auth?: ProjectConnectionCheck;
@@ -255,12 +256,27 @@ type ProjectConnectionReport = {
     repository?: ProjectConnectionCheck & { url?: string };
   };
 };
+type BattleCruiserVerifiedConnection = {
+  user:{id:string;email:string|null};
+  checks?:{
+    auth_user?:ProjectConnectionCheck;
+    profile_rpc?:ProjectConnectionCheck;
+    permissions_rpc?:ProjectConnectionCheck;
+    backend_data?:ProjectConnectionCheck;
+  };
+};
 
 function ProjectResourceConnections({project,session}:{project:Project;session:Session}) {
   const [report,setReport]=useState<ProjectConnectionReport|null>(null);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState('');
+  const [connectionError,setConnectionError]=useState('');
+  const [connecting,setConnecting]=useState(false);
+  const [bcUsername,setBcUsername]=useState('');
+  const [bcPassword,setBcPassword]=useState('');
+  const [connectedUser,setConnectedUser]=useState<BattleCruiserVerifiedConnection|null>(()=>activeBattleCruiserConnection?{user:activeBattleCruiserConnection.user,checks:activeBattleCruiserConnection.verifiedChecks}:null);
   const [refreshTick,setRefreshTick]=useState(0);
+
   useEffect(()=>{
     let active=true;
     setLoading(true);setError('');
@@ -271,6 +287,68 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
     return()=>{active=false};
   },[project.id,session.accessToken,refreshTick]);
 
+  async function connectBattleCruiserAccount(){
+    setConnecting(true);setConnectionError('');
+    const username=bcUsername.trim();
+    const password=bcPassword;
+    try{
+      const config=report?.client_config;
+      if(!config?.supabase_url||!config.publishable_key)throw new Error('El backend de BattleCruiser aún no publicó una configuración pública válida.');
+      if(!username||!password)throw new Error('Escribe el usuario y la contraseña de BattleCruiser.');
+      let email=username;
+      if(!username.includes('@')){
+        const lookupResponse=await fetch(config.supabase_url+'/rest/v1/rpc/obtener_email_login_por_nombre',{
+          method:'POST',
+          headers:{apikey:config.publishable_key,'content-type':'application/json'},
+          body:JSON.stringify({p_nombre:username}),
+          cache:'no-store'
+        });
+        const lookupValue=await lookupResponse.json().catch(()=>null);
+        email=typeof lookupValue==='string'?lookupValue:Array.isArray(lookupValue)&&typeof lookupValue[0]==='string'?lookupValue[0]:'';
+        if(!lookupResponse.ok||!email)throw new Error('BattleCruiser no pudo resolver ese usuario. Verifica el nombre de usuario.');
+      }
+      const authResponse=await fetch(config.supabase_url+'/auth/v1/token?grant_type=password',{
+        method:'POST',
+        headers:{apikey:config.publishable_key,'content-type':'application/json'},
+        body:JSON.stringify({email,password}),
+        cache:'no-store'
+      });
+      const authData:any=await authResponse.json().catch(()=>null);
+      if(!authResponse.ok||!authData?.access_token||!authData?.refresh_token)throw new Error('BattleCruiser rechazó las credenciales. Verifica el usuario y la contraseña.');
+      const verification=await api('/projects/battlecruiser/connections/verify',session.accessToken,{
+        method:'POST',
+        headers:{'x-battlecruiser-access-token':String(authData.access_token)},
+        body:JSON.stringify({})
+      });
+      if(verification?.ok!==true||verification?.authenticated!==true||!verification?.user?.id)throw new Error('No se pudo verificar la sesión autenticada de BattleCruiser.');
+      const connection:ActiveBattleCruiserConnection={
+        accessToken:String(authData.access_token),
+        refreshToken:String(authData.refresh_token),
+        expiresAt:Date.now()+Math.max(60,Number(authData.expires_in)||3600)*1000,
+        user:{id:String(verification.user.id),email:typeof verification.user.email==='string'?verification.user.email:null},
+        clientConfig:config,
+        verifiedChecks:verification.checks
+      };
+      activeBattleCruiserConnection=connection;
+      setConnectedUser({user:connection.user,checks:verification.checks});
+      setBcPassword('');
+      setConnectionError('');
+      setRefreshTick(v=>v+1);
+    }catch(e){
+      setConnectionError(e instanceof Error?e.message:'No se pudo conectar al backend de BattleCruiser.');
+    }finally{
+      setBcPassword('');
+      setConnecting(false);
+    }
+  }
+
+  function disconnectBattleCruiser(){
+    activeBattleCruiserConnection=null;
+    setConnectedUser(null);
+    setConnectionError('');
+    setNotice('Se cerró la conexión de BattleCruiser dentro de esta pestaña. La sesión de ARIA sigue intacta.');
+  }
+
   const frontend=report?.checks?.frontend;
   const auth=report?.checks?.backend_auth;
   const data=report?.checks?.backend_data;
@@ -280,13 +358,17 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
       reachable:'Disponible',unavailable:'No responde',healthy:'Auth saludable',
       frontend_backend_config_mismatch:'Configuración no coincide',
       public_api_key_not_found:'Clave pública no encontrada',
+      public_api_key_not_found_or_not_publishable:'Clave pública no válida',
       not_checked_requires_authenticated_context:'Protegido · falta validar sesión',
+      authenticated_rpc_access_verified:'Sesión y RPC de lectura verificadas',
+      authenticated_session_verified_rpc_access_limited:'Sesión válida · RPC limitado',
       configured_not_verified_by_runtime:'Enlace listo · acceso no verificado',
-      not_configured:'Sin configurar'
+      not_configured:'Sin configurar',verified:'Verificada',available:'Disponible',
+      not_available_for_this_session:'No disponible para este usuario'
     };
     return value?(map[value]||value):'Pendiente';
   };
-  const statusClass=(value?:string)=>value==='reachable'||value==='healthy'?'good':value==='unavailable'||value==='frontend_backend_config_mismatch'?'bad':'neutral';
+  const statusClass=(value?:string)=>value==='reachable'||value==='healthy'||value==='authenticated_rpc_access_verified'?'good':value==='unavailable'||value==='frontend_backend_config_mismatch'?'bad':'neutral';
 
   return <section className='panel projectResourceConnections' aria-label={'Fuentes canónicas de '+project.name}>
     <div className='panelHeading'>
@@ -301,12 +383,33 @@ function ProjectResourceConnections({project,session}:{project:Project;session:S
     <div className='statsGrid' style={{marginTop:14}}>
       <div className='statCard'><div className='statLabel'>FRONTEND LIVE</div><div className='statValue' style={{fontSize:16}}>{statusText(frontend?.status)}</div><div className='muted'>{frontend?.version?'Versión '+frontend.version:frontend?.http_status?'HTTP '+frontend.http_status:'app.js'}</div></div>
       <div className='statCard'><div className='statLabel'>BACKEND AUTH</div><div className='statValue' style={{fontSize:16}}>{statusText(auth?.status)}</div><div className='muted'>{auth?.service?(auth.service+(auth.version?' · '+auth.version:'')):auth?.http_status?'HTTP '+auth.http_status:'Identidad Supabase del proyecto'}</div></div>
-      <div className='statCard'><div className='statLabel'>DATOS PROTEGIDOS</div><div className='statValue' style={{fontSize:16}}>{statusText(data?.status)}</div><div className='muted'>No se prueba sin una sesión BC autorizada.</div></div>
+      <div className='statCard'><div className='statLabel'>DATOS PROTEGIDOS</div><div className='statValue' style={{fontSize:16}}>{connectedUser?statusText(connectedUser.checks?.backend_data?.status):statusText(data?.status)}</div><div className='muted'>{connectedUser?'Usuario autenticado: '+(connectedUser.user.email||connectedUser.user.id):'No se prueba sin una sesión BC autorizada.'}</div></div>
       <div className='statCard'><div className='statLabel'>GITHUB SOURCE</div><div className='statValue' style={{fontSize:16}}>{statusText(repository?.status)}</div><div className='muted'>El enlace existe; el runtime aún no certifica autorización Git.</div></div>
     </div>
+    <section style={{marginTop:16,padding:14,border:'1px solid var(--border, #39464f)',borderRadius:10}}>
+      <div className='panelTitle'>CONECTAR SESIÓN AUTENTICADA DE BATTLECRUISER</div>
+      {connectedUser?<div style={{display:'grid',gap:8,marginTop:10}}>
+        <p className='muted'>Sesión verificada como <strong>{connectedUser.user.email||connectedUser.user.id}</strong>. La conexión está en memoria de esta pestaña; no se guardó la contraseña ni el token en el almacenamiento persistente.</p>
+        <div className='muted'>Perfil RPC: {statusText(connectedUser.checks?.profile_rpc?.status)} · Permisos RPC: {statusText(connectedUser.checks?.permissions_rpc?.status)}</div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button type='button' className='ghost' onClick={()=>setRefreshTick(v=>v+1)}>Actualizar salud ↻</button>
+          <button type='button' className='ghost' onClick={disconnectBattleCruiser}>Cerrar conexión BC</button>
+        </div>
+      </div>:<form onSubmit={event=>{event.preventDefault();void connectBattleCruiser();}} style={{display:'grid',gap:10,marginTop:10,maxWidth:460}}>
+        <label style={{display:'grid',gap:5}}>Usuario o correo de BattleCruiser
+          <input value={bcUsername} onChange={value=>setBcUsername(value)} autoComplete='username' disabled={connecting} placeholder='Tu usuario de BattleCruiser' required />
+        </label>
+        <label style={{display:'grid',gap:5}}>Contraseña de BattleCruiser
+          <input value={bcPassword} onChange={value=>setBcPassword(value)} inputType='password' autoComplete='current-password' disabled={connecting} placeholder='Se envía directamente a Supabase BattleCruiser' required />
+        </label>
+        <p className='muted'>La contraseña se envía desde este navegador directamente al Auth de BattleCruiser; no pasa por el API de ARIA. La sesión verificada permanece solo en memoria y se usa como usuario actual, nunca como acceso administrador.</p>
+        <button type='submit' className='primary' disabled={connecting||loading||!report?.client_config}>{connecting?'Conectando…':'Conectar backend BattleCruiser'}</button>
+      </form>}
+      {connectionError&&<p className='notice' role='alert' style={{marginTop:10}}>{connectionError}</p>}
+    </section>
     {error&&<p className='notice' role='status'>{error}</p>}
     {!report&&!loading&&!error&&<p className='muted'>Aún no hay resultado de verificación.</p>}
-    <p className='muted' style={{marginTop:12}}>La comprobación de Auth no garantiza permiso a tablas/RPC ni sustituye una prueba autenticada. No se abren permisos anónimos para obtener un PASS.</p>
+    <p className='muted' style={{marginTop:12}}>La conexión utiliza el JWT del usuario autenticado y sus permisos/RLS; no eleva privilegios, no cambia datos y no abre permisos anónimos.</p>
   </section>;
 }
 
