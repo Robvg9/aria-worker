@@ -451,6 +451,139 @@ async function run() {
     }, null, { timeout: 60000 });
     report.recovery.live_sync_recovered = true;
 
+    // Independent authenticated Reality Board check: this certificate is reported separately
+    // from Persistence + Recovery so an unrelated board failure cannot erase a genuine persistence PASS.
+    report.reality_board = {
+      verified: false,
+      url: '',
+      expected_live_sha: String(process.env.GITHUB_SHA || '').trim(),
+      live_build_sha: '',
+      summary_cards: 0,
+      project_cards: 0,
+      initial_api_responses: [],
+      manual_refresh_api_responses: [],
+      failure: null
+    };
+    let boardPage = null;
+    try {
+      const boardUrl = new URL('reality-board.html', BASE_URL.endsWith('/') ? BASE_URL : BASE_URL + '/').href;
+      report.reality_board.url = boardUrl;
+      if (!report.reality_board.expected_live_sha) throw new Error('reality_board_expected_live_sha_missing');
+
+      boardPage = await context.newPage();
+      const boardApiResponses = [];
+      const boardPageErrors = [];
+      const boardConsoleErrors = [];
+      const board5xx = [];
+      const boardOrigin = new URL(BASE_URL).origin;
+      boardPage.on('pageerror', error => boardPageErrors.push(String(error?.message || error).slice(0, 1000)));
+      boardPage.on('console', message => {
+        if (message.type() === 'error') boardConsoleErrors.push({ text: message.text().slice(0, 1200) });
+      });
+      boardPage.on('response', response => {
+        try {
+          const url = new URL(response.url());
+          if (url.origin === boardOrigin && url.pathname.startsWith('/api/projects')) {
+            boardApiResponses.push({ path: url.pathname, status: response.status() });
+          }
+          if (response.status() >= 500) {
+            board5xx.push({ status: response.status(), method: response.request().method(), url: response.url().slice(0, 1000) });
+          }
+        } catch {}
+      });
+
+      await boardPage.goto(boardUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await boardPage.waitForFunction(() => {
+        const error = document.querySelector('#err');
+        const hasError = Boolean(error && getComputedStyle(error).display !== 'none' && String(error.textContent || '').trim());
+        return hasError || (
+          document.querySelectorAll('#summary .row').length >= 4 &&
+          document.querySelectorAll('#projects .row').length === 3 &&
+          String(document.querySelector('#updated')?.textContent || '').includes('Actualizado:')
+        );
+      }, null, { timeout: 60000 });
+
+      const boardInitial = await boardPage.evaluate(async () => {
+        const error = document.querySelector('#err');
+        const buildResponse = await fetch('/pwa/version.json', { cache: 'no-store' }).catch(() => null);
+        const build = buildResponse && buildResponse.ok ? await buildResponse.json().catch(() => null) : null;
+        return {
+          error_visible: Boolean(error && getComputedStyle(error).display !== 'none' && String(error.textContent || '').trim()),
+          error_text: String(error?.textContent || '').trim(),
+          summary_cards: document.querySelectorAll('#summary .row').length,
+          project_cards: document.querySelectorAll('#projects .row').length,
+          project_text: String(document.querySelector('#projects')?.innerText || ''),
+          truth_text: String(document.querySelector('#truth')?.innerText || ''),
+          next_text: String(document.querySelector('#next')?.innerText || ''),
+          updated_text: String(document.querySelector('#updated')?.textContent || ''),
+          live_build_sha: String(build?.build || '')
+        };
+      });
+
+      Object.assign(report.reality_board, {
+        live_build_sha: boardInitial.live_build_sha,
+        summary_cards: boardInitial.summary_cards,
+        project_cards: boardInitial.project_cards,
+        updated_text: boardInitial.updated_text,
+        project_labels_verified: ['ARIA', 'CuevaCoin', 'BattleCruiser'].every(name => boardInitial.project_text.includes(name)),
+        truth_section_verified: boardInitial.truth_text.includes('ARIA · versión desplegada') &&
+          boardInitial.truth_text.includes('Projects + ARTIA') &&
+          boardInitial.truth_text.includes(boardInitial.live_build_sha) &&
+          boardInitial.truth_text.includes('LIVE ALINEADO CON main'),
+        uncertainty_policy_verified: boardInitial.truth_text.includes('HISTÓRICO') || boardInitial.truth_text.includes('NO CONFIRMADO'),
+        next_actions_verified: boardInitial.next_text.includes('CuevaCoin') && boardInitial.next_text.includes('BattleCruiser')
+      });
+      if (boardInitial.error_visible) throw new Error('reality_board_api_load_failed_' + boardInitial.error_text.slice(0, 300));
+      if (boardInitial.live_build_sha !== report.reality_board.expected_live_sha) {
+        throw new Error('reality_board_live_sha_mismatch_expected_' + report.reality_board.expected_live_sha + '_actual_' + boardInitial.live_build_sha);
+      }
+      if (boardInitial.summary_cards < 4 || boardInitial.project_cards !== 3) throw new Error('reality_board_project_coverage_failed');
+      if (!report.reality_board.project_labels_verified) throw new Error('reality_board_human_project_labels_missing');
+      if (!report.reality_board.truth_section_verified) throw new Error('reality_board_live_truth_section_not_aligned');
+      if (!report.reality_board.uncertainty_policy_verified) throw new Error('reality_board_uncertainty_not_rendered');
+      if (!report.reality_board.next_actions_verified) throw new Error('reality_board_human_next_actions_missing');
+      if (boardApiResponses.length < 4) throw new Error('reality_board_initial_live_api_coverage_missing');
+      report.reality_board.initial_api_responses = boardApiResponses.slice();
+      if (report.reality_board.initial_api_responses.some(response => response.status !== 200)) {
+        throw new Error('reality_board_initial_project_api_read_failed');
+      }
+
+      const refreshStart = boardApiResponses.length;
+      const updatedBeforeRefresh = boardInitial.updated_text;
+      await boardPage.locator('#refresh').click();
+      const refreshDeadline = Date.now() + 30000;
+      while (Date.now() < refreshDeadline &&
+        (boardApiResponses.length - refreshStart < 4 ||
+         String(await boardPage.locator('#updated').textContent().catch(() => '')) === updatedBeforeRefresh)) {
+        await waitFor(250);
+      }
+      await waitFor(250);
+      report.reality_board.manual_refresh_api_responses = boardApiResponses.slice(refreshStart);
+      if (report.reality_board.manual_refresh_api_responses.length < 4) {
+        throw new Error('reality_board_manual_refresh_live_api_coverage_missing');
+      }
+      if (report.reality_board.manual_refresh_api_responses.some(response => response.status !== 200)) {
+        throw new Error('reality_board_manual_refresh_project_api_read_failed');
+      }
+      if (boardPageErrors.length) throw new Error('reality_board_page_errors_' + boardPageErrors.length);
+      if (boardConsoleErrors.length) throw new Error('reality_board_console_errors_' + boardConsoleErrors.length);
+      if (board5xx.length) throw new Error('reality_board_http_5xx_' + board5xx.length);
+      report.reality_board.page_errors = boardPageErrors;
+      report.reality_board.console_errors = boardConsoleErrors;
+      report.reality_board.failed_responses = board5xx;
+      report.reality_board.verified = true;
+    } catch (boardError) {
+      report.reality_board.failure = String(boardError?.message || boardError).slice(0, 1200);
+      report.reality_board.page_errors = report.reality_board.page_errors || [];
+      report.reality_board.console_errors = report.reality_board.console_errors || [];
+      report.reality_board.failed_responses = report.reality_board.failed_responses || [];
+    } finally {
+      if (boardPage) {
+        await boardPage.screenshot({ path: path.join(ARTIFACT_DIR, 'reality-board-final.png'), fullPage: true }).catch(() => {});
+        await boardPage.close().catch(() => {});
+      }
+    }
+
     if (pageErrors.length) throw new Error('runtime_page_errors_' + pageErrors.length);
     if (consoleErrors.length) throw new Error('runtime_console_errors_' + consoleErrors.length);
     if (failedResponses.length) throw new Error('real_http_5xx_' + failedResponses.length);
@@ -483,6 +616,9 @@ async function run() {
     chat_reload_persistence_verified: report.chat.reload_persistence_verified,
     recovery_dashboard_verified: report.recovery.dashboard_survived_api_failure,
     recovery_live_sync_verified: report.recovery.live_sync_recovered,
+    reality_board_verified: report.reality_board?.verified === true,
+    reality_board_live_sha: report.reality_board?.live_build_sha || null,
+    reality_board_failure: report.reality_board?.failure || null,
     page_errors: report.page_errors.length,
     console_errors: report.console_errors.length,
     failed_responses: report.failed_responses.length,
