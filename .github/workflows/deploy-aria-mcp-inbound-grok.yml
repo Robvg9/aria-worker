@@ -1,15 +1,12 @@
 name: Deploy ARIA MCP Inbound Grok
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'supabase/functions/aria-mcp-inbound-grok-v1/**'
-      - '.github/workflows/deploy-aria-mcp-inbound-grok.yml'
+  # Manual fallback only. The canonical Supabase deployment owns migrations and
+  # all production Edge Function deploys to avoid racing two deploy workflows.
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
@@ -21,15 +18,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore canonical full OAuth source
+      - name: Validate checked-out OAuth source (never overwrite it with historical source)
         run: |
           set -euo pipefail
-          git show 3162e4aa18cb046e08b83c6ec09f9e1a1a580444:supabase/functions/aria-mcp-inbound-grok-v1/index.ts > supabase/functions/aria-mcp-inbound-grok-v1/index.ts
-          python3 scripts/patch-inbound-issuer.py
-          test "$(wc -c < supabase/functions/aria-mcp-inbound-grok-v1/index.ts)" -gt 20000
-          test "$(grep -c 'Deno.serve(async (req)' supabase/functions/aria-mcp-inbound-grok-v1/index.ts)" -eq 1
-          test "$(grep -c 'function issueAccessToken' supabase/functions/aria-mcp-inbound-grok-v1/index.ts)" -eq 1
-          test "$(grep -c 'function verifyAccessToken' supabase/functions/aria-mcp-inbound-grok-v1/index.ts)" -eq 1
+          source="supabase/functions/aria-mcp-inbound-grok-v1/index.ts"
+          test -f "$source"
+          test "$(wc -c < "$source")" -gt 20000
+          test "$(grep -c 'Deno.serve(async (req)' "$source")" -eq 1
+          test "$(grep -c 'function issueAccessToken' "$source")" -eq 1
+          test "$(grep -c 'function verifyAccessToken' "$source")" -eq 1
+          grep -q 'CUEVACOIN_CONTROL_SCOPE = "aria.project.cuevacoin.control"' "$source"
+          grep -q 'ARIA_MCP_INBOUND_ISSUER' "$source"
+          grep -q 'SUPABASE_ACCESS_TOKEN' .github/workflows/deploy-aria-mcp-inbound-grok.yml
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           BASE="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/aria-mcp-inbound-grok-v1"
           WORKER="https://aria.robvg9.workers.dev/mcp"
+          WORKER_ORIGIN="https://aria.robvg9.workers.dev"
           ISSUER="https://aria.robvg9.workers.dev"
           prm=$(curl --fail --silent --show-error --retry 8 "$BASE/.well-known/oauth-protected-resource")
           echo "$prm"
@@ -81,6 +82,7 @@ jobs:
           assert x['resource']==os.environ['WORKER']
           assert x['authorization_servers']==[os.environ['ISSUER']]
           assert 'aria.mcp.inbound' in x.get('scopes_supported',[])
+          assert 'aria.project.cuevacoin.control' in x.get('scopes_supported',[])
           print('PRM_OK')
           PY
           asm=$(curl --fail --silent --show-error --retry 8 "$BASE/.well-known/oauth-authorization-server")
@@ -93,7 +95,17 @@ jobs:
           assert x['authorization_endpoint']==issuer+'/authorize'
           assert x['token_endpoint']==issuer+'/token'
           assert 'S256' in x.get('code_challenge_methods_supported',[])
+          assert 'aria.project.cuevacoin.control' in x.get('scopes_supported',[])
           print('ASM_OK')
+          PY
+          worker_prm=$(curl --fail --silent --show-error --retry 8 "$WORKER_ORIGIN/.well-known/oauth-protected-resource/mcp")
+          echo "$worker_prm"
+          WORKER_PRM="$worker_prm" python3 - <<'PY'
+          import json, os
+          x=json.loads(os.environ['WORKER_PRM'])
+          assert 'aria.mcp.inbound' in x.get('scopes_supported',[])
+          assert 'aria.project.cuevacoin.control' in x.get('scopes_supported',[])
+          print('WORKER_PRM_OK')
           PY
           hdr=$(mktemp)
           code=$(curl -s -D "$hdr" -o /tmp/init -w '%{http_code}' -X POST "$BASE" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
@@ -106,15 +118,3 @@ jobs:
           grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$wh"
           echo LIVE_OK
 
-      - name: Persist canonical source to main
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add supabase/functions/aria-mcp-inbound-grok-v1/index.ts
-          if git diff --cached --quiet; then
-            echo 'canonical source already clean'
-            exit 0
-          fi
-          git commit -m 'fix(oauth): persist canonical inbound source'
-          git push origin HEAD:main

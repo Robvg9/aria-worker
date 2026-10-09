@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-02-canonical';
+export const TEST_CATALOG_VERSION = '2026-10-09-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "omniroute-phase6-adapter",
@@ -540,6 +540,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba el comportamiento específico indicado por el nombre del test y detecta regresiones.",
     "capabilities": "Comprueba orquestación, misiones, executors, recuperación, persistencia y ejecución universal."
+  },
+  {
+    "id": "aria-cuevacoin-control-v1",
+    "file": "tests/aria-cuevacoin-control-v1.test.js",
+    "title": "ARIA CuevaCoin Control v1",
+    "category": "Seguridad / permisos",
+    "includedInNpmTest": true,
+    "how": "Comprueba el consentimiento OAuth elevado y las puertas de autorización para controlar CuevaCoin.",
+    "capabilities": "Valida aislamiento del proyecto, persistencia de scopes, confirmaciones explícitas y no exposición de credenciales."
   },
   {
     "id": "aria-eas-mcp-contract",
