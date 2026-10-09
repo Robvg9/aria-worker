@@ -260,3 +260,11 @@ assert.match(project,/https:\/\/github\.com\/Robvg9\/battlecruiser\/tree\/main/)
 assert.match(project,/https:\/\/battlecruiser\.robvg9\.workers\.dev\//);
 assert.match(project,/papxnkkjtkxsitcsvcme/);
 console.log('ARIA BATTLECRUISER CANONICAL PROJECT RESOURCE BINDING: PASS');
+
+assert.match(project,/FUENTES CANÓNICAS · BATTLECRUISER/);
+assert.match(project,/Frontend LIVE ↗/);
+assert.match(project,/Código · main ↗/);
+assert.match(project,/Backend · Supabase ↗/);
+assert.match(project,/la conexión de Supabase de ARIA/i);
+console.log('BATTLECRUISER PROJECT LINKS ARE VISIBLE WITHOUT CLAIMING BACKEND AUTH: PASS');
+
