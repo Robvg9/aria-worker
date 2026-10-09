@@ -43,7 +43,8 @@ function nativeGatewayRequest(url, options = {}) {
       res.on('data', chunk => { text += chunk; });
       res.on('end', () => resolve({ status: Number(res.statusCode || 0), text }));
     });
-    req.setTimeout(GATEWAY_TIMEOUT_MS, () => {
+    const requestTimeoutMs = Math.max(3_000, Number(options.timeout_ms || GATEWAY_TIMEOUT_MS));
+    req.setTimeout(requestTimeoutMs, () => {
       req.destroy(new Error('gateway_timeout'));
     });
     req.on('error', reject);
@@ -51,31 +52,46 @@ function nativeGatewayRequest(url, options = {}) {
     req.end();
   });
 }
-async function api(p,options={}){
-  let lastError=null;
-  for(let attempt=0;attempt<=GATEWAY_RETRIES;attempt++){
-    try{
-      const response=await nativeGatewayRequest(endpoint(p),{
-        ...options,
-        headers:{...headers(),...(options.headers||{})}
-      });
-      let body=null;
-      try{body=response.text?JSON.parse(response.text):null}catch{body={raw:response.text}}
-      if(response.status>=200&&response.status<300)return body;
-      const error=new Error(`gateway ${response.status}: ${body?.error||'request failed'}`);
-      error.status=response.status;
-      lastError=error;
-      const retryable=response.status===408||response.status===429||response.status>=500;
-      if(!retryable||attempt>=GATEWAY_RETRIES)throw error;
-    }catch(error){
-      lastError=error;
-      if(attempt>=GATEWAY_RETRIES)throw error;
-    }
-    await sleep(Math.min(5000,750*Math.pow(2,attempt))+Math.floor(Math.random()*500));
-  }
-  throw lastError||new Error('gateway_request_failed');
-}
+async function api(p,options={}) {
+  const timeoutMs = Math.max(3_000, Number(options.timeout_ms ?? GATEWAY_TIMEOUT_MS));
+  const maxRetries = Math.max(0, Number(options.retry_count ?? GATEWAY_RETRIES));
+  const { timeout_ms: _timeoutMs, retry_count: _retryCount, ...requestOptions } = options;
+  let lastError = null;
 
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let response;
+    try {
+      response = await nativeGatewayRequest(endpoint(p), {
+        ...requestOptions,
+        timeout_ms: timeoutMs,
+        headers: { ...headers(), ...(requestOptions.headers || {}) },
+      });
+    } catch (error) {
+      lastError = error;
+      // A timeout is ambiguous: the server may still be processing the request.
+      // Do not issue a second copy and add more pressure to an overloaded gateway.
+      if (attempt >= maxRetries || error?.message === 'gateway_timeout') throw error;
+      await sleep(Math.min(5000, 750 * Math.pow(2, attempt)) + Math.floor(Math.random() * 500));
+      continue;
+    }
+
+    let body = null;
+    try { body = response.text ? JSON.parse(response.text) : null; }
+    catch { body = { raw: response.text }; }
+
+    if (response.status >= 200 && response.status < 300) return body;
+
+    const error = new Error(`gateway ${response.status}: ${body?.error || 'request failed'}`);
+    error.status = response.status;
+    const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+    if (!retryable || attempt >= maxRetries) throw error;
+
+    lastError = error;
+    await sleep(Math.min(5000, 750 * Math.pow(2, attempt)) + Math.floor(Math.random() * 500));
+  }
+
+  throw lastError || new Error('gateway_request_failed');
+}
 function parseAutonomousRwhtPayload(job){
   if(!job||job.device_id!==DEVICE_ID||job.operation!==AUTONOMOUS_COMPUTER_OPERATION)throw new Error('unsupported_job');
   if(typeof job.command!=='string'||!job.command.trim())throw new Error('autonomous_rwht_payload_required');
@@ -102,7 +118,7 @@ function parseAutonomousRwhtPayload(job){
 }
 function parseQwenPayload(job){if(!job||job.device_id!==DEVICE_ID||job.operation!==OLLAMA_OPERATION)throw new Error('unsupported_job');if(typeof job.command!=='string'||!job.command.trim())throw new Error('ollama_payload_required');let payload;try{payload=JSON.parse(job.command)}catch{throw new Error('ollama_payload_invalid_json')}if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('ollama_payload_invalid');const keys=Object.keys(payload);if(keys.some(key=>!['prompt','model','timeout_ms'].includes(key)))throw new Error('ollama_payload_field_rejected');if(typeof payload.prompt!=='string'||!payload.prompt.trim())throw new Error('ollama_prompt_required');if(payload.model!==undefined&&payload.model!==OLLAMA_MODEL)throw new Error('ollama_model_rejected');if(payload.timeout_ms!==undefined&&(!Number.isInteger(payload.timeout_ms)||payload.timeout_ms<1000||payload.timeout_ms>3_600_000))throw new Error('ollama_timeout_rejected');return{prompt:payload.prompt,model:OLLAMA_MODEL,timeout_ms:payload.timeout_ms??job.timeout_ms??120_000}}
 async function callOllama({prompt,model,timeout_ms}){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(1000,timeout_ms)),started=Date.now();try{const response=await fetch(`${OLLAMA_URL}/api/generate`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model,prompt,stream:false,think:false,options:{temperature:0,num_predict:32}}),signal:controller.signal});const text=await response.text();if(!response.ok)throw new Error(`ollama ${response.status}: ${text.slice(0,1024)}`);let body;try{body=JSON.parse(text)}catch{throw new Error('ollama_invalid_json')}if(typeof body.response!=='string')throw new Error('ollama_response_missing');return{status:'succeeded',exit_code:0,stdout:normalizeQwenResponse(body.response),stderr:'',duration_ms:Date.now()-started,metadata:{raw_response_available:true}}}catch(error){return{status:error?.name==='AbortError'?'timeout':'failed',exit_code:null,stdout:'',stderr:redact(String(error?.message||error).slice(0,4096)),duration_ms:Date.now()-started}}finally{clearTimeout(timer)}}
-async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
+async function enroll(){const tokenHash=crypto.createHash('sha256').update(DEVICE_TOKEN,'utf8').digest('hex');return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token_hash:tokenHash}),retry_count:0})}
 async function heartbeat(){touchProcessHeartbeat('attempt');try{const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];if(process.env.ARIA_OLLAMA_ENABLED==='true')capabilities.unshift(OLLAMA_OPERATION);await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});touchProcessHeartbeat('online');log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`)}catch(error){touchProcessHeartbeat('transport_error');console.error(`[heartbeat] ${error.message}`)}}
 function emitTelemetry(message){try{void Promise.resolve(meditationController.event(message)).catch(error=>console.error(`[meditation] ${error.message}`))}catch(error){console.error(`[meditation] ${error.message}`)}}
 async function rejectClaimedJob(job,reason,operation=job?.operation){const result={status:'failed',exit_code:null,stdout:'',stderr:reason,duration_ms:0,metadata:{agent_version:'aria-windows-agent-v2',operation,rejected:true}};try{await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/result`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,result})})}catch(error){console.error(`[reject] ${error.message}`)}}
@@ -116,4 +132,4 @@ if(job.operation===AUTONOMOUS_COMPUTER_OPERATION){await executeAutonomousRwhtJob
 let stopping=false;
 const meditationController=createWindowsMeditationController();
 process.on('SIGTERM',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});process.on('SIGINT',()=>{stopping=true;void meditationController.shutdown();log('STOP requested')});
-(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version}`);try{await Promise.race([enroll(),sleep(5000).then(()=>{throw new Error('enroll_timeout')})]);log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);let consecutivePollFailures=0;while(!stopping){const state=await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
+(async()=>{log(`START device=${DEVICE_ID} platform=windows-local node=${process.version}`);try{await enroll();log(`ENROLLED device=${DEVICE_ID}`)}catch(error){console.error(`[enroll] ${error.message}`)}await heartbeat();setInterval(heartbeat,HEARTBEAT_MS);let consecutivePollFailures=0;while(!stopping){const state=await claimAndExecute();if(state==='error'){consecutivePollFailures=Math.min(consecutivePollFailures+1,6)}else{consecutivePollFailures=0}const baseDelay=state==='worked'?5_000:POLL_MS;const backoff=state==='error'?Math.min(POLL_MS*Math.pow(2,consecutivePollFailures),60_000):baseDelay;const jitter=Math.floor(Math.random()*Math.max(1,Math.min(3_000,Math.round(backoff*0.25))));await sleep(backoff+jitter)}})().catch(error=>{console.error(error);process.exit(1)})
