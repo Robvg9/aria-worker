@@ -332,3 +332,16 @@ assert.ok(projectsRwht.includes("mode: 'auth-required'"), 'RWHT must certify the
 assert.ok(!projectsRwht.includes("https://aria.robvg9.workers.dev/project-preview/battlecruiser/"), 'RWHT must not require the obsolete static BattleCruiser reference');
 assert.ok(projectsRwht.includes("artia_visual_auth_required_badge_missing_") && projectsRwht.includes("artia_auth_required_badge_missing_"), 'both ARTIA visual missions and preview catalog must verify the auth-required badge');
 console.log('BATTLECRUISER LIVE PREVIEW + PROJECTS VIEWPORT REGRESSION CONTRACT: PASS');
+
+
+// Project navigation must be visible before long BattleCruiser connection content, which belongs in the inner scroll region.
+const projectReturn=project.slice(project.indexOf("return <main className='appShell projectShell'>"));
+const selectorIndex=projectReturn.indexOf("className='projectGrid'");
+const tabsIndex=projectReturn.indexOf("className='capTabs projectTabs'");
+const connectionIndex=projectReturn.indexOf("ProjectResourceConnections");
+const viewportIndex=projectReturn.indexOf("className='projectBodyViewport'");
+assert.ok(selectorIndex>=0 && tabsIndex>selectorIndex && connectionIndex>tabsIndex && viewportIndex>tabsIndex, 'project selector and tabs must precede the long BC connections pane');
+assert.ok(viewportIndex>tabsIndex && connectionIndex>viewportIndex, 'BC connections must be owned by the scrollable project body, not placed above tabs');
+assert.ok(projectsRwht.includes("projects_tabs_must_remain_visible"), 'RWHT must keep project section tabs in the initial viewport');
+assert.ok(projectsRwht.includes("projects_body_viewport_must_own_scrolling") && projectsRwht.includes("insideScrollableBody"), 'RWHT must distinguish reachable controls inside the intentional inner scroll area from inaccessible top-level controls');
+console.log('PROJECT NAVIGATION VISIBLE + SCROLLABLE BODY LAYOUT CONTRACT: PASS');
