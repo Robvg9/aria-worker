@@ -384,15 +384,24 @@ async function run() {
       // Chrome resolves the active registration rather than an about:blank target.
       const controllerPage = await context.newPage();
       await controllerPage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
-      await withTimeout(
+      // pwa/index.html registers the worker from a window "load" listener.
+      // DOMContentLoaded alone is too early: ServiceWorker.ready waits forever
+      // if registration has not even started. Wait for the same lifecycle event
+      // that the production HTML uses before reading the active registration.
+      await controllerPage.waitForLoadState('load', { timeout:30000 });
+      const workerScriptUrl = await withTimeout(
         controllerPage.evaluate(async () => {
-          const registration = await navigator.serviceWorker.ready;
-          if (!registration.active) throw new Error('pwa_service_worker_not_active');
+          const registration = await navigator.serviceWorker.getRegistration('/pwa/');
+          if (!registration) throw new Error('pwa_service_worker_registration_missing_after_load');
+          if (!registration.active) throw new Error('pwa_service_worker_not_active_after_load');
           return registration.active.scriptURL;
         }),
-        15000,
+        30000,
         'pwa_service_worker_ready_for_push_probe'
       );
+      if (!workerScriptUrl.includes('/pwa/sw-')) {
+        throw new Error('pwa_service_worker_script_url_unexpected:' + workerScriptUrl);
+      }
       const origin = String(new URL(base).origin);
       const pushDelivery = await deliverBackgroundPushViaCdp(
         controllerPage,
