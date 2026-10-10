@@ -76,10 +76,17 @@ assert.match(runner, /authenticationBoundaryFailed/);
 assert.match(runner, /Authenticated RWHT.*hard boundary|Authentication is a hard boundary/);
 assert.match(runner, /authenticated_surface_missing/);
 
+const pwaViteConfig = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'vite.config.ts'), 'utf8');
+const pwaTestCatalog = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'testCatalog.ts'), 'utf8');
 assert.match(pwaIndex, /aria-test-catalog-version/);
-assert.match(pwaIndex, /2026-10-02-canonical/);
+assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_VERSION__'/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
-assert.match(pwaIndex, /content='295'/);
+assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_TOTAL__'/);
+assert.match(pwaViteConfig, /TEST_CATALOG_VERSION/);
+assert.match(pwaViteConfig, /testCatalogTotal/);
+assert.match(pwaViteConfig, /aria-test-catalog-metadata/);
+assert.match(pwaTestCatalog, /export const TEST_CATALOG_VERSION = '2026-10-10-canonical'/);
+assert.equal([...pwaTestCatalog.matchAll(/"file": "tests\//g)].length, 323);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
