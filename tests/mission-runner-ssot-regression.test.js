@@ -89,3 +89,13 @@ test("PWA never promotes stale non-leased running/waiting missions to live execu
     "unleased missions must not be promoted indefinitely"
   );
 });
+
+test("model execution runtime receives internal service auth, not the user JWT", () => {
+  const start = runner.indexOf("const response = await fetch(EXEC, {");
+  assert.notEqual(start, -1, "runner must retain the canonical EXEC request");
+  const end = runner.indexOf("\n    });", start);
+  assert.notEqual(end, -1, "EXEC request block must be closed");
+  const block = runner.slice(start, end);
+  assert.match(block, /headers: internalHeaders\(\)/, "internal model execution must use the shared internal auth contract");
+  assert.doesNotMatch(block, /headers: downstreamHeaders\(auth\)/, "a PWA user JWT is not the internal executor credential");
+});
