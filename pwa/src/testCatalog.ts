@@ -8,8 +8,17 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-09-canonical';
+export const TEST_CATALOG_VERSION = '2026-10-10-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
+  {
+    "id": "aria-cuevacoin-oauth-callback",
+    "file": "tests/aria-cuevacoin-oauth-callback.test.js",
+    "title": "ARIA CuevaCoin OAuth Callback",
+    "category": "Seguridad / OAuth",
+    "includedInNpmTest": true,
+    "how": "Verifica la ruta real de callback, las comprobaciones de estado y emisor, y el contrato CSP de la verificación OAuth gobernada.",
+    "capabilities": "Detecta regresiones donde el Worker pierde los parámetros de callback y la autorización termina en /mcp sin completar el intercambio PKCE."
+  },
   {
     "id": "omniroute-phase6-adapter",
     "file": "tests/omniroute-adapter.test.js",
