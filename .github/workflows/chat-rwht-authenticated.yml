@@ -69,6 +69,24 @@ jobs:
       - name: Install Chat RWHT dependencies
         working-directory: rwht/pc-browser
         run: npm install --no-audit --no-fund
+      - name: Install PWA build dependencies
+        working-directory: pwa
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build PWA and verify canonical catalog metadata
+        working-directory: pwa
+        env:
+          VITE_BUILD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          npm run build
+          expected_version="$(grep '^export const TEST_CATALOG_VERSION' src/testCatalog.ts | cut -d "'" -f 2)"
+          expected_total="$(grep -c '"file": "tests/' src/testCatalog.ts)"
+          test -n "$expected_version"
+          test "$expected_total" -gt 0
+          grep -Fq "aria-test-catalog-version' content='$expected_version'" dist/index.html
+          grep -Fq "aria-test-catalog-total' content='$expected_total'" dist/index.html
+          ! grep -q '__ARIA_TEST_CATALOG_' dist/index.html
+          echo "PWA_CANONICAL_TEST_CATALOG_BUILD_OK version=$expected_version total=$expected_total"
       - name: Install Chromium
         if: github.event_name != 'pull_request'
         working-directory: rwht/pc-browser
