@@ -91,6 +91,8 @@ assert.equal([...pwaTestCatalog.matchAll(/"file": "tests\//g)].length, 323);
 assert.match(projectsRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
 assert.match(projectsRwhtWorkflow, /grep -c '"file": "tests\//);
 assert.match(projectsRwhtWorkflow, /PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK/);
+assert.ok(projectsRwhtWorkflow.includes('catalog_match=false'));
+assert.ok(projectsRwhtWorkflow.includes('test "$catalog_match" = true'));
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
