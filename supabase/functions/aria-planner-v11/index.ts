@@ -2,6 +2,7 @@
 // RWHT Android runtime contract: governed conversation probe + safe read-only fallback.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecruiser-github-write-intent.mjs";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
 const EAS_PROJECT_ID="1b23b091-f7b6-4dc2-b328-c8e5ec07de57"; const db=ROOT.schema("aria_internal");
@@ -602,8 +603,10 @@ async function battlecruiserGithubRwhtPlan(goal:string,context:any){
   const explicitBattleCruiserTarget=rawProject==="battlecruiser"
     || /(?:^|[\n.;])\s*(?:objetivo|misión|mision|tarea|proyecto)?\s*battlecruiser\s*(?:$|[\n.;:])/i.test(g);
   const isBattleCruiser=explicitBattleCruiserTarget && !broadAriaPwaScope;
-  const githubWork=/github|rama|branch|archivo|pull request|pr|main|merge/i.test(gl) || gl.includes(".md");
-  if(!isBattleCruiser || !githubWork)return null;
+  // Do not infer mutation intent from nouns mentioned in a prohibition (e.g. “no cambies archivos, ramas, PRs”).
+  // The specialized probe is only eligible when the user explicitly requests a positive GitHub write action.
+  const explicitWriteIntent = hasExplicitBattleCruiserGitHubWriteIntent(g);
+  if(!isBattleCruiser || !explicitWriteIntent)return null;
 
   const branchMatch=g.match(/aria\/sandbox\/[A-Za-z0-9._\/-]+/i);
   const branch=branchMatch?branchMatch[0]:"aria/sandbox/rwht-battlecruiser";
