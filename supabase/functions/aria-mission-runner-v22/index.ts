@@ -1875,7 +1875,7 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
       : authorization;
     const response = await fetch(EXEC, {
       method: "POST",
-      headers: downstreamHeaders(auth),
+      headers: internalHeaders(),
       body: JSON.stringify({
         execution_version: "1",
         request_id: `${missionId}:${step.id}:${crypto.randomUUID()}`,
