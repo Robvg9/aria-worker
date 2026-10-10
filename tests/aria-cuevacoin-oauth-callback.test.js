@@ -14,6 +14,11 @@ async function run(path, method = 'GET') {
   assert.match(start.headers.get('cache-control'), /no-store/);
   assert.equal(start.headers.get('referrer-policy'), 'no-referrer');
   const html = await start.text();
+  const worker = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'worker.js'), 'utf8');
+  assert.ok(worker.includes('createCuevacoinOAuthE2E'));
+  assert.ok(worker.includes('/oauth/cuevacoin-control-e2e/callback'));
+  const startScript = html.split('<script nonce="')[1].split('</script>')[0].split('>').slice(1).join('>');
+  assert.doesNotThrow(() => new Function(startScript), 'starter script must parse');
   assert.match(html, /Iniciar autorización correcta/);
   assert.match(html, /aria\.project\.cuevacoin\.control/);
   assert.match(html, /code_challenge_method/);
@@ -25,6 +30,8 @@ async function run(path, method = 'GET') {
   const callback = await run('/oauth/cuevacoin-control-e2e/callback?code=probe&state=probe');
   assert.equal(callback.status, 200);
   const callbackHtml = await callback.text();
+  const callbackScript = callbackHtml.split('<script nonce="')[1].split('</script>')[0].split('>').slice(1).join('>');
+  assert.doesNotThrow(() => new Function(callbackScript), 'callback script must parse');
   assert.match(callbackHtml, /oauth_state_mismatch/);
   assert.match(callbackHtml, /oauth_issuer_mismatch/);
   assert.match(callbackHtml, /cuevacoin_connection_status/);
