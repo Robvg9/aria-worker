@@ -13,6 +13,11 @@ const missionRunnerFixes = fs.readFileSync(
 );
 
 assert.match(runner, /aria-pc-browser-rwht-v1.3.9/);
+const productionDeployWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-cloudflare-deploy.yml'), 'utf8');
+assert.match(productionDeployWorkflow, /rwht\/pc-browser\/rwht-pc-browser\.mjs/, 'PC Browser harness changes must trigger exact-SHA LIVE deployment');
+assert.match(productionDeployWorkflow, /tests\/pc-rwht-browser\.test\.js/, 'PC Browser harness contract changes must trigger exact-SHA LIVE deployment');
+assert.match(productionDeployWorkflow, /pc-rwht-authenticated\.yml/);
+assert.match(productionDeployWorkflow, /pc-rwht\.yml/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);

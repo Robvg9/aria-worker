@@ -19,6 +19,11 @@ on:
       # Keep exact-SHA post-deploy Projects/ARTIA certification reproducible when its harness changes.
       - 'rwht/pc-browser/rwht-projects-e2e.mjs'
       - 'tests/pwa-project-workspace.test.js'
+      # Keep the full authenticated PC Browser RWHT on the same exact SHA as LIVE when its harness changes.
+      - 'rwht/pc-browser/rwht-pc-browser.mjs'
+      - 'tests/pc-rwht-browser.test.js'
+      - '.github/workflows/pc-rwht-authenticated.yml'
+      - '.github/workflows/pc-rwht.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
   workflow_dispatch:
 
