@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.3.8/);
+assert.match(runner, /aria-pc-browser-rwht-v1.3.9/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -36,6 +36,13 @@ assert.match(runner, /controls_failed/);
 assert.match(runner, /coverage_ratio/);
 assert.match(runner, /controls_testable/);
 assert.match(runner, /controls_skipped/);
+assert.match(runner, /externalPreviewConsoleErrors/);
+assert.match(runner, /external_preview_console_errors/);
+assert.match(runner, /internalConsoleHosts/);
+assert.match(runner, /server_backed_dynamic_diagnostic_not_reproducible/);
+assert.match(runner, /dynamicDiagnosticSnapshot/);
+assert.match(runner, /cerrar\\s\+\(\?:la\\s\+\)\?conexión/);
+assert.match(runner, /externalNavigation/);
 assert.match(runner, /page_errors/);
 assert.match(runner, /failed_responses/);
 assert.match(runner, /RWHT_EMAIL/);
