@@ -92,7 +92,10 @@ async function api(path:string, token:string, init:RequestInit={}) {
   const controller=new AbortController();
   // Canonical visual mission intake has shown ~40s latency even when it succeeds.
   // Give it a bounded 120s window so the UI doesn't report a false failure after the server has committed.
-  const timeoutMs=method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path==='/missions'?120000:30000;
+  const isBattleCruiserConnectionPath=path.startsWith('/projects/battlecruiser/connections');
+  // The LIVE BC connection probe performs bounded upstream checks but cold Edge startup can take ~40s.
+  // Give both discovery and the authenticated verification route enough time to return their truthful result.
+  const timeoutMs=isBattleCruiserConnectionPath?60000:method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path==='/missions'?120000:30000;
   const timeout=window.setTimeout(()=>controller.abort(),timeoutMs);
   try {
     const response = await fetch(API+path,{...init,headers,cache:'no-store',signal:controller.signal});
