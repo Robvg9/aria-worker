@@ -720,8 +720,8 @@ async function auditRoute(page, url, routeIndex, config) {
         reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
         certification: 'server_backed_dynamic_content'
       });
-      routeResult.controls_skipped += 1;
-      routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
+      // This control was already counted as skipped when the initial snapshot
+      // built controls_skipped/controls_testable; do not count it twice on replay.
       continue;
     }
     if (routeHash === '#settings' && settingsPresenceControl) {
@@ -751,6 +751,10 @@ async function auditRoute(page, url, routeIndex, config) {
       if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
       else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
       else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+        routeResult.controls_skipped += 1;
+        routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
+      }
       continue;
     }
 
@@ -831,6 +835,10 @@ async function auditRoute(page, url, routeIndex, config) {
     if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
     else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
     else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+    else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+      routeResult.controls_skipped += 1;
+      routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
+    }
   }
 
   return routeResult;
