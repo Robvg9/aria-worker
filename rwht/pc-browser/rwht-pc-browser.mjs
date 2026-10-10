@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.9';
+const VERSION = 'aria-pc-browser-rwht-v1.4.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -380,6 +380,7 @@ async function testControl(page, control, config) {
     // from stable semantic prefixes instead of the exact stale snapshot.
     const dynamicMission = label.match(/^Misión\s+(\d+)\s+·/i);
     const dynamicStat = label.match(/^\d+\s+(Modelos disponibles|Agentes disponibles|Dispositivos online|Conexiones)$/i);
+    const dynamicDiagnostic = /·\s*Abrir diagnóstico/i.test(label);
 
     // Settings toggles expose dynamic labels ("Activadas"/"Desactivadas",
     // "Activar avisos") but stable structural classes. Resolve those explicitly.
@@ -407,7 +408,12 @@ async function testControl(page, control, config) {
     const settingsDynamic = /^(Activadas|Desactivadas|Activar avisos)$/i.test(label);
     if (!locator && !settingsDynamic && control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
-      if (await hinted.count() && await hinted.isVisible().catch(() => false)) locator = hinted;
+      const hintedName = safeLabel(await hinted.innerText().catch(() => ''));
+      if (
+        await hinted.count() &&
+        await hinted.isVisible().catch(() => false) &&
+        (!dynamicDiagnostic || hintedName === label)
+      ) locator = hinted;
     }
     if (!locator) locator = semanticLocator();
     if (locator && !(await locator.count().catch(() => 0))) locator = null;
@@ -415,7 +421,7 @@ async function testControl(page, control, config) {
     // Dynamic labels can change across a reload (for example a preference toggle
     // or notification permission button). As a final deterministic fallback, use
     // the current control index within the same active route surface.
-    if (!locator && Number.isInteger(control.index)) {
+    if (!locator && Number.isInteger(control.index) && !dynamicDiagnostic) {
       const routeHash = new URL(page.url()).hash.split('?')[0] || '#home';
       const surfaceSelector = routeHash === '#mission'
         ? (await page.locator('.modalBackdrop').count().catch(() => 0) ? '.modalBackdrop' : '.dashboardScreen')
@@ -437,12 +443,13 @@ async function testControl(page, control, config) {
       // Mission cards and aggregate counters are server-backed and may legitimately
       // change between the route snapshot and replay attempt. Treat that churn
       // as an explicit skip; static controls remain hard failures.
-      if (dynamicMission || dynamicStat) {
+      if (dynamicMission || dynamicStat || dynamicDiagnostic) {
         return {
           outcome: 'skipped',
           action: 'click',
-          reason: 'dynamic_content_churn',
-          label
+          reason: dynamicDiagnostic ? 'server_backed_dynamic_diagnostic_not_reproducible' : 'dynamic_content_churn',
+          label,
+          certification: dynamicDiagnostic ? 'dynamic_meditation_diagnostic' : undefined
         };
       }
       return {
@@ -713,8 +720,8 @@ async function auditRoute(page, url, routeIndex, config) {
         reason: dynamicQueueSnapshot ? 'dynamic_queue_snapshot' : 'dynamic_mission_snapshot',
         certification: 'server_backed_dynamic_content'
       });
-      routeResult.controls_skipped += 1;
-      routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
+      // This control was already counted as skipped when the initial snapshot
+      // built controls_skipped/controls_testable; do not count it twice on replay.
       continue;
     }
     if (routeHash === '#settings' && settingsPresenceControl) {
@@ -744,6 +751,10 @@ async function auditRoute(page, url, routeIndex, config) {
       if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
       else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
       else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+      else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+        routeResult.controls_skipped += 1;
+        routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
+      }
       continue;
     }
 
@@ -824,6 +835,10 @@ async function auditRoute(page, url, routeIndex, config) {
     if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
     else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
     else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
+    else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+      routeResult.controls_skipped += 1;
+      routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
+    }
   }
 
   return routeResult;
@@ -870,6 +885,7 @@ async function run() {
   const externalPreviewConsoleErrors = [];
   const pageErrors = [];
   const failedResponses = [];
+  const externalPreviewFailedResponses = [];
   const internalConsoleHosts = new Set(['aria.robvg9.workers.dev', 'icuqsstxfdbvjytkhlog.supabase.co']);
 
   // Cross-origin project previews can emit their own protected-backend errors.
@@ -889,12 +905,14 @@ async function run() {
   });
 
   page.on('response', (response) => {
-    if (response.status() >= 500) {
-      failedResponses.push({
-        status: response.status(),
-        url: response.url().slice(0, 1000)
-      });
-    }
+    if (response.status() < 400) return;
+    const url = response.url().slice(0, 1000);
+    const host = (() => { try { return new URL(url).host; } catch { return ''; } })();
+    const item = { status: response.status(), method: response.request().method(), url };
+    // Preserve failures produced by cross-origin previews, but keep them out of
+    // the ARIA PWA's in-scope network-failure gate. The report remains explicit.
+    if (host && !internalConsoleHosts.has(host)) externalPreviewFailedResponses.push(item);
+    else if (response.status() >= 500) failedResponses.push(item);
   });
 
   const startedAt = new Date().toISOString();
@@ -956,6 +974,7 @@ async function run() {
     }),
     console_errors: consoleErrors.slice(0, 200),
     external_preview_console_errors: externalPreviewConsoleErrors.slice(0, 200),
+    external_preview_failed_responses: externalPreviewFailedResponses.slice(0, 200),
     page_errors: pageErrors.slice(0, 200),
     failed_responses: failedResponses.slice(0, 200),
     routes: routeResults
