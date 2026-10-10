@@ -207,8 +207,8 @@ jobs:
         run: |
           set -euo pipefail
           base="${RWHT_URL%/}"
-          expected_version="$(sed -n "s/.*aria-test-catalog-version' content='\([^']*\)'.*/\1/p" pwa/index.html)"
-          expected_total="$(sed -n "s/.*aria-test-catalog-total' content='\([^']*\)'.*/\1/p" pwa/index.html)"
+          expected_version="$(grep '^export const TEST_CATALOG_VERSION' pwa/src/testCatalog.ts | cut -d "'" -f 2)"
+          expected_total="$(grep -c '"file": "tests/' pwa/src/testCatalog.ts)"
           test -n "$expected_version"
           test -n "$expected_total"
           html=""
