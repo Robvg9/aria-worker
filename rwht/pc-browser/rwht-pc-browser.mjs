@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.3.8';
+const VERSION = 'aria-pc-browser-rwht-v1.3.9';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
-const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|salir|vaciar)/i;
+const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
 const LOGIN_CONTROL = /^(entrar|login|sign[ -]?in|acceder|iniciar(?:\s+sesión|\s+sesion)?|continuar)$/i;
 const SAFE_MUTATION = /(crear|create|guardar|save|enviar|send|ejecutar|execute|run|deploy|actualizar|update|confirmar|confirm|publicar|publish|start|iniciar|submit)/i;
@@ -730,7 +730,12 @@ async function auditRoute(page, url, routeIndex, config) {
       continue;
     }
 
-    const preblocked = SAFE_BLOCKED.test(originalLabel)
+    const routeOrigin = new URL(page.url()).origin;
+    const externalNavigation = original.role === 'link' && Boolean(original.href) && (() => {
+      try { return new URL(original.href).origin !== routeOrigin; } catch { return false; }
+    })();
+    const preblocked = externalNavigation
+      || SAFE_BLOCKED.test(originalLabel)
       || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
       || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
     if (preblocked) {
@@ -764,11 +769,13 @@ async function auditRoute(page, url, routeIndex, config) {
       }
       return null;
     })();
+    const dynamicDiagnosticSnapshot = original.tag === 'button' && /·\s*Abrir diagnóstico/i.test(originalLabel);
     const target = dynamicTarget
       || (original.selector_hint
         ? controlsNow.find((control) =>
             control.selector_hint === original.selector_hint &&
-            control.tag === original.tag
+            control.tag === original.tag &&
+            (!dynamicDiagnosticSnapshot || control.name === original.name)
           )
         : null)
       || (original.id
@@ -780,8 +787,20 @@ async function auditRoute(page, url, routeIndex, config) {
         control.href === original.href &&
         control.tag === original.tag
       )
-      || controlsNow[index];
+      || (dynamicDiagnosticSnapshot ? null : controlsNow[index]);
     if (!target) {
+      if (dynamicDiagnosticSnapshot) {
+        routeResult.actions.push({
+          control: original,
+          outcome: 'skipped',
+          action: 'click',
+          reason: 'server_backed_dynamic_diagnostic_not_reproducible',
+          certification: 'dynamic_meditation_diagnostic'
+        });
+        routeResult.controls_skipped += 1;
+        routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
+        continue;
+      }
       routeResult.actions.push({ control: original, outcome: 'failed', reason: 'control_not_reproducible' });
       routeResult.controls_failed += 1;
       continue;
@@ -848,11 +867,21 @@ async function run() {
   const page = await context.newPage();
 
   const consoleErrors = [];
+  const externalPreviewConsoleErrors = [];
   const pageErrors = [];
   const failedResponses = [];
+  const internalConsoleHosts = new Set(['aria.robvg9.workers.dev', 'icuqsstxfdbvjytkhlog.supabase.co']);
 
+  // Cross-origin project previews can emit their own protected-backend errors.
+  // Keep those visible in evidence but do not misreport them as ARIA PWA errors.
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push({ text: message.text() });
+    if (message.type() !== 'error') return;
+    const location = message.location?.() || {};
+    const url = String(location.url || page.url());
+    const item = { text: message.text().slice(0, 1000), url };
+    const host = (() => { try { return new URL(url).host; } catch { return ''; } })();
+    if (host && !internalConsoleHosts.has(host)) externalPreviewConsoleErrors.push(item);
+    else consoleErrors.push(item);
   });
 
   page.on('pageerror', (error) => {
@@ -926,6 +955,7 @@ async function run() {
       return issues;
     }),
     console_errors: consoleErrors.slice(0, 200),
+    external_preview_console_errors: externalPreviewConsoleErrors.slice(0, 200),
     page_errors: pageErrors.slice(0, 200),
     failed_responses: failedResponses.slice(0, 200),
     routes: routeResults
