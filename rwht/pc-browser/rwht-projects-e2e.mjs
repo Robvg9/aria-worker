@@ -1039,7 +1039,7 @@ async function run() {
     if (!finalLiveSession?.accessToken || finalLiveSession.userId !== session.userId) throw new Error('final_live_session_not_verified');
     session = finalLiveSession;
     await page.waitForFunction(({ projectName }) => Boolean(document.querySelector('.projectGrid .projectCard.selected')?.textContent?.includes(projectName)), { projectName: expectedSelectedProject.name }, { timeout: 30000 });
-    if (!report.reality_board?.verified) await page.screenshot({ path: path.join(ARTIFACT_DIR, 'projects-final.png'), fullPage: true }).catch(() => {});
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, 'projects-final.png'), fullPage: true });
 
     // Verify the independent Reality Board against live API responses, exact deployment SHA,
     // current GitHub main and the source freshness contract. The app must surface uncertainty
@@ -1152,7 +1152,10 @@ async function run() {
     report.page_errors = pageErrors.slice(0, 100);
     report.failed_responses = failedResponses.slice(0, 100);
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'projects-rwht-report.json'), JSON.stringify(report, null, 2));
-    await page.screenshot({ path: path.join(ARTIFACT_DIR, 'projects-final.png'), fullPage: true }).catch(() => {});
+    // Do not overwrite the Projects screenshot after navigating to Reality Board.
+    if (!fs.existsSync(path.join(ARTIFACT_DIR, 'projects-final.png'))) {
+      await page.screenshot({ path: path.join(ARTIFACT_DIR, 'last-page-on-exit.png'), fullPage: true }).catch(() => {});
+    }
     await context.close();
     await browser.close();
   }
