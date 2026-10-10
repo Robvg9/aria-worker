@@ -623,6 +623,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "capabilities": "Detecta regresiones en la integración, sandbox, routing, promoción y conexión ARIA ↔ BattleCruiser."
   },
   {
+    "id": "battlecruiser-readonly-routing",
+    "file": "tests/battlecruiser-readonly-routing.test.js",
+    "title": "BattleCruiser Read-Only Routing",
+    "category": "BattleCruiser",
+    "includedInNpmTest": true,
+    "how": "Comprueba que las prohibiciones de escritura no activen una ruta GitHub mutante.",
+    "capabilities": "Protege el alcance de solo lectura del planificador y la integración ARIA ↔ BattleCruiser."
+  },
+  {
     "id": "battlecruiser-regression-gate",
     "file": "tests/battlecruiser-regression-gate.test.js",
     "title": "Battlecruiser Regression Gate",
