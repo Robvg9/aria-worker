@@ -207,12 +207,13 @@ jobs:
         run: |
           set -euo pipefail
           base="${RWHT_URL%/}"
-          expected_version="$(sed -n "s/.*aria-test-catalog-version' content='\([^']*\)'.*/\1/p" pwa/index.html)"
-          expected_total="$(sed -n "s/.*aria-test-catalog-total' content='\([^']*\)'.*/\1/p" pwa/index.html)"
+          expected_version="$(grep '^export const TEST_CATALOG_VERSION' pwa/src/testCatalog.ts | cut -d "'" -f 2)"
+          expected_total="$(grep -c '"file": "tests/' pwa/src/testCatalog.ts)"
           test -n "$expected_version"
           test -n "$expected_total"
           html=""
           live_version=""
+          catalog_match=false
           for attempt in $(seq 1 60); do
             live_version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/version.json?probe=${RWHT_CERT_SHA}-projects-version-${attempt}" 2>/dev/null || true)"
             if VERSION="$live_version" EXPECTED="$RWHT_CERT_SHA" python - <<'PY'
@@ -226,11 +227,12 @@ jobs:
             then
               html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/?probe=${RWHT_CERT_SHA}-projects-catalog-${attempt}" 2>/dev/null || true)"
               if grep -Fq "aria-test-catalog-version' content='${expected_version}'" <<<"$html" &&
-                 grep -Fq "aria-test-catalog-total' content='${expected_total}'" <<<"$html"; then break; fi
+                 grep -Fq "aria-test-catalog-total' content='${expected_total}'" <<<"$html"; then catalog_match=true; break; fi
             fi
             test "$attempt" -lt 60 && sleep 2
           done
           test -n "$html"
+          test "$catalog_match" = true
           VERSION="$live_version" EXPECTED="$RWHT_CERT_SHA" python - <<'PY'
           import json, os
           assert json.loads(os.environ["VERSION"])["build"] == os.environ["EXPECTED"]
