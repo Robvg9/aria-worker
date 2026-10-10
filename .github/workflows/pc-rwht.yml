@@ -69,19 +69,37 @@ jobs:
         run: |
           set -euo pipefail
           base="${RWHT_URL%/}"
+          expected_version="$(grep '^export const TEST_CATALOG_VERSION' pwa/src/testCatalog.ts | cut -d "'" -f 2)"
+          expected_total="$(grep -c '"file": "tests/' pwa/src/testCatalog.ts)"
+          test -n "$expected_version"
+          test "$expected_total" -gt 0
           html=""
+          live_version=""
+          catalog_match=false
           for attempt in $(seq 1 60); do
-            html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$base/?probe=$GITHUB_SHA-catalog-$attempt" 2>/dev/null || true)"
-            if (grep -q "name='aria-test-catalog-version' content='2026-10-02-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-02-canonical"' <<<"$html") &&
-               (grep -q "name='aria-test-catalog-total' content='295'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="293"' <<<"$html"); then
-              break
+            live_version="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$base/version.json?probe=$GITHUB_SHA-catalog-version-$attempt" 2>/dev/null || true)"
+            if VERSION="$live_version" EXPECTED="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          try:
+              assert json.loads(os.environ["VERSION"])["build"] == os.environ["EXPECTED"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$base/?probe=$GITHUB_SHA-catalog-$attempt" 2>/dev/null || true)"
+              if grep -Fq "aria-test-catalog-version' content='$expected_version'" <<<"$html" &&
+                 grep -Fq "aria-test-catalog-total' content='$expected_total'" <<<"$html"; then catalog_match=true; break; fi
             fi
             test "$attempt" -lt 60 && sleep 2
           done
           test -n "$html"
-          (grep -q "name='aria-test-catalog-version' content='2026-10-02-canonical'" <<<"$html" || grep -q 'name="aria-test-catalog-version" content="2026-10-02-canonical"' <<<"$html")
-          (grep -q "name='aria-test-catalog-total' content='295'" <<<"$html" || grep -q 'name="aria-test-catalog-total" content="293"' <<<"$html")
-          echo CANONICAL_TEST_CATALOG_LIVE_OK
+          test "$catalog_match" = true
+          VERSION="$live_version" EXPECTED="$GITHUB_SHA" python - <<'PY'
+          import json, os
+          assert json.loads(os.environ["VERSION"])["build"] == os.environ["EXPECTED"]
+          PY
+          echo "CANONICAL_TEST_CATALOG_LIVE_OK build=$GITHUB_SHA version=$expected_version total=$expected_total"
       - name: Execute full PC PWA RWHT
         working-directory: rwht/pc-browser
         run: node rwht-pc-browser.mjs
