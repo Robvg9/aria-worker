@@ -1,16 +1,16 @@
 const READ_ONLY_PHRASE = /\b(?:read[- ]only|solo\s+lectura|sin\s+modificar|sin\s+cambios|no\s+mutante|no\s+modificar|non[- ]mutating)\b/i;
 const WRITE_TARGET = String.raw`(?:c[oó]digo|archivos?|files?|ramas?|branches?|pull\s+requests?|pr(?:s)?|commits?|repositorios?|repositories|datos|git|github)`;
 const NEGATED_WRITE_TARGET = new RegExp(
-  String.raw`\bno\s+(?:modifiques?|modificar|cambies?|cambiar|crees?|crear|escribas?|escribir|añadas?|anadas?|agregues?|agregar|elimines?|eliminar|borres?|borrar|edites?|editar|actualices?|actualizar)\b[\\s\\S]{0,120}\\b${WRITE_TARGET}\\b`,
+  String.raw`\bno\s+(?:modifiques?|modificar|cambies?|cambiar|crees?|crear|escribas?|escribir|añadas?|anadas?|agregues?|agregar|elimines?|eliminar|borres?|borrar|edites?|editar|actualices?|actualizar)\b[\s\S]{0,120}\b${WRITE_TARGET}\b`,
   "i"
 );
 const POSITIVE_WRITE_ACTION = String.raw`(?:crea|crear|cree|crees|añade|anade|añadir|agrega|agregar|escribe|escribir|modifica|modificar|actualiza|actualizar|elimina|eliminar|borra|borrar|abre|abrir|create|creates|add|adds|write|writes|modify|modifies|update|updates|delete|deletes|open|opens)`;
 const WRITE_REQUEST = new RegExp(
-  String.raw`\\b${POSITIVE_WRITE_ACTION}\\b[\\s\\S]{0,100}\\b${WRITE_TARGET}\\b`,
+  String.raw`\b${POSITIVE_WRITE_ACTION}\b[\s\S]{0,100}\b${WRITE_TARGET}\b`,
   "i"
 );
 const TARGET_THEN_WRITE = new RegExp(
-  String.raw`\\b(?:rama|branch|archivo|file|pull\\s+request|pr(?:s)?)\\b[\\s\\S]{0,100}\\b${POSITIVE_WRITE_ACTION}\\b`,
+  String.raw`\b(?:rama|branch|archivo|file|pull\s+request|pr(?:s)?)\b[\s\S]{0,100}\b${POSITIVE_WRITE_ACTION}\b`,
   "i"
 );
 
