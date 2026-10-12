@@ -733,7 +733,8 @@ async function signInDirect(email: string, password: string) {
 
 async function signInProxy(email: string, password: string) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 20000);
+  // The Worker upstream timeout is 20 s; leave time for its HTTP diagnostic to reach the browser.
+  const timer = window.setTimeout(() => controller.abort(), 25000);
   try {
     const r = await fetch('/auth/token?grant_type=password', {
       method: 'POST',
@@ -815,6 +816,14 @@ async function refreshSession(session: Session) {
     throw proxyError instanceof Error ? proxyError : new Error('No se pudo renovar la sesión.');
   }
 }
+function authRouteFailureLabel(error: unknown) {
+  const status = Number((error as any)?.status);
+  if (Number.isInteger(status) && status > 0) return `HTTP ${status}`;
+  if (error instanceof DOMException && error.name === 'AbortError') return 'timeout';
+  if (error instanceof TypeError) return 'red/CORS';
+  return 'error de autenticación';
+}
+
 async function signIn(email: string, password: string) {
   let proxyError: unknown = null;
   try {
@@ -846,7 +855,9 @@ async function signIn(email: string, password: string) {
     return s;
   } catch (directError) {
     if (isRetryableAuthError(directError)) {
-      throw new Error('ARIA no pudo alcanzar el servicio de autenticación por ninguna de sus rutas. La red o el servicio de autenticación está tardando demasiado.');
+      const proxyFailure = authRouteFailureLabel(proxyError);
+      const directFailure = authRouteFailureLabel(directError);
+      throw new Error(`ARIA no pudo iniciar sesión. Ruta Worker: ${proxyFailure}; ruta directa Supabase: ${directFailure}. No se guardó ninguna sesión; vuelve a intentarlo cuando Auth esté disponible.`);
     }
     if (directError instanceof Error && directError.message) throw directError;
     throw proxyError instanceof Error ? proxyError : new Error('No se pudo iniciar sesión.');
