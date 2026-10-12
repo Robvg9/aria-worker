@@ -207,7 +207,7 @@ assert.ok(chatWorkflow.includes('group: aria-chat-rwht-${{ github.sha }}'), 'Cha
 assert.match(chatE2E, /const existingSession = await readSession\(page\)\.catch\(\(\) => null\)/, 'Chat must verify a real local ARIA session before skipping login');
 assert.match(chatE2E, /if \(existingSession\?\.accessToken && existingSession\.userId\)/, 'A storage-state path alone must not count as authenticated');
 assert.match(chatE2E, /form\.authCard input\[type="password"\]/, 'Chat post-login readiness must scope password checks to the ARIA auth form');
-assert.match(chatE2E, /if \(session\?\.accessToken && session\?\.userId\) return true/, 'Chat login must complete only when a persisted ARIA session exists');
+assert.match(chatE2E, /if \(session\?\.accessToken && session\?\.userId\) return \{ kind: 'session' \}/, 'Chat login must complete only when a persisted ARIA session exists');
 assert.match(chatE2E, /const authForm = page\.locator\('form\.authCard'\)/, 'Chat login controls must be scoped to the ARIA auth form');
 assert.match(chatE2E, /kind: 'auth_error'/, 'Chat login must report an explicit visible auth error instead of a generic timeout');
 assert.match(chatE2E, /aria_auth_session_timeout_no_visible_error/, 'Timeout without a visible auth error must be diagnosed explicitly');
