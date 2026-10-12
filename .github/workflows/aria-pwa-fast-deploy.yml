@@ -102,16 +102,30 @@ jobs:
           import json, os
           assert json.loads(os.environ["VERSION"])["build"] == os.environ["GITHUB_SHA"]
           PY
-          manifest="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/manifest.json?probe=$GITHUB_SHA")"
-          grep -q "ARIA — Centro de Mando Cognitivo" <<<"$manifest"
+          manifest=""
+          manifest_ok=false
+          for attempt in $(seq 1 30); do
+            manifest="$(curl --fail --silent --show-error --max-time 15 "https://aria.robvg9.workers.dev/manifest.json?probe=$GITHUB_SHA-$attempt" 2>/dev/null || true)"
+            if grep -q "ARIA — Centro de Mando Cognitivo" <<<"$manifest"; then manifest_ok=true; break; fi
+            test "$attempt" -lt 30 && sleep 2
+          done
+          test "$manifest_ok" = true
           js_asset="$(grep -oE 'assets/[^"]+\.js' <<<"$html" | head -n 1)"
           css_asset="$(grep -oE 'assets/[^"]+\.css' <<<"$html" | head -n 1)"
           test -n "$js_asset"
           test -n "$css_asset"
-          curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/$js_asset?probe=$GITHUB_SHA" >/tmp/aria-pwa-js
-          curl --fail --silent --show-error --retry 2 --retry-delay 1 "https://aria.robvg9.workers.dev/pwa/$css_asset?probe=$GITHUB_SHA" >/tmp/aria-pwa-css
-          test -s /tmp/aria-pwa-js
-          test -s /tmp/aria-pwa-css
+          js_ok=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 15 "https://aria.robvg9.workers.dev/pwa/$js_asset?probe=$GITHUB_SHA-$attempt" >/tmp/aria-pwa-js 2>/dev/null && test -s /tmp/aria-pwa-js; then js_ok=true; break; fi
+            test "$attempt" -lt 30 && sleep 2
+          done
+          test "$js_ok" = true
+          css_ok=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 15 "https://aria.robvg9.workers.dev/pwa/$css_asset?probe=$GITHUB_SHA-$attempt" >/tmp/aria-pwa-css 2>/dev/null && test -s /tmp/aria-pwa-css; then css_ok=true; break; fi
+            test "$attempt" -lt 30 && sleep 2
+          done
+          test "$css_ok" = true
           echo "PWA_FAST_DEPLOY_OK build=$GITHUB_SHA js=$js_asset css=$css_asset"
 
       - name: Verify deployed versioned Service Worker JavaScript
