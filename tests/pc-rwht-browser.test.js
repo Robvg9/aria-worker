@@ -185,7 +185,7 @@ assert.match(runner, /'hidden', 'password', 'file'/);
 
 
 const chatE2E = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-chat-e2e.mjs'), 'utf8');
-assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.1\.2/);
+assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.1\.3/);
 assert.match(chatE2E, /Habla con ARIA/);
 assert.match(chatE2E, /aria_session_v2/);
 assert.match(chatE2E, /chat_server_conversation_id_mismatch/);
@@ -215,6 +215,8 @@ assert.match(chatE2E, /form\.authCard input\[type="password"\]/, 'Chat post-logi
 assert.match(chatE2E, /if \(session\?\.accessToken && session\?\.userId\) return \{ kind: 'session' \}/, 'Chat login must complete only when a persisted ARIA session exists');
 assert.match(chatE2E, /const authForm = page\.locator\('form\.authCard'\)/, 'Chat login controls must be scoped to the ARIA auth form');
 assert.match(chatE2E, /kind: 'auth_error'/, 'Chat login must report an explicit visible auth error instead of a generic timeout');
+assert.match(chatE2E, /const outcome = await outcomeHandle\.jsonValue\(\)/, 'Chat must unwrap the Playwright outcome handle before checking auth errors');
+assert.match(chatE2E, /await outcomeHandle\.dispose\(\)/, 'Chat must dispose the outcome handle after reading it');
 assert.match(chatE2E, /aria_auth_session_timeout_no_visible_error/, 'Timeout without a visible auth error must be diagnosed explicitly');
 assert.match(chatE2E, /authForm\.locator\('button\[type="submit"\],input\[type="submit"\]'\)/, 'Chat login must submit ARIA auth form directly');
 assert.doesNotMatch(chatE2E, /!document\.querySelector\('input\[type="password"\]'\)/, 'Unrelated project password fields must not block Chat login');
