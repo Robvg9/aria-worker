@@ -20,8 +20,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  group: aria-chat-rwht-${{ github.sha }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   chat-rwht:
@@ -39,6 +43,12 @@ jobs:
       RWHT_TIMEOUT_MS: '150000'
     steps:
       - uses: actions/checkout@v4
+      - name: Wait for both exact-SHA Cloudflare deployments
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: bash scripts/wait-for-exact-sha-cloudflare-deploy.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24
