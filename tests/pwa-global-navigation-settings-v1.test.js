@@ -151,5 +151,6 @@ assert.match(settingsRwht,/const submittedEmail = await authForm\.inputValue\(\)
 assert.match(settingsRwht,/settings_auth_submit_input_mismatch/);
 assert.match(settingsRwht,/submittedEmail\.trim\(\) !== email\.trim\(\) \|\| submittedPassword !== password/);
 assert.match(settingsRwht,/await submitButton\.click\(\)/);
-assert.match(settingsRwht,/\/supabase\\\.co\|auth\\\/v1\\\/token\//);
+assert.match(settingsRwht,/const isExpectedAuthFallback/);
+assert.match(settingsRwht,/if \(!isExpectedAuthFallback\) runtimeErrors\.push\('console: ' \+ message\)/);
 console.log('SETTINGS AUTH SUBMIT INPUT BOUNDARY CONTRACT: PASS');
