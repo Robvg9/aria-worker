@@ -39,7 +39,6 @@ assert.match(runner, /getByRole\('button', \{ name: \/Hablar con ARIA\/i \}\)/);
 assert.ok(runner.includes("const textFallback = page.locator('.dashboardScreen button')"), 'Chat CTA replay must fall back to its visible text within the home surface');
 assert.ok(runner.includes(".filter({ hasText: /Hablar\\s+con\\s+ARIA/i })"), 'Chat CTA text fallback must match the stable semantic phrase');
 assert.ok(runner.indexOf("const ariaChatCta = control.role === 'button'") < runner.indexOf("const semanticLocator = () =>"), 'Chat CTA detection must be in scope for both semantic and fallback locators');
-assert.match(runner, /page\.getByRole\('button', \{ name: \/Nueva\\\\s\+misión\/i \}\)/);
 assert.ok(runner.includes("const newMissionCta = control.role === 'button' && /Nueva\\s+misión/i.test(label)"), 'New Mission control must use a whitespace-tolerant semantic label match');
 assert.ok(runner.includes("page.getByRole('button', { name: /Nueva\\s+misión/i }).first()"), 'New Mission replay must use a semantic Playwright role locator');
 assert.ok(runner.indexOf('if (newMissionCta)') < runner.indexOf('if (!locator && !settingsDynamic && !newMissionCta && control.selector_hint)'), 'New Mission CTA must prefer semantic location over its position-based selector hint');
