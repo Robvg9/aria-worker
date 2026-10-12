@@ -4,6 +4,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
+const settingsRwht=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-settings-e2e.mjs'),'utf8');
 
 assert.match(app,/AppPage = 'aria'.*'settings'/);
 assert.match(app,/case '#settings'/);
@@ -27,6 +28,13 @@ assert.match(app,/aria_ui_preferences_v1/);
 assert.match(app,/function clearCache\(\)/);
 assert.match(app,/function togglePref\(key: keyof UiPrefs\)/);
 assert.match(app,/function updateApp\(\)/);
+assert.match(settingsRwht,/async function waitForPwaBoot\(page, stage\)/);
+assert.match(settingsRwht,/document\.documentElement\.dataset\.ariaMounted === 'true'/);
+assert.match(settingsRwht,/await waitForPwaBoot\(page, 'direct_settings_navigation'\)/);
+assert.match(settingsRwht,/page\.waitForNavigation\(\{ waitUntil: 'domcontentloaded', timeout: 30000 \}\)/);
+assert.match(settingsRwht,/authRequestDiagnostics\.push\(/);
+assert.match(settingsRwht,/has_password: typeof body\.password === 'string'/);
+
 console.log('CONFIG SETTINGS CONTRACT: PASS');
 assert.match(app,/Actualizar app/);
 assert.match(app,/caches.keys()/);
