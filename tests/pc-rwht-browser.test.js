@@ -46,6 +46,11 @@ assert.match(runner, /hintedName === label/);
 assert.match(runner, /hintedAriaLabel === label/);
 assert.match(runner, /hintedTitle === label/);
 assert.match(runner, /must still point to the same accessible text\/label/);
+assert.match(runner,/const newMissionCta = control\.role === 'button' && \/Nueva misión\/i\.test\(label\)/);
+assert.match(runner,/getByRole\('button', \{ name: \/Nueva misión\/i \}\)/);
+assert.match(runner,/filter\(\{ hasText: \/Nueva\\s\+misión\/i \}\)/);
+assert.match(runner,/const hintMatchesLabel = \[hintedName, hintedAriaLabel, hintedTitle\]/);
+
 
 const authVerification = runner.slice(runner.indexOf('async function verifyAuthState'), runner.indexOf('async function waitForPwaBoot'));
 assert.ok(authVerification.includes(`page.locator('form.authCard input[type="password"]')`), 'PC auth verification must ignore BattleCruiser project password fields');
