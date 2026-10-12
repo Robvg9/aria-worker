@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.1.0';
+const VERSION = 'aria-chat-rwht-e2e-v1.1.1';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -76,8 +76,21 @@ async function login(page) {
   if (await submit.count()) await submit.click();
   else await password.press('Enter');
 
-  await page.waitForFunction(() => !document.querySelector('input[type="password"]'), null, { timeout: 60000 });
-  return { mode: 'password', status: 'submitted' };
+  await page.waitForFunction(() => {
+    try {
+      const raw = localStorage.getItem('aria_session_v2');
+      const session = raw ? JSON.parse(raw) : null;
+      if (session?.accessToken && session?.userId) return true;
+    } catch {}
+    // The PWA can keep unrelated project-connection password inputs in the DOM.
+    // Only an ARIA session proves login success; page-wide password counts do not.
+    return false;
+  }, null, { timeout: 60000 });
+  const authenticated = await readSession(page);
+  if (!authenticated?.accessToken || !authenticated.userId) {
+    throw new Error('aria_login_completed_without_persisted_session');
+  }
+  return { mode: 'password', status: 'authenticated' };
 }
 
 async function readSession(page) {
@@ -206,7 +219,7 @@ async function run() {
     await waitFor(SETTLE_MS);
     loginResult = await login(page);
     await page.waitForFunction(
-      () => !document.querySelector('input[type="password"]') &&
+      () => !document.querySelector('form.authCard input[type="password"]') &&
         (Boolean(document.querySelector('.dashboardScreen')) || Boolean(document.querySelector('.chatScreen'))),
       null,
       { timeout: 60000 }

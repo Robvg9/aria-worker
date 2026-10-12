@@ -185,7 +185,7 @@ assert.match(runner, /'hidden', 'password', 'file'/);
 
 
 const chatE2E = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-chat-e2e.mjs'), 'utf8');
-assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.1\.0/);
+assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.1\.1/);
 assert.match(chatE2E, /Habla con ARIA/);
 assert.match(chatE2E, /aria_session_v2/);
 assert.match(chatE2E, /chat_server_conversation_id_mismatch/);
@@ -206,6 +206,9 @@ assert.match(chatWorkflow, /Execute authenticated Chat E2E/);
 assert.ok(chatWorkflow.includes('group: aria-chat-rwht-${{ github.sha }}'), 'Chat must not share a concurrency group with Capabilities or Persistence');
 assert.match(chatE2E, /const existingSession = await readSession\(page\)\.catch\(\(\) => null\)/, 'Chat must verify a real local ARIA session before skipping login');
 assert.match(chatE2E, /if \(existingSession\?\.accessToken && existingSession\.userId\)/, 'A storage-state path alone must not count as authenticated');
+assert.match(chatE2E, /form\.authCard input\[type="password"\]/, 'Chat post-login readiness must scope password checks to the ARIA auth form');
+assert.match(chatE2E, /if \(session\?\.accessToken && session\?\.userId\) return true/, 'Chat login must complete only when a persisted ARIA session exists');
+assert.doesNotMatch(chatE2E, /!document\.querySelector\('input\[type="password"\]'\)/, 'Unrelated project password fields must not block Chat login');
 assert.ok(chatWorkflow.includes('if [[ "${has_password_auth}" != true && "${has_storage_auth}" == true ]]; then'), 'Chat must prefer fresh password credentials over a saved browser state');
 assert.ok(chatWorkflow.includes('elif [[ "${has_password_auth}" != true && "${has_storage_gzip_auth}" == true ]]; then'), 'Compressed browser state must also be fallback-only');
 const capabilitiesWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'capabilities-rwht-authenticated.yml'), 'utf8');
