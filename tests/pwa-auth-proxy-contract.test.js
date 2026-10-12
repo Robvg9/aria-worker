@@ -65,7 +65,7 @@ if (!app.includes('session.expiresAt - Date.now() - 60_000')) throw new Error('s
 if (!app.includes('15000')) throw new Error('direct auth timeout missing');
 if (!app.includes('controller.abort(), 25000')) throw new Error('browser auth proxy timeout must leave room for the Worker 20s upstream timeout');
 if (!app.includes('function authRouteFailureLabel')) throw new Error('Auth UI must identify the failing route and safe failure class');
-if (!app.includes('ruta Worker:') || !app.includes('ruta directa Supabase:')) throw new Error('Auth UI must distinguish Worker and direct Supabase failures');
+if (!app.includes('Ruta Worker:') || !app.includes('ruta directa Supabase:')) throw new Error('Auth UI must distinguish Worker and direct Supabase failures');
 if (!chatRwht.includes("new URL('/auth/token?grant_type=password', workerOrigin).toString()")) throw new Error('Chat RWHT must call the root Worker /auth/token route, not /pwa/auth/token');
 if (!chatRwht.includes("route: 'worker_proxy'") || !chatRwht.includes("route: 'supabase_direct'")) throw new Error('Chat RWHT must diagnose both Auth routes separately');
 if (!chatRwht.includes("AUTH_ROUTE_DIAGNOSTICS.push(diagnostic)") || !chatRwht.includes('auth_route_diagnostics: AUTH_ROUTE_DIAGNOSTICS')) throw new Error('Chat RWHT must persist sanitized route diagnostics in its artifact');
