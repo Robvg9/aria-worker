@@ -79,6 +79,7 @@ assert.match(runner, /authenticated_surface_missing/);
 const pwaViteConfig = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'vite.config.ts'), 'utf8');
 const pwaTestCatalog = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'testCatalog.ts'), 'utf8');
 const projectsRwhtWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
+const pcRwhtWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'), 'utf8');
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_VERSION__'/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
@@ -93,6 +94,10 @@ assert.match(projectsRwhtWorkflow, /grep -c '"file": "tests\//);
 assert.match(projectsRwhtWorkflow, /PROJECTS_CANONICAL_TEST_CATALOG_LIVE_OK/);
 assert.ok(projectsRwhtWorkflow.includes('catalog_match=false'));
 assert.ok(projectsRwhtWorkflow.includes('test "$catalog_match" = true'));
+assert.match(pcRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
+assert.match(pcRwhtWorkflow, /catalog_match=false/);
+assert.ok(pcRwhtWorkflow.includes('test "$catalog_match" = true'));
+assert.match(pcRwhtWorkflow, /json.loads\(os.environ\["VERSION"\]\)\["build"\] == os.environ\["EXPECTED"\]/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
 assert.match(workersBuild, /WORKERS_CI_COMMIT_SHA/);
