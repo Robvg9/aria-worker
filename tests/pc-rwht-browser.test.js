@@ -206,7 +206,7 @@ const persistenceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github'
 assert.ok(persistenceWorkflow.includes('group: aria-persistence-recovery-rwht-${{ github.sha }}'), 'Persistence needs its own release-scoped group');
 const steps78Workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
 assert.ok(steps78Workflow.includes('Wait for both exact-SHA production deploys'));
-assert.ok(steps78Workflow.includes('EXACT_SHA_PRODUCTION_DEPLOYS_PASS='));
+assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS=/, 'Steps 7–8 must depend on the shared deploy gate result');
 assert.ok(steps78Workflow.includes('actions: read'), 'Steps 7-8 must read deployment run states before browser execution');
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'App.tsx'), 'utf8');
 assert.match(appSource, /chatWindowRef/);
