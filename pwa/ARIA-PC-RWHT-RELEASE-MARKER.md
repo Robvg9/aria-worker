@@ -13,3 +13,6 @@ Production smoke hardening: deployment asset checks retry transient edge 404s fo
 2026-10-12 PC RWHT v1.4.6 modal-safety follow-up: scope cleanup to visible modal/dialog surfaces and exact Cerrar/Close buttons; never search the page for cancel because mission labels can include CANCELADA. Cleanup runs after the canonical-route full reload and before Meditation detail rows are reopened.
 
 2026-10-12 PC RWHT v1.5.0 strategy change: preserve the hydrated #meditation SPA for read-only mission/history/queue probes; close true modal/dialog surfaces in-place; reload only after real route drift; wait for the target dynamic control identity rather than unrelated static controls. Keep 503/network/console failures hard failures and exact-SHA root/route/action reconciliation mandatory.
+
+
+2026-10-12 PC RWHT v1.5.1 regression fix: wait for real modal dismissal after clicking the explicit Cerrar/Close control; click the modal backdrop only as a scoped fallback; after recording a read-only action's effect, dismiss the resulting overlay before replaying the next row. Do not skip the failing action or downgrade errors. Exact-SHA LIVE artifact must prove zero failed controls and coherent counters.
