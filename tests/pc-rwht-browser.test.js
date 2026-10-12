@@ -39,6 +39,26 @@ assert.match(runner, /getByRole\('button', \{ name: \/Hablar con ARIA\/i \}\)/);
 assert.ok(runner.includes("const textFallback = page.locator('.dashboardScreen button')"), 'Chat CTA replay must fall back to its visible text within the home surface');
 assert.ok(runner.includes(".filter({ hasText: /Hablar\\s+con\\s+ARIA/i })"), 'Chat CTA text fallback must match the stable semantic phrase');
 assert.ok(runner.indexOf("const ariaChatCta = control.role === 'button'") < runner.indexOf("const semanticLocator = () =>"), 'Chat CTA detection must be in scope for both semantic and fallback locators');
+const semanticResolutionIndex = runner.indexOf('const semantic = semanticLocator();');
+const staleCssFallbackIndex = runner.indexOf('if (!locator && !settingsDynamic && control.selector_hint)');
+assert.ok(semanticResolutionIndex >= 0 && staleCssFallbackIndex > semanticResolutionIndex, 'PC RWHT must prefer semantic role/name locators before CSS selector hints after reload.');
+const targetResolutionStart = runner.indexOf('const target = dynamicTarget');
+const targetIdIndex = runner.indexOf('(original.id', targetResolutionStart);
+const targetSemanticIndex = runner.indexOf('control.role === original.role', targetResolutionStart);
+const targetCssIndex = runner.indexOf('(original.selector_hint', targetResolutionStart);
+assert.ok(targetResolutionStart >= 0 && targetIdIndex > targetResolutionStart && targetSemanticIndex > targetIdIndex && targetCssIndex > targetSemanticIndex, 'PC RWHT must resolve replay targets by stable ID/semantic identity before considering CSS hints.');
+assert.match(runner, /control\\.name === original\\.name[\\s\\S]*control\\.role === original\\.role[\\s\\S]*control\\.href === original\\.href/);
+
+assert.match(runner, /hintedName === label/);
+assert.match(runner, /hintedAriaLabel === label/);
+assert.match(runner, /hintedTitle === label/);
+assert.ok(runner.toLowerCase().includes('it must still point to the same accessible text/label'));
+assert.match(runner,/const newMissionCta = control\.role === 'button' && \/Nueva misión\/i\.test\(label\)/);
+assert.match(runner,/getByRole\('button', \{ name: \/Nueva misión\/i \}\)/);
+assert.match(runner,/filter\(\{ hasText: \/Nueva\\s\+misión\/i \}\)/);
+assert.match(runner,/const hintMatchesLabel = \[hintedName, hintedAriaLabel, hintedTitle\]/);
+
+
 const authVerification = runner.slice(runner.indexOf('async function verifyAuthState'), runner.indexOf('async function waitForPwaBoot'));
 assert.ok(authVerification.includes(`page.locator('form.authCard input[type="password"]')`), 'PC auth verification must ignore BattleCruiser project password fields');
 assert.ok(!authVerification.includes(`page.locator('input[type="password"]')`), 'PC auth verification must not scan document-wide password fields');
@@ -83,6 +103,13 @@ assert.match(appApi, /aria_app_get_global_conversation/);
 assert.doesNotMatch(appApi, /schema\(["']aria_app["']\)\.from\(["']conversations["']\)/);
 
 console.log('PC BROWSER RWHT CONTRACT: PASS');
+const semanticLookup = runner.indexOf('const semantic = semanticLocator();');
+const cssHintLookup = runner.indexOf('if (!locator && !settingsDynamic && control.selector_hint)');
+assert.ok(semanticLookup >= 0 && cssHintLookup > semanticLookup, 'PC RWHT must prefer semantic locators before structural CSS hints');
+assert.match(runner,/locatorResolution = 'semantic-role-name-or-id'/);
+assert.match(runner,/locatorResolution = 'semantic-retry-after-stale-hint'/);
+assert.match(runner,/hintedName === label/);
+console.log('PC RWHT SEMANTIC LOCATOR STABILITY CONTRACT: PASS');
 
 assert.match(runner, /RWHT_REQUIRE_AUTH/);
 assert.match(runner, /RWHT_EXPECTED_AUTH_TEXT/);

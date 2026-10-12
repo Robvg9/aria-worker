@@ -81,7 +81,9 @@ async function waitForPwaBoot(page, stage) {
 
 
 async function login(page) {
-  const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[autocomplete="username"]').first();
+  // Scope to the visible Auth form. Generic comma selectors can resolve an
+  // off-screen/previous route input and submit a password with an empty email.
+  const authForm = page.locator('.authScreen form.authCard input[aria-label="Correo"]');
   const authenticatedSurface = page.locator('.dashboardScreen,.projectShell').first();
   await Promise.race([
     authForm.waitFor({ state: 'visible', timeout: 60000 }),
@@ -94,13 +96,33 @@ async function login(page) {
     throw new Error('settings_auth_surface_not_visible');
   }
 
-  const passwordInput = page.locator('input[aria-label="Contraseña"],input[type="password"],input[autocomplete="current-password"]').first();
+  const passwordInput = page.locator('.authScreen form.authCard input[aria-label="Contraseña"]');
+  const submitButton = page.locator('.authScreen form.authCard button.primary.wide');
   await passwordInput.waitFor({ state: 'visible', timeout: 30000 });
+  await submitButton.waitFor({ state: 'visible', timeout: 30000 });
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await authForm.fill(email);
     await passwordInput.fill(password);
-    await page.getByRole('button', { name: 'ENTRAR EN ARIA' }).click();
+    const submittedEmail = await authForm.inputValue();
+    const submittedPassword = await passwordInput.inputValue();
+    if (submittedEmail.trim() !== email.trim() || submittedPassword !== password) {
+      throw new Error('settings_auth_submit_input_mismatch:' + JSON.stringify({
+        attempt,
+        email_present: Boolean(submittedEmail.trim()),
+        email_matches_config: submittedEmail.trim() === email.trim(),
+        password_present: Boolean(submittedPassword),
+        password_matches_config: submittedPassword === password
+      }));
+    }
+    // React's controlled inputs must reflect the filled values before submit.
+    await page.waitForFunction(() => {
+      const form = document.querySelector('.authScreen form.authCard');
+      const emailField = form?.querySelector('input[aria-label="Correo"]');
+      const passwordField = form?.querySelector('input[aria-label="Contraseña"]');
+      return Boolean(emailField?.value?.trim() && passwordField?.value);
+    }, null, { timeout: 5000 });
+    await submitButton.click();
     try {
       await page.waitForFunction(() => {
         const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {

@@ -415,12 +415,16 @@ async function testControl(page, control, config) {
     let locator = null;
     // Share the CTA flag between semantic resolution and fallback replay.
     const ariaChatCta = control.role === 'button' && /Hablar con ARIA/i.test(label);
+    const newMissionCta = control.role === 'button' && /Nueva misión/i.test(label);
     const semanticLocator = () => {
       if (control.id) return page.locator('#' + control.id).first();
       // This stable home CTA can serialize with an emoji-prefixed visible label,
       // while Chromium's accessible name may omit the emoji after hydration.
       // Match the semantic phrase rather than coupling replay to decorative glyphs.
       if (ariaChatCta) return page.getByRole('button', { name: /Hablar con ARIA/i }).first();
+      // Decorative plus glyphs vary between DOM text and Chromium's accessible
+      // name. Use the stable mission phrase, scoped to the active home surface.
+      if (newMissionCta) return page.locator('.dashboardScreen').getByRole('button', { name: /Nueva misión/i }).first();
       if (control.role && label) return page.getByRole(control.role, { name: label, exact: true }).first();
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
     };
@@ -455,17 +459,35 @@ async function testControl(page, control, config) {
     }
 
     const settingsDynamic = /^(Activadas|Desactivadas|Activar avisos)$/i.test(label);
+
+    // Re-resolve semantic role/name first after each full page reload. Positional
+    // selector hints can still match a different DOM node after hydration/layout
+    // changes even though the originally discovered control exists semantically.
+    if (!locator) {
+      const semantic = semanticLocator();
+      if (
+        await semantic.count().catch(() => 0) &&
+        await semantic.isVisible().catch(() => false)
+      ) locator = semantic;
+    }
+
+    // Use the captured CSS hint only as a guarded fallback. It must still point
+    // to the same accessible text/label, not merely to any visible element.
     if (!locator && !settingsDynamic && control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
       const hintedName = safeLabel(await hinted.innerText().catch(() => ''));
+      const hintedAriaLabel = safeLabel(await hinted.getAttribute('aria-label').catch(() => ''));
+      const hintedTitle = safeLabel(await hinted.getAttribute('title').catch(() => ''));
       if (
-        await hinted.count() &&
+        await hinted.count().catch(() => 0) &&
         await hinted.isVisible().catch(() => false) &&
-        (!dynamicDiagnostic || hintedName === label)
+        Boolean(label) &&
+        [hintedName, hintedAriaLabel, hintedTitle].includes(label) &&
+        (!dynamicDiagnostic || hintedName === label || hintedAriaLabel === label || hintedTitle === label)
       ) locator = hinted;
     }
     if (!locator) locator = semanticLocator();
-    if (locator && !(await locator.count().catch(() => 0))) locator = null;
+
 
     // If Chromium exposes the visible chat CTA without a stable accessible role/name
     // after hydration, recover by its user-visible label within the active home surface.
@@ -473,6 +495,15 @@ async function testControl(page, control, config) {
     if (!locator && ariaChatCta) {
       const textFallback = page.locator('.dashboardScreen button')
         .filter({ hasText: /Hablar\s+con\s+ARIA/i })
+        .first();
+      if (
+        await textFallback.count().catch(() => 0) &&
+        await textFallback.isVisible().catch(() => false)
+      ) locator = textFallback;
+    }
+    if (!locator && newMissionCta) {
+      const textFallback = page.locator('.dashboardScreen button')
+        .filter({ hasText: /Nueva\s+misión/i })
         .first();
       if (
         await textFallback.count().catch(() => 0) &&
@@ -531,7 +562,22 @@ async function testControl(page, control, config) {
         el.scrollIntoView({ block: 'center', inline: 'nearest' });
       }).catch(() => {});
     }
-    await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
+    } catch (scrollError) {
+      // If a serialized CSS hint went stale between discovery and replay, resolve
+      // the same target again semantically. This is a bounded locator retry, not
+      // a retry of the UI action itself.
+      if (locatorResolution !== 'validated-selector-hint' || !(control.role && label)) throw scrollError;
+      const semanticRetry = semanticLocator();
+      if (
+        !(await semanticRetry.count().catch(() => 0)) ||
+        !(await semanticRetry.isVisible().catch(() => false))
+      ) throw scrollError;
+      locator = semanticRetry;
+      locatorResolution = 'semantic-retry-after-stale-hint';
+      await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
+    }
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
     await closeDialogs(page);
@@ -841,9 +887,10 @@ async function auditRoute(page, url, routeIndex, config) {
       continue;
     }
 
-    // Prefer the stable selector captured from the same route before matching
-    // the human-readable label. Toggle labels and mission-card summaries can change
-    // across a reload while their DOM position/selector remains stable.
+    // Dynamic server-backed labels require a semantic prefix; all other controls
+    // should be re-identified by stable ID or accessible role/name after each reload.
+    // A positional CSS path is a last resort, and only when its current accessible
+    // identity still matches the captured snapshot.
     const dynamicTarget = (() => {
       if (original.tag !== 'button') return null;
       const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
@@ -865,13 +912,6 @@ async function auditRoute(page, url, routeIndex, config) {
     })();
     const dynamicDiagnosticSnapshot = original.tag === 'button' && /·\s*Abrir diagnóstico/i.test(originalLabel);
     const target = dynamicTarget
-      || (original.selector_hint
-        ? controlsNow.find((control) =>
-            control.selector_hint === original.selector_hint &&
-            control.tag === original.tag &&
-            (!dynamicDiagnosticSnapshot || control.name === original.name)
-          )
-        : null)
       || (original.id
         ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
         : null)
@@ -881,6 +921,15 @@ async function auditRoute(page, url, routeIndex, config) {
         control.href === original.href &&
         control.tag === original.tag
       )
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag &&
+            control.name === original.name &&
+            control.role === original.role &&
+            control.href === original.href
+          )
+        : null)
       || (dynamicDiagnosticSnapshot ? null : controlsNow[index]);
     if (!target) {
       if (dynamicDiagnosticSnapshot) {
