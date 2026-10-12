@@ -82,15 +82,15 @@ async function readSession(page) {
   });
 }
 
-async function readServerConversation(page, accessToken) {
-  return page.evaluate(async (token) => {
-    const response = await fetch('/api/conversation', {
+async function readServerConversation(page, accessToken, conversationId) {
+  return page.evaluate(async ({ token, id }) => {
+    const response = await fetch('/api/conversation?conversation_id=' + encodeURIComponent(id), {
       headers: { authorization: 'Bearer ' + token },
       cache: 'no-store'
     });
     const body = await response.json().catch(() => null);
     return { status: response.status, body };
-  }, accessToken);
+  }, { token: accessToken, id: conversationId });
 }
 
 async function checkChatUx(page) {
@@ -219,7 +219,6 @@ async function run() {
     await textarea.fill('RWHT Chat: mensaje de certificación real.');
     if (!(await sendButton.isEnabled())) throw new Error('chat_send_button_not_enabled_after_input');
 
-    const beforeAssistant = await page.locator('.chatScreen .bubble.aria').count();
     marker = 'RWHTCHATCERT' + Date.now();
     await textarea.fill(marker + ' responde con una confirmación breve.');
     await sendButton.click();
@@ -227,15 +226,35 @@ async function run() {
     await page.locator('.chatScreen .bubble.user').filter({ hasText: marker }).waitFor({ state: 'visible', timeout: 30000 });
     await Promise.race([
       page.waitForFunction(
-        ({ before }) => document.querySelectorAll('.chatScreen .bubble.aria').length > before,
-        { before: beforeAssistant },
+        ({ markerValue }) => {
+          const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+          const nodes = [...document.querySelectorAll('.chatScreen .bubble.user, .chatScreen .bubble.aria')];
+          const userIndex = nodes.findIndex((node) => node.classList.contains('user') && normalize(node.textContent).includes(normalize(markerValue)));
+          if (userIndex < 0) return false;
+          return nodes.slice(userIndex + 1).some((node) =>
+            node.classList.contains('aria') &&
+            normalize(node.textContent) &&
+            !/error comunicando|no se pudo|fall[oó] al|conversation_/i.test(normalize(node.textContent))
+          );
+        },
+        { markerValue: marker },
         { timeout: TIMEOUT_MS }
       ),
       conversation5xxPromise
     ]);
 
-    const assistant = page.locator('.chatScreen .bubble.aria').last();
-    responseText = (await assistant.innerText()).trim();
+    responseText = await page.evaluate((markerValue) => {
+      const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+      const nodes = [...document.querySelectorAll('.chatScreen .bubble.user, .chatScreen .bubble.aria')];
+      const userIndex = nodes.findIndex((node) => node.classList.contains('user') && normalize(node.textContent).includes(normalize(markerValue)));
+      if (userIndex < 0) return '';
+      const assistant = nodes.slice(userIndex + 1).find((node) =>
+        node.classList.contains('aria') &&
+        normalize(node.textContent) &&
+        !/error comunicando|no se pudo|fall[oó] al|conversation_/i.test(normalize(node.textContent))
+      );
+      return normalize(assistant?.textContent);
+    }, marker);
     if (!responseText) throw new Error('chat_assistant_response_empty');
     if (/error comunicando|no se pudo|fall[oó] al|conversation_/i.test(responseText)) throw new Error('chat_assistant_response_is_error');
     if (await page.locator('.chatScreen .errorBox').count()) throw new Error('chat_error_box_visible');
@@ -279,13 +298,48 @@ async function run() {
     ).catch(() => false);
     if (!autoScroll) throw new Error('chat_auto_scroll_missing');
 
-    serverPersistence = await readServerConversation(page, session.accessToken);
-    if (serverPersistence.status !== 200) throw new Error('chat_server_conversation_status_' + serverPersistence.status);
-    const serverMessages = Array.isArray(serverPersistence.body?.conversation?.messages)
-      ? serverPersistence.body.conversation.messages
-      : [];
-    if (!serverMessages.some((m) => typeof m?.content === 'string' && m.content.includes(marker))) {
-      throw new Error('chat_server_persistence_missing');
+    const testConversationId = localPersistence.find((item) => typeof item.conversationId === 'string' && item.conversationId)?.conversationId;
+    if (!testConversationId) throw new Error('chat_local_conversation_id_missing');
+
+    // Verify the same owner-scoped conversation that received this test prompt.
+    // The global /conversation endpoint can return an older/default chat ID.
+    const serverDeadline = Date.now() + TIMEOUT_MS;
+    let serverMessages = [];
+    let serverAssistantMessage = null;
+    while (Date.now() < serverDeadline) {
+      serverPersistence = await readServerConversation(page, session.accessToken, testConversationId);
+      if (serverPersistence.status !== 200) {
+        throw new Error('chat_server_conversation_status_' + serverPersistence.status);
+      }
+      if (serverPersistence.body?.conversation_id !== testConversationId) {
+        throw new Error('chat_server_conversation_id_mismatch');
+      }
+      serverMessages = Array.isArray(serverPersistence.body?.conversation?.messages)
+        ? serverPersistence.body.conversation.messages
+        : [];
+      const markerIndex = serverMessages.findIndex((message) =>
+        message?.role === 'user' && typeof message?.content === 'string' && message.content.includes(marker)
+      );
+      serverAssistantMessage = markerIndex >= 0
+        ? serverMessages.slice(markerIndex + 1).find((message) =>
+            message?.role === 'assistant' && typeof message?.content === 'string' && message.content.trim()
+          )
+        : null;
+      if (serverAssistantMessage) break;
+      await waitFor(1200);
+    }
+    if (!serverMessages.some((message) =>
+      message?.role === 'user' && typeof message?.content === 'string' && message.content.includes(marker)
+    )) throw new Error('chat_server_user_message_missing');
+    if (!serverAssistantMessage) throw new Error('chat_server_assistant_response_missing');
+
+    const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+    const semanticResponseText = responseText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
+    const persistedAssistantText = normalize(serverAssistantMessage.content);
+    if (!persistedAssistantText ||
+        (!persistedAssistantText.includes(normalize(semanticResponseText)) &&
+         !normalize(semanticResponseText).includes(persistedAssistantText))) {
+      throw new Error('chat_server_response_mismatch');
     }
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -294,24 +348,28 @@ async function run() {
     await page.waitForFunction(
       ({ markerValue, expectedResponse }) => {
         const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
-        const userVisible = [...document.querySelectorAll('.chatScreen .bubble.user')]
-          .some((node) => normalize(node.textContent).includes(normalize(markerValue)));
-        const assistantVisible = [...document.querySelectorAll('.chatScreen .bubble.aria')]
-          .some((node) => normalize(node.textContent).includes(normalize(expectedResponse)));
-        return userVisible && assistantVisible;
+        const nodes = [...document.querySelectorAll('.chatScreen .bubble.user, .chatScreen .bubble.aria')];
+        const userIndex = nodes.findIndex((node) => node.classList.contains('user') && normalize(node.textContent).includes(normalize(markerValue)));
+        if (userIndex < 0) return false;
+        return nodes.slice(userIndex + 1).some((node) =>
+          node.classList.contains('aria') && normalize(node.textContent).includes(normalize(expectedResponse))
+        );
       },
       { markerValue: marker, expectedResponse: semanticResponseText },
       { timeout: 60000 }
     );
-    reloadPersistence = await page.locator('.chatScreen .bubble.aria').evaluateAll(
-      (nodes, expectedResponse) => {
+    reloadPersistence = await page.evaluate(
+      ({ markerValue, expectedResponse }) => {
         const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
-        const expected = normalize(expectedResponse);
-        return nodes.filter((node) => normalize(node.textContent).includes(expected)).length;
+        const nodes = [...document.querySelectorAll('.chatScreen .bubble.user, .chatScreen .bubble.aria')];
+        const userIndex = nodes.findIndex((node) => node.classList.contains('user') && normalize(node.textContent).includes(normalize(markerValue)));
+        if (userIndex < 0) return 0;
+        return nodes.slice(userIndex + 1).filter((node) =>
+          node.classList.contains('aria') && normalize(node.textContent).includes(normalize(expectedResponse))
+        ).length;
       },
-      semanticResponseText
-    );
-    if (!reloadPersistence) throw new Error('chat_reload_persistence_missing');
+      { markerValue: marker, expectedResponse: semanticResponseText }
+    );    if (!reloadPersistence) throw new Error('chat_reload_persistence_missing');
 
     if (consoleErrors.length) throw new Error('chat_console_errors_' + consoleErrors.length);
     if (pageErrors.length) throw new Error('chat_page_errors_' + pageErrors.length);
