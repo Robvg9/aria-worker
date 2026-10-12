@@ -148,6 +148,7 @@ console.log('EXACT-SHA PWA CERTIFICATION STREAK ORCHESTRATOR CONTRACT: PASS');
 const settingsRunner=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-settings-e2e.mjs'),'utf8');
 assert.match(settingsRunner,/pendingGenericResource400/);
 assert.match(settingsRunner,/function flushConsoleDiagnostics\(\)/);
+assert.ok(settingsRunner.includes("400 \\(\\)"), 'Generic Chromium 400 matcher must target the exact status text');
 assert.match(settingsRunner,/matched_expected_empty_auth_probes/);
 assert.match(settingsRunner,/missing email or phone/);
 assert.match(settingsRunner,/unclassified_console_events/);
