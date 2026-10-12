@@ -307,8 +307,11 @@ async function closeDialogs(page) {
 
 async function isBattleCruiserExternalAuthField(page, control, label) {
   const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
-  if (routeHash !== '#projects') return false;
+  // This external integration's submit action always remains behind a human gate.
   if (control.tag === 'button' && EXTERNAL_CONNECTION_AUTH.test(label)) return true;
+  // Never replay the known BattleCruiser email placeholder as a generic text input.
+  if (control.tag === 'input' && String(control.type || '').toLowerCase() === 'email' && /^correo@ejemplo\.com$/i.test(label)) return true;
+  if (routeHash !== '#projects') return false;
   if (control.tag !== 'input' || String(control.type || '').toLowerCase() !== 'email') return false;
 
   // This form connects ARIA to a separate, user-owned BattleCruiser backend.
