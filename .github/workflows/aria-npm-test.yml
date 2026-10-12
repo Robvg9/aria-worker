@@ -127,5 +127,26 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='SilentlyContinue'
-          if($env:OMNI_OMNIROUTE_PID){taskkill.exe /PID ([int]$env:OMNI_OMNIROUTE_PID) /T /F | Out-Null}
-          if($env:OMNI_OLLAMA_PID){taskkill.exe /PID ([int]$env:OMNI_OLLAMA_PID) /T /F | Out-Null}
+          $cleanupFailed=$false
+          foreach($rawPid in @($env:OMNI_OMNIROUTE_PID,$env:OMNI_OLLAMA_PID)){
+            $targetPid=0
+            if([int]::TryParse([string]$rawPid,[ref]$targetPid) -and $targetPid -gt 0){
+              if(Get-Process -Id $targetPid -ErrorAction SilentlyContinue){
+                taskkill.exe /PID $targetPid /T /F | Out-Null
+                $killExit=$LASTEXITCODE
+                Start-Sleep -Milliseconds 300
+                if(Get-Process -Id $targetPid -ErrorAction SilentlyContinue){
+                  Write-Warning "CLEANUP_PROCESS_STILL_RUNNING=$targetPid taskkill_exit=$killExit"
+                  $cleanupFailed=$true
+                } else {
+                  Write-Host "CLEANUP_PROCESS_STOPPED=$targetPid"
+                }
+              } else {
+                Write-Host "CLEANUP_PROCESS_ALREADY_EXITED=$targetPid"
+              }
+            }
+          }
+          # taskkill may return 1 when a process already exited; judge the post-condition, not that stale native code.
+          $global:LASTEXITCODE=0
+          if($cleanupFailed){ throw 'OMNIROUTE_CLEANUP_INCOMPLETE' }
+          Write-Host 'OMNIROUTE_CLEANUP_PASS'
