@@ -20,7 +20,7 @@ assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verificati
 if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
 assertContains(appApi,'path.endsWith("/conversation") && !path.includes("/projects/")','generic conversation route must not catch project conversation requests');
-assertContains(appApi,'const requestedConversationId = new URL(req.url).searchParams.get("conversation_id")?.trim() || null;','chat API must support reading an explicit active conversation ID');
+assertContains(appApi,'const requestedConversationId = conversationUrl.searchParams.get("conversation_id")?.trim() || null;','chat API must support reading an explicit active conversation ID');
 assertContains(appApi,'if (requestedConversationId) {','explicit conversation reads must bypass the global latest-conversation lookup');
 assertContains(appApi,'p_conversation_id: requestedConversationId','explicit conversation reads must use the supplied conversation ID');
 assertContains(appApi,'conversation_id_invalid','malformed explicit conversation IDs must fail closed');
