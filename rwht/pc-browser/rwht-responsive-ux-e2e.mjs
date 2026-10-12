@@ -47,6 +47,7 @@ const evidence = {
 
 const responseDiagnostics = [];
 const runtimeErrors = [];
+const externalPreviewRuntimeErrors = [];
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -401,6 +402,14 @@ async function verifyModal(page) {
     if (msg.type() !== 'error') return;
     const message = msg.text();
     if (/Failed to load resource: the server responded with a status of 5(?:02|03|04) \(\)/.test(message)) return;
+    const location = msg.location?.() || {};
+    const sourceUrl = String(location.url || page.url());
+    const host = (() => { try { return new URL(sourceUrl).host; } catch { return ''; } })();
+    const internalHosts = new Set(['aria.robvg9.workers.dev', 'icuqsstxfdbvjytkhlog.supabase.co']);
+    if (host && !internalHosts.has(host)) {
+      externalPreviewRuntimeErrors.push({ message, source_url: sourceUrl });
+      return;
+    }
     runtimeErrors.push('console: ' + message);
   });
   page.on('response', response => {
@@ -484,6 +493,7 @@ async function verifyModal(page) {
     evidence.keyboard_focus = { all_viewports_verified: true, routes_per_viewport: ROUTES.length };
     evidence.response_diagnostics = responseDiagnostics.slice(-40);
     evidence.runtime_errors = unexpectedRuntime;
+    evidence.external_preview_runtime_errors = externalPreviewRuntimeErrors.slice(0, 100);
     evidence.status = 'verified';
     evidence.finished_at = new Date().toISOString();
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'responsive-ux-evidence.json'), JSON.stringify(evidence, null, 2));
@@ -493,6 +503,7 @@ async function verifyModal(page) {
     evidence.failure = error instanceof Error ? error.message : String(error);
     evidence.response_diagnostics = responseDiagnostics.slice(-40);
     evidence.runtime_errors = runtimeErrors;
+    evidence.external_preview_runtime_errors = externalPreviewRuntimeErrors.slice(0, 100);
     evidence.finished_at = new Date().toISOString();
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'responsive-ux-evidence.json'), JSON.stringify(evidence, null, 2));
     console.error(JSON.stringify(evidence, null, 2));

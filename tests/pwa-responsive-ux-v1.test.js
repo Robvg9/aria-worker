@@ -4,6 +4,7 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
+const responsiveRunner=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-responsive-ux-e2e.mjs'),'utf8');
 
 assert.match(css,/body\{margin:0;min-width:320px;min-height:100vh/);
 assert.match(css,/\.pwaShell\{overflow-x:hidden;/);
@@ -29,6 +30,11 @@ assert.match(css,/@media\(max-width:900px\)/);
 assert.match(css,/@media\(max-width:560px\)/);
 assert.match(css,/@media\(max-width:700px\)/);
 assert.match(css,/@media\(max-width:380px\)/);
+assert.match(css,/\.realityBoardEntry \.panelHeading\{flex-direction:column;align-items:stretch\}/);
+assert.match(css,/\.realityBoardEntry \.panelHeading>a\.ghost\{[^}]*white-space:normal!important;/);
+assert.match(responsiveRunner,/externalPreviewRuntimeErrors/);
+assert.match(responsiveRunner,/new Set\(\['aria\.robvg9\.workers\.dev', 'icuqsstxfdbvjytkhlog\.supabase\.co'\]\)/);
+assert.match(responsiveRunner,/evidence\.external_preview_runtime_errors/);
 
 assert.match(app,/function GlobalBottomNav/);
 assert.match(app,/aria-label='Navegación principal'/);
