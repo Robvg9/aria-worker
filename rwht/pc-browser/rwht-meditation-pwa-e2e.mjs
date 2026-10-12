@@ -25,7 +25,7 @@ const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 
 async function login(page) {
   await page.waitForFunction(() => {
-    const form = document.querySelector('input[type="password"]');
+    const form = document.querySelector('form.authCard input[type="password"]');
     const surface = document.querySelector('.projectShell,.dashboardScreen');
     return Boolean(surface) || Boolean(form);
   }, null, { timeout: 60000 }).catch(() => {});
@@ -39,7 +39,9 @@ async function login(page) {
   }
 
   if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing_or_expired');
-  const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+  // Only ARIA's own auth card is a login form. Projects (notably BattleCruiser)
+  // has independent email/password fields; never type the ARIA account into those.
+  const authForm = page.locator('form.authCard input[aria-label="Correo"],form.authCard input[type="email"],form.authCard input[name="email"],form.authCard input[autocomplete="username"]').first();
   const authenticatedSurface = page.locator('.projectShell,.dashboardScreen').first();
   await Promise.race([
     authForm.waitFor({ state:'visible', timeout:60000 }),
@@ -51,29 +53,39 @@ async function login(page) {
   }
   if (!(await authForm.isVisible().catch(() => false))) throw new Error('meditation_auth_surface_not_visible');
 
-  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+  const password = page.locator('form.authCard input[type="password"],form.authCard input[name="password"],form.authCard input[autocomplete="current-password"]').first();
   await password.waitFor({ state:'visible', timeout:30000 });
   const maxAttempts = Math.max(1, Math.min(1, Number(process.env.RWHT_AUTH_ATTEMPTS || 1)));
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await authForm.fill(EMAIL);
     await password.fill(PASSWORD);
-    const submit = page.locator('button[type="submit"],input[type="submit"],button')
+    const submit = page.locator('form.authCard button[type="submit"],form.authCard input[type="submit"],form.authCard button')
       .filter({ hasText:/entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
     if (await submit.count()) await submit.click();
     else await password.press('Enter');
     try {
+      // Success is proven by a newly persisted ARIA session, not by the
+      // disappearance of any password input across the whole project UI.
+      // A login rejection is surfaced immediately from ARIA's own auth card.
       await page.waitForFunction(() => {
-        const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
-          const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
-        });
-        return !pwd;
+        try {
+          const raw = localStorage.getItem('aria_session_v2');
+          const session = raw ? JSON.parse(raw) : null;
+          if (session && typeof session.accessToken === 'string' && session.userId) return true;
+        } catch {}
+        const card = document.querySelector('form.authCard');
+        const error = card?.querySelector('.errorBox');
+        if (!error) return false;
+        const rect = error.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
       }, null, { timeout:60000 });
       const session = await readSession(page);
       if (session?.accessToken && session?.userId) {
         return { mode:'password', status:'authenticated', attempts:[...attempts,{attempt,status:'authenticated'}] };
       }
-      throw new Error('authenticated_session_not_persisted');
+      const authError = await page.locator('form.authCard .errorBox').innerText().catch(() => '');
+      throw new Error(authError ? 'aria_auth_rejected:' + authError.slice(0,180) : 'authenticated_session_not_persisted');
     } catch (error) {
       attempts.push({ attempt, status:'failed', error:String(error?.message || error).slice(0,300) });
       if (attempt < maxAttempts) {

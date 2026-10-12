@@ -32,6 +32,10 @@ assert.match(runner, /const ariaChatCta = control\.role === 'button' && \/Hablar
 assert.match(runner, /getByRole\('button', \{ name: \/Hablar con ARIA\/i \}\)/);
 assert.ok(runner.includes("const textFallback = page.locator('.dashboardScreen button')"), 'Chat CTA replay must fall back to its visible text within the home surface');
 assert.ok(runner.includes(".filter({ hasText: /Hablar\\s+con\\s+ARIA/i })"), 'Chat CTA text fallback must match the stable semantic phrase');
+assert.ok(runner.indexOf("const ariaChatCta = control.role === 'button'") < runner.indexOf("const semanticLocator = () =>"), 'Chat CTA detection must be in scope for both semantic and fallback locators');
+const authVerification = runner.slice(runner.indexOf('async function verifyAuthState'), runner.indexOf('async function waitForPwaBoot'));
+assert.ok(authVerification.includes(`page.locator('form.authCard input[type="password"]')`), 'PC auth verification must ignore BattleCruiser project password fields');
+assert.ok(!authVerification.includes(`page.locator('input[type="password"]')`), 'PC auth verification must not scan document-wide password fields');
 
 assert.match(runner, /images_missing_alt/);
 assert.match(runner, /unlabeled_inputs/);
@@ -135,9 +139,9 @@ const webPushWorkflow = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'),
   'utf8',
 );
-assert.ok(webPushWorkflow.includes('if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then'), 'Web Push must load configured raw browser state even when credentials are present');
-assert.ok(webPushWorkflow.includes('elif [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then'), 'Web Push must support compressed browser state as fallback');
-assert.ok(!webPushWorkflow.includes('-z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}"'), 'Persisted browser state must not be gated on missing credentials');
+assert.ok(webPushWorkflow.includes('if [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_B64}" ]]; then'), 'Web Push must prefer fresh credentials and use raw browser state only when a credential is missing');
+assert.ok(webPushWorkflow.includes('elif [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then'), 'Web Push must support compressed browser state only as a missing-credentials fallback');
+assert.ok(webPushWorkflow.includes('static storage-state refresh token'), 'Web Push must document why concurrent jobs cannot race on a shared rotating refresh token');
 
 const wranglerToml = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
 assert.match(wranglerToml, /\[placement\]/);

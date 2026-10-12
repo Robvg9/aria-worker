@@ -235,7 +235,6 @@ async function checkUx(page) {
 }
 
 async function loginIfConfigured(page, config) {
-  if (config.storage_state) return { attempted: false, status: 'storage_state' };
   const email = process.env.RWHT_EMAIL;
   const password = process.env.RWHT_PASSWORD;
   if (!email || !password) return { attempted: false, status: 'not_configured' };
@@ -243,34 +242,47 @@ async function loginIfConfigured(page, config) {
   const maxAttempts = Math.max(1, Math.min(3, envInt('RWHT_AUTH_ATTEMPTS', 3)));
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const emailLocator = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
-    const passwordLocator = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+    // Do not let the BattleCruiser connection form impersonate ARIA's auth form.
+    const emailLocator = page.locator('form.authCard input[aria-label="Correo"],form.authCard input[type="email"],form.authCard input[name="email"],form.authCard input[autocomplete="username"]').first();
+    const passwordLocator = page.locator('form.authCard input[type="password"],form.authCard input[name="password"],form.authCard input[autocomplete="current-password"]').first();
     await emailLocator.waitFor({ state: 'visible', timeout: config.navigation_timeout_ms });
     await passwordLocator.waitFor({ state: 'visible', timeout: config.navigation_timeout_ms });
     await emailLocator.fill(email);
     await passwordLocator.fill(password);
-    const submit = page.locator('button[type="submit"],input[type="submit"],button')
+    const submit = page.locator('form.authCard button[type="submit"],form.authCard input[type="submit"],form.authCard button')
       .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i }).first();
     if (await submit.count()) await submit.click();
     else await passwordLocator.press('Enter');
 
     try {
+      // Auth succeeds only when ARIA persists its own session. The BattleCruiser
+      // connection panel has an unrelated password input and must not affect this.
       await page.waitForFunction(() => {
-        const passwordVisible = [...document.querySelectorAll('input[type="password"]')].some((el) => {
-          const rect = el.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        });
-        const authErrorVisible = /servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i.test(
-          [...document.querySelectorAll('*')].map((el) => String(el.textContent || '')).join(' ').slice(-20000)
-        );
-        return !passwordVisible || authErrorVisible;
+        try {
+          const raw = localStorage.getItem('aria_session_v2');
+          const session = raw ? JSON.parse(raw) : null;
+          if (session && typeof session.accessToken === 'string' && session.userId) return true;
+        } catch {}
+        const card = document.querySelector('form.authCard');
+        const error = card?.querySelector('.errorBox');
+        if (!error) return false;
+        const rect = error.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
       }, null, { timeout: 60000 });
 
-      const passwordStillVisible = await page.locator('input[type="password"]').isVisible().catch(() => false);
-      const visibleError = await page.locator('text=/servicio de autenticación|ninguna de sus rutas|tardando demasiado|no pudo alcanzar/i').first().textContent().catch(() => '');
-      if (passwordStillVisible && visibleError) throw new Error('authenticated_login_visible_error');
-      attempts.push({ attempt, status: 'authenticated' });
-      return { attempted: true, status: 'authenticated', attempts };
+      const sessionPersisted = await page.evaluate(() => {
+        try {
+          const raw = localStorage.getItem('aria_session_v2');
+          const session = raw ? JSON.parse(raw) : null;
+          return Boolean(session?.accessToken && session?.userId);
+        } catch { return false; }
+      });
+      if (sessionPersisted) {
+        attempts.push({ attempt, status: 'authenticated' });
+        return { attempted: true, status: 'authenticated', attempts };
+      }
+      const visibleError = await page.locator('form.authCard .errorBox').innerText().catch(() => '');
+      throw new Error(visibleError ? 'aria_auth_rejected:' + visibleError.slice(0,180) : 'authenticated_session_not_persisted');
     } catch (error) {
       attempts.push({ attempt, status: 'failed', error: String(error?.message || error).slice(0, 300) });
       if (attempt < maxAttempts) {
@@ -370,12 +382,13 @@ async function testControl(page, control, config) {
 
   try {
     let locator = null;
+    // Share the CTA flag between semantic resolution and fallback replay.
+    const ariaChatCta = control.role === 'button' && /Hablar con ARIA/i.test(label);
     const semanticLocator = () => {
       if (control.id) return page.locator('#' + control.id).first();
       // This stable home CTA can serialize with an emoji-prefixed visible label,
       // while Chromium's accessible name may omit the emoji after hydration.
       // Match the semantic phrase rather than coupling replay to decorative glyphs.
-      const ariaChatCta = control.role === 'button' && /Hablar con ARIA/i.test(label);
       if (ariaChatCta) return page.getByRole('button', { name: /Hablar con ARIA/i }).first();
       if (control.role && label) return page.getByRole(control.role, { name: label, exact: true }).first();
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
@@ -517,7 +530,7 @@ async function testControl(page, control, config) {
 
 async function verifyAuthState(page, config) {
   if (!config.require_auth) return { required: false, verified: true, reason: 'auth_not_required' };
-  const passwordInputs = page.locator('input[type="password"]');
+  const passwordInputs = page.locator('form.authCard input[type="password"]');
   const visiblePassword = await passwordInputs.evaluateAll((items) =>
     items.some((el) => {
       const rect = el.getBoundingClientRect();
@@ -599,7 +612,7 @@ async function auditRoute(page, url, routeIndex, config) {
   }).catch(() => {});
   await page.waitForTimeout(Math.max(config.settle_ms, 500));
 
-  const passwordVisible = await page.locator('input[type="password"]').evaluateAll((items) =>
+  const passwordVisible = await page.locator('form.authCard input[type="password"]').evaluateAll((items) =>
     items.some((el) => {
       const rect = el.getBoundingClientRect();
       const style = getComputedStyle(el);
