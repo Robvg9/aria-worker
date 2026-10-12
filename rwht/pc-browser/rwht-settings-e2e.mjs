@@ -20,7 +20,10 @@ if (!email || !password) {
   throw new Error('Authenticated settings RWHT requires RWHT_EMAIL + RWHT_PASSWORD for the logout/re-login gate.');
 }
 
+
 const responseDiagnostics = [];
+const authRequestDiagnostics = [];
+
 
 const evidence = {
   version: 'aria-settings-rwht-e2e-v1.0.0',
@@ -30,6 +33,52 @@ const evidence = {
   checks: {},
   errors: []
 };
+async function readPwaBootState(page) {
+  return page.evaluate(() => {
+    const visible = (element) => {
+      if (!element) return false;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    return {
+      href: location.href,
+      hash: location.hash,
+      mounted: document.documentElement.dataset.ariaMounted === 'true',
+      boot_error: document.querySelector('#aria-boot[data-state="error"]')?.textContent?.trim().slice(0, 500) || '',
+      session_present: Boolean(localStorage.getItem('aria_session_v2')),
+      auth_surface_visible: visible(document.querySelector('.authScreen')),
+      settings_surface_visible: visible(document.querySelector('.settingsViewport')),
+      dashboard_visible: visible(document.querySelector('.dashboardScreen')),
+      project_visible: visible(document.querySelector('.projectShell')),
+      headings: [...document.querySelectorAll('h1')].filter(visible).map(el => (el.textContent || '').trim().slice(0, 100))
+    };
+  });
+}
+
+async function waitForPwaBoot(page, stage) {
+  try {
+    await page.waitForFunction(() =>
+      document.documentElement.dataset.ariaMounted === 'true' ||
+      Boolean(document.querySelector('#aria-boot[data-state="error"]')),
+    null, { timeout: 30000 });
+  } catch (error) {
+    const state = await readPwaBootState(page).catch(() => null);
+    throw new Error('settings_pwa_boot_not_ready:' + stage + ':' + JSON.stringify({
+      state,
+      error: String(error?.message || error).slice(0, 500)
+    }));
+  }
+  const state = await readPwaBootState(page);
+  if (state.boot_error && !state.mounted) {
+    throw new Error('settings_pwa_boot_error:' + stage + ':' + JSON.stringify(state));
+  }
+  if (!state.mounted) {
+    throw new Error('settings_pwa_boot_not_mounted:' + stage + ':' + JSON.stringify(state));
+  }
+  return state;
+}
+
 
 async function login(page) {
   const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[autocomplete="username"]').first();
@@ -88,8 +137,18 @@ async function login(page) {
 }
 
 async function openSettings(page) {
-  await page.goto(url + '#settings', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Configuración' }).waitFor({ timeout: 20000 });
+  await page.goto(url + '#settings', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await waitForPwaBoot(page, 'direct_settings_navigation');
+  try {
+    await page.locator('.settingsViewport').waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByRole('heading', { name: 'Configuración' }).waitFor({ timeout: 10000 });
+  } catch (error) {
+    const state = await readPwaBootState(page).catch(() => null);
+    throw new Error('settings_route_not_rendered:' + JSON.stringify({
+      state,
+      error: String(error?.message || error).slice(0, 700)
+    }));
+  }
 }
 
 function panel(page, text) {
@@ -113,6 +172,23 @@ function panel(page, text) {
       /supabase\.co|auth\/v1\/token/.test(String(location?.url || ''));
     if (!isExpectedAuthFallback) runtimeErrors.push('console: ' + message);
   });
+  page.on('request', request => {
+    const target = request.url();
+    if (!/\/auth\/token|\/auth\/v1\/token/i.test(target)) return;
+    let body = {};
+    try { body = request.postDataJSON() || {}; } catch {}
+    let grantType = null;
+    try { grantType = new URL(target).searchParams.get('grant_type'); } catch {}
+    authRequestDiagnostics.push({
+      method: request.method(),
+      url: target,
+      grant_type: grantType,
+      has_email: typeof body.email === 'string' && Boolean(body.email.trim()),
+      has_phone: typeof body.phone === 'string' && Boolean(body.phone.trim()),
+      has_password: typeof body.password === 'string' && Boolean(body.password),
+      has_refresh_token: typeof body.refresh_token === 'string' && Boolean(body.refresh_token)
+    });
+  });
   page.on('response', async response => {
     if (response.status() >= 400) {
       const target = response.url();
@@ -128,7 +204,8 @@ function panel(page, text) {
   });
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await waitForPwaBoot(page, 'initial_navigation');
     await login(page);
     evidence.checks.auth_verified = true;
 
@@ -160,8 +237,10 @@ function panel(page, text) {
     }
     evidence.checks.animations_toggle_persisted = true;
 
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: 'Configuración' }).waitFor({ timeout: 20000 });
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+    await waitForPwaBoot(page, 'settings_preferences_reload');
+    await page.locator('.settingsViewport').waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByRole('heading', { name: 'Configuración' }).waitFor({ timeout: 10000 });
     const persistedAnimationButton = panel(page, 'Animaciones').getByRole('button').first();
     if (await persistedAnimationButton.getAttribute('aria-pressed') !== toggledAnimations) {
       throw new Error('Animation setting was lost after reload.');
@@ -208,8 +287,12 @@ function panel(page, text) {
       localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), data: 'probe' }));
     }, probeKey);
 
+    const cacheReloadNavigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.getByRole('button', { name: 'Borrar caché y recargar' }).click();
-    await page.getByRole('heading', { name: 'Configuración' }).waitFor({ timeout: 20000 });
+    await cacheReloadNavigation;
+    await waitForPwaBoot(page, 'cache_clear_reload');
+    await page.locator('.settingsViewport').waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByRole('heading', { name: 'Configuración' }).waitFor({ timeout: 10000 });
     const cacheProbe = await page.evaluate((key) => localStorage.getItem(key), probeKey);
     const sessionAfterCache = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2')));
     if (cacheProbe !== null || !sessionAfterCache) {
@@ -231,6 +314,7 @@ function panel(page, text) {
     await openSettings(page);
     evidence.checks.relogin_verified = true;
     evidence.checks.error_responses_observed = responseDiagnostics.filter(x => x.status >= 400);
+    evidence.checks.auth_request_diagnostics = authRequestDiagnostics.slice(-30);
 
     const unexpectedResponses = responseDiagnostics.filter(x => x.status >= 500);
     if (unexpectedResponses.length) throw new Error('unexpected_server_errors:' + JSON.stringify(unexpectedResponses));
@@ -245,6 +329,11 @@ function panel(page, text) {
     evidence.status = 'failed';
     evidence.failure = error instanceof Error ? error.message : String(error);
     evidence.errors = runtimeErrors;
+    evidence.checks.response_diagnostics = responseDiagnostics.slice(-40);
+    evidence.checks.auth_request_diagnostics = authRequestDiagnostics.slice(-30);
+    evidence.checks.final_browser_state = await readPwaBootState(page).catch(error => ({
+      diagnostic_error: String(error?.message || error).slice(0, 300)
+    }));
     evidence.finished_at = new Date().toISOString();
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'settings-rwht-evidence.json'), JSON.stringify(evidence, null, 2));
     console.error(JSON.stringify(evidence, null, 2));
