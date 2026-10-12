@@ -30,6 +30,7 @@ jobs:
         with:
           node-version: 24
       - run: node tests/pc-rwht-browser.test.js
+      - run: bash -n scripts/ci/wait-for-aria-exact-sha-deploys.sh
 
   # PRs cannot certify code that is not deployed to LIVE yet. The contract job remains the PR gate.
   live-pwa:
