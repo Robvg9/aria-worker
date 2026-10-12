@@ -53,9 +53,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_B64}" ]]; then
+          # Prefer the persisted browser state whenever configured, even when
+          # username/password secrets exist. The E2E validates/refreshes this session
+          # and falls back to the password form only if the state is stale or invalid.
+          if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_B64}" | base64 --decode > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
-          elif [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then
+          elif [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then
             printf '%s' "${RWHT_STORAGE_STATE_GZIP_B64}" | base64 --decode | gzip -dc > "${RUNNER_TEMP}/aria-rwht-auth-state.json"
           fi
           if [[ -f "${RUNNER_TEMP}/aria-rwht-auth-state.json" ]]; then
