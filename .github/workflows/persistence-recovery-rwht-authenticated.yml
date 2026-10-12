@@ -17,7 +17,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  # Isolate persistence verification from Chat and Capabilities on the same release.
+  group: aria-persistence-recovery-rwht-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
