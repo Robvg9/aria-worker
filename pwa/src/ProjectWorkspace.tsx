@@ -95,7 +95,14 @@ async function api(path:string, token:string, init:RequestInit={}) {
   const isBattleCruiserConnectionPath=path.startsWith('/projects/battlecruiser/connections');
   // The LIVE BC connection probe performs bounded upstream checks but cold Edge startup can take ~40s.
   // Give both discovery and the authenticated verification route enough time to return their truthful result.
-  const timeoutMs=isBattleCruiserConnectionPath?60000:method==='GET'?(path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000):path==='/missions'?120000:30000;
+  const isProjectConversationRead=method==='GET'&&path.startsWith('/projects/')&&path.endsWith('/conversation');
+  const isProjectChatWrite=method==='POST'&&path==='/conversation'&&/"project_id"\s*:/.test(requestBodyText);
+  // Project chat paths can invoke authenticated project reads and governed local
+  // execution before returning the accepted background job. Supabase logs have
+  // shown valid conversation reads taking 43–60s under production load; a 12s
+  // read / 30s write timeout reports a false runtime failure while the server
+  // request is still running and the user message is already persisted.
+  const timeoutMs=isBattleCruiserConnectionPath?60000:isProjectConversationRead?75000:isProjectChatWrite?120000:method==='GET'?15000:path==='/missions'?120000:30000;
   const timeout=window.setTimeout(()=>controller.abort(),timeoutMs);
   try {
     const response = await fetch(API+path,{...init,headers,cache:'no-store',signal:controller.signal});

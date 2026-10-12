@@ -36,7 +36,9 @@ assert(api.includes('routes:routes.filter((route:any)=>route.provider_id!=="loca
 
 assert(api.includes('if (persistedUserMessage?.conversation_id) conversationId = String(persistedUserMessage.conversation_id)'));
 assert(project.includes('chatThinking'));
-assert(project.includes("path.includes('/projects/')&&path.endsWith('/conversation')?12000:15000"), 'project conversation reads must have bounded latency under load');
+assert(project.includes("const isProjectConversationRead=method==='GET'&&path.startsWith('/projects/')&&path.endsWith('/conversation')"), 'project conversation read timeout must be explicitly bounded');
+assert(project.includes("isProjectConversationRead?75000"), 'project conversation reads must tolerate measured 43–60 second LIVE latency');
+assert(project.includes("isProjectChatWrite?120000"), 'project conversation writes must have an explicit bounded timeout for authenticated project context');
 assert(project.includes("delayMs=Math.min(6000,Math.round(delayMs*1.35))"), 'canonical chat readback must back off when Supabase is under load');
 assert(project.includes('Procesamiento en curso'));
 assert(project.includes('Procesado en {formatProcessingTime(m.processingMs)}'));
