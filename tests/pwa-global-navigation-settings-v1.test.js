@@ -4,6 +4,8 @@ const path=require('node:path');
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
+const certStreak=fs.readFileSync(path.join(root,'.github/workflows/aria-pwa-certification-streak.yml'),'utf8');
+const settingsRwht=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-settings-e2e.mjs'),'utf8');
 
 assert.match(app,/AppPage = 'aria'.*'settings'/);
 assert.match(app,/case '#settings'/);
@@ -27,6 +29,13 @@ assert.match(app,/aria_ui_preferences_v1/);
 assert.match(app,/function clearCache\(\)/);
 assert.match(app,/function togglePref\(key: keyof UiPrefs\)/);
 assert.match(app,/function updateApp\(\)/);
+assert.match(settingsRwht,/async function waitForPwaBoot\(page, stage\)/);
+assert.match(settingsRwht,/document\.documentElement\.dataset\.ariaMounted === 'true'/);
+assert.match(settingsRwht,/await waitForPwaBoot\(page, 'direct_settings_navigation'\)/);
+assert.match(settingsRwht,/page\.waitForNavigation\(\{ waitUntil: 'domcontentloaded', timeout: 30000 \}\)/);
+assert.match(settingsRwht,/authRequestDiagnostics\.push\(/);
+assert.match(settingsRwht,/has_password: typeof body\.password === 'string'/);
+
 console.log('CONFIG SETTINGS CONTRACT: PASS');
 assert.match(app,/Actualizar app/);
 assert.match(app,/caches.keys()/);
@@ -125,3 +134,14 @@ assert.match(app,/const active = selectLiveMission\(missionsResult\)/,'Dashboard
 assert.match(app,/only an actively leased RUNNING\/WAITING mission belongs in the/,'Dashboard live-state rule must remain documented at the source.');
 assert.doesNotMatch(app,/const active = missionsResult\?\.active_mission;\s*setMission\(active \?\? null\)/,'Dashboard must not surface stale/queued active_mission directly.');
 console.log('DASHBOARD LIVE MISSION SSoT CONTRACT: PASS');
+assert.match(certStreak,/workflows:\s*[\s\S]*- ARIA PC Browser RWHT/);
+assert.match(certStreak,/github\.event\.workflow_run\.event == 'push'/);
+assert.match(certStreak,/actions:\s*write/);
+assert.match(certStreak,/async function waitForGate|async function waitForGate/);
+assert.match(certStreak,/dispatchAndWait/);
+assert.match(certStreak,/aria-pwa-steps-7-8-live\.yml/);
+assert.match(certStreak,/projects-rwht-authenticated\.yml/);
+assert.match(certStreak,/PERSISTED_ARTIFACT_OR_PASS_COMMENT_MISSING/);
+assert.match(certStreak,/MAIN_SHA_CHANGED_/);
+assert.match(certStreak,/three consecutive PASS runs/);
+console.log('EXACT-SHA PWA CERTIFICATION STREAK ORCHESTRATOR CONTRACT: PASS');
