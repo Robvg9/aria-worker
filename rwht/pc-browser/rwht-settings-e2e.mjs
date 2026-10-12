@@ -162,15 +162,24 @@ function panel(page, text) {
   const page = await context.newPage();
 
   const runtimeErrors = [];
+  const pendingGenericResource400 = [];
+  let consoleDiagnosticsFlushed = false;
   page.on('pageerror', e => runtimeErrors.push('pageerror: ' + e.message));
   page.on('console', msg => {
     if (msg.type() !== 'error') return;
     const message = msg.text();
-    const location = msg.location();
-    const isExpectedAuthFallback =
-      /Failed to load resource: the server responded with a status of 400 \(\)/.test(message) &&
-      /supabase\.co|auth\/v1\/token/.test(String(location?.url || ''));
-    if (!isExpectedAuthFallback) runtimeErrors.push('console: ' + message);
+    if (/^Failed to load resource: the server responded with a status of 400 \(\)$/.test(message)) {
+      // Chromium often reports the document URL here, not the failed request URL.
+      // Defer classification until matching request/response evidence is available.
+      const location = msg.location();
+      pendingGenericResource400.push({
+        message,
+        source_url: String(location?.url || page.url()),
+        observed_at: Date.now()
+      });
+      return;
+    }
+    runtimeErrors.push('console: ' + message);
   });
   page.on('request', request => {
     const target = request.url();
@@ -182,6 +191,7 @@ function panel(page, text) {
     authRequestDiagnostics.push({
       method: request.method(),
       url: target,
+      observed_at: Date.now(),
       grant_type: grantType,
       has_email: typeof body.email === 'string' && Boolean(body.email.trim()),
       has_phone: typeof body.phone === 'string' && Boolean(body.phone.trim()),
@@ -192,7 +202,7 @@ function panel(page, text) {
   page.on('response', async response => {
     if (response.status() >= 400) {
       const target = response.url();
-      const diagnostic = { status: response.status(), url: target };
+      const diagnostic = { status: response.status(), url: target, observed_at: Date.now() };
       if (/auth\/token/i.test(target)) {
         try {
           const body = await response.json();
@@ -202,6 +212,48 @@ function panel(page, text) {
       responseDiagnostics.push(diagnostic);
     }
   });
+
+
+  function flushConsoleDiagnostics() {
+    if (consoleDiagnosticsFlushed) return;
+    consoleDiagnosticsFlushed = true;
+    const expectedAuth400s = responseDiagnostics.filter(item =>
+      item.status === 400 &&
+      /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(item.url) &&
+      /missing email or phone/i.test(String(item.auth_error || ''))
+    );
+    const emptyPasswordProbes = authRequestDiagnostics.filter(item =>
+      item.method === 'POST' &&
+      item.grant_type === 'password' &&
+      item.has_password &&
+      !item.has_email &&
+      !item.has_phone
+    );
+    let matchedExpected = 0;
+    for (const consoleError of pendingGenericResource400) {
+      const matchIndex = expectedAuth400s.findIndex(response => {
+        if (Math.abs(consoleError.observed_at - response.observed_at) > 5000) return false;
+        const requestIndex = emptyPasswordProbes.findIndex(request =>
+          request.observed_at <= response.observed_at + 1000 &&
+          response.observed_at - request.observed_at <= 10000
+        );
+        if (requestIndex < 0) return false;
+        emptyPasswordProbes.splice(requestIndex, 1);
+        return true;
+      });
+      if (matchIndex >= 0) {
+        expectedAuth400s.splice(matchIndex, 1);
+        matchedExpected += 1;
+      } else {
+        runtimeErrors.push('console: ' + consoleError.message);
+      }
+    }
+    evidence.checks.expected_auth_console_400_classification = {
+      generic_400_console_events: pendingGenericResource400.length,
+      matched_expected_empty_auth_probes: matchedExpected,
+      unclassified_console_events: pendingGenericResource400.length - matchedExpected
+    };
+  }
 
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -315,17 +367,23 @@ function panel(page, text) {
     evidence.checks.relogin_verified = true;
     evidence.checks.error_responses_observed = responseDiagnostics.filter(x => x.status >= 400);
     evidence.checks.auth_request_diagnostics = authRequestDiagnostics.slice(-30);
+    flushConsoleDiagnostics();
 
     const unexpectedResponses = responseDiagnostics.filter(x => x.status >= 500);
     if (unexpectedResponses.length) throw new Error('unexpected_server_errors:' + JSON.stringify(unexpectedResponses));
     if (runtimeErrors.length) throw new Error(runtimeErrors.join(' | '));
     evidence.checks.expected_auth_fallback_observed =
-      responseDiagnostics.some(x => x.status === 400 && /auth\/v1\/token/.test(x.url));
+      responseDiagnostics.some(x =>
+        x.status === 400 &&
+        /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(x.url) &&
+        /missing email or phone/i.test(String(x.auth_error || ''))
+      );
     evidence.status = 'verified';
     evidence.finished_at = new Date().toISOString();
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'settings-rwht-evidence.json'), JSON.stringify(evidence, null, 2));
     console.log(JSON.stringify(evidence, null, 2));
   } catch (error) {
+    flushConsoleDiagnostics();
     evidence.status = 'failed';
     evidence.failure = error instanceof Error ? error.message : String(error);
     evidence.errors = runtimeErrors;
