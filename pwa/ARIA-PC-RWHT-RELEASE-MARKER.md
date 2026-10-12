@@ -16,3 +16,6 @@ Production smoke hardening: deployment asset checks retry transient edge 404s fo
 
 
 2026-10-12 PC RWHT v1.5.1 regression fix: wait for real modal dismissal after clicking the explicit Cerrar/Close control; click the modal backdrop only as a scoped fallback; after recording a read-only action's effect, dismiss the resulting overlay before replaying the next row. Do not skip the failing action or downgrade errors. Exact-SHA LIVE artifact must prove zero failed controls and coherent counters.
+
+
+2026-10-12 certification-chain correction: include the PC Browser release marker in Persistence + Recovery workflow triggers; PC Browser v1.5.1 certification requires a same-SHA Persistence + Recovery run before Web Push, ABSORB and final PC Browser audit.
