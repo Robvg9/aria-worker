@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: aria-production-webpush-e2e-v3
+  group: aria-production-webpush-e2e-v4
   cancel-in-progress: true
 
 jobs:
