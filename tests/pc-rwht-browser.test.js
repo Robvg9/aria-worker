@@ -19,6 +19,8 @@ assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
 assert.match(runner, /SAFE_BLOCKED/);
 assert.match(runner, /EXTERNAL_CONNECTION_AUTH/);
 assert.match(runner, /function isBattleCruiserExternalAuthField/);
+assert.match(runner, /battleCruiserExternalAuthSnapshot/);
+assert.match(runner, /not_attempted_external_auth_boundary/);
 assert.match(runner, /external_integration_auth_requires_human_gate/);
 assert.match(runner, /external_backend_connection/);
 assert.match(runner, /SECRET/);
