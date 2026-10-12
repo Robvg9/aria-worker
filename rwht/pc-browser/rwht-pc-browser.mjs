@@ -415,12 +415,12 @@ async function testControl(page, control, config) {
     let locator = null;
     // Share the CTA flag between semantic resolution and fallback replay.
     const ariaChatCta = control.role === 'button' && /Hablar con ARIA/i.test(label);
-    const newMissionCta = control.role === 'button' && /Nueva\\s+misión/i.test(label);
+    const newMissionCta = control.role === 'button' && /Nueva\s+misión/i.test(label);
     const semanticLocator = () => {
       if (control.id) return page.locator('#' + control.id).first();
       // "＋ Nueva misión" is a stable home CTA; use the semantic accessible name
       // before any DOM-position selector that can drift during hydration.
-      if (newMissionCta) return page.getByRole('button', { name: /Nueva\\s+misión/i }).first();
+      if (newMissionCta) return page.getByRole('button', { name: /Nueva\s+misión/i }).first();
       // This stable home CTA can serialize with an emoji-prefixed visible label,
       // while Chromium's accessible name may omit the emoji after hydration.
       // Match the semantic phrase rather than coupling replay to decorative glyphs.
@@ -461,7 +461,7 @@ async function testControl(page, control, config) {
     const settingsDynamic = /^(Activadas|Desactivadas|Activar avisos)$/i.test(label);
     // Resolve this persistent CTA semantically before replaying its stale positional selector_hint.
     if (newMissionCta) {
-      const candidate = page.getByRole('button', { name: /Nueva\\s+misión/i }).first();
+      const candidate = page.getByRole('button', { name: /Nueva\s+misión/i }).first();
       if (await candidate.count().catch(() => 0) && await candidate.isVisible().catch(() => false)) locator = candidate;
     }
     if (!locator && !settingsDynamic && !newMissionCta && control.selector_hint) {
