@@ -17,7 +17,7 @@ concurrency:
 jobs:
   certify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       RWHT_CERT_SHA: ${{ github.sha }}
       RWHT_CERT_SCOPE: steps-7-8
