@@ -6,7 +6,7 @@ if (!text.includes('external blockage does not block the ARIA core deployment'))
 if (!text.includes('--max-time 12')) throw new Error('Grok request is not bounded');
 const optionalGrokStep = text.slice(
   text.indexOf('- name: Smoke test Grok OAuth DCR and authorization bootstrap (optional external certification)'),
-  text.indexOf('\\n      - name:', text.indexOf('- name: Smoke test Grok OAuth DCR and authorization bootstrap (optional external certification)') + 1),
+  text.indexOf('\n      - name:', text.indexOf('- name: Smoke test Grok OAuth DCR and authorization bootstrap (optional external certification)') + 1),
 );
 if (!optionalGrokStep.includes("if: vars.ARIA_GROK_OAUTH_CERTIFY == 'true'")) throw new Error('Grok OAuth certification must remain opt-in while the external route is blocked');
 
