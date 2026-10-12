@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.1.3';
+const VERSION = 'aria-chat-rwht-e2e-v1.1.4';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -17,32 +17,61 @@ function waitFor(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const AUTH_ROUTE_DIAGNOSTICS = [];
+
 async function signInViaAuthApi() {
   if (!EMAIL || !PASSWORD) return null;
+  const workerOrigin = new URL(BASE_URL).origin;
   const endpoints = [
-    BASE_URL.replace(/\/$/, '') + '/auth/token?grant_type=password',
-    'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password'
+    { route: 'worker_proxy', url: new URL('/auth/token?grant_type=password', workerOrigin).toString() },
+    { route: 'supabase_direct', url: 'https://icuqsstxfdbvjytkhlog.supabase.co/auth/v1/token?grant_type=password' }
   ];
   for (const endpoint of endpoints) {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    // Exceed the Worker proxy's 20 s upstream bound so its status can be captured.
+    const timer = setTimeout(() => controller.abort(), 26000);
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(endpoint.url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', apikey: ANON, accept: 'application/json' },
         body: JSON.stringify({ email: EMAIL.trim(), password: PASSWORD }),
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       });
       const body = await response.json().catch(() => null);
-      if (response.ok && body?.access_token && body?.refresh_token && body?.user?.id) {
+      const hasSession = Boolean(response.ok && body?.access_token && body?.refresh_token && body?.user?.id);
+      const outcome = hasSession
+        ? 'session'
+        : response.status >= 500
+          ? 'server_error'
+          : response.status >= 400
+            ? 'client_error'
+            : 'invalid_payload';
+      const diagnostic = { route: endpoint.route, status: response.status, elapsed_ms: Date.now() - startedAt, outcome };
+      AUTH_ROUTE_DIAGNOSTICS.push(diagnostic);
+      console.log('[ARIA-AUTH-DIAG] ' + JSON.stringify(diagnostic));
+      if (hasSession) {
         return {
           accessToken: body.access_token,
           refreshToken: body.refresh_token,
           userId: body.user.id,
           expiresAt: Date.now() + Math.max(60, Number(body.expires_in || 3600)) * 1000,
-          email: body.user.email || EMAIL,
-          authEndpoint: endpoint
+          email: body.user.email || EMAIL
         };
       }
-    } catch {}
+    } catch (error) {
+      const outcome = error?.name === 'AbortError'
+        ? 'timeout'
+        : error instanceof TypeError
+          ? 'network_error'
+          : 'request_error';
+      const diagnostic = { route: endpoint.route, status: 0, elapsed_ms: Date.now() - startedAt, outcome };
+      AUTH_ROUTE_DIAGNOSTICS.push(diagnostic);
+      console.log('[ARIA-AUTH-DIAG] ' + JSON.stringify(diagnostic));
+    } finally {
+      clearTimeout(timer);
+    }
   }
   return null;
 }
@@ -430,6 +459,7 @@ async function run() {
 
   const report = {
     version: VERSION,
+    auth_route_diagnostics: AUTH_ROUTE_DIAGNOSTICS,
     started_at: startedAt,
     finished_at: new Date().toISOString(),
     target: base + '#chat',
@@ -460,6 +490,7 @@ async function run() {
     status: report.verified ? 'verified' : 'failed',
     target: report.target,
     auth_verified: report.auth_verified,
+    auth_route_diagnostics: report.auth_route_diagnostics,
     ux_issues: report.ux ? (report.ux.unnamed_interactive.length + report.ux.offscreen_interactive.length + report.ux.unlabeled_inputs.length + Number(report.ux.horizontal_overflow)) : null,
     response_verified: Boolean(responseText),
     local_persistence_verified: Boolean(localPersistence?.length),
