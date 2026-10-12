@@ -423,6 +423,19 @@ async function testControl(page, control, config) {
     if (!locator) locator = semanticLocator();
     if (locator && !(await locator.count().catch(() => 0))) locator = null;
 
+    // If Chromium exposes the visible chat CTA without a stable accessible role/name
+    // after hydration, recover by its user-visible label within the active home surface.
+    // Keep the control a hard failure if this visible, scoped locator also cannot be found.
+    if (!locator && ariaChatCta) {
+      const textFallback = page.locator('.dashboardScreen button')
+        .filter({ hasText: /Hablar\\s+con\\s+ARIA/i })
+        .first();
+      if (
+        await textFallback.count().catch(() => 0) &&
+        await textFallback.isVisible().catch(() => false)
+      ) locator = textFallback;
+    }
+
     // Dynamic labels can change across a reload (for example a preference toggle
     // or notification permission button). As a final deterministic fallback, use
     // the current control index within the same active route surface.
