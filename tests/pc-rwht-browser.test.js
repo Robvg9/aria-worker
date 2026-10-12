@@ -41,7 +41,7 @@ const restoreRouteCall = runner.indexOf("await page.goto(url, { waitUntil: 'domc
 assert.ok(restoreRouteCall > meditationReplayLoop && restoreRouteCall < reopenDetailsCall, 'every control replay must restore the canonical route before reopening details and rediscovering controls');
 const freshDocumentReload = runner.indexOf("await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationReplayLoop);
 assert.ok(freshDocumentReload > restoreRouteCall && freshDocumentReload < reopenDetailsCall, 'force a full reload after restoring the canonical route to clear same-route modal/SPA state before replay');
-assert.ok(runner.includes('reloading the current URL would then test the wrong route'), 'route replay regression must document the cross-route drift fixed by canonical navigation');
+assert.ok(runner.includes('a prior safe click may navigate'), 'route replay regression must document navigation drift and restore the canonical route before replay');
 assert.ok(runner.includes('const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
