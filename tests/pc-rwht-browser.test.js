@@ -148,6 +148,11 @@ const webPushWorkflow = fs.readFileSync(
 assert.ok(webPushWorkflow.includes('if [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_B64}" ]]; then'), 'Web Push must prefer fresh credentials and use raw browser state only when a credential is missing');
 assert.ok(webPushWorkflow.includes('elif [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then'), 'Web Push must support compressed browser state only as a missing-credentials fallback');
 assert.ok(webPushWorkflow.includes('static storage-state refresh token'), 'Web Push must document why concurrent jobs cannot race on a shared rotating refresh token');
+assert.ok(webPushWorkflow.includes('group: aria-production-webpush-e2e-${{ github.sha }}'), 'Web Push must use a release-scoped concurrency group');
+assert.ok(webPushWorkflow.includes('cancel-in-progress: false'), 'Web Push must not be cancelled by a later SHA');
+assert.ok(webPushWorkflow.includes('Wait for Worker + PWA Fast Lane terminal PASS before Web Push E2E'));
+assert.ok(webPushWorkflow.includes('EXACT_SHA_PRODUCTION_DEPLOYS_PASS='));
+assert.ok(webPushWorkflow.includes('actions: read'), 'Web Push needs read-only Actions access to gate on both deploy runs');
 
 const wranglerToml = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
 assert.match(wranglerToml, /\[placement\]/);
@@ -188,6 +193,15 @@ assert.match(chatWorkflow, /RWHT_EMAIL/);
 assert.match(chatWorkflow, /RWHT_PASSWORD/);
 assert.match(chatWorkflow, /RWHT_STORAGE_STATE_B64/);
 assert.match(chatWorkflow, /Execute authenticated Chat E2E/);
+assert.ok(chatWorkflow.includes('group: aria-chat-rwht-${{ github.sha }}'), 'Chat must not share a concurrency group with Capabilities or Persistence');
+const capabilitiesWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'capabilities-rwht-authenticated.yml'), 'utf8');
+assert.ok(capabilitiesWorkflow.includes('group: aria-capabilities-rwht-${{ github.sha }}'), 'Capabilities needs its own release-scoped group');
+const persistenceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
+assert.ok(persistenceWorkflow.includes('group: aria-persistence-recovery-rwht-${{ github.sha }}'), 'Persistence needs its own release-scoped group');
+const steps78Workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
+assert.ok(steps78Workflow.includes('Wait for Worker + PWA Fast Lane terminal PASS before exact-SHA E2E'));
+assert.ok(steps78Workflow.includes('EXACT_SHA_PRODUCTION_DEPLOYS_PASS='));
+assert.ok(steps78Workflow.includes('actions: read'), 'Steps 7-8 must read deployment run states before browser execution');
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'App.tsx'), 'utf8');
 assert.match(appSource, /chatWindowRef/);
 assert.match(appSource, /data-testid='chat-window'/);
