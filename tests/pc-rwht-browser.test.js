@@ -137,7 +137,7 @@ const webPushWorkflow = fs.readFileSync(
 );
 assert.ok(webPushWorkflow.includes('if [[ -n "${RWHT_STORAGE_STATE_B64}" ]]; then'), 'Web Push must load configured raw browser state even when credentials are present');
 assert.ok(webPushWorkflow.includes('elif [[ -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then'), 'Web Push must support compressed browser state as fallback');
-assert.doesNotMatch(webPushWorkflow, /-z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}"/, 'Persisted browser state must not be gated on missing credentials');
+assert.ok(!webPushWorkflow.includes('-z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}"'), 'Persisted browser state must not be gated on missing credentials');
 
 const wranglerToml = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
 assert.match(wranglerToml, /\[placement\]/);
