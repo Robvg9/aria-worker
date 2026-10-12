@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.0.9';
+const VERSION = 'aria-chat-rwht-e2e-v1.1.0';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -48,8 +48,20 @@ async function signInViaAuthApi() {
 }
 
 async function login(page) {
-  if (STORAGE_STATE) return { mode: 'storage_state', status: 'loaded' };
-  if (!EMAIL || !PASSWORD) throw new Error('authenticated_session_source_missing');
+  // A pre-authenticated session is valid only if it actually exists in this browser context.
+  // When CI provides both fresh credentials and a saved state secret, the context does not
+  // load that state; never use the mere STORAGE_STATE path as a reason to skip login.
+  const existingSession = await readSession(page).catch(() => null);
+  if (existingSession?.accessToken && existingSession.userId) {
+    return {
+      mode: STORAGE_STATE && (!EMAIL || !PASSWORD) ? 'storage_state' : 'existing_session',
+      status: 'authenticated'
+    };
+  }
+  if (!EMAIL || !PASSWORD) {
+    if (STORAGE_STATE) throw new Error('storage_state_did_not_create_aria_session');
+    throw new Error('authenticated_session_source_missing');
+  }
 
   const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
   const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
