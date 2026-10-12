@@ -19,9 +19,9 @@ permissions:
   issues: write
 
 concurrency:
-  # Isolate each deployed SHA so a stalled old browser install cannot block a newer
-  # release certification. The same SHA still has only one active Projects + ARTIA run.
-  group: aria-projects-artia-rwht-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  # Serialize production PWA E2Es that load the same Supabase Edge Function.
+  # This prevents concurrent browser suites from causing boot/resource failures.
+  group: aria-authenticated-pwa-rwht
   cancel-in-progress: false
 
 jobs:
