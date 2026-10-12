@@ -97,10 +97,10 @@ jobs:
                          if r.get("name") == name and r.get("head_sha") == expected
                          and r.get("event") == "push" and r.get("head_branch") == "main"]
               if not matches:
-                  print(name + "\\tmissing\\t")
+                  print(name + "|missing|")
                   continue
               latest = max(matches, key=lambda r: (r.get("created_at", ""), r.get("run_attempt", 0)))
-              print(name + "\\t" + str(latest.get("status") or "missing") + "\\t" +
+              print(name + "|" + str(latest.get("status") or "missing") + "|" +
                     str(latest.get("conclusion") or ""))
           PY
             )"
