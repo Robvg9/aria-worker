@@ -83,6 +83,13 @@ assert.match(appApi, /aria_app_get_global_conversation/);
 assert.doesNotMatch(appApi, /schema\(["']aria_app["']\)\.from\(["']conversations["']\)/);
 
 console.log('PC BROWSER RWHT CONTRACT: PASS');
+const semanticLookup = runner.indexOf('const semantic = semanticLocator();');
+const cssHintLookup = runner.indexOf('if (!locator && !settingsDynamic && control.selector_hint)');
+assert.ok(semanticLookup >= 0 && cssHintLookup > semanticLookup, 'PC RWHT must prefer semantic locators before structural CSS hints');
+assert.match(runner,/locatorResolution = 'semantic-role-name-or-id'/);
+assert.match(runner,/locatorResolution = 'semantic-retry-after-stale-hint'/);
+assert.match(runner,/hintedName === label/);
+console.log('PC RWHT SEMANTIC LOCATOR STABILITY CONTRACT: PASS');
 
 assert.match(runner, /RWHT_REQUIRE_AUTH/);
 assert.match(runner, /RWHT_EXPECTED_AUTH_TEXT/);
