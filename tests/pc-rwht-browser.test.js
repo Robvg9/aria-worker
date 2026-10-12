@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.4.4/);
+assert.match(runner, /aria-pc-browser-rwht-v1.4.5/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -31,6 +31,7 @@ assert.ok(runner.includes('isSafeReadOnlyMeditationAction(original, routeHash, o
 assert.ok(runner.includes('async function reopenReadOnlyMeditationDetails(page, control, routeHash)'), 'PC RWHT must reopen read-only Meditation detail panels before replay');
 assert.ok(runner.includes("if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;"), 'detail reopening must be limited to Meditation buttons');
 assert.ok(runner.includes("String(control.selector_hint || '').includes('details')"), 'detail reopening must require an identified nested details row');
+assert.ok(runner.includes("const classes = String(control.class_name || '').split(/\\s+/);"), 'detail reopening must split multi-class rows on whitespace so row/button classes are recognized');
 assert.ok(runner.includes("page.locator('details').evaluateAll("), 'detail reopening must restore closed native details before rediscovery');
 const meditationReplayLoop = runner.indexOf('for (let index = 0; index < maxControls; index += 1) {');
 const reopenDetailsCall = runner.indexOf('await reopenReadOnlyMeditationDetails(page, original, routeHash);', meditationReplayLoop);
@@ -38,7 +39,9 @@ const rediscoverControls = runner.indexOf('let controlsNow = await discoverInter
 assert.ok(reopenDetailsCall > meditationReplayLoop && reopenDetailsCall < rediscoverControls, 'reopen Meditation details before rediscovering controls after reload');
 const restoreRouteCall = runner.indexOf("await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationReplayLoop);
 assert.ok(restoreRouteCall > meditationReplayLoop && restoreRouteCall < reopenDetailsCall, 'every control replay must restore the canonical route before reopening details and rediscovering controls');
-assert.ok(runner.includes('reloading the current URL would then test the wrong route'), 'route replay regression must document the cross-route drift fixed by canonical navigation');
+const freshDocumentReload = runner.indexOf("await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationReplayLoop);
+assert.ok(freshDocumentReload > restoreRouteCall && freshDocumentReload < reopenDetailsCall, 'force a full reload after restoring the canonical route to clear same-route modal/SPA state before replay');
+assert.ok(runner.includes('a prior safe click may navigate'), 'route replay regression must document navigation drift and restore the canonical route before replay');
 assert.ok(runner.includes('const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));

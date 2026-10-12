@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.4';
+const VERSION = 'aria-pc-browser-rwht-v1.4.5';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -341,7 +341,7 @@ function isSafeReadOnlyMeditationAction(control, routeHash, label) {
 
 async function reopenReadOnlyMeditationDetails(page, control, routeHash) {
   if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;
-  const classes = String(control.class_name || '').split(/\\s+/);
+  const classes = String(control.class_name || '').split(/\s+/);
   const isReadOnlyRow =
     (classes.includes('row') || classes.includes('queueMissionMain')) &&
     String(control.selector_hint || '').includes('details');
@@ -793,10 +793,12 @@ async function auditRoute(page, url, routeIndex, config) {
   for (let index = 0; index < maxControls; index += 1) {
     const original = initialControls[index];
     const originalLabel = safeLabel(original.name);
-    // Force the canonical URL for this route before each control. A prior
-    // safe click can navigate (e.g. Meditation's "Nueva misión" goes to #mission);
-    // reloading the current URL would then test the wrong route for all later rows.
+    // Restore the canonical URL first because a prior safe click may navigate
+    // (for example, Meditation's "Nueva misión" opens #mission). Then force a full
+    // document reload even when the URL already matches, clearing modal/SPA state
+    // that can otherwise intercept the next control after an apparently same-URL goto.
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
     await page.waitForTimeout(Math.min(config.settle_ms, 1500));
     await reopenReadOnlyMeditationDetails(page, original, routeHash);
 
