@@ -18,18 +18,25 @@ runs_url="https://api.github.com/repos/${repo}/actions/runs?head_sha=${expected_
 worker_state="missing|"
 pwa_state="missing|"
 
+runs_file="$(mktemp)"
+trap 'rm -f "${runs_file}"' EXIT
+
 for attempt in $(seq 1 120); do
   runs_json="$(curl --fail --silent --show-error --max-time 20 \
     -H "Authorization: Bearer ${token}" \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
     "${runs_url}")"
+  # Keep the large Actions API response on disk rather than in an environment
+  # variable: recent runs exceed ARG_MAX when passed through RUNS_JSON=...
+  printf '%s' "${runs_json}" > "${runs_file}"
 
-  deployment_states="$(RUNS_JSON="${runs_json}" EXPECTED_SHA="${expected_sha}" python - <<'PY'
+  deployment_states="$(EXPECTED_SHA="${expected_sha}" RUNS_FILE="${runs_file}" python - <<'PY'
 import json
 import os
 
-data = json.loads(os.environ["RUNS_JSON"])
+with open(os.environ["RUNS_FILE"], encoding="utf-8") as handle:
+    data = json.load(handle)
 expected = os.environ["EXPECTED_SHA"]
 required = ("Deploy ARIA Cloudflare Worker", "Deploy ARIA PWA Fast Lane")
 optional = ("Deploy ARIA APP API v3",)
