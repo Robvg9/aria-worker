@@ -344,7 +344,6 @@ async function run() {
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.chatScreen .chatWindow', { state: 'visible', timeout: 60000 });
-    const semanticResponseText = responseText.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     await page.waitForFunction(
       ({ markerValue, expectedResponse }) => {
         const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
