@@ -33,6 +33,17 @@ assert(api.includes('path.endsWith("/meditation/notifications")') || api.include
 assert(api.includes('path.endsWith("/meditation/notifications/read")') || api.includes("path.endsWith('/meditation/notifications/read')"), 'PWA notification read route missing');
 assert(api.includes('meditationNotificationsForUser'), 'user-scoped notification reader missing');
 assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped notification ack missing');
+const ownershipLookup = api.slice(api.indexOf('async function meditationOwnedMissionIds'), api.indexOf('async function meditationNotificationsForUser'));
+assert(ownershipLookup.includes('.select("mission_id")'), 'notification owner lookup must project only mission IDs');
+assert(ownershipLookup.includes('.or(filters.join(","))'), 'notification owner lookup must filter ownership inside Postgres');
+assert(ownershipLookup.includes('metadata->>user_id.eq.${userId}'), 'notification lookup must preserve user_id ownership');
+assert(ownershipLookup.includes('metadata->>owner_user_id.eq.${userId}'), 'notification lookup must preserve owner_user_id ownership');
+assert(!ownershipLookup.includes('.select("mission_id,metadata")'), 'notification lookup must not download metadata for all recent missions');
+const notificationRouteStart = api.indexOf('if (req.method === "GET" && path.endsWith("/meditation/notifications"))');
+const notificationRouteEnd = api.indexOf('if (req.method === "GET" && path.endsWith("/meditation/push/status"))', notificationRouteStart);
+const notificationRoute = api.slice(notificationRouteStart, notificationRouteEnd);
+assert(notificationRoute.includes('meditation_notifications_get_failed'), 'notification GET route must log controlled failures');
+assert(notificationRoute.includes('meditation_notifications_unavailable'), 'notification GET route must return a controlled error on failure');
 
 assert(app.includes("from './notifications'"), 'PWA notification helper import missing');
 assert(app.includes('PwaNotificationCenter'), 'PWA notification center missing');

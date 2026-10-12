@@ -1154,13 +1154,29 @@ async function meditationOwnedMissionIds(userId:string){
   const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("owner_user_id,session_id").eq("controller_id","primary").maybeSingle();
   if(ce)throw new Error(ce.message);
   if(controller?.owner_user_id&&controller.owner_user_id!==userId)return[];
-  const {data:all,error:me}=await sb.schema("aria_internal").from("mission_state").select("mission_id,metadata").order("updated_at",{ascending:false}).limit(5000);
-  if(me)throw new Error(me.message);
+
+  // Filter ownership in Postgres rather than transferring the newest 1,000 global
+  // mission rows (PostgREST caps the response at its configured max-row limit).
+  // userId comes from the authenticated Supabase user; only allow a UUID in the
+  // raw .or() filter, and skip a session value that cannot be safely represented.
+  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(userId)){
+    throw new Error("invalid_authenticated_user_id");
+  }
   const sessionId=controller?.session_id?String(controller.session_id):"";
-  return (all??[]).filter((m:any)=>{
-    const md=m?.metadata&&typeof m.metadata==="object"?m.metadata:{};
-    return md.user_id===userId||md.owner_user_id===userId||(sessionId&&md.meditation_session_id===sessionId);
-  }).map((m:any)=>String(m.mission_id)).filter(Boolean);
+  const filters=[
+    `metadata->>user_id.eq.${userId}`,
+    `metadata->>owner_user_id.eq.${userId}`
+  ];
+  if(sessionId&&/^[A-Za-z0-9._:-]{1,128}$/.test(sessionId)){
+    filters.push(`metadata->>meditation_session_id.eq.${sessionId}`);
+  }
+  const {data:owned,error:me}=await sb.schema("aria_internal").from("mission_state")
+    .select("mission_id")
+    .or(filters.join(","))
+    .order("updated_at",{ascending:false})
+    .limit(1000);
+  if(me)throw new Error(me.message);
+  return [...new Set((owned??[]).map((m:any)=>String(m.mission_id)).filter(Boolean))].slice(0,1000);
 }
 async function meditationNotificationsForUser(userId:string,unreadOnly=false,limit=50){
   const missionIds=await meditationOwnedMissionIds(userId);
@@ -1998,7 +2014,18 @@ Deno.serve(async (req) => {
         return json({error:String((e as any)?.message||e),trace_id:trace},status);
       }
     }
-    if (req.method === "GET" && path.endsWith("/meditation/notifications")) { const url = new URL(req.url); const unreadOnly = url.searchParams.get("unread_only") === "true"; const limit = Number(url.searchParams.get("limit") || 50); return json({ ok: true, ...(await meditationNotificationsForUser(user.id, unreadOnly, limit)), trace_id: trace }); }
+    if (req.method === "GET" && path.endsWith("/meditation/notifications")) {
+      const url = new URL(req.url);
+      const unreadOnly = url.searchParams.get("unread_only") === "true";
+      const limit = Number(url.searchParams.get("limit") || 50);
+      try {
+        return json({ ok: true, ...(await meditationNotificationsForUser(user.id, unreadOnly, limit)), trace_id: trace });
+      } catch (e) {
+        const message = String((e as any)?.message || e).slice(0,300);
+        console.error("meditation_notifications_get_failed", {trace_id:trace,error:message});
+        return json({error:"meditation_notifications_unavailable",trace_id:trace},502);
+      }
+    }
     if (req.method === "GET" && path.endsWith("/meditation/push/status")) {
       try { return json({ ok:true, ...(await meditationPushStatusForUser(user.id)), trace_id:trace }); }
       catch(e) { return json({ error:String((e as any)?.message||e), trace_id:trace },502); }
