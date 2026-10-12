@@ -28,6 +28,8 @@ assert.match(runner, /discoverInteractive/);
 assert.match(runner, /checkUx/);
 assert.match(runner, /horizontal_overflow/);
 assert.match(runner, /unnamed_interactive/);
+assert.match(runner, /const ariaChatCta = control\.role === 'button' && \/Hablar con ARIA\/i\.test\(label\)/);
+assert.match(runner, /getByRole\('button', \{ name: \/Hablar con ARIA\/i \}\)/);
 assert.match(runner, /images_missing_alt/);
 assert.match(runner, /unlabeled_inputs/);
 assert.match(runner, /controls_verified/);
