@@ -7,3 +7,5 @@ It is not imported by the app and does not change runtime behavior. Any code cha
 Follow-up: catalog version/total checks in authenticated RWHT workflows must derive expected values from `pwa/src/testCatalog.ts`. Do not pin a historic version/count in a workflow; the exact-SHA LIVE HTML must match the catalog at the SHA being tested.
 
 Production smoke hardening: deployment asset checks retry transient edge 404s for the manifest, JavaScript and CSS, but still fail unless each resource is actually returned. The intent is to absorb propagation delay, not loosen HTTP/content assertions.
+
+2026-10-12 PC RWHT evidence repair: reopen native Meditation `details` panels before rediscovering safe read-only mission/history rows after reload; keep full exact-SHA and action-counter verification mandatory.
