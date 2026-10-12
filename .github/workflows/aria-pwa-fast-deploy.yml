@@ -133,19 +133,30 @@ jobs:
         run: |
           set -euo pipefail
           base="https://aria.robvg9.workers.dev/pwa/"
-          worker_url="${base}sw-${GITHUB_SHA}.js?probe=${GITHUB_SHA}-sw-syntax"
           worker_file="${RUNNER_TEMP}/aria-sw-${GITHUB_SHA}.js"
           headers_file="${RUNNER_TEMP}/aria-sw-${GITHUB_SHA}.headers"
-          curl --fail --silent --show-error --retry 2 --retry-delay 1 \
-            -D "${headers_file}" -o "${worker_file}" "${worker_url}"
-          grep -qiE '^content-type: *application/javascript' "${headers_file}"
-          test -s "${worker_file}"
-          grep -q "aria-pwa-${GITHUB_SHA}" "${worker_file}"
-          grep -q "self.addEventListener('push'" "${worker_file}"
-          grep -q "aria-push-receipts-v1" "${worker_file}"
-          if grep -qiE '<!doctype html|<html([ >])' "${worker_file}"; then
-            echo "::error::Versioned Service Worker URL returned HTML instead of JavaScript"
+          worker_ok=false
+          for attempt in $(seq 1 15); do
+            worker_url="${base}sw-${GITHUB_SHA}.js?probe=${GITHUB_SHA}-sw-${attempt}"
+            rm -f "${worker_file}" "${headers_file}"
+            if curl --fail --silent --show-error --max-time 10 \
+              -D "${headers_file}" -o "${worker_file}" "${worker_url}" 2>/dev/null; then
+              if grep -qiE '^content-type: *application/javascript' "${headers_file}" \
+                && test -s "${worker_file}" \
+                && grep -q "aria-pwa-${GITHUB_SHA}" "${worker_file}" \
+                && grep -q "self.addEventListener('push'" "${worker_file}" \
+                && grep -q "aria-push-receipts-v1" "${worker_file}" \
+                && ! grep -qiE '<!doctype html|<html([ >])' "${worker_file}" \
+                && node --check "${worker_file}"; then
+                worker_ok=true
+                break
+              fi
+            fi
+            echo "PWA_SW_PROPAGATION_RETRY attempt=${attempt}/15 build=${GITHUB_SHA}"
+            test "${attempt}" -lt 15 && sleep 3
+          done
+          if [[ "${worker_ok}" != true ]]; then
+            echo "::error::Versioned Service Worker did not become valid JavaScript for build ${GITHUB_SHA} after 15 fresh requests"
             exit 1
           fi
-          node --check "${worker_file}"
           echo "PWA_LIVE_SERVICE_WORKER_SYNTAX_OK build=${GITHUB_SHA} url=${worker_url}"
