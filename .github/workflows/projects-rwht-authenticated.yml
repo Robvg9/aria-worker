@@ -6,10 +6,9 @@ on:
   workflow_run:
     # Cloudflare's merged-PR release event reports the source branch name, not main.
     # The job below accepts only successful push-to-main or merged-PR deploys and verifies the exact LIVE SHA.
+    # Chat RWHT itself waits for both exact-SHA deployments; running Projects only
+    # after that authenticated E2E avoids duplicate concurrent Supabase/browser load.
     workflows:
-      - Deploy ARIA Cloudflare Worker
-      - Deploy ARIA PWA Fast Lane
-      - Deploy ARIA APP API v3
       - ARIA Chat Browser RWHT Authenticated
     types:
       - completed
