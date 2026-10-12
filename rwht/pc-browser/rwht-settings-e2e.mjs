@@ -168,7 +168,7 @@ function panel(page, text) {
   page.on('console', msg => {
     if (msg.type() !== 'error') return;
     const message = msg.text();
-    if (/^Failed to load resource: the server responded with a status of 400 \\(\\)$/.test(message)) {
+    if (/^Failed to load resource: the server responded with a status of 400 \(\)$/.test(message)) {
       // Chromium often reports the document URL here, not the failed request URL.
       // Defer classification until matching request/response evidence is available.
       const location = msg.location();
