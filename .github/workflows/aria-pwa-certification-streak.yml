@@ -1,0 +1,278 @@
+name: ARIA PWA Exact-SHA Certification Streak
+
+# A successful main-branch PC Browser RWHT starts one guarded final certification.
+# It preserves this SHA and verifies that every pass has its own artifact/comment.
+on:
+  workflow_run:
+    workflows:
+      - ARIA PC Browser RWHT
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Optional SHA; must still be the current main SHA."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+concurrency:
+  group: aria-pwa-certification-streak-${{ github.event.workflow_run.head_sha || inputs.target_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  certify-streak:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.event == 'push' &&
+           github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha || github.sha }}
+      CERT_ISSUE: "1011"
+    steps:
+      - name: Verify gates and produce three consecutive exact-SHA passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const repo = process.env.GITHUB_REPOSITORY;
+          const targetSha = String(process.env.TARGET_SHA || '').trim();
+          const token = process.env.GH_TOKEN;
+          const issueNumber = process.env.CERT_ISSUE || '1011';
+          const apiBase = 'https://api.github.com/repos/' + repo;
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+          const usedIds = new Set();
+          const evidenceRuns = { steps: [], projects: [] };
+
+          if (!/^[0-9a-f]{40}$/i.test(targetSha)) throw new Error('INVALID_TARGET_SHA');
+          if (!token || !repo || !repo.includes('/')) throw new Error('GITHUB_AUTH_OR_REPOSITORY_UNAVAILABLE');
+
+          async function api(path, init = {}) {
+            const response = await fetch(apiBase + path, {
+              ...init,
+              headers: {
+                accept: 'application/vnd.github+json',
+                authorization: 'Bearer ' + token,
+                'x-github-api-version': '2022-11-28',
+                ...(init.body ? { 'content-type': 'application/json' } : {}),
+                ...(init.headers || {})
+              }
+            });
+            const raw = await response.text();
+            let body = null;
+            try { body = raw ? JSON.parse(raw) : null; } catch {}
+            if (!response.ok) throw new Error('GITHUB_API_' + response.status + ' ' + path + ': ' + String(raw).slice(0, 1000));
+            return { status: response.status, body };
+          }
+
+          async function assertMainSha(stage) {
+            const { body } = await api('/git/ref/heads/main');
+            const actual = String(body?.object?.sha || '');
+            if (actual !== targetSha) throw new Error('MAIN_SHA_CHANGED_' + stage + '_expected_' + targetSha + '_actual_' + actual);
+          }
+
+          async function listRuns() {
+            const { body } = await api('/actions/runs?head_sha=' + targetSha + '&per_page=100');
+            return Array.isArray(body?.workflow_runs) ? body.workflow_runs : [];
+          }
+
+          function newestRun(runs, name, allowedEvents = null) {
+            return runs
+              .filter(run => run.head_sha === targetSha &&
+                run.name === name &&
+                run.conclusion !== 'skipped' &&
+                (!allowedEvents || allowedEvents.includes(run.event)))
+              .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
+          }
+
+          async function waitForRunId(runId, name, label) {
+            const deadline = Date.now() + 75 * 60 * 1000;
+            while (Date.now() < deadline) {
+              await assertMainSha('waiting_' + label);
+              const { body: run } = await api('/actions/runs/' + runId);
+              if (run.head_sha !== targetSha) throw new Error('RUN_SHA_MISMATCH_' + label + '_actual_' + run.head_sha);
+              if (run.name !== name) throw new Error('RUN_NAME_MISMATCH_' + label + '_actual_' + run.name);
+              if (run.status === 'completed') {
+                if (run.conclusion !== 'success') throw new Error('GATE_NOT_PASS_' + label + '_conclusion_' + run.conclusion + '_url_' + run.html_url);
+                usedIds.add(Number(run.id));
+                console.log('PASS ' + label + ' run=' + run.html_url + ' sha=' + targetSha);
+                return run;
+              }
+              await sleep(15000);
+            }
+            throw new Error('RUN_TIMEOUT_' + label + '_run_' + runId);
+          }
+
+          async function dispatchAndWait(file, name, label) {
+            await assertMainSha('before_dispatch_' + label);
+            const dispatchAt = Date.now();
+            const { status, body } = await api('/actions/workflows/' + file + '/dispatches', {
+              method: 'POST',
+              body: JSON.stringify({ ref: 'main' })
+            });
+            console.log('DISPATCH ' + label + ' workflow=' + file + ' http=' + status + ' sha=' + targetSha);
+            let runId = Number(body?.workflow_run_id || body?.run_id || 0) || null;
+            if (!runId && body?.run_url) {
+              const match = String(body.run_url).match(/\/actions\/runs\/(\d+)/);
+              if (match) runId = Number(match[1]);
+            }
+            const discoveryDeadline = Date.now() + 180000;
+            while (!runId && Date.now() < discoveryDeadline) {
+              await assertMainSha('discover_' + label);
+              const runs = await listRuns();
+              const match = runs
+                .filter(run => run.head_sha === targetSha &&
+                  run.name === name &&
+                  run.event === 'workflow_dispatch' &&
+                  !usedIds.has(Number(run.id)) &&
+                  Date.parse(run.created_at || 0) >= dispatchAt - 15000)
+                .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+              if (match) runId = Number(match.id);
+              else await sleep(5000);
+            }
+            if (!runId) throw new Error('DISPATCH_RUN_NOT_DISCOVERED_' + label + '_sha_' + targetSha);
+            return waitForRunId(runId, name, label);
+          }
+
+          async function waitForGate(name, file, label, options = {}) {
+            const deadline = Date.now() + 75 * 60 * 1000;
+            const missingDispatchAfter = 90000;
+            const began = Date.now();
+            while (Date.now() < deadline) {
+              await assertMainSha('base_' + label);
+              const runs = await listRuns();
+              const run = newestRun(runs, name, options.allowedEvents || null);
+              if (run) {
+                if (run.status === 'completed') {
+                  if (run.conclusion !== 'success') throw new Error('BASE_GATE_NOT_PASS_' + label + '_conclusion_' + run.conclusion + '_url_' + run.html_url);
+                  console.log('BASE PASS ' + label + ' run=' + run.html_url);
+                  return run;
+                }
+                await sleep(15000);
+                continue;
+              }
+              const skippedSeen = runs.some(item => item.head_sha === targetSha && item.name === name && item.conclusion === 'skipped');
+              if (options.dispatchIfMissing && Date.now() - began >= missingDispatchAfter) {
+                console.log('BASE GATE MISSING; DISPATCH ' + label + ' skippedObserved=' + skippedSeen);
+                return dispatchAndWait(file, name, 'base-' + label);
+              }
+              if (!options.dispatchIfMissing && Date.now() - began >= missingDispatchAfter) {
+                throw new Error('BASE_GATE_RUN_MISSING_' + label + '_sha_' + targetSha + '_skippedObserved_' + skippedSeen);
+              }
+              await sleep(10000);
+            }
+            throw new Error('BASE_GATE_TIMEOUT_' + label);
+          }
+
+          async function verifyEvidence(run, artifactName, commentMarker, label) {
+            const deadline = Date.now() + 180000;
+            while (Date.now() < deadline) {
+              await assertMainSha('evidence_' + label);
+              const { body: artifactList } = await api('/actions/runs/' + run.id + '/artifacts?per_page=100');
+              const artifact = (artifactList?.artifacts || []).find(item => item.name === artifactName && item.expired === false);
+              let matchingComment = null;
+              for (let page = 1; page <= 5 && !matchingComment; page++) {
+                const { body: comments } = await api('/issues/' + issueNumber + '/comments?per_page=100&page=' + page);
+                const rows = Array.isArray(comments) ? comments : [];
+                matchingComment = rows.find(item => {
+                  const body = String(item.body || '');
+                  return body.includes(run.html_url) && body.includes(targetSha) && body.includes(commentMarker);
+                }) || null;
+                if (rows.length < 100) break;
+              }
+              if (artifact && matchingComment) {
+                return { id: artifact.id, name: artifact.name, comment_url: matchingComment.html_url || null };
+              }
+              await sleep(5000);
+            }
+            throw new Error('PERSISTED_ARTIFACT_OR_PASS_COMMENT_MISSING_' + label + '_run_' + run.id);
+          }
+
+          async function postIssueComment(markdown) {
+            await api('/issues/' + issueNumber + '/comments', { method: 'POST', body: JSON.stringify({ body: markdown }) });
+          }
+
+          async function main() {
+            await assertMainSha('startup');
+            console.log('CERTIFICATION_STREAK_BEGIN sha=' + targetSha);
+
+            const gates = [
+              { name: 'Deploy ARIA Cloudflare Worker', file: 'aria-cloudflare-deploy.yml', label: 'worker-deploy', dispatchIfMissing: false },
+              { name: 'Deploy ARIA PWA Fast Lane', file: 'aria-pwa-fast-deploy.yml', label: 'pwa-fast-lane', dispatchIfMissing: false },
+              { name: 'ARIA Delivery Deterministic Gate V1', file: 'aria-delivery-deterministic-gate.yml', label: 'delivery-gate', dispatchIfMissing: false },
+              { name: 'ARIA Responsive UX Browser RWHT', file: 'responsive-ux-rwht-authenticated.yml', label: 'responsive-ux', dispatchIfMissing: true },
+              { name: 'ARIA Settings Browser RWHT Authenticated', file: 'settings-rwht-authenticated.yml', label: 'settings-rwht', dispatchIfMissing: true },
+              { name: 'ARIA Chat Browser RWHT Authenticated', file: 'chat-rwht-authenticated.yml', label: 'chat-rwht', dispatchIfMissing: true },
+              { name: 'ARIA Meditation IA — Production Web Push E2E', file: 'aria-meditation-webpush-production-e2e.yml', label: 'web-push', dispatchIfMissing: true },
+              { name: 'ARIA Persistence + Recovery Browser RWHT Authenticated', file: 'persistence-recovery-rwht-authenticated.yml', label: 'persistence-recovery', dispatchIfMissing: true },
+              { name: 'ARIA Capabilities Browser RWHT Authenticated', file: 'capabilities-rwht-authenticated.yml', label: 'capabilities', dispatchIfMissing: true },
+              { name: 'ARIA ABSORB Contract and LIVE E2E', file: 'aria-absorb.yml', label: 'absorb', dispatchIfMissing: true },
+              { name: 'ARIA npm test', file: 'aria-npm-test.yml', label: 'npm-test-and-omniroute', dispatchIfMissing: false },
+              { name: 'ARIA PC Browser RWHT', file: 'pc-rwht.yml', label: 'pc-browser', dispatchIfMissing: true },
+              { name: 'ARIA PWA Steps 7-8 LIVE Certification', file: 'aria-pwa-steps-7-8-live.yml', label: 'steps-7-8-initial', dispatchIfMissing: true },
+              { name: 'ARIA Projects Browser RWHT Authenticated', file: 'projects-rwht-authenticated.yml', label: 'projects-artia-initial', allowedEvents: ['workflow_run', 'workflow_dispatch'], dispatchIfMissing: true }
+            ];
+            const initial = {};
+            for (const gate of gates) {
+              initial[gate.label] = await waitForGate(gate.name, gate.file, gate.label, gate);
+            }
+
+            const firstStepsEvidence = await verifyEvidence(initial['steps-7-8-initial'], 'aria-pwa-steps-7-8-evidence', 'Steps 7-8 LIVE Certification — PASS', 'steps-7-8-initial');
+            const firstProjectsEvidence = await verifyEvidence(initial['projects-artia-initial'], 'aria-projects-rwht-evidence', 'Projects + ARTIA RWHT — PASS', 'projects-artia-initial');
+            evidenceRuns.steps.push({ run: initial['steps-7-8-initial'], evidence: firstStepsEvidence });
+            evidenceRuns.projects.push({ run: initial['projects-artia-initial'], evidence: firstProjectsEvidence });
+
+            for (let i = 1; i <= 2; i++) {
+              const run = await dispatchAndWait('aria-pwa-steps-7-8-live.yml', 'ARIA PWA Steps 7-8 LIVE Certification', 'steps-7-8-followup-' + i);
+              const evidence = await verifyEvidence(run, 'aria-pwa-steps-7-8-evidence', 'Steps 7-8 LIVE Certification — PASS', 'steps-7-8-followup-' + i);
+              evidenceRuns.steps.push({ run, evidence });
+            }
+
+            for (let i = 1; i <= 2; i++) {
+              const run = await dispatchAndWait('projects-rwht-authenticated.yml', 'ARIA Projects Browser RWHT Authenticated', 'projects-artia-followup-' + i);
+              const evidence = await verifyEvidence(run, 'aria-projects-rwht-evidence', 'Projects + ARTIA RWHT — PASS', 'projects-artia-followup-' + i);
+              evidenceRuns.projects.push({ run, evidence });
+            }
+
+            await assertMainSha('final');
+            const lines = [
+              '## /ARIA-PWA — Exact-SHA certification streak: PASS',
+              '',
+              'Production/main SHA: `' + targetSha + '`',
+              '',
+              '### Steps 7–8 — three consecutive PASS runs',
+              ...evidenceRuns.steps.map((item, index) => (index + 1) + '. [Run ' + item.run.id + '](' + item.run.html_url + ') — artifact ' + item.evidence.id + ' (' + item.evidence.name + ')'),
+              '',
+              '### Projects + ARTIA — three consecutive PASS runs',
+              ...evidenceRuns.projects.map((item, index) => (index + 1) + '. [Run ' + item.run.id + '](' + item.run.html_url + ') — artifact ' + item.evidence.id + ' (' + item.evidence.name + ')'),
+              '',
+              'Every run was verified for the exact SHA, terminal SUCCESS, a non-expired artifact, and a matching PASS comment. The workflow stops after any failed/skipped gate and aborts if main moves to a different SHA.'
+            ];
+            await postIssueComment(lines.join('\n'));
+            console.log('FINAL_CERTIFICATION_STREAK_PASS sha=' + targetSha);
+            console.log(lines.join('\n'));
+          }
+
+          main().catch(async error => {
+            const reason = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 1800);
+            console.error('FINAL_CERTIFICATION_STREAK_BLOCKED sha=' + targetSha + ' reason=' + reason);
+            await postIssueComment([
+              '## /ARIA-PWA — Final certification streak BLOCKED',
+              '',
+              'Target SHA: `' + targetSha + '`',
+              '',
+              'Reason: `' + reason + '`',
+              '',
+              'No 3/3 streak is declared unless each run and persisted artifact/comment is verified.'
+            ].join('\n')).catch(() => {});
+            process.exitCode = 1;
+          });
+          NODE
