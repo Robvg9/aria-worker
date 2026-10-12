@@ -7,7 +7,7 @@ on:
     # Cloudflare's merged-PR release event reports the source branch name, not main.
     # The job below accepts only successful push-to-main or merged-PR deploys and verifies the exact LIVE SHA.
     workflows:
-      - ARIA Chat Browser RWHT Authenticated
+      - ARIA PC Browser RWHT
     types:
       - completed
   workflow_dispatch:
