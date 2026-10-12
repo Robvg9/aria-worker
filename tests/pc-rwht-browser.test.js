@@ -156,7 +156,7 @@ assert.ok(webPushWorkflow.includes('elif [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_P
 assert.ok(webPushWorkflow.includes('static storage-state refresh token'), 'Web Push must document why concurrent jobs cannot race on a shared rotating refresh token');
 assert.ok(webPushWorkflow.includes('group: aria-production-webpush-e2e-${{ github.sha }}'), 'Web Push must use a release-scoped concurrency group');
 assert.ok(webPushWorkflow.includes('cancel-in-progress: false'), 'Web Push must not be cancelled by a later SHA');
-assert.ok(webPushWorkflow.includes('Wait for Worker + PWA Fast Lane terminal PASS before Web Push E2E'));
+assert.ok(webPushWorkflow.includes('Wait for both exact-SHA production deploys'));
 assert.ok(webPushWorkflow.includes('EXACT_SHA_PRODUCTION_DEPLOYS_PASS='));
 assert.ok(webPushWorkflow.includes('actions: read'), 'Web Push needs read-only Actions access to gate on both deploy runs');
 
