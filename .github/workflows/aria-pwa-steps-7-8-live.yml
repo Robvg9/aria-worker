@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   issues: write
 
 concurrency:
@@ -69,10 +70,61 @@ jobs:
             echo "RWHT_STORAGE_STATE=$RUNNER_TEMP/aria-rwht-auth-state.json" >> "$GITHUB_ENV"
           fi
 
-      - name: Wait for Auth endpoints and exact-SHA deployment
+      - name: Wait for Worker + PWA Fast Lane terminal PASS before exact-SHA E2E
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # /pwa/version.json can flip to the new SHA during the Worker deployment,
+          # before the separate PWA Fast Lane has completed. Wait for both deploy jobs.
+          runs_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RWHT_CERT_SHA}&per_page=100"
+          deployment_states=""
+          worker_state="missing|"
+          pwa_state="missing|"
+          for attempt in $(seq 1 120); do
+            runs_json="$(curl --fail --silent --show-error --max-time 20 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${runs_url}")"
+            deployment_states="$(RUNS_JSON="${runs_json}" EXPECTED_SHA="${RWHT_CERT_SHA}" python - <<'PY'
+          import json, os
+          data = json.loads(os.environ["RUNS_JSON"])
+          expected = os.environ["EXPECTED_SHA"]
+          required = ("Deploy ARIA Cloudflare Worker", "Deploy ARIA PWA Fast Lane")
+          for name in required:
+              matches = [r for r in data.get("workflow_runs", [])
+                         if r.get("name") == name and r.get("head_sha") == expected
+                         and r.get("event") == "push" and r.get("head_branch") == "main"]
+              if not matches:
+                  print(name + "\\tmissing\\t")
+                  continue
+              latest = max(matches, key=lambda r: (r.get("created_at", ""), r.get("run_attempt", 0)))
+              print(name + "\\t" + str(latest.get("status") or "missing") + "\\t" +
+                    str(latest.get("conclusion") or ""))
+          PY
+            )"
+            worker_state="$(awk -F'\\t' '$1=="Deploy ARIA Cloudflare Worker"{print $2 "|" $3}' <<<"${deployment_states}")"
+            pwa_state="$(awk -F'\\t' '$1=="Deploy ARIA PWA Fast Lane"{print $2 "|" $3}' <<<"${deployment_states}")"
+            echo "EXACT_SHA_DEPLOY_STATES worker=${worker_state} pwa=${pwa_state} attempt=${attempt}"
+            if [[ "${worker_state}" == "completed|success" && "${pwa_state}" == "completed|success" ]]; then
+              echo "EXACT_SHA_PRODUCTION_DEPLOYS_PASS=${RWHT_CERT_SHA}"
+              break
+            fi
+            if [[ "${worker_state}" == completed\\|* && "${worker_state}" != "completed|success" ]]; then
+              echo "::error::Deploy ARIA Cloudflare Worker ended non-success on ${RWHT_CERT_SHA}: ${worker_state}"
+              exit 1
+            fi
+            if [[ "${pwa_state}" == completed\\|* && "${pwa_state}" != "completed|success" ]]; then
+              echo "::error::Deploy ARIA PWA Fast Lane ended non-success on ${RWHT_CERT_SHA}: ${pwa_state}"
+              exit 1
+            fi
+            if [[ "${attempt}" -eq 120 ]]; then
+              echo "::error::Timed out waiting for both exact-SHA production deploys (${RWHT_CERT_SHA})"
+              exit 1
+            fi
+            sleep 5
+          done
           key='sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
           base="${RWHT_URL%/}"
           version=""
