@@ -15,6 +15,10 @@ token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 test -n "$token"
 deadline=$((SECONDS + 720))
 names=("Deploy ARIA Cloudflare Worker" "Deploy ARIA PWA Fast Lane")
+if [[ -n "${LIVE_GATE_PREDECESSORS:-}" ]]; then
+  IFS=';' read -r -a predecessors <<< "$LIVE_GATE_PREDECESSORS"
+  names+=("${predecessors[@]}")
+fi
 declare -A done
 for name in "${names[@]}"; do done["$name"]=false; done
 
