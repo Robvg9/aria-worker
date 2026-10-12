@@ -5,6 +5,7 @@ const read=(...parts)=>fs.readFileSync(path.join(__dirname,'..',...parts),'utf8'
 const appApi=read('supabase','functions','aria-app-api-v3','index.ts');
 const meditationOverviewMigration=read('supabase','migrations','20261009034000_aria_meditation_overview_counts_v1.sql');
 const pwa=read('pwa','src','App.tsx');
+const chatE2e=read('rwht','pc-browser','rwht-chat-e2e.mjs');
 const planner=read('supabase','functions','aria-planner-v11','index.ts');
 const plannerConfig=read('supabase','functions','aria-planner-v11','deno.json');
 const memory=read('supabase','functions','aria-memory-v2','index.ts');
@@ -19,6 +20,20 @@ assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verificati
 if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
 assertContains(appApi,'path.endsWith("/conversation") && !path.includes("/projects/")','generic conversation route must not catch project conversation requests');
+assertContains(appApi,'const requestedConversationId = new URL(req.url).searchParams.get("conversation_id")?.trim() || null;','chat API must support reading an explicit active conversation ID');
+assertContains(appApi,'if (requestedConversationId) {','explicit conversation reads must bypass the global latest-conversation lookup');
+assertContains(appApi,'p_conversation_id: requestedConversationId','explicit conversation reads must use the supplied conversation ID');
+assertContains(appApi,'conversation_id_invalid','malformed explicit conversation IDs must fail closed');
+assertContains(appApi,'conversation_not_found','explicit reads must not fall back to a different conversation if the requested ID is missing');
+assertContains(pwa,"const conversationReadPath = localHistory?.conversationId",'chat reload must prefer its locally persisted active conversation ID');
+assertContains(pwa,"'/conversation?conversation_id=' + encodeURIComponent(localHistory.conversationId)",'chat reload must use the exact active conversation ID');
+assertContains(pwa,"const activeConversationReadPath = '/conversation?conversation_id=' + encodeURIComponent(activeConversationId)",'asynchronous chat polling must bind to the active conversation ID');
+assertContains(pwa,'api(activeConversationReadPath, session.accessToken)','asynchronous chat polling must not query the global latest conversation');
+assertContains(chatE2e,'async function readServerConversation(page, accessToken, conversationId)','Chat RWHT server readback must accept an explicit conversation ID');
+assertContains(chatE2e,'const testConversationId = localPersistence.find','Chat RWHT must read back the ID that stored its test marker locally');
+assertContains(chatE2e,'chat_server_conversation_id_mismatch','Chat RWHT must fail if the server returns a different conversation ID');
+assertContains(chatE2e,'chat_server_assistant_response_missing','Chat RWHT must require an assistant response after its current marker in server persistence');
+assertContains(chatE2e,'nodes.slice(userIndex + 1).some((node) =>','Chat RWHT must correlate the visible answer to the marker rather than any stale assistant bubble');
 assertContains(appApi,'function looksLikeMissionRequest(input: string)','chat mission intent classifier missing');
 assertContains(appApi,'(?:haz|has)\\s+que\\b/i.test(value)','chat must classify direct "haz que..." and common "has que..." commands as missions');
 assertContains(appApi,'if (explicitTask) return true;','explicit "quiero que..." / "necesito que..." phrasing must bypass finite-verb matching');
