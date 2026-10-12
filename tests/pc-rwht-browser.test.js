@@ -147,6 +147,8 @@ assert.match(deployGate, /Deploy ARIA PWA Fast Lane/);
 assert.match(deployGate, /Deploy ARIA APP API v3/);
 assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS/);
 assert.match(deployGate, /head_sha/);
+assert.match(deployGate, /json\\.load\\(sys\\.stdin\\)/, 'The exact-SHA gate must stream Actions JSON via stdin instead of a large environment variable');
+assert.doesNotMatch(deployGate, /RUNS_JSON/, 'The exact-SHA gate must not put the full Actions response into an environment variable');
 const webPushWorkflow = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'),
   'utf8',
