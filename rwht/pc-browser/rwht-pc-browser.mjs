@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.4';
+const VERSION = 'aria-pc-browser-rwht-v1.4.5';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -297,11 +297,18 @@ async function loginIfConfigured(page, config) {
 }
 
 async function closeDialogs(page) {
-  const candidates = page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i });
-  const count = Math.min(await candidates.count(), 5);
+  // Never search the whole page for "cancel": server-backed mission rows can
+  // contain status text such as CANCELADA and are not close buttons.
+  const surfaces = page.locator('.modalBackdrop, [role="dialog"], dialog[open]');
+  const count = Math.min(await surfaces.count().catch(() => 0), 8);
   for (let index = 0; index < count; index += 1) {
+    const surface = surfaces.nth(index);
+    if (!await surface.isVisible().catch(() => false)) continue;
+    const closeButton = surface.getByRole('button', { name: /^(cerrar|close)$/i }).first();
     try {
-      if (await candidates.nth(index).isVisible()) await candidates.nth(index).click({ timeout: 1000 });
+      if (await closeButton.count().catch(() => 0) && await closeButton.isVisible().catch(() => false)) {
+        await closeButton.click({ timeout: 1000 });
+      }
     } catch {}
   }
 }
@@ -341,7 +348,7 @@ function isSafeReadOnlyMeditationAction(control, routeHash, label) {
 
 async function reopenReadOnlyMeditationDetails(page, control, routeHash) {
   if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;
-  const classes = String(control.class_name || '').split(/\\s+/);
+  const classes = String(control.class_name || '').split(/\s+/);
   const isReadOnlyRow =
     (classes.includes('row') || classes.includes('queueMissionMain')) &&
     String(control.selector_hint || '').includes('details');
@@ -798,6 +805,10 @@ async function auditRoute(page, url, routeIndex, config) {
     // reloading the current URL would then test the wrong route for all later rows.
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
     await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+    // A previous tab/missions click may leave a modal mounted over this route.
+    // Close only a real modal's exact "Cerrar"/"Close" control, never a mission
+    // row whose server-backed label happens to contain "cancelada".
+    if (routeHash !== '#mission') await closeDialogs(page);
     await reopenReadOnlyMeditationDetails(page, original, routeHash);
 
     if (routeHash === '#capabilities') {
