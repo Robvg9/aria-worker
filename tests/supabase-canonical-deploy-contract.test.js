@@ -59,6 +59,15 @@ assert.ok(pwaDeploy.includes('cp dist/manifest.json "dist/manifest-${GITHUB_SHA}
 assert.ok(pwaDeploy.includes('sed "s/__BUILD__/${GITHUB_SHA}/g" public/sw.js > "dist/sw-${GITHUB_SHA}.js"'));
 assert.ok(pwaDeploy.includes('grep -q "aria-pwa-${GITHUB_SHA}" "dist/sw-${GITHUB_SHA}.js"'));
 assert.ok(pwaDeploy.includes('sed -i "s/__PWA_BUILD__/${GITHUB_SHA}/g" worker.js'));
+const pwaFastDeploy=fs.readFileSync('.github/workflows/aria-pwa-fast-deploy.yml','utf8');
+assert.match(pwaFastDeploy,/for attempt in \$\(seq 1 20\)/,'versioned Service Worker verification must retry propagation without skipping checks');
+assert.match(pwaFastDeploy,/\[ "\$\{http_status\}" = "200" \]/,'Service Worker check must require a real HTTP 200 response');
+assert.match(pwaFastDeploy,/application\/javascript/,'Service Worker check must require a JavaScript content type');
+assert.match(pwaFastDeploy,/aria-pwa-\$\{GITHUB_SHA\}/,'Service Worker body must carry the exact requested SHA');
+assert.match(pwaFastDeploy,/self\.addEventListener\('push'/,'Service Worker body must contain the push handler');
+assert.match(pwaFastDeploy,/aria-push-receipts-v1/,'Service Worker body must retain push receipt persistence');
+assert.match(pwaFastDeploy,/node --check "\$\{worker_file\}"/,'deployed Service Worker must pass JavaScript syntax validation');
+assert.match(pwaFastDeploy,/PWA_SERVICE_WORKER_RETRY/,'failed edge attempts must report HTTP/content-type/required marker diagnostics');
 assert.ok(pwaDeploy.includes('echo "AUTH_DIRECT_UPSTREAM_UNAVAILABLE=$direct_code"'), 'transient Supabase Auth 5xx must be diagnosed, not confused with a broken PWA deploy');
 assert.ok(pwaDeploy.includes('echo "AUTH_PROXY_UPSTREAM_UNAVAILABLE=$proxy_code"'), 'transient Auth proxy 5xx must be diagnosed without cancelling exact-SHA delivery');
 assert.match(deliveryGate,/version\.json\?gate=\$HEAD_SHA/, 'delivery gate must require the exact deployed SHA in the LIVE version endpoint');
