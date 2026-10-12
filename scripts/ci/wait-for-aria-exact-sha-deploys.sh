@@ -25,11 +25,12 @@ for attempt in $(seq 1 120); do
     -H "X-GitHub-Api-Version: 2022-11-28" \
     "${runs_url}")"
 
-  deployment_states="$(RUNS_JSON="${runs_json}" EXPECTED_SHA="${expected_sha}" python - <<'PY'
+  deployment_states="$(EXPECTED_SHA="${expected_sha}" python -c '
 import json
 import os
+import sys
 
-data = json.loads(os.environ["RUNS_JSON"])
+data = json.load(sys.stdin)
 expected = os.environ["EXPECTED_SHA"]
 required = ("Deploy ARIA Cloudflare Worker", "Deploy ARIA PWA Fast Lane")
 optional = ("Deploy ARIA APP API v3",)
@@ -55,8 +56,7 @@ for name in required + optional:
         + str(latest.get("status") or "missing") + "|"
         + str(latest.get("conclusion") or "")
     )
-PY
-  )"
+' <<<"${runs_json}")"
 
   worker_state="$(awk -F'|' '$1=="Deploy ARIA Cloudflare Worker"{print $2 "|" $3}' <<<"${deployment_states}")"
   pwa_state="$(awk -F'|' '$1=="Deploy ARIA PWA Fast Lane"{print $2 "|" $3}' <<<"${deployment_states}")"
