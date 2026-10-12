@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.1';
+const VERSION = 'aria-pc-browser-rwht-v1.4.2';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -804,6 +804,10 @@ async function auditRoute(page, url, routeIndex, config) {
     const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
     const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
     const dynamicQueueSnapshot = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(originalLabel);
+    // Initial hidden/disabled/server-backed snapshots were already included in
+    // controls_skipped. A control can become disabled only after reload; account
+    // for that replay skip and remove it from the testable denominator.
+    const wasInitiallySkipped = !original.visible || original.disabled || dynamicMissionSnapshot || dynamicQueueSnapshot;
     if (dynamicMissionSnapshot || dynamicQueueSnapshot) {
       routeResult.actions.push({
         control: original,
@@ -843,7 +847,7 @@ async function auditRoute(page, url, routeIndex, config) {
       if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
       else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
       else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
-      else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+      else if (outcome.outcome === 'skipped' && !wasInitiallySkipped) {
         routeResult.controls_skipped += 1;
         routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
       }
@@ -927,7 +931,7 @@ async function auditRoute(page, url, routeIndex, config) {
     if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
     else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
     else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
-    else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+    else if (outcome.outcome === 'skipped' && !wasInitiallySkipped) {
       routeResult.controls_skipped += 1;
       routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
     }
