@@ -52,7 +52,7 @@ assert.match(runner, /control\\.name === original\\.name[\\s\\S]*control\\.role 
 assert.match(runner, /hintedName === label/);
 assert.match(runner, /hintedAriaLabel === label/);
 assert.match(runner, /hintedTitle === label/);
-assert.match(runner, /It must still point to the same accessible text\\/label/i);
+assert.ok(runner.toLowerCase().includes('it must still point to the same accessible text/label'));
 assert.match(runner,/const newMissionCta = control\.role === 'button' && \/Nueva misión\/i\.test\(label\)/);
 assert.match(runner,/getByRole\('button', \{ name: \/Nueva misión\/i \}\)/);
 assert.match(runner,/filter\(\{ hasText: \/Nueva\\s\+misión\/i \}\)/);
