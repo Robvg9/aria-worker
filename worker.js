@@ -1,3 +1,4 @@
+/* 2026-10-12: publish the exact main SHA to Cloudflare for LIVE PWA certification after Supabase notification fix #1124; no Worker runtime behavior change. */
 /* 2026-10-09: force exact-SHA production certification after async canonical ARTIA mission dispatch fix #1072; no runtime behavior change. */
 /* 2026-10-09: release SHA-isolated Projects ARTIA RWHT with bounded Chromium installation. */
 /* 2026-10-09: rerun scheduler deploy after syncing planner-v2 integrity contract. */
