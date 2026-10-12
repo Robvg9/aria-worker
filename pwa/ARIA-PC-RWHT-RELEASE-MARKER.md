@@ -8,8 +8,6 @@ Follow-up: catalog version/total checks in authenticated RWHT workflows must der
 
 Production smoke hardening: deployment asset checks retry transient edge 404s for the manifest, JavaScript and CSS, but still fail unless each resource is actually returned. The intent is to absorb propagation delay, not loosen HTTP/content assertions.
 
-2026-10-12 PC RWHT evidence repair: reopen native Meditation `details` panels before rediscovering safe read-only mission/history rows after reload; keep full exact-SHA and action-counter verification mandatory.
-
-2026-10-12 PC RWHT route-drift repair: restore the canonical route URL before replaying each control; never reload a URL changed by the previous safe navigation action. Keep dynamic-row details reopening and exact-SHA LIVE report reconciliation mandatory.
-
 2026-10-12 PC RWHT v1.4.5 repair: tokenize multi-class rows on real whitespace so nested Meditation details are reopened; restore each route then force a full document reload to reset same-route modal/SPA state before replay. Keep exact-SHA LIVE and root/route/action evidence reconciliation mandatory.
+
+2026-10-12 PC RWHT v1.4.6 modal-safety follow-up: scope cleanup to visible modal/dialog surfaces and exact Cerrar/Close buttons; never search the page for cancel because mission labels can include CANCELADA. Cleanup runs after the canonical-route full reload and before Meditation detail rows are reopened.
