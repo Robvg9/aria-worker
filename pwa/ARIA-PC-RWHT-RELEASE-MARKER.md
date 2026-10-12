@@ -13,3 +13,5 @@ Production smoke hardening: deployment asset checks retry transient edge 404s fo
 2026-10-12 PC RWHT route-drift repair: restore the canonical route URL before replaying each control; never reload a URL changed by the previous safe navigation action. Keep dynamic-row details reopening and exact-SHA LIVE report reconciliation mandatory.
 
 2026-10-12 PC RWHT v1.4.5 repair: tokenize multi-class rows on real whitespace so nested Meditation details are reopened; restore each route then force a full document reload to reset same-route modal/SPA state before replay. Keep exact-SHA LIVE and root/route/action evidence reconciliation mandatory.
+
+2026-10-12 PC RWHT v1.5.0 strategy change: preserve the already-hydrated #meditation SPA while testing read-only mission/history/queue rows; close detail/idea modals in-place; perform a full reload only after route drift or on other routes; wait for the captured target identity rather than allowing unrelated static control count to end hydration early. Keep API 503/network/console errors as hard evidence; never convert failed controls to PASS.
