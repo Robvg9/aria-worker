@@ -11,3 +11,5 @@ Production smoke hardening: deployment asset checks retry transient edge 404s fo
 2026-10-12 PC RWHT v1.4.5 repair: tokenize multi-class rows on real whitespace so nested Meditation details are reopened; restore each route then force a full document reload to reset same-route modal/SPA state before replay. Keep exact-SHA LIVE and root/route/action evidence reconciliation mandatory.
 
 2026-10-12 PC RWHT v1.4.6 modal-safety follow-up: scope cleanup to visible modal/dialog surfaces and exact Cerrar/Close buttons; never search the page for cancel because mission labels can include CANCELADA. Cleanup runs after the canonical-route full reload and before Meditation detail rows are reopened.
+
+2026-10-12 PC RWHT v1.5.0 strategy change: preserve the hydrated #meditation SPA for read-only mission/history/queue probes; close true modal/dialog surfaces in-place; reload only after real route drift; wait for the target dynamic control identity rather than unrelated static controls. Keep 503/network/console failures hard failures and exact-SHA root/route/action reconciliation mandatory.
