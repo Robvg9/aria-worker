@@ -455,16 +455,38 @@ async function testControl(page, control, config) {
     }
 
     const settingsDynamic = /^(Activadas|Desactivadas|Activar avisos)$/i.test(label);
+
+    // Prefer an accessible role/name or stable ID over selector_hint. The hint is
+    // a serialized structural CSS path and can become stale after hydration,
+    // scrolling, or a small DOM re-render even when the same named control exists.
+    let locatorResolution = locator ? 'route-specific-semantic' : null;
+    if (!locator) {
+      const semantic = semanticLocator();
+      if (
+        await semantic.count().catch(() => 0) &&
+        await semantic.isVisible().catch(() => false)
+      ) {
+        locator = semantic;
+        locatorResolution = 'semantic-role-name-or-id';
+      }
+    }
+
+    // Structural selector hints are a last resort only when the semantic target
+    // is unavailable. Require a matching visible label before trusting the hint.
     if (!locator && !settingsDynamic && control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
-      const hintedName = safeLabel(await hinted.innerText().catch(() => ''));
+      const hintedName = safeLabel(await hinted.getAttribute('aria-label').catch(() => '') ||
+        await hinted.innerText().catch(() => ''));
       if (
-        await hinted.count() &&
+        await hinted.count().catch(() => 0) &&
         await hinted.isVisible().catch(() => false) &&
+        (!label || hintedName === label) &&
         (!dynamicDiagnostic || hintedName === label)
-      ) locator = hinted;
+      ) {
+        locator = hinted;
+        locatorResolution = 'validated-selector-hint';
+      }
     }
-    if (!locator) locator = semanticLocator();
     if (locator && !(await locator.count().catch(() => 0))) locator = null;
 
     // If Chromium exposes the visible chat CTA without a stable accessible role/name
@@ -531,7 +553,22 @@ async function testControl(page, control, config) {
         el.scrollIntoView({ block: 'center', inline: 'nearest' });
       }).catch(() => {});
     }
-    await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
+    } catch (scrollError) {
+      // If a serialized CSS hint went stale between discovery and replay, resolve
+      // the same target again semantically. This is a bounded locator retry, not
+      // a retry of the UI action itself.
+      if (locatorResolution !== 'validated-selector-hint' || !(control.role && label)) throw scrollError;
+      const semanticRetry = semanticLocator();
+      if (
+        !(await semanticRetry.count().catch(() => 0)) ||
+        !(await semanticRetry.isVisible().catch(() => false))
+      ) throw scrollError;
+      locator = semanticRetry;
+      locatorResolution = 'semantic-retry-after-stale-hint';
+      await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
+    }
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
     await closeDialogs(page);
