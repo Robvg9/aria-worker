@@ -9,3 +9,5 @@ Follow-up: catalog version/total checks in authenticated RWHT workflows must der
 Production smoke hardening: deployment asset checks retry transient edge 404s for the manifest, JavaScript and CSS, but still fail unless each resource is actually returned. The intent is to absorb propagation delay, not loosen HTTP/content assertions.
 
 2026-10-12 PC RWHT evidence repair: reopen native Meditation `details` panels before rediscovering safe read-only mission/history rows after reload; keep full exact-SHA and action-counter verification mandatory.
+
+2026-10-12 PC RWHT route-drift repair: restore the canonical route URL before replaying each control; never reload a URL changed by the previous safe navigation action. Keep dynamic-row details reopening and exact-SHA LIVE report reconciliation mandatory.

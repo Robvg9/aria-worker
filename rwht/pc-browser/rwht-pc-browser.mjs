@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.3';
+const VERSION = 'aria-pc-browser-rwht-v1.4.4';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -793,9 +793,10 @@ async function auditRoute(page, url, routeIndex, config) {
   for (let index = 0; index < maxControls; index += 1) {
     const original = initialControls[index];
     const originalLabel = safeLabel(original.name);
-    // Force a genuinely fresh SPA state before each control. Reusing the same
-    // hash URL does not guarantee React state (modals/accordions) is reset.
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+    // Force the canonical URL for this route before each control. A prior
+    // safe click can navigate (e.g. Meditation's "Nueva misión" goes to #mission);
+    // reloading the current URL would then test the wrong route for all later rows.
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
     await page.waitForTimeout(Math.min(config.settle_ms, 1500));
     await reopenReadOnlyMeditationDetails(page, original, routeHash);
 
