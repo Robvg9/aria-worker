@@ -335,7 +335,7 @@ function isSafeReadOnlyMeditationAction(control, routeHash, label) {
   // accessible labels include stored mission instructions, which can contain
   // mutation verbs unrelated to the action performed by this read-only button.
   const classes = String(control.class_name || '').split(/\s+/);
-  return classes.includes('row') && String(control.selector_hint || '').includes('details');
+  return (classes.includes('row') || classes.includes('queueMissionMain')) && String(control.selector_hint || '').includes('details');
 }
 
 async function testControl(page, control, config) {
@@ -727,7 +727,7 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_testable: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
       const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
-      return control.visible && !control.disabled && !dynamicMission && !dynamicQueueOpen;
+      return control.visible && !control.disabled && ((!dynamicMission && !dynamicQueueOpen) || isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
     }).length,
     controls_verified: 0,
     controls_blocked: 0,
@@ -735,7 +735,7 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_skipped: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
       const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
-      return !control.visible || control.disabled || dynamicMission || dynamicQueueOpen;
+      return !control.visible || control.disabled || ((dynamicMission || dynamicQueueOpen) && !isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
     }).length,
     ux,
     login,
@@ -821,8 +821,9 @@ async function auditRoute(page, url, routeIndex, config) {
     // Initial hidden/disabled/server-backed snapshots were already included in
     // controls_skipped. A control can become disabled only after reload; account
     // for that replay skip and remove it from the testable denominator.
-    const wasInitiallySkipped = !original.visible || original.disabled || dynamicMissionSnapshot || dynamicQueueSnapshot;
-    if (dynamicMissionSnapshot || dynamicQueueSnapshot) {
+    const safeReadOnlyAction = isSafeReadOnlyMeditationAction(original, routeHash, originalLabel);
+    const wasInitiallySkipped = !original.visible || original.disabled || ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction);
+    if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction) {
       routeResult.actions.push({
         control: original,
         outcome: 'skipped',
@@ -851,7 +852,6 @@ async function auditRoute(page, url, routeIndex, config) {
     const externalNavigation = original.role === 'link' && Boolean(original.href) && (() => {
       try { return new URL(original.href).origin !== routeOrigin; } catch { return false; }
     })();
-    const safeReadOnlyAction = isSafeReadOnlyMeditationAction(original, routeHash, originalLabel);
     const preblocked = externalNavigation
       || (SAFE_BLOCKED.test(originalLabel) && !safeReadOnlyAction)
       || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel) && !safeReadOnlyAction)
