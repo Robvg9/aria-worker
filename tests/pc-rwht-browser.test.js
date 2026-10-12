@@ -146,6 +146,8 @@ assert.match(deployGate, /Deploy ARIA Cloudflare Worker/);
 assert.match(deployGate, /Deploy ARIA PWA Fast Lane/);
 assert.match(deployGate, /Deploy ARIA APP API v3/);
 assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS/);
+assert.match(deployGate, /RUNS_FILE/);
+assert.match(deployGate, /json\.load\(open\(os\.environ\[\"RUNS_FILE\"\]\)\)/);
 assert.match(deployGate, /head_sha/);
 const webPushWorkflow = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'),
