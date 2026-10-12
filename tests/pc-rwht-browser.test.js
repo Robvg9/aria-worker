@@ -147,6 +147,8 @@ assert.match(deployGate, /Deploy ARIA PWA Fast Lane/);
 assert.match(deployGate, /Deploy ARIA APP API v3/);
 assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS/);
 assert.match(deployGate, /RUNS_FILE/);
+assert.match(deployGate, /LIVE_GATE_PREDECESSORS/);
+assert.match(deployGate, /PREDECESSOR/);
 assert.match(deployGate, /with open\(os\.environ\[\"RUNS_FILE\"\]/);
 assert.match(deployGate, /head_sha/);
 const webPushWorkflow = fs.readFileSync(
