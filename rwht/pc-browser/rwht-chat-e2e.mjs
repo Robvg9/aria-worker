@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.1.2';
+const VERSION = 'aria-chat-rwht-e2e-v1.1.3';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -77,7 +77,7 @@ async function login(page) {
 
   // Return immediately with a sanitized visible auth error instead of waiting
   // blindly when the PWA rejects credentials or either Auth route fails.
-  const outcome = await page.waitForFunction(() => {
+  const outcomeHandle = await page.waitForFunction(() => {
     try {
       const raw = localStorage.getItem('aria_session_v2');
       const session = raw ? JSON.parse(raw) : null;
@@ -99,6 +99,9 @@ async function login(page) {
     }
     throw error;
   });
+  // Playwright returns a JSHandle; extract its value before reading kind/message.
+  const outcome = await outcomeHandle.jsonValue();
+  await outcomeHandle.dispose();
 
   if (outcome?.kind === 'auth_error') {
     const safeMessage = String(outcome.message || 'unknown_auth_error')
