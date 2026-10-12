@@ -42,7 +42,13 @@ jobs:
           npm install --no-audit --no-fund
           npm run build
 
+  # PR previews ship the PWA bundle but not the shared Supabase Edge Function.
+  # Running the authenticated live-mutating E2E against a preview therefore still
+  # hits the shared production API and can consume its latency budget alongside other
+  # LIVE gates. Keep the contracts/build required on PR; run this E2E only on push
+  # or workflow_dispatch, where the exact deployed build can be certified.
   live-e2e:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -67,6 +73,34 @@ jobs:
           else
             echo "RWHT_URL=${RWHT_URL}" >> "$GITHUB_ENV"
           fi
+      - name: Wait for the exact deployed PWA SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${RWHT_URL%/}"
+          expected="$GITHUB_SHA"
+          version=""
+          for attempt in $(seq 1 60); do
+            version="$(curl --fail --silent --show-error --max-time 10 "${base}/version.json?probe=${expected}-absorb-${attempt}" 2>/dev/null || true)"
+            if VERSION="$version" EXPECTED="$expected" python - <<'PY'
+          import json, os
+          try:
+              value = json.loads(os.environ["VERSION"])
+              assert value.get("build") == os.environ["EXPECTED"]
+              raise SystemExit(0)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              echo "ABSORB_LIVE_PWA_SHA_OK=$expected"
+              exit 0
+            fi
+            test "$attempt" -lt 60 && sleep 2
+          done
+          echo "::error title=ABSORB LIVE E2E blocked::PWA deployment does not match this push/workflow SHA."
+          echo "EXPECTED_SHA=$expected"
+          echo "LAST_VERSION_BODY=${version:0:300}"
+          exit 1
       - name: Require authenticated session source
         shell: bash
         run: |

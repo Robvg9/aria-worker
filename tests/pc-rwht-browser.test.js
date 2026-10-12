@@ -168,10 +168,13 @@ assert.match(runner, /'hidden', 'password', 'file'/);
 
 
 const chatE2E = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-chat-e2e.mjs'), 'utf8');
-assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.0\.8/);
+assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.0\.9/);
 assert.match(chatE2E, /Habla con ARIA/);
 assert.match(chatE2E, /aria_session_v2/);
-assert.match(chatE2E, /chat_server_persistence_missing/);
+assert.match(chatE2E, /chat_server_conversation_id_mismatch/);
+assert.match(chatE2E, /chat_server_user_message_missing/);
+assert.match(chatE2E, /chat_server_assistant_response_missing/);
+assert.match(chatE2E, /chat_server_response_mismatch/);
 assert.match(chatE2E, /chat_reload_persistence_missing/);
 assert.match(chatE2E, /chat_ux_contract_failed/);
 assert.match(chatE2E, /RWHTCHATCERT/);
