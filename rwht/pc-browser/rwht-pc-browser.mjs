@@ -9,6 +9,7 @@ const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sig
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
 const LOGIN_CONTROL = /^(entrar|login|sign[ -]?in|acceder|iniciar(?:\s+sesión|\s+sesion)?|continuar)$/i;
 const SAFE_MUTATION = /(crear|create|guardar|save|enviar|send|ejecutar|execute|run|deploy|actualizar|update|confirmar|confirm|publicar|publish|start|iniciar|submit)/i;
+const EXTERNAL_CONNECTION_AUTH = /^Conectar backend BattleCruiser$/i;
 
 function envBool(name, fallback = false) {
   const value = String(process.env[name] ?? '').trim().toLowerCase();
@@ -304,6 +305,27 @@ async function closeDialogs(page) {
   }
 }
 
+async function isBattleCruiserExternalAuthField(page, control, label) {
+  const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
+  if (routeHash !== '#projects') return false;
+  if (control.tag === 'button' && EXTERNAL_CONNECTION_AUTH.test(label)) return true;
+  if (control.tag !== 'input' || String(control.type || '').toLowerCase() !== 'email') return false;
+
+  // This form connects ARIA to a separate, user-owned BattleCruiser backend.
+  // Its email/password fields must never be edited or submitted by a read-only
+  // UI audit. Classify them as a human-gated external authentication boundary.
+  const form = page.locator('.projectShell form')
+    .filter({ hasText: /BattleCruiser/i })
+    .filter({ hasText: /conectar|sesión autenticada|sesion autenticada|backend/i })
+    .first();
+  if (!(await form.count().catch(() => 0))) return false;
+  const email = form.locator('input[type="email"]').first();
+  return Boolean(
+    await email.count().catch(() => 0) &&
+    await email.isVisible().catch(() => false)
+  );
+}
+
 async function testControl(page, control, config) {
   const label = safeLabel(control.name);
   if (!control.visible || control.disabled) {
@@ -320,6 +342,15 @@ async function testControl(page, control, config) {
       outcome: 'verified',
       action: 'presence_reuse',
       certification: 'settings-dedicated-e2e'
+    };
+  }
+
+  if (await isBattleCruiserExternalAuthField(page, control, label)) {
+    return {
+      outcome: 'blocked',
+      reason: 'external_integration_auth_requires_human_gate',
+      label,
+      certification: 'external_backend_connection'
     };
   }
 
