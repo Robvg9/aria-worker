@@ -17,6 +17,13 @@ const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const helper = read('pwa/src/notifications.ts');
 const sw = read('pwa/public/sw.js');
 const workflow = read('.github/workflows/aria-meditation-webpush-production-e2e.yml');
+const e2e = read('rwht/pc-browser/rwht-meditation-pwa-e2e.mjs');
+
+assert(e2e.includes('form.authCard input[aria-label="Correo"]'), 'Web Push E2E must scope ARIA email selection to the ARIA auth card');
+assert(e2e.includes('form.authCard input[type="password"]'), 'Web Push E2E must not select project-specific password fields as ARIA credentials');
+assert(e2e.includes('form.authCard button[type="submit"]'), 'Web Push E2E must submit only ARIA auth form controls');
+assert(e2e.includes("aria_auth_rejected:"), 'Web Push E2E must preserve visible ARIA login rejection evidence');
+assert(!e2e.includes("return !pwd;"), 'Web Push E2E must prove persisted ARIA session rather than waiting for unrelated password fields to disappear');
 
 assert(migration.includes('meditation_push_subscriptions'), 'background push subscription table missing');
 assert(migration.includes('meditation_push_deliveries'), 'push delivery evidence table missing');
