@@ -205,7 +205,7 @@ assert.ok(capabilitiesWorkflow.includes('group: aria-capabilities-rwht-${{ githu
 const persistenceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
 assert.ok(persistenceWorkflow.includes('group: aria-persistence-recovery-rwht-${{ github.sha }}'), 'Persistence needs its own release-scoped group');
 const steps78Workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
-assert.ok(steps78Workflow.includes('Wait for Worker + PWA Fast Lane terminal PASS before exact-SHA E2E'));
+assert.ok(steps78Workflow.includes('Wait for both exact-SHA production deploys'));
 assert.ok(steps78Workflow.includes('EXACT_SHA_PRODUCTION_DEPLOYS_PASS='));
 assert.ok(steps78Workflow.includes('actions: read'), 'Steps 7-8 must read deployment run states before browser execution');
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'App.tsx'), 'utf8');
@@ -231,7 +231,7 @@ assert.match(projectsWorkflow, /ARIA Projects Browser RWHT Authenticated/);
 assert.match(projectsWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
 assert.match(projectsWorkflow, /RWHT_ROUTES: '#projects'/);
 assert.match(chatWorkflow, /Wait for exact-SHA production deploys before authenticated Chat/, 'Chat must only run after exact-SHA deployment gates pass');
-assert.doesNotMatch(projectsWorkflow, /^\\s+- Deploy ARIA (Cloudflare Worker|PWA Fast Lane|APP API v3)$/m, 'Projects + ARTIA must not be triggered by multiple independent deploy workflows');
+assert.doesNotMatch(projectsWorkflow, /^\s+- Deploy ARIA (Cloudflare Worker|PWA Fast Lane|APP API v3)$/m, 'Projects + ARTIA must not be triggered by multiple independent deploy workflows');
 assert.match(projectsWorkflow, /- ARIA Chat Browser RWHT Authenticated/, 'Only successful authenticated Chat should trigger the final sequential Projects + ARTIA proof');
 assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
 assert.match(projectsWorkflow, /RWHT_EMAIL/);
