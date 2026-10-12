@@ -11,3 +11,5 @@ Production smoke hardening: deployment asset checks retry transient edge 404s fo
 2026-10-12 PC RWHT evidence repair: reopen native Meditation `details` panels before rediscovering safe read-only mission/history rows after reload; keep full exact-SHA and action-counter verification mandatory.
 
 2026-10-12 PC RWHT route-drift repair: restore the canonical route URL before replaying each control; never reload a URL changed by the previous safe navigation action. Keep dynamic-row details reopening and exact-SHA LIVE report reconciliation mandatory.
+
+2026-10-12 PC RWHT v1.4.5 regression: tokenize Meditation row classes with actual whitespace before opening details; scope stale-dialog cleanup to visible dialog surfaces and exact “Cerrar”/“Close” buttons so CANCELADA mission rows can never be mistaken for dismiss controls.
