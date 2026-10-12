@@ -506,6 +506,7 @@ jobs:
           test "$init_code" = "401"
           grep -qi 'resource_metadata="https://aria.robvg9.workers.dev/.well-known/oauth-protected-resource/mcp"' "$init_headers"
       - name: Smoke test Grok OAuth DCR and authorization bootstrap (optional external certification)
+        if: vars.ARIA_GROK_OAUTH_CERTIFY == 'true'
         run: |
           set -euo pipefail
           echo GROK_OAUTH_GOVERNED_TIMEOUT_V2
