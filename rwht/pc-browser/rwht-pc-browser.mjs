@@ -428,7 +428,7 @@ async function testControl(page, control, config) {
     // Keep the control a hard failure if this visible, scoped locator also cannot be found.
     if (!locator && ariaChatCta) {
       const textFallback = page.locator('.dashboardScreen button')
-        .filter({ hasText: /Hablar\\s+con\\s+ARIA/i })
+        .filter({ hasText: /Hablar\s+con\s+ARIA/i })
         .first();
       if (
         await textFallback.count().catch(() => 0) &&
