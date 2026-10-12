@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.4.2/);
+assert.match(runner, /aria-pc-browser-rwht-v1.4.3/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -28,6 +28,14 @@ assert.match(runner, /SAFE_MUTATION/);
 assert.ok(runner.includes("class_name: String(el.getAttribute('class') || '').slice(0, 120)"));
 assert.ok(runner.includes('function isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(original, routeHash, originalLabel)'));
+assert.ok(runner.includes('async function reopenReadOnlyMeditationDetails(page, control, routeHash)'), 'PC RWHT must reopen read-only Meditation detail panels before replay');
+assert.ok(runner.includes("if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;"), 'detail reopening must be limited to Meditation buttons');
+assert.ok(runner.includes("String(control.selector_hint || '').includes('details')"), 'detail reopening must require an identified nested details row');
+assert.ok(runner.includes("page.locator('details').evaluateAll("), 'detail reopening must restore closed native details before rediscovery');
+const meditationReplayLoop = runner.indexOf('for (let index = 0; index < maxControls; index += 1) {');
+const reopenDetailsCall = runner.indexOf('await reopenReadOnlyMeditationDetails(page, original, routeHash);', meditationReplayLoop);
+const rediscoverControls = runner.indexOf('let controlsNow = await discoverInteractive(page);', meditationReplayLoop);
+assert.ok(reopenDetailsCall > meditationReplayLoop && reopenDetailsCall < rediscoverControls, 'reopen Meditation details before rediscovering controls after reload');
 assert.ok(runner.includes('const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
