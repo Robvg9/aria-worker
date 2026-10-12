@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-chat-rwht-e2e-v1.1.1';
+const VERSION = 'aria-chat-rwht-e2e-v1.1.2';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -49,8 +49,6 @@ async function signInViaAuthApi() {
 
 async function login(page) {
   // A pre-authenticated session is valid only if it actually exists in this browser context.
-  // When CI provides both fresh credentials and a saved state secret, the context does not
-  // load that state; never use the mere STORAGE_STATE path as a reason to skip login.
   const existingSession = await readSession(page).catch(() => null);
   if (existingSession?.accessToken && existingSession.userId) {
     return {
@@ -63,29 +61,52 @@ async function login(page) {
     throw new Error('authenticated_session_source_missing');
   }
 
-  const email = page.locator('input[type="email"],input[name="email"],input[autocomplete="username"]').first();
-  const password = page.locator('input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
+  // Scope all login controls to ARIA's own form; project connectors can expose
+  // unrelated email/password fields elsewhere in the project workspace.
+  const authForm = page.locator('form.authCard');
+  const email = authForm.locator('input[aria-label="Correo"],input[type="email"],input[name="email"],input[autocomplete="username"]').first();
+  const password = authForm.locator('input[aria-label="Contraseña"],input[type="password"],input[name="password"],input[autocomplete="current-password"]').first();
   await email.waitFor({ state: 'visible', timeout: 30000 });
   await password.waitFor({ state: 'visible', timeout: 30000 });
   await email.fill(EMAIL);
   await password.fill(PASSWORD);
 
-  const submit = page.locator('button[type="submit"],input[type="submit"],button')
-    .filter({ hasText: /entrar|iniciar|login|sign[ -]?in|continuar|acceder/i })
-    .first();
+  const submit = authForm.locator('button[type="submit"],input[type="submit"]').first();
   if (await submit.count()) await submit.click();
   else await password.press('Enter');
 
-  await page.waitForFunction(() => {
+  // Return immediately with a sanitized visible auth error instead of waiting
+  // blindly when the PWA rejects credentials or either Auth route fails.
+  const outcome = await page.waitForFunction(() => {
     try {
       const raw = localStorage.getItem('aria_session_v2');
       const session = raw ? JSON.parse(raw) : null;
-      if (session?.accessToken && session?.userId) return true;
+      if (session?.accessToken && session?.userId) return { kind: 'session' };
     } catch {}
-    // The PWA can keep unrelated project-connection password inputs in the DOM.
-    // Only an ARIA session proves login success; page-wide password counts do not.
+    const card = document.querySelector('form.authCard');
+    const error = card?.querySelector('.errorBox');
+    if (error) {
+      const rect = error.getBoundingClientRect();
+      const message = String(error.innerText || error.textContent || '').trim();
+      if (rect.width > 0 && rect.height > 0 && message) {
+        return { kind: 'auth_error', message: message.slice(0, 400) };
+      }
+    }
     return false;
-  }, null, { timeout: 60000 });
+  }, null, { timeout: 60000 }).catch((error) => {
+    if (/Timeout/i.test(String(error?.message || error))) {
+      throw new Error('aria_auth_session_timeout_no_visible_error');
+    }
+    throw error;
+  });
+
+  if (outcome?.kind === 'auth_error') {
+    const safeMessage = String(outcome.message || 'unknown_auth_error')
+      .replace(/[\\r\\n\\t]+/g, ' ')
+      .replace(/\\s{2,}/g, ' ')
+      .slice(0, 400);
+    throw new Error('aria_auth_rejected:' + safeMessage);
+  }
   const authenticated = await readSession(page);
   if (!authenticated?.accessToken || !authenticated.userId) {
     throw new Error('aria_login_completed_without_persisted_session');
