@@ -887,9 +887,10 @@ async function auditRoute(page, url, routeIndex, config) {
       continue;
     }
 
-    // Prefer the stable selector captured from the same route before matching
-    // the human-readable label. Toggle labels and mission-card summaries can change
-    // across a reload while their DOM position/selector remains stable.
+    // Dynamic server-backed labels require a semantic prefix; all other controls
+    // should be re-identified by stable ID or accessible role/name after each reload.
+    // A positional CSS path is a last resort, and only when its current accessible
+    // identity still matches the captured snapshot.
     const dynamicTarget = (() => {
       if (original.tag !== 'button') return null;
       const missionMatch = originalLabel.match(/^Misión\s+(\d+)\s+·/i);
@@ -911,13 +912,6 @@ async function auditRoute(page, url, routeIndex, config) {
     })();
     const dynamicDiagnosticSnapshot = original.tag === 'button' && /·\s*Abrir diagnóstico/i.test(originalLabel);
     const target = dynamicTarget
-      || (original.selector_hint
-        ? controlsNow.find((control) =>
-            control.selector_hint === original.selector_hint &&
-            control.tag === original.tag &&
-            (!dynamicDiagnosticSnapshot || control.name === original.name)
-          )
-        : null)
       || (original.id
         ? controlsNow.find((control) => control.id === original.id && control.tag === original.tag)
         : null)
@@ -927,6 +921,15 @@ async function auditRoute(page, url, routeIndex, config) {
         control.href === original.href &&
         control.tag === original.tag
       )
+      || (original.selector_hint
+        ? controlsNow.find((control) =>
+            control.selector_hint === original.selector_hint &&
+            control.tag === original.tag &&
+            control.name === original.name &&
+            control.role === original.role &&
+            control.href === original.href
+          )
+        : null)
       || (dynamicDiagnosticSnapshot ? null : controlsNow[index]);
     if (!target) {
       if (dynamicDiagnosticSnapshot) {
