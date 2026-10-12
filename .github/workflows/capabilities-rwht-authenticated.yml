@@ -84,15 +84,14 @@ jobs:
           test "$expected_total" -gt 0
           base="${RWHT_URL%/}"
           html=""
+          catalog_match=false
           for attempt in $(seq 1 60); do
             html="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "${base}/?probe=${GITHUB_SHA}-capabilities-catalog-${attempt}" 2>/dev/null || true)"
             if (grep -q "name='aria-test-catalog-version' content='${expected_version}'" <<<"$html" || grep -q "name=\"aria-test-catalog-version\" content=\"${expected_version}\"" <<<"$html") &&
-               (grep -q "name='aria-test-catalog-total' content='${expected_total}'" <<<"$html" || grep -q "name=\"aria-test-catalog-total\" content=\"${expected_total}\"" <<<"$html"); then break; fi
+               (grep -q "name='aria-test-catalog-total' content='${expected_total}'" <<<"$html" || grep -q "name=\"aria-test-catalog-total\" content=\"${expected_total}\"" <<<"$html"); then catalog_match=true; break; fi
             test "$attempt" -lt 60 && sleep 2
           done
-          test -n "$html"
-          grep -q "name='aria-test-catalog-version' content='${expected_version}'" <<<"$html" || grep -q "name=\"aria-test-catalog-version\" content=\"${expected_version}\"" <<<"$html"
-          grep -q "name='aria-test-catalog-total' content='${expected_total}'" <<<"$html" || grep -q "name=\"aria-test-catalog-total\" content=\"${expected_total}\"" <<<"$html"
+          test "$catalog_match" = true
           echo "CAPABILITIES_CANONICAL_TEST_CATALOG_LIVE_OK version=${expected_version} total=${expected_total}"
       - name: Execute authenticated Capabilities RWHT
         working-directory: rwht/pc-browser
