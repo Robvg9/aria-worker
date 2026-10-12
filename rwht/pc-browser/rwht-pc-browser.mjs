@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.5';
+const VERSION = 'aria-pc-browser-rwht-v1.5.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -793,13 +793,31 @@ async function auditRoute(page, url, routeIndex, config) {
   for (let index = 0; index < maxControls; index += 1) {
     const original = initialControls[index];
     const originalLabel = safeLabel(original.name);
-    // Restore the canonical URL first because a prior safe click may navigate
-    // (for example, Meditation's "Nueva misión" opens #mission). Then force a full
-    // document reload even when the URL already matches, clearing modal/SPA state
-    // that can otherwise intercept the next control after an apparently same-URL goto.
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
-    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+    const currentRouteHash = (new URL(page.url()).hash || '#home').split('?')[0];
+    if (routeHash === '#meditation') {
+      // Meditation mission/history rows are backed by one authenticated overview.
+      // Keep that loaded SPA state while replaying its read-only rows: reloading once
+      // per row repeatedly re-fetches /api/meditation/overview, can trigger 503s, and
+      // hides the very dynamic controls this audit needs to verify.
+      if (currentRouteHash !== routeHash) {
+        // A prior safe CTA may have navigated to #mission. Return to the canonical
+        // route and do one full reset only for that route drift.
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+      } else {
+        // Mission-detail/idea modals are read-only in this pass. Close the previous
+        // modal instead of reloading and refetching the entire Meditation overview.
+        await closeDialogs(page);
+        await page.waitForTimeout(Math.min(config.settle_ms, 300));
+      }
+    } else {
+      // Other routes keep the full reset so same-route modal/SPA state cannot
+      // intercept subsequent controls (notably ARTIA/project rows on #projects).
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+      await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+    }
     await reopenReadOnlyMeditationDetails(page, original, routeHash);
 
     if (routeHash === '#capabilities') {
@@ -811,10 +829,15 @@ async function auditRoute(page, url, routeIndex, config) {
     }
 
     let controlsNow = await discoverInteractive(page);
-    // Controls backed by async mission/chat/meditation data can appear after the
-    // route surface itself is visible. Give the same route a short deterministic
-    // hydration window before declaring the snapshot unreproducible.
+    // Mission/history/queue rows are server-backed. On a fresh route load wait for
+    // the particular captured row identity, not merely for unrelated static buttons
+    // to make controlsNow.length exceed the old positional index.
     const targetLabel = safeLabel(original.name);
+    const originalClasses = String(original.class_name || '').split(/\s+/);
+    const requiresDynamicMeditationIdentity = routeHash === '#meditation' &&
+      original.tag === 'button' &&
+      (originalClasses.includes('row') || originalClasses.includes('queueMissionMain')) &&
+      String(original.selector_hint || '').includes('details');
     const reproductionDeadline = Date.now() + Math.min(10000, Math.max(2500, config.action_timeout_ms + 2500));
     while (Date.now() < reproductionDeadline) {
       const exact = controlsNow.find((control) =>
@@ -822,7 +845,7 @@ async function auditRoute(page, url, routeIndex, config) {
         (original.role && control.role === original.role && control.name === original.name && control.href === original.href && control.tag === original.tag) ||
         (targetLabel && control.name === targetLabel)
       );
-      if (exact || controlsNow.length > index) break;
+      if (exact || (!requiresDynamicMeditationIdentity && controlsNow.length > index)) break;
       await page.waitForTimeout(350);
       controlsNow = await discoverInteractive(page);
     }
