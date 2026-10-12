@@ -39,6 +39,14 @@ assert.match(runner, /getByRole\('button', \{ name: \/Hablar con ARIA\/i \}\)/);
 assert.ok(runner.includes("const textFallback = page.locator('.dashboardScreen button')"), 'Chat CTA replay must fall back to its visible text within the home surface');
 assert.ok(runner.includes(".filter({ hasText: /Hablar\\s+con\\s+ARIA/i })"), 'Chat CTA text fallback must match the stable semantic phrase');
 assert.ok(runner.indexOf("const ariaChatCta = control.role === 'button'") < runner.indexOf("const semanticLocator = () =>"), 'Chat CTA detection must be in scope for both semantic and fallback locators');
+const semanticResolutionIndex = runner.indexOf('const semantic = semanticLocator();');
+const staleCssFallbackIndex = runner.indexOf('if (!locator && !settingsDynamic && control.selector_hint)');
+assert.ok(semanticResolutionIndex >= 0 && staleCssFallbackIndex > semanticResolutionIndex, 'PC RWHT must prefer semantic role/name locators before CSS selector hints after reload.');
+assert.match(runner, /hintedName === label/);
+assert.match(runner, /hintedAriaLabel === label/);
+assert.match(runner, /hintedTitle === label/);
+assert.match(runner, /must still point to the same accessible text\/label/);
+
 const authVerification = runner.slice(runner.indexOf('async function verifyAuthState'), runner.indexOf('async function waitForPwaBoot'));
 assert.ok(authVerification.includes(`page.locator('form.authCard input[type="password"]')`), 'PC auth verification must ignore BattleCruiser project password fields');
 assert.ok(!authVerification.includes(`page.locator('input[type="password"]')`), 'PC auth verification must not scan document-wide password fields');
