@@ -42,10 +42,17 @@ assert.ok(runner.indexOf("const ariaChatCta = control.role === 'button'") < runn
 const semanticResolutionIndex = runner.indexOf('const semantic = semanticLocator();');
 const staleCssFallbackIndex = runner.indexOf('if (!locator && !settingsDynamic && control.selector_hint)');
 assert.ok(semanticResolutionIndex >= 0 && staleCssFallbackIndex > semanticResolutionIndex, 'PC RWHT must prefer semantic role/name locators before CSS selector hints after reload.');
+const targetResolutionStart = runner.indexOf('const target = dynamicTarget');
+const targetIdIndex = runner.indexOf('(original.id', targetResolutionStart);
+const targetSemanticIndex = runner.indexOf('control.role === original.role', targetResolutionStart);
+const targetCssIndex = runner.indexOf('(original.selector_hint', targetResolutionStart);
+assert.ok(targetResolutionStart >= 0 && targetIdIndex > targetResolutionStart && targetSemanticIndex > targetIdIndex && targetCssIndex > targetSemanticIndex, 'PC RWHT must resolve replay targets by stable ID/semantic identity before considering CSS hints.');
+assert.match(runner, /control\\.name === original\\.name[\\s\\S]*control\\.role === original\\.role[\\s\\S]*control\\.href === original\\.href/);
+
 assert.match(runner, /hintedName === label/);
 assert.match(runner, /hintedAriaLabel === label/);
 assert.match(runner, /hintedTitle === label/);
-assert.match(runner, /must still point to the same accessible text\/label/);
+assert.match(runner, /It must still point to the same accessible text\\/label/i);
 assert.match(runner,/const newMissionCta = control\.role === 'button' && \/Nueva misión\/i\.test\(label\)/);
 assert.match(runner,/getByRole\('button', \{ name: \/Nueva misión\/i \}\)/);
 assert.match(runner,/filter\(\{ hasText: \/Nueva\\s\+misión\/i \}\)/);
