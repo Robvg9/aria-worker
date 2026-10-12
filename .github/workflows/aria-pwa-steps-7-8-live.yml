@@ -10,7 +10,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  group: aria-pwa-steps-7-8-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
