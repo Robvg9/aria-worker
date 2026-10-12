@@ -78,12 +78,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_PROJECT_REF"
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
           echo PRODUCTION_DEPLOYMENT_CREDENTIALS_PRESENT=true
       - name: Install PWA dependencies
         working-directory: pwa
@@ -111,16 +113,16 @@ jobs:
           npm install --global wrangler@latest supabase
           wrangler --version
           supabase --version
-      - name: Generate and mask fresh runtime bridge secret
+      - name: Load canonical runtime bridge secret from GitHub Actions
+        env:
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
         shell: bash
         run: |
           set -euo pipefail
-          runtime_secret="$(openssl rand -hex 32)"
-          echo "::add-mask::$runtime_secret"
-          test "${#runtime_secret}" -eq 64
-          echo "ARIA_RUNTIME_SHARED_SECRET=$runtime_secret" >> "$GITHUB_ENV"
-          echo RUNTIME_BRIDGE_SECRET_GENERATED=true
-          echo RUNTIME_BRIDGE_SECRET_LENGTH=${#runtime_secret}
+          test -n "$ARIA_RUNTIME_SHARED_SECRET"
+          echo "::add-mask::$ARIA_RUNTIME_SHARED_SECRET"
+          echo "ARIA_RUNTIME_SHARED_SECRET=$ARIA_RUNTIME_SHARED_SECRET" >> "$GITHUB_ENV"
+          echo RUNTIME_BRIDGE_SECRET_SOURCE=github_actions_secret
 
       - name: Deploy exact Worker release with runtime secret attached
         env:
