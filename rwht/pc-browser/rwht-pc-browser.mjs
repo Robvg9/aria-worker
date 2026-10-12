@@ -557,7 +557,9 @@ async function testControl(page, control, config) {
     await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
-    await closeDialogs(page);
+    // Keep safe navigation modals open long enough to verify their effect; the next
+    // iteration reloads the route before testing another control.
+    if (!safeReadOnlyAction) await closeDialogs(page);
 
     const afterUrl = page.url();
     const afterTitle = await page.title();
@@ -818,9 +820,9 @@ async function auditRoute(page, url, routeIndex, config) {
     const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
     const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
     const dynamicQueueSnapshot = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(originalLabel);
-    // Initial hidden/disabled/server-backed snapshots were already included in
-    // controls_skipped. A control can become disabled only after reload; account
-    // for that replay skip and remove it from the testable denominator.
+    // Initial hidden/disabled controls and unsafe dynamic snapshots were already
+    // included in controls_skipped. A control that becomes disabled only after
+    // reload must be counted here and removed from the testable denominator.
     const safeReadOnlyAction = isSafeReadOnlyMeditationAction(original, routeHash, originalLabel);
     const wasInitiallySkipped = !original.visible || original.disabled || ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction);
     if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction) {
