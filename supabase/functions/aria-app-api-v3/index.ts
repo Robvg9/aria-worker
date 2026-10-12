@@ -1149,50 +1149,23 @@ async function capabilityCatalog(userId:string){
     }
   };
 }
-async function meditationOwnedMissionIds(userId:string){
-  const sb=serviceClient();
-  const {data:controller,error:ce}=await sb.schema("aria_internal").from("meditation_control").select("owner_user_id,session_id").eq("controller_id","primary").maybeSingle();
-  if(ce)throw new Error(ce.message);
-  if(controller?.owner_user_id&&controller.owner_user_id!==userId)return[];
-
-  // Filter ownership in Postgres rather than transferring the newest 1,000 global
-  // mission rows (PostgREST caps the response at its configured max-row limit).
-  // userId comes from the authenticated Supabase user; only allow a UUID in the
-  // raw .or() filter, and skip a session value that cannot be safely represented.
-  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(userId)){
-    throw new Error("invalid_authenticated_user_id");
-  }
-  const sessionId=controller?.session_id?String(controller.session_id):"";
-  const filters=[
-    `metadata->>user_id.eq.${userId}`,
-    `metadata->>owner_user_id.eq.${userId}`
-  ];
-  if(sessionId&&/^[A-Za-z0-9._:-]{1,128}$/.test(sessionId)){
-    filters.push(`metadata->>meditation_session_id.eq.${sessionId}`);
-  }
-  const {data:owned,error:me}=await sb.schema("aria_internal").from("mission_state")
-    .select("mission_id")
-    .or(filters.join(","))
-    .order("updated_at",{ascending:false})
-    .limit(1000);
-  if(me)throw new Error(me.message);
-  return [...new Set((owned??[]).map((m:any)=>String(m.mission_id)).filter(Boolean))].slice(0,1000);
-}
 async function meditationNotificationsForUser(userId:string,unreadOnly=false,limit=50){
-  const missionIds=await meditationOwnedMissionIds(userId);
-  const empty={version:"aria-meditation-notifications-v1",notifications:[],unread_count:0,external_channels:{configured:true,channels:["web_push"]}};
-  if(!missionIds.length)return empty;
   const safeLimit=Math.max(1,Math.min(100,Number(limit)||50));
-  const sb=serviceClient().schema("aria_internal");
-  let q=sb.from("meditation_notifications").select("notification_id,source_event_id,mission_id,kind,severity,title,message,action,metadata,read_at,created_at").in("mission_id",missionIds).order("created_at",{ascending:false}).limit(safeLimit);
-  if(unreadOnly)q=q.is("read_at",null);
-  const [{data,error},{count:unreadCount,error:countError}]=await Promise.all([
-    q,
-    sb.from("meditation_notifications").select("notification_id",{count:"exact",head:true}).in("mission_id",missionIds).is("read_at",null)
-  ]);
+  const {data,error}=await serviceClient().schema("aria_internal").rpc("aria_meditation_notifications_for_user_v1",{
+    p_user_id:userId,
+    p_unread_only:unreadOnly,
+    p_limit:safeLimit
+  });
   if(error)throw new Error(error.message);
-  if(countError)throw new Error(countError.message);
-  return{version:"aria-meditation-notifications-v1",notifications:data||[],unread_count:Number(unreadCount||0),external_channels:{configured:true,channels:["web_push"]}};
+  const result=data&&typeof data==="object"?data:{};
+  return{
+    version:"aria-meditation-notifications-v1",
+    notifications:Array.isArray(result.notifications)?result.notifications:[],
+    unread_count:Math.max(0,Number(result.unread_count)||0),
+    external_channels:result.external_channels&&typeof result.external_channels==="object"
+      ? result.external_channels
+      : {configured:true,channels:["web_push"]}
+  };
 }
 async function dispatchMeditationWebPushNotification(notification:any, providedSecret:string){
   const sb=serviceClient();
@@ -1332,15 +1305,14 @@ async function markMeditationNotificationsReadForUser(userId:string,body:any){
   const ids=Array.isArray(body?.notification_ids)?body.notification_ids.map(String).filter(Boolean):[];
   const all=body?.all===true;
   if(!ids.length&&!all)throw new Error("notification_ids_or_all_required");
-  const missionIds=await meditationOwnedMissionIds(userId);
-  if(!missionIds.length)return{ok:true,marked_read:0,notification_ids:[]};
-  const sb=serviceClient().schema("aria_internal");
-  let q=sb.from("meditation_notifications").update({read_at:new Date().toISOString()});
-  if(all)q=q.in("mission_id",missionIds).is("read_at",null);
-  else q=q.in("notification_id",ids).in("mission_id",missionIds);
-  const {data,error}=await q.select("notification_id");
+  const {data,error}=await serviceClient().schema("aria_internal").rpc("aria_mark_meditation_notifications_read_for_user_v1",{
+    p_user_id:userId,
+    p_notification_ids:all?[]:ids,
+    p_all:all
+  });
   if(error)throw new Error(error.message);
-  return{ok:true,marked_read:Number(data?.length||0),notification_ids:(data||[]).map((x:any)=>String(x.notification_id))};
+  if(!data||typeof data!=="object")throw new Error("notification_read_ack_invalid_response");
+  return data;
 }
 
 function presentMeditationIdeaProposal(row:any){
