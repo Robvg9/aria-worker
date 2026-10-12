@@ -48,14 +48,14 @@ jobs:
       RWHT_STORAGE_STATE_GZIP_B64: ${{ secrets.RWHT_STORAGE_STATE_GZIP_B64 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - name: Wait for both exact-SHA Cloudflare deployments
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           DEPLOY_EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: bash scripts/wait-for-exact-sha-cloudflare-deploy.sh
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
