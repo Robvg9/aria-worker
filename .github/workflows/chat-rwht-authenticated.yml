@@ -19,6 +19,10 @@ on:
       - '.github/workflows/chat-rwht-authenticated.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   # Chat, Capabilities and Persistence must not evict one another from a shared pending queue.
   group: aria-chat-rwht-${{ github.sha }}
@@ -92,6 +96,14 @@ jobs:
         if: github.event_name != 'pull_request'
         working-directory: rwht/pc-browser
         run: npx playwright install --with-deps chromium
+      - name: Wait for exact-SHA production deploys before authenticated Chat
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "${GITHUB_SHA}"
       - name: Verify canonical test catalog on LIVE PWA
         if: github.event_name != 'pull_request'
         run: |
