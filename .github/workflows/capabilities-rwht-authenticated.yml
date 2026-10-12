@@ -12,7 +12,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  # Isolate the authenticated capabilities run from Chat and Persistence on the same release.
+  group: aria-capabilities-rwht-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
