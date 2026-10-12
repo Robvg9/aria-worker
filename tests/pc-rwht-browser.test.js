@@ -55,6 +55,9 @@ assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) 
 assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
 assert.match(runner, /Measure the action's visible effect above, then dismiss any resulting modal/);
 assert.ok(runner.includes('await closeDialogs(page);'), 'close read-only detail overlays after measuring their effect');
+const dialogDismissalImplementation = runner.slice(runner.indexOf('async function waitForDialogDismissal'), runner.indexOf('async function closeDialogs'));
+assert.ok(dialogDismissalImplementation.includes("style.pointerEvents !== 'none'"), 'dialog dismissal must test the actual pointer-event blocker');
+assert.doesNotMatch(dialogDismissalImplementation, /style\.opacity/, 'opacity zero does not guarantee that an overlay stops intercepting clicks');
 const closeDialogsImplementation = runner.slice(runner.indexOf('async function closeDialogs'), runner.indexOf('async function isBattleCruiserExternalAuthField'));
 assert.ok(closeDialogsImplementation.includes("const selector = '.modalBackdrop, [role=\"dialog\"], dialog[open]'"), 'dialog cleanup must be scoped to actual visible dialog surfaces');
 assert.ok(closeDialogsImplementation.includes("{ name: /^(cerrar|close)$/i }"), 'dialog cleanup must use an exact close-button label within the dialog');
