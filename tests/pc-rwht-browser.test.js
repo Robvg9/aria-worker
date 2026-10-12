@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.4.5/);
+assert.match(runner, /aria-pc-browser-rwht-v1.4.6/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -48,6 +48,12 @@ assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadi
 assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction)'));
 assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
 assert.ok(runner.includes('if (!safeReadOnlyAction) await closeDialogs(page)'));
+const closeDialogsImplementation = runner.slice(runner.indexOf('async function closeDialogs'), runner.indexOf('async function isBattleCruiserExternalAuthField'));
+assert.ok(closeDialogsImplementation.includes("page.locator('.modalBackdrop, [role=\"dialog\"], dialog[open]')"), 'dialog cleanup must be scoped to actual visible dialog surfaces');
+assert.ok(closeDialogsImplementation.includes("{ name: /^(cerrar|close)$/i }"), 'dialog cleanup must use an exact close-button label within the dialog');
+assert.ok(!closeDialogsImplementation.includes("page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i })"), 'dialog cleanup must not click mission rows with CANCELADA labels');
+const closeStaleModal = runner.indexOf("if (routeHash !== '#mission') await closeDialogs(page);", meditationReplayLoop);
+assert.ok(closeStaleModal > freshDocumentReload && closeStaleModal < reopenDetailsCall, 'close stale dialogs only after a full canonical-route reload and before reopening Meditation details');
 assert.match(runner, /mutation_requires_human_gate/);
 assert.match(runner, /RWHT_ALLOW_MUTATIONS/);
 assert.match(runner, /selector_hint/);
