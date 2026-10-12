@@ -28,6 +28,9 @@ assert.match(runner, /discoverInteractive/);
 assert.match(runner, /checkUx/);
 assert.match(runner, /horizontal_overflow/);
 assert.match(runner, /unnamed_interactive/);
+assert.match(runner, /const ariaChatCta = control\.role === 'button' && \/Hablar con ARIA\/i\.test\(label\)/);
+assert.match(runner, /getByRole\('button', \{ name: \/Hablar con ARIA\/i \}\)/);
+
 assert.match(runner, /images_missing_alt/);
 assert.match(runner, /unlabeled_inputs/);
 assert.match(runner, /controls_verified/);
@@ -186,6 +189,7 @@ assert.match(projectsWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
 assert.match(projectsWorkflow, /RWHT_ROUTES: '#projects'/);
 assert.match(projectsWorkflow, /- Deploy ARIA PWA Fast Lane/, 'Projects + ARTIA RWHT must run after the PWA release it certifies');
 assert.match(projectsWorkflow, /- Deploy ARIA APP API v3/, 'Projects + ARTIA RWHT must run after authenticated mission API deploys');
+assert.match(projectsWorkflow, /- ARIA Chat Browser RWHT Authenticated/, 'A successful authenticated Chat E2E must trigger the final sequential Projects + ARTIA proof');
 assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
 assert.match(projectsWorkflow, /RWHT_EMAIL/);
 assert.match(projectsWorkflow, /RWHT_PASSWORD/);

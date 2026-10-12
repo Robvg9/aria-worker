@@ -372,6 +372,11 @@ async function testControl(page, control, config) {
     let locator = null;
     const semanticLocator = () => {
       if (control.id) return page.locator('#' + control.id).first();
+      // This stable home CTA can serialize with an emoji-prefixed visible label,
+      // while Chromium's accessible name may omit the emoji after hydration.
+      // Match the semantic phrase rather than coupling replay to decorative glyphs.
+      const ariaChatCta = control.role === 'button' && /Hablar con ARIA/i.test(label);
+      if (ariaChatCta) return page.getByRole('button', { name: /Hablar con ARIA/i }).first();
       if (control.role && label) return page.getByRole(control.role, { name: label, exact: true }).first();
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
     };
