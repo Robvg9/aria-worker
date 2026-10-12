@@ -17,9 +17,13 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  group: aria-persistence-recovery-rwht-${{ github.sha }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: read
+  issues: write
 jobs:
   persistence-recovery-rwht:
     runs-on: ubuntu-latest
@@ -35,6 +39,12 @@ jobs:
       RWHT_ARTIFACT_DIR: persistence-recovery-rwht-artifacts
     steps:
       - uses: actions/checkout@v4
+      - name: Wait for both exact-SHA Cloudflare deployments
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: bash scripts/wait-for-exact-sha-cloudflare-deploy.sh
         with:
           fetch-depth: 0
 
