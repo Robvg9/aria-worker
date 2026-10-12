@@ -241,6 +241,9 @@ assert.ok(capabilitiesWorkflow.includes('group: aria-capabilities-rwht-${{ githu
 assert.ok(capabilitiesWorkflow.includes("expected_version=\"$(grep '^export const TEST_CATALOG_VERSION' pwa/src/testCatalog.ts | cut -d \"'\" -f 2)\""), 'Capabilities must derive expected catalog version from the checked-out source');
 assert.ok(capabilitiesWorkflow.includes("expected_total=\"$(grep -c '\"file\": \"tests/' pwa/src/testCatalog.ts)\""), 'Capabilities must derive expected catalog size from the checked-out source');
 assert.doesNotMatch(capabilitiesWorkflow, /2026-10-02-canonical|content='293'/, 'Capabilities must not pin stale catalog metadata');
+assert.ok(capabilitiesWorkflow.includes('catalog_match=false'), 'Capabilities must not default the LIVE catalog gate to passing');
+assert.ok(capabilitiesWorkflow.includes('then catalog_match=true; break; fi'), 'Capabilities must pass only after both live catalog markers match');
+assert.ok(capabilitiesWorkflow.includes('test "$catalog_match" = true'), 'Capabilities must fail if the canonical catalog does not match before timeout');
 assert.match(capabilitiesWorkflow, /CAPABILITIES_CANONICAL_TEST_CATALOG_LIVE_OK version=/, 'Capabilities must persist the exact catalog metadata it verified');
 const persistenceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
 assert.ok(persistenceWorkflow.includes('group: aria-persistence-recovery-rwht-${{ github.sha }}'), 'Persistence needs its own release-scoped group');
