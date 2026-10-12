@@ -17,6 +17,10 @@ on:
       - 'pwa/**'
       - '.github/workflows/pc-rwht.yml'
 
+concurrency:
+  group: aria-authenticated-pwa-rwht
+  cancel-in-progress: false
+
 jobs:
   contract:
     runs-on: ubuntu-latest
