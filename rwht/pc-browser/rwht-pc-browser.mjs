@@ -235,7 +235,6 @@ async function checkUx(page) {
 }
 
 async function loginIfConfigured(page, config) {
-  if (config.storage_state) return { attempted: false, status: 'storage_state' };
   const email = process.env.RWHT_EMAIL;
   const password = process.env.RWHT_PASSWORD;
   if (!email || !password) return { attempted: false, status: 'not_configured' };
