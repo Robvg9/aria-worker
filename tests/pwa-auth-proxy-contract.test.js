@@ -5,6 +5,7 @@ const html = fs.readFileSync('pwa/index.html', 'utf8');
 const workflow = fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml', 'utf8');
 const authRecoveryWorkflow = fs.readFileSync('.github/workflows/aria-supabase-auth-recovery-restart.yml', 'utf8');
 const projectsRwhtWorkflow = fs.readFileSync('.github/workflows/projects-rwht-authenticated.yml', 'utf8');
+const chatRwht = fs.readFileSync('rwht/pc-browser/rwht-chat-e2e.mjs', 'utf8');
 
 if (!authRecoveryWorkflow.includes("branches:") || !authRecoveryWorkflow.includes("      - main")) throw new Error('production Supabase restart must not be triggered from feature branches');
 if (!authRecoveryWorkflow.includes('saw_transition=true')) throw new Error('Supabase restart gate must observe the real restart transition');
@@ -62,4 +63,9 @@ if (!app.includes("fetch('/auth/token?grant_type=refresh_token'")) throw new Err
 if (!app.includes('session.expiresAt - Date.now() - 60_000')) throw new Error('session refresh scheduler missing');
 
 if (!app.includes('15000')) throw new Error('direct auth timeout missing');
-if (!app.includes('20000')) throw new Error('proxy auth timeout must be bounded at 20s');
+if (!app.includes('controller.abort(), 25000')) throw new Error('browser auth proxy timeout must leave room for the Worker 20s upstream timeout');
+if (!app.includes('function authRouteFailureLabel')) throw new Error('Auth UI must identify the failing route and safe failure class');
+if (!app.includes('Ruta Worker:') || !app.includes('ruta directa Supabase:')) throw new Error('Auth UI must distinguish Worker and direct Supabase failures');
+if (!chatRwht.includes("new URL('/auth/token?grant_type=password', workerOrigin).toString()")) throw new Error('Chat RWHT must call the root Worker /auth/token route, not /pwa/auth/token');
+if (!chatRwht.includes("route: 'worker_proxy'") || !chatRwht.includes("route: 'supabase_direct'")) throw new Error('Chat RWHT must diagnose both Auth routes separately');
+if (!chatRwht.includes("AUTH_ROUTE_DIAGNOSTICS.push(diagnostic)") || !chatRwht.includes('auth_route_diagnostics: AUTH_ROUTE_DIAGNOSTICS')) throw new Error('Chat RWHT must persist sanitized route diagnostics in its artifact');

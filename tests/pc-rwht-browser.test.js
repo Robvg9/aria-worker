@@ -185,7 +185,7 @@ assert.match(runner, /'hidden', 'password', 'file'/);
 
 
 const chatE2E = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-chat-e2e.mjs'), 'utf8');
-assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.1\.3/);
+assert.match(chatE2E, /aria-chat-rwht-e2e-v1\.1\.4/);
 assert.match(chatE2E, /Habla con ARIA/);
 assert.match(chatE2E, /aria_session_v2/);
 assert.match(chatE2E, /chat_server_conversation_id_mismatch/);
