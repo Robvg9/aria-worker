@@ -113,3 +113,5 @@ jobs:
             exit 4
           fi
           echo SUPABASE_AUTH_PATHS_RESPONSIVE
+
+# Auth/Chat recovery evidence: Worker returned HTTP 504 for password sign-in in RWHT artifact #11759912204.
