@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   issues: write
 
 concurrency:
@@ -69,10 +70,13 @@ jobs:
             echo "RWHT_STORAGE_STATE=$RUNNER_TEMP/aria-rwht-auth-state.json" >> "$GITHUB_ENV"
           fi
 
-      - name: Wait for Auth endpoints and exact-SHA deployment
+      - name: Wait for both exact-SHA production deploys
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "${RWHT_CERT_SHA}"
           key='sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw'
           base="${RWHT_URL%/}"
           version=""

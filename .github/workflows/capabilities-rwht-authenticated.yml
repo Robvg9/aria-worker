@@ -11,8 +11,13 @@ on:
       - '.github/workflows/capabilities-rwht-authenticated.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  # Isolate the authenticated capabilities run from Chat and Persistence on the same release.
+  group: aria-capabilities-rwht-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -61,6 +66,14 @@ jobs:
       - name: Install Chromium
         working-directory: rwht/pc-browser
         run: npx playwright install --with-deps chromium
+      - name: Wait for exact-SHA production deploys before Capabilities E2E
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "${GITHUB_SHA}"
+
       - name: Verify canonical test catalog on LIVE PWA
         run: |
           set -euo pipefail

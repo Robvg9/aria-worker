@@ -1,15 +1,11 @@
 name: ARIA Projects Browser RWHT Authenticated
 
 on:
-  # Run the authenticated UI E2E only after the exact release SHA finished deploying.
-  # A push-triggered test used to race the PWA deploy and certify an older LIVE build.
+  # Chat blocks until the exact Worker + PWA deployments pass (and APP API when triggered).
+  # Start Projects + ARTIA only after Chat has passed, avoiding duplicated workflow_run events
+  # racing through the same per-SHA browser certification queue.
   workflow_run:
-    # Cloudflare's merged-PR release event reports the source branch name, not main.
-    # The job below accepts only successful push-to-main or merged-PR deploys and verifies the exact LIVE SHA.
     workflows:
-      - Deploy ARIA Cloudflare Worker
-      - Deploy ARIA PWA Fast Lane
-      - Deploy ARIA APP API v3
       - ARIA Chat Browser RWHT Authenticated
     types:
       - completed

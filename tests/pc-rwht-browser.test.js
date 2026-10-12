@@ -141,6 +141,12 @@ assert.match(pcWorkflow, /RWHT_STORAGE_STATE_B64/);
 assert.match(pcWorkflow, /Load persistent authenticated browser state/);
 assert.match(pcWorkflow, /RWHT_REQUIRE_AUTH:.*RWHT_STORAGE_STATE_B64/);
 
+const deployGate = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'ci', 'wait-for-aria-exact-sha-deploys.sh'), 'utf8');
+assert.match(deployGate, /Deploy ARIA Cloudflare Worker/);
+assert.match(deployGate, /Deploy ARIA PWA Fast Lane/);
+assert.match(deployGate, /Deploy ARIA APP API v3/);
+assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS/);
+assert.match(deployGate, /head_sha/);
 const webPushWorkflow = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'),
   'utf8',
@@ -148,6 +154,11 @@ const webPushWorkflow = fs.readFileSync(
 assert.ok(webPushWorkflow.includes('if [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_B64}" ]]; then'), 'Web Push must prefer fresh credentials and use raw browser state only when a credential is missing');
 assert.ok(webPushWorkflow.includes('elif [[ ( -z "${RWHT_EMAIL}" || -z "${RWHT_PASSWORD}" ) && -n "${RWHT_STORAGE_STATE_GZIP_B64}" ]]; then'), 'Web Push must support compressed browser state only as a missing-credentials fallback');
 assert.ok(webPushWorkflow.includes('static storage-state refresh token'), 'Web Push must document why concurrent jobs cannot race on a shared rotating refresh token');
+assert.ok(webPushWorkflow.includes('group: aria-production-webpush-e2e-${{ github.sha }}'), 'Web Push must use a release-scoped concurrency group');
+assert.ok(webPushWorkflow.includes('cancel-in-progress: false'), 'Web Push must not be cancelled by a later SHA');
+assert.ok(webPushWorkflow.includes('Wait for both exact-SHA production deploys'));
+assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS=/, 'The shared deployment gate must emit a positive exact-SHA marker only after deploy success');
+assert.ok(webPushWorkflow.includes('actions: read'), 'Web Push needs read-only Actions access to gate on both deploy runs');
 
 const wranglerToml = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
 assert.match(wranglerToml, /\[placement\]/);
@@ -188,6 +199,15 @@ assert.match(chatWorkflow, /RWHT_EMAIL/);
 assert.match(chatWorkflow, /RWHT_PASSWORD/);
 assert.match(chatWorkflow, /RWHT_STORAGE_STATE_B64/);
 assert.match(chatWorkflow, /Execute authenticated Chat E2E/);
+assert.ok(chatWorkflow.includes('group: aria-chat-rwht-${{ github.sha }}'), 'Chat must not share a concurrency group with Capabilities or Persistence');
+const capabilitiesWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'capabilities-rwht-authenticated.yml'), 'utf8');
+assert.ok(capabilitiesWorkflow.includes('group: aria-capabilities-rwht-${{ github.sha }}'), 'Capabilities needs its own release-scoped group');
+const persistenceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
+assert.ok(persistenceWorkflow.includes('group: aria-persistence-recovery-rwht-${{ github.sha }}'), 'Persistence needs its own release-scoped group');
+const steps78Workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
+assert.ok(steps78Workflow.includes('Wait for both exact-SHA production deploys'));
+assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS=/, 'Steps 7–8 must depend on the shared deploy gate result');
+assert.ok(steps78Workflow.includes('actions: read'), 'Steps 7-8 must read deployment run states before browser execution');
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'App.tsx'), 'utf8');
 assert.match(appSource, /chatWindowRef/);
 assert.match(appSource, /data-testid='chat-window'/);
@@ -210,9 +230,9 @@ const projectsWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', '
 assert.match(projectsWorkflow, /ARIA Projects Browser RWHT Authenticated/);
 assert.match(projectsWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
 assert.match(projectsWorkflow, /RWHT_ROUTES: '#projects'/);
-assert.match(projectsWorkflow, /- Deploy ARIA PWA Fast Lane/, 'Projects + ARTIA RWHT must run after the PWA release it certifies');
-assert.match(projectsWorkflow, /- Deploy ARIA APP API v3/, 'Projects + ARTIA RWHT must run after authenticated mission API deploys');
-assert.match(projectsWorkflow, /- ARIA Chat Browser RWHT Authenticated/, 'A successful authenticated Chat E2E must trigger the final sequential Projects + ARTIA proof');
+assert.match(chatWorkflow, /Wait for exact-SHA production deploys before authenticated Chat/, 'Chat must only run after exact-SHA deployment gates pass');
+assert.doesNotMatch(projectsWorkflow, /^\s+- Deploy ARIA (Cloudflare Worker|PWA Fast Lane|APP API v3)$/m, 'Projects + ARTIA must not be triggered by multiple independent deploy workflows');
+assert.match(projectsWorkflow, /- ARIA Chat Browser RWHT Authenticated/, 'Only successful authenticated Chat should trigger the final sequential Projects + ARTIA proof');
 assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
 assert.match(projectsWorkflow, /RWHT_EMAIL/);
 assert.match(projectsWorkflow, /RWHT_PASSWORD/);
