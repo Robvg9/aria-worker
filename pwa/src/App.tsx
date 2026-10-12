@@ -2096,10 +2096,14 @@ function Chat({
   useEffect(() => {
     if (screen !== 1) return;
     const loadMutationVersion = chatMutationVersionRef.current;
+    const localHistory = readChatHistory(session.userId);
+    const conversationReadPath = localHistory?.conversationId
+      ? '/conversation?conversation_id=' + encodeURIComponent(localHistory.conversationId)
+      : '/conversation';
     let cancelled = false;
     (async () => {
       try {
-        const d = await api('/conversation', session.accessToken);
+        const d = await api(conversationReadPath, session.accessToken);
         const restored = Array.isArray(d?.conversation?.messages)
           ? d.conversation.messages
               .map((m: any) => ({
@@ -2115,7 +2119,6 @@ function Chat({
           setMessages(current => mergeRestoredChatMessages(restored, current));
           return;
         }
-        const localHistory = readChatHistory(session.userId);
         if (restored.length || !localHistory?.messages?.length) {
           setConversationId(serverConversationId ?? localHistory?.conversationId ?? null);
           setMessages(restored);
@@ -2169,6 +2172,7 @@ function Chat({
       text: clean + (file ? '\\n[' + file.name + ']' : '')
     };
     const activeConversationId = conversationId ?? crypto.randomUUID();
+    const activeConversationReadPath = '/conversation?conversation_id=' + encodeURIComponent(activeConversationId);
     // Persist before any upload/network/model work. Local Qwen may process
     // asynchronously for up to 150s, so the user message must survive reload
     // independently of the render/effect lifecycle.
@@ -2201,7 +2205,7 @@ function Chat({
         let recovered = false;
         while (Date.now() < deadline) {
           await new Promise(resolve => window.setTimeout(resolve, 2000));
-          const latest = await api('/conversation', session.accessToken);
+          const latest = await api(activeConversationReadPath, session.accessToken);
           const restored = Array.isArray(latest?.conversation?.messages)
             ? latest.conversation.messages
                 .map((m: any) => ({
