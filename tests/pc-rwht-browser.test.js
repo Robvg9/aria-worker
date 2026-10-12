@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.4.5/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.0/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -37,11 +37,16 @@ const meditationReplayLoop = runner.indexOf('for (let index = 0; index < maxCont
 const reopenDetailsCall = runner.indexOf('await reopenReadOnlyMeditationDetails(page, original, routeHash);', meditationReplayLoop);
 const rediscoverControls = runner.indexOf('let controlsNow = await discoverInteractive(page);', meditationReplayLoop);
 assert.ok(reopenDetailsCall > meditationReplayLoop && reopenDetailsCall < rediscoverControls, 'reopen Meditation details before rediscovering controls after reload');
-const restoreRouteCall = runner.indexOf("await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationReplayLoop);
-assert.ok(restoreRouteCall > meditationReplayLoop && restoreRouteCall < reopenDetailsCall, 'every control replay must restore the canonical route before reopening details and rediscovering controls');
-const freshDocumentReload = runner.indexOf("await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationReplayLoop);
-assert.ok(freshDocumentReload > restoreRouteCall && freshDocumentReload < reopenDetailsCall, 'force a full reload after restoring the canonical route to clear same-route modal/SPA state before replay');
-assert.ok(runner.includes('a prior safe click may navigate'), 'route replay regression must document navigation drift and restore the canonical route before replay');
+const meditationSoftReset = runner.indexOf("if (routeHash === '#meditation') {", meditationReplayLoop);
+assert.ok(meditationSoftReset > meditationReplayLoop, 'Meditation must use its own low-request reset strategy');
+const meditationRouteDrift = runner.indexOf('if (currentRouteHash !== routeHash) {', meditationSoftReset);
+const meditationCloseModal = runner.indexOf('await closeDialogs(page);', meditationSoftReset);
+const reloadAfterRouteDrift = runner.indexOf("await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationRouteDrift);
+assert.ok(meditationRouteDrift > meditationSoftReset && meditationCloseModal > meditationSoftReset && reloadAfterRouteDrift > meditationRouteDrift, 'Meditation should reload only after route drift and otherwise close read-only modals in-place');
+assert.ok(runner.includes('re-fetches /api/meditation/overview'), 'Meditation soft reset must guard against repeated overview requests and transient 503 responses');
+assert.ok(runner.includes("const requiresDynamicMeditationIdentity = routeHash === '#meditation'"), 'dynamic Meditation rows must use target-specific hydration, not position-only readiness');
+assert.ok(runner.includes('if (exact || (!requiresDynamicMeditationIdentity && controlsNow.length > index)) break;'), 'dynamic row hydration must wait for the specific control identity');
+assert.ok(reopenDetailsCall > meditationReplayLoop && reopenDetailsCall < rediscoverControls, 'reopen Meditation details before rediscovering controls');
 assert.ok(runner.includes('const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
