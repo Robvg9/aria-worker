@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.4.6/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.0/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -37,11 +37,16 @@ const meditationReplayLoop = runner.indexOf('for (let index = 0; index < maxCont
 const reopenDetailsCall = runner.indexOf('await reopenReadOnlyMeditationDetails(page, original, routeHash);', meditationReplayLoop);
 const rediscoverControls = runner.indexOf('let controlsNow = await discoverInteractive(page);', meditationReplayLoop);
 assert.ok(reopenDetailsCall > meditationReplayLoop && reopenDetailsCall < rediscoverControls, 'reopen Meditation details before rediscovering controls after reload');
-const restoreRouteCall = runner.indexOf("await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationReplayLoop);
-assert.ok(restoreRouteCall > meditationReplayLoop && restoreRouteCall < reopenDetailsCall, 'every control replay must restore the canonical route before reopening details and rediscovering controls');
-const freshDocumentReload = runner.indexOf("await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationReplayLoop);
-assert.ok(freshDocumentReload > restoreRouteCall && freshDocumentReload < reopenDetailsCall, 'force a full reload after restoring the canonical route to clear same-route modal/SPA state before replay');
-assert.ok(runner.includes('a prior safe click may navigate'), 'route replay regression must document navigation drift and restore the canonical route before replay');
+const meditationSoftReset = runner.indexOf("if (routeHash === '#meditation') {", meditationReplayLoop);
+assert.ok(meditationSoftReset > meditationReplayLoop, 'Meditation must have a route-specific soft-reset strategy');
+const meditationRouteDrift = runner.indexOf('if (currentRouteHash !== routeHash) {', meditationSoftReset);
+const meditationCloseInPlace = runner.indexOf('await closeDialogs(page);', meditationSoftReset);
+const reloadAfterRouteDrift = runner.indexOf("await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});", meditationRouteDrift);
+assert.ok(meditationRouteDrift > meditationSoftReset && meditationCloseInPlace > meditationSoftReset && reloadAfterRouteDrift > meditationRouteDrift, 'Meditation must close read-only modals in-place and reload only after route drift');
+assert.ok(runner.includes('re-fetches /api/meditation/overview'), 'Meditation row replay must avoid refetching the overview on each control');
+assert.ok(runner.includes("const requiresDynamicMeditationIdentity = routeHash === '#meditation'"), 'dynamic Meditation rows must be detected for target-specific hydration');
+assert.ok(runner.includes('if (exact || (!requiresDynamicMeditationIdentity && controlsNow.length > index)) break;'), 'dynamic row hydration must wait for the exact target instead of unrelated static controls');
+
 assert.ok(runner.includes('const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
@@ -53,7 +58,7 @@ assert.ok(closeDialogsImplementation.includes("page.locator('.modalBackdrop, [ro
 assert.ok(closeDialogsImplementation.includes("{ name: /^(cerrar|close)$/i }"), 'dialog cleanup must use an exact close-button label within the dialog');
 assert.ok(!closeDialogsImplementation.includes("page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i })"), 'dialog cleanup must not click mission rows with CANCELADA labels');
 const closeStaleModal = runner.indexOf("if (routeHash !== '#mission') await closeDialogs(page);", meditationReplayLoop);
-assert.ok(closeStaleModal > freshDocumentReload && closeStaleModal < reopenDetailsCall, 'close stale dialogs only after a full canonical-route reload and before reopening Meditation details');
+assert.ok(closeStaleModal > reloadAfterRouteDrift && closeStaleModal < reopenDetailsCall, 'on non-Meditation routes, close stale dialogs after reset and before reopening nested details');
 assert.match(runner, /mutation_requires_human_gate/);
 assert.match(runner, /RWHT_ALLOW_MUTATIONS/);
 assert.match(runner, /selector_hint/);
