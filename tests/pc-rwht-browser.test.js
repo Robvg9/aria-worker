@@ -146,6 +146,10 @@ assert.match(deployGate, /Deploy ARIA Cloudflare Worker/);
 assert.match(deployGate, /Deploy ARIA PWA Fast Lane/);
 assert.match(deployGate, /Deploy ARIA APP API v3/);
 assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS/);
+assert.match(deployGate, /RUNS_FILE/);
+assert.match(deployGate, /LIVE_GATE_PREDECESSORS/);
+assert.match(deployGate, /PREDECESSOR/);
+assert.match(deployGate, /with open\(os\.environ\[\"RUNS_FILE\"\]/);
 assert.match(deployGate, /head_sha/);
 const webPushWorkflow = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'),
@@ -232,7 +236,8 @@ assert.match(projectsWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
 assert.match(projectsWorkflow, /RWHT_ROUTES: '#projects'/);
 assert.match(chatWorkflow, /Wait for exact-SHA production deploys before authenticated Chat/, 'Chat must only run after exact-SHA deployment gates pass');
 assert.doesNotMatch(projectsWorkflow, /^\s+- Deploy ARIA (Cloudflare Worker|PWA Fast Lane|APP API v3)$/m, 'Projects + ARTIA must not be triggered by multiple independent deploy workflows');
-assert.match(projectsWorkflow, /- ARIA Chat Browser RWHT Authenticated/, 'Only successful authenticated Chat should trigger the final sequential Projects + ARTIA proof');
+assert.match(projectsWorkflow, /- ARIA PC Browser RWHT/, 'Only a successful full PC browser RWHT should trigger the final Projects + ARTIA proof');
+assert.match(projectsWorkflow, /wait-for-aria-exact-sha-deploys\.sh/, 'Projects must validate the exact-SHA deployment barrier');
 assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
 assert.match(projectsWorkflow, /RWHT_EMAIL/);
 assert.match(projectsWorkflow, /RWHT_PASSWORD/);

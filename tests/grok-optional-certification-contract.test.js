@@ -4,6 +4,11 @@ if (!text.includes('GROK_CONSENT_OPTIONAL_STATUS=$status')) throw new Error('mis
 if (!text.includes('GROK_CONSENT_EXTERNAL_BLOCKED')) throw new Error('missing external blocked classification');
 if (!text.includes('external blockage does not block the ARIA core deployment')) throw new Error('missing non-blocking policy');
 if (!text.includes('--max-time 12')) throw new Error('Grok request is not bounded');
+const optionalGrokStep = text.slice(
+  text.indexOf('- name: Smoke test Grok OAuth DCR and authorization bootstrap (optional external certification)'),
+  text.indexOf('\n      - name:', text.indexOf('- name: Smoke test Grok OAuth DCR and authorization bootstrap (optional external certification)') + 1),
+);
+if (!optionalGrokStep.includes("if: vars.ARIA_GROK_OAUTH_CERTIFY == 'true'")) throw new Error('Grok OAuth certification must remain opt-in while the external route is blocked');
 
 const worker = fs.readFileSync('worker.js', 'utf8');
 const oauthSource = fs.readFileSync('supabase/functions/aria-mcp-inbound-grok-v1/index.ts', 'utf8');

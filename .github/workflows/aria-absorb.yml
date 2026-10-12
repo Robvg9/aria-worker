@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   issues: write
 
 concurrency:
@@ -50,7 +51,7 @@ jobs:
   live-e2e:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
@@ -58,6 +59,15 @@ jobs:
       RWHT_STORAGE_STATE_B64: ${{ secrets.RWHT_STORAGE_STATE_B64 }}
     steps:
       - uses: actions/checkout@v4
+      - name: Wait for exact-SHA deploys and Web Push gate
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIVE_GATE_PREDECESSORS: "ARIA Meditation IA — Production Web Push E2E"
+        run: |
+          set -euo pipefail
+          bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "${GITHUB_SHA}"
       - uses: actions/setup-node@v4
         with:
           node-version: 24

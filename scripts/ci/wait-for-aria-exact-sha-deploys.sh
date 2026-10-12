@@ -18,22 +18,30 @@ runs_url="https://api.github.com/repos/${repo}/actions/runs?head_sha=${expected_
 worker_state="missing|"
 pwa_state="missing|"
 
-for attempt in $(seq 1 120); do
+runs_file="$(mktemp)"
+trap 'rm -f "${runs_file}"' EXIT
+
+for attempt in $(seq 1 360); do
   runs_json="$(curl --fail --silent --show-error --max-time 20 \
     -H "Authorization: Bearer ${token}" \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
     "${runs_url}")"
+  # Keep the large Actions API response on disk rather than in an environment
+  # variable: recent runs exceed ARG_MAX when passed through RUNS_JSON=...
+  printf '%s' "${runs_json}" > "${runs_file}"
 
-  deployment_states="$(RUNS_JSON="${runs_json}" EXPECTED_SHA="${expected_sha}" python - <<'PY'
+  deployment_states="$(EXPECTED_SHA="${expected_sha}" RUNS_FILE="${runs_file}" LIVE_GATE_PREDECESSORS="${LIVE_GATE_PREDECESSORS:-}" python - <<'PY'
 import json
 import os
 
-data = json.loads(os.environ["RUNS_JSON"])
+with open(os.environ["RUNS_FILE"], encoding="utf-8") as handle:
+    data = json.load(handle)
 expected = os.environ["EXPECTED_SHA"]
 required = ("Deploy ARIA Cloudflare Worker", "Deploy ARIA PWA Fast Lane")
 optional = ("Deploy ARIA APP API v3",)
 valid_events = {"push", "workflow_dispatch"}
+predecessors = [name for name in os.environ.get("LIVE_GATE_PREDECESSORS", "").split(";") if name]
 
 for name in required + optional:
     matches = [
@@ -55,12 +63,50 @@ for name in required + optional:
         + str(latest.get("status") or "missing") + "|"
         + str(latest.get("conclusion") or "")
     )
+
+for name in predecessors:
+    matches = [
+        run for run in data.get("workflow_runs", [])
+        if run.get("name") == name
+        and run.get("head_sha") == expected
+        and run.get("head_branch") == "main"
+        and run.get("event") in valid_events
+    ]
+    if not matches:
+        print("PREDECESSOR|" + name + "|missing|")
+        continue
+    latest = max(
+        matches,
+        key=lambda run: (run.get("created_at", ""), int(run.get("run_attempt", 1) or 1)),
+    )
+    print(
+        "PREDECESSOR|" + name + "|"
+        + str(latest.get("status") or "missing") + "|"
+        + str(latest.get("conclusion") or "")
+    )
 PY
   )"
 
   worker_state="$(awk -F'|' '$1=="Deploy ARIA Cloudflare Worker"{print $2 "|" $3}' <<<"${deployment_states}")"
   pwa_state="$(awk -F'|' '$1=="Deploy ARIA PWA Fast Lane"{print $2 "|" $3}' <<<"${deployment_states}")"
   echo "EXACT_SHA_DEPLOY_STATES worker=${worker_state} pwa=${pwa_state} attempt=${attempt}"
+
+  predecessors_ready=true
+  if [[ -n "${LIVE_GATE_PREDECESSORS:-}" ]]; then
+    IFS=';' read -r -a predecessor_names <<< "${LIVE_GATE_PREDECESSORS}"
+    for predecessor in "${predecessor_names[@]}"; do
+      predecessor_state="$(awk -F'|' -v name="${predecessor}" '$1=="PREDECESSOR" && $2==name {print $3 "|" $4}' <<<"${deployment_states}")"
+      echo "EXACT_SHA_PREDECESSOR_STATE name=${predecessor} state=${predecessor_state}"
+      if [[ "${predecessor_state}" == "completed|success" ]]; then
+        :
+      elif [[ "${predecessor_state}" == "completed|"* ]]; then
+        echo "::error::Required LIVE predecessor failed on ${expected_sha}: ${predecessor} ${predecessor_state}"
+        exit 1
+      else
+        predecessors_ready=false
+      fi
+    done
+  fi
 
   api_state="$(awk -F'|' '$1=="Deploy ARIA APP API v3"{print $2 "|" $3}' <<<"${deployment_states}")"
   api_ready=false
@@ -73,7 +119,7 @@ PY
   fi
   echo "EXACT_SHA_API_DEPLOY_STATE api=${api_state} ready=${api_ready}"
 
-  if [[ "${worker_state}" == "completed|success" && "${pwa_state}" == "completed|success" && "${api_ready}" == true ]]; then
+  if [[ "${worker_state}" == "completed|success" && "${pwa_state}" == "completed|success" && "${api_ready}" == true && "${predecessors_ready}" == true ]]; then
     echo "EXACT_SHA_PRODUCTION_DEPLOYS_PASS=${expected_sha}"
     exit 0
   fi
@@ -91,7 +137,7 @@ PY
     exit 1
   fi
 
-  if [[ "${attempt}" -eq 120 ]]; then
+  if [[ "${attempt}" -eq 360 ]]; then
     echo "::error::Timed out waiting for both exact-SHA production deploys (${expected_sha})"
     exit 1
   fi

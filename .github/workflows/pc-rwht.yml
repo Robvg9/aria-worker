@@ -30,13 +30,14 @@ jobs:
         with:
           node-version: 24
       - run: node tests/pc-rwht-browser.test.js
+      - run: bash -n scripts/ci/wait-for-aria-exact-sha-deploys.sh
 
   # PRs cannot certify code that is not deployed to LIVE yet. The contract job remains the PR gate.
   live-pwa:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: contract
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_HEADLESS: 'true'
@@ -73,6 +74,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE E2E"
         run: |
           set -euo pipefail
           bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "${GITHUB_SHA}"
