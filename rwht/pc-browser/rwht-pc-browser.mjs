@@ -117,6 +117,7 @@ async function discoverInteractive(page) {
       name: name.slice(0, 240),
       href: el instanceof HTMLAnchorElement ? el.href : null,
       type: el.getAttribute('type') || null,
+      class_name: String(el.getAttribute('class') || '').slice(0, 120),
       disabled: Boolean(el.disabled),
       visible: Boolean(rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden'),
       box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
@@ -326,8 +327,21 @@ async function isBattleCruiserExternalAuthField(page, control, label) {
   );
 }
 
+function isSafeReadOnlyMeditationAction(control, routeHash, label) {
+  if (routeHash !== '#meditation' || control.tag !== 'button') return false;
+  // The ideas CTA opens a modal only; it does not create or execute a mission.
+  if (/^Ver ideas y crear misión$/i.test(label)) return true;
+  // History/blocked/verification rows call openMission(mission_id). Their
+  // accessible labels include stored mission instructions, which can contain
+  // mutation verbs unrelated to the action performed by this read-only button.
+  const classes = String(control.class_name || '').split(/\s+/);
+  return classes.includes('row') && String(control.selector_hint || '').includes('details');
+}
+
 async function testControl(page, control, config) {
   const label = safeLabel(control.name);
+  const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
+  const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);
   if (!control.visible || control.disabled) {
     return { outcome: 'skipped', reason: control.visible ? 'disabled' : 'not_visible' };
   }
@@ -354,13 +368,13 @@ async function testControl(page, control, config) {
     };
   }
 
-  if (SAFE_BLOCKED.test(label)) {
+  if (SAFE_BLOCKED.test(label) && !safeReadOnlyAction) {
     return { outcome: 'blocked', reason: 'high_risk_control', label };
   }
   if (config.require_auth && !config.auth_configured && LOGIN_CONTROL.test(label)) {
     return { outcome: 'blocked', reason: 'authentication_human_gate', label };
   }
-  if (!config.allow_mutations && SAFE_MUTATION.test(label)) {
+  if (!config.allow_mutations && SAFE_MUTATION.test(label) && !safeReadOnlyAction) {
     return { outcome: 'blocked', reason: 'mutation_requires_human_gate', label };
   }
 
@@ -837,9 +851,10 @@ async function auditRoute(page, url, routeIndex, config) {
     const externalNavigation = original.role === 'link' && Boolean(original.href) && (() => {
       try { return new URL(original.href).origin !== routeOrigin; } catch { return false; }
     })();
+    const safeReadOnlyAction = isSafeReadOnlyMeditationAction(original, routeHash, originalLabel);
     const preblocked = externalNavigation
-      || SAFE_BLOCKED.test(originalLabel)
-      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SAFE_BLOCKED.test(originalLabel) && !safeReadOnlyAction)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel) && !safeReadOnlyAction)
       || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
     if (preblocked) {
       const outcome = await testControl(page, original, config);
