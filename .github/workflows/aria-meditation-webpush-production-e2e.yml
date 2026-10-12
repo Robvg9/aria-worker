@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: aria-production-webpush-e2e-v3
-  cancel-in-progress: true
+  group: aria-authenticated-pwa-rwht
+  cancel-in-progress: false
 
 jobs:
   webpush_e2e:
