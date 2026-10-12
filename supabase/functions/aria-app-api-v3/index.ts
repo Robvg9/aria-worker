@@ -1845,9 +1845,30 @@ Deno.serve(async (req) => {
     }
     if (req.method === "GET" && path.endsWith("/conversation") && !path.includes("/projects/")) {
       const sb = serviceClient();
-      // Global chat lookup uses a bounded security-definer RPC that returns only
-      // the latest global conversation. Listing every historical conversation can
-      // exceed the Edge Function latency budget on large histories.
+      const conversationUrl = new URL(req.url);
+      const requestedConversationId = conversationUrl.searchParams.get("conversation_id")?.trim() || null;
+
+      // A chat client that already has an active conversation must read that exact
+      // owner-scoped conversation on reload and while polling an asynchronous reply.
+      // Falling back to the global "latest" conversation can silently return another
+      // tab's/older conversation even after this request's own messages were persisted.
+      if (requestedConversationId) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedConversationId)) {
+          return json({ error: "conversation_id_invalid", trace_id: trace }, 400);
+        }
+        const payload = await sb.rpc("aria_app_get_conversation", {
+          p_user_id: user.id,
+          p_conversation_id: requestedConversationId
+        });
+        if (payload.error) return json({ error: "conversation_read_failed", trace_id: trace }, 502);
+        if (!payload.data || typeof payload.data !== "object") {
+          return json({ error: "conversation_not_found", trace_id: trace }, 404);
+        }
+        return json({ ok: true, conversation_id: requestedConversationId, conversation: payload.data, trace_id: trace });
+      }
+
+      // Without an explicit active ID, preserve the bounded global lookup for
+      // opening Chat without any local conversation history.
       const lookup = await sb.rpc("aria_app_get_global_conversation", { p_user_id: user.id });
       if (lookup.error) return json({ error: "conversation_lookup_failed", trace_id: trace }, 502);
       const row = lookup.data && typeof lookup.data === "object" ? lookup.data : null;
