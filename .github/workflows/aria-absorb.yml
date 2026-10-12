@@ -65,6 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DEPLOY_EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          LIVE_GATE_PREDECESSORS: "ARIA Meditation IA — Production Web Push E2E"
         run: bash scripts/wait-for-exact-sha-cloudflare-deploy.sh
       - uses: actions/setup-node@v4
         with:
