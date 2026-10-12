@@ -306,7 +306,7 @@ async function waitForDialogDismissal(page, timeoutMs = 2500) {
       const style = getComputedStyle(element);
       return rect.width > 0 && rect.height > 0 &&
         style.display !== 'none' && style.visibility !== 'hidden' &&
-        style.pointerEvents !== 'none' && Number(style.opacity || 1) > 0.02;
+        style.pointerEvents !== 'none';
     };
     return ![...document.querySelectorAll('.modalBackdrop, [role="dialog"], dialog[open]')]
       .some(visibleAndBlocking);
