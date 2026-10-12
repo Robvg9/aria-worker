@@ -36,6 +36,14 @@ assert.match(settingsRwht,/page\.waitForNavigation\(\{ waitUntil: 'domcontentloa
 assert.match(settingsRwht,/authRequestDiagnostics\.push\(/);
 assert.match(settingsRwht,/has_password: typeof body\.password === 'string'/);
 
+assert.match(settingsRwht,/const consoleDiagnostics = \\[\\]/);
+assert.match(settingsRwht,/response\\.auth_error !== 'missing email or phone'/);
+assert.match(settingsRwht,/!request\\.has_email && !request\\.has_phone && request\\.has_password/);
+assert.match(settingsRwht,/expectedAuthFallbackResponseIndexes\\.size > 0/);
+assert.match(settingsRwht,/expectedAuthConsoleBudget > 0/);
+assert.match(settingsRwht,/const unexpectedResponses = responseDiagnostics\\.filter\\(x => x\\.status >= 500\\)/);
+assert.match(settingsRwht,/evidence\\.checks\\.console_diagnostics = consoleDiagnostics\\.slice\\(-40\\)/);
+
 console.log('CONFIG SETTINGS CONTRACT: PASS');
 assert.match(app,/Actualizar app/);
 assert.match(app,/caches.keys()/);
