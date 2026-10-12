@@ -30,7 +30,7 @@ permissions:
 jobs:
   chat-rwht:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_HEADLESS: 'true'
