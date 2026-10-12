@@ -157,7 +157,7 @@ assert.ok(webPushWorkflow.includes('static storage-state refresh token'), 'Web P
 assert.ok(webPushWorkflow.includes('group: aria-production-webpush-e2e-${{ github.sha }}'), 'Web Push must use a release-scoped concurrency group');
 assert.ok(webPushWorkflow.includes('cancel-in-progress: false'), 'Web Push must not be cancelled by a later SHA');
 assert.ok(webPushWorkflow.includes('Wait for both exact-SHA production deploys'));
-assert.ok(webPushWorkflow.includes('EXACT_SHA_PRODUCTION_DEPLOYS_PASS='));
+assert.match(deployGate, /EXACT_SHA_PRODUCTION_DEPLOYS_PASS=/, 'The shared deployment gate must emit a positive exact-SHA marker only after deploy success');
 assert.ok(webPushWorkflow.includes('actions: read'), 'Web Push needs read-only Actions access to gate on both deploy runs');
 
 const wranglerToml = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
