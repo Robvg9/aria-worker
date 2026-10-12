@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.2';
+const VERSION = 'aria-pc-browser-rwht-v1.4.3';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -336,6 +336,32 @@ function isSafeReadOnlyMeditationAction(control, routeHash, label) {
   // mutation verbs unrelated to the action performed by this read-only button.
   const classes = String(control.class_name || '').split(/\s+/);
   return (classes.includes('row') || classes.includes('queueMissionMain')) && String(control.selector_hint || '').includes('details');
+}
+
+
+async function reopenReadOnlyMeditationDetails(page, control, routeHash) {
+  if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;
+  const classes = String(control.class_name || '').split(/\\s+/);
+  const isReadOnlyRow =
+    (classes.includes('row') || classes.includes('queueMissionMain')) &&
+    String(control.selector_hint || '').includes('details');
+  if (!isReadOnlyRow) return 0;
+
+  // Reload resets native <details> elements to closed. Open them before
+  // rediscoverInteractive() so safe history/blocked-row buttons are visible
+  // again and can be matched by their mission identity instead of stale position.
+  const opened = await page.locator('details').evaluateAll((elements) => {
+    let count = 0;
+    for (const element of elements) {
+      if (!element.open) {
+        element.open = true;
+        count += 1;
+      }
+    }
+    return count;
+  }).catch(() => 0);
+  if (opened > 0) await page.waitForTimeout(100).catch(() => {});
+  return opened;
 }
 
 async function testControl(page, control, config) {
@@ -765,10 +791,13 @@ async function auditRoute(page, url, routeIndex, config) {
 
   const maxControls = Math.min(initialControls.length, config.max_controls_per_route);
   for (let index = 0; index < maxControls; index += 1) {
+    const original = initialControls[index];
+    const originalLabel = safeLabel(original.name);
     // Force a genuinely fresh SPA state before each control. Reusing the same
     // hash URL does not guarantee React state (modals/accordions) is reset.
     await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
     await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+    await reopenReadOnlyMeditationDetails(page, original, routeHash);
 
     if (routeHash === '#capabilities') {
       const summaryTab = page.getByRole('button', { name: 'Resumen', exact: true }).first();
@@ -779,7 +808,6 @@ async function auditRoute(page, url, routeIndex, config) {
     }
 
     let controlsNow = await discoverInteractive(page);
-    const original = initialControls[index];
     // Controls backed by async mission/chat/meditation data can appear after the
     // route surface itself is visible. Give the same route a short deterministic
     // hydration window before declaring the snapshot unreproducible.
@@ -795,7 +823,6 @@ async function auditRoute(page, url, routeIndex, config) {
       await page.waitForTimeout(350);
       controlsNow = await discoverInteractive(page);
     }
-    const originalLabel = safeLabel(original.name);
     // The selected BattleCruiser project can legitimately reset on a fresh reload.
     // Its credentials/submit action remain a human gate and must not become a false
     // "control_not_reproducible" failure merely because the project selection changed.
