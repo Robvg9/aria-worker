@@ -210,9 +210,8 @@ const projectsWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', '
 assert.match(projectsWorkflow, /ARIA Projects Browser RWHT Authenticated/);
 assert.match(projectsWorkflow, /RWHT_REQUIRE_AUTH: 'true'/);
 assert.match(projectsWorkflow, /RWHT_ROUTES: '#projects'/);
-assert.match(projectsWorkflow, /- Deploy ARIA PWA Fast Lane/, 'Projects + ARTIA RWHT must run after the PWA release it certifies');
-assert.match(projectsWorkflow, /- Deploy ARIA APP API v3/, 'Projects + ARTIA RWHT must run after authenticated mission API deploys');
-assert.match(projectsWorkflow, /- ARIA Chat Browser RWHT Authenticated/, 'A successful authenticated Chat E2E must trigger the final sequential Projects + ARTIA proof');
+assert.match(projectsWorkflow, /- ARIA PC Browser RWHT/, 'Projects + ARTIA RWHT must run after the full PC browser regression');
+assert.match(projectsWorkflow, /wait-for-exact-sha-cloudflare-deploy\.sh/, 'Projects + ARTIA must wait for both exact-SHA Cloudflare deployments');
 assert.match(projectsWorkflow, /Execute authenticated Projects \+ ARTIA E2E/);
 assert.match(projectsWorkflow, /RWHT_EMAIL/);
 assert.match(projectsWorkflow, /RWHT_PASSWORD/);
