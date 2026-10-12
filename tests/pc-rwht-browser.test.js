@@ -30,11 +30,11 @@ assert.match(runner, /horizontal_overflow/);
 assert.match(runner, /unnamed_interactive/);
 assert.match(runner, /const ariaChatCta = control\.role === 'button' && \/Hablar con ARIA\/i\.test\(label\)/);
 assert.match(runner, /getByRole\('button', \{ name: \/Hablar con ARIA\/i \}\)/);
-const projectsWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
-const steps78Workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
-const pcWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'), 'utf8');
-const webPushWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'), 'utf8');
-for (const workflow of [projectsWorkflow, steps78Workflow, pcWorkflow, webPushWorkflow]) {
+const projectsSerializedWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
+const steps78SerializedWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
+const pcSerializedWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'), 'utf8');
+const webPushSerializedWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'), 'utf8');
+for (const workflow of [projectsSerializedWorkflow, steps78SerializedWorkflow, pcSerializedWorkflow, webPushSerializedWorkflow]) {
   assert.match(workflow, /group: aria-authenticated-pwa-rwht/);
   assert.match(workflow, /cancel-in-progress: false/);
 }
