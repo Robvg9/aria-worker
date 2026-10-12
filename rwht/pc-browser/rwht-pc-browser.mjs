@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.6';
+const VERSION = 'aria-pc-browser-rwht-v1.5.0';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -800,16 +800,31 @@ async function auditRoute(page, url, routeIndex, config) {
   for (let index = 0; index < maxControls; index += 1) {
     const original = initialControls[index];
     const originalLabel = safeLabel(original.name);
-    // Restore the canonical URL first because a prior safe click may navigate
-    // (for example, Meditation's "Nueva misión" opens #mission). Then force a full
-    // document reload even when the URL already matches, clearing modal/SPA state
-    // that can otherwise intercept the next control after an apparently same-URL goto.
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
-    await page.waitForTimeout(Math.min(config.settle_ms, 1500));
-    // Do not use a page-wide "cancel" selector: mission status labels may say
-    // CANCELADA. Only dismiss an actual visible modal with an exact close label.
-    if (routeHash !== '#mission') await closeDialogs(page);
+    const currentRouteHash = (new URL(page.url()).hash || '#home').split('?')[0];
+    if (routeHash === '#meditation') {
+      // Keep the authenticated overview hydrated while probing read-only mission
+      // rows. Reloading before every row re-fetches /api/meditation/overview, can
+      // produce transient 503s, and can hide dynamic controls until their data loads.
+      if (currentRouteHash !== routeHash) {
+        // A safe control (for example "Nueva misión") may navigate away. Return to
+        // the canonical route and do a full reload only when route drift is real.
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+        await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+      } else {
+        // Dismiss only an actual visible modal/dialog; preserve live overview state.
+        await closeDialogs(page);
+        await page.waitForTimeout(Math.min(config.settle_ms, 300));
+      }
+    } else {
+      // Other routes retain the full reset so stale SPA/dialog state cannot
+      // intercept subsequent controls (especially Projects and ARTIA).
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: config.navigation_timeout_ms }).catch(() => {});
+      await page.waitForTimeout(Math.min(config.settle_ms, 1500));
+      // Never search the page for "cancel": mission rows can contain CANCELADA.
+      if (routeHash !== '#mission') await closeDialogs(page);
+    }
     await reopenReadOnlyMeditationDetails(page, original, routeHash);
 
     if (routeHash === '#capabilities') {
@@ -821,10 +836,14 @@ async function auditRoute(page, url, routeIndex, config) {
     }
 
     let controlsNow = await discoverInteractive(page);
-    // Controls backed by async mission/chat/meditation data can appear after the
-    // route surface itself is visible. Give the same route a short deterministic
-    // hydration window before declaring the snapshot unreproducible.
+    // Server-backed Meditation rows need their own identity to reappear. Do not
+    // stop because unrelated static controls are already present on the page.
     const targetLabel = safeLabel(original.name);
+    const originalClasses = String(original.class_name || '').split(/\s+/);
+    const requiresDynamicMeditationIdentity = routeHash === '#meditation' &&
+      original.tag === 'button' &&
+      (originalClasses.includes('row') || originalClasses.includes('queueMissionMain')) &&
+      String(original.selector_hint || '').includes('details');
     const reproductionDeadline = Date.now() + Math.min(10000, Math.max(2500, config.action_timeout_ms + 2500));
     while (Date.now() < reproductionDeadline) {
       const exact = controlsNow.find((control) =>
@@ -832,7 +851,7 @@ async function auditRoute(page, url, routeIndex, config) {
         (original.role && control.role === original.role && control.name === original.name && control.href === original.href && control.tag === original.tag) ||
         (targetLabel && control.name === targetLabel)
       );
-      if (exact || controlsNow.length > index) break;
+      if (exact || (!requiresDynamicMeditationIdentity && controlsNow.length > index)) break;
       await page.waitForTimeout(350);
       controlsNow = await discoverInteractive(page);
     }
