@@ -104,18 +104,18 @@ jobs:
                     str(latest.get("conclusion") or ""))
           PY
             )"
-            worker_state="$(awk -F'\\t' '$1=="Deploy ARIA Cloudflare Worker"{print $2 "|" $3}' <<<"${deployment_states}")"
-            pwa_state="$(awk -F'\\t' '$1=="Deploy ARIA PWA Fast Lane"{print $2 "|" $3}' <<<"${deployment_states}")"
+            worker_state="$(awk -F'|' '$1=="Deploy ARIA Cloudflare Worker"{print $2 "|" $3}' <<<"${deployment_states}")"
+            pwa_state="$(awk -F'|' '$1=="Deploy ARIA PWA Fast Lane"{print $2 "|" $3}' <<<"${deployment_states}")"
             echo "EXACT_SHA_DEPLOY_STATES worker=${worker_state} pwa=${pwa_state} attempt=${attempt}"
             if [[ "${worker_state}" == "completed|success" && "${pwa_state}" == "completed|success" ]]; then
               echo "EXACT_SHA_PRODUCTION_DEPLOYS_PASS=${RWHT_CERT_SHA}"
               break
             fi
-            if [[ "${worker_state}" == completed\\|* && "${worker_state}" != "completed|success" ]]; then
+            if [[ "${worker_state}" == "completed|"* && "${worker_state}" != "completed|success" ]]; then
               echo "::error::Deploy ARIA Cloudflare Worker ended non-success on ${RWHT_CERT_SHA}: ${worker_state}"
               exit 1
             fi
-            if [[ "${pwa_state}" == completed\\|* && "${pwa_state}" != "completed|success" ]]; then
+            if [[ "${pwa_state}" == "completed|"* && "${pwa_state}" != "completed|success" ]]; then
               echo "::error::Deploy ARIA PWA Fast Lane ended non-success on ${RWHT_CERT_SHA}: ${pwa_state}"
               exit 1
             fi
