@@ -34,8 +34,8 @@ assert.ok(runner.includes("const textFallback = page.locator('.dashboardScreen b
 assert.ok(runner.includes(".filter({ hasText: /Hablar\\s+con\\s+ARIA/i })"), 'Chat CTA text fallback must match the stable semantic phrase');
 assert.ok(runner.indexOf("const ariaChatCta = control.role === 'button'") < runner.indexOf("const semanticLocator = () =>"), 'Chat CTA detection must be in scope for both semantic and fallback locators');
 const authVerification = runner.slice(runner.indexOf('async function verifyAuthState'), runner.indexOf('async function waitForPwaBoot'));
-assert.ok(authVerification.includes("page.locator('form.authCard input[type=\\"password\\"]')"), 'PC auth verification must ignore BattleCruiser project password fields');
-assert.ok(!authVerification.includes("page.locator('input[type=\\"password\\"]')"), 'PC auth verification must not scan document-wide password fields');
+assert.ok(authVerification.includes(`page.locator('form.authCard input[type="password"]')`), 'PC auth verification must ignore BattleCruiser project password fields');
+assert.ok(!authVerification.includes(`page.locator('input[type="password"]')`), 'PC auth verification must not scan document-wide password fields');
 
 assert.match(runner, /images_missing_alt/);
 assert.match(runner, /unlabeled_inputs/);
