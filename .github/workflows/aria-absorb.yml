@@ -51,7 +51,7 @@ jobs:
   live-e2e:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
