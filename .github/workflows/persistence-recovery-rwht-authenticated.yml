@@ -16,6 +16,10 @@ on:
       - 'pwa/src/.rwht-persistence-recovery-trigger.ts'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   # Isolate persistence verification from Chat and Capabilities on the same release.
   group: aria-persistence-recovery-rwht-${{ github.sha }}
@@ -43,10 +47,13 @@ jobs:
         with:
           node-version: 24
 
-      - name: Wait for PWA LIVE build
+      - name: Wait for exact-SHA deployments + PWA LIVE build
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "${GITHUB_SHA}"
           base="${RWHT_URL%/}/"
           version=""
           for attempt in $(seq 1 60); do
