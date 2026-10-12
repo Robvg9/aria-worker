@@ -143,7 +143,9 @@ jobs:
           # not just the download, and keep the gate strict on exact SHA and code.
           for attempt in $(seq 1 20); do
             worker_url="${base}sw-${GITHUB_SHA}.js?probe=${GITHUB_SHA}-sw-syntax-${attempt}-$(date +%s)"
-            http_status="$(curl --silent --show-error --max-time 20 --retry 1 --retry-delay 1 \
+            : > "${headers_file}"
+            : > "${worker_file}"
+            http_status="$(curl --silent --show-error --connect-timeout 5 --max-time 12 --retry 1 --retry-delay 1 \
               -D "${headers_file}" -o "${worker_file}" -w '%{http_code}' "${worker_url}" 2>"${RUNNER_TEMP}/aria-sw-curl.txt" || true)"
             content_type="$(awk 'BEGIN { IGNORECASE=1 } /^content-type:/ { sub(/^[^:]*:[[:space:]]*/, ""); gsub(/\r/, ""); value=$0 } END { print value }' "${headers_file}" 2>/dev/null || true)"
             sha_marker=false
