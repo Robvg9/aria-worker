@@ -10,6 +10,7 @@ on:
       - Deploy ARIA Cloudflare Worker
       - Deploy ARIA PWA Fast Lane
       - Deploy ARIA APP API v3
+      - ARIA Chat Browser RWHT Authenticated
     types:
       - completed
   workflow_dispatch:
