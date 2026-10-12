@@ -157,6 +157,10 @@ assert.match(project,/const projectChatWriteInFlightRef=useRef\(false\)/,'a new 
 assert.ok(project.includes("!options.quiet&&!projectChatWriteInFlightRef.current"), 'transient conversation read errors are suppressed only during an active chat write');
 assert.ok(project.includes("if(!clean||sending||projectChatWriteInFlightRef.current)return;"), 'chat send is idempotently guarded against overlapping submissions');
 assert.ok(project.includes("finally{projectChatWriteInFlightRef.current=false;setSending(false)}"), 'chat write state is always released');
+assert.match(project,/const isProjectConversationRead=method==='GET'&&path\.startsWith\('\/projects\/'\)&&path\.endsWith\('\/conversation'\)/,'project conversation reads need a separate latency budget');
+assert.match(project,/const isProjectChatWrite=method==='POST'&&path==='\/conversation'/,'project chat writes need a separate latency budget');
+assert.match(project,/isProjectConversationRead\?75000/,'project conversation history reads must not abort at 12s when authenticated LIVE reads return in ~45–60s');
+assert.match(project,/isProjectChatWrite\?120000/,'project chat POST must wait for the canonical server acknowledgement before reporting a client-side failure');
 assert.ok(project.includes("readGeneration!==projectChatReadGenerationRef.current"), 'a stale chat read must not overwrite a later send or project selection');
 assert.ok(project.includes("projectChatReadGenerationRef.current+=1;"), 'sending a new turn must invalidate older conversation reads');
 assert.ok(project.includes("projectChatLoadRef.current?.promise===promise"), 'an older load must not clear a newer in-flight read');
