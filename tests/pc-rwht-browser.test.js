@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const runner = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-pc-browser.mjs'), 'utf8');
 const pwaIndex = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'index.html'), 'utf8');
+const pwaFastDeploy = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-fast-deploy.yml'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'package.json'), 'utf8'));
 const missionRunnerFixes = fs.readFileSync(
   path.join(__dirname, '..', 'supabase', 'functions', 'aria-mission-runner-v22', 'forensic-continuity-fixes.ts'),
@@ -56,6 +57,13 @@ assert.ok(runner.includes('if (!safeReadOnlyAction) await closeDialogs(page)'));
 const closeDialogsImplementation = runner.slice(runner.indexOf('async function closeDialogs'), runner.indexOf('async function isBattleCruiserExternalAuthField'));
 assert.ok(closeDialogsImplementation.includes("page.locator('.modalBackdrop, [role=\"dialog\"], dialog[open]')"), 'dialog cleanup must be scoped to actual visible dialog surfaces');
 assert.ok(closeDialogsImplementation.includes("{ name: /^(cerrar|close)$/i }"), 'dialog cleanup must use an exact close-button label within the dialog');
+const serviceWorkerDeploy = pwaFastDeploy.slice(pwaFastDeploy.indexOf('name: Verify deployed versioned Service Worker JavaScript'));
+assert.ok(serviceWorkerDeploy.includes('for attempt in $(seq 1 15); do'), 'versioned Service Worker LIVE smoke must retry transient edge propagation');
+assert.ok(serviceWorkerDeploy.includes("grep -qiE '^content-type: *application/javascript'"), 'Service Worker smoke must require JavaScript content type');
+assert.ok(serviceWorkerDeploy.includes('aria-pwa-${GITHUB_SHA}'), 'Service Worker smoke must require exact-SHA payload');
+assert.ok(serviceWorkerDeploy.includes("! grep -qiE '<!doctype html|<html([ >])'"), 'Service Worker smoke must hard-reject SPA HTML fallback');
+assert.ok(serviceWorkerDeploy.includes('node --check "${worker_file}"'), 'Service Worker smoke must syntax-check the fetched JS before PASS');
+assert.ok(serviceWorkerDeploy.includes('::error::Versioned Service Worker did not become valid JavaScript'), 'Service Worker smoke must fail if retry budget expires');
 assert.ok(!closeDialogsImplementation.includes("page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i })"), 'dialog cleanup must not click mission rows with CANCELADA labels');
 const closeStaleModal = runner.indexOf("if (routeHash !== '#mission') await closeDialogs(page);", meditationReplayLoop);
 assert.ok(closeStaleModal > reloadAfterRouteDrift && closeStaleModal < reopenDetailsCall, 'on non-Meditation routes, close stale dialogs after reset and before reopening nested details');
