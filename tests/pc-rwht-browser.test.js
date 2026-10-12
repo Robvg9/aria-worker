@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.4.1/);
+assert.match(runner, /aria-pc-browser-rwht-v1.4.2/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -25,6 +25,15 @@ assert.match(runner, /external_integration_auth_requires_human_gate/);
 assert.match(runner, /external_backend_connection/);
 assert.match(runner, /SECRET/);
 assert.match(runner, /SAFE_MUTATION/);
+assert.ok(runner.includes("class_name: String(el.getAttribute('class') || '').slice(0, 120)"));
+assert.ok(runner.includes('function isSafeReadOnlyMeditationAction(control, routeHash, label)'));
+assert.ok(runner.includes('isSafeReadOnlyMeditationAction(original, routeHash, originalLabel)'));
+assert.ok(runner.includes('const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);'));
+assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, label)'));
+assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
+assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction)'));
+assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
+assert.ok(runner.includes('if (!safeReadOnlyAction) await closeDialogs(page)'));
 assert.match(runner, /mutation_requires_human_gate/);
 assert.match(runner, /RWHT_ALLOW_MUTATIONS/);
 assert.match(runner, /selector_hint/);
@@ -64,7 +73,8 @@ assert.match(runner, /external_preview_failed_responses/);
 assert.match(runner, /response\.status\(\) < 400/);
 assert.match(runner, /dynamicDiagnosticSnapshot/);
 assert.match(runner, /do not count it twice on replay/);
-assert.match(runner, /outcome\.reason === 'server_backed_dynamic_diagnostic_not_reproducible'/);
+assert.match(runner, /outcome\.outcome === 'skipped' && !wasInitiallySkipped/);
+assert.equal(runner.split("outcome.outcome === 'skipped' && !wasInitiallySkipped").length - 1, 2, 'Skipped replay outcomes must update counters in both control paths.');
 assert.match(runner, /controls_testable = Math\.max\(0, routeResult\.controls_testable - 1\)/);
 assert.match(runner, /cerrar\\s\+\(\?:la\\s\+\)\?conexión/);
 assert.match(runner, /externalNavigation/);
@@ -115,6 +125,7 @@ assert.ok(projectsRwhtWorkflow.includes('test "$catalog_match" = true'));
 assert.match(pcRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
 assert.match(pcRwhtWorkflow, /catalog_match=false/);
 assert.ok(pcRwhtWorkflow.includes('test "$catalog_match" = true'));
+assert.ok(pcRwhtWorkflow.includes('node --check rwht/pc-browser/rwht-pc-browser.mjs'));
 assert.match(pcRwhtWorkflow, /json.loads\(os.environ\["VERSION"\]\)\["build"\] == os.environ\["EXPECTED"\]/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.1';
+const VERSION = 'aria-pc-browser-rwht-v1.4.2';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -117,6 +117,7 @@ async function discoverInteractive(page) {
       name: name.slice(0, 240),
       href: el instanceof HTMLAnchorElement ? el.href : null,
       type: el.getAttribute('type') || null,
+      class_name: String(el.getAttribute('class') || '').slice(0, 120),
       disabled: Boolean(el.disabled),
       visible: Boolean(rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden'),
       box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
@@ -326,8 +327,21 @@ async function isBattleCruiserExternalAuthField(page, control, label) {
   );
 }
 
+function isSafeReadOnlyMeditationAction(control, routeHash, label) {
+  if (routeHash !== '#meditation' || control.tag !== 'button') return false;
+  // The ideas CTA opens a modal only; it does not create or execute a mission.
+  if (/^Ver ideas y crear misión$/i.test(label)) return true;
+  // History/blocked/verification rows call openMission(mission_id). Their
+  // accessible labels include stored mission instructions, which can contain
+  // mutation verbs unrelated to the action performed by this read-only button.
+  const classes = String(control.class_name || '').split(/\s+/);
+  return (classes.includes('row') || classes.includes('queueMissionMain')) && String(control.selector_hint || '').includes('details');
+}
+
 async function testControl(page, control, config) {
   const label = safeLabel(control.name);
+  const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
+  const safeReadOnlyAction = isSafeReadOnlyMeditationAction(control, routeHash, label);
   if (!control.visible || control.disabled) {
     return { outcome: 'skipped', reason: control.visible ? 'disabled' : 'not_visible' };
   }
@@ -354,13 +368,13 @@ async function testControl(page, control, config) {
     };
   }
 
-  if (SAFE_BLOCKED.test(label)) {
+  if (SAFE_BLOCKED.test(label) && !safeReadOnlyAction) {
     return { outcome: 'blocked', reason: 'high_risk_control', label };
   }
   if (config.require_auth && !config.auth_configured && LOGIN_CONTROL.test(label)) {
     return { outcome: 'blocked', reason: 'authentication_human_gate', label };
   }
-  if (!config.allow_mutations && SAFE_MUTATION.test(label)) {
+  if (!config.allow_mutations && SAFE_MUTATION.test(label) && !safeReadOnlyAction) {
     return { outcome: 'blocked', reason: 'mutation_requires_human_gate', label };
   }
 
@@ -543,7 +557,9 @@ async function testControl(page, control, config) {
     await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
-    await closeDialogs(page);
+    // Keep safe navigation modals open long enough to verify their effect; the next
+    // iteration reloads the route before testing another control.
+    if (!safeReadOnlyAction) await closeDialogs(page);
 
     const afterUrl = page.url();
     const afterTitle = await page.title();
@@ -713,7 +729,7 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_testable: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
       const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
-      return control.visible && !control.disabled && !dynamicMission && !dynamicQueueOpen;
+      return control.visible && !control.disabled && ((!dynamicMission && !dynamicQueueOpen) || isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
     }).length,
     controls_verified: 0,
     controls_blocked: 0,
@@ -721,7 +737,7 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_skipped: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
       const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
-      return !control.visible || control.disabled || dynamicMission || dynamicQueueOpen;
+      return !control.visible || control.disabled || ((dynamicMission || dynamicQueueOpen) && !isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
     }).length,
     ux,
     login,
@@ -804,7 +820,12 @@ async function auditRoute(page, url, routeIndex, config) {
     const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
     const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
     const dynamicQueueSnapshot = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(originalLabel);
-    if (dynamicMissionSnapshot || dynamicQueueSnapshot) {
+    // Initial hidden/disabled controls and unsafe dynamic snapshots were already
+    // included in controls_skipped. A control that becomes disabled only after
+    // reload must be counted here and removed from the testable denominator.
+    const safeReadOnlyAction = isSafeReadOnlyMeditationAction(original, routeHash, originalLabel);
+    const wasInitiallySkipped = !original.visible || original.disabled || ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction);
+    if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction) {
       routeResult.actions.push({
         control: original,
         outcome: 'skipped',
@@ -834,8 +855,8 @@ async function auditRoute(page, url, routeIndex, config) {
       try { return new URL(original.href).origin !== routeOrigin; } catch { return false; }
     })();
     const preblocked = externalNavigation
-      || SAFE_BLOCKED.test(originalLabel)
-      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel))
+      || (SAFE_BLOCKED.test(originalLabel) && !safeReadOnlyAction)
+      || (!config.allow_mutations && SAFE_MUTATION.test(originalLabel) && !safeReadOnlyAction)
       || (SECRET.test(originalLabel) && ['input', 'textarea', 'select'].includes(original.tag));
     if (preblocked) {
       const outcome = await testControl(page, original, config);
@@ -843,7 +864,7 @@ async function auditRoute(page, url, routeIndex, config) {
       if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
       else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
       else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
-      else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+      else if (outcome.outcome === 'skipped' && !wasInitiallySkipped) {
         routeResult.controls_skipped += 1;
         routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
       }
@@ -927,7 +948,7 @@ async function auditRoute(page, url, routeIndex, config) {
     if (outcome.outcome === 'verified') routeResult.controls_verified += 1;
     else if (outcome.outcome === 'blocked') routeResult.controls_blocked += 1;
     else if (outcome.outcome === 'failed') routeResult.controls_failed += 1;
-    else if (outcome.outcome === 'skipped' && outcome.reason === 'server_backed_dynamic_diagnostic_not_reproducible') {
+    else if (outcome.outcome === 'skipped' && !wasInitiallySkipped) {
       routeResult.controls_skipped += 1;
       routeResult.controls_testable = Math.max(0, routeResult.controls_testable - 1);
     }
