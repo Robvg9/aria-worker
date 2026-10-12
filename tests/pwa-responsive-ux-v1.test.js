@@ -29,6 +29,8 @@ assert.match(css,/@media\(max-width:900px\)/);
 assert.match(css,/@media\(max-width:560px\)/);
 assert.match(css,/@media\(max-width:700px\)/);
 assert.match(css,/@media\(max-width:380px\)/);
+assert.match(css,/\.realityBoardEntry \.panelHeading\{flex-direction:column;align-items:stretch\}/);
+assert.match(css,/\.realityBoardEntry \.panelHeading>a\.ghost\{[^}]*white-space:normal!important;/);
 
 assert.match(app,/function GlobalBottomNav/);
 assert.match(app,/aria-label='Navegación principal'/);
