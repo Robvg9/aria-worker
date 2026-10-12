@@ -238,6 +238,10 @@ assert.ok(chatWorkflow.includes('if [[ "${has_password_auth}" != true && "${has_
 assert.ok(chatWorkflow.includes('elif [[ "${has_password_auth}" != true && "${has_storage_gzip_auth}" == true ]]; then'), 'Compressed browser state must also be fallback-only');
 const capabilitiesWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'capabilities-rwht-authenticated.yml'), 'utf8');
 assert.ok(capabilitiesWorkflow.includes('group: aria-capabilities-rwht-${{ github.sha }}'), 'Capabilities needs its own release-scoped group');
+assert.ok(capabilitiesWorkflow.includes("expected_version=\"$(grep '^export const TEST_CATALOG_VERSION' pwa/src/testCatalog.ts | cut -d \"'\" -f 2)\""), 'Capabilities must derive expected catalog version from the checked-out source');
+assert.ok(capabilitiesWorkflow.includes("expected_total=\"$(grep -c '\"file\": \"tests/' pwa/src/testCatalog.ts)\""), 'Capabilities must derive expected catalog size from the checked-out source');
+assert.doesNotMatch(capabilitiesWorkflow, /2026-10-02-canonical|content='293'/, 'Capabilities must not pin stale catalog metadata');
+assert.match(capabilitiesWorkflow, /CAPABILITIES_CANONICAL_TEST_CATALOG_LIVE_OK version=/, 'Capabilities must persist the exact catalog metadata it verified');
 const persistenceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
 assert.ok(persistenceWorkflow.includes('group: aria-persistence-recovery-rwht-${{ github.sha }}'), 'Persistence needs its own release-scoped group');
 const steps78Workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
