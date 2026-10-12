@@ -28,7 +28,7 @@ permissions:
 jobs:
   persistence-recovery-rwht:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       RWHT_URL: ${{ vars.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/' }}
       RWHT_EMAIL: ${{ secrets.RWHT_EMAIL }}
