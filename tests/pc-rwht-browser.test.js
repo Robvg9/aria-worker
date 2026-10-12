@@ -108,6 +108,7 @@ const pwaViteConfig = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'vite.co
 const pwaTestCatalog = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 'testCatalog.ts'), 'utf8');
 const projectsRwhtWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
 const pcRwhtWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'), 'utf8');
+const pwaFastDeployWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-fast-deploy.yml'), 'utf8');
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_VERSION__'/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
@@ -245,6 +246,10 @@ assert.ok(capabilitiesWorkflow.includes('catalog_match=false'), 'Capabilities mu
 assert.ok(capabilitiesWorkflow.includes('then catalog_match=true; break; fi'), 'Capabilities must pass only after both live catalog markers match');
 assert.ok(capabilitiesWorkflow.includes('test "$catalog_match" = true'), 'Capabilities must fail if the canonical catalog does not match before timeout');
 assert.match(capabilitiesWorkflow, /CAPABILITIES_CANONICAL_TEST_CATALOG_LIVE_OK version=/, 'Capabilities must persist the exact catalog metadata it verified');
+assert.ok(pwaFastDeployWorkflow.includes('manifest_ok=false'), 'PWA deploy must retry the manifest smoke until available');
+assert.ok(pwaFastDeployWorkflow.includes('test "$manifest_ok" = true'), 'PWA deploy must fail if manifest never becomes available');
+assert.ok(pwaFastDeployWorkflow.includes('js_ok=false') && pwaFastDeployWorkflow.includes('test "$js_ok" = true'), 'PWA deploy must retry and require the JS asset');
+assert.ok(pwaFastDeployWorkflow.includes('css_ok=false') && pwaFastDeployWorkflow.includes('test "$css_ok" = true'), 'PWA deploy must retry and require the CSS asset');
 const persistenceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
 assert.ok(persistenceWorkflow.includes('group: aria-persistence-recovery-rwht-${{ github.sha }}'), 'Persistence needs its own release-scoped group');
 const steps78Workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
