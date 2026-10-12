@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.4.0';
+const VERSION = 'aria-pc-browser-rwht-v1.4.1';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -771,6 +771,27 @@ async function auditRoute(page, url, routeIndex, config) {
       controlsNow = await discoverInteractive(page);
     }
     const originalLabel = safeLabel(original.name);
+    // The selected BattleCruiser project can legitimately reset on a fresh reload.
+    // Its credentials/submit action remain a human gate and must not become a false
+    // "control_not_reproducible" failure merely because the project selection changed.
+    const battleCruiserExternalAuthSnapshot = routeHash === '#projects' && (
+      (original.tag === 'button' && EXTERNAL_CONNECTION_AUTH.test(originalLabel)) ||
+      (original.tag === 'input' && String(original.type || '').toLowerCase() === 'email' &&
+        /^correo@ejemplo\.com$/i.test(originalLabel))
+    );
+    if (battleCruiserExternalAuthSnapshot) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'blocked',
+        action: 'human_gate',
+        reason: 'external_integration_auth_requires_human_gate',
+        label: originalLabel,
+        certification: 'external_backend_connection',
+        replay: 'not_attempted_external_auth_boundary'
+      });
+      routeResult.controls_blocked += 1;
+      continue;
+    }
     const settingsPresenceControl = /^(Activadas|Desactivadas|Activar avisos)$/i.test(originalLabel);
     const dynamicMissionSnapshot = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(originalLabel);
     const dynamicQueueSnapshot = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(originalLabel);
