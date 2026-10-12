@@ -415,12 +415,16 @@ async function testControl(page, control, config) {
     let locator = null;
     // Share the CTA flag between semantic resolution and fallback replay.
     const ariaChatCta = control.role === 'button' && /Hablar con ARIA/i.test(label);
+    const newMissionCta = control.role === 'button' && /Nueva misión/i.test(label);
     const semanticLocator = () => {
       if (control.id) return page.locator('#' + control.id).first();
       // This stable home CTA can serialize with an emoji-prefixed visible label,
       // while Chromium's accessible name may omit the emoji after hydration.
       // Match the semantic phrase rather than coupling replay to decorative glyphs.
       if (ariaChatCta) return page.getByRole('button', { name: /Hablar con ARIA/i }).first();
+      // Decorative plus glyphs vary between DOM text and Chromium's accessible
+      // name. Use the stable mission phrase, scoped to the active home surface.
+      if (newMissionCta) return page.locator('.dashboardScreen').getByRole('button', { name: /Nueva misión/i }).first();
       if (control.role && label) return page.getByRole(control.role, { name: label, exact: true }).first();
       return page.locator('button,a[href],[role="button"],[role="tab"],[role="menuitem"]').first();
     };
@@ -491,6 +495,15 @@ async function testControl(page, control, config) {
     if (!locator && ariaChatCta) {
       const textFallback = page.locator('.dashboardScreen button')
         .filter({ hasText: /Hablar\s+con\s+ARIA/i })
+        .first();
+      if (
+        await textFallback.count().catch(() => 0) &&
+        await textFallback.isVisible().catch(() => false)
+      ) locator = textFallback;
+    }
+    if (!locator && newMissionCta) {
+      const textFallback = page.locator('.dashboardScreen button')
+        .filter({ hasText: /Nueva\s+misión/i })
         .first();
       if (
         await textFallback.count().catch(() => 0) &&
