@@ -12,7 +12,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.4.1/);
+assert.match(runner, /aria-pc-browser-rwht-v1.4.2/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -64,7 +64,8 @@ assert.match(runner, /external_preview_failed_responses/);
 assert.match(runner, /response\.status\(\) < 400/);
 assert.match(runner, /dynamicDiagnosticSnapshot/);
 assert.match(runner, /do not count it twice on replay/);
-assert.match(runner, /outcome\.reason === 'server_backed_dynamic_diagnostic_not_reproducible'/);
+assert.match(runner, /outcome\.outcome === 'skipped' && !wasInitiallySkipped/);
+assert.equal(runner.split("outcome.outcome === 'skipped' && !wasInitiallySkipped").length - 1, 2, 'Skipped replay outcomes must update counters in both control paths.');
 assert.match(runner, /controls_testable = Math\.max\(0, routeResult\.controls_testable - 1\)/);
 assert.match(runner, /cerrar\\s\+\(\?:la\\s\+\)\?conexión/);
 assert.match(runner, /externalNavigation/);
