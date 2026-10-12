@@ -20,7 +20,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: aria-authenticated-pwa-rwht
+  # Chat, Capabilities and Persistence must not evict one another from a shared pending queue.
+  group: aria-chat-rwht-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
