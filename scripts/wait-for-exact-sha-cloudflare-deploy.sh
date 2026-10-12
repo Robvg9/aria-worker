@@ -13,7 +13,7 @@ repo="${GITHUB_REPOSITORY}"
 api="${GITHUB_API_URL:-https://api.github.com}"
 token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 test -n "$token"
-deadline=$((SECONDS + 720))
+deadline=$((SECONDS + 1800))
 names=("Deploy ARIA Cloudflare Worker" "Deploy ARIA PWA Fast Lane")
 if [[ -n "${LIVE_GATE_PREDECESSORS:-}" ]]; then
   IFS=';' read -r -a predecessors <<< "$LIVE_GATE_PREDECESSORS"
