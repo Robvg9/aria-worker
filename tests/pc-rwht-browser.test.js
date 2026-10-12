@@ -13,7 +13,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.5.0/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.1/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -53,9 +53,13 @@ assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, la
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
 assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction)'));
 assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
-assert.ok(runner.includes('if (!safeReadOnlyAction) await closeDialogs(page)'));
+assert.match(runner, /Measure the action's visible effect above, then dismiss any resulting modal/);
+assert.ok(runner.includes('await closeDialogs(page);'), 'close read-only detail overlays after measuring their effect');
+const dialogDismissalImplementation = runner.slice(runner.indexOf('async function waitForDialogDismissal'), runner.indexOf('async function closeDialogs'));
+assert.ok(dialogDismissalImplementation.includes("style.pointerEvents !== 'none'"), 'dialog dismissal must test the actual pointer-event blocker');
+assert.doesNotMatch(dialogDismissalImplementation, /style\.opacity/, 'opacity zero does not guarantee that an overlay stops intercepting clicks');
 const closeDialogsImplementation = runner.slice(runner.indexOf('async function closeDialogs'), runner.indexOf('async function isBattleCruiserExternalAuthField'));
-assert.ok(closeDialogsImplementation.includes("page.locator('.modalBackdrop, [role=\"dialog\"], dialog[open]')"), 'dialog cleanup must be scoped to actual visible dialog surfaces');
+assert.ok(closeDialogsImplementation.includes("const selector = '.modalBackdrop, [role=\"dialog\"], dialog[open]'"), 'dialog cleanup must be scoped to actual visible dialog surfaces');
 assert.ok(closeDialogsImplementation.includes("{ name: /^(cerrar|close)$/i }"), 'dialog cleanup must use an exact close-button label within the dialog');
 const serviceWorkerDeploy = pwaFastDeploy.slice(pwaFastDeploy.indexOf('name: Verify deployed versioned Service Worker JavaScript'));
 assert.ok(serviceWorkerDeploy.includes('for attempt in $(seq 1 15); do'), 'versioned Service Worker LIVE smoke must retry transient edge propagation');
@@ -64,6 +68,7 @@ assert.ok(serviceWorkerDeploy.includes('aria-pwa-${GITHUB_SHA}'), 'Service Worke
 assert.ok(serviceWorkerDeploy.includes("! grep -qiE '<!doctype html|<html([ >])'"), 'Service Worker smoke must hard-reject SPA HTML fallback');
 assert.ok(serviceWorkerDeploy.includes('node --check "${worker_file}"'), 'Service Worker smoke must syntax-check the fetched JS before PASS');
 assert.ok(serviceWorkerDeploy.includes('::error::Versioned Service Worker did not become valid JavaScript'), 'Service Worker smoke must fail if retry budget expires');
+assert.ok(closeDialogsImplementation.includes('await waitForDialogDismissal(page, 1800);'), 'dialog cleanup must wait until modal backdrops stop intercepting pointer events');
 assert.ok(!closeDialogsImplementation.includes("page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i })"), 'dialog cleanup must not click mission rows with CANCELADA labels');
 const closeStaleModal = runner.indexOf("if (routeHash !== '#mission') await closeDialogs(page);", meditationReplayLoop);
 assert.ok(closeStaleModal > reloadAfterRouteDrift && closeStaleModal < reopenDetailsCall, 'on non-Meditation routes, close stale dialogs after reset and before reopening nested details');

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.0';
+const VERSION = 'aria-pc-browser-rwht-v1.5.1';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -296,20 +296,63 @@ async function loginIfConfigured(page, config) {
   return { attempted: true, status: 'failed', attempts, error: 'authenticated_login_failed' };
 }
 
+async function waitForDialogDismissal(page, timeoutMs = 2500) {
+  // React removes most modal backdrops synchronously, but the exit animation can
+  // leave the old layer intercepting the next click. Wait for all known blocking
+  // surfaces to stop receiving pointer events before replaying another control.
+  await page.waitForFunction(() => {
+    const visibleAndBlocking = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 &&
+        style.display !== 'none' && style.visibility !== 'hidden' &&
+        style.pointerEvents !== 'none';
+    };
+    return ![...document.querySelectorAll('.modalBackdrop, [role="dialog"], dialog[open]')]
+      .some(visibleAndBlocking);
+  }, null, { timeout: timeoutMs });
+  await page.waitForTimeout(150);
+}
+
 async function closeDialogs(page) {
   // Never search the whole page for "cancel": server-backed mission rows can
   // contain status text such as CANCELADA and are not close buttons.
-  const surfaces = page.locator('.modalBackdrop, [role="dialog"], dialog[open]');
-  const count = Math.min(await surfaces.count().catch(() => 0), 8);
-  for (let index = 0; index < count; index += 1) {
-    const surface = surfaces.nth(index);
-    if (!await surface.isVisible().catch(() => false)) continue;
-    const closeButton = surface.getByRole('button', { name: /^(cerrar|close)$/i }).first();
-    try {
+  const selector = '.modalBackdrop, [role="dialog"], dialog[open]';
+  for (let pass = 0; pass < 8; pass += 1) {
+    const surfaces = page.locator(selector);
+    const count = Math.min(await surfaces.count().catch(() => 0), 8);
+    let dismissed = false;
+
+    for (let index = 0; index < count; index += 1) {
+      const surface = surfaces.nth(index);
+      if (!await surface.isVisible().catch(() => false)) continue;
+
+      const closeButton = surface.getByRole('button', { name: /^(cerrar|close)$/i }).first();
       if (await closeButton.count().catch(() => 0) && await closeButton.isVisible().catch(() => false)) {
-        await closeButton.click({ timeout: 1000 });
+        try {
+          await closeButton.click({ timeout: 1000 });
+          await waitForDialogDismissal(page, 1800);
+          dismissed = true;
+          break;
+        } catch {}
       }
-    } catch {}
+
+      // Some PWA modals intentionally close when the user clicks the backdrop.
+      // Use a point outside the modal card; never click an arbitrary page control.
+      const isBackdrop = await surface.evaluate((element) =>
+        element.classList?.contains('modalBackdrop') === true
+      ).catch(() => false);
+      if (isBackdrop) {
+        try {
+          await surface.click({ position: { x: 2, y: 2 }, timeout: 1000 });
+          await waitForDialogDismissal(page, 1800);
+          dismissed = true;
+          break;
+        } catch {}
+      }
+    }
+
+    if (!dismissed) break;
   }
 }
 
@@ -590,9 +633,9 @@ async function testControl(page, control, config) {
     await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
-    // Keep safe navigation modals open long enough to verify their effect; the next
-    // iteration reloads the route before testing another control.
-    if (!safeReadOnlyAction) await closeDialogs(page);
+    // Measure the action's visible effect above, then dismiss any resulting modal
+    // and wait for its backdrop to stop intercepting pointer events before next replay.
+    await closeDialogs(page);
 
     const afterUrl = page.url();
     const afterTitle = await page.title();
