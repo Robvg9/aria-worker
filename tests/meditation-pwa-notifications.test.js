@@ -12,6 +12,7 @@ function assert(condition, message) {
 
 const migration = read('supabase/migrations/20260919210000_meditation_pwa_notifications_cutover_v1.sql');
 const migrationV2 = read('supabase/migrations/20260920002111_meditation_pwa_notifications_cutover_v2.sql');
+const serverSideMigration = read('supabase/migrations/20261012110400_meditation_notifications_server_side_rpc_v1.sql');
 const agent = read('agents/termux/aria-agent.js');
 const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const app = read('pwa/src/App.tsx');
@@ -33,12 +34,15 @@ assert(api.includes('path.endsWith("/meditation/notifications")') || api.include
 assert(api.includes('path.endsWith("/meditation/notifications/read")') || api.includes("path.endsWith('/meditation/notifications/read')"), 'PWA notification read route missing');
 assert(api.includes('meditationNotificationsForUser'), 'user-scoped notification reader missing');
 assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped notification ack missing');
-const ownershipLookup = api.slice(api.indexOf('async function meditationOwnedMissionIds'), api.indexOf('async function meditationNotificationsForUser'));
-assert(ownershipLookup.includes('.select("mission_id")'), 'notification owner lookup must project only mission IDs');
-assert(ownershipLookup.includes('.or(filters.join(","))'), 'notification owner lookup must filter ownership inside Postgres');
-assert(ownershipLookup.includes('metadata->>user_id.eq.${userId}'), 'notification lookup must preserve user_id ownership');
-assert(ownershipLookup.includes('metadata->>owner_user_id.eq.${userId}'), 'notification lookup must preserve owner_user_id ownership');
-assert(!ownershipLookup.includes('.select("mission_id,metadata")'), 'notification lookup must not download metadata for all recent missions');
+assert(api.includes('meditationNotificationsForUser'), 'user-scoped notification reader missing');
+assert(api.includes('markMeditationNotificationsReadForUser'), 'user-scoped notification ack missing');
+assert(api.includes('aria_meditation_notifications_for_user_v1'), 'notification GET must use the server-side SQL RPC');
+assert(api.includes('aria_mark_meditation_notifications_read_for_user_v1'), 'notification read ack must use the server-side SQL RPC');
+assert(!api.includes('async function meditationOwnedMissionIds'), 'notification API must not materialize large mission ID arrays in Edge Function memory');
+assert(serverSideMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_notifications_for_user_v1'), 'server-side notification reader RPC migration missing');
+assert(serverSideMigration.includes('CREATE OR REPLACE FUNCTION aria_internal.aria_mark_meditation_notifications_read_for_user_v1'), 'server-side notification read RPC migration missing');
+assert(serverSideMigration.includes('GRANT EXECUTE ON FUNCTION aria_internal.aria_meditation_notifications_for_user_v1(uuid, boolean, integer) TO service_role'), 'notification RPC must be service-role only');
+assert(serverSideMigration.includes('GRANT EXECUTE ON FUNCTION aria_internal.aria_mark_meditation_notifications_read_for_user_v1(uuid, uuid[], boolean) TO service_role'), 'notification read RPC must be service-role only');
 const notificationRouteStart = api.indexOf('if (req.method === "GET" && path.endsWith("/meditation/notifications"))');
 const notificationRouteEnd = api.indexOf('if (req.method === "GET" && path.endsWith("/meditation/push/status"))', notificationRouteStart);
 const notificationRoute = api.slice(notificationRouteStart, notificationRouteEnd);
