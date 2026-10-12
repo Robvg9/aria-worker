@@ -456,38 +456,34 @@ async function testControl(page, control, config) {
 
     const settingsDynamic = /^(Activadas|Desactivadas|Activar avisos)$/i.test(label);
 
-    // Prefer an accessible role/name or stable ID over selector_hint. The hint is
-    // a serialized structural CSS path and can become stale after hydration,
-    // scrolling, or a small DOM re-render even when the same named control exists.
-    let locatorResolution = locator ? 'route-specific-semantic' : null;
+    // Re-resolve semantic role/name first after each full page reload. Positional
+    // selector hints can still match a different DOM node after hydration/layout
+    // changes even though the originally discovered control exists semantically.
     if (!locator) {
       const semantic = semanticLocator();
       if (
         await semantic.count().catch(() => 0) &&
         await semantic.isVisible().catch(() => false)
-      ) {
-        locator = semantic;
-        locatorResolution = 'semantic-role-name-or-id';
-      }
+      ) locator = semantic;
     }
 
-    // Structural selector hints are a last resort only when the semantic target
-    // is unavailable. Require a matching visible label before trusting the hint.
+    // Use the captured CSS hint only as a guarded fallback. It must still point
+    // to the same accessible text/label, not merely to any visible element.
     if (!locator && !settingsDynamic && control.selector_hint) {
       const hinted = page.locator(control.selector_hint).first();
-      const hintedName = safeLabel(await hinted.getAttribute('aria-label').catch(() => '') ||
-        await hinted.innerText().catch(() => ''));
+      const hintedName = safeLabel(await hinted.innerText().catch(() => ''));
+      const hintedAriaLabel = safeLabel(await hinted.getAttribute('aria-label').catch(() => ''));
+      const hintedTitle = safeLabel(await hinted.getAttribute('title').catch(() => ''));
       if (
         await hinted.count().catch(() => 0) &&
         await hinted.isVisible().catch(() => false) &&
-        (!label || hintedName === label) &&
-        (!dynamicDiagnostic || hintedName === label)
-      ) {
-        locator = hinted;
-        locatorResolution = 'validated-selector-hint';
-      }
+        Boolean(label) &&
+        [hintedName, hintedAriaLabel, hintedTitle].includes(label) &&
+        (!dynamicDiagnostic || hintedName === label || hintedAriaLabel === label || hintedTitle === label)
+      ) locator = hinted;
     }
-    if (locator && !(await locator.count().catch(() => 0))) locator = null;
+    if (!locator) locator = semanticLocator();
+
 
     // If Chromium exposes the visible chat CTA without a stable accessible role/name
     // after hydration, recover by its user-visible label within the active home surface.
