@@ -32,6 +32,8 @@ assert.ok(runner.includes('const safeReadOnlyAction = isSafeReadOnlyMeditationAc
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
 assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction)'));
+assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
+assert.ok(runner.includes('if (!safeReadOnlyAction) await closeDialogs(page)'));
 assert.match(runner, /mutation_requires_human_gate/);
 assert.match(runner, /RWHT_ALLOW_MUTATIONS/);
 assert.match(runner, /selector_hint/);
@@ -123,6 +125,7 @@ assert.ok(projectsRwhtWorkflow.includes('test "$catalog_match" = true'));
 assert.match(pcRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
 assert.match(pcRwhtWorkflow, /catalog_match=false/);
 assert.ok(pcRwhtWorkflow.includes('test "$catalog_match" = true'));
+assert.ok(pcRwhtWorkflow.includes('node --check rwht/pc-browser/rwht-pc-browser.mjs'));
 assert.match(pcRwhtWorkflow, /json.loads\(os.environ\["VERSION"\]\)\["build"\] == os.environ\["EXPECTED"\]/);
 
 const workersBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'cloudflare-workers-build.js'), 'utf8');
