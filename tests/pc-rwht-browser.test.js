@@ -68,7 +68,10 @@ assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMi
 assert.match(runner, /Capture the real interaction result BEFORE cleanup closes the modal/);
 assert.ok(runner.includes('async function visibleBlockingSurfaceSignature(page)'), 'RWHT must observe visible modal/dialog surfaces before cleanup');
 const testControlStart = runner.indexOf('async function testControl(page, control, config)');
-const measuredDialogSnapshot = runner.indexOf('const afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart);
+const measuredDialogSnapshot = Math.max(
+  runner.indexOf('const afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart),
+  runner.indexOf('let afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart),
+);
 const closeAfterMeasurement = runner.indexOf('await closeDialogs(page);', measuredDialogSnapshot);
 assert.ok(measuredDialogSnapshot > testControlStart && closeAfterMeasurement > measuredDialogSnapshot, 'RWHT must measure visible dialog effects before closing them');
 assert.match(runner, /reason: 'read_only_action_no_visible_effect'/, 'safe read-only Meditation clicks must fail if no visible effect is observed');
