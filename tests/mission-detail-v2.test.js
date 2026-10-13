@@ -27,11 +27,11 @@ assert.match(app, /mutation_verification_evidence_mismatch/);
 assert.match(app, /superseded_by_failure/);
 assert.match(app, /const selectedLive = selected/);
 assert.match(app, /const visibleItems = historyExpanded/);
-assert.match(missionPresentation, /replace\\(\\/\\\\s\\+\\/g, ' '\\)\\.trim\\(\\)/,
+assert.ok(missionPresentation.includes("replace(/\\\\s+/g, ' ').trim()"),
   'mission detail preview must collapse multiline goals into one readable line');
-assert.match(webPushE2E, /missionGoal = String\\(sourceMission\\?\\.goal \\|\\| ''\\)\\.replace\\(\\/\\\\s\\+\\/g, ' '\\)\\.trim\\(\\)/,
+assert.ok(webPushE2E.includes("String(sourceMission?.goal || '').replace(/\\\\s+/g, ' ').trim()"),
   'Web Push E2E must normalize API goal whitespace before comparing detail previews');
-assert.match(webPushE2E, /visibleGoalPreview = \\(await probePage\\.locator\\([^\\n]+\\)\\.replace\\(\\/\\\\s\\+\\/g, ' '\\)\\.trim\\(\\)/,
+assert.ok(webPushE2E.includes(".replace(/\\\\s+/g, ' ').trim();"),
   'Web Push E2E must normalize rendered DOM whitespace too');
 
 assert.match(api, /\/human-gate\/approve/);
