@@ -1097,7 +1097,7 @@ async function missionDiagnosticForUser(missionId:string,userId:string){
 
 async function operationalHealth(userId:string){
   const sb=serviceClient();
-  const {data,error}=await sb.rpc('get_operational_health_v1');
+  const {data,error}=await sb.schema("aria_internal").rpc("get_operational_health_v1");
   if(error)throw new Error('diagnostic_health_rpc:'+error.message);
   return {...(data&&typeof data==='object'?data:{}),user_id:userId};
 }
