@@ -13,10 +13,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: aria-desktop-commander-autostart-recovery
-  cancel-in-progress: false
-
 jobs:
   contract:
     runs-on: ubuntu-latest
@@ -39,6 +35,9 @@ jobs:
 
   recover-lacueva:
     if: github.event_name != 'pull_request'
+    concurrency:
+      group: aria-desktop-commander-recovery-lacueva
+      cancel-in-progress: false
     runs-on: [aria-lacueva-runtime]
     timeout-minutes: 5
     defaults:
@@ -64,6 +63,10 @@ jobs:
           $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
           if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
 
+          $requiredInfoBefore = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
+          $recentRequiredRun = $requiredInfoBefore.LastRunTime -gt (Get-Date).AddMinutes(-5)
+          Write-Host "DC_TASK_RUN_WAS_RECENT=$recentRequiredRun LAST_RUN=$($requiredInfoBefore.LastRunTime.ToString('o'))"
+
           foreach ($name in $names) {
             $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             if ($null -eq $task) {
@@ -72,7 +75,10 @@ jobs:
               continue
             }
 
-            if ($name -eq $required -and $task.State -eq 'Running') {
+            if ($name -eq $required -and $task.State -eq 'Running' -and $recentRequiredRun) {
+              Write-Host "TASK_RECENTLY_RECOVERED=$name; skipping duplicate restart"
+              continue
+            } elseif ($name -eq $required -and $task.State -eq 'Running') {
               Write-Host "TASK_END_REQUESTED=$name"
               & schtasks.exe /End /TN $name 2>&1 | Out-Host
               if ($LASTEXITCODE -ne 0) { throw "TASK_END_FAILED=$name EXIT=$LASTEXITCODE" }
@@ -92,10 +98,52 @@ jobs:
           Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
           Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
           if ($info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+
+          $task = Get-ScheduledTask -TaskName $required -ErrorAction Stop
+          Write-Host "DC_TASK_STATE=$($task.State)"
+          Write-Host "DC_TASK_ENABLED=$($task.Settings.Enabled)"
+          Write-Host "DC_TASK_PRINCIPAL=$($task.Principal.UserId)"
+          Write-Host "DC_TASK_LOGON_TYPE=$($task.Principal.LogonType)"
+          foreach ($action in $task.Actions) {
+            $exe = [string]$action.Execute
+            $args = [string]$action.Arguments
+            $working = [string]$action.WorkingDirectory
+            $scriptPath = ''
+            $m = [regex]::Match($args, '(?i)(?:-File|--script|/c)\s+(?:"([^"]+)"|([^\s"]+))')
+            if ($m.Success) {
+              if ($m.Groups[1].Success) { $scriptPath = $m.Groups[1].Value } else { $scriptPath = $m.Groups[2].Value }
+            }
+            Write-Host "DC_TASK_ACTION_EXE=$exe"
+            Write-Host "DC_TASK_ACTION_WORKDIR=$working"
+            Write-Host "DC_TASK_ACTION_SCRIPT=$scriptPath"
+            Write-Host "DC_TASK_ACTION_ARGS_LENGTH=$($args.Length)"
+          }
+
+          $matchingProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            ([string]$_.Name -match '(?i)desktop|commander|node|powershell|cmd') -and
+            ([string]$_.CommandLine -match '(?i)desktop|commander|aria|mcp')
+          } | Select-Object -First 30)
+          Write-Host "MATCHING_PROCESS_COUNT=$($matchingProcesses.Count)"
+          foreach ($process in $matchingProcesses) {
+            Write-Host ("MATCHING_PROCESS name={0} pid={1} session={2} created={3}" -f $process.Name,$process.ProcessId,$process.SessionId,$process.CreationDate)
+          }
+
+          $logsRoot = 'D:\ARIA-Windows-Agent\Logs'
+          if (Test-Path $logsRoot) {
+            Get-ChildItem -LiteralPath $logsRoot -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '(?i)desktop|commander|channel|remote|watchdog|agent' } |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 20 |
+              ForEach-Object { Write-Host ("LOG_METADATA name={0} modified={1:o} bytes={2}" -f $_.Name,$_.LastWriteTime,$_.Length) }
+          }
+          Write-Host 'DC_TASK_DIAGNOSTICS=PASS'
           Write-Host 'DC_TASK_RECOVERY_REQUEST=PASS'
 
   recover-robvg:
     if: github.event_name != 'pull_request'
+    concurrency:
+      group: aria-desktop-commander-recovery-robvg
+      cancel-in-progress: false
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     defaults:
@@ -122,6 +170,10 @@ jobs:
           $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
           if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
 
+          $requiredInfoBefore = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
+          $recentRequiredRun = $requiredInfoBefore.LastRunTime -gt (Get-Date).AddMinutes(-5)
+          Write-Host "DC_TASK_RUN_WAS_RECENT=$recentRequiredRun LAST_RUN=$($requiredInfoBefore.LastRunTime.ToString('o'))"
+
           foreach ($name in $names) {
             $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             if ($null -eq $task) {
@@ -130,7 +182,10 @@ jobs:
               continue
             }
 
-            if ($name -eq $required -and $task.State -eq 'Running') {
+            if ($name -eq $required -and $task.State -eq 'Running' -and $recentRequiredRun) {
+              Write-Host "TASK_RECENTLY_RECOVERED=$name; skipping duplicate restart"
+              continue
+            } elseif ($name -eq $required -and $task.State -eq 'Running') {
               Write-Host "TASK_END_REQUESTED=$name"
               & schtasks.exe /End /TN $name 2>&1 | Out-Host
               if ($LASTEXITCODE -ne 0) { throw "TASK_END_FAILED=$name EXIT=$LASTEXITCODE" }
@@ -150,4 +205,43 @@ jobs:
           Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
           Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
           if ($info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+
+          $task = Get-ScheduledTask -TaskName $required -ErrorAction Stop
+          Write-Host "DC_TASK_STATE=$($task.State)"
+          Write-Host "DC_TASK_ENABLED=$($task.Settings.Enabled)"
+          Write-Host "DC_TASK_PRINCIPAL=$($task.Principal.UserId)"
+          Write-Host "DC_TASK_LOGON_TYPE=$($task.Principal.LogonType)"
+          foreach ($action in $task.Actions) {
+            $exe = [string]$action.Execute
+            $args = [string]$action.Arguments
+            $working = [string]$action.WorkingDirectory
+            $scriptPath = ''
+            $m = [regex]::Match($args, '(?i)(?:-File|--script|/c)\s+(?:"([^"]+)"|([^\s"]+))')
+            if ($m.Success) {
+              if ($m.Groups[1].Success) { $scriptPath = $m.Groups[1].Value } else { $scriptPath = $m.Groups[2].Value }
+            }
+            Write-Host "DC_TASK_ACTION_EXE=$exe"
+            Write-Host "DC_TASK_ACTION_WORKDIR=$working"
+            Write-Host "DC_TASK_ACTION_SCRIPT=$scriptPath"
+            Write-Host "DC_TASK_ACTION_ARGS_LENGTH=$($args.Length)"
+          }
+
+          $matchingProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            ([string]$_.Name -match '(?i)desktop|commander|node|powershell|cmd') -and
+            ([string]$_.CommandLine -match '(?i)desktop|commander|aria|mcp')
+          } | Select-Object -First 30)
+          Write-Host "MATCHING_PROCESS_COUNT=$($matchingProcesses.Count)"
+          foreach ($process in $matchingProcesses) {
+            Write-Host ("MATCHING_PROCESS name={0} pid={1} session={2} created={3}" -f $process.Name,$process.ProcessId,$process.SessionId,$process.CreationDate)
+          }
+
+          $logsRoot = 'D:\ARIA-Windows-Agent\Logs'
+          if (Test-Path $logsRoot) {
+            Get-ChildItem -LiteralPath $logsRoot -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '(?i)desktop|commander|channel|remote|watchdog|agent' } |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 20 |
+              ForEach-Object { Write-Host ("LOG_METADATA name={0} modified={1:o} bytes={2}" -f $_.Name,$_.LastWriteTime,$_.Length) }
+          }
+          Write-Host 'DC_TASK_DIAGNOSTICS=PASS'
           Write-Host 'DC_TASK_RECOVERY_REQUEST=PASS'
