@@ -1,0 +1,153 @@
+name: ARIA Desktop Commander Autostart Recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aria-desktop-commander-autostart-recovery.yml'
+  pull_request:
+    paths:
+      - '.github/workflows/aria-desktop-commander-autostart-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-desktop-commander-autostart-recovery
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify recovery guards and canonical task names
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=.github/workflows/aria-desktop-commander-autostart-recovery.yml
+          grep -Fq "expected='windows-lacueva-780886'" "$f"
+          grep -Fq "\$env:COMPUTERNAME -ine 'RobVG'" "$f"
+          grep -Fq "ARIA-Desktop-Commander-Remote" "$f"
+          grep -Fq "ARIA-Windows-Agent-Guardian" "$f"
+          grep -Fq "ARIA-Windows-Local-Agent" "$f"
+          grep -Fq "schtasks.exe /End" "$f"
+          grep -Fq "schtasks.exe /Run" "$f"
+          grep -Fq "if: github.event_name != 'pull_request'" "$f"
+          echo 'AUTOSTART_RECOVERY_GUARDS=PASS'
+
+  recover-lacueva:
+    if: github.event_name != 'pull_request'
+    runs-on: [aria-lacueva-runtime]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Guard LaCueva physical identity
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $configPath = 'D:\ARIA-Windows-Agent\Data\config.json'
+          if (-not (Test-Path $configPath)) { throw "Missing device config: $configPath" }
+          $config = Get-Content -Raw $configPath | ConvertFrom-Json
+          $expected = 'windows-lacueva-780886'
+          $actual = [string]$config.device_id
+          if ($actual -ne $expected) { throw "WRONG_RUNNER_IDENTITY: expected=$expected actual=$actual. No task changes made." }
+          Write-Host "RUNNER_IDENTITY_GUARD=PASS DEVICE_ID=$actual COMPUTERNAME=$env:COMPUTERNAME"
+
+      - name: Restart the disconnected Desktop Commander task and recover stopped ARIA tasks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $required = 'ARIA-Desktop-Commander-Remote'
+          $names = @($required, 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
+          $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
+          if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
+
+          foreach ($name in $names) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if ($null -eq $task) {
+              if ($name -eq $required) { throw "REQUIRED_TASK_MISSING=$name" }
+              Write-Host "OPTIONAL_TASK_MISSING=$name"
+              continue
+            }
+
+            if ($name -eq $required -and $task.State -eq 'Running') {
+              Write-Host "TASK_END_REQUESTED=$name"
+              & schtasks.exe /End /TN $name 2>&1 | Out-Host
+              if ($LASTEXITCODE -ne 0) { throw "TASK_END_FAILED=$name EXIT=$LASTEXITCODE" }
+              Start-Sleep -Seconds 2
+            } elseif ($task.State -eq 'Running') {
+              Write-Host "TASK_ALREADY_RUNNING=$name"
+              continue
+            }
+
+            Write-Host "TASK_RUN_REQUESTED=$name"
+            & schtasks.exe /Run /TN $name 2>&1 | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "TASK_RUN_FAILED=$name EXIT=$LASTEXITCODE" }
+          }
+
+          Start-Sleep -Seconds 8
+          $info = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
+          Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
+          Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
+          if ($info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+          Write-Host 'DC_TASK_RECOVERY_REQUEST=PASS'
+
+  recover-robvg:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Guard RobVG physical identity before touching tasks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ine 'RobVG') {
+            throw "WRONG_RUNNER_IDENTITY: expected computer RobVG, actual=$env:COMPUTERNAME. No task changes made."
+          }
+          $configPath = 'D:\ARIA-Windows-Agent\Data\config.json'
+          if (-not (Test-Path $configPath)) { throw "Missing device config: $configPath" }
+          $config = Get-Content -Raw $configPath | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace([string]$config.device_id)) { throw 'Missing configured device_id; no task changes made.' }
+          Write-Host "RUNNER_IDENTITY_GUARD=PASS DEVICE_ID=$($config.device_id) COMPUTERNAME=$env:COMPUTERNAME"
+
+      - name: Restart the disconnected Desktop Commander task and recover stopped ARIA tasks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $required = 'ARIA-Desktop-Commander-Remote'
+          $names = @($required, 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
+          $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
+          if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
+
+          foreach ($name in $names) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if ($null -eq $task) {
+              if ($name -eq $required) { throw "REQUIRED_TASK_MISSING=$name" }
+              Write-Host "OPTIONAL_TASK_MISSING=$name"
+              continue
+            }
+
+            if ($name -eq $required -and $task.State -eq 'Running') {
+              Write-Host "TASK_END_REQUESTED=$name"
+              & schtasks.exe /End /TN $name 2>&1 | Out-Host
+              if ($LASTEXITCODE -ne 0) { throw "TASK_END_FAILED=$name EXIT=$LASTEXITCODE" }
+              Start-Sleep -Seconds 2
+            } elseif ($task.State -eq 'Running') {
+              Write-Host "TASK_ALREADY_RUNNING=$name"
+              continue
+            }
+
+            Write-Host "TASK_RUN_REQUESTED=$name"
+            & schtasks.exe /Run /TN $name 2>&1 | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "TASK_RUN_FAILED=$name EXIT=$LASTEXITCODE" }
+          }
+
+          Start-Sleep -Seconds 8
+          $info = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
+          Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
+          Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
+          if ($info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+          Write-Host 'DC_TASK_RECOVERY_REQUEST=PASS'
