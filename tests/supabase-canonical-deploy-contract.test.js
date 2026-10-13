@@ -7,10 +7,10 @@ const pwaDeploy=fs.readFileSync('.github/workflows/aria-cloudflare-deploy.yml','
 const deliveryGate=fs.readFileSync('.github/workflows/aria-delivery-deterministic-gate.yml','utf8');
 const workerPwa=fs.readFileSync('worker.js','utf8');
 
-const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-memory-v2'];
+const releaseFunctions=['aria-planner-v11','aria-canonical-runtime-v1','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-direct-v1','aria-memory-v2','aria-repair-supervisor-v1'];
 for(const fn of releaseFunctions) assert.match(source,new RegExp(`functions deploy ${fn}\\b`),`${fn} must be deployed`);
 
-const protectedFunctions=['aria-planner-v11','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1'];
+const protectedFunctions=['aria-planner-v11','aria-mission-runner-v22','aria-runtime-gateway-v1','aria-execution-runtime-v1','aria-device-gateway','aria-smart-verifier-v1','aria-repair-supervisor-v1'];
 for(const fn of protectedFunctions) assert.ok(fs.existsSync(path.join('supabase','functions',fn,'index.ts')),`${fn} source index.ts must be versioned`);
 assert.ok(fs.existsSync(path.join('supabase','functions','aria-runtime-gateway-v1','deno.json')),'aria-runtime-gateway-v1 deno.json must be versioned');
 
