@@ -398,6 +398,105 @@ async function verifyLearningApplication(goal: string, steps: any[], results: Re
   }
 }
 
+function isReadOnlyPlanRecoveryAllowed(goal: string) {
+  const value = String(goal || "").trim();
+  if (!value) return false;
+  const readOnlyIntent = /\b(review|revisa|revisar|audita|auditar|verifica|verificar|verify|inspect|inspecciona|comprueba|comprobar|diagnostica|diagnosticar|diagn[oó]stico|estado|status|conexi[oó]n|connection|investiga|investigar|analiza|analizar|check|lookup|lista|listar|lectura|consulta|consultar|historial)\b/i.test(value);
+  const mutationIntent = /\b(create|creates|build|implement|repair|fix|modify|update|add|remove|write|migrate|promote|deploy|dispatch|merge|crear|crea|construir|implementar|reparar|arreglar|modificar|actualizar|añadir|anadir|eliminar|escribir|migrar|publicar|desplegar|despliega|despliegue|fusionar|despachar)\b/i.test(value);
+  return readOnlyIntent && !mutationIntent;
+}
+
+async function buildReadOnlyPlanFallback(mission: any, cognitiveContext: any) {
+  const goal = String(mission?.goal || "").trim();
+  // Empty-plan recovery is never allowed to turn a write/deploy task into a
+  // model-only success. It applies only to clearly read-only review/status work.
+  if (!isReadOnlyPlanRecoveryAllowed(goal)) return null;
+
+  try {
+    const db = sb.schema("aria_internal");
+    const [modelsResult, capabilitiesResult, accountsResult] = await Promise.all([
+      db.from("model_registry").select("model_id,provider_id,status,enabled"),
+      db.from("capability_matrix").select("model_id,status,evidence_type,evidence_ref").eq("capability_id", "text_generation"),
+      db.from("account_registry").select("account_id,provider_id,status,enabled")
+    ]);
+    if (modelsResult.error || capabilitiesResult.error || accountsResult.error) return null;
+
+    const models = Array.isArray(modelsResult.data) ? modelsResult.data : [];
+    const capabilities = Array.isArray(capabilitiesResult.data) ? capabilitiesResult.data : [];
+    const accounts = Array.isArray(accountsResult.data) ? accountsResult.data : [];
+    const routes = models
+      .filter((model:any) => model?.enabled === true && String(model?.status || "").toLowerCase() === "available")
+      .filter((model:any) => {
+        const provider = String(model?.provider_id || "").toLowerCase();
+        const modelId = String(model?.model_id || "");
+        // Use only explicitly free/direct model registrations for this diagnostic fallback.
+        return (provider === "google" && modelId.endsWith("-direct"))
+          || (provider === "openrouter" && modelId.endsWith(":free"));
+      })
+      .map((model:any) => {
+        const account = accounts.find((item:any) =>
+          item?.provider_id === model.provider_id &&
+          item?.enabled === true &&
+          ["available", "active"].includes(String(item?.status || "").toLowerCase())
+        );
+        if (!account) return null;
+        const capability = capabilities.find((item:any) => item?.model_id === model.model_id) || null;
+        if (capability && ["blocked", "unavailable", "disabled"].includes(String(capability.status || "").toLowerCase())) return null;
+        return {
+          model_id: String(model.model_id),
+          provider_id: String(model.provider_id),
+          account_id: String(account.account_id),
+          capability_status: capability?.status || "unknown",
+          evidence_type: capability?.evidence_type || "unknown",
+          evidence_ref: capability?.evidence_ref || null
+        };
+      })
+      .filter(Boolean) as any[];
+    routes.sort((a:any,b:any) => (a.provider_id === "google" ? 0 : 1) - (b.provider_id === "google" ? 0 : 1));
+    const route = routes[0];
+    if (!route) return null;
+
+    const contextText = JSON.stringify({
+      mission_id: mission?.mission_id || null,
+      status: mission?.status || null,
+      cognitive_context: cognitiveContext || null,
+      checkpoint: mission?.checkpoint || null
+    }).slice(0, 7000);
+    const prompt = [
+      "RESPONDE ÚNICAMENTE EN ESPAÑOL.",
+      "La planificación anterior devolvió cero pasos ejecutables. Realiza SOLO una revisión de lectura del objetivo; no intentes reparar, publicar, escribir ni ejecutar cambios.",
+      "No afirmes que se ejecutó una herramienta o se modificó un sistema si no existe evidencia en el contexto.",
+      "Entrega: CONCLUSIÓN, EVIDENCIA DISPONIBLE, QUÉ NO SE PUDO CONFIRMAR y SIGUIENTE PASO CONCRETO.",
+      "Objetivo: " + goal,
+      "Contexto persistido: " + contextText
+    ].join("\n\n");
+
+    return [{
+      id: "planner_empty_readonly_fallback_1",
+      operation: "text_generation",
+      executor_type: "model",
+      target: { type: "model", provider_id: route.provider_id, account_id: route.account_id, model_id: route.model_id },
+      capability: "text_generation",
+      input: { payload: { prompt, max_tokens: 1800, temperature: 0 } },
+      risk: "READ",
+      timeout_ms: 90000,
+      policy: { planner_empty_readonly_fallback: true, read_only_audit: true, non_mutating: true, spanish_output_required: true },
+      verify: { response_content_nonempty: true },
+      selection: {
+        strategy: "planner_empty_readonly_model_fallback",
+        provider_id: route.provider_id,
+        model_id: route.model_id,
+        capability_status: route.capability_status,
+        evidence_type: route.evidence_type,
+        evidence_ref: route.evidence_ref
+      }
+    }];
+  } catch {
+    // Fallback must never become a second failure loop.
+    return null;
+  }
+}
+
 function executorType(step: any) {
   const explicit = String(step?.executor_type || step?.target?.type || "");
   if (explicit) return explicit;
@@ -2871,7 +2970,29 @@ Deno.serve(async (request) => {
         }
       }
     }
-    if (!Array.isArray(steps) || !steps.length) throw new Error("planner_empty_steps");
+    if (!Array.isArray(steps) || !steps.length) {
+      try {
+        await emitEvent(missionId, "planner_empty_steps_detected", {
+          reason: "planner returned an empty step array",
+          recovery_attempted: Boolean(mission?.checkpoint?.recovery?.replan_required),
+          read_only_fallback_eligible: isReadOnlyPlanRecoveryAllowed(String(mission?.goal || "")),
+          write_tasks_never_model_only: true
+        });
+      } catch {}
+      const fallbackSteps = await buildReadOnlyPlanFallback(mission, cognitiveContext);
+      if (Array.isArray(fallbackSteps) && fallbackSteps.length > 0) {
+        steps = fallbackSteps;
+        try {
+          await emitEvent(missionId, "planner_empty_readonly_fallback_selected", {
+            strategy: "registered_read_only_model_route",
+            step_ids: fallbackSteps.map((step:any) => String(step?.id || "")),
+            mutating_actions: false
+          });
+        } catch {}
+      } else {
+        throw new Error("planner_empty_steps");
+      }
+    }
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
 
     const normalizedSteps = steps.map((step: any) => normalizeExecutionStep(step, mission));
@@ -4351,8 +4472,8 @@ Deno.serve(async (request) => {
     if (failedMissionId) {
       try {
         const recovered = await updateMission(failedMissionId, {
-          status: reason === "planner_empty_steps" ? "blocked" : "paused",
-          next_action: reason === "planner_empty_steps" ? "replan: planner returned no executable steps; rebuild a governed plan before retrying" : "recovery: universal runner exception",
+          status: reason.startsWith("planner_empty_steps") ? "blocked" : "paused",
+          next_action: reason.startsWith("planner_empty_steps") ? "replan: planner returned no executable steps and no safe read-only fallback was available; build a materially different governed plan before retrying" : "recovery: universal runner exception",
           last_stderr: reason,
           lease_owner: null,
           lease_until: null,
