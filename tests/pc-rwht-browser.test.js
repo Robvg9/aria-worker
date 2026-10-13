@@ -13,7 +13,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.5.2/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.3/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -53,7 +53,13 @@ assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, la
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
 assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction)'));
 assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
-assert.match(runner, /Measure the action's visible effect above, then dismiss any resulting modal/);
+assert.match(runner, /Capture the real interaction result BEFORE cleanup closes the modal/);
+assert.ok(runner.includes('async function visibleBlockingSurfaceSignature(page)'), 'RWHT must observe visible modal/dialog surfaces before cleanup');
+const testControlStart = runner.indexOf('async function testControl(page, control, config)');
+const measuredDialogSnapshot = runner.indexOf('const afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart);
+const closeAfterMeasurement = runner.indexOf('await closeDialogs(page);', measuredDialogSnapshot);
+assert.ok(measuredDialogSnapshot > testControlStart && closeAfterMeasurement > measuredDialogSnapshot, 'RWHT must measure visible dialog effects before closing them');
+assert.match(runner, /reason: 'read_only_action_no_visible_effect'/, 'safe read-only Meditation clicks must fail if no visible effect is observed');
 assert.ok(runner.includes('await closeDialogs(page);'), 'close read-only detail overlays after measuring their effect');
 const dialogDismissalImplementation = runner.slice(runner.indexOf('async function waitForSurfaceDismissal'), runner.indexOf('async function closeDialogs'));
 assert.ok(dialogDismissalImplementation.includes('element.isConnected'), 'dialog cleanup must wait for the exact overlay handle to detach or stop intercepting');
