@@ -41,5 +41,6 @@ assert.ok(migration.includes('recent_24h_statuses'));
 assert.ok(learningMigration.includes("lower(trim(coalesce(m.metadata->>'scope',''))) = 'deploy supabase edge function'"));
 assert.ok(learningMigration.includes("edge function|edge functions|edge-function|función edge|funcion edge"));
 assert.ok(learningMigration.includes("token not in ('supabase','database','project'"));
+assert.ok(learningMigration.includes("            )\n          )\n        )\n      )\n  loop"), 'learning migration must close both nested scope conditions');
 assert.ok(workflow.includes('node scripts/aria-cuevacoin-step6-runtime-contract.cjs'));
 console.log('ARIA CUEVACOIN STEP 6 + MISSION DIAGNOSTICS CONTRACT: PASS');
