@@ -7,6 +7,8 @@ on:
     paths:
       - "pwa/**"
       - "worker.js"
+      # Keep PWA version/SW release SHA aligned with App API diagnostics fixes.
+      - "supabase/functions/aria-app-api-v3/**"
       - "wrangler.toml"
       - ".github/workflows/aria-pwa-fast-deploy.yml"
       - ".github/workflows/aria-meditation-webpush-production-e2e.yml"
