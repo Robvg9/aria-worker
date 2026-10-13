@@ -25,7 +25,7 @@ assert.ok(runner.includes('planner_empty_steps_detected'), 'empty plans must lea
 assert.ok(runner.includes('planner_empty_readonly_fallback_selected'), 'selected fallback strategy must be recorded');
 assert.ok(runner.includes('write_tasks_never_model_only: true'), 'write/deploy goals must never fall back to model-only success');
 assert.ok(runner.includes('planner_empty_steps'), 'non-recoverable empty plans must remain truthfully blocked');
-const mutationIntentLine = runner.split('\\n').find(line => line.includes('const mutationIntent =')) || '';
+const mutationIntentLine = runner.split(String.fromCharCode(10)).find(line => line.includes('const mutationIntent =')) || '';
 assert.ok(mutationIntentLine.includes('publish') && mutationIntentLine.includes('deploy'), 'publishing/deployment intent must fail closed');
 const fallbackStart = runner.indexOf('async function buildReadOnlyPlanFallback');
 const fallbackEnd = runner.indexOf('function executorType(step: any)', fallbackStart);
