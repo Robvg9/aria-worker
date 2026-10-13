@@ -12,6 +12,8 @@ on:
       - "wrangler.toml"
       - ".github/workflows/aria-pwa-fast-deploy.yml"
       - ".github/workflows/capabilities-rwht-authenticated.yml"
+      - ".github/workflows/chat-rwht-authenticated.yml"
+      - ".github/workflows/aria-pwa-steps-7-8-live.yml"
       - ".github/workflows/aria-meditation-webpush-production-e2e.yml"
       - "rwht/pc-browser/rwht-meditation-pwa-e2e.mjs"
   workflow_dispatch:
