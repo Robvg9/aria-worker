@@ -36,5 +36,6 @@ assert.ok(migration.includes("coalesce(m.last_stderr,'') <> 'duplicate_inflight_
 assert.ok(migration.includes('blocked_missions_total'));
 assert.ok(migration.includes('suppressed_duplicate_recovery_failures_24h'));
 assert.ok(migration.includes('recent_24h_statuses'));
+assert.equal(migration.split('\n$function$;').length - 1, 3, 'each recreated SQL function must end with a statement terminator before the next CREATE');
 assert.ok(workflow.includes('node scripts/aria-cuevacoin-step6-runtime-contract.cjs'));
 console.log('ARIA CUEVACOIN STEP 6 + MISSION DIAGNOSTICS CONTRACT: PASS');

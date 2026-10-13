@@ -151,6 +151,7 @@ begin
 end;
 $function$;
 
+
 CREATE OR REPLACE FUNCTION aria_internal.get_operational_health_v1()
  RETURNS jsonb
  LANGUAGE sql
@@ -224,6 +225,7 @@ select jsonb_build_object(
 )
 from stats;
 $function$;
+
 
 CREATE OR REPLACE FUNCTION aria_internal.aria_meditation_mission_status_counts_v1(p_user_id uuid, p_session_id text DEFAULT NULL::text)
  RETURNS jsonb
