@@ -402,7 +402,7 @@ function isReadOnlyPlanRecoveryAllowed(goal: string) {
   const value = String(goal || "").trim();
   if (!value) return false;
   const readOnlyIntent = /\b(review|revisa|revisar|audita|auditar|verifica|verificar|verify|inspect|inspecciona|comprueba|comprobar|diagnostica|diagnosticar|diagn[oó]stico|estado|status|conexi[oó]n|connection|investiga|investigar|analiza|analizar|check|lookup|lista|listar|lectura|consulta|consultar|historial)\b/i.test(value);
-  const mutationIntent = /\b(create|creates|build|implement|repair|fix|modify|update|add|remove|write|migrate|promote|deploy|dispatch|merge|crear|crea|construir|implementar|reparar|arreglar|modificar|actualizar|añadir|anadir|eliminar|escribir|migrar|publicar|desplegar|despliega|despliegue|fusionar|despachar)\b/i.test(value);
+  const mutationIntent = /\b(create|creates|build|implement|repair|fix|modify|update|add|remove|write|migrate|promote|deploy\w*|publish\w*|release\w*|migration\w*|merge\w*|dispatch\w*|crear|crea|construir|implementar|reparar|arreglar|modificar|actualizar|añadir|anadir|eliminar|escribir|migrar|publicar|publicaci[oó]n|desplegar|despliega|despliegue|migraci[oó]n|fusionar|despachar)\b/i.test(value);
   return readOnlyIntent && !mutationIntent;
 }
 
@@ -430,8 +430,7 @@ async function buildReadOnlyPlanFallback(mission: any, cognitiveContext: any) {
         const provider = String(model?.provider_id || "").toLowerCase();
         const modelId = String(model?.model_id || "");
         // Use only explicitly free/direct model registrations for this diagnostic fallback.
-        return (provider === "google" && modelId.endsWith("-direct"))
-          || (provider === "openrouter" && modelId.endsWith(":free"));
+        return provider === "google" && modelId.endsWith("-direct");
       })
       .map((model:any) => {
         const account = accounts.find((item:any) =>
@@ -452,7 +451,6 @@ async function buildReadOnlyPlanFallback(mission: any, cognitiveContext: any) {
         };
       })
       .filter(Boolean) as any[];
-    routes.sort((a:any,b:any) => (a.provider_id === "google" ? 0 : 1) - (b.provider_id === "google" ? 0 : 1));
     const route = routes[0];
     if (!route) return null;
 
