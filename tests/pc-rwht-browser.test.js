@@ -58,7 +58,7 @@ assert.ok(runner.includes('await closeDialogs(page);'), 'close read-only detail 
 const dialogDismissalImplementation = runner.slice(runner.indexOf('async function waitForSurfaceDismissal'), runner.indexOf('async function closeDialogs'));
 assert.ok(dialogDismissalImplementation.includes('element.isConnected'), 'dialog cleanup must wait for the exact overlay handle to detach or stop intercepting');
 assert.ok(dialogDismissalImplementation.includes("style.pointerEvents !== 'none'"), 'dialog dismissal must test the actual pointer-event blocker');
-assert.doesNotMatch(dialogDismissalImplementation, /style\\.opacity/, 'opacity zero does not guarantee that an overlay stops intercepting clicks');
+assert.doesNotMatch(dialogDismissalImplementation, /style\.opacity/, 'opacity zero does not guarantee that an overlay stops intercepting clicks');
 const closeDialogsImplementation = runner.slice(runner.indexOf('async function closeDialogs'), runner.indexOf('async function isBattleCruiserExternalAuthField'));
 assert.ok(closeDialogsImplementation.includes("const selector = '.modalBackdrop, [role=\"dialog\"], dialog[open]'"), 'dialog cleanup must be scoped to actual visible dialog surfaces');
 assert.ok(closeDialogsImplementation.includes("{ name: /^(cerrar|close)$/i }"), 'dialog cleanup must use an exact close-button label within the dialog');
@@ -73,8 +73,8 @@ assert.ok(closeDialogsImplementation.includes('for (let index = count - 1; index
 assert.ok(closeDialogsImplementation.includes('await waitForSurfaceDismissal(page, surface, 1800);'), 'dialog cleanup must wait for that specific overlay before re-querying the stack');
 assert.match(closeDialogsImplementation, /return !remainingBlockingSurface/);
 assert.match(runner, /reason: 'blocking_modal_not_dismissed'/, 'RWHT must hard-fail instead of clicking through an overlay that remains blocking');
-assert.match(runner, /summary\\.counter_reconciliation/);
-assert.match(runner, /summary\\.counters_reconciled === true/, 'PASS requires root, route, and action counters to reconcile');
+assert.ok(runner.includes('summary.counter_reconciliation'), 'report must publish explicit counter reconciliation');
+assert.ok(runner.includes('summary.counters_reconciled === true'), 'PASS requires root, route, and action counters to reconcile');
 assert.ok(!closeDialogsImplementation.includes("page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i })"), 'dialog cleanup must not click mission rows with CANCELADA labels');
 const closeStaleModal = runner.indexOf("if (routeHash !== '#mission') await closeDialogs(page);", meditationReplayLoop);
 assert.ok(closeStaleModal > reloadAfterRouteDrift && closeStaleModal < reopenDetailsCall, 'on non-Meditation routes, close stale dialogs after reset and before reopening nested details');
