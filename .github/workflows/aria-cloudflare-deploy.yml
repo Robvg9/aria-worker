@@ -24,6 +24,7 @@ on:
       - 'rwht/pc-browser/rwht-projects-e2e.mjs'
       - 'tests/pwa-project-workspace.test.js'
       - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
   workflow_dispatch:
 
 concurrency:
