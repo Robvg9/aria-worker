@@ -55,6 +55,36 @@ jobs:
           if ($actual -ne $expected) { throw "WRONG_RUNNER_IDENTITY: expected=$expected actual=$actual. No task changes made." }
           Write-Host "RUNNER_IDENTITY_GUARD=PASS DEVICE_ID=$actual COMPUTERNAME=$env:COMPUTERNAME"
 
+      - name: Repair Windows Time startup and synchronize clock
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $svc = Get-Service -Name 'W32Time' -ErrorAction Stop
+          $svcInfo = Get-CimInstance Win32_Service -Filter "Name='W32Time'" -ErrorAction Stop
+          Write-Host "W32TIME_STATE_BEFORE=$($svc.Status)"
+          Write-Host "W32TIME_STARTMODE_BEFORE=$($svcInfo.StartMode)"
+          Set-Service -Name 'W32Time' -StartupType Automatic
+          $svc = Get-Service -Name 'W32Time' -ErrorAction Stop
+          if ($svc.Status -ne 'Running') {
+            Start-Service -Name 'W32Time' -ErrorAction Stop
+            Start-Sleep -Seconds 2
+          }
+          $syncOutput = & w32tm.exe /resync /force 2>&1
+          $syncExit = $LASTEXITCODE
+          foreach ($line in $syncOutput) { Write-Host "W32TIME_RESYNC_OUTPUT=$([string]$line)" }
+          Write-Host "W32TIME_RESYNC_EXIT=$syncExit"
+          $global:LASTEXITCODE = 0
+          if ($syncExit -ne 0) { throw "W32TIME_RESYNC_FAILED_EXIT=$syncExit" }
+          $statusOutput = & w32tm.exe /query /status 2>&1
+          $statusExit = $LASTEXITCODE
+          foreach ($line in $statusOutput) {
+            if ([string]$line -match '(?i)Source:|Last Successful Sync Time:|Stratum:|Leap Indicator:') {
+              Write-Host "W32TIME_STATUS=$([string]$line)"
+            }
+          }
+          $global:LASTEXITCODE = 0
+          if ($statusExit -ne 0) { throw "W32TIME_STATUS_FAILED_EXIT=$statusExit" }
+          Write-Host 'W32TIME_RECOVERY=PASS'
+
       - name: Record Windows time synchronization status
         run: |
           $ErrorActionPreference = 'Continue'
@@ -234,6 +264,36 @@ jobs:
           $config = Get-Content -Raw $configPath | ConvertFrom-Json
           if ([string]::IsNullOrWhiteSpace([string]$config.device_id)) { throw 'Missing configured device_id; no task changes made.' }
           Write-Host "RUNNER_IDENTITY_GUARD=PASS DEVICE_ID=$($config.device_id) COMPUTERNAME=$env:COMPUTERNAME"
+
+      - name: Repair Windows Time startup and synchronize clock
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $svc = Get-Service -Name 'W32Time' -ErrorAction Stop
+          $svcInfo = Get-CimInstance Win32_Service -Filter "Name='W32Time'" -ErrorAction Stop
+          Write-Host "W32TIME_STATE_BEFORE=$($svc.Status)"
+          Write-Host "W32TIME_STARTMODE_BEFORE=$($svcInfo.StartMode)"
+          Set-Service -Name 'W32Time' -StartupType Automatic
+          $svc = Get-Service -Name 'W32Time' -ErrorAction Stop
+          if ($svc.Status -ne 'Running') {
+            Start-Service -Name 'W32Time' -ErrorAction Stop
+            Start-Sleep -Seconds 2
+          }
+          $syncOutput = & w32tm.exe /resync /force 2>&1
+          $syncExit = $LASTEXITCODE
+          foreach ($line in $syncOutput) { Write-Host "W32TIME_RESYNC_OUTPUT=$([string]$line)" }
+          Write-Host "W32TIME_RESYNC_EXIT=$syncExit"
+          $global:LASTEXITCODE = 0
+          if ($syncExit -ne 0) { throw "W32TIME_RESYNC_FAILED_EXIT=$syncExit" }
+          $statusOutput = & w32tm.exe /query /status 2>&1
+          $statusExit = $LASTEXITCODE
+          foreach ($line in $statusOutput) {
+            if ([string]$line -match '(?i)Source:|Last Successful Sync Time:|Stratum:|Leap Indicator:') {
+              Write-Host "W32TIME_STATUS=$([string]$line)"
+            }
+          }
+          $global:LASTEXITCODE = 0
+          if ($statusExit -ne 0) { throw "W32TIME_STATUS_FAILED_EXIT=$statusExit" }
+          Write-Host 'W32TIME_RECOVERY=PASS'
 
       - name: Restart the disconnected Desktop Commander task and recover stopped ARIA tasks
         run: |
