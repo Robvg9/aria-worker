@@ -887,19 +887,25 @@ async function liveOperationalContext(goal:string){
 async function projectReviewPlan(goal:string,context:any){
   const live=await liveOperationalContext(goal);
   const routes=await modelRoutes();
-  if(!routes.length) return out({error:"project_review_no_available_text_model",planner_version:"aria-planner-v11-live-project-review-v3-multi-model"},503);
+  // Prefer only a currently registered direct Google route here. Do not let
+  // project-review missions silently route through blocked/external providers.
+  const safeRoutes=routes.filter((route:any)=>
+    String(route.provider_id||"").toLowerCase()==="google" &&
+    String(route.model_id||"").endsWith("-direct")
+  );
+  if(!safeRoutes.length) return out({error:"project_review_no_available_safe_text_model",planner_version:"aria-planner-v11-live-project-review-v3-multi-model"},503);
 
   // Read-only project reviews must not depend on one generic reviewer agent.
   // The previous facts/crosscheck/summary chain delegated all three steps to
   // aria-agent-reviewer-v1, so a single agent-runtime failure exhausted the
-  // same strategy three times. Use live-registered model routes instead.
+  // same strategy three times. Use the registered direct-model route instead.
   const distinctRoutes:any[]=[];
-  for(const route of routes){
-    if(!distinctRoutes.some((seen:any)=>seen.provider_id===route.provider_id)) distinctRoutes.push(route);
+  for(const route of safeRoutes){
+    if(!distinctRoutes.some((seen:any)=>seen.provider_id===route.provider_id && seen.model_id===route.model_id)) distinctRoutes.push(route);
   }
-  const factsRoute=distinctRoutes[0]||routes[0];
-  const crosscheckRoute=distinctRoutes[1]||distinctRoutes[0]||routes[0];
-  const summaryRoute=distinctRoutes[2]||distinctRoutes[1]||distinctRoutes[0]||routes[0];
+  const factsRoute=distinctRoutes[0]||safeRoutes[0];
+  const crosscheckRoute=distinctRoutes[1]||distinctRoutes[0]||safeRoutes[0];
+  const summaryRoute=distinctRoutes[2]||distinctRoutes[1]||distinctRoutes[0]||safeRoutes[0];
   const liveText=JSON.stringify(live).slice(0,14000),ctxText=JSON.stringify(context).slice(0,5000);
   const steps=[
     modelStep("facts_1",factsRoute,`Recopila hechos actuales y verificables para la solicitud: ${goal}. Usa solo evidencia presente en el contexto LIVE; separa CONFIRMADO, NO CONFIRMADO y BLOQUEADO. No modifiques nada ni afirmes que se ejecutó una herramienta si no hay resultado correspondiente.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`),
