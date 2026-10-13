@@ -1389,7 +1389,47 @@ function visualProjectMissionPlan(goal:string,context:any){
   };
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
+
+function cuevacoinStep6Plan(goal: string) {
+  const value = String(goal || "");
+  if (!/\\/ARIA-CuevaCoin/i.test(value)
+      || !/(?:paso|step)\\s*6/i.test(value)
+      || !/(supabase_project_status|supabase_sql_execute|temporary-only step 6|aria_step6_write_probe)/i.test(value)) return null;
+  return {
+    goal: value,
+    steps: [{
+      id: "cuevacoin_step6_temp_write_probe",
+      operation: "step6_temp_write_probe",
+      executor_type: "connector",
+      target: { type: "connector", connector_id: "cuevacoin" },
+      input: {
+        confirm_project_ref: "zqgmjwfvluboiporytcq",
+        confirm_production_write: true,
+        risk_level: "LOW_RISK_WRITE",
+        change_summary: "Temporary-only step 6 write/readback/drop probe"
+      },
+      risk: "LOW_RISK_WRITE",
+      timeout_ms: 60000,
+      policy: {
+        tool_use: true,
+        step6_temp_write_probe: true,
+        project_ref_fixed: "zqgmjwfvluboiporytcq",
+        only_temporary_table: true,
+        financial_operations_blocked: true,
+        persistent_schema_changes_blocked: true,
+        arbitrary_sql_blocked: true
+      },
+      verify: { response_content_contains: "ARIA_CUEVACOIN_STEP6_TEMP_WRITE_READBACK_DROP_PASS" },
+      selection: { executor_type: "connector", connector_id: "cuevacoin", strategy: "fixed_step6_temp_write_readback_drop_probe" }
+    }],
+    planner_version: "aria-planner-v11-cuevacoin-step6-cloud-probe-v1",
+    cuevacoin_step6_cloud_probe: true,
+    project_id: "cuevacoin",
+    requested_device_id: null
+  };
+}
+
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);const cuevacoinStep6=cuevacoinStep6Plan(goal);if(cuevacoinStep6)return out({ok:true,plan:cuevacoinStep6,planner_version:cuevacoinStep6.planner_version,cuevacoin_step6_cloud_probe:true});try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
 const explicitRequestedDevice=String(
   context?.mission_planner_contract?.requested_device_id ||
   context?.requested_device_id ||
