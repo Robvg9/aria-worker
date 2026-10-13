@@ -14,6 +14,8 @@ on:
       - 'pwa/**'
       - 'scripts/cloudflare-workers-build.js'
       - 'integrations/cloudflare-*.js'
+      - 'integrations/cuevacoin-oauth-e2e.js'
+      - 'tests/aria-cuevacoin-oauth-callback.test.js'
       - 'autonomy/**'
       - 'chatbending/**'
       # Keep exact-SHA post-deploy Projects/ARTIA certification reproducible when its harness changes.
