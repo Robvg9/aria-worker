@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.1';
+const VERSION = 'aria-pc-browser-rwht-v1.5.2';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -296,22 +296,29 @@ async function loginIfConfigured(page, config) {
   return { attempted: true, status: 'failed', attempts, error: 'authenticated_login_failed' };
 }
 
-async function waitForDialogDismissal(page, timeoutMs = 2500) {
-  // React removes most modal backdrops synchronously, but the exit animation can
-  // leave the old layer intercepting the next click. Wait for all known blocking
-  // surfaces to stop receiving pointer events before replaying another control.
-  await page.waitForFunction(() => {
-    const visibleAndBlocking = (element) => {
+async function waitForSurfaceDismissal(page, surface, timeoutMs = 1800) {
+  // Keep a handle to this exact layer. Waiting for every dialog to disappear at
+  // once deadlocks when overlays are stacked; close the top layer, wait for that
+  // element itself to detach/stop intercepting events, then re-query the stack.
+  const handle = await surface.elementHandle().catch(() => null);
+  if (!handle) {
+    await page.waitForTimeout(100);
+    return;
+  }
+  try {
+    await page.waitForFunction((element) => {
+      if (!element.isConnected) return true;
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
-      return rect.width > 0 && rect.height > 0 &&
+      const visibleAndBlocking = rect.width > 0 && rect.height > 0 &&
         style.display !== 'none' && style.visibility !== 'hidden' &&
         style.pointerEvents !== 'none';
-    };
-    return ![...document.querySelectorAll('.modalBackdrop, [role="dialog"], dialog[open]')]
-      .some(visibleAndBlocking);
-  }, null, { timeout: timeoutMs });
-  await page.waitForTimeout(150);
+      return !visibleAndBlocking;
+    }, handle, { timeout: timeoutMs });
+  } finally {
+    await handle.dispose().catch(() => {});
+  }
+  await page.waitForTimeout(100);
 }
 
 async function closeDialogs(page) {
@@ -321,9 +328,12 @@ async function closeDialogs(page) {
   for (let pass = 0; pass < 8; pass += 1) {
     const surfaces = page.locator(selector);
     const count = Math.min(await surfaces.count().catch(() => 0), 8);
+    if (!count) return true;
     let dismissed = false;
 
-    for (let index = 0; index < count; index += 1) {
+    // DOM order follows the stack: close the topmost surface first, then
+    // re-query because closing it may reveal a different overlay underneath.
+    for (let index = count - 1; index >= 0; index -= 1) {
       const surface = surfaces.nth(index);
       if (!await surface.isVisible().catch(() => false)) continue;
 
@@ -331,21 +341,21 @@ async function closeDialogs(page) {
       if (await closeButton.count().catch(() => 0) && await closeButton.isVisible().catch(() => false)) {
         try {
           await closeButton.click({ timeout: 1000 });
-          await waitForDialogDismissal(page, 1800);
+          await waitForSurfaceDismissal(page, surface, 1800);
           dismissed = true;
           break;
         } catch {}
       }
 
       // Some PWA modals intentionally close when the user clicks the backdrop.
-      // Use a point outside the modal card; never click an arbitrary page control.
+      // Only click the current topmost backdrop, outside its dialog card.
       const isBackdrop = await surface.evaluate((element) =>
         element.classList?.contains('modalBackdrop') === true
       ).catch(() => false);
       if (isBackdrop) {
         try {
           await surface.click({ position: { x: 2, y: 2 }, timeout: 1000 });
-          await waitForDialogDismissal(page, 1800);
+          await waitForSurfaceDismissal(page, surface, 1800);
           dismissed = true;
           break;
         } catch {}
@@ -354,7 +364,21 @@ async function closeDialogs(page) {
 
     if (!dismissed) break;
   }
+
+  // Never attempt another control through a layer that still owns pointer
+  // events. Report that condition as a hard control failure at the call site.
+  const remainingBlockingSurface = await page.locator(selector).evaluateAll((elements) =>
+    elements.some((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 &&
+        style.display !== 'none' && style.visibility !== 'hidden' &&
+        style.pointerEvents !== 'none';
+    })
+  ).catch(() => true);
+  return !remainingBlockingSurface;
 }
+
 
 async function isBattleCruiserExternalAuthField(page, control, label) {
   const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
@@ -1032,10 +1056,23 @@ async function auditRoute(page, url, routeIndex, config) {
       continue;
     }
 
-    // A previous safe interaction may have opened a modal. On ordinary routes,
-    // dismiss it before exercising the next control; #mission intentionally starts
-    // in its own New Mission modal and must preserve that route surface.
-    if (routeHash !== '#mission') await closeDialogs(page);
+    // A previous safe interaction may have opened one or more modal layers.
+    // #mission intentionally starts in its own New Mission modal and preserves that
+    // route surface; elsewhere, do not click through a layer that failed to close.
+    if (routeHash !== '#mission') {
+      const dialogsClosed = await closeDialogs(page);
+      if (!dialogsClosed) {
+        routeResult.actions.push({
+          control: original,
+          outcome: 'failed',
+          action: 'click',
+          reason: 'blocking_modal_not_dismissed',
+          error: 'Refused to replay a control while a modal/dialog still intercepts pointer events.'
+        });
+        routeResult.controls_failed += 1;
+        continue;
+      }
+    }
     const outcome = await testControl(page, target, config);
     routeResult.actions.push({
       control: {
@@ -1198,6 +1235,36 @@ async function run() {
   summary.auth_required = config.require_auth;
   summary.auth_verified = !config.require_auth || routeResults.length > 0 && routeResults[0].auth?.verified === true;
 
+  const counterKeys = [
+    'controls_discovered', 'controls_testable', 'controls_verified',
+    'controls_blocked', 'controls_failed', 'controls_skipped'
+  ];
+  const rootMatchesRoutes = counterKeys.every((key) =>
+    summary[key] === routeResults.reduce((sum, route) => sum + Number(route[key] || 0), 0)
+  );
+  const actionsMatchRouteCounts = routeResults.every((route) => {
+    const actions = Array.isArray(route.actions) ? route.actions : [];
+    const outcomes = { verified: 0, blocked: 0, failed: 0, skipped: 0 };
+    for (const action of actions) {
+      if (!Object.prototype.hasOwnProperty.call(outcomes, action.outcome)) return false;
+      outcomes[action.outcome] += 1;
+    }
+    return Number(route.controls_discovered || 0) === actions.length &&
+      Number(route.controls_verified || 0) === outcomes.verified &&
+      Number(route.controls_blocked || 0) === outcomes.blocked &&
+      Number(route.controls_failed || 0) === outcomes.failed &&
+      Number(route.controls_skipped || 0) === outcomes.skipped &&
+      Number(route.controls_testable || 0) === outcomes.verified + outcomes.blocked + outcomes.failed;
+  });
+  const testableMatchesTerminalOutcomes =
+    summary.controls_testable === summary.controls_verified + summary.controls_blocked + summary.controls_failed;
+  summary.counter_reconciliation = {
+    root_matches_routes: rootMatchesRoutes,
+    actions_match_route_counts: actionsMatchRouteCounts,
+    testable_matches_terminal_outcomes: testableMatchesTerminalOutcomes,
+    passed: rootMatchesRoutes && actionsMatchRouteCounts && testableMatchesTerminalOutcomes
+  };
+  summary.counters_reconciled = summary.counter_reconciliation.passed === true;
 
   summary.coverage_ratio = summary.controls_testable
     ? Number(((summary.controls_verified + summary.controls_blocked) / summary.controls_testable).toFixed(3))
@@ -1205,6 +1272,7 @@ async function run() {
 
   summary.verified =
     summary.routes_completed === summary.routes_requested &&
+    summary.counters_reconciled === true &&
     summary.controls_failed === 0 &&
     summary.coverage_ratio >= 0.98 &&
     summary.page_errors.length === 0 &&
@@ -1226,6 +1294,7 @@ async function run() {
     skipped: summary.controls_skipped,
     blocked: summary.controls_blocked,
     failed: summary.controls_failed,
+    counters_reconciled: summary.counters_reconciled,
     coverage_ratio: summary.coverage_ratio,
     ux_issues: summary.ux_issues.length,
     page_errors: summary.page_errors.length,
