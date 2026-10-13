@@ -1934,6 +1934,18 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
   };
 }
 
+function agentRuntimeHeaders() {
+  // Agent Runtime is an internal ARIA service-to-service call. Do not forward
+  // an arbitrary PWA/user bearer token to this internal executor.
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (KEY) {
+    headers.authorization = `Bearer ${KEY}`;
+    headers["x-aria-internal-service-key"] = KEY;
+  }
+  if (EDGE_API_KEY) headers.apikey = EDGE_API_KEY;
+  return headers;
+}
+
 async function agentExecute(missionId: string, step: any, auth: AuthContext) {
   const originalAgentId = String(step.target.agent_id);
   const attempted = new Set<string>();
@@ -1944,7 +1956,7 @@ async function agentExecute(missionId: string, step: any, auth: AuthContext) {
     attempted.add(agentId);
     const response = await fetch(AGENT, {
       method: "POST",
-      headers: downstreamHeaders(auth),
+      headers: agentRuntimeHeaders(),
       body: JSON.stringify({
         mission_id: missionId,
         step_id: String(step.id),
