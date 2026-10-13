@@ -884,7 +884,30 @@ async function liveOperationalContext(goal:string){
   return {version:"live-operational-context-v1",goal,missions,devices,models,accounts,agents,capabilities:caps,tool_universe:TOOL_UNIVERSE_V1,human_verification_policy:{android_rwht:"pending_until_explicit_persisted_human_evidence",online_device_never_equals_physical_rwht_certification:true},generated_at:new Date().toISOString()};
 }
 
-async function projectReviewPlan(goal:string,context:any){const live=await liveOperationalContext(goal);const agent={agent_id:"aria-agent-reviewer-v1",role:"revisor",model_id:"google/gemini-3.5-flash-lite-direct"};const liveText=JSON.stringify(live).slice(0,14000),ctxText=JSON.stringify(context).slice(0,5000);const steps=[agentStep("facts_1",agent,`Recopila hechos actuales y verificables sobre ARIA para la solicitud: ${goal}. Usa el contexto LIVE como fuente operativa, confirma qué está funcionando y qué está degradado, y separa CONFIRMADO de HIPÓTESIS y BLOQUEADO. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`),agentStep("crosscheck_1",agent,`Haz una segunda revisión independiente de la solicitud: ${goal}. Contrasta la evidencia actual con lo que realmente consume el runtime, busca contradicciones y evita repetir supuestos. No modifiques nada.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["facts_1"]),agentStep("summary_1",agent,`Redacta la respuesta final para el usuario sobre: ${goal}. Basa todo en la evidencia que puedas confirmar ahora. Explica qué ARIA encontró, qué funciona, qué está mal/degradado, qué evidencia lo demuestra y cuál es la siguiente acción concreta. Todo el texto humano debe estar en español. No uses JSON crudo y no afirmes que algo está completado sin evidencia.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["crosscheck_1"])];return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-live-project-review-v2-multistep",live_project_review:true,live_operational_context:live}});}
+async function projectReviewPlan(goal:string,context:any){
+  const live=await liveOperationalContext(goal);
+  const routes=await modelRoutes();
+  if(!routes.length) return out({error:"project_review_no_available_text_model",planner_version:"aria-planner-v11-live-project-review-v3-multi-model"},503);
+
+  // Read-only project reviews must not depend on one generic reviewer agent.
+  // The previous facts/crosscheck/summary chain delegated all three steps to
+  // aria-agent-reviewer-v1, so a single agent-runtime failure exhausted the
+  // same strategy three times. Use live-registered model routes instead.
+  const distinctRoutes:any[]=[];
+  for(const route of routes){
+    if(!distinctRoutes.some((seen:any)=>seen.provider_id===route.provider_id)) distinctRoutes.push(route);
+  }
+  const factsRoute=distinctRoutes[0]||routes[0];
+  const crosscheckRoute=distinctRoutes[1]||distinctRoutes[0]||routes[0];
+  const summaryRoute=distinctRoutes[2]||distinctRoutes[1]||distinctRoutes[0]||routes[0];
+  const liveText=JSON.stringify(live).slice(0,14000),ctxText=JSON.stringify(context).slice(0,5000);
+  const steps=[
+    modelStep("facts_1",factsRoute,`Recopila hechos actuales y verificables para la solicitud: ${goal}. Usa solo evidencia presente en el contexto LIVE; separa CONFIRMADO, NO CONFIRMADO y BLOQUEADO. No modifiques nada ni afirmes que se ejecutó una herramienta si no hay resultado correspondiente.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`),
+    modelStep("crosscheck_1",crosscheckRoute,`Contrasta independientemente la evidencia para la solicitud: ${goal}. Busca contradicciones, separa fuentes actuales de información histórica y no rellenes vacíos con suposiciones. No modifiques nada.\nHECHOS PREVIOS:\n${ctxText}\nLIVE:\n${liveText}`,["facts_1"]),
+    modelStep("summary_1",summaryRoute,`Redacta la conclusión para el usuario sobre: ${goal}. Usa exclusivamente evidencia verificada; si una dependencia o herramienta no se ejecutó, dilo de forma explícita y da el siguiente paso concreto. No afirmes que se completó una escritura, publicación ni prueba que no aparezca en la evidencia.\nLIVE:\n${liveText}\nCONTEXTO:\n${ctxText}`,["crosscheck_1"])
+  ];
+  return out({ok:true,plan:{goal,steps,planner_version:"aria-planner-v11-live-project-review-v3-multi-model",live_project_review:true,live_operational_context:live,agent_runtime_dependency_removed:true}});
+}
 async function allForOnePlan(goal:string,context:any){
   const g=String(goal||'');
   if(!/(?:all\s*for\s*one|todos?\s+para\s+uno|auditor[ií]a.*all\s*for\s*one|revision.*all\s*for\s*one|investigacion.*all\s*for\s*one)/i.test(g)) return null;
