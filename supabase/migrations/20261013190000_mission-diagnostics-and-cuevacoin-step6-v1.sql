@@ -217,7 +217,8 @@ select jsonb_build_object(
   'next_actions',
     case
       when stale_jobs > 0 then jsonb_build_array('Inspeccionar jobs stale y la evidencia del watchdog.')
-      when blocked_missions > 0 then jsonb_build_array('Revisar las misiones bloqueadas desde el panel de diagnóstico.')
+      when blocked_missions > 0 then jsonb_build_array('Revisar las misiones bloqueadas durante las últimas 24 horas en el panel de diagnóstico.')
+      when failed_24h > 0 then jsonb_build_array('Revisar la evidencia de los fallos de las últimas 24 horas y separar errores de ejecución de recuperaciones históricas.')
       when queued_jobs > 0 and devices_online = 0 then jsonb_build_array('Restaurar un executor de dispositivo online antes de esperar progreso.')
       else jsonb_build_array('No se requiere una acción operativa inmediata.')
     end
