@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.6';
+const VERSION = 'aria-pc-browser-rwht-v1.5.7';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -780,7 +780,7 @@ async function testControl(page, control, config) {
         title: beforeTitle,
         controls_hash: beforeHash,
         dialogs: beforeDialogs
-      }, Math.max(16000, config.action_timeout_ms, config.settle_ms));
+      }, Math.max(35000, config.action_timeout_ms, config.settle_ms));
       afterUrl = observed.state.url;
       afterTitle = observed.state.title;
       afterHash = observed.state.controls_hash;
