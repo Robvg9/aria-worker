@@ -1,5 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
 async function run(){
  const d=await import('../supabase/functions/_shared/operational-diagnostics.mjs');
  assert.equal(d.registry.version,'aria-operational-diagnostics-v1.0.0');
@@ -32,6 +34,14 @@ async function run(){
  assert.doesNotMatch(JSON.stringify(secureDiag),/SUPERSECRET/);
  const good=d.deriveOperationalDiagnostic({mission:{...mission,status:'succeeded'},events:[],jobs:[],steps:[]});
  assert.equal(good.classification.root_cause,'none');
+ const apiSource=fs.readFileSync(path.join(__dirname,'../supabase/functions/aria-app-api-v3/index.ts'),'utf8');
+ const healthStart=apiSource.indexOf('async function operationalHealth(userId:string){');
+ const healthEnd=apiSource.indexOf('async function capabilityCatalog',healthStart);
+ assert.ok(healthStart>=0 && healthEnd>healthStart,'App API v3 must define operationalHealth');
+ const healthSource=apiSource.slice(healthStart,healthEnd);
+ assert.match(healthSource,/sb\\.schema\\([\"']aria_internal[\"']\\)\\.rpc\\([\"']get_operational_health_v1[\"']\\)/);
+ assert.doesNotMatch(healthSource,/sb\\.rpc\\([\"']get_operational_health_v1[\"']\\)/);
+
  console.log('OPERATIONAL DIAGNOSTICS CONTRACT: PASS');
 }
 run().catch(e=>{console.error(e);process.exit(1)});
