@@ -13,7 +13,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.5.3/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.4/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -55,6 +55,14 @@ assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) 
 assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
 assert.match(runner, /Capture the real interaction result BEFORE cleanup closes the modal/);
 assert.ok(runner.includes('async function visibleBlockingSurfaceSignature(page)'), 'RWHT must observe visible modal/dialog surfaces before cleanup');
+assert.ok(runner.includes('async function openMeditationDetailsForInitialAudit(page, routeHash)'), 'RWHT must expand read-only Meditation panels before initial discovery');
+const initialPanelExpansion = runner.indexOf('await openMeditationDetailsForInitialAudit(page, routeForReadiness);');
+const uxSnapshotAfterExpansion = runner.indexOf('const ux = await checkUx(page);', initialPanelExpansion);
+const controlsSnapshotAfterExpansion = runner.indexOf(': await discoverInteractive(page);', initialPanelExpansion);
+assert.ok(initialPanelExpansion >= 0 && uxSnapshotAfterExpansion > initialPanelExpansion && controlsSnapshotAfterExpansion > initialPanelExpansion, 'Meditation sections must be opened before UX/control inventory snapshots');
+const panelExpansionImplementation = runner.slice(runner.indexOf('async function openMeditationDetailsForInitialAudit'), runner.indexOf('async function testControl'));
+assert.ok(panelExpansionImplementation.includes("page.locator('.meditationViewport details').evaluateAll("), 'Panel expansion must stay within the Meditation route');
+assert.ok(panelExpansionImplementation.includes('element.open = true'), 'Panel expansion must only open read-only disclosures');
 const testControlStart = runner.indexOf('async function testControl(page, control, config)');
 const measuredDialogSnapshot = runner.indexOf('const afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart);
 const closeAfterMeasurement = runner.indexOf('await closeDialogs(page);', measuredDialogSnapshot);
