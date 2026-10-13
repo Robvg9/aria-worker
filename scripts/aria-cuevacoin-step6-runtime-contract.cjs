@@ -35,5 +35,5 @@ assert.ok(migration.includes("coalesce(m.last_stderr,'') <> 'duplicate_inflight_
 assert.ok(migration.includes('blocked_missions_total'));
 assert.ok(migration.includes('suppressed_duplicate_recovery_failures_24h'));
 assert.ok(migration.includes('recent_24h_statuses'));
-assert.ok(workflow.includes('node tests/aria-cuevacoin-step6-runtime-contract.test.js'));
+assert.ok(workflow.includes('node scripts/aria-cuevacoin-step6-runtime-contract.cjs'));
 console.log('ARIA CUEVACOIN STEP 6 + MISSION DIAGNOSTICS CONTRACT: PASS');
