@@ -62,6 +62,7 @@ jobs:
           $names = @($required, 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
           $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
           if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
+          $dcTaskRunRequested = $false
 
           foreach ($name in $names) {
             $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
@@ -82,13 +83,19 @@ jobs:
             Write-Host "TASK_RUN_REQUESTED=$name"
             & schtasks.exe /Run /TN $name 2>&1 | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "TASK_RUN_FAILED=$name EXIT=$LASTEXITCODE" }
+            if ($name -eq $required) { $dcTaskRunRequested = $true }
           }
 
           Start-Sleep -Seconds 8
           $info = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
           Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
-          if ($info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+          if ($dcTaskRunRequested -and $info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+          if ($dcTaskRunRequested) {
+            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=PASS'
+          } else {
+            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=NOT_APPLICABLE_TASK_ALREADY_RUNNING'
+          }
 
           $task = Get-ScheduledTask -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_STATE=$($task.State)"
@@ -187,7 +194,11 @@ jobs:
             } else { Write-Host 'SUPERVISOR_LOG=MISSING' }
           }
           Write-Host 'DC_TASK_DIAGNOSTICS=PASS'
-          Write-Host 'DC_TASK_RECOVERY_REQUEST=PASS'
+          if ($dcTaskRunRequested) {
+            Write-Host 'DC_TASK_ACTION=START_REQUESTED'
+          } else {
+            Write-Host 'DC_TASK_ACTION=DIAGNOSTIC_ONLY_ALREADY_RUNNING'
+          }
 
   recover-robvg:
     if: github.event_name != 'pull_request'
@@ -243,13 +254,19 @@ jobs:
             Write-Host "TASK_RUN_REQUESTED=$name"
             & schtasks.exe /Run /TN $name 2>&1 | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "TASK_RUN_FAILED=$name EXIT=$LASTEXITCODE" }
+            if ($name -eq $required) { $dcTaskRunRequested = $true }
           }
 
           Start-Sleep -Seconds 8
           $info = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
           Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
-          if ($info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+          if ($dcTaskRunRequested -and $info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
+          if ($dcTaskRunRequested) {
+            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=PASS'
+          } else {
+            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=NOT_APPLICABLE_TASK_ALREADY_RUNNING'
+          }
 
           $task = Get-ScheduledTask -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_STATE=$($task.State)"
@@ -289,4 +306,8 @@ jobs:
               ForEach-Object { Write-Host ("LOG_METADATA name={0} modified={1:o} bytes={2}" -f $_.Name,$_.LastWriteTime,$_.Length) }
           }
           Write-Host 'DC_TASK_DIAGNOSTICS=PASS'
-          Write-Host 'DC_TASK_RECOVERY_REQUEST=PASS'
+          if ($dcTaskRunRequested) {
+            Write-Host 'DC_TASK_ACTION=START_REQUESTED'
+          } else {
+            Write-Host 'DC_TASK_ACTION=DIAGNOSTIC_ONLY_ALREADY_RUNNING'
+          }
