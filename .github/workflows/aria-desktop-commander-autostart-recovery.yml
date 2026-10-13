@@ -13,10 +13,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: aria-desktop-commander-autostart-recovery
-  cancel-in-progress: false
-
 jobs:
   contract:
     runs-on: ubuntu-latest
@@ -39,6 +35,9 @@ jobs:
 
   recover-lacueva:
     if: github.event_name != 'pull_request'
+    concurrency:
+      group: aria-desktop-commander-recovery-lacueva
+      cancel-in-progress: false
     runs-on: [aria-lacueva-runtime]
     timeout-minutes: 5
     defaults:
@@ -142,6 +141,9 @@ jobs:
 
   recover-robvg:
     if: github.event_name != 'pull_request'
+    concurrency:
+      group: aria-desktop-commander-recovery-robvg
+      cancel-in-progress: false
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     defaults:
