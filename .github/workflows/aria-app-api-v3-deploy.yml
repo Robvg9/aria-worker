@@ -31,7 +31,7 @@ jobs:
           node - <<'NODE'
           const fs = require('fs');
           const source = fs.readFileSync('supabase/functions/aria-app-api-v3/index.ts', 'utf8');
-          for (const fragment of ['executeConversationWithFallback','conversationRouteCache','path.endsWith("/conversation")']) {
+          for (const fragment of ['executeConversationWithFallback','conversationRouteCache','path.endsWith("/conversation")','sb.schema("aria_internal").rpc("get_operational_health_v1")','path.endsWith("/diagnostics/health")']) {
             if (!source.includes(fragment)) throw new Error('missing contract: ' + fragment);
           }
           console.log('ARIA APP API v3 source contract: PASS');
