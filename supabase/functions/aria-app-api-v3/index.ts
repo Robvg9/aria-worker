@@ -1579,9 +1579,13 @@ async function meditationOverview(userId:string){
   const statusCounts:any={};
   for(const statusName of statusNames)statusCounts[statusName]=Number(countByStatus[statusName]||0);
   statusCounts.total=Number(statusSummary?.total||0);
+  const recentByStatus=statusSummary?.recent_24h_statuses&&typeof statusSummary.recent_24h_statuses==="object"?statusSummary.recent_24h_statuses:{};
+  const recentStatusCounts:any={};
+  for(const statusName of statusNames)recentStatusCounts[statusName]=Number(recentByStatus[statusName]||0);
+  recentStatusCounts.total=Number(statusSummary?.recent_24h_total||0);
   statusCounts.history=statusCounts.succeeded+statusCounts.failed+statusCounts.blocked+statusCounts.cancelled;
   statusCounts.active=statusCounts.planning+statusCounts.running+statusCounts.waiting+statusCounts.paused;
-  return{version:"aria-meditation-dashboard-v6",mode:controllerOwnedByUser?String(controller?.desired_mode??"stopped"):"stopped",controller:controllerOwnedByUser?controller:null,active_mission:activeWithLive,foreground_mission:foreground,queued_missions:await Promise.all(queuedMissions),missions,failed,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:statusCounts.total,total:statusCounts.total,history:statusCounts.history,active:statusCounts.active,human_gates:gates.length,blocked:statusCounts.blocked,failed:statusCounts.failed,verification_pending:verification_pending.length,queued:statusCounts.queued,succeeded:statusCounts.succeeded,cancelled:statusCounts.cancelled},source_of_truth:"aria_internal.mission_state"};
+  return{version:"aria-meditation-dashboard-v6",mode:controllerOwnedByUser?String(controller?.desired_mode??"stopped"):"stopped",controller:controllerOwnedByUser?controller:null,active_mission:activeWithLive,foreground_mission:foreground,queued_missions:await Promise.all(queuedMissions),missions,failed,human_gates:gates.slice(0,30),blocked:blocked.slice(0,30),verification_pending:verification_pending.slice(0,30),counts:{missions:statusCounts.total,total:statusCounts.total,history:statusCounts.history,active:statusCounts.active,human_gates:gates.length,blocked:statusCounts.blocked,failed:statusCounts.failed,verification_pending:verification_pending.length,queued:statusCounts.queued,succeeded:statusCounts.succeeded,cancelled:statusCounts.cancelled,recent_24h:recentStatusCounts},source_of_truth:"aria_internal.mission_state"};
 }
 
 function looksLikeSimpleConversation(input:string) {

@@ -2833,20 +2833,40 @@ function Meditation({ session }: { session: Session }) {
               <span>ARIA está disponible y la ejecución en tiempo real aparecerá aquí cuando una misión pase a ejecución.</span>
             </div>
           </section>}
-      {operationalHealth && String(operationalHealth.status ?? '').toLowerCase() !== 'healthy' && (() => {
-        const blockedCount = Number(o?.counts?.blocked ?? operationalHealth?.summary?.blocked_missions ?? 0);
-        const failedCount = Number(o?.counts?.failed ?? operationalHealth?.summary?.failed_24h ?? 0);
-        const nextAction = String(operationalHealth?.next_actions?.[0] || 'Revisa primero las misiones bloqueadas y después las fallidas.');
+      {(() => {
+        const healthStatus = String(operationalHealth?.status ?? '').toLowerCase();
+        const missionFailure = [m?.last_stderr, m?.next_action, m?.checkpoint?.recovery?.reason].map(value => String(value || '')).join(' ');
+        const missionNeedsAttention = String(m?.status || '').toLowerCase() === 'paused'
+          && /planner_empty_steps|agent_fallback_exhausted|executor_error/.test(missionFailure);
+        if (!missionNeedsAttention && (!operationalHealth || healthStatus === 'healthy')) return null;
+        const dependencies = operationalHealth?.dependencies || {};
+        const coreDependenciesHealthy = dependencies.device_transport?.status === 'healthy'
+          && dependencies.model_runtime?.status === 'healthy'
+          && dependencies.job_queue?.status === 'healthy';
+        const blockedHistorical = Number(o?.counts?.blocked ?? operationalHealth?.summary?.blocked_missions_total ?? operationalHealth?.summary?.blocked_missions ?? 0);
+        const failedHistorical = Number(o?.counts?.failed ?? 0);
+        const recentCounts = o?.counts?.recent_24h || {};
+        const blockedRecent = Number(recentCounts.blocked ?? 0);
+        const failedRecent = Number(recentCounts.failed ?? 0);
+        const pausedRecent = Number(recentCounts.paused ?? 0);
+        const nextAction = missionNeedsAttention
+          ? 'El plan no produjo una ruta ejecutable. Usa el plan corregido del runtime; no repitas la estrategia anterior.'
+          : String(operationalHealth?.next_actions?.[0] || 'Revisa el diagnóstico antes de reanudar trabajos.');
+        const title = missionNeedsAttention
+          ? '⚠️ La misión actual necesita una ruta ejecutable'
+          : coreDependenciesHealthy
+            ? '⚠️ Hay misiones que requieren revisión'
+            : '⚠️ Núcleo operativo degradado';
         return (
           <div className='meditationHealthWarning' role='status'>
-            <strong>⚠️ Núcleo operativo degradado</strong>
+            <strong>{title}</strong>
             <span>
-              {blockedCount ? blockedCount + ' misiones bloqueadas' : 'Hay condiciones operativas pendientes'}
-              {failedCount ? ' · ' + failedCount + ' fallos recientes' : ''}.
-              {' '}Las dependencias críticas no se consideran caídas; el problema principal requiere revisión de misiones.
+              Historial de esta cuenta: {blockedHistorical} bloqueadas · {failedHistorical} fallidas.
+              {' '}Últimas 24 h: {blockedRecent} bloqueadas · {failedRecent} fallidas · {pausedRecent} pausadas.
             </span>
-            <small><b>Cómo arreglarlo:</b> {nextAction}</small>
-            <small>Después abre <b>Bloqueadas</b> y <b>Fallidas</b> en “Más información” para revisar cada causa y su siguiente acción.</small>
+            {coreDependenciesHealthy && !missionNeedsAttention && <small>Las dependencias principales están disponibles; las cifras del historial no representan fallos recientes.</small>}
+            <small><b>Siguiente acción:</b> {nextAction}</small>
+            {!coreDependenciesHealthy && <small>Abre <b>Más información</b> y revisa las causas nuevas en Bloqueadas y Fallidas.</small>}
           </div>
         );
       })()}
@@ -2857,8 +2877,8 @@ function Meditation({ session }: { session: Session }) {
                 <section className='statsGrid'>
                   <StatCard value={Number(o?.counts?.history ?? 0)} label='Historial total' />
                   <StatCard value={Number(o?.counts?.queued ?? queueCount)} label='En cola' />
-                  <StatCard value={Number(o?.counts?.failed ?? 0)} label='Fallidas' />
-                  <StatCard value={Number(o?.counts?.blocked ?? 0)} label='Bloqueadas' />
+                  <StatCard value={Number(o?.counts?.failed ?? 0)} label='Fallidas (histórico)' />
+                  <StatCard value={Number(o?.counts?.blocked ?? 0)} label='Bloqueadas (histórico)' />
                 </section>
                 <div className='muted'>Human Gate, Esperando verificación y Bloqueadas son estados distintos: una misión fallida puede haber ejecutado cambios y fallar después; una bloqueada se detiene antes de completar su ejecución.</div>
                 <details className='panel collapsiblePanel'>

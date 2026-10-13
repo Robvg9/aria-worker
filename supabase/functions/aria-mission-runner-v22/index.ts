@@ -1306,9 +1306,46 @@ async function finalGlobalReconcile(missionId: string, step: any, mission: any =
   };
 }
 
+async function cuevacoinStep6TempWriteProbe(step: any, mission: any = null) {
+  const projectRef = "zqgmjwfvluboiporytcq";
+  const input = step?.input && typeof step.input === "object" ? step.input : {};
+  const goal = String(mission?.goal || "");
+  if (!goal.toLowerCase().includes("/aria-cuevacoin") || !(goal.toLowerCase().includes("paso 6") || goal.toLowerCase().includes("step 6"))) throw new Error("cuevacoin_step6_goal_scope_mismatch");
+  if (String(input.confirm_project_ref || "") !== projectRef || String(input.confirm_production_write || "") !== "true" || String(input.risk_level || "").toLowerCase() !== "low" || String(input.change_summary || "") !== "Temporary-only step 6 write/readback/drop probe") throw new Error("cuevacoin_step6_confirmation_missing");
+  const { data: tokenValue, error: tokenError } = await sb.schema("aria_internal").rpc("credential_read_secret", { p_name: "cuevacoin_supabase_management_pat" });
+  if (tokenError) throw new Error("cuevacoin_management_credential_lookup_failed");
+  const token = typeof tokenValue === "string" ? tokenValue.trim() : "";
+  if (token.length < 20) throw new Error("cuevacoin_management_credential_unavailable");
+  const request = async (path: string, method = "GET", body?: Record<string, unknown>) => {
+    const response = await fetch("https://api.supabase.com" + path, {
+      method,
+      headers: { authorization: "Bearer " + token, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(20000)
+    });
+    if (!response.ok) throw new Error("cuevacoin_management_http_" + response.status);
+    return await response.json().catch(() => null);
+  };
+  const rowsOf = (value: any): any[] => Array.isArray(value) ? value : Array.isArray(value?.data) ? value.data : Array.isArray(value?.results) ? value.results : value && typeof value === "object" ? [value] : [];
+  const project = await request("/v1/projects/" + projectRef);
+  if (String(project?.id || project?.ref || "") !== projectRef) throw new Error("cuevacoin_project_identity_mismatch");
+  const dbContextResult = await request("/v1/projects/" + projectRef + "/database/query/read-only", "POST", { query: "SELECT current_database() AS database_name, current_user AS database_role, current_setting('server_version') AS server_version" });
+  const dbContext = rowsOf(dbContextResult)[0];
+  if (!dbContext?.database_name || !dbContext?.database_role || !dbContext?.server_version) throw new Error("cuevacoin_step6_database_context_unverified");
+  const probeSql = "DO $aria_step6$\nDECLARE\n  v_probe_id CONSTANT text := 'aria-cuevacoin-step6-20261013';\n  v_expected CONSTANT text := 'step6-write-readback-ok';\n  v_actual text;\nBEGIN\n  EXECUTE 'CREATE TEMP TABLE aria_step6_write_probe (probe_id text PRIMARY KEY, payload text NOT NULL) ON COMMIT DROP';\n  EXECUTE 'INSERT INTO pg_temp.aria_step6_write_probe (probe_id, payload) VALUES ($1, $2)' USING v_probe_id, v_expected;\n  EXECUTE 'SELECT payload FROM pg_temp.aria_step6_write_probe WHERE probe_id = $1' INTO v_actual USING v_probe_id;\n  IF v_actual IS DISTINCT FROM v_expected THEN\n    RAISE EXCEPTION 'ARIA step 6 temporary probe readback mismatch';\n  END IF;\n  EXECUTE 'DROP TABLE pg_temp.aria_step6_write_probe';\n  RAISE NOTICE 'ARIA_CUEVACOIN_STEP6_TEMP_WRITE_READBACK_DROP_PASS';\nEND\n$aria_step6$;";
+  const writeResult = await request("/v1/projects/" + projectRef + "/database/query", "POST", { query: probeSql, read_only: false });
+  if (writeResult?.error || writeResult?.success === false) throw new Error("cuevacoin_step6_temporary_probe_write_failed");
+  const verifyResult = await request("/v1/projects/" + projectRef + "/database/query/read-only", "POST", { query: "SELECT to_regclass('public.aria_step6_write_probe') IS NULL AS no_persistent_probe_table" });
+  const verifyRow = rowsOf(verifyResult).find((row: any) => Object.prototype.hasOwnProperty.call(row || {}, "no_persistent_probe_table"));
+  if (verifyRow?.no_persistent_probe_table !== true) throw new Error("cuevacoin_step6_persistent_object_check_failed");
+  const marker = "ARIA_CUEVACOIN_STEP6_TEMP_WRITE_READBACK_DROP_PASS";
+  const evidence = { version: "aria-cuevacoin-step6-temp-write-probe-v1", status: "PASS", mission_id: String(mission?.mission_id || ""), project_ref: projectRef, project_identity_verified: true, database_context: { database_name: String(dbContext.database_name), database_role: String(dbContext.database_role), server_version: String(dbContext.server_version) }, temporary_write_readback_drop: "PASS", verification_marker: marker, no_persistent_probe_table: true, financial_operations: false, persistent_schema_changes: false, evidence_completed_at: new Date().toISOString() };
+  return { status: "succeeded", executor_type: "connector", connector_id: "cuevacoin", operation: "step6_temp_write_probe", data: evidence, verification_evidence: evidence, response: { content: marker } };
+}
 async function connectorExecute(missionId: string, step: any, token: string | null, mission: any = null) {
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
+  if (connector === "cuevacoin" && operation === "step6_temp_write_probe") return cuevacoinStep6TempWriteProbe(step, mission);
   if (connector === "supabase" && operation === "global_final_reconcile") return finalGlobalReconcile(missionId, step, mission);
   if (connector === "supabase" && operation === "health") {
     return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: { ok: true } };
@@ -4314,8 +4351,8 @@ Deno.serve(async (request) => {
     if (failedMissionId) {
       try {
         const recovered = await updateMission(failedMissionId, {
-          status: "paused",
-          next_action: "recovery: universal runner exception",
+          status: reason === "planner_empty_steps" ? "blocked" : "paused",
+          next_action: reason === "planner_empty_steps" ? "replan: planner returned no executable steps; rebuild a governed plan before retrying" : "recovery: universal runner exception",
           last_stderr: reason,
           lease_owner: null,
           lease_until: null,
