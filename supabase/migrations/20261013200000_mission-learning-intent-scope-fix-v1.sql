@@ -52,6 +52,7 @@ begin
               )
             )
           )
+        )
       )
   loop
     v_required := v_required || jsonb_build_array(v_skill.memory_id::text);
