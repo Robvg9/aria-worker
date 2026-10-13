@@ -13,7 +13,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.5.2/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.3/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -53,8 +53,9 @@ assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeHash, la
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name))'));
 assert.ok(runner.includes('if ((dynamicMissionSnapshot || dynamicQueueSnapshot) && !safeReadOnlyAction)'));
 assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMissionMain'))"));
-assert.match(runner, /Measure the action's visible effect above, then dismiss any resulting modal/);
-assert.ok(runner.includes('await closeDialogs(page);'), 'close read-only detail overlays after measuring their effect');
+assert.ok(runner.includes('const afterControls = await discoverInteractive(page)'), 'capture post-click UI before cleanup');
+assert.ok(runner.includes('const dialogsClosed = await closeDialogs(page)'), 'dismiss modal layers only after capturing the post-click UI');
+assert.ok(runner.includes("reason: 'read_only_effect_not_observed'"), 'safe read-only clicks without their expected modal must hard-fail');
 const dialogDismissalImplementation = runner.slice(runner.indexOf('async function waitForSurfaceDismissal'), runner.indexOf('async function closeDialogs'));
 assert.ok(dialogDismissalImplementation.includes('element.isConnected'), 'dialog cleanup must wait for the exact overlay handle to detach or stop intercepting');
 assert.ok(dialogDismissalImplementation.includes("style.pointerEvents !== 'none'"), 'dialog dismissal must test the actual pointer-event blocker');
@@ -71,6 +72,15 @@ assert.ok(serviceWorkerDeploy.includes('node --check "${worker_file}"'), 'Servic
 assert.ok(serviceWorkerDeploy.includes('::error::Versioned Service Worker did not become valid JavaScript'), 'Service Worker smoke must fail if retry budget expires');
 assert.ok(closeDialogsImplementation.includes('for (let index = count - 1; index >= 0; index -= 1)'), 'dialog cleanup must close the topmost overlay first');
 assert.ok(closeDialogsImplementation.includes('await waitForSurfaceDismissal(page, surface, 1800);'), 'dialog cleanup must wait for that specific overlay before re-querying the stack');
+const readOnlyEffectImplementation = runner.slice(runner.indexOf('async function waitForReadOnlyMeditationEffect'), runner.indexOf('async function testControl'));
+assert.ok(readOnlyEffectImplementation.includes("'.modalBackdrop .ideaModal'"), 'the Ideas CTA must prove its own modal opened');
+assert.ok(readOnlyEffectImplementation.includes("'.modalBackdrop .detailModal'"), 'mission row clicks must prove a detail modal opened');
+assert.ok(readOnlyEffectImplementation.includes("modal.querySelector('.missionMetaGrid')"), 'mission row verification must identify MissionDetail, not any generic modal');
+assert.ok(runner.includes('expected_modal_visible: true'), 'successful safe read-only actions must persist their observed effect');
+const clickVerificationImplementation = runner.slice(runner.indexOf('async function testControl'), runner.indexOf('async function verifyAuthState'));
+const clickEffectMeasureAt = clickVerificationImplementation.indexOf('const afterControls = await discoverInteractive(page)');
+const clickCleanupAt = clickVerificationImplementation.indexOf('const dialogsClosed = await closeDialogs(page)');
+assert.ok(clickEffectMeasureAt >= 0 && clickCleanupAt > clickEffectMeasureAt, 'capture the modal effect before closing it');
 assert.match(closeDialogsImplementation, /return !remainingBlockingSurface/);
 assert.match(runner, /reason: 'blocking_modal_not_dismissed'/, 'RWHT must hard-fail instead of clicking through an overlay that remains blocking');
 assert.ok(runner.includes('summary.counter_reconciliation'), 'report must publish explicit counter reconciliation');
