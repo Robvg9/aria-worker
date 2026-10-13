@@ -621,7 +621,7 @@ Deno.serve(async (req) => {
       .eq("id", pendingId)
       .maybeSingle();
     if (!pending || new Date(pending.expires_at).getTime() <= Date.now()) {
-      return html(400, "<h1>Authorization expired</h1><p>Restart from Grok.</p>");
+      return html(400, "<h1>Authorization expired</h1><p>Restart authorization from the client that initiated this flow.</p>");
     }
     const redirect = new URL(pending.redirect_uri);
     if (decision !== "allow") {
