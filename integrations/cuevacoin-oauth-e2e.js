@@ -98,6 +98,11 @@ const CALLBACK_SCRIPT = String.raw`(() => {
   const results = document.getElementById("results");
   let accessToken = "";
   let code = "";
+  let writeProbeReady = false;
+  let writeProbeRunning = false;
+  let probeEvidence = null;
+  const writeProbeButton = document.getElementById("run-write-probe");
+  const evidenceButton = document.getElementById("download-evidence");
 
   function row(label, value) {
     const item = document.createElement("li");
@@ -153,7 +158,284 @@ const CALLBACK_SCRIPT = String.raw`(() => {
     return allowed.includes(value) ? value : "unavailable_or_unclassified";
   }
 
+  function safeProbeError(error) {
+    return String(error && error.message || error || "unknown_error")
+      .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+      .replace(/[A-Za-z0-9_-]{32,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/g, "[JWT REDACTED]")
+      .replace(/([?&](?:code|state|access_token|refresh_token)=)[^&\s]+/gi, "$1[REDACTED]")
+      .slice(0, 180);
+  }
+  async function projectControl(operation, args) {
+    const result = await toolCall(accessToken, "cuevacoin_project_control", Object.assign({ operation: operation }, args || {}));
+    const errorText = String((result.inner && result.inner.error) ||
+      (result.payload && result.payload.error && result.payload.error.message) || "tool_error");
+    if (result.status !== 200 || result.isError || !result.inner || result.inner.ok !== true) {
+      throw new Error(operation + "_FAILED_" + errorText);
+    }
+    return result.inner;
+  }
+  function enableEvidenceDownload() {
+    evidenceButton.hidden = !probeEvidence;
+  }
+  function downloadProbeEvidence() {
+    if (!probeEvidence) return;
+    const blob = new Blob([JSON.stringify(probeEvidence, null, 2) + "\n"], { type: "application/json" });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = "aria-cuevacoin-step5-write-probe-" + probeEvidence.probe_id + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+  }
+  evidenceButton.addEventListener("click", downloadProbeEvidence);
+  writeProbeButton.addEventListener("click", async function () {
+    if (!writeProbeReady || writeProbeRunning || !accessToken) return;
+    writeProbeRunning = true;
+    writeProbeButton.disabled = true;
+    const random = Array.from(crypto.getRandomValues(new Uint8Array(6)))
+      .map(function (value) { return value.toString(16).padStart(2, "0"); }).join("");
+    const dateTag = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const probeId = dateTag + "-" + random;
+    const branch = "aria/repair/cuevacoin-probe-" + probeId;
+    const filePath = "docs/evidence/aria-step5-write-probe-" + probeId + ".md";
+    const started = new Date().toISOString();
+    const fileContent = [
+      "# Temporary ARIA GitHub App write probe",
+      "",
+      "Purpose: verify the governed ARIA runtime can create and clean a harmless branch, evidence-only file, and pull request.",
+      "No product code, customer data, credentials, SQL, financial operations, merge, or deployment is permitted.",
+      "Do not merge. This probe must be closed and its branch deleted after verification.",
+      "Created at UTC: " + started,
+      "Probe id: " + probeId,
+      ""
+    ].join("\n");
+    probeEvidence = {
+      schema: "aria-cuevacoin-step5-write-probe-browser-v1",
+      started_at_utc: started,
+      repository: "Robvg9/CuevaCoin",
+      project_ref: "zqgmjwfvluboiporytcq",
+      transport: "same-origin HTTPS OAuth callback through ARIA Worker",
+      probe_id: probeId,
+      branch: branch,
+      file_path: filePath,
+      no_merge_requested: true,
+      no_financial_operations: true,
+      stages: {},
+      cleanup: {
+        pr_close_confirmed: false,
+        closed_pr_state_verified: false,
+        branch_delete_confirmed: false,
+        branch_absence_verified: false
+      },
+      final_status: "IN_PROGRESS"
+    };
+    let stage = "main_ref_precheck";
+    let mainSha = "";
+    let commitSha = "";
+    let prNumber = null;
+    let prUrl = "";
+    let branchCreated = false;
+    let prClosed = false;
+    let branchDeleted = false;
+    async function runStage(stageName, operation, args) {
+      stage = stageName;
+      status.textContent = "Prueba GitHub: " + stageName + "…";
+      const result = await projectControl(operation, args);
+      probeEvidence.stages[stageName] = { ok: true, completed_at_utc: new Date().toISOString() };
+      row(stageName, "PASS");
+      return result;
+    }
+    try {
+      const mainRef = await runStage("main_ref_precheck", "github_ref_read", { branch: "main" });
+      mainSha = String(mainRef.data && mainRef.data.sha || "");
+      if (!/^[a-f0-9]{40}$/i.test(mainSha)) throw new Error("main_sha_invalid");
+      probeEvidence.main_sha_before = mainSha;
+
+      const beforeFind = await runStage("probe_pr_precheck", "github_pr_find", { branch: branch, base: "main", state: "all" });
+      if (!beforeFind.data || !Array.isArray(beforeFind.data.items) || beforeFind.data.items.length !== 0) {
+        throw new Error("probe_pr_branch_conflict");
+      }
+
+      await runStage("create_branch", "github_create_branch", { branch: branch, ref: "main" });
+      branchCreated = true;
+      const branchRef = await runStage("verify_branch_base", "github_ref_read", { branch: branch });
+      const branchSha = String(branchRef.data && branchRef.data.sha || "");
+      if (!branchSha || branchSha !== mainSha) throw new Error("branch_base_sha_mismatch");
+      probeEvidence.branch_base_sha_verified = true;
+
+      const fileWrite = await runStage("write_harmless_file", "github_file_write", {
+        branch: branch,
+        path: filePath,
+        content: fileContent,
+        message: "test: verify ARIA governed CuevaCoin write path",
+        risk_level: "low"
+      });
+      commitSha = String(fileWrite.data && fileWrite.data.commit_sha || "");
+      if (!/^[a-f0-9]{40}$/i.test(commitSha)) throw new Error("file_write_commit_sha_missing");
+      probeEvidence.file_commit_sha = commitSha;
+
+      const fileRead = await runStage("verify_file_readback", "github_file_read", { branch: branch, path: filePath });
+      const actualB64 = String(fileRead.data && fileRead.data.content || "").replace(/\s+/g, "");
+      const expectedB64 = btoa(unescape(encodeURIComponent(fileContent)));
+      if (!actualB64 || actualB64 !== expectedB64) throw new Error("file_readback_content_mismatch");
+      probeEvidence.file_readback_verified = true;
+
+      const opened = await runStage("open_temporary_pr", "github_open_pr", {
+        branch: branch,
+        base: "main",
+        title: "[TEMPORARY NO-MERGE] ARIA CuevaCoin step 5 write probe " + probeId,
+        body: [
+          "Temporary verification PR for /ARIA-CuevaCoin step 5.",
+          "",
+          "- Created through the same-origin HTTPS ARIA OAuth callback and authenticated MCP project-control tool.",
+          "- Contains only a harmless evidence-only text file; no product code, customer data, credentials, SQL, financial operations, or deployment changes.",
+          "- DO NOT MERGE. This PR is closed and the temporary branch is deleted after verification.",
+          "- Probe ID: " + probeId,
+          "- Expected base: main at " + mainSha + "."
+        ].join("\n")
+      });
+      const openedPr = opened.data || {};
+      prNumber = Number(openedPr.number);
+      prUrl = String(openedPr.url || "");
+      if (!Number.isInteger(prNumber) || prNumber < 1 ||
+          !prUrl.startsWith("https://github.com/Robvg9/CuevaCoin/pull/")) {
+        throw new Error("pr_number_or_url_invalid");
+      }
+      probeEvidence.pull_request = { number: prNumber, url: prUrl };
+
+      const prRead = await runStage("verify_open_pr", "github_pr_read", { number: prNumber });
+      const currentPr = prRead.data || {};
+      const prChecks = {
+        number_matches: Number(currentPr.number) === prNumber,
+        open: String(currentPr.state) === "open",
+        not_merged: currentPr.merged === false,
+        head_branch_matches: String(currentPr.head_ref) === branch,
+        base_main: String(currentPr.base_ref) === "main",
+        head_sha_matches_file_commit: String(currentPr.head_sha) === commitSha
+      };
+      probeEvidence.pull_request.verification = prChecks;
+      probeEvidence.pull_request.head_sha = String(currentPr.head_sha || "");
+      probeEvidence.pull_request.base_sha = String(currentPr.base_sha || "");
+      if (Object.values(prChecks).some(function (value) { return value !== true; })) {
+        throw new Error("pr_verification_mismatch");
+      }
+
+      const close = await runStage("close_pr_without_merge", "github_pr_close", {
+        number: prNumber, branch: branch, confirm_cleanup: true
+      });
+      if (!close.data || String(close.data.state) !== "closed" || close.data.merged === true) {
+        throw new Error("probe_pr_close_not_confirmed");
+      }
+      prClosed = true;
+      probeEvidence.cleanup.pr_close_confirmed = true;
+      probeEvidence.cleanup.merged = false;
+
+      const closedRead = await runStage("verify_closed_pr", "github_pr_read", { number: prNumber });
+      const closedPr = closedRead.data || {};
+      if (String(closedPr.state) !== "closed" || closedPr.merged !== false ||
+          String(closedPr.head_ref) !== branch || String(closedPr.base_ref) !== "main") {
+        throw new Error("closed_pr_state_mismatch");
+      }
+      probeEvidence.cleanup.closed_pr_state_verified = true;
+
+      const deletion = await runStage("delete_probe_branch", "github_branch_delete", {
+        branch: branch, confirm_cleanup: true
+      });
+      if (!deletion.data || deletion.data.deleted !== true) throw new Error("probe_branch_delete_not_confirmed");
+      branchDeleted = true;
+      probeEvidence.cleanup.branch_delete_confirmed = true;
+      probeEvidence.cleanup.deleted_branch_previous_sha = String(deletion.data.previous_sha || "");
+
+      stage = "verify_branch_absent";
+      status.textContent = "Verificando que la rama temporal ya no existe…";
+      const absentResult = await toolCall(accessToken, "cuevacoin_project_control", {
+        operation: "github_ref_read", branch: branch
+      });
+      const absentError = String((absentResult.inner && absentResult.inner.error) ||
+        (absentResult.payload && absentResult.payload.error && absentResult.payload.error.message) || "");
+      if (absentResult.status === 200 && !absentResult.isError &&
+          absentResult.inner && absentResult.inner.ok === true) {
+        throw new Error("probe_branch_still_exists_after_delete");
+      }
+      if (!/github_404|not found|reference does not exist/i.test(absentError)) {
+        throw new Error("probe_branch_absence_not_proven");
+      }
+      probeEvidence.stages.verify_branch_absent = { ok: true, completed_at_utc: new Date().toISOString() };
+      probeEvidence.cleanup.branch_absence_verified = true;
+      probeEvidence.cleanup.completed_at_utc = new Date().toISOString();
+      row("verify_branch_absent", "PASS");
+
+      probeEvidence.final_status = "PASS";
+      probeEvidence.finished_at_utc = new Date().toISOString();
+      status.textContent = "Paso 5: prueba GitHub E2E PASS. PR cerrada sin merge y rama temporal eliminada.";
+      row("Resultado terminal", "PASS; sin merge, sin deploy y sin operaciones financieras");
+    } catch (error) {
+      probeEvidence.failed_stage = stage;
+      probeEvidence.safe_error = safeProbeError(error);
+      probeEvidence.final_status = "BLOCKED_OR_FAILED";
+      probeEvidence.finished_at_utc = new Date().toISOString();
+      row("Resultado terminal", "BLOCKED_OR_FAILED en " + stage);
+      status.textContent = "La prueba se detuvo en " + stage + ". Descarga la evidencia JSON; revisa la limpieza antes de reintentar.";
+    } finally {
+      // Best-effort cleanup keeps the probe non-merged and prevents leaving a test branch behind.
+      if (probeEvidence.final_status !== "PASS" && accessToken) {
+        if (prNumber && !prClosed) {
+          try {
+            const close = await projectControl("github_pr_close", { number: prNumber, branch: branch, confirm_cleanup: true });
+            if (close.data && String(close.data.state) === "closed" && close.data.merged !== true) {
+              prClosed = true;
+              probeEvidence.cleanup.pr_close_confirmed = true;
+              probeEvidence.cleanup.merged = false;
+            }
+          } catch (cleanupError) {
+            probeEvidence.cleanup.pr_close_error = safeProbeError(cleanupError);
+          }
+        }
+        if (branchCreated && !branchDeleted) {
+          try {
+            const deletion = await projectControl("github_branch_delete", { branch: branch, confirm_cleanup: true });
+            if (deletion.data && deletion.data.deleted === true) {
+              branchDeleted = true;
+              probeEvidence.cleanup.branch_delete_confirmed = true;
+              probeEvidence.cleanup.deleted_branch_previous_sha = String(deletion.data.previous_sha || "");
+            }
+          } catch (cleanupError) {
+            probeEvidence.cleanup.branch_delete_error = safeProbeError(cleanupError);
+          }
+        }
+        if (branchCreated) {
+          try {
+            const check = await toolCall(accessToken, "cuevacoin_project_control", { operation: "github_ref_read", branch: branch });
+            const checkError = String((check.inner && check.inner.error) || (check.payload && check.payload.error && check.payload.error.message) || "");
+            if ((check.isError || !check.inner || check.inner.ok !== true) &&
+                /github_404|not found|reference does not exist/i.test(checkError)) {
+              probeEvidence.cleanup.branch_absence_verified = true;
+            }
+          } catch (cleanupError) {
+            probeEvidence.cleanup.branch_absence_error = safeProbeError(cleanupError);
+          }
+        }
+        probeEvidence.finished_at_utc = new Date().toISOString();
+      }
+      writeProbeRunning = false;
+      writeProbeReady = false;
+      accessToken = "";
+      code = "";
+      writeProbeButton.disabled = true;
+      evidenceButton.hidden = false;
+      enableEvidenceDownload();
+      downloadProbeEvidence();
+    }
+  });
+  window.addEventListener("pagehide", function () {
+    accessToken = "";
+    code = "";
+  });
+
   async function verify() {
+
     status.textContent = "Validando estado, emisor y destino del callback…";
     try {
       const query = new URLSearchParams(location.search);
@@ -230,10 +512,21 @@ const CALLBACK_SCRIPT = String.raw`(() => {
       } else {
         row("Lectura real Robvg9/CuevaCoin", "FAIL (" + safeProviderState(control.inner && control.inner.error) + ")");
       }
-      row("Escrituras, SQL o despliegues", "NINGUNO; solo lecturas");
-      status.textContent = scopeGate
-        ? "Callback OAuth completado. Revisa las comprobaciones individuales para distinguir autorización de disponibilidad de proveedores."
-        : "Callback recibido, pero el scope de control no pasó la comprobación.";
+      const projectIdentityOk = !!(connection.inner && connection.inner.project_ref === "zqgmjwfvluboiporytcq");
+      const repositoryReadOk = !!(control.inner && control.inner.ok === true);
+      if (scopeGate && projectIdentityOk && repositoryReadOk) {
+        writeProbeReady = true;
+        writeProbeButton.hidden = false;
+        writeProbeButton.disabled = false;
+        row("Prueba de escritura GitHub", "LISTA; requiere un clic separado para crear y limpiar una rama, archivo y PR de prueba");
+        row("Límites", "Sin merge, sin deploy, sin SQL y sin operaciones financieras");
+        status.textContent = "OAuth verificado. Cuando estés listo, usa el botón separado para ejecutar la prueba GitHub temporal; no es automática.";
+      } else {
+        writeProbeReady = false;
+        accessToken = "";
+        row("Prueba de escritura GitHub", "BLOQUEADA: falta verificación de scope, repositorio o identidad de proyecto");
+        status.textContent = "Callback recibido, pero los gates de scope/identidad/lectura no pasaron. No se habilitó ninguna escritura.";
+      }
     } catch (error) {
       const known = [
         "authorization_denied", "callback_missing_code", "pkce_session_missing",
@@ -244,9 +537,9 @@ const CALLBACK_SCRIPT = String.raw`(() => {
       if (known.includes(message) && !results.textContent.includes("FAIL")) row("Verificación OAuth", "FAIL (" + message + ")");
       status.textContent = "La verificación no terminó. No compartas códigos ni tokens; los resultados visibles indican qué control falló.";
     } finally {
-      accessToken = "";
       code = "";
       sessionStorage.removeItem(flowKey);
+      if (!writeProbeReady) accessToken = "";
     }
   }
   void verify();
@@ -268,11 +561,14 @@ function createCuevacoinOAuthE2E() {
     const nonce = globalThis.crypto.randomUUID().replace(/-/g, '');
     const title = 'ARIA · CuevaCoin Control OAuth verification';
     const introduction = callback
-      ? 'Validación automática de consentimiento, PKCE, scope elevado y lecturas. Los tokens no se muestran ni se guardan en almacenamiento persistente.'
-      : 'Verificación supervisada de OAuth para CuevaCoin Control. Solo ejecuta lecturas; no crea ramas, cambia archivos, ejecuta SQL ni despliega funciones.';
+      ? 'OAuth con PKCE y scope elevado. Tras la lectura autenticada, una prueba GitHub inocua se ofrece mediante un segundo botón explícito.'
+      : 'Inicia el consentimiento desde esta página. El callback vuelve a este mismo dominio HTTPS; no usa localhost ni otro dispositivo.';
     const button = start ? '<button id="start" type="button">Iniciar autorización correcta</button>' : '';
+    const probeControls = callback
+      ? '<button id="run-write-probe" type="button" hidden>Ejecutar prueba GitHub controlada (sin merge)</button><button id="download-evidence" type="button" hidden>Descargar evidencia JSON</button>'
+      : '';
     const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>' + title + '</title><style>' +
-      ':root{color-scheme:dark;--bg:#080b13;--card:#121827;--line:#293347;--text:#eef2ff;--muted:#a8b2c8;--accent:#8870ff}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(700px 400px at 50% 0,#1e1a3d,var(--bg) 68%);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text);padding:24px}.card{width:min(650px,100%);border:1px solid var(--line);border-radius:20px;background:var(--card);padding:28px;box-shadow:0 22px 70px #0008}h1{font-size:24px;margin:0 0 10px}p{color:var(--muted);line-height:1.6}button{width:100%;margin-top:16px;padding:14px 18px;border:0;border-radius:12px;background:var(--accent);color:white;font:inherit;font-weight:700;cursor:pointer}button:disabled{opacity:.6;cursor:wait}#status{margin-top:18px;padding:12px;border:1px solid var(--line);border-radius:10px;color:var(--text)}ol{padding-left:22px;line-height:1.8;overflow-wrap:anywhere}.note{font-size:13px;margin-top:18px}</style></head><body><main class="card"><h1>' + title + '</h1><p>' + introduction + '</p><p>Ámbitos fijos: <code>Robvg9/CuevaCoin</code> y Supabase <code>zqgmjwfvluboiporytcq</code>. La autorización humana sigue siendo obligatoria.</p>' + button + '<div id="status" role="status" aria-live="polite">' + (start ? 'Listo. Pulsa iniciar para abrir la pantalla de consentimiento OAuth.' : 'Procesando el callback OAuth…') + '</div><ol id="results" aria-live="polite"></ol><p class="note">Seguridad: no compartas URLs con códigos ni tokens. Esta verificación no efectúa escrituras de producción.</p><script nonce="' + nonce + '">' + (callback ? CALLBACK_SCRIPT : START_SCRIPT) + '</script></main></body></html>';
+      ':root{color-scheme:dark;--bg:#080b13;--card:#121827;--line:#293347;--text:#eef2ff;--muted:#a8b2c8;--accent:#8870ff}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(700px 400px at 50% 0,#1e1a3d,var(--bg) 68%);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text);padding:24px}.card{width:min(650px,100%);border:1px solid var(--line);border-radius:20px;background:var(--card);padding:28px;box-shadow:0 22px 70px #0008}h1{font-size:24px;margin:0 0 10px}p{color:var(--muted);line-height:1.6}button{width:100%;margin-top:16px;padding:14px 18px;border:0;border-radius:12px;background:var(--accent);color:white;font:inherit;font-weight:700;cursor:pointer}button:disabled{opacity:.6;cursor:wait}button[hidden]{display:none}#status{margin-top:18px;padding:12px;border:1px solid var(--line);border-radius:10px;color:var(--text)}ol{padding-left:22px;line-height:1.8;overflow-wrap:anywhere}.note{font-size:13px;margin-top:18px}</style></head><body><main class="card"><h1>' + title + '</h1><p>' + introduction + '</p><p>Ámbitos fijos: <code>Robvg9/CuevaCoin</code> y Supabase <code>zqgmjwfvluboiporytcq</code>. La autorización humana sigue siendo obligatoria.</p>' + button + probeControls + '<div id="status" role="status" aria-live="polite">' + (start ? 'Listo. Pulsa iniciar para abrir la pantalla de consentimiento OAuth.' : 'Procesando el callback OAuth…') + '</div><ol id="results" aria-live="polite"></ol><p class="note">Seguridad: sin operaciones financieras, SQL ni deploy. La prueba opcional crea y elimina una rama temporal y una PR que se cierra sin merge.</p><script nonce="' + nonce + '">' + (callback ? CALLBACK_SCRIPT : START_SCRIPT) + '</script></main></body></html>';
 
     const headers = {
       'content-type': 'text/html; charset=utf-8',
