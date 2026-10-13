@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.3';
+const VERSION = 'aria-pc-browser-rwht-v1.5.4';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -467,6 +467,27 @@ async function reopenReadOnlyMeditationDetails(page, control, routeHash) {
   return opened;
 }
 
+async function openMeditationDetailsForInitialAudit(page, routeHash) {
+  if (routeHash !== '#meditation') return 0;
+  // Native <details> panels are closed by default in a fresh PWA session.
+  // Expand them in this isolated read-only audit browser BEFORE discovery so
+  // their safe detail/diagnostic rows enter the initial inventory. This changes
+  // only local disclosure state; it does not submit forms or mutate server data.
+  const opened = await page.locator('.meditationViewport details').evaluateAll((elements) => {
+    let count = 0;
+    for (const element of elements) {
+      if (!element.open) {
+        element.open = true;
+        count += 1;
+      }
+    }
+    return count;
+  }).catch(() => 0);
+  if (opened > 0) await page.waitForTimeout(150).catch(() => {});
+  return opened;
+}
+
+
 async function testControl(page, control, config) {
   const label = safeLabel(control.name);
   const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
@@ -851,6 +872,11 @@ async function auditRoute(page, url, routeIndex, config) {
       verified: auth.verified && reloadAuth.verified,
       reload: reloadAuth
     };
+  }
+  // Open native Meditation accordions in the isolated read-only browser before both UX and control snapshots.
+  // Otherwise hidden safe rows are absent from controls_discovered, making the final inventory depend on disclosure state.
+  if (!(config.require_auth && !auth.verified)) {
+    await openMeditationDetailsForInitialAudit(page, routeForReadiness);
   }
   const ux = await checkUx(page);
 
