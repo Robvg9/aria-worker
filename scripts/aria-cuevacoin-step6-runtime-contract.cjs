@@ -9,6 +9,7 @@ const planner = read('supabase/functions/aria-planner-v11/index.ts');
 const api = read('supabase/functions/aria-app-api-v3/index.ts');
 const app = read('pwa/src/App.tsx');
 const migration = read('supabase/migrations/20261013190000_mission-diagnostics-and-cuevacoin-step6-v1.sql');
+const learningMigration = read('supabase/migrations/20261013200000_mission-learning-intent-scope-fix-v1.sql');
 const workflow = read('.github/workflows/supabase-canonical-deploy.yml');
 
 assert.ok(planner.includes('cuevacoinStep6Plan'), 'planner must route the explicit CuevaCoin step-6 mission');
@@ -37,5 +38,8 @@ assert.ok(migration.includes("coalesce(m.last_stderr,'') <> 'duplicate_inflight_
 assert.ok(migration.includes('blocked_missions_total'));
 assert.ok(migration.includes('suppressed_duplicate_recovery_failures_24h'));
 assert.ok(migration.includes('recent_24h_statuses'));
+assert.ok(learningMigration.includes("lower(trim(coalesce(m.metadata->>'scope',''))) = 'deploy supabase edge function'"));
+assert.ok(learningMigration.includes("'edge function|edge functions|edge-function|función edge|funcion edge'"));
+assert.ok(learningMigration.includes("token not in ('supabase','database','project'"));
 assert.ok(workflow.includes('node scripts/aria-cuevacoin-step6-runtime-contract.cjs'));
 console.log('ARIA CUEVACOIN STEP 6 + MISSION DIAGNOSTICS CONTRACT: PASS');
