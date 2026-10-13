@@ -1310,7 +1310,7 @@ async function cuevacoinStep6TempWriteProbe(step: any, mission: any = null) {
   const projectRef = "zqgmjwfvluboiporytcq";
   const input = step?.input && typeof step.input === "object" ? step.input : {};
   const goal = String(mission?.goal || "");
-  if (!/\\/ARIA-CuevaCoin/i.test(goal) || !/(?:paso|step)\\s*6/i.test(goal)) throw new Error("cuevacoin_step6_goal_scope_mismatch");
+  if (!goal.toLowerCase().includes("/aria-cuevacoin") || !(goal.toLowerCase().includes("paso 6") || goal.toLowerCase().includes("step 6"))) throw new Error("cuevacoin_step6_goal_scope_mismatch");
   if (String(input.confirm_project_ref || "") !== projectRef || input.confirm_production_write !== true || String(input.risk_level || "") !== "LOW_RISK_WRITE" || String(input.change_summary || "") !== "Temporary-only step 6 write/readback/drop probe") throw new Error("cuevacoin_step6_confirmation_missing");
   const { data: tokenValue, error: tokenError } = await sb.schema("aria_internal").rpc("credential_read_secret", { p_name: "cuevacoin_supabase_management_pat" });
   if (tokenError) throw new Error("cuevacoin_management_credential_lookup_failed");
