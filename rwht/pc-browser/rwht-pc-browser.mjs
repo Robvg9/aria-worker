@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.2';
+const VERSION = 'aria-pc-browser-rwht-v1.5.3';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -413,6 +413,35 @@ function isSafeReadOnlyMeditationAction(control, routeHash, label) {
 }
 
 
+async function visibleBlockingSurfaceSignature(page) {
+  return page.locator('.modalBackdrop, [role="dialog"], dialog[open]').evaluateAll((elements) =>
+    elements.filter((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 &&
+        style.display !== 'none' && style.visibility !== 'hidden';
+    }).map((element) => {
+      const heading = element.querySelector('h1, h2, h3, [role="heading"]');
+      const buttons = [...element.querySelectorAll('button')]
+        .filter((button) => {
+          const rect = button.getBoundingClientRect();
+          const style = getComputedStyle(button);
+          return rect.width > 0 && rect.height > 0 &&
+            style.display !== 'none' && style.visibility !== 'hidden';
+        })
+        .map((button) => (button.innerText || button.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().slice(0, 100));
+      return {
+        class_name: String(element.className || '').slice(0, 120),
+        role: element.getAttribute('role') || '',
+        heading: (heading?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 160),
+        buttons,
+        text: (element.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 260)
+      };
+    })
+  ).catch(() => []);
+}
+
+
 async function reopenReadOnlyMeditationDetails(page, control, routeHash) {
   if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;
   const classes = String(control.class_name || '').split(/\s+/);
@@ -524,6 +553,7 @@ async function testControl(page, control, config) {
   const beforeTitle = await page.title();
   const beforeControls = await discoverInteractive(page).catch(() => []);
   const beforeHash = sha(beforeControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
+  const beforeDialogs = await visibleBlockingSurfaceSignature(page);
 
   try {
     let locator = null;
@@ -657,19 +687,41 @@ async function testControl(page, control, config) {
     await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
-    // Measure the action's visible effect above, then dismiss any resulting modal
-    // and wait for its backdrop to stop intercepting pointer events before next replay.
-    await closeDialogs(page);
 
+    // Capture the real interaction result BEFORE cleanup closes the modal.
+    // The prior order erased the very UI change used to certify read-only
+    // Meditation navigation, producing false effect_observed=false results.
     const afterUrl = page.url();
     const afterTitle = await page.title();
     const afterControls = await discoverInteractive(page).catch(() => []);
     const afterHash = sha(afterControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
+    const afterDialogs = await visibleBlockingSurfaceSignature(page);
+    const effectObserved = beforeUrl !== afterUrl ||
+      beforeTitle !== afterTitle ||
+      beforeHash !== afterHash ||
+      JSON.stringify(beforeDialogs) !== JSON.stringify(afterDialogs);
+
+    // Always clean up the opened modal before continuing to the next control.
+    // Safe read-only Meditation buttons must prove a visible result, not merely
+    // return from locator.click without throwing.
+    await closeDialogs(page);
+    if (safeReadOnlyAction && !effectObserved) {
+      return {
+        outcome: 'failed',
+        action: 'click',
+        reason: 'read_only_action_no_visible_effect',
+        effect_observed: false,
+        url_before: beforeUrl,
+        url_after: afterUrl,
+        title_before: beforeTitle,
+        title_after: afterTitle
+      };
+    }
 
     return {
       outcome: 'verified',
       action: 'click',
-      effect_observed: beforeUrl !== afterUrl || beforeTitle !== afterTitle || beforeHash !== afterHash,
+      effect_observed: effectObserved,
       url_before: beforeUrl,
       url_after: afterUrl,
       title_before: beforeTitle,
