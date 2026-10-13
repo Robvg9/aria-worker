@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-10-canonical';
+export const TEST_CATALOG_VERSION = '2026-10-13-canonical';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "aria-cuevacoin-oauth-callback",
@@ -1467,6 +1467,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Verifica que una ruta de ejecución, executor o misión produzca el estado y las evidencias esperadas.",
     "capabilities": "Comprueba sincronización, notificaciones, ideas→misiones, recursos y flujos de Meditación IA."
+  },
+  {
+    "id": "meditation-mission-planner-resilience",
+    "file": "tests/meditation-mission-planner-resilience.test.js",
+    "title": "Meditation Mission Planner Resilience",
+    "category": "Meditación IA / Runtime",
+    "includedInNpmTest": true,
+    "how": "Verifica rutas de revisión multietapa, recuperación segura de planes vacíos y diagnóstico persistido sin abrir una ruta de escritura.",
+    "capabilities": "Detecta regresiones que repiten el mismo agente fallido, devuelven planes vacíos sin recuperación segura o convierten misiones de escritura en respuestas de modelo."
   },
   {
     "id": "meditation-notifications",
