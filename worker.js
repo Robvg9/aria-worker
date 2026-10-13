@@ -149,7 +149,7 @@ async function proxyOAuth(request,url){
       elevatedHeaders.set("x-aria-grok-consent","elevated-form-v1");
       // The Supabase gateway's "default-src 'none'; sandbox" CSP breaks this HTML's inline CSS and blocks form submission.
       // Replace it only for this fixed, script-free elevated consent document with a least-privilege policy.
-      elevatedHeaders.set("content-security-policy","default-src 'none'; style-src 'unsafe-inline'; style-src-attr 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; script-src 'none'; connect-src 'none'; img-src 'none'; font-src 'none'");
+      elevatedHeaders.set("content-security-policy","default-src 'none'; style-src 'unsafe-inline'; style-src-attr 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; connect-src 'none'; img-src 'none'; font-src 'none'");
       return new Response(html,{status:upstream.status,statusText:upstream.statusText,headers:elevatedHeaders});
     }
     const client=(html.match(/<strong>([^<]+)<\/strong>/i)||[])[1]||"Grok Custom Connector";
@@ -279,7 +279,13 @@ async function serveGithubArtifact(request,url,mode){
   return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers});
 }
 
-export default {async scheduled(_controller,env,ctx){ctx.waitUntil(runScheduledMission(env))},async fetch(request,env){const url=new URL(request.url);
+function oauthConsentScript(request){
+  if(request.method!=="GET"&&request.method!=="HEAD")return new Response("Method Not Allowed",{status:405,headers:{"cache-control":"no-store"}});
+  const body = "document.addEventListener('submit',function(event){var form=event.target;if(!form||!form.matches('form[action$=\\\"/authorize/consent\\\"]'))return;document.querySelectorAll('form[action$=\\\"/authorize/consent\\\"] button[type=\\\"submit\\\"]').forEach(function(button){button.disabled=true;});var decision=form.querySelector('input[name=\\\"decision\\\"]');var button=form.querySelector('button[type=\\\"submit\\\"]');if(button)button.textContent=decision&&decision.value==='allow'?'Authorizing…':'Submitting…';},true);";
+  return new Response(request.method==="HEAD"?null:body,{status:200,headers:{"content-type":"application/javascript; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"}});
+}
+
+export default {async scheduled(_controller,env,ctx){ctx.waitUntil(runScheduledMission(env))},async fetch(request,env){const url=new URL(request.url);if(url.pathname==="/oauth-consent.js")return oauthConsentScript(request);
 const rootPwaAsset=/^\/(assets\/|icons\/|sw-[^/]+\.js$)|^\/manifest\.json$/.test(url.pathname);
 if(rootPwaAsset){
   if(request.method!=="GET"&&request.method!=="HEAD")return new Response("Method Not Allowed",{status:405});
