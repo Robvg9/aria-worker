@@ -16,6 +16,7 @@ assert.ok(planner.includes('aria-planner-v11-cuevacoin-step6-cloud-probe-v1'));
 assert.ok(planner.includes('executor_type: "connector"'));
 assert.ok(planner.includes('connector_id: "cuevacoin"'));
 assert.ok(planner.includes('step6_temp_write_probe'));
+assert.ok(!planner.includes('      || !/(?:paso|step)'), 'planner must not retain a detached condition fragment');
 assert.ok(planner.includes('confirm_production_write: "true"'));
 assert.ok(planner.includes('risk_level: "low"'));
 assert.ok(runner.includes('async function cuevacoinStep6TempWriteProbe'));

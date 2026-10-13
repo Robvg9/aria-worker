@@ -1392,9 +1392,10 @@ function visualProjectMissionPlan(goal:string,context:any){
 
 function cuevacoinStep6Plan(goal: string) {
   const value = String(goal || "");
-  if (!value.toLowerCase().includes("/aria-cuevacoin") || !(value.toLowerCase().includes("paso 6") || value.toLowerCase().includes("step 6")) || !["supabase_project_status","supabase_sql_execute","temporary-only step 6","aria_step6_write_probe"].some(part => value.toLowerCase().includes(part.toLowerCase()))) return null;
-      || !/(?:paso|step)\\s*6/i.test(value)
-      || !/(supabase_project_status|supabase_sql_execute|temporary-only step 6|aria_step6_write_probe)/i.test(value)) return null;
+  const lowerGoal = value.toLowerCase();
+  if (!lowerGoal.includes("/aria-cuevacoin")
+      || !(lowerGoal.includes("paso 6") || lowerGoal.includes("step 6"))
+      || !["supabase_project_status", "supabase_sql_execute", "temporary-only step 6", "aria_step6_write_probe"].some(part => lowerGoal.includes(part.toLowerCase()))) return null;
   return {
     goal: value,
     steps: [{
