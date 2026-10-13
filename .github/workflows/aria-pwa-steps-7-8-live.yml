@@ -3,6 +3,20 @@ name: ARIA PWA Steps 7-8 LIVE Certification
 on:
   push:
     branches: [main]
+    paths:
+      - 'pwa/**'
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'rwht/pc-browser/rwht-projects-e2e.mjs'
+      - 'scripts/ci/wait-for-aria-exact-sha-deploys.sh'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
   workflow_dispatch:
 
 permissions:
