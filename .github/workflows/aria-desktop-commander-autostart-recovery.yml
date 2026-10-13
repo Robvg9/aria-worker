@@ -383,3 +383,4 @@ jobs:
           } else {
             Write-Host 'DC_TASK_ACTION=DIAGNOSTIC_ONLY_ALREADY_RUNNING'
           }
+# OPERATOR-REQUESTED RECOVERY TRIGGER: 2026-10-13; behavior unchanged.
