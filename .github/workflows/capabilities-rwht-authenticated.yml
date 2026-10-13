@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - 'pwa/**'
+      # Keep the authenticated capability E2E in the exact-SHA release gate for API fixes.
+      - 'supabase/functions/aria-app-api-v3/**'
       - 'rwht/pc-browser/rwht-pc-browser.mjs'
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/capabilities-rwht-authenticated.yml'
