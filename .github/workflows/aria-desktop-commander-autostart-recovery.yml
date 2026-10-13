@@ -63,10 +63,6 @@ jobs:
           $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
           if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
 
-          $requiredInfoBefore = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
-          $recentRequiredRun = $requiredInfoBefore.LastRunTime -gt (Get-Date).AddMinutes(-5)
-          Write-Host "DC_TASK_RUN_WAS_RECENT=$recentRequiredRun LAST_RUN=$($requiredInfoBefore.LastRunTime.ToString('o'))"
-
           foreach ($name in $names) {
             $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             if ($null -eq $task) {
@@ -75,14 +71,9 @@ jobs:
               continue
             }
 
-            if ($name -eq $required -and $task.State -eq 'Running' -and $recentRequiredRun) {
-              Write-Host "TASK_RECENTLY_RECOVERED=$name; skipping duplicate restart"
+            if ($name -eq $required -and $task.State -eq 'Running') {
+              Write-Host "TASK_ALREADY_RUNNING_DIAGNOSTIC_ONLY=$name; no restart to avoid orphaning child processes"
               continue
-            } elseif ($name -eq $required -and $task.State -eq 'Running') {
-              Write-Host "TASK_END_REQUESTED=$name"
-              & schtasks.exe /End /TN $name 2>&1 | Out-Host
-              if ($LASTEXITCODE -ne 0) { throw "TASK_END_FAILED=$name EXIT=$LASTEXITCODE" }
-              Start-Sleep -Seconds 2
             } elseif ($task.State -eq 'Running') {
               Write-Host "TASK_ALREADY_RUNNING=$name"
               continue
@@ -135,6 +126,65 @@ jobs:
               Sort-Object LastWriteTime -Descending |
               Select-Object -First 20 |
               ForEach-Object { Write-Host ("LOG_METADATA name={0} modified={1:o} bytes={2}" -f $_.Name,$_.LastWriteTime,$_.Length) }
+
+            $statusPath = Join-Path $logsRoot 'desktop-commander-supervisor.json'
+            if (Test-Path $statusPath) {
+              try {
+                $sj = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
+                Write-Host "SUPERVISOR_STATUS_JSON_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $statusPath).Hash)"
+                foreach ($key in @('state','status','mode','connected','online','pid','node_pid','supervisor_pid','updated_at','last_error','error','reason','attempt','retry_count','version')) {
+                  $prop = $sj.PSObject.Properties[$key]
+                  if ($null -ne $prop -and $key -notmatch '(?i)token|secret|password|authorization') {
+                    $value = [string]$prop.Value
+                    $value = $value -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+                    $value = $value -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
+                    $value = $value -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+                    if ($value.Length -gt 240) { $value = $value.Substring(0,240) }
+                    Write-Host ("SUPERVISOR_STATUS {0}={1}" -f $key,$value)
+                  }
+                }
+              } catch { Write-Host "SUPERVISOR_STATUS_READ_ERROR=$($_.Exception.GetType().Name)" }
+            } else { Write-Host 'SUPERVISOR_STATUS_FILE=MISSING' }
+
+            $allProc = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+            foreach ($process in $matchingProcesses) {
+              $parent = $allProc | Where-Object { [int]$_.ProcessId -eq [int]$process.ParentProcessId } | Select-Object -First 1
+              $procPath = [string]$process.ExecutablePath
+              Write-Host ("PROCESS_TREE name={0} pid={1} ppid={2} parent={3} session={4} path={5}" -f $process.Name,$process.ProcessId,$process.ParentProcessId,$parent.Name,$process.SessionId,$procPath)
+            }
+
+            $supervisorScript = 'D:\ARIA-Windows-Agent\Runtime\windows\desktop-commander-supervisor.ps1'
+            if (Test-Path $supervisorScript) {
+              Write-Host "SUPERVISOR_SCRIPT_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $supervisorScript).Hash)"
+              $code = Get-Content -LiteralPath $supervisorScript
+              $matches = Select-String -LiteralPath $supervisorScript -Pattern 'Start-Process|Stop-Process|Get-Process|node\.exe|desktop-commander|WebSocket|websocket|heartbeat|reconnect|mutex|supervisor\.json|supervisor\.log|stdout|stderr|exit|retry|token|secret|authorization' -CaseSensitive:$false
+              Write-Host "SUPERVISOR_SCRIPT_LINE_COUNT=$($code.Count) MATCH_COUNT=$($matches.Count)"
+              foreach ($m in ($matches | Select-Object -First 40)) {
+                $textLine = [string]$m.Line
+                if ($textLine -match '(?i)token|secret|password|authorization|api[_-]?key') {
+                  Write-Host ("SUPERVISOR_SCRIPT_MATCH line={0} category=credential-related" -f $m.LineNumber)
+                } else {
+                  $safe = $textLine -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+                  if ($safe.Length -gt 260) { $safe = $safe.Substring(0,260) }
+                  Write-Host ("SUPERVISOR_SCRIPT_MATCH line={0} text={1}" -f $m.LineNumber,$safe.Trim())
+                }
+              }
+            } else { Write-Host 'SUPERVISOR_SCRIPT=MISSING' }
+
+            $supervisorLog = Join-Path $logsRoot 'desktop-commander-supervisor.log'
+            if (Test-Path $supervisorLog) {
+              $logLines = Get-Content -LiteralPath $supervisorLog -Tail 600 -ErrorAction SilentlyContinue
+              $selected = @($logLines | Where-Object { $_ -match '(?i)error|exception|failed|disconnect|websocket|connect|401|403|unauthor|econn|timeout|closed|restart|spawn|online|register|heartbeat|refused|socket' } | Select-Object -Last 35)
+              Write-Host "SUPERVISOR_LOG_TAIL_LINES=$($logLines.Count) RELEVANT=$($selected.Count)"
+              foreach ($line in $selected) {
+                $safe = [string]$line
+                $safe = $safe -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+                $safe = $safe -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
+                $safe = $safe -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+                if ($safe.Length -gt 420) { $safe = $safe.Substring(0,420) }
+                Write-Host ("SUPERVISOR_LOG={0}" -f $safe)
+              }
+            } else { Write-Host 'SUPERVISOR_LOG=MISSING' }
           }
           Write-Host 'DC_TASK_DIAGNOSTICS=PASS'
           Write-Host 'DC_TASK_RECOVERY_REQUEST=PASS'
@@ -182,14 +232,9 @@ jobs:
               continue
             }
 
-            if ($name -eq $required -and $task.State -eq 'Running' -and $recentRequiredRun) {
-              Write-Host "TASK_RECENTLY_RECOVERED=$name; skipping duplicate restart"
+            if ($name -eq $required -and $task.State -eq 'Running') {
+              Write-Host "TASK_ALREADY_RUNNING_DIAGNOSTIC_ONLY=$name; no restart to avoid orphaning child processes"
               continue
-            } elseif ($name -eq $required -and $task.State -eq 'Running') {
-              Write-Host "TASK_END_REQUESTED=$name"
-              & schtasks.exe /End /TN $name 2>&1 | Out-Host
-              if ($LASTEXITCODE -ne 0) { throw "TASK_END_FAILED=$name EXIT=$LASTEXITCODE" }
-              Start-Sleep -Seconds 2
             } elseif ($task.State -eq 'Running') {
               Write-Host "TASK_ALREADY_RUNNING=$name"
               continue
