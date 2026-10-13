@@ -6,6 +6,8 @@ const root = process.cwd();
 const app = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'supabase/functions/aria-app-api-v3/index.ts'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
+const missionPresentation = fs.readFileSync(path.join(root, 'pwa/src/missionPresentation.ts'), 'utf8');
+const webPushE2E = fs.readFileSync(path.join(root, 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'), 'utf8');
 
 assert.match(app, /<div className='panelTitle'>PLAN DE LA MISIÓN<\/div>/);
 assert.match(app, /missionArtifacts/);
@@ -25,6 +27,13 @@ assert.match(app, /mutation_verification_evidence_mismatch/);
 assert.match(app, /superseded_by_failure/);
 assert.match(app, /const selectedLive = selected/);
 assert.match(app, /const visibleItems = historyExpanded/);
+const whitespaceCollapse = `replace(/${String.fromCharCode(92)}s+/g, ' ').trim()`;
+assert.ok(missionPresentation.includes(whitespaceCollapse),
+  'mission detail preview must collapse multiline goals into one readable line');
+assert.ok(webPushE2E.includes(`String(sourceMission?.goal || '').${whitespaceCollapse}`),
+  'Web Push E2E must normalize API goal whitespace before comparing detail previews');
+assert.ok(webPushE2E.includes(`.${whitespaceCollapse};`),
+  'Web Push E2E must normalize rendered DOM whitespace too');
 
 assert.match(api, /\/human-gate\/approve/);
 assert.match(api, /\/verify-retry/);

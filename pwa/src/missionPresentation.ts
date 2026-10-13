@@ -50,7 +50,9 @@ export function missionListLabel(mission: any, index: number): string {
 }
 
 export function missionGoalPreview(mission: any, max = 110): string {
-  const goal = String(mission?.goal ?? '').trim();
+  // Render multiline goals as the same single-line preview that browsers expose
+  // through innerText; keep the original full goal on the mission record.
+  const goal = String(mission?.goal ?? '').replace(/\s+/g, ' ').trim();
   if (!goal) return 'Sin objetivo registrado.';
   return goal.length > max ? goal.slice(0, max - 1).trimEnd() + '…' : goal;
 }
