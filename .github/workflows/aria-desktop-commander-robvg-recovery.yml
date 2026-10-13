@@ -1,0 +1,400 @@
+name: ARIA Desktop Commander RobVG Recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aria-desktop-commander-robvg-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify RobVG-only recovery guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=.github/workflows/aria-desktop-commander-robvg-recovery.yml
+          grep -Fq "\$env:COMPUTERNAME -ine 'RobVG'" "$f"
+          grep -Fq "ARIA-Desktop-Commander-Remote" "$f"
+          grep -Fq "ARIA-Windows-Local-Agent" "$f"
+          grep -Fq "schtasks.exe /Run" "$f"
+          ! grep -Fq "windows-lacueva-780886" "$f"
+          grep -Fq "runs-on: [self-hosted, Windows, X64]" "$f"
+          echo 'ROBV G_ONLY_RECOVERY_GUARDS=PASS'
+
+  recover-robvg:
+    if: github.event_name != 'pull_request'
+    concurrency:
+      group: aria-desktop-commander-recovery-robvg-only
+      cancel-in-progress: false
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Guard physical identity and capture preflight
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ine 'RobVG') {
+            throw "WRONG_RUNNER_IDENTITY: expected computer RobVG, actual=$env:COMPUTERNAME. No changes made."
+          }
+
+          $configPath = 'D:\ARIA-Windows-Agent\Data\config.json'
+          if (-not (Test-Path -LiteralPath $configPath)) {
+            throw "ROBVG_CONFIG_MISSING=$configPath; no changes made."
+          }
+          $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace([string]$config.device_id)) {
+            throw 'ROBVG_DEVICE_ID_MISSING; no changes made.'
+          }
+
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'robvg-desktop-commander-recovery'
+          New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
+          $evidencePath = Join-Path $evidenceRoot 'robvg-recovery-evidence.txt'
+          $lines = New-Object 'System.Collections.Generic.List[string]'
+          $null = $lines.Add('ARIA DESKTOP COMMANDER — ROBVG-ONLY RECOVERY')
+          $null = $lines.Add('CAPTURED_LOCAL=' + (Get-Date -Format o))
+          $null = $lines.Add('COMPUTERNAME=' + $env:COMPUTERNAME)
+          $null = $lines.Add('USER=' + [Environment]::UserName)
+          $null = $lines.Add('DEVICE_CONFIG_PRESENT=True')
+          $null = $lines.Add('DEVICE_ID_PRESENT=True (value intentionally not copied to logs)')
+          $null = $lines.Add('RECOVERY_SCOPE=RobVG only; no LaCueva tasks or processes may be targeted.')
+
+          $taskNames = @('ARIA-Desktop-Commander-Remote', 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
+          $allTasks = @(Get-ScheduledTask -ErrorAction Stop)
+          foreach ($name in $taskNames) {
+            $found = @($allTasks | Where-Object { $_.TaskName -eq $name })
+            if ($found.Count -eq 0) {
+              $null = $lines.Add("PREFLIGHT_TASK_MISSING=$name")
+              Write-Host "PREFLIGHT_TASK_MISSING=$name"
+              continue
+            }
+            foreach ($task in $found) {
+              $info = $null
+              try { $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction Stop } catch {}
+              $lastRun = if ($null -ne $info) { $info.LastRunTime.ToString('o') } else { 'UNAVAILABLE_VIA_TASKINFO' }
+              $lastResult = if ($null -ne $info) { [string]$info.LastTaskResult } else { 'UNAVAILABLE_VIA_TASKINFO' }
+              $triggerSummary = ($task.Triggers | ForEach-Object { $_.CimClass.CimClassName + ';Enabled=' + $_.Enabled }) -join '|'
+              $actionSummary = ($task.Actions | ForEach-Object { [string]$_.Execute }) -join '|'
+              $record = "PREFLIGHT_TASK=$name;PATH=$($task.TaskPath);STATE=$($task.State);ENABLED=$($task.Settings.Enabled);LAST_RUN=$lastRun;LAST_RESULT=$lastResult;PRINCIPAL=$($task.Principal.UserId);LOGON_TYPE=$($task.Principal.LogonType);TRIGGERS=$triggerSummary;EXECUTABLES=$actionSummary"
+              $null = $lines.Add($record)
+              Write-Host $record
+              if ($name -eq 'ARIA-Desktop-Commander-Remote') {
+                try {
+                  $xmlPath = Join-Path $evidenceRoot 'ARIA-Desktop-Commander-Remote-pre-recovery.xml'
+                  Export-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction Stop | Set-Content -LiteralPath $xmlPath -Encoding UTF8
+                  $null = $lines.Add('DC_TASK_XML_BACKUP=' + $xmlPath)
+                } catch {
+                  $null = $lines.Add('DC_TASK_XML_BACKUP_FAILED=' + $_.Exception.GetType().Name)
+                  Write-Warning ('DC_TASK_XML_BACKUP_FAILED=' + $_.Exception.GetType().Name)
+                }
+              }
+            }
+          }
+
+          $required = @($allTasks | Where-Object { $_.TaskName -eq 'ARIA-Desktop-Commander-Remote' })
+          if ($required.Count -eq 0) {
+            [System.IO.File]::WriteAllLines($evidencePath, $lines, [System.Text.UTF8Encoding]::new($false))
+            throw 'REQUIRED_TASK_MISSING_BY_ENUMERATION=ARIA-Desktop-Commander-Remote; refusing to invent a task or action.'
+          }
+
+          $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            [string]$_.CommandLine -match '(?i)desktop-commander-supervisor\.ps1|D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote|D:\\ARIA-Windows-Agent\\Runtime\\windows\\run-agent\.ps1|D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js'
+          })
+          foreach ($p in $processes) {
+            $null = $lines.Add("PREFLIGHT_PROCESS=$($p.Name);PID=$($p.ProcessId);PPID=$($p.ParentProcessId);CREATED=$($p.CreationDate)")
+          }
+          $null = $lines.Add('PREFLIGHT_MATCHING_PROCESS_COUNT=' + $processes.Count)
+
+          foreach ($file in @('agent-heartbeat.json','desktop-commander-supervisor.json','status.json')) {
+            $path = Join-Path 'D:\ARIA-Windows-Agent\Logs' $file
+            if (-not (Test-Path -LiteralPath $path)) {
+              $null = $lines.Add("PREFLIGHT_STATUS_FILE_MISSING=$file")
+              continue
+            }
+            try {
+              $obj = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+              $age = [math]::Round(((Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $path).LastWriteTimeUtc).TotalSeconds)
+              $summary = "PREFLIGHT_STATUS_FILE=$file;AGE_SECONDS=$age"
+              foreach ($key in @('state','channel_state','process_alive','pid','version','network','timestamp','updated_at','error','last_error')) {
+                $prop = $obj.PSObject.Properties[$key]
+                if ($null -ne $prop) {
+                  $value = [string]$prop.Value
+                  $value = $value -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+                  $value = $value -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
+                  if ($value.Length -gt 180) { $value = $value.Substring(0,180) }
+                  $summary += ';' + $key + '=' + $value
+                }
+              }
+              $null = $lines.Add($summary)
+              Write-Host $summary
+            } catch {
+              $null = $lines.Add("PREFLIGHT_STATUS_FILE_READ_ERROR=$file;TYPE=$($_.Exception.GetType().Name)")
+            }
+          }
+
+          $remoteLog = Join-Path $env:USERPROFILE '.desktop-commander-device\remote-tue.log'
+          if (Test-Path -LiteralPath $remoteLog) {
+            $item = Get-Item -LiteralPath $remoteLog
+            $null = $lines.Add("PREFLIGHT_REMOTE_LOG=present;LAST_WRITE=$($item.LastWriteTime.ToString('o'));BYTES=$($item.Length)")
+            $recent = @(Get-Content -LiteralPath $remoteLog -Tail 180 | Where-Object {
+              $_ -match '(?i)Channel subscribed|Presence tracked|Heartbeat started|CHANNEL_ERROR|transport failure|Presence track not acknowledged|heartbeat timeout|Device startup failed|fetch failed'
+            } | Select-Object -Last 20)
+            foreach ($line in $recent) {
+              $safe = [string]$line
+              $safe = $safe -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+              $safe = $safe -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+              $null = $lines.Add('PREFLIGHT_REMOTE_LOG_LINE=' + $safe)
+            }
+          } else {
+            $null = $lines.Add('PREFLIGHT_REMOTE_LOG=MISSING')
+          }
+
+          $null = $lines.Add('PREFLIGHT_COMPLETE=' + (Get-Date -Format o))
+          [System.IO.File]::WriteAllLines($evidencePath, $lines, [System.Text.UTF8Encoding]::new($false))
+          Write-Host "PREFLIGHT_EVIDENCE=$evidencePath"
+          Write-Host 'ROBVG_IDENTITY_GUARD=PASS'
+          Write-Host 'TASK_LOOKUP_METHOD=ENUMERATE_GET-SCHEDULEDTASK_THEN_FILTER_TASKNAME'
+          Write-Host 'PREFLIGHT_COMPLETE=PASS'
+
+      - name: Restart only RobVG ARIA Desktop Commander tasks and scoped child processes
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if ($env:COMPUTERNAME -ine 'RobVG') {
+            throw "WRONG_RUNNER_IDENTITY: actual=$env:COMPUTERNAME. No changes made."
+          }
+
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'robvg-desktop-commander-recovery'
+          $evidencePath = Join-Path $evidenceRoot 'robvg-recovery-evidence.txt'
+          $lines = New-Object 'System.Collections.Generic.List[string]'
+          $null = $lines.Add('')
+          $null = $lines.Add('=== ROBVG SCOPED RESTART ===')
+          $null = $lines.Add('RESTART_STARTED=' + (Get-Date -Format o))
+
+          # Use enumeration rather than Get-ScheduledTask -TaskName: that targeted lookup
+          # falsely reported this existing task as missing in recovery run 38412300081.
+          $names = @('ARIA-Desktop-Commander-Remote', 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
+          $allTasks = @(Get-ScheduledTask -ErrorAction Stop)
+          $tasks = @($allTasks | Where-Object { $names -contains $_.TaskName })
+          $dcTasks = @($tasks | Where-Object { $_.TaskName -eq 'ARIA-Desktop-Commander-Remote' })
+          if ($dcTasks.Count -eq 0) {
+            throw 'REQUIRED_TASK_MISSING_BY_ENUMERATION=ARIA-Desktop-Commander-Remote; no task or action will be fabricated.'
+          }
+
+          foreach ($task in $tasks) {
+            if ($task.State -eq 'Running') {
+              $fullName = [string]$task.TaskPath + [string]$task.TaskName
+              $null = $lines.Add("TASK_END_REQUESTED=$fullName")
+              Write-Host "TASK_END_REQUESTED=$fullName"
+              & schtasks.exe /End /TN $fullName 2>&1 | Out-Host
+              $exitCode = $LASTEXITCODE
+              $global:LASTEXITCODE = 0
+              $null = $lines.Add("TASK_END_EXIT=$fullName;CODE=$exitCode")
+              Write-Host "TASK_END_EXIT=$fullName;CODE=$exitCode"
+            } else {
+              $null = $lines.Add("TASK_NOT_RUNNING_BEFORE_RESTART=$($task.TaskName);STATE=$($task.State)")
+            }
+          }
+
+          Start-Sleep -Seconds 3
+          $processRules = @(
+            @{ label='DC_SUPERVISOR'; regex='(?i)desktop-commander-supervisor\.ps1' },
+            @{ label='DC_REMOTE_NODE'; regex='(?i)D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote' },
+            @{ label='ARIA_RUN_AGENT'; regex='(?i)D:\\ARIA-Windows-Agent\\Runtime\\windows\\run-agent\.ps1' },
+            @{ label='ARIA_AGENT_NODE'; regex='(?i)D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js' }
+          )
+          $foundProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+          foreach ($rule in $processRules) {
+            $matching = @($foundProcesses | Where-Object { [string]$_.CommandLine -match $rule.regex })
+            foreach ($proc in $matching) {
+              $null = $lines.Add("SCOPED_PROCESS_STOP_REQUESTED=$($rule.label);PID=$($proc.ProcessId);NAME=$($proc.Name)")
+              Write-Host "SCOPED_PROCESS_STOP_REQUESTED=$($rule.label);PID=$($proc.ProcessId);NAME=$($proc.Name)"
+              try {
+                Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction Stop
+                $null = $lines.Add("SCOPED_PROCESS_STOP=PASS;PID=$($proc.ProcessId)")
+                Write-Host "SCOPED_PROCESS_STOP=PASS;PID=$($proc.ProcessId)"
+              } catch {
+                $null = $lines.Add("SCOPED_PROCESS_STOP=FAILED;PID=$($proc.ProcessId);TYPE=$($_.Exception.GetType().Name)")
+                Write-Warning "SCOPED_PROCESS_STOP=FAILED;PID=$($proc.ProcessId);TYPE=$($_.Exception.GetType().Name)"
+              }
+            }
+          }
+
+          Start-Sleep -Seconds 3
+          $allTasks = @(Get-ScheduledTask -ErrorAction Stop)
+          $tasks = @($allTasks | Where-Object { $names -contains $_.TaskName })
+          foreach ($name in $names) {
+            $matchingTasks = @($tasks | Where-Object { $_.TaskName -eq $name })
+            if ($matchingTasks.Count -eq 0) {
+              $null = $lines.Add("OPTIONAL_TASK_MISSING=$name")
+              Write-Host "OPTIONAL_TASK_MISSING=$name"
+              continue
+            }
+            foreach ($task in $matchingTasks) {
+              $fullName = [string]$task.TaskPath + [string]$task.TaskName
+              Write-Host "TASK_RUN_REQUESTED=$fullName"
+              & schtasks.exe /Run /TN $fullName 2>&1 | Out-Host
+              $exitCode = $LASTEXITCODE
+              $global:LASTEXITCODE = 0
+              $null = $lines.Add("TASK_RUN_EXIT=$fullName;CODE=$exitCode")
+              Write-Host "TASK_RUN_EXIT=$fullName;CODE=$exitCode"
+            }
+          }
+
+          Start-Sleep -Seconds 18
+          $null = $lines.Add('RESTART_REQUESTS_COMPLETE=' + (Get-Date -Format o))
+          Add-Content -LiteralPath $evidencePath -Value $lines -Encoding UTF8
+          Write-Host 'ROBVG_SCOPED_RESTART_REQUESTS=COMPLETE'
+
+      - name: Verify local health and persist final evidence
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if ($env:COMPUTERNAME -ine 'RobVG') {
+            throw "WRONG_RUNNER_IDENTITY: actual=$env:COMPUTERNAME. Verification refused."
+          }
+
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'robvg-desktop-commander-recovery'
+          New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
+          $evidencePath = Join-Path $evidenceRoot 'robvg-recovery-evidence.txt'
+          $lines = New-Object 'System.Collections.Generic.List[string]'
+          $null = $lines.Add('')
+          $null = $lines.Add('=== ROBVG POST-RESTART VERIFICATION ===')
+          $null = $lines.Add('VERIFIED_LOCAL=' + (Get-Date -Format o))
+          $null = $lines.Add('COMPUTERNAME=' + $env:COMPUTERNAME)
+
+          $names = @('ARIA-Desktop-Commander-Remote', 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
+          $allTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue)
+          foreach ($name in $names) {
+            $matching = @($allTasks | Where-Object { $_.TaskName -eq $name })
+            if ($matching.Count -eq 0) {
+              $null = $lines.Add("VERIFY_TASK_MISSING=$name")
+              Write-Host "VERIFY_TASK_MISSING=$name"
+              continue
+            }
+            foreach ($task in $matching) {
+              $fullName = [string]$task.TaskPath + [string]$task.TaskName
+              $info = $null
+              try { $info = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction Stop } catch {}
+              $lastRun = if ($null -ne $info) { $info.LastRunTime.ToString('o') } else { 'UNAVAILABLE_VIA_TASKINFO' }
+              $lastResult = if ($null -ne $info) { [string]$info.LastTaskResult } else { 'UNAVAILABLE_VIA_TASKINFO' }
+              $result = "VERIFY_TASK=$fullName;STATE=$($task.State);ENABLED=$($task.Settings.Enabled);LAST_RUN=$lastRun;LAST_RESULT=$lastResult;PRINCIPAL=$($task.Principal.UserId);LOGON_TYPE=$($task.Principal.LogonType)"
+              $null = $lines.Add($result)
+              Write-Host $result
+            }
+          }
+
+          $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            [string]$_.CommandLine -match '(?i)desktop-commander-supervisor\.ps1|D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote|D:\\ARIA-Windows-Agent\\Runtime\\windows\\run-agent\.ps1|D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js'
+          })
+          foreach ($p in $procs) {
+            $record = "VERIFY_PROCESS=$($p.Name);PID=$($p.ProcessId);PPID=$($p.ParentProcessId);CREATED=$($p.CreationDate)"
+            $null = $lines.Add($record)
+            Write-Host $record
+          }
+          $null = $lines.Add('VERIFY_MATCHING_PROCESS_COUNT=' + $procs.Count)
+
+          $logsRoot = 'D:\ARIA-Windows-Agent\Logs'
+          $heartbeatFresh = $false
+          $supervisorHealthy = $false
+          $heartbeatPath = Join-Path $logsRoot 'agent-heartbeat.json'
+          if (Test-Path -LiteralPath $heartbeatPath) {
+            try {
+              $hb = Get-Content -Raw -LiteralPath $heartbeatPath | ConvertFrom-Json
+              $hbTime = [DateTimeOffset]::Parse([string]$hb.timestamp)
+              $age = [math]::Round(([DateTimeOffset]::UtcNow - $hbTime.ToUniversalTime()).TotalSeconds)
+              $heartbeatFresh = ($age -ge -30 -and $age -le 120 -and [string]$hb.device_id -match '(?i)robvg' -and [string]$hb.network -eq 'online')
+              $record = "VERIFY_HEARTBEAT=present;AGE_SECONDS=$age;NETWORK=$($hb.network);DEVICE_ID_MATCH_ROBVG=$([string]$hb.device_id -match '(?i)robvg')"
+              $null = $lines.Add($record)
+              Write-Host $record
+            } catch {
+              $null = $lines.Add('VERIFY_HEARTBEAT_READ_ERROR=' + $_.Exception.GetType().Name)
+            }
+          } else {
+            $null = $lines.Add('VERIFY_HEARTBEAT=MISSING')
+          }
+
+          $supervisorPath = Join-Path $logsRoot 'desktop-commander-supervisor.json'
+          if (Test-Path -LiteralPath $supervisorPath) {
+            try {
+              $sv = Get-Content -Raw -LiteralPath $supervisorPath | ConvertFrom-Json
+              $svTime = [DateTimeOffset]::Parse([string]$sv.updated_at)
+              $svAge = [math]::Round(([DateTimeOffset]::UtcNow - $svTime.ToUniversalTime()).TotalSeconds)
+              $svPidAlive = $false
+              if ($sv.pid) { $svPidAlive = $null -ne (Get-Process -Id ([int]$sv.pid) -ErrorAction SilentlyContinue) }
+              $supervisorHealthy = ($svAge -ge -30 -and $svAge -le 120 -and $svPidAlive -and [string]$sv.channel_state -eq 'subscribed' -and [string]$sv.version -eq '0.2.52')
+              $record = "VERIFY_SUPERVISOR=present;AGE_SECONDS=$svAge;STATE=$($sv.state);CHANNEL_STATE=$($sv.channel_state);PROCESS_ALIVE=$($sv.process_alive);PID_ALIVE=$svPidAlive;VERSION=$($sv.version)"
+              $null = $lines.Add($record)
+              Write-Host $record
+            } catch {
+              $null = $lines.Add('VERIFY_SUPERVISOR_READ_ERROR=' + $_.Exception.GetType().Name)
+            }
+          } else {
+            $null = $lines.Add('VERIFY_SUPERVISOR=MISSING')
+          }
+
+          $dcTask = @($allTasks | Where-Object { $_.TaskName -eq 'ARIA-Desktop-Commander-Remote' })
+          $dcTaskRunning = ($dcTask.Count -gt 0 -and [string]$dcTask[0].State -eq 'Running' -and $dcTask[0].Settings.Enabled)
+          $dcProcessPresent = @($procs | Where-Object { [string]$_.CommandLine -match '(?i)D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote' }).Count -gt 0
+          $localTask = @($allTasks | Where-Object { $_.TaskName -eq 'ARIA-Windows-Local-Agent' })
+          $localAgentTaskRunning = ($localTask.Count -gt 0 -and [string]$localTask[0].State -eq 'Running' -and $localTask[0].Settings.Enabled)
+          $localAgentPresent = @($procs | Where-Object { [string]$_.CommandLine -match '(?i)D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js' }).Count -gt 0
+          $localPass = ($dcTaskRunning -and $dcProcessPresent -and $localAgentTaskRunning -and $localAgentPresent -and $heartbeatFresh -and $supervisorHealthy)
+          $null = $lines.Add("LOCAL_RECOVERY_GATE=$([string]$(if ($localPass) {'PASS'} else {'FAIL'}))")
+          $null = $lines.Add("CHECK_DC_TASK_RUNNING=$dcTaskRunning")
+          $null = $lines.Add("CHECK_DC_PROCESS_PRESENT=$dcProcessPresent")
+          $null = $lines.Add("CHECK_LOCAL_TASK_RUNNING=$localAgentTaskRunning")
+          $null = $lines.Add("CHECK_LOCAL_AGENT_PRESENT=$localAgentPresent")
+          $null = $lines.Add("CHECK_HEARTBEAT_FRESH_ONLINE=$heartbeatFresh")
+          $null = $lines.Add("CHECK_SUPERVISOR_FRESH_SUBSCRIBED_V052=$supervisorHealthy")
+          $null = $lines.Add('REMOTE_E2E_STILL_REQUIRED=Desktop Commander provider ping/list_processes must be confirmed outside this runner.')
+
+          $evidenceText = [string]::Join([Environment]::NewLine, $lines)
+          Add-Content -LiteralPath $evidencePath -Value $evidenceText -Encoding UTF8
+          $hash = (Get-FileHash -LiteralPath $evidencePath -Algorithm SHA256).Hash
+          Write-Host "RECOVERY_EVIDENCE_TEMP=$evidencePath"
+          Write-Host "RECOVERY_EVIDENCE_SHA256=$hash"
+          Write-Host "LOCAL_RECOVERY_GATE=$([string]$(if ($localPass) {'PASS'} else {'FAIL'}))"
+
+          # Persist a copy on RobVG; if D: evidence is denied, preserve under the user's Documents folder.
+          $dest = 'D:\Databank\RWHT\Evidence\DesktopCommanderRecovery'
+          $destFile = $null
+          try {
+            New-Item -ItemType Directory -Path $dest -Force -ErrorAction Stop | Out-Null
+            $destFile = Join-Path $dest ('robvg-recovery-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
+            Copy-Item -LiteralPath $evidencePath -Destination $destFile -Force -ErrorAction Stop
+          } catch {
+            $fallback = Join-Path $env:USERPROFILE 'Documents\DesktopCommanderRecovery'
+            try {
+              New-Item -ItemType Directory -Path $fallback -Force -ErrorAction Stop | Out-Null
+              $destFile = Join-Path $fallback ('robvg-recovery-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
+              Copy-Item -LiteralPath $evidencePath -Destination $destFile -Force -ErrorAction Stop
+            } catch {
+              Write-Warning ('LOCAL_EVIDENCE_COPY_FAILED=' + $_.Exception.GetType().Name)
+            }
+          }
+          if ($destFile -and (Test-Path -LiteralPath $destFile)) {
+            $destHash = (Get-FileHash -LiteralPath $destFile -Algorithm SHA256).Hash
+            Write-Host "RECOVERY_EVIDENCE_LOCAL_COPY=$destFile"
+            Write-Host "RECOVERY_EVIDENCE_LOCAL_SHA256=$destHash"
+          }
+
+          if (-not $localPass) {
+            Write-Warning 'LOCAL_RECOVERY_GATE=FAIL; inspect the persisted artifact before any further changes.'
+          }
+
+      - name: Upload RobVG-only recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: robvg-desktop-commander-recovery
+          path: ${{ runner.temp }}\robvg-desktop-commander-recovery\
+          if-no-files-found: warn
+          retention-days: 30
