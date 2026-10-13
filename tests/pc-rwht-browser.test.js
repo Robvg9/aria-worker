@@ -13,7 +13,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.5.3/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.4/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -29,6 +29,13 @@ assert.match(runner, /SAFE_MUTATION/);
 assert.ok(runner.includes("class_name: String(el.getAttribute('class') || '').slice(0, 120)"));
 assert.ok(runner.includes('function isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(original, routeHash, originalLabel)'));
+assert.ok(runner.includes('async function expandMeditationDetailsForDiscovery(page, routeHash)'), 'Meditation detail accordions must be expanded before the initial control inventory');
+assert.ok(runner.includes("page.locator('.meditationMoreDetails').evaluateAll("), 'RWHT must open the outer MORE INFORMATION panel and nested mission lists read-only');
+const meditationAuditRoute = runner.indexOf('async function auditRoute(page, url, routeIndex, config)');
+const meditationExpansion = runner.indexOf('await expandMeditationDetailsForDiscovery(page, routeForReadiness);', meditationAuditRoute);
+const firstMeditationInventory = runner.indexOf('const initialControls = authenticationBoundaryFailed', meditationAuditRoute);
+assert.ok(meditationExpansion > meditationAuditRoute && meditationExpansion < firstMeditationInventory, 'expand Meditation accordions before discoverInteractive snapshots hidden rows');
+assert.match(runner, /reason: 'queue_order_mutation_requires_human_gate'/, 'priority buttons must remain blocked in a read-only audit');
 assert.ok(runner.includes('async function reopenReadOnlyMeditationDetails(page, control, routeHash)'), 'PC RWHT must reopen read-only Meditation detail panels before replay');
 assert.ok(runner.includes("if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;"), 'detail reopening must be limited to Meditation buttons');
 assert.ok(runner.includes("String(control.selector_hint || '').includes('details')"), 'detail reopening must require an identified nested details row');
@@ -81,6 +88,7 @@ assert.match(closeDialogsImplementation, /return !remainingBlockingSurface/);
 assert.match(runner, /reason: 'blocking_modal_not_dismissed'/, 'RWHT must hard-fail instead of clicking through an overlay that remains blocking');
 assert.ok(runner.includes('summary.counter_reconciliation'), 'report must publish explicit counter reconciliation');
 assert.ok(runner.includes('summary.counters_reconciled === true'), 'PASS requires root, route, and action counters to reconcile');
+assert.ok(runner.includes('await expandMeditationDetailsForDiscovery(page, routeForReadiness);'), 'Meditation audit must inventory nested details before its first snapshot');
 assert.ok(!closeDialogsImplementation.includes("page.getByRole('button', { name: /cerrar|close|cancelar|cancel/i })"), 'dialog cleanup must not click mission rows with CANCELADA labels');
 const closeStaleModal = runner.indexOf("if (routeHash !== '#mission') await closeDialogs(page);", meditationReplayLoop);
 assert.ok(closeStaleModal > reloadAfterRouteDrift && closeStaleModal < reopenDetailsCall, 'on non-Meditation routes, close stale dialogs after reset and before reopening nested details');

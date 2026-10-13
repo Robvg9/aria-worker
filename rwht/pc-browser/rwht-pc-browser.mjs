@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.3';
+const VERSION = 'aria-pc-browser-rwht-v1.5.4';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -442,6 +442,30 @@ async function visibleBlockingSurfaceSignature(page) {
 }
 
 
+async function expandMeditationDetailsForDiscovery(page, routeHash) {
+  if (routeHash !== '#meditation') return 0;
+  // The mission/diagnostic lists live inside a collapsed native <details>
+  // accordion. Expanding only after a row has already been discovered can never
+  // work: hidden rows are absent from the initial snapshot. Open the outer
+  // Meditation panel and every nested read-only list before building inventory.
+  const opened = await page.locator('.meditationMoreDetails').evaluateAll((roots) => {
+    let count = 0;
+    for (const root of roots) {
+      const details = [root, ...root.querySelectorAll('details')];
+      for (const element of details) {
+        if (!element.open) {
+          element.open = true;
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }).catch(() => 0);
+  if (opened > 0) await page.waitForTimeout(150).catch(() => {});
+  return opened;
+}
+
+
 async function reopenReadOnlyMeditationDetails(page, control, routeHash) {
   if (routeHash !== '#meditation' || control?.tag !== 'button') return 0;
   const classes = String(control.class_name || '').split(/\s+/);
@@ -494,6 +518,17 @@ async function testControl(page, control, config) {
       reason: 'external_integration_auth_requires_human_gate',
       label,
       certification: 'external_backend_connection'
+    };
+  }
+
+  const meditationClasses = String(control.class_name || '').split(/\\s+/);
+  if (routeHash === '#meditation' &&
+      (meditationClasses.includes('queueMoveButton') || /^(subir|bajar) prioridad$/i.test(label))) {
+    return {
+      outcome: 'blocked',
+      reason: 'queue_order_mutation_requires_human_gate',
+      label,
+      certification: 'read_only_audit_mutation_boundary'
     };
   }
 
@@ -858,6 +893,9 @@ async function auditRoute(page, url, routeIndex, config) {
   // stale login controls as if they were dashboard controls when authentication
   // failed or the session was lost during reload.
   const authenticationBoundaryFailed = config.require_auth && !auth.verified;
+  if (!authenticationBoundaryFailed && routeForReadiness === '#meditation') {
+    await expandMeditationDetailsForDiscovery(page, routeForReadiness);
+  }
   const initialControls = authenticationBoundaryFailed
     ? []
     : await discoverInteractive(page);
