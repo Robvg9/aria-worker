@@ -36,7 +36,17 @@ async function run(path, method = 'GET') {
   assert.match(callbackHtml, /oauth_issuer_mismatch/);
   assert.match(callbackHtml, /cuevacoin_connection_status/);
   assert.match(callbackHtml, /cuevacoin_project_control/);
+  assert.match(callbackHtml, /run-write-probe/);
+  assert.match(callbackHtml, /download-evidence/);
+  assert.match(callbackHtml, /github_create_branch/);
+  assert.match(callbackHtml, /github_file_write/);
+  assert.match(callbackHtml, /github_open_pr/);
+  assert.match(callbackHtml, /github_pr_close/);
+  assert.match(callbackHtml, /github_branch_delete/);
+  assert.match(callbackHtml, /aria-cuevacoin-step5-write-probe-browser-v1/);
+  assert.match(callbackHtml, /no_financial_operations: true/);
   assert.match(callbackHtml, /history\.replaceState/);
+  assert.doesNotMatch(callbackHtml, /127\.0\.0\.1|localhost/, 'OAuth callback must remain same-origin HTTPS');
   assert.match(callback.headers.get('content-security-policy'), /script-src 'nonce-/);
 
   const head = await run('/oauth/cuevacoin-control-e2e', 'HEAD');
