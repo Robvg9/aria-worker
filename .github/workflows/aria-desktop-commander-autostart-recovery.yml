@@ -55,6 +55,18 @@ jobs:
           if ($actual -ne $expected) { throw "WRONG_RUNNER_IDENTITY: expected=$expected actual=$actual. No task changes made." }
           Write-Host "RUNNER_IDENTITY_GUARD=PASS DEVICE_ID=$actual COMPUTERNAME=$env:COMPUTERNAME"
 
+      - name: Record Windows time synchronization status
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $nodePkg = 'D:\ARIA-Windows-Agent\Tools\DesktopCommanderRemote\node_modules\@wonderwhy-er\desktop-commander\package.json'
+          if (Test-Path $nodePkg) {
+            $pkg = Get-Content -Raw -LiteralPath $nodePkg | ConvertFrom-Json
+            Write-Host "DC_INSTALLED_VERSION=$($pkg.version)"
+          } else { Write-Host 'DC_INSTALLED_VERSION=UNKNOWN' }
+          & w32tm.exe /query /status 2>&1 | ForEach-Object {
+            if ([string]$_ -match '(?i)Source:|Last Successful Sync Time:|Stratum:|Leap Indicator:') { Write-Host "DC_TIME_SERVICE=$([string]$_)" }
+          }
+
       - name: Restart the disconnected Desktop Commander task and recover stopped ARIA tasks
         run: |
           $ErrorActionPreference = 'Stop'
