@@ -39,8 +39,8 @@ async function run(){
  const healthEnd=apiSource.indexOf('async function capabilityCatalog',healthStart);
  assert.ok(healthStart>=0 && healthEnd>healthStart,'App API v3 must define operationalHealth');
  const healthSource=apiSource.slice(healthStart,healthEnd);
- assert.match(healthSource,/sb\\.schema\\([\"']aria_internal[\"']\\)\\.rpc\\([\"']get_operational_health_v1[\"']\\)/);
- assert.doesNotMatch(healthSource,/sb\\.rpc\\([\"']get_operational_health_v1[\"']\\)/);
+ assert.match(healthSource,/sb\.schema\(["']aria_internal["']\)\.rpc\(["']get_operational_health_v1["']\)/);
+ assert.doesNotMatch(healthSource,/sb\.rpc\(["']get_operational_health_v1["']\)/);
 
  console.log('OPERATIONAL DIAGNOSTICS CONTRACT: PASS');
 }
