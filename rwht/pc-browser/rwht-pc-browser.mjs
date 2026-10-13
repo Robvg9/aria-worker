@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.4';
+const VERSION = 'aria-pc-browser-rwht-v1.5.5';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -442,6 +442,41 @@ async function visibleBlockingSurfaceSignature(page) {
 }
 
 
+async function readOnlyActionUiState(page) {
+  const controls = await discoverInteractive(page).catch(() => []);
+  return {
+    url: page.url(),
+    title: await page.title(),
+    controls_hash: sha(controls.map((item) => ({
+      role: item.role,
+      name: item.name,
+      href: item.href
+    }))),
+    dialogs: await visibleBlockingSurfaceSignature(page)
+  };
+}
+
+function readOnlyActionEffectChanged(before, after) {
+  return before.url !== after.url ||
+    before.title !== after.title ||
+    before.controls_hash !== after.controls_hash ||
+    JSON.stringify(before.dialogs) !== JSON.stringify(after.dialogs);
+}
+
+async function waitForReadOnlyActionEffect(page, before, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let state = await readOnlyActionUiState(page);
+  while (!readOnlyActionEffectChanged(before, state) && Date.now() < deadline) {
+    await page.waitForTimeout(200);
+    state = await readOnlyActionUiState(page);
+  }
+  return {
+    observed: readOnlyActionEffectChanged(before, state),
+    state
+  };
+}
+
+
 async function expandMeditationDetailsForDiscovery(page, routeHash) {
   if (routeHash !== '#meditation') return 0;
   // The mission/diagnostic lists live inside a collapsed native <details>
@@ -521,7 +556,7 @@ async function testControl(page, control, config) {
     };
   }
 
-  const meditationClasses = String(control.class_name || '').split(/\\s+/);
+  const meditationClasses = String(control.class_name || '').split(/\s+/);
   if (routeHash === '#meditation' &&
       (meditationClasses.includes('queueMoveButton') || /^(subir|bajar) prioridad$/i.test(label))) {
     return {
@@ -726,15 +761,32 @@ async function testControl(page, control, config) {
     // Capture the real interaction result BEFORE cleanup closes the modal.
     // The prior order erased the very UI change used to certify read-only
     // Meditation navigation, producing false effect_observed=false results.
-    const afterUrl = page.url();
-    const afterTitle = await page.title();
-    const afterControls = await discoverInteractive(page).catch(() => []);
-    const afterHash = sha(afterControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
-    const afterDialogs = await visibleBlockingSurfaceSignature(page);
-    const effectObserved = beforeUrl !== afterUrl ||
+    let afterUrl = page.url();
+    let afterTitle = await page.title();
+    let afterControls = await discoverInteractive(page).catch(() => []);
+    let afterHash = sha(afterControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
+    let afterDialogs = await visibleBlockingSurfaceSignature(page);
+    let effectObserved = beforeUrl !== afterUrl ||
       beforeTitle !== afterTitle ||
       beforeHash !== afterHash ||
       JSON.stringify(beforeDialogs) !== JSON.stringify(afterDialogs);
+
+    // openMission() loads mission, event, and diagnostic APIs asynchronously.
+    // Poll for the resulting visible detail modal before calling this a false
+    // positive; a one-second snapshot previously raced the React state update.
+    if (safeReadOnlyAction && !effectObserved) {
+      const observed = await waitForReadOnlyActionEffect(page, {
+        url: beforeUrl,
+        title: beforeTitle,
+        controls_hash: beforeHash,
+        dialogs: beforeDialogs
+      }, Math.max(8000, config.action_timeout_ms, config.settle_ms));
+      afterUrl = observed.state.url;
+      afterTitle = observed.state.title;
+      afterHash = observed.state.controls_hash;
+      afterDialogs = observed.state.dialogs;
+      effectObserved = observed.observed;
+    }
 
     // Always clean up the opened modal before continuing to the next control.
     // Safe read-only Meditation buttons must prove a visible result, not merely
@@ -763,6 +815,9 @@ async function testControl(page, control, config) {
       title_after: afterTitle
     };
   } catch (error) {
+    // A click can time out while a late async handler has already opened a
+    // mission detail overlay. Clean that overlay before replaying the next row.
+    await closeDialogs(page).catch(() => false);
     return {
       outcome: 'failed',
       action: 'click',

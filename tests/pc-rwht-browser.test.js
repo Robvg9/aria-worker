@@ -13,7 +13,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.5.4/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.5/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -29,6 +29,11 @@ assert.match(runner, /SAFE_MUTATION/);
 assert.ok(runner.includes("class_name: String(el.getAttribute('class') || '').slice(0, 120)"));
 assert.ok(runner.includes('function isSafeReadOnlyMeditationAction(control, routeHash, label)'));
 assert.ok(runner.includes('isSafeReadOnlyMeditationAction(original, routeHash, originalLabel)'));
+assert.ok(runner.includes('async function readOnlyActionUiState(page)'), 'Read-only UI state must be observable for asynchronous detail navigation');
+assert.ok(runner.includes('async function waitForReadOnlyActionEffect(page, before, timeoutMs)'), 'Read-only mission details must be awaited before scoring visible effects');
+assert.ok(runner.includes('Math.max(8000, config.action_timeout_ms, config.settle_ms)'), 'Read-only detail navigation must wait for async mission APIs');
+assert.ok(runner.includes('await closeDialogs(page).catch(() => false);'), 'A failed or timed-out click must clean up late-opening mission detail overlays');
+assert.ok(runner.includes("const meditationClasses = String(control.class_name || '').split(/\\s+/);"), 'Queue mutation guard must split class names correctly');
 assert.ok(runner.includes('async function expandMeditationDetailsForDiscovery(page, routeHash)'), 'Meditation detail accordions must be expanded before the initial control inventory');
 assert.ok(runner.includes("page.locator('.meditationMoreDetails').evaluateAll("), 'RWHT must open the outer MORE INFORMATION panel and nested mission lists read-only');
 const meditationAuditRoute = runner.indexOf('async function auditRoute(page, url, routeIndex, config)');
@@ -63,7 +68,10 @@ assert.ok(runner.includes("(classes.includes('row') || classes.includes('queueMi
 assert.match(runner, /Capture the real interaction result BEFORE cleanup closes the modal/);
 assert.ok(runner.includes('async function visibleBlockingSurfaceSignature(page)'), 'RWHT must observe visible modal/dialog surfaces before cleanup');
 const testControlStart = runner.indexOf('async function testControl(page, control, config)');
-const measuredDialogSnapshot = runner.indexOf('const afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart);
+const measuredDialogSnapshot = Math.max(
+  runner.indexOf('const afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart),
+  runner.indexOf('let afterDialogs = await visibleBlockingSurfaceSignature(page);', testControlStart),
+);
 const closeAfterMeasurement = runner.indexOf('await closeDialogs(page);', measuredDialogSnapshot);
 assert.ok(measuredDialogSnapshot > testControlStart && closeAfterMeasurement > measuredDialogSnapshot, 'RWHT must measure visible dialog effects before closing them');
 assert.match(runner, /reason: 'read_only_action_no_visible_effect'/, 'safe read-only Meditation clicks must fail if no visible effect is observed');
