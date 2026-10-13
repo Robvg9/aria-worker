@@ -11,6 +11,8 @@ on:
       - 'rwht/pc-browser/rwht-pc-browser.mjs'
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
   workflow_dispatch:
 
 permissions:
