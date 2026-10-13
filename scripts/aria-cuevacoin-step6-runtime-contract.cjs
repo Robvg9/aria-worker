@@ -39,7 +39,7 @@ assert.ok(migration.includes('blocked_missions_total'));
 assert.ok(migration.includes('suppressed_duplicate_recovery_failures_24h'));
 assert.ok(migration.includes('recent_24h_statuses'));
 assert.ok(learningMigration.includes("lower(trim(coalesce(m.metadata->>'scope',''))) = 'deploy supabase edge function'"));
-assert.ok(learningMigration.includes("'edge function|edge functions|edge-function|función edge|funcion edge'"));
+assert.ok(learningMigration.includes("edge function|edge functions|edge-function|función edge|funcion edge"));
 assert.ok(learningMigration.includes("token not in ('supabase','database','project'"));
 assert.ok(workflow.includes('node scripts/aria-cuevacoin-step6-runtime-contract.cjs'));
 console.log('ARIA CUEVACOIN STEP 6 + MISSION DIAGNOSTICS CONTRACT: PASS');
