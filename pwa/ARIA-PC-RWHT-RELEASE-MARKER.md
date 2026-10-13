@@ -19,3 +19,6 @@ Production smoke hardening: deployment asset checks retry transient edge 404s fo
 
 
 2026-10-12 certification-chain correction: include the PC Browser release marker in Persistence + Recovery workflow triggers; PC Browser v1.5.1 certification requires a same-SHA Persistence + Recovery run before Web Push, ABSORB and final PC Browser audit.
+
+
+2026-10-13 PC RWHT v1.5.2: LIVE artefact #11780722548 on SHA `475418507f7e19e59674782b26465bd79d393842` isolated one real failure: a nested read-only Meditation row click was intercepted by an open mission detail layer (`locator.click` timeout 7000 ms). Fix closes topmost dialog layers one at a time, waits for the exact layer handle to detach/stop intercepting pointer events, and fails explicitly if any blocker remains. Report now records `counter_reconciliation`; verified PASS requires route/action/root counts to agree. The latest run had 7/7 routes, authenticated=true, 58 verified, 8 blocked, 10 skipped, 1 failed; page/console errors 0 and no ARIA-origin failed responses. This was not a counter mismatch: testable=67 correctly equals 58 verified + 8 blocked + 1 failed, with 10 skipped excluded from the denominator.
