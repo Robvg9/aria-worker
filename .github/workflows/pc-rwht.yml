@@ -75,7 +75,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE E2E"
+          LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE E2E;ARIA Chat Browser RWHT Authenticated;ARIA Capabilities Browser RWHT Authenticated;ARIA npm test;ARIA Autonomous Windows Qwen3;All For One Forensic Audit"
         run: |
           set -euo pipefail
           bash scripts/ci/wait-for-aria-exact-sha-deploys.sh "${GITHUB_SHA}"
