@@ -2835,7 +2835,7 @@ function Meditation({ session }: { session: Session }) {
           </section>}
       {(() => {
         const healthStatus = String(operationalHealth?.status ?? '').toLowerCase();
-        const missionFailure = String(m?.last_stderr || m?.next_action || '');
+        const missionFailure = [m?.last_stderr, m?.next_action, m?.checkpoint?.recovery?.reason].map(value => String(value || '')).join(' ');
         const missionNeedsAttention = String(m?.status || '').toLowerCase() === 'paused'
           && /planner_empty_steps|agent_fallback_exhausted|executor_error/.test(missionFailure);
         if (!missionNeedsAttention && (!operationalHealth || healthStatus === 'healthy')) return null;
