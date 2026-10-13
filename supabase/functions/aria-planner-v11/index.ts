@@ -1404,8 +1404,8 @@ function cuevacoinStep6Plan(goal: string) {
       target: { type: "connector", connector_id: "cuevacoin" },
       input: {
         confirm_project_ref: "zqgmjwfvluboiporytcq",
-        confirm_production_write: true,
-        risk_level: "LOW_RISK_WRITE",
+        confirm_production_write: "true",
+        risk_level: "low",
         change_summary: "Temporary-only step 6 write/readback/drop probe"
       },
       risk: "LOW_RISK_WRITE",
