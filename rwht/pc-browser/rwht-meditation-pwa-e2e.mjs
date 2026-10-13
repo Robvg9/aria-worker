@@ -483,11 +483,14 @@ async function run() {
       report.notification_server_read_at = notificationReadback.read_at;
       console.log('WEBPUSH_E2E_NOTIFICATION_READ_CONFIRMED id=' + pushProbeNotificationId);
       const detailTitle = (await probePage.locator('.detailModal .detailTop h2').first().innerText()).trim();
-      const missionGoal = String(sourceMission?.goal || '').trim();
+      // Match the production single-line preview. DOM innerText collapses newlines
+      // and repeated whitespace, so compare normalized goals rather than raw API text.
+      const missionGoal = String(sourceMission?.goal || '').replace(/\s+/g, ' ').trim();
       const expectedGoalPreview = missionGoal.length > 110
         ? missionGoal.slice(0, 109).trimEnd() + '…'
         : missionGoal;
-      const visibleGoalPreview = (await probePage.locator('.detailModal .detailTop .muted').first().innerText()).trim();
+      const visibleGoalPreview = (await probePage.locator('.detailModal .detailTop .muted').first().innerText())
+        .replace(/\s+/g, ' ').trim();
       if (!expectedGoalPreview || visibleGoalPreview !== expectedGoalPreview) {
         throw new Error('notification_clicked_wrong_mission_detail:' + JSON.stringify({
           title: detailTitle,
