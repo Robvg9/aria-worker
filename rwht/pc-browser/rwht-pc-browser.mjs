@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.2';
+const VERSION = 'aria-pc-browser-rwht-v1.5.3';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -438,6 +438,35 @@ async function reopenReadOnlyMeditationDetails(page, control, routeHash) {
   return opened;
 }
 
+async function waitForReadOnlyMeditationEffect(page, expectedKind, timeoutMs = 10000) {
+  // A successful click is not proof that its read-only detail opened. Inspect
+  // the expected modal before cleanup dismisses it; otherwise a click through
+  // a backdrop can look like PASS merely because locator.click() did not throw.
+  try {
+    await page.waitForFunction((kind) => {
+      const visible = (element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 &&
+          style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      if (kind === 'ideas') {
+        return [...document.querySelectorAll('.modalBackdrop .ideaModal')].some(visible);
+      }
+      return [...document.querySelectorAll('.modalBackdrop .detailModal')].some((modal) =>
+        visible(modal) &&
+        Boolean(modal.querySelector('.missionMetaGrid')) &&
+        [...modal.querySelectorAll('button')].some((button) =>
+          /^(cerrar|close)$/i.test(String(button.innerText || button.textContent || '').trim())
+        )
+      );
+    }, expectedKind, { timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function testControl(page, control, config) {
   const label = safeLabel(control.name);
   const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
@@ -657,19 +686,61 @@ async function testControl(page, control, config) {
     await locator.scrollIntoViewIfNeeded({ timeout: config.action_timeout_ms });
     await locator.click({ timeout: config.action_timeout_ms });
     await page.waitForTimeout(config.settle_ms);
-    // Measure the action's visible effect above, then dismiss any resulting modal
-    // and wait for its backdrop to stop intercepting pointer events before next replay.
-    await closeDialogs(page);
 
+    // Measure the expected visible effect before closeDialogs() dismisses the
+    // modal. The old ordering erased the evidence this audit meant to record.
+    const expectedReadOnlyKind = !safeReadOnlyAction ? null
+      : /^Ver ideas y crear misión$/i.test(label) ? 'ideas' : 'mission-detail';
+    const expectedModalVisible = expectedReadOnlyKind
+      ? await waitForReadOnlyMeditationEffect(
+          page,
+          expectedReadOnlyKind,
+          Math.min(config.action_timeout_ms + 3000, 10000)
+        )
+      : null;
     const afterUrl = page.url();
     const afterTitle = await page.title();
     const afterControls = await discoverInteractive(page).catch(() => []);
     const afterHash = sha(afterControls.map((item) => ({ role: item.role, name: item.name, href: item.href })));
+    const effectObserved =
+      beforeUrl !== afterUrl ||
+      beforeTitle !== afterTitle ||
+      beforeHash !== afterHash ||
+      expectedModalVisible === true;
+
+    // Capture first, clean up second. If cleanup cannot remove the blocking layer,
+    // do not count the next control as tested through that overlay.
+    const dialogsClosed = await closeDialogs(page);
+    if (!dialogsClosed) {
+      return {
+        outcome: 'failed',
+        action: 'click',
+        reason: 'blocking_modal_not_dismissed',
+        error: 'The click effect was measured, but the blocking modal/dialog could not be dismissed.',
+        effect_observed: effectObserved,
+        expected_modal_visible: expectedModalVisible
+      };
+    }
+    if (safeReadOnlyAction && expectedModalVisible !== true) {
+      return {
+        outcome: 'failed',
+        action: 'click',
+        reason: 'read_only_effect_not_observed',
+        error: 'The row click did not produce the expected visible mission-detail/ideas modal before cleanup.',
+        effect_observed: false,
+        expected_modal_visible: false,
+        url_before: beforeUrl,
+        url_after: afterUrl,
+        title_before: beforeTitle,
+        title_after: afterTitle
+      };
+    }
 
     return {
       outcome: 'verified',
       action: 'click',
-      effect_observed: beforeUrl !== afterUrl || beforeTitle !== afterTitle || beforeHash !== afterHash,
+      effect_observed: effectObserved,
+      ...(safeReadOnlyAction ? { expected_modal_visible: true } : {}),
       url_before: beforeUrl,
       url_after: afterUrl,
       title_before: beforeTitle,
