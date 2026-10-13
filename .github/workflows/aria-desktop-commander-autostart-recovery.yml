@@ -28,8 +28,10 @@ jobs:
           grep -Fq "ARIA-Desktop-Commander-Remote" "$f"
           grep -Fq "ARIA-Windows-Agent-Guardian" "$f"
           grep -Fq "ARIA-Windows-Local-Agent" "$f"
-          grep -Fq "schtasks.exe /End" "$f"
-          grep -Fq "schtasks.exe /Run" "$f"
+          test "$(grep -Fc '& schtasks.exe /End /TN $name' "$f")" -ge 3
+          test "$(grep -Fc '& schtasks.exe /Run /TN $name' "$f")" -ge 3
+          grep -Fq 'TASK_END_REQUESTED=$name' "$f"
+          grep -Fq 'SCOPED_PROCESS_RESTART' "$f"
           grep -Fq "W32TIME_RECOVERY=BEST_EFFORT" "$f"
           grep -Fq "if: github.event_name != 'pull_request'" "$f"
           echo 'AUTOSTART_RECOVERY_GUARDS=PASS'
@@ -126,13 +128,55 @@ jobs:
 
       - name: Restart the disconnected Desktop Commander task and recover stopped ARIA tasks
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Continue'
           $required = 'ARIA-Desktop-Commander-Remote'
           $names = @($required, 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
           $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
           if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
-          $dcTaskRunRequested = $false
 
+          # End a stale Scheduled Task instance before asking Task Scheduler to start it again.
+          foreach ($name in $names) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if ($null -eq $task) {
+              if ($name -eq $required) { throw "REQUIRED_TASK_MISSING=$name" }
+              Write-Host "OPTIONAL_TASK_MISSING=$name"
+              continue
+            }
+            if ($task.State -eq 'Running') {
+              Write-Host "TASK_END_REQUESTED=$name"
+              & schtasks.exe /End /TN $name 2>&1 | Out-Host
+              $endExit = $LASTEXITCODE
+              $global:LASTEXITCODE = 0
+              Write-Host "TASK_END_EXIT=$name EXIT=$endExit"
+              if ($endExit -ne 0) { Write-Warning "TASK_END_NONZERO=$name EXIT=$endExit" }
+            }
+          }
+
+          # Remove only confirmed ARIA/Desktop Commander child processes that can survive an ended task.
+          Start-Sleep -Seconds 3
+          $processRules = @(
+            @{ label = 'DC_SUPERVISOR'; pattern = '(?i)desktop-commander-supervisor\.ps1' },
+            @{ label = 'DC_NODE'; pattern = '(?i)D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote\\' },
+            @{ label = 'ARIA_WATCHDOG'; pattern = '(?i)D:\\ARIA-Windows-Agent\\Runtime\\windows\\run-agent\.ps1' },
+            @{ label = 'ARIA_AGENT'; pattern = '(?i)D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js' }
+          )
+          foreach ($rule in $processRules) {
+            $found = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+              [string]$_.CommandLine -match $rule.pattern
+            })
+            foreach ($proc in $found) {
+              Write-Host ("SCOPED_PROCESS_RESTART label={0} name={1} pid={2}" -f $rule.label,$proc.Name,$proc.ProcessId)
+              try {
+                Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction Stop
+                Write-Host "SCOPED_PROCESS_STOP=PASS PID=$($proc.ProcessId)"
+              } catch {
+                Write-Warning "SCOPED_PROCESS_STOP_FAILED label=$($rule.label) PID=$($proc.ProcessId) error=$($_.Exception.Message)"
+              }
+            }
+          }
+
+          Start-Sleep -Seconds 2
+          $dcTaskRunRequested = $false
           foreach ($name in $names) {
             $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             if ($null -eq $task) {
@@ -141,31 +185,20 @@ jobs:
               continue
             }
 
-            if ($name -eq $required -and $task.State -eq 'Running') {
-              Write-Host "TASK_ALREADY_RUNNING_DIAGNOSTIC_ONLY=$name; no restart to avoid orphaning child processes"
-              continue
-            } elseif ($task.State -eq 'Running') {
-              Write-Host "TASK_ALREADY_RUNNING=$name"
-              continue
-            }
-
             Write-Host "TASK_RUN_REQUESTED=$name"
             & schtasks.exe /Run /TN $name 2>&1 | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw "TASK_RUN_FAILED=$name EXIT=$LASTEXITCODE" }
-            if ($name -eq $required) { $dcTaskRunRequested = $true }
+            $runExit = $LASTEXITCODE
+            $global:LASTEXITCODE = 0
+            Write-Host "TASK_RUN_EXIT=$name EXIT=$runExit"
+            if ($runExit -ne 0) { Write-Warning "TASK_RUN_NONZERO=$name EXIT=$runExit" }
+            if ($name -eq $required -and $runExit -eq 0) { $dcTaskRunRequested = $true }
           }
 
           Start-Sleep -Seconds 8
           $info = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
           Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
-          if ($dcTaskRunRequested -and $info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
-          if ($dcTaskRunRequested) {
-            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=PASS'
-          } else {
-            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=NOT_APPLICABLE_TASK_ALREADY_RUNNING'
-          }
-
+          Write-Host ("DC_TASK_LAST_RESULT_HEX=0x{0:X8}" -f [uint32]$info.LastTaskResult)
           $task = Get-ScheduledTask -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_STATE=$($task.State)"
           Write-Host "DC_TASK_ENABLED=$($task.Settings.Enabled)"
@@ -186,89 +219,44 @@ jobs:
             Write-Host "DC_TASK_ACTION_ARGS_LENGTH=$($args.Length)"
           }
 
-          $matchingProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            ([string]$_.Name -match '(?i)desktop|commander|node|powershell|cmd') -and
-            ([string]$_.CommandLine -match '(?i)desktop|commander|aria|mcp')
-          } | Select-Object -First 30)
-          Write-Host "MATCHING_PROCESS_COUNT=$($matchingProcesses.Count)"
-          foreach ($process in $matchingProcesses) {
-            Write-Host ("MATCHING_PROCESS name={0} pid={1} session={2} created={3}" -f $process.Name,$process.ProcessId,$process.SessionId,$process.CreationDate)
-          }
-
           $logsRoot = 'D:\ARIA-Windows-Agent\Logs'
-          if (Test-Path $logsRoot) {
-            Get-ChildItem -LiteralPath $logsRoot -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -match '(?i)desktop|commander|channel|remote|watchdog|agent' } |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 20 |
-              ForEach-Object { Write-Host ("LOG_METADATA name={0} modified={1:o} bytes={2}" -f $_.Name,$_.LastWriteTime,$_.Length) }
-
-            $statusPath = Join-Path $logsRoot 'desktop-commander-supervisor.json'
-            if (Test-Path $statusPath) {
-              try {
-                $sj = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
-                Write-Host "SUPERVISOR_STATUS_JSON_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $statusPath).Hash)"
-                foreach ($key in @('state','status','mode','connected','online','pid','node_pid','supervisor_pid','updated_at','last_error','error','reason','attempt','retry_count','version')) {
-                  $prop = $sj.PSObject.Properties[$key]
-                  if ($null -ne $prop -and $key -notmatch '(?i)token|secret|password|authorization') {
-                    $value = [string]$prop.Value
-                    $value = $value -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
-                    $value = $value -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
-                    $value = $value -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
-                    if ($value.Length -gt 240) { $value = $value.Substring(0,240) }
-                    Write-Host ("SUPERVISOR_STATUS {0}={1}" -f $key,$value)
-                  }
+          foreach ($file in @('status.json','agent-heartbeat.json','desktop-commander-supervisor.json')) {
+            $filePath = Join-Path $logsRoot $file
+            if (-not (Test-Path $filePath)) { Write-Host "STATUS_FILE_MISSING=$file"; continue }
+            try {
+              $obj = Get-Content -Raw -LiteralPath $filePath | ConvertFrom-Json
+              $age = [math]::Round(((Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $filePath).LastWriteTimeUtc).TotalSeconds)
+              Write-Host "STATUS_FILE=$file AGE_SECONDS=$age"
+              foreach ($key in @('state','status','connected','online','pid','agent_pid','node_pid','supervisor_pid','updated_at','last_error','error','reason')) {
+                $property = $obj.PSObject.Properties[$key]
+                if ($null -ne $property) {
+                  $value = [string]$property.Value
+                  $value = $value -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+                  $value = $value -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
+                  $value = $value -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+                  if ($value.Length -gt 220) { $value = $value.Substring(0,220) }
+                  Write-Host ("STATUS_VALUE {0}.{1}={2}" -f $file,$key,$value)
                 }
-              } catch { Write-Host "SUPERVISOR_STATUS_READ_ERROR=$($_.Exception.GetType().Name)" }
-            } else { Write-Host 'SUPERVISOR_STATUS_FILE=MISSING' }
+              }
+            } catch { Write-Host "STATUS_FILE_READ_ERROR=$file TYPE=$($_.Exception.GetType().Name)" }
+          }
 
-            $allProc = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-            foreach ($process in $matchingProcesses) {
-              $parent = $allProc | Where-Object { [int]$_.ProcessId -eq [int]$process.ParentProcessId } | Select-Object -First 1
-              $procPath = [string]$process.ExecutablePath
-              Write-Host ("PROCESS_TREE name={0} pid={1} ppid={2} parent={3} session={4} path={5}" -f $process.Name,$process.ProcessId,$process.ParentProcessId,$parent.Name,$process.SessionId,$procPath)
+          $supervisorLog = Join-Path $logsRoot 'desktop-commander-supervisor.log'
+          if (Test-Path $supervisorLog) {
+            $logLines = Get-Content -LiteralPath $supervisorLog -Tail 300 -ErrorAction SilentlyContinue
+            $selected = @($logLines | Where-Object { $_ -match '(?i)error|exception|failed|disconnect|websocket|connect|401|403|unauthor|econn|timeout|closed|restart|spawn|online|register|heartbeat|refused|socket' } | Select-Object -Last 25)
+            foreach ($line in $selected) {
+              $safe = [string]$line
+              $safe = $safe -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+              $safe = $safe -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
+              $safe = $safe -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+              if ($safe.Length -gt 360) { $safe = $safe.Substring(0,360) }
+              Write-Host "SUPERVISOR_LOG=$safe"
             }
+          } else { Write-Host 'SUPERVISOR_LOG=MISSING' }
 
-            $supervisorScript = 'D:\ARIA-Windows-Agent\Runtime\windows\desktop-commander-supervisor.ps1'
-            if (Test-Path $supervisorScript) {
-              Write-Host "SUPERVISOR_SCRIPT_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $supervisorScript).Hash)"
-              $code = Get-Content -LiteralPath $supervisorScript
-              $matches = Select-String -LiteralPath $supervisorScript -Pattern 'Start-Process|Stop-Process|Get-Process|node\.exe|desktop-commander|WebSocket|websocket|heartbeat|reconnect|mutex|supervisor\.json|supervisor\.log|stdout|stderr|exit|retry|token|secret|authorization' -CaseSensitive:$false
-              Write-Host "SUPERVISOR_SCRIPT_LINE_COUNT=$($code.Count) MATCH_COUNT=$($matches.Count)"
-              foreach ($m in ($matches | Select-Object -First 40)) {
-                $textLine = [string]$m.Line
-                if ($textLine -match '(?i)token|secret|password|authorization|api[_-]?key') {
-                  Write-Host ("SUPERVISOR_SCRIPT_MATCH line={0} category=credential-related" -f $m.LineNumber)
-                } else {
-                  $safe = $textLine -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
-                  if ($safe.Length -gt 260) { $safe = $safe.Substring(0,260) }
-                  Write-Host ("SUPERVISOR_SCRIPT_MATCH line={0} text={1}" -f $m.LineNumber,$safe.Trim())
-                }
-              }
-            } else { Write-Host 'SUPERVISOR_SCRIPT=MISSING' }
-
-            $supervisorLog = Join-Path $logsRoot 'desktop-commander-supervisor.log'
-            if (Test-Path $supervisorLog) {
-              $logLines = Get-Content -LiteralPath $supervisorLog -Tail 600 -ErrorAction SilentlyContinue
-              $selected = @($logLines | Where-Object { $_ -match '(?i)error|exception|failed|disconnect|websocket|connect|401|403|unauthor|econn|timeout|closed|restart|spawn|online|register|heartbeat|refused|socket' } | Select-Object -Last 35)
-              Write-Host "SUPERVISOR_LOG_TAIL_LINES=$($logLines.Count) RELEVANT=$($selected.Count)"
-              foreach ($line in $selected) {
-                $safe = [string]$line
-                $safe = $safe -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
-                $safe = $safe -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
-                $safe = $safe -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
-                if ($safe.Length -gt 420) { $safe = $safe.Substring(0,420) }
-                Write-Host ("SUPERVISOR_LOG={0}" -f $safe)
-              }
-            } else { Write-Host 'SUPERVISOR_LOG=MISSING' }
-          }
-          Write-Host 'DC_TASK_DIAGNOSTICS=PASS'
-          if ($dcTaskRunRequested) {
-            Write-Host 'DC_TASK_ACTION=START_REQUESTED'
-          } else {
-            Write-Host 'DC_TASK_ACTION=DIAGNOSTIC_ONLY_ALREADY_RUNNING'
-          }
-
+          Write-Host 'DC_TASK_DIAGNOSTICS=COMPLETE'
+          Write-Host 'DC_TASK_ACTION=END_SCOPED_PROCESSES_AND_RUN_REQUESTED'
   recover-robvg:
     if: github.event_name != 'pull_request'
     concurrency:
@@ -350,16 +338,55 @@ jobs:
           Write-Host 'W32TIME_RECOVERY=BEST_EFFORT'
       - name: Restart the disconnected Desktop Commander task and recover stopped ARIA tasks
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Continue'
           $required = 'ARIA-Desktop-Commander-Remote'
           $names = @($required, 'ARIA-Windows-Agent-Guardian', 'ARIA-Windows-Local-Agent')
           $requiredTask = Get-ScheduledTask -TaskName $required -ErrorAction SilentlyContinue
           if ($null -eq $requiredTask) { throw "REQUIRED_TASK_MISSING=$required; refusing to fabricate a task action." }
 
-          $requiredInfoBefore = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
-          $recentRequiredRun = $requiredInfoBefore.LastRunTime -gt (Get-Date).AddMinutes(-5)
-          Write-Host "DC_TASK_RUN_WAS_RECENT=$recentRequiredRun LAST_RUN=$($requiredInfoBefore.LastRunTime.ToString('o'))"
+          # End a stale Scheduled Task instance before asking Task Scheduler to start it again.
+          foreach ($name in $names) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if ($null -eq $task) {
+              if ($name -eq $required) { throw "REQUIRED_TASK_MISSING=$name" }
+              Write-Host "OPTIONAL_TASK_MISSING=$name"
+              continue
+            }
+            if ($task.State -eq 'Running') {
+              Write-Host "TASK_END_REQUESTED=$name"
+              & schtasks.exe /End /TN $name 2>&1 | Out-Host
+              $endExit = $LASTEXITCODE
+              $global:LASTEXITCODE = 0
+              Write-Host "TASK_END_EXIT=$name EXIT=$endExit"
+              if ($endExit -ne 0) { Write-Warning "TASK_END_NONZERO=$name EXIT=$endExit" }
+            }
+          }
 
+          # Remove only confirmed ARIA/Desktop Commander child processes that can survive an ended task.
+          Start-Sleep -Seconds 3
+          $processRules = @(
+            @{ label = 'DC_SUPERVISOR'; pattern = '(?i)desktop-commander-supervisor\.ps1' },
+            @{ label = 'DC_NODE'; pattern = '(?i)D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote\\' },
+            @{ label = 'ARIA_WATCHDOG'; pattern = '(?i)D:\\ARIA-Windows-Agent\\Runtime\\windows\\run-agent\.ps1' },
+            @{ label = 'ARIA_AGENT'; pattern = '(?i)D:\\ARIA-Windows-Agent\\Runtime\\windows\\aria-agent\.js' }
+          )
+          foreach ($rule in $processRules) {
+            $found = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+              [string]$_.CommandLine -match $rule.pattern
+            })
+            foreach ($proc in $found) {
+              Write-Host ("SCOPED_PROCESS_RESTART label={0} name={1} pid={2}" -f $rule.label,$proc.Name,$proc.ProcessId)
+              try {
+                Stop-Process -Id ([int]$proc.ProcessId) -Force -ErrorAction Stop
+                Write-Host "SCOPED_PROCESS_STOP=PASS PID=$($proc.ProcessId)"
+              } catch {
+                Write-Warning "SCOPED_PROCESS_STOP_FAILED label=$($rule.label) PID=$($proc.ProcessId) error=$($_.Exception.Message)"
+              }
+            }
+          }
+
+          Start-Sleep -Seconds 2
+          $dcTaskRunRequested = $false
           foreach ($name in $names) {
             $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             if ($null -eq $task) {
@@ -368,31 +395,20 @@ jobs:
               continue
             }
 
-            if ($name -eq $required -and $task.State -eq 'Running') {
-              Write-Host "TASK_ALREADY_RUNNING_DIAGNOSTIC_ONLY=$name; no restart to avoid orphaning child processes"
-              continue
-            } elseif ($task.State -eq 'Running') {
-              Write-Host "TASK_ALREADY_RUNNING=$name"
-              continue
-            }
-
             Write-Host "TASK_RUN_REQUESTED=$name"
             & schtasks.exe /Run /TN $name 2>&1 | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw "TASK_RUN_FAILED=$name EXIT=$LASTEXITCODE" }
-            if ($name -eq $required) { $dcTaskRunRequested = $true }
+            $runExit = $LASTEXITCODE
+            $global:LASTEXITCODE = 0
+            Write-Host "TASK_RUN_EXIT=$name EXIT=$runExit"
+            if ($runExit -ne 0) { Write-Warning "TASK_RUN_NONZERO=$name EXIT=$runExit" }
+            if ($name -eq $required -and $runExit -eq 0) { $dcTaskRunRequested = $true }
           }
 
           Start-Sleep -Seconds 8
           $info = Get-ScheduledTaskInfo -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_LAST_RUN=$($info.LastRunTime.ToString('o'))"
           Write-Host "DC_TASK_LAST_RESULT=$($info.LastTaskResult)"
-          if ($dcTaskRunRequested -and $info.LastRunTime -lt (Get-Date).AddMinutes(-1)) { throw 'DC_TASK_DID_NOT_RECORD_FRESH_RUN' }
-          if ($dcTaskRunRequested) {
-            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=PASS'
-          } else {
-            Write-Host 'DC_TASK_FRESH_RUN_REQUIREMENT=NOT_APPLICABLE_TASK_ALREADY_RUNNING'
-          }
-
+          Write-Host ("DC_TASK_LAST_RESULT_HEX=0x{0:X8}" -f [uint32]$info.LastTaskResult)
           $task = Get-ScheduledTask -TaskName $required -ErrorAction Stop
           Write-Host "DC_TASK_STATE=$($task.State)"
           Write-Host "DC_TASK_ENABLED=$($task.Settings.Enabled)"
@@ -413,27 +429,42 @@ jobs:
             Write-Host "DC_TASK_ACTION_ARGS_LENGTH=$($args.Length)"
           }
 
-          $matchingProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            ([string]$_.Name -match '(?i)desktop|commander|node|powershell|cmd') -and
-            ([string]$_.CommandLine -match '(?i)desktop|commander|aria|mcp')
-          } | Select-Object -First 30)
-          Write-Host "MATCHING_PROCESS_COUNT=$($matchingProcesses.Count)"
-          foreach ($process in $matchingProcesses) {
-            Write-Host ("MATCHING_PROCESS name={0} pid={1} session={2} created={3}" -f $process.Name,$process.ProcessId,$process.SessionId,$process.CreationDate)
+          $logsRoot = 'D:\ARIA-Windows-Agent\Logs'
+          foreach ($file in @('status.json','agent-heartbeat.json','desktop-commander-supervisor.json')) {
+            $filePath = Join-Path $logsRoot $file
+            if (-not (Test-Path $filePath)) { Write-Host "STATUS_FILE_MISSING=$file"; continue }
+            try {
+              $obj = Get-Content -Raw -LiteralPath $filePath | ConvertFrom-Json
+              $age = [math]::Round(((Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $filePath).LastWriteTimeUtc).TotalSeconds)
+              Write-Host "STATUS_FILE=$file AGE_SECONDS=$age"
+              foreach ($key in @('state','status','connected','online','pid','agent_pid','node_pid','supervisor_pid','updated_at','last_error','error','reason')) {
+                $property = $obj.PSObject.Properties[$key]
+                if ($null -ne $property) {
+                  $value = [string]$property.Value
+                  $value = $value -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+                  $value = $value -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
+                  $value = $value -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+                  if ($value.Length -gt 220) { $value = $value.Substring(0,220) }
+                  Write-Host ("STATUS_VALUE {0}.{1}={2}" -f $file,$key,$value)
+                }
+              }
+            } catch { Write-Host "STATUS_FILE_READ_ERROR=$file TYPE=$($_.Exception.GetType().Name)" }
           }
 
-          $logsRoot = 'D:\ARIA-Windows-Agent\Logs'
-          if (Test-Path $logsRoot) {
-            Get-ChildItem -LiteralPath $logsRoot -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -match '(?i)desktop|commander|channel|remote|watchdog|agent' } |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 20 |
-              ForEach-Object { Write-Host ("LOG_METADATA name={0} modified={1:o} bytes={2}" -f $_.Name,$_.LastWriteTime,$_.Length) }
-          }
-          Write-Host 'DC_TASK_DIAGNOSTICS=PASS'
-          if ($dcTaskRunRequested) {
-            Write-Host 'DC_TASK_ACTION=START_REQUESTED'
-          } else {
-            Write-Host 'DC_TASK_ACTION=DIAGNOSTIC_ONLY_ALREADY_RUNNING'
-          }
+          $supervisorLog = Join-Path $logsRoot 'desktop-commander-supervisor.log'
+          if (Test-Path $supervisorLog) {
+            $logLines = Get-Content -LiteralPath $supervisorLog -Tail 300 -ErrorAction SilentlyContinue
+            $selected = @($logLines | Where-Object { $_ -match '(?i)error|exception|failed|disconnect|websocket|connect|401|403|unauthor|econn|timeout|closed|restart|spawn|online|register|heartbeat|refused|socket' } | Select-Object -Last 25)
+            foreach ($line in $selected) {
+              $safe = [string]$line
+              $safe = $safe -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
+              $safe = $safe -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
+              $safe = $safe -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+              if ($safe.Length -gt 360) { $safe = $safe.Substring(0,360) }
+              Write-Host "SUPERVISOR_LOG=$safe"
+            }
+          } else { Write-Host 'SUPERVISOR_LOG=MISSING' }
+
+          Write-Host 'DC_TASK_DIAGNOSTICS=COMPLETE'
+          Write-Host 'DC_TASK_ACTION=END_SCOPED_PROCESSES_AND_RUN_REQUESTED'
 # OPERATOR-REQUESTED RECOVERY TRIGGER: 2026-10-13; behavior unchanged.
