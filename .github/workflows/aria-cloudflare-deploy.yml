@@ -15,6 +15,8 @@ on:
       - 'scripts/cloudflare-workers-build.js'
       - 'integrations/cloudflare-*.js'
       - 'integrations/cuevacoin-oauth-e2e.js'
+      # Deploy UI against the same release SHA when authenticated App API code changes.
+      - 'supabase/functions/aria-app-api-v3/**'
       - 'tests/aria-cuevacoin-oauth-callback.test.js'
       - 'autonomy/**'
       - 'chatbending/**'
