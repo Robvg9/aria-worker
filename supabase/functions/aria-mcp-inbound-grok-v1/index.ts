@@ -58,8 +58,8 @@ const TOOLS = [
   },
   {name:"cuevacoin_connection_status",description:"Read-only check for CuevaCoin. Tests ARIA GitHub App access to Robvg9/CuevaCoin and whether a scoped Supabase Management API credential is configured. Never returns credential material; performs no writes.",inputSchema:{type:"object",properties:{},additionalProperties:false}},
   {name:"cuevacoin_project_control",description:"Governed control of the CuevaCoin repository and Supabase backend. Requires separate OAuth scope aria.project.cuevacoin.control. Supports repository read/write branches and PRs, read-only SQL, explicitly confirmed production SQL/migrations, and Edge Function inspect/deploy. Repo/ref are fixed to Robvg9/CuevaCoin and zqgmjwfvluboiporytcq. Secret values are never returned.",inputSchema:{type:"object",properties:{
-    operation:{type:"string",enum:["github_installation_info","github_repo_read","github_tree_read","github_file_read","github_ref_read","github_pr_find","github_pr_read","github_pr_files","github_pr_checks","github_workflow_runs","github_create_branch","github_file_write","github_open_pr","github_pr_merge","github_workflow_dispatch","supabase_project_status","supabase_sql_read","supabase_sql_execute","supabase_migrations_list","supabase_migration_apply","supabase_edge_functions_list","supabase_edge_function_read","supabase_edge_function_deploy"]},
-    branch:{type:"string",maxLength:200},base:{type:"string",maxLength:200},ref:{type:"string",maxLength:200},path:{type:"string",maxLength:500},content:{type:"string",maxLength:200000},message:{type:"string",maxLength:500},title:{type:"string",maxLength:300},body:{type:"string",maxLength:10000},state:{type:"string",enum:["open","closed","all","metadata","body"]},number:{type:"integer",minimum:1},commit_sha:{type:"string",maxLength:64},paths:{type:"array",items:{type:"string",maxLength:500},maxItems:50},workflow_id:{type:"string",maxLength:100},risk_level:{type:"string",enum:["low","moderate","high","destructive","LOW_RISK_WRITE"]},change_summary:{type:"string",minLength:12,maxLength:500},manual_review_required:{type:"boolean"},change_approval:{type:"string",maxLength:100},confirm_merge:{type:"string",maxLength:100},auto_merge:{type:"boolean"},confirm_project_ref:{type:"string",maxLength:64},confirm_production_write:{type:"boolean"},query:{type:"string",maxLength:50000},migration_name:{type:"string",maxLength:120},rollback:{type:"string",maxLength:30000},function_slug:{type:"string",maxLength:80},function_name:{type:"string",maxLength:120},entrypoint_path:{type:"string",maxLength:200},import_map_path:{type:"string",maxLength:200},verify_jwt:{type:"boolean"},files:{type:"array",maxItems:30,items:{type:"object",properties:{name:{type:"string",minLength:1,maxLength:200},content:{type:"string",maxLength:200000}},required:["name","content"],additionalProperties:false}}
+    operation:{type:"string",enum:["github_installation_info","github_repo_read","github_tree_read","github_file_read","github_ref_read","github_pr_find","github_pr_read","github_pr_files","github_pr_checks","github_workflow_runs","github_create_branch","github_file_write","github_open_pr","github_pr_merge","github_pr_close","github_branch_delete","github_workflow_dispatch","supabase_project_status","supabase_sql_read","supabase_sql_execute","supabase_migrations_list","supabase_migration_apply","supabase_edge_functions_list","supabase_edge_function_read","supabase_edge_function_deploy"]},
+    branch:{type:"string",maxLength:200},base:{type:"string",maxLength:200},ref:{type:"string",maxLength:200},path:{type:"string",maxLength:500},content:{type:"string",maxLength:200000},message:{type:"string",maxLength:500},title:{type:"string",maxLength:300},body:{type:"string",maxLength:10000},state:{type:"string",enum:["open","closed","all","metadata","body"]},number:{type:"integer",minimum:1},commit_sha:{type:"string",maxLength:64},paths:{type:"array",items:{type:"string",maxLength:500},maxItems:50},workflow_id:{type:"string",maxLength:100},risk_level:{type:"string",enum:["low","moderate","high","destructive","LOW_RISK_WRITE"]},change_summary:{type:"string",minLength:12,maxLength:500},manual_review_required:{type:"boolean"},change_approval:{type:"string",maxLength:100},confirm_merge:{type:"string",maxLength:100},confirm_cleanup:{type:"boolean"},auto_merge:{type:"boolean"},confirm_project_ref:{type:"string",maxLength:64},confirm_production_write:{type:"boolean"},query:{type:"string",maxLength:50000},migration_name:{type:"string",maxLength:120},rollback:{type:"string",maxLength:30000},function_slug:{type:"string",maxLength:80},function_name:{type:"string",maxLength:120},entrypoint_path:{type:"string",maxLength:200},import_map_path:{type:"string",maxLength:200},verify_jwt:{type:"boolean"},files:{type:"array",maxItems:30,items:{type:"object",properties:{name:{type:"string",minLength:1,maxLength:200},content:{type:"string",maxLength:200000}},required:["name","content"],additionalProperties:false}}
   },required:["operation"],additionalProperties:false}},
 ];
 
@@ -69,7 +69,7 @@ const db = () =>
   });
 
 const CUEVACOIN_GITHUB_OPERATION_MAP:Record<string,string>=Object.freeze({
-  github_installation_info:"installation_info",github_repo_read:"repo_read",github_tree_read:"tree_read",github_file_read:"file_read",github_ref_read:"ref_read",github_pr_find:"pr_find",github_pr_read:"pr_read",github_pr_files:"pr_files",github_pr_checks:"pr_checks",github_workflow_runs:"main_workflow_runs",github_create_branch:"create_branch",github_file_write:"reviewed_file_write",github_open_pr:"open_pr",github_pr_merge:"pr_merge",github_workflow_dispatch:"workflow_dispatch"
+  github_installation_info:"installation_info",github_repo_read:"repo_read",github_tree_read:"tree_read",github_file_read:"file_read",github_ref_read:"ref_read",github_pr_find:"pr_find",github_pr_read:"pr_read",github_pr_files:"pr_files",github_pr_checks:"pr_checks",github_workflow_runs:"main_workflow_runs",github_create_branch:"create_branch",github_file_write:"file_write",github_open_pr:"open_pr",github_pr_merge:"pr_merge",github_pr_close:"pr_close",github_branch_delete:"delete_probe_branch",github_workflow_dispatch:"workflow_dispatch"
 });
 function cuevacoinSafeProviderError(error:unknown):string {
  const m=error instanceof Error?error.message:String(error??"");
@@ -130,6 +130,12 @@ async function cuevaCoinProjectControl(args:Record<string,unknown>,clientId:stri
    }
    if(String(args.content||"").length>180000)throw Error("cuevacoin_file_too_large");
    delete payload.change_approval;
+  }
+  if(operation==="github_pr_close"||operation==="github_branch_delete"){
+   const cleanupBranch=String(args.branch||"");
+   if(!/^aria\/repair\/cuevacoin-probe-[A-Za-z0-9-]{8,100}$/.test(cleanupBranch))throw Error("temporary_probe_branch_required");
+   if(args.confirm_cleanup!==true)throw Error("probe_cleanup_confirmation_required");
+   if(operation==="github_pr_close"&&(!Number.isInteger(Number(args.number))||Number(args.number)<=0))throw Error("pr_number_required");
   }
   if(operation==="github_pr_merge"){
    const n=Number(args.number);
@@ -431,14 +437,14 @@ function authorizationServerMetadata() {
 async function resolveClient(
   clientId: string,
   redirectUri: string,
-): Promise<{ client_id: string; redirect_uris: string[] } | null> {
+): Promise<{ client_id: string; redirect_uris: string[]; client_name: string } | null> {
   const { data } = await db()
     .from("aria_mcp_oauth_clients")
-    .select("client_id, redirect_uris")
+    .select("client_id, redirect_uris, client_name")
     .eq("client_id", clientId)
     .maybeSingle();
   if (data && Array.isArray(data.redirect_uris) && data.redirect_uris.includes(redirectUri)) {
-    return data as { client_id: string; redirect_uris: string[] };
+    return data as { client_id: string; redirect_uris: string[]; client_name: string };
   }
   if (/^https:\/\//i.test(clientId)) {
     try {
@@ -454,14 +460,15 @@ async function resolveClient(
       };
       const uris = Array.isArray(meta.redirect_uris) ? meta.redirect_uris : [];
       if (!uris.includes(redirectUri)) return null;
+      const clientName = String(meta.client_name ?? "CIMD client").trim().slice(0, 120) || "CIMD client";
       await db().from("aria_mcp_oauth_clients").upsert({
         client_id: clientId,
-        client_name: (meta.client_name ?? "cimd-client").slice(0, 120),
+        client_name: clientName,
         redirect_uris: uris,
         metadata_source: "cimd",
         client_uri: clientId,
       });
-      return { client_id: clientId, redirect_uris: uris };
+      return { client_id: clientId, redirect_uris: uris, client_name: clientName };
     } catch {
       return null;
     }
@@ -600,12 +607,7 @@ Deno.serve(async (req) => {
     });
     if (error) return json(500, { error: "authorization_state_failed", detail: error.message });
 
-    const clientName =
-      /^https:\/\//i.test(clientId)
-        ? "Grok (CIMD)"
-        : clientId.startsWith("aria_")
-          ? "Grok Custom Connector"
-          : clientId;
+    const clientName = String(client.client_name || (clientId.startsWith("aria_") ? "ARIA MCP Client" : clientId)).trim().slice(0, 120) || "ARIA MCP Client";
     return html(200, consentPage(pendingId, clientName, grantedScope));
   }
 
@@ -619,7 +621,7 @@ Deno.serve(async (req) => {
       .eq("id", pendingId)
       .maybeSingle();
     if (!pending || new Date(pending.expires_at).getTime() <= Date.now()) {
-      return html(400, "<h1>Authorization expired</h1><p>Restart from Grok.</p>");
+      return html(400, "<h1>Authorization expired</h1><p>Restart authorization from the client that initiated this flow.</p>");
     }
     const redirect = new URL(pending.redirect_uri);
     if (decision !== "allow") {

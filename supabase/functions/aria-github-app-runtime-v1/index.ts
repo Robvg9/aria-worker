@@ -75,6 +75,27 @@ if(op==="pr_read"){
   const pr=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}`,{},t.token);
   return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number:pr.number,state:pr.state,merged:pr.merged===true,merged_at:pr.merged_at||null,mergeable:pr.mergeable,mergeable_state:pr.mergeable_state,draft:pr.draft,head_sha:pr.head?.sha||null,head_ref:pr.head?.ref||null,base_ref:pr.base?.ref||null,base_sha:pr.base?.sha||null,merge_commit_sha:pr.merge_commit_sha||null,url:pr.html_url||null,title:pr.title||null},installation_id:installation.id,account:installation.account});
 }
+if(op==="pr_close"){
+const number=Number(b.number),branch=String(b.branch||"");
+if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
+if(!/^aria\/repair\/cuevacoin-probe-[A-Za-z0-9-]{8,100}$/.test(branch))throw new Error("temporary_probe_branch_required");
+const pr=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}`,{},t.token);
+if(String(pr?.head?.ref||"")!==branch||String(pr?.base?.ref||"")!=="main")throw new Error("probe_pr_identity_mismatch");
+if(pr?.merged===true||pr?.merged_at)throw new Error("refuse_close_merged_probe");
+if(String(pr?.state||"")==="closed")return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number,state:"closed",merged:false,branch,url:pr?.html_url||null},installation_id:installation.id,account:installation.account,idempotent:true});
+const closed=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}`,{method:"PATCH",body:JSON.stringify({state:"closed"})},t.token);
+return out({ok:closed?.state==="closed"&&closed?.merged!==true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{number,state:closed?.state||null,merged:closed?.merged===true,branch,url:closed?.html_url||null},installation_id:installation.id,account:installation.account});
+}
+if(op==="delete_probe_branch"){
+const branch=String(b.branch||"");
+if(!/^aria\/repair\/cuevacoin-probe-[A-Za-z0-9-]{8,100}$/.test(branch))throw new Error("temporary_probe_branch_required");
+const prs=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls?head=${encodeURIComponent(owner+":"+branch)}&state=all&per_page=100`,{},t.token);
+if(Array.isArray(prs)&&prs.some((x:any)=>Boolean(x?.merged_at)||x?.merged===true))throw new Error("probe_branch_has_merged_pr");
+if(Array.isArray(prs)&&prs.some((x:any)=>String(x?.state||"")==="open"))throw new Error("probe_pr_must_be_closed");
+const ref=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/git/ref/heads/${encodeURIComponent(branch)}`,{},t.token);
+await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/git/refs/heads/${encodeURIComponent(branch)}`,{method:"DELETE"},t.token);
+return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{branch,deleted:true,previous_sha:ref?.object?.sha||null},installation_id:installation.id,account:installation.account});
+}
 if(op==="pr_files"){
   const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");
   const files=await gh(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(rp)}/pulls/${number}/files?per_page=100`,{},t.token);

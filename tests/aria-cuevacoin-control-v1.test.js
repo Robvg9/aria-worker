@@ -64,6 +64,15 @@ assert.match(oauth, /I AUTHORIZE THIS CUEVACOIN CHANGE/);
 assert.match(oauth, /MERGE CUEVACOIN PR #/);
 assert.match(runtime, /"robvg9\/cuevacoin"/i);
 assert.match(runtime, /reviewed_file_write/);
+assert.match(runtime, /if\(op==="pr_close"\)/);
+assert.match(runtime, /if\(op==="delete_probe_branch"\)/);
+assert.match(runtime, /temporary_probe_branch_required/);
+assert.match(oauth, /github_file_write:"file_write"/);
+assert.ok(oauth.includes('"github_pr_close"') && oauth.includes('"github_branch_delete"'));
+assert.match(oauth, /select\("client_id, redirect_uris, client_name"\)/);
+assert.ok(oauth.includes('client.client_name || (clientId.startsWith("aria_") ? "ARIA MCP Client" : clientId)'));
+assert.ok(!oauth.includes('Restart from Grok.'), 'expired authorization must not direct ARIA clients to Grok');
+assert.doesNotMatch(oauth.slice(oauth.indexOf('if (req.method === "GET" && path.endsWith("/authorize"))'), oauth.indexOf('if (req.method === "POST" && path.endsWith("/authorize/consent"))')), /"Grok Custom Connector"|"Grok \(CIMD\)"/);
 assert.match(runtime, /workflow_dispatch/);
 
 // Status/read paths return only masked state; the management credential is retrieved from Vault.
