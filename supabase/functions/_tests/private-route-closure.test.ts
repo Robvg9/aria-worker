@@ -22,6 +22,7 @@ Deno.test("migration closes client RPC access and redacts saved retrieval querie
   const sql = await Deno.readTextFile("supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql");
   assertStringIncludes(sql, "REVOKE EXECUTE ON FUNCTION public.cb_search_chunks(text, integer) FROM PUBLIC, anon, authenticated");
   assertStringIncludes(sql, "REVOKE EXECUTE ON FUNCTION aria_memory.learning_context_for_goal(text, integer) FROM PUBLIC, anon, authenticated");
+  assertStringIncludes(sql, "GRANT EXECUTE ON FUNCTION aria_memory.learning_context_for_goal(text, integer) TO service_role;");
   assertStringIncludes(sql, "[REDACTED: query content not retained]");
   assertStringIncludes(sql, "aria_encrypt_general_memory_guard");
   assertStringIncludes(sql, "aria_encrypt_general_document_guard");
@@ -49,4 +50,21 @@ Deno.test("memory write gate fails closed and cannot persist unclassified candid
   assertEquals(source.includes('.from("cb_memory_candidates")'), false);
   assertEquals(source.includes(".insert("), false);
   assertStringIncludes(source, "aria_memory_write");
+});
+
+Deno.test("aria-memory-v2 fails closed before search, remember, and embedding actions", async () => {
+  const source = await Deno.readTextFile("supabase/functions/aria-memory-v2/index.ts");
+  const guardIndex = source.indexOf("if(['remember','search','embed_missing'].includes(action))");
+  const rememberHandlerIndex = source.indexOf("if(action==='remember')");
+  const searchHandlerIndex = source.indexOf("if(action==='search')");
+  const embedHandlerIndex = source.indexOf("if(action==='embed_missing')");
+  assertEquals(guardIndex >= 0, true);
+  assertEquals(rememberHandlerIndex >= 0, true);
+  assertEquals(searchHandlerIndex >= 0, true);
+  assertEquals(embedHandlerIndex >= 0, true);
+  assertEquals(guardIndex < rememberHandlerIndex, true);
+  assertEquals(guardIndex < searchHandlerIndex, true);
+  assertEquals(guardIndex < embedHandlerIndex, true);
+  assertStringIncludes(source, "ARIA_MEMORY_PRIVACY_GATE_CLOSED");
+  assertStringIncludes(source, "privacy_classification_pending");
 });
