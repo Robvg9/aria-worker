@@ -15,16 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate physical-device guard and scoped restart
+      - name: Validate RobVG-only guard and bounded recovery
         shell: bash
         run: |
           set -euo pipefail
           f=.github/workflows/robvg-dc-recovery-once.yml
           grep -Fq "COMPUTERNAME -ine 'ROBVG'" "$f"
           grep -Fq "windows-fe722cc6681e4f9c9cc35f5ebbb0a089" "$f"
-          grep -Fq "desktop-commander-supervisor.ps1" "$f"
-          grep -Fq "Channel subscribed" "$f"
-          grep -Fq "upload-artifact@v4" "$f"
+          grep -Fq "desktop-commander-supervisor.json" "$f"
+          grep -Fq "D:\\ARIA-Windows-Agent\\Tools\\DesktopCommanderRemote-0.3.0" "$f"
+          grep -Fq "DC_CHILD_RESTART_REQUESTED=TRUE" "$f"
+          grep -Fq "actions/upload-artifact@v4" "$f"
           echo 'ROBVG_DC_RECOVERY_CONTRACT=PASS'
 
   recover-robvg:
@@ -46,164 +47,252 @@ jobs:
             throw "DEVICE_CONFIG_MISSING=$configPath. Nothing changed."
           }
           $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
-          $expected = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
-          if ([string]$cfg.device_id -ne $expected) {
-            throw "DEVICE_ID_MISMATCH: expected=$expected actual=$($cfg.device_id). Nothing changed."
+          $expectedDeviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+          if ([string]$cfg.device_id -ne $expectedDeviceId) {
+            throw "DEVICE_ID_MISMATCH: expected=$expectedDeviceId actual=$($cfg.device_id). Nothing changed."
           }
           Write-Host "ROBVG_IDENTITY_GUARD=PASS COMPUTER=$env:COMPUTERNAME DEVICE_ID=$($cfg.device_id)"
 
-      - name: Recover DC child via the existing supervisor, then verify fresh subscription
+      - name: Inspect and recover only the validated Desktop Commander child
         id: repair
         run: |
           $ErrorActionPreference = 'Continue'
           $started = Get-Date
-          $lines = [System.Collections.Generic.List[string]]::new()
-          $lines.Add("RECOVERY_STARTED=$($started.ToString('o'))")
-          $lines.Add("COMPUTERNAME=$env:COMPUTERNAME")
-          $lines.Add("DEVICE_ID=windows-fe722cc6681e4f9c9cc35f5ebbb0a089")
-          $lines.Add("RUNNER_USER=$env:USERNAME")
           $runtime = 'D:\ARIA-Windows-Agent'
-          $logs = Join-Path $runtime 'Logs'
-          $supervisorScript = Join-Path $runtime 'Runtime\windows\desktop-commander-supervisor.ps1'
-          $statusPath = Join-Path $logs 'desktop-commander-supervisor.json'
-          $stdoutPath = Join-Path $logs 'desktop-commander.stdout.log'
-          $stderrPath = Join-Path $logs 'desktop-commander.stderr.log'
-          $dcPattern = '(?i)@wonderwhy-er\\desktop-commander\\dist\\index\.js\s+remote'
-          $supervisorPattern = '(?i)desktop-commander-supervisor\.ps1'
-          $healthPass = $false
-          $fatal = $null
+          $logsRoot = Join-Path $runtime 'Logs'
+          $evidenceRoot = 'D:\Databank\RWHT\Evidence\DesktopCommanderRecovery'
+          $statusPath = Join-Path $logsRoot 'desktop-commander-supervisor.json'
+          $supervisorLog = Join-Path $logsRoot 'desktop-commander-supervisor.log'
+          $stdoutPath = Join-Path $logsRoot 'desktop-commander.stdout.log'
+          $stderrPath = Join-Path $logsRoot 'desktop-commander.stderr.log'
+          $entryExpected = 'D:\ARIA-Windows-Agent\Tools\DesktopCommanderRemote-0.3.0\node_modules\@wonderwhy-er\desktop-commander\dist\index.js'
+          $packagePath = 'D:\ARIA-Windows-Agent\Tools\DesktopCommanderRemote-0.3.0\node_modules\@wonderwhy-er\desktop-commander\package.json'
+          $taskName = 'ARIA-Desktop-Commander-Remote'
+          $report = [ordered]@{
+            schema = 'robvg-desktop-commander-recovery-v2'
+            computer = $env:COMPUTERNAME
+            startedAt = $started.ToString('o')
+            deviceId = 'windows-fe722cc6681e4f9c9cc35f5ebbb0a089'
+            runnerUser = $env:USERNAME
+            packageVersion = $null
+            supervisorStateBefore = $null
+            supervisorPidBefore = $null
+            childPidBefore = $null
+            childCommandLineValidated = $false
+            channelDegradedSince = $null
+            degradedSeconds = $null
+            action = 'NO_CHANGE'
+            actionDetail = $null
+            taskLookup = $null
+            taskRunRequested = $false
+            freshSubscription = $false
+            newChildPid = $null
+            finalSupervisorState = $null
+            finalSupervisorUpdatedAt = $null
+            mcpMetadataHttp = $null
+            logEvidence = @()
+            finishedAt = $null
+            result = 'FAIL'
+          }
+
           try {
-            if (-not (Test-Path -LiteralPath $supervisorScript)) {
-              throw "SUPERVISOR_SCRIPT_MISSING=$supervisorScript"
+            if (-not (Test-Path -LiteralPath $statusPath)) { throw "SUPERVISOR_STATUS_MISSING=$statusPath" }
+            $state = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
+            $report.supervisorStateBefore = [string]$state.state
+            $report.supervisorPidBefore = [int]$state.pid
+            if (Test-Path -LiteralPath $packagePath) {
+              try { $report.packageVersion = [string](Get-Content -Raw -LiteralPath $packagePath | ConvertFrom-Json).version } catch {}
             }
-            $procs = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-            $supervisors = @($procs | Where-Object {
-              $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and [string]$_.CommandLine -match $supervisorPattern
-            })
-            $children = @($procs | Where-Object {
-              $_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match $dcPattern
-            })
-            $lines.Add("SUPERVISOR_COUNT_BEFORE=$($supervisors.Count)")
-            $lines.Add("DC_REMOTE_CHILD_COUNT_BEFORE=$($children.Count)")
-            foreach ($p in $supervisors) { $lines.Add("SUPERVISOR_PID=$($p.ProcessId)") }
-            foreach ($p in $children) { $lines.Add("DC_REMOTE_PID_BEFORE=$($p.ProcessId)") }
+            Write-Host "DC_PACKAGE_VERSION=$($report.packageVersion)"
+            Write-Host "DC_SUPERVISOR_STATE_BEFORE=$($report.supervisorStateBefore)"
+            Write-Host "DC_SUPERVISOR_PID_BEFORE=$($report.supervisorPidBefore)"
+            Write-Host "DC_SUPERVISOR_UPDATED_AT=$($state.updated_at)"
 
-            if ($supervisors.Count -gt 0) {
-              foreach ($p in $children) {
-                try {
-                  Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction Stop
-                  $lines.Add("SCOPED_DC_CHILD_STOP=PASS PID=$($p.ProcessId)")
-                } catch {
-                  $lines.Add("SCOPED_DC_CHILD_STOP=FAIL PID=$($p.ProcessId) ERROR=$($_.Exception.Message)")
-                }
-              }
-              if ($children.Count -eq 0) { $lines.Add('DC_CHILD_ALREADY_ABSENT=TRUE') }
-              $lines.Add('RECOVERY_METHOD=EXISTING_SUPERVISOR_RESPAWN')
+            $dcPid = [int]$state.pid
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $dcPid" -ErrorAction SilentlyContinue
+            $cmd = if ($proc) { [string]$proc.CommandLine } else { '' }
+            $entryIsExact = ($proc -and $proc.Name -match '^node(\.exe)?$' -and $cmd.IndexOf($entryExpected, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+            $report.childCommandLineValidated = [bool]$entryIsExact
+            if ($entryIsExact) {
+              $report.childPidBefore = $dcPid
+              Write-Host "DC_CHILD_VALIDATED=PASS PID=$dcPid"
             } else {
-              $taskName = 'ARIA-Desktop-Commander-Remote'
-              $query = @(& schtasks.exe /Query /TN $taskName /FO LIST 2>&1)
-              $queryExit = $LASTEXITCODE
-              $lines.Add("SCHTASKS_QUERY_EXIT=$queryExit")
-              foreach ($q in ($query | Select-Object -First 6)) { $lines.Add("SCHTASKS_QUERY=$([string]$q)") }
-              if ($queryExit -ne 0 -or ($query -join ' ') -match '(?i)ERROR:') {
-                throw 'NO_SUPERVISOR_AND_TASK_QUERY_FAILED; nothing launched in service session.'
+              Write-Host "DC_CHILD_VALIDATED=FAIL PID=$dcPid PROCESS_NAME=$($proc.Name) ENTRY_PATH_MATCH=$false"
+              if ($proc -and $cmd) {
+                $safeCmd = $cmd -replace '(?i)Bearer\s+\S+', 'Bearer [REDACTED]'
+                $safeCmd = $safeCmd -replace '(?i)(token|secret|password|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+', '$1=[REDACTED]'
+                if ($safeCmd.Length -gt 240) { $safeCmd = $safeCmd.Substring(0,240) }
+                Write-Host "DC_PROCESS_COMMAND_SANITIZED=$safeCmd"
               }
-              $runOutput = @(& schtasks.exe /Run /TN $taskName 2>&1)
-              $runExit = $LASTEXITCODE
-              $lines.Add("SCHTASKS_RUN_EXIT=$runExit")
-              foreach ($q in ($runOutput | Select-Object -First 6)) { $lines.Add("SCHTASKS_RUN=$([string]$q)") }
-              if ($runExit -ne 0) { throw "TASK_RUN_FAILED_EXIT=$runExit" }
-              $lines.Add('RECOVERY_METHOD=EXISTING_SCHEDULED_TASK')
             }
 
-            $deadline = (Get-Date).AddSeconds(85)
-            $freshSubscription = $false
+            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($task) {
+              $report.taskLookup = [ordered]@{
+                found = $true
+                state = [string]$task.State
+                principal = [string]$task.Principal.UserId
+                logonType = [string]$task.Principal.LogonType
+                action = (@($task.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join ' | ')
+              }
+              Write-Host "DC_TASK_FOUND=TRUE STATE=$($task.State) PRINCIPAL=$($task.Principal.UserId) LOGON_TYPE=$($task.Principal.LogonType)"
+            } else {
+              $report.taskLookup = @{ found = $false }
+              Write-Host "DC_TASK_FOUND=FALSE"
+            }
+
+            $supervisorProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+              $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and
+              [string]$_.CommandLine -match '(?i)desktop-commander-supervisor\.ps1'
+            })
+            $report | Add-Member -NotePropertyName supervisorProcessCount -NotePropertyValue $supervisorProcesses.Count -Force
+            Write-Host "DC_SUPERVISOR_PROCESS_COUNT=$($supervisorProcesses.Count)"
+
+            $timerLines = @()
+            if (Test-Path -LiteralPath $supervisorLog) {
+              $timerLines = @(Get-Content -LiteralPath $supervisorLog -Tail 2500 -ErrorAction SilentlyContinue |
+                Where-Object { [string]$_ -match 'CHANNEL_DEGRADED_TIMER_STARTED' })
+            }
+            if ($timerLines.Count -gt 0) {
+              $lastTimerLine = [string]$timerLines[-1]
+              $m = [regex]::Match($lastTimerLine, '(?<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))')
+              if ($m.Success) {
+                $degradedAt = [DateTimeOffset]::Parse($m.Groups['ts'].Value)
+                $report.channelDegradedSince = $degradedAt.ToString('o')
+                $report.degradedSeconds = [math]::Max(0, [int]([DateTimeOffset]::Now - $degradedAt).TotalSeconds)
+              }
+            }
+            Write-Host "CHANNEL_DEGRADED_SINCE=$($report.channelDegradedSince) SECONDS=$($report.degradedSeconds)"
+
+            # Repair only after a sustained degraded state and after validating the exact Node child by PID + entry path.
+            $sustainedDegraded = ([string]$state.state -eq 'channel_degraded' -and $null -ne $report.degradedSeconds -and [int]$report.degradedSeconds -ge 180)
+            if ($sustainedDegraded -and $entryIsExact) {
+              try {
+                Stop-Process -Id $dcPid -Force -ErrorAction Stop
+                $report.action = 'STOP_VALIDATED_DC_CHILD'
+                $report.actionDetail = "Stopped only PID $dcPid after channel_degraded persisted for $($report.degradedSeconds)s."
+                Write-Host "DC_CHILD_RESTART_REQUESTED=TRUE PID=$dcPid"
+                Start-Sleep -Seconds 3
+
+                $stillThere = Get-CimInstance Win32_Process -Filter "ProcessId = $dcPid" -ErrorAction SilentlyContinue
+                if ($stillThere -and [string]$stillThere.CommandLine -and ([string]$stillThere.CommandLine).IndexOf($entryExpected, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                  throw "VALIDATED_DC_CHILD_STILL_RUNNING PID=$dcPid"
+                }
+
+                if ($supervisorProcesses.Count -eq 0) {
+                  if (-not $task) { throw "NO_SUPERVISOR_AND_TASK_MISSING=$taskName; refusing to launch an unregistered command." }
+                  Start-ScheduledTask -InputObject $task -ErrorAction Stop
+                  $report.taskRunRequested = $true
+                  $report.action = 'STOP_CHILD_AND_START_EXISTING_TASK'
+                  $report.actionDetail += ' Existing registered Desktop Commander task was requested via Task Scheduler API.'
+                  Write-Host 'DC_TASK_START_REQUESTED=PASS VIA=Start-ScheduledTask'
+                } else {
+                  Write-Host 'DC_SUPERVISOR_RESPAWN_EXPECTED=TRUE'
+                }
+              } catch {
+                $report.action = 'RECOVERY_ATTEMPT_FAILED'
+                $report.actionDetail = $_.Exception.Message
+                Write-Host "DC_RECOVERY_ACTION_ERROR=$($_.Exception.GetType().Name):$($_.Exception.Message)"
+              }
+            } else {
+              $report.action = 'NO_CHANGE_GUARD_NOT_MET'
+              $report.actionDetail = "state=$($state.state); sustainedDegraded=$sustainedDegraded; exactChildValidated=$entryIsExact"
+              Write-Host "DC_RECOVERY_ACTION=NO_CHANGE REASON=$($report.actionDetail)"
+            }
+
+            # Wait up to 100 seconds for a new child and a fresh subscription; status/last-seen alone do not pass.
+            $deadline = (Get-Date).AddSeconds(100)
             while ((Get-Date) -lt $deadline) {
               Start-Sleep -Seconds 5
-              $current = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-                $_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match $dcPattern
-              })
-              $lines.Add("POLL_$(Get-Date -Format HHmmss)_DC_REMOTE_COUNT=$($current.Count)")
+              $latestState = $null
+              try { $latestState = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json } catch {}
+              if ($latestState) {
+                $report.finalSupervisorState = [string]$latestState.state
+                $report.finalSupervisorUpdatedAt = [string]$latestState.updated_at
+                if ($latestState.pid -and [int]$latestState.pid -ne [int]$report.supervisorPidBefore) {
+                  $report.newChildPid = [int]$latestState.pid
+                } elseif ($latestState.pid) {
+                  $report.newChildPid = [int]$latestState.pid
+                }
+              }
               if (Test-Path -LiteralPath $stdoutPath) {
-                $info = Get-Item -LiteralPath $stdoutPath -ErrorAction SilentlyContinue
-                if ($info -and $info.LastWriteTime -ge $started) {
-                  $tail = @(Get-Content -LiteralPath $stdoutPath -Tail 120 -ErrorAction SilentlyContinue)
-                  if (@($tail | Where-Object { [string]$_ -match '(?i)Channel subscribed|Status:\s*Online' }).Count -gt 0) {
-                    $freshSubscription = $true
-                    $lines.Add("FRESH_CHANNEL_SUBSCRIPTION=PASS LOG_WRITE=$($info.LastWriteTime.ToString('o'))")
-                    break
-                  }
+                $tail = @(Get-Content -LiteralPath $stdoutPath -Tail 180 -ErrorAction SilentlyContinue)
+                $freshLine = @($tail | Where-Object { [string]$_ -match '(?i)Channel subscribed|Status:\s*Online' } | Select-Object -Last 1)
+                $logWrite = (Get-Item -LiteralPath $stdoutPath -ErrorAction SilentlyContinue).LastWriteTime
+                if ($freshLine.Count -gt 0 -and $logWrite -ge $started -and
+                    $latestState -and [string]$latestState.channel_state -eq 'subscribed' -and
+                    [string]$latestState.state -eq 'channel_last_subscribed' -and
+                    $latestState.updated_at -and [DateTimeOffset]::Parse([string]$latestState.updated_at) -ge [DateTimeOffset]$started) {
+                  $report.freshSubscription = $true
+                  break
                 }
               }
             }
 
-            if (-not $freshSubscription) {
-              $lines.Add('FRESH_CHANNEL_SUBSCRIPTION=FAIL')
-              if (Test-Path -LiteralPath $stdoutPath) {
-                foreach ($line in @(Get-Content -LiteralPath $stdoutPath -Tail 30 -ErrorAction SilentlyContinue)) {
-                  $safe = [string]$line -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
-                  $safe = $safe -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
-                  if ($safe.Length -gt 350) { $safe = $safe.Substring(0,350) }
-                  $lines.Add("DC_STDOUT=$safe")
-                }
-              }
-              if (Test-Path -LiteralPath $stderrPath) {
-                foreach ($line in @(Get-Content -LiteralPath $stderrPath -Tail 20 -ErrorAction SilentlyContinue)) {
-                  $safe = [string]$line -replace '(?i)Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]'
-                  $safe = $safe -replace '(?i)(token|secret|password|authorization|api[_-]?key)[^:=]{0,10}[:=]\s*[^,\s;]+', '$1=[REDACTED]'
-                  if ($safe.Length -gt 350) { $safe = $safe.Substring(0,350) }
-                  $lines.Add("DC_STDERR=$safe")
-                }
+            $report.finalSupervisorState = [string]$report.finalSupervisorState
+            Write-Host "DC_FRESH_CHANNEL_SUBSCRIPTION=$($report.freshSubscription)"
+            Write-Host "DC_FINAL_STATE=$($report.finalSupervisorState)"
+            Write-Host "DC_FINAL_UPDATED_AT=$($report.finalSupervisorUpdatedAt)"
+            Write-Host "DC_FINAL_CHILD_PID=$($report.newChildPid)"
+
+            foreach ($logPath in @($stdoutPath,$stderrPath,$supervisorLog)) {
+              if (-not (Test-Path -LiteralPath $logPath)) { continue }
+              $matches = @(Get-Content -LiteralPath $logPath -Tail 500 -ErrorAction SilentlyContinue |
+                Where-Object { [string]$_ -match '(?i)Manual token refresh|InvalidJWTToken|Invalid Refresh Token|heartbeat timeout|fetch failed|transport failure|Presence track not acknowledged|Channel subscribed|Channel error|socket closed|Recreating channel' } |
+                Select-Object -Last 8)
+              foreach ($line in $matches) {
+                $safe = [string]$line -replace '(?i)Bearer\s+\S+', 'Bearer [REDACTED]'
+                $safe = $safe -replace '(?i)((?:token|secret|password|authorization|api[_-]?key)\s*[:=]\s*)[^\s,;]+', '$1[REDACTED]'
+                $safe = $safe -replace 'https?://[^?\s]+\?[^\s]+', '[URL_QUERY_REDACTED]'
+                if ($safe.Length -gt 320) { $safe = $safe.Substring(0,320) }
+                $report.logEvidence += $safe
+                Write-Host "DC_LOG_EVIDENCE=$safe"
               }
             }
-            if (Test-Path -LiteralPath $statusPath) {
-              try {
-                $s = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
-                $lines.Add("SUPERVISOR_STATE_FINAL=$($s.state)")
-                $lines.Add("SUPERVISOR_PROCESS_ALIVE_FINAL=$($s.process_alive)")
-                $lines.Add("SUPERVISOR_PID_FINAL=$($s.pid)")
-                $lines.Add("SUPERVISOR_VERSION_FINAL=$($s.version)")
-                $lines.Add("SUPERVISOR_UPDATED_FINAL=$($s.updated_at)")
-              } catch { $lines.Add("SUPERVISOR_JSON_READ=FAIL $($_.Exception.Message)") }
-            } else { $lines.Add('SUPERVISOR_JSON=MISSING') }
-            $afterProcs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-            $lines.Add("SUPERVISOR_COUNT_FINAL=$(@($afterProcs | Where-Object { $_.Name -match '^(powershell|pwsh)(\.exe)?$' -and [string]$_.CommandLine -match $supervisorPattern }).Count)")
-            $lines.Add("DC_REMOTE_CHILD_COUNT_FINAL=$(@($afterProcs | Where-Object { $_.Name -match '^node(\.exe)?$' -and [string]$_.CommandLine -match $dcPattern }).Count)")
+
             try {
               $resp = Invoke-WebRequest -Uri 'https://mcp.desktopcommander.app/api/mcp-info' -UseBasicParsing -TimeoutSec 12
-              $lines.Add("MCP_METADATA_HTTP=$([int]$resp.StatusCode)")
+              $report.mcpMetadataHttp = [int]$resp.StatusCode
             } catch {
-              $lines.Add("MCP_METADATA_HTTP=FAIL ERROR=$($_.Exception.GetType().Name):$($_.Exception.Message)")
+              $report.mcpMetadataHttp = "FAIL:$($_.Exception.GetType().Name)"
             }
-            if ($freshSubscription) { $healthPass = $true }
+            Write-Host "MCP_METADATA_HTTP=$($report.mcpMetadataHttp)"
+            if ($report.freshSubscription -and $report.finalSupervisorState -eq 'channel_last_subscribed') {
+              $report.result = 'LOCAL_CHANNEL_RECOVERED'
+            } else {
+              $report.result = 'LOCAL_CHANNEL_RECOVERY_NOT_VERIFIED'
+            }
           } catch {
-            $fatal = $_.Exception.Message
-            $lines.Add("RECOVERY_EXCEPTION=$fatal")
+            $report.result = 'DIAGNOSTIC_OR_RECOVERY_ERROR'
+            $report.actionDetail = $_.Exception.Message
+            Write-Host "DC_RECOVERY_FATAL=$($_.Exception.GetType().Name):$($_.Exception.Message)"
           } finally {
-            $ended = Get-Date
-            $lines.Add("RECOVERY_FINISHED=$($ended.ToString('o'))")
-            $evidenceRoot = 'D:\Databank\RWHT\Evidence\DesktopCommanderRecovery'
-            $null = New-Item -ItemType Directory -Path $evidenceRoot -Force -ErrorAction SilentlyContinue
-            $artifactPath = Join-Path $env:RUNNER_TEMP 'robvg-dc-recovery.txt'
-            $persistentPath = Join-Path $evidenceRoot ('robvg-dc-recovery-' + $ended.ToString('yyyyMMdd-HHmmss') + '.txt')
+            $report.finishedAt = (Get-Date).ToString('o')
+            New-Item -ItemType Directory -Path $evidenceRoot -Force -ErrorAction SilentlyContinue | Out-Null
+            $evidencePath = Join-Path $evidenceRoot ('robvg-dc-recovery-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json')
             try {
-              Set-Content -LiteralPath $persistentPath -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
-              $lines.Add("EVIDENCE_LOCAL_PATH=$persistentPath")
-              $lines.Add("EVIDENCE_LOCAL_SHA256=$((Get-FileHash -LiteralPath $persistentPath -Algorithm SHA256).Hash)")
-            } catch { $lines.Add("EVIDENCE_LOCAL_WRITE=FAIL $($_.Exception.Message)") }
-            $finalReport = $lines -join [Environment]::NewLine
-            Set-Content -LiteralPath $artifactPath -Value $finalReport -Encoding UTF8
-            Write-Host $finalReport
+              $json = $report | ConvertTo-Json -Depth 8
+              Set-Content -LiteralPath $evidencePath -Value $json -Encoding UTF8
+              $artifactPath = Join-Path $env:RUNNER_TEMP 'robvg-dc-recovery.json'
+              Set-Content -LiteralPath $artifactPath -Value $json -Encoding UTF8
+              $hash = (Get-FileHash -LiteralPath $evidencePath -Algorithm SHA256).Hash
+              Write-Host "EVIDENCE_PATH=$evidencePath"
+              Write-Host "EVIDENCE_SHA256=$hash"
+              Write-Host "EVIDENCE_RESULT=$($report.result)"
+            } catch {
+              Write-Host "EVIDENCE_WRITE_FAILED=$($_.Exception.GetType().Name):$($_.Exception.Message)"
+            }
           }
-          if ($fatal) { throw $fatal }
-          if (-not $healthPass) { throw 'DC_CHANNEL_RECONNECT_NOT_VERIFIED' }
+          if ($report.result -ne 'LOCAL_CHANNEL_RECOVERED') {
+            throw "DC_CHANNEL_RECOVERY_NOT_VERIFIED result=$($report.result) action=$($report.action)"
+          }
           Write-Host 'ROBVG_DC_RECOVERY=PASS'
 
       - name: Upload RobVG recovery evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: robvg-dc-recovery
-          path: ${{ runner.temp }}\robvg-dc-recovery.txt
+          name: robvg-dc-recovery-evidence
+          path: ${{ runner.temp }}\robvg-dc-recovery.json
           if-no-files-found: warn
           retention-days: 30
