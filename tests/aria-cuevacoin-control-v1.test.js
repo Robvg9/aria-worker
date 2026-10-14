@@ -147,14 +147,18 @@ const deploymentRecovery = between(
   'if (String(state.request_id || "") === requestId && state.dispatch_state === "dispatching") {',
   '    const refResult: any = await cuevaCoinProjectControl({ operation: "github_ref_read", branch: "main" }, grant.client_id);'
 );
-assert.match(deploymentRecovery, /Date\.now\(\) - firstDispatchAt < 120_000/);
-assert.match(deploymentRecovery, /state\.recovery_dispatch_attempted === true/);
+assert.match(deploymentRecovery, /Date\.now\(\) - stateDispatchedAt < 120_000/);
+assert.match(deploymentRecovery, /state\.recovery_dispatch_attempts \|\| \(state\.recovery_dispatch_attempted === true \? 1 : 0\)/);
+assert.match(deploymentRecovery, /recoveryAttemptCount >= 2/);
+assert.match(deploymentRecovery, /state\.recovery_dispatch_error === "github_app_permission_denied"/);
 assert.match(deploymentRecovery, /currentMainSha !== String\(state\.commit_sha \|\| ""\)/);
-assert.match(deploymentRecovery, /recovery_dispatch_attempted:\s*true/);
-assert.match(deploymentRecovery, /await persistCuevacoinDeploymentEvent\(missionId, requestId, recoveryIntent\)/);
-assert.match(deploymentRecovery, /operation: "github_workflow_dispatch"/);
+assert.match(deploymentRecovery, /recovery_dispatch_attempts:\s*nextRecoveryAttemptCount/);
+assert.ok(deploymentRecovery.indexOf("await persistCuevacoinDeploymentEvent(missionId, requestId, recoveryIntent)") < deploymentRecovery.indexOf('operation: "github_workflow_dispatch"'));
+assert.match(deploymentRecovery, /dispatch_state:\s*"dispatch_failed"/);
+assert.match(deploymentRecovery, /recovery_dispatch_error:\s*recoveryDispatchError/);
 assert.match(deploymentRecovery, /recovery_dispatch_accepted:\s*true/);
-assert.match(deploymentRecovery, /cuevacoin_deployment_recovery_dispatch_already_attempted_no_redispatch/);
+assert.match(deploymentRecovery, /cuevacoin_deployment_github_app_actions_permission_denied/);
+assert.match(deploymentRecovery, /cuevacoin_deployment_recovery_attempts_exhausted_no_redispatch/);
 assert.doesNotMatch(deploymentRecovery, /cuevacoinDeploymentRunForCommit\(grant\.client_id, String\(state\.commit_sha\), String\(state\.dispatched_at\)\)\.catch\(\(\) => null\)/);
 
 const deploymentEvidenceReader = between(
