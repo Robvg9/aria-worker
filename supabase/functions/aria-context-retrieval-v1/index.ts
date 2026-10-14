@@ -29,7 +29,7 @@ Deno.serve(async (req: Request) => {
     origin.startsWith("http://127.0.0.1:")
   ));
   if (origin && !allowedOrigin) return reply(403, { error: "origin_forbidden" });
-  const cors = origin && allowedOrigin
+  const cors: Record<string, string> = origin && allowedOrigin
     ? { "access-control-allow-origin": origin, "access-control-allow-methods": "POST,OPTIONS", "access-control-allow-headers": "authorization,content-type", "vary": "Origin" }
     : {};
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...headers, ...cors } });
