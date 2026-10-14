@@ -33,6 +33,7 @@ const required = [
   "cuevacoin_control_verification_incomplete",
   "human_gate:resolve_cuevacoin_read_only_access",
   "function buildCuevacoinAuthorizedReadPlan()",
+  "policy: { read_only_audit: true, verification_read: true }",
   "internal/mission-read-dispatch",
   "allowed_external_operations: [\"github_repo_read\", \"supabase_project_status\", \"supabase_edge_functions_list\"]",
 ];
