@@ -144,7 +144,7 @@ assert.match(connectionStatus, /github_repository_write_permission_not_verified/
 
 const deploymentRecovery = between(
   oauth,
-  'if (String(state.request_id || "") === requestId && state.dispatch_state === "dispatching") {',
+  'if (String(state.request_id || "") === requestId && ["dispatching", "dispatch_failed"].includes(String(state.dispatch_state || ""))) {',
   '    const refResult: any = await cuevaCoinProjectControl({ operation: "github_ref_read", branch: "main" }, grant.client_id);'
 );
 assert.match(deploymentRecovery, /Date\.now\(\) - stateDispatchedAt < 120_000/);
