@@ -241,17 +241,23 @@ SELECT m.memory_id, m.memory_type, m.title, m.content, m.status, m.confidence, m
  WHERE m.status IN ('active','candidate')
    AND m.metadata->>'privacy_class'='general'
    AND m.memory_type IN ('skill','lesson','procedural','semantic')
-   AND (m.search_tsv @@ websearch_to_tsquery('simple', regexp_replace(q.goal,'[^[:alnum:]_ -]',' ','g'))
+   AND (
+     m.search_tsv @@ websearch_to_tsquery('simple', regexp_replace(q.goal,'[^[:alnum:]_ -]',' ','g'))
      OR position(q.goal in lower(coalesce(m.content,''))) > 0
      OR position(q.goal in lower(coalesce(m.title,''))) > 0
      OR lower(coalesce(m.metadata->>'scope','')) LIKE '%supabase_edge_functions%'
-     OR (lower(coalesce(m.metadata->>'learning_kind',''))='failure_prevention'
-       AND (lower(coalesce(m.title,'')) LIKE '%'||lower(trim(coalesce(p_goal,''))||'%'
-         OR lower(coalesce(m.metadata->>'scope','')) LIKE '%'||lower(trim(coalesce(p_goal,''))||'%'
+     OR (
+       lower(coalesce(m.metadata->>'learning_kind',''))='failure_prevention'
+       AND (
+         lower(coalesce(m.title,'')) LIKE '%' || lower(trim(coalesce(p_goal,''))) || '%'
+         OR lower(coalesce(m.metadata->>'scope','')) LIKE '%' || lower(trim(coalesce(p_goal,''))) || '%'
          OR EXISTS (
-           SELECT 1 FROM regexp_split_to_table(lower(trim(coalesce(p_goal,''))),'\\s+') token
-            WHERE length(token)>=5 AND position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
-         ))))
+           SELECT 1 FROM regexp_split_to_table(lower(trim(coalesce(p_goal,''))), '[[:space:]]+') token
+            WHERE length(token) >= 5 AND position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+         )
+       )
+     )
+   )
  ORDER BY CASE WHEN m.status='active' THEN 0 ELSE 1 END,
           CASE WHEN (coalesce(m.metadata->>'preflight_required','false')='true' OR coalesce(m.metadata->>'learning_kind','')='failure_prevention') THEN 0 ELSE 1 END,
           m.confidence DESC, m.importance DESC, m.updated_at DESC
