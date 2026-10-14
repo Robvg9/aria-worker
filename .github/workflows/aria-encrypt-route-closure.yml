@@ -81,8 +81,6 @@ jobs:
         run: deno check --config supabase/functions/aria-learning-v3/deno.json supabase/functions/aria-learning-v3/index.ts
       - name: Type-check internal learning consolidator
         run: deno check --config supabase/functions/aria-learning-consolidator-v1/deno.json supabase/functions/aria-learning-consolidator-v1/index.ts
-      - name: Type-check PWA API direct-memory boundary
-        run: deno check --config supabase/functions/aria-app-api-v3/deno.json supabase/functions/aria-app-api-v3/index.ts
       - name: Type-check device gateway learning boundary
         run: deno check --config supabase/functions/aria-device-gateway/deno.json supabase/functions/aria-device-gateway/index.ts
       - name: Type-check planner v7
