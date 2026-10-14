@@ -112,7 +112,9 @@ Deno.test("internal learning routes fail closed before reading mission evidence 
   assertStringIncludes(v3, "const b=await r.json()");
   assertEquals(v3.indexOf("ARIA_MEMORY_PRIVACY_GATE_CLOSED") < v3.indexOf("const b=await r.json()"), true);
 
-  assertStringIncludes(consolidator, 'if(!t||!SECRET||!eq(t,SECRET))return json({error:"unauthorized"},401);return json({error:"privacy_classification_pending",code:"ARIA_MEMORY_PRIVACY_GATE_CLOSED",retryable:true},503);');
+  assertStringIncludes(consolidator, 'let authorized=Boolean(t&&SECRET&&eq(t,SECRET))');
+  assertStringIncludes(consolidator, 'sb.rpc("aria_autonomy_cron_authorize",{p_token:cron})');
+  assertStringIncludes(consolidator, 'if(!authorized)return json({error:"unauthorized"},401);return json({error:"privacy_classification_pending",code:"ARIA_MEMORY_PRIVACY_GATE_CLOSED",retryable:true},503);');
   assertStringIncludes(consolidator, '.from("mission_state")');
   assertEquals(consolidator.indexOf("ARIA_MEMORY_PRIVACY_GATE_CLOSED") < consolidator.indexOf('.from("mission_state")'), true);
 });
