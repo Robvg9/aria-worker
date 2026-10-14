@@ -191,3 +191,23 @@ Deno.test("chunk search requires both parent and chunk general classification", 
   assertStringIncludes(sql, "AND c.metadata->>'privacy_class' = 'general'");
   assertStringIncludes(sql, "REVOKE EXECUTE ON FUNCTION public.cb_search_chunks(text, integer)");
 });
+
+Deno.test("live smoke E2E validates controls and cleans all synthetic rows", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014235500_aria_encrypt_step5_live_smoke_e2e.sql");
+  assertStringIncludes(sql, "unclassified canonical memory insert was accepted");
+  assertStringIncludes(sql, "FROM aria_memory.search_lexical(marker,20)");
+  assertStringIncludes(sql, "public.aria_memory_search_hybrid_text(marker,NULL,20,0.55,0.45,50)");
+  assertStringIncludes(sql, "public.aria_memory_learning_context_for_goal(marker,50)");
+  assertStringIncludes(sql, "unclassified learning insert was accepted");
+  assertStringIncludes(sql, "unclassified shared document insert was accepted");
+  assertStringIncludes(sql, "public.cb_search_chunks(marker,10)");
+  assertStringIncludes(sql, "unclassified memory candidate insert was accepted");
+  assertStringIncludes(sql, "[REDACTED: query content not retained]");
+  assertStringIncludes(sql, "DELETE FROM public.cb_retrieval_events WHERE id=v_event_id;");
+  assertStringIncludes(sql, "DELETE FROM public.cb_memory_candidates WHERE id=v_candidate_id;");
+  assertStringIncludes(sql, "DELETE FROM public.cb_documents WHERE id=v_document_id;");
+  assertStringIncludes(sql, "DELETE FROM aria_internal.autonomy_learnings WHERE lesson_id=v_learning_id;");
+  assertStringIncludes(sql, "DELETE FROM aria_memory.memory_items WHERE memory_id=v_memory_id;");
+  assertStringIncludes(sql, "synthetic fixture cleanup left rows behind");
+  assertStringIncludes(sql, "COMMIT;");
+});
