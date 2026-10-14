@@ -13,7 +13,7 @@ const ANON = 'sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw';
 const SESSION_KEY = 'aria_session_v2';
 const UI_PREFS_KEY = 'aria_ui_preferences_v1';
 const BUILD = import.meta.env.VITE_BUILD || '2026.09.24-pwa-v10';
-const MEDITATION_LIVE_POLL_MS = 2500;
+const MEDITATION_LIVE_POLL_MS = 10000;
 function shortBuild(build: string) {
   const value = String(build || '');
   return value.length > 10 ? value.slice(0, 8) + '…' : value;
@@ -2540,6 +2540,9 @@ function queueLabel(item: any, index: number): string {
 
 function Meditation({ session }: { session: Session }) {
   const [o, setO] = useState<any>(() => readCached('meditation_overview', session.userId));
+  const overviewRef = useRef<any>(readCached('meditation_overview', session.userId));
+  const missionRefreshInFlightRef = useRef<string | null>(null);
+  useEffect(() => { overviewRef.current = o; }, [o]);
   const [caps, setCaps] = useState<CapabilityCatalog | null>(() => readCached('capabilities', session.userId));
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -2647,104 +2650,234 @@ function Meditation({ session }: { session: Session }) {
   }
 
   async function load() {
-    setSyncing(true); let successes=0;
-    try{
-      const [overview,missionsFallback,capability,health]=await Promise.all([
-        api('/meditation/overview',session.accessToken).catch(()=>null),
-        api('/missions?limit=100',session.accessToken).catch(()=>null),
-        api('/capabilities',session.accessToken).catch(()=>null),
-        api('/diagnostics/health',session.accessToken).catch(()=>null)
-      ]);
-      if(overview || missionsFallback){
-        const fallbackMissions=Array.isArray(missionsFallback?.missions)?missionsFallback.missions:[];
-        const mergedOverview=overview
-          ? {
-              ...overview,
-              missions: Array.from(new Map([
-                ...(Array.isArray(overview?.missions)?overview.missions:[]),
-                ...fallbackMissions
-              ].map((m:any)=>[String(m?.mission_id),m])).values()),
-              active_mission: missionsFallback?.active_mission ?? overview?.active_mission
-            }
-          : {
-              version:'aria-meditation-dashboard-fallback-v1',
-              mode:'stopped',
-              missions:fallbackMissions,
-              active_mission:missionsFallback?.active_mission??null,
-              queued_missions:[],
-              foreground_mission:null,
-              counts:{missions:fallbackMissions.length,queued:0,human_gates:0,blocked:0,verification_pending:0}
+    setSyncing(true);
+    const result = { main: false, capabilities: false, health: false };
+    let fetchedOverview: any = null;
+    let fetchedMissions: any = null;
+
+    const publishOverview = () => {
+      const previous = overviewRef.current;
+      const base: any = fetchedOverview ?? previous;
+      if (!base && !fetchedMissions) return;
+
+      const fallbackMissions = Array.isArray(fetchedMissions?.missions) ? fetchedMissions.missions : [];
+      const baseMissions = Array.isArray(base?.missions) ? base.missions : [];
+      const missions = Array.from(new Map(
+        [...baseMissions, ...fallbackMissions]
+          .filter((m: any) => m && m.mission_id)
+          .map((m: any) => [String(m.mission_id), m])
+      ).values());
+      const merged: any = base
+        ? {
+            ...base,
+            missions,
+            active_mission: fetchedMissions?.active_mission ?? base?.active_mission ?? null
+          }
+        : {
+            version: 'aria-meditation-dashboard-fallback-v1',
+            mode: 'stopped',
+            missions,
+            active_mission: fetchedMissions?.active_mission ?? null,
+            queued_missions: [],
+            foreground_mission: null,
+            counts: { missions: missions.length, queued: 0, human_gates: 0, blocked: 0, verification_pending: 0 }
+          };
+
+      const candidate = selectLiveMission(merged);
+      const foreground = selectForegroundMission(base ?? merged);
+      const queued = meditationQueueItems(base ?? merged, null).find((x: any) => String(x?.status) === 'queued') ?? null;
+      const terminal = new Set(['succeeded', 'failed', 'blocked', 'cancelled', 'timeout']);
+      const missionForView = candidate ?? queued
+        ?? (foreground && terminal.has(String(foreground.status ?? '').toLowerCase()) ? foreground : null)
+        ?? merged.active_mission
+        ?? null;
+      const liveEvents = Array.isArray(missionForView?.live_events) ? missionForView.live_events : [];
+      const next: any = {
+        ...merged,
+        active_mission: missionForView ? { ...missionForView, live_events: liveEvents } : null,
+        live_sync_at: new Date().toISOString(),
+        live_event_count: liveEvents.length
+      };
+
+      // Publish/cache the dashboard immediately. Per-mission diagnostics and
+      // event history must never gate the main mission list becoming visible.
+      overviewRef.current = next;
+      setO(next);
+      writeCached('meditation_overview', session.userId, next);
+      setMissionEvents(liveEvents as MissionEvent[]);
+      result.main = true;
+    };
+
+    const tasks = [
+      api('/meditation/overview', session.accessToken)
+        .then((data: any) => {
+          if (data && typeof data === 'object') {
+            fetchedOverview = data;
+            publishOverview();
+          }
+        })
+        .catch(() => {}),
+      api('/missions?limit=100', session.accessToken)
+        .then((data: any) => {
+          if (Array.isArray(data?.missions)) {
+            fetchedMissions = data;
+            publishOverview();
+          }
+        })
+        .catch(() => {}),
+      api('/capabilities', session.accessToken)
+        .then((data: any) => {
+          if (data?.capabilities) {
+            setCaps(data.capabilities);
+            writeCached('capabilities', session.userId, data.capabilities);
+            result.capabilities = true;
+          }
+        })
+        .catch(() => {}),
+      api('/diagnostics/health', session.accessToken)
+        .then((data: any) => {
+          if (data?.health) {
+            setOperationalHealth(data.health);
+            writeCached('operational_health', session.userId, data.health);
+            result.health = true;
+          }
+        })
+        .catch(() => {})
+    ];
+
+    try {
+      await Promise.allSettled(tasks);
+      const successes = (result.main ? 1 : 0) + (result.capabilities ? 1 : 0) + (result.health ? 1 : 0);
+      setLastSyncAt(successes > 0 ? Date.now() : null);
+      setError(
+        successes === 3 ? '' :
+        successes > 0 ? 'No se pudieron actualizar todos los datos de Meditación IA; se conserva la información disponible.' :
+        'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar ahora.'
+      );
+
+      // Refresh the active mission in the background of the already-visible
+      // dashboard. Keep a single refresh per mission to avoid stacking slow
+      // detail/event/diagnostic calls on every poll.
+      const current: any = overviewRef.current;
+      const active = selectLiveMission(current) ?? current?.active_mission ?? null;
+      const missionId = String(active?.mission_id ?? '');
+      const activeStatus = String(active?.status ?? '').toLowerCase();
+      const terminal = new Set(['succeeded', 'failed', 'blocked', 'cancelled', 'timeout']);
+      if (missionId && !terminal.has(activeStatus) && missionRefreshInFlightRef.current !== missionId) {
+        missionRefreshInFlightRef.current = missionId;
+        void (async () => {
+          try {
+            const [missionResult, eventResult] = await Promise.all([
+              api('/missions/' + encodeURIComponent(missionId), session.accessToken).catch(() => null),
+              api('/missions/' + encodeURIComponent(missionId) + '/events?live=' + Date.now(), session.accessToken).catch(() => null)
+            ]);
+            if (!missionResult?.mission) return;
+            const fresh = missionResult.mission;
+            const events = Array.isArray(eventResult?.events) ? eventResult.events : [];
+            const previous: any = overviewRef.current;
+            if (!previous) return;
+            const updatedMissions = Array.isArray(previous.missions)
+              ? previous.missions.map((item: any) => String(item?.mission_id) === missionId ? { ...item, ...fresh, live_events: events } : item)
+              : previous.missions;
+            const next = {
+              ...previous,
+              missions: updatedMissions,
+              active_mission: { ...fresh, live_events: events },
+              live_sync_at: new Date().toISOString(),
+              live_event_count: events.length
             };
-        let nextOverview=mergedOverview; const candidate=selectLiveMission(mergedOverview);
-        const foreground=selectForegroundMission(overview);
-        const queued=meditationQueueItems(overview,null).find((x:any)=>String(x?.status)==='queued') ?? null;
-        let missionForView=candidate ?? queued ?? (foreground && ['succeeded','failed','blocked','cancelled'].includes(String(foreground.status)) ? foreground : null);
-        const missionId=candidate?.mission_id;
-        let liveEvents=Array.isArray(candidate?.live_events)?candidate.live_events:[];
-        if(missionId&&!['succeeded','failed','blocked','cancelled'].includes(String(candidate?.status??'').toLowerCase())){
-          const [missionResult,eventResult]=await Promise.all([
-            api('/missions/'+encodeURIComponent(missionId),session.accessToken).catch(()=>null),
-            api('/missions/'+encodeURIComponent(missionId)+'/events?live='+Date.now(),session.accessToken).catch(()=>({events:[]}))
-          ]);
-          missionForView=missionResult?.mission??candidate;
-          if(Array.isArray(eventResult?.events)&&eventResult.events.length)liveEvents=eventResult.events;
-        }
-        if(missionForView){
-          nextOverview={...overview,active_mission:{...missionForView,live_events:liveEvents},live_sync_at:new Date().toISOString(),live_event_count:liveEvents.length};
-          setMissionEvents(Array.isArray(liveEvents)?liveEvents:[]);
-        }else{
-          nextOverview={...overview,active_mission:null,live_sync_at:new Date().toISOString(),live_event_count:0};
-          setMissionEvents([]);
-        }
-        setO(nextOverview); writeCached('meditation_overview',session.userId,nextOverview); successes++;
+            overviewRef.current = next;
+            setO(next);
+            writeCached('meditation_overview', session.userId, next);
+            if (String(missionDetail?.mission_id ?? '') === missionId) setMissionEvents(events);
+          } finally {
+            if (missionRefreshInFlightRef.current === missionId) missionRefreshInFlightRef.current = null;
+          }
+        })();
       }
-      if(capability?.capabilities){setCaps(capability.capabilities);writeCached('capabilities',session.userId,capability.capabilities);successes++;}
-      if(health?.health){setOperationalHealth(health.health);writeCached('operational_health',session.userId,health.health);successes++;}
-      setLastSyncAt(successes?Date.now():null);
-      setError(successes===3?'':successes>0?'No se pudieron actualizar todos los datos de Meditación IA; la vista conserva lo último disponible.':'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar ahora.');
-    }finally{setSyncing(false);}
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function openMission(missionId: string) {
+    const cachedOverview: any = overviewRef.current;
+    const cachedMission = [
+      cachedOverview?.active_mission,
+      ...(Array.isArray(cachedOverview?.missions) ? cachedOverview.missions : [])
+    ].find((item: any) => String(item?.mission_id ?? '') === String(missionId));
+
+    setError('');
+    if (cachedMission) {
+      // Open immediately from the latest cache while live detail is fetched.
+      setMissionDetail(cachedMission);
+      setMissionEvents(Array.isArray(cachedMission.live_events) ? cachedMission.live_events : []);
+      setMissionDiagnostic(null);
+      setMissionDetailOpen(true);
+    }
+
     try {
-      setError('');
-      const [missionResult, eventsResult, diagnosticResult] = await Promise.all([
-        api('/missions/' + encodeURIComponent(missionId), session.accessToken),
-        api('/missions/' + encodeURIComponent(missionId) + '/events', session.accessToken).catch(() => ({ events: [] })),
-        api('/missions/' + encodeURIComponent(missionId) + '/diagnostic', session.accessToken).catch(() => null)
-      ]);
-      if (!missionResult?.mission) throw new Error('No se pudo recuperar la información de la misión.');
+      const missionResult = await api('/missions/' + encodeURIComponent(missionId), session.accessToken);
+      if (!missionResult?.mission) {
+        if (!cachedMission) throw new Error('No se pudo recuperar la información de la misión.');
+        setError('No se pudo actualizar la misión; se muestra la última información disponible.');
+        return;
+      }
 
       const freshMission = missionResult.mission;
-      const freshEvents = Array.isArray(eventsResult?.events) ? eventsResult.events : [];
       setMissionDetail(freshMission);
-      setMissionEvents(freshEvents);
-      setMissionDiagnostic(diagnosticResult?.diagnostic ?? null);
-
-      // El modal y el panel en vivo deben compartir inmediatamente la misma
-      // misión canónica para no mostrar "Completada" dentro y "Ejecutándose" detrás.
-      setO(prev => {
-        if (!prev) return prev;
-        const previousActiveId = String(prev?.active_mission?.mission_id ?? '');
-        const isCurrentActive = previousActiveId === String(missionId);
-        const missions = Array.isArray(prev?.missions)
-          ? prev.missions.map((item: any) =>
-              String(item?.mission_id) === String(missionId)
-                ? { ...item, ...freshMission, live_events: freshEvents }
-                : item
-            )
-          : prev.missions;
-        if (!isCurrentActive) return { ...prev, missions };
+      setMissionDetailOpen(true);
+      overviewRef.current = (() => {
+        const previous: any = overviewRef.current;
+        if (!previous) return previous;
+        const missions = Array.isArray(previous.missions)
+          ? previous.missions.map((item: any) => String(item?.mission_id) === String(missionId) ? { ...item, ...freshMission } : item)
+          : previous.missions;
         return {
-          ...prev,
+          ...previous,
           missions,
-          active_mission: { ...freshMission, live_events: freshEvents },
-          live_sync_at: new Date().toISOString(),
-          live_event_count: freshEvents.length,
+          active_mission: String(previous?.active_mission?.mission_id ?? '') === String(missionId)
+            ? { ...freshMission, live_events: previous.active_mission.live_events ?? [] }
+            : previous.active_mission
         };
-      });
+      })();
+      if (overviewRef.current) {
+        setO(overviewRef.current);
+        writeCached('meditation_overview', session.userId, overviewRef.current);
+      }
+
+      // Events and diagnostics update the opened drawer later; neither blocks it.
+      void api('/missions/' + encodeURIComponent(missionId) + '/events', session.accessToken)
+        .then((eventsResult: any) => {
+          const events = Array.isArray(eventsResult?.events) ? eventsResult.events : [];
+          setMissionEvents(events);
+          setMissionDetail((current: any) => String(current?.mission_id ?? '') === String(missionId) ? { ...current, live_events: events } : current);
+          const previous: any = overviewRef.current;
+          if (previous) {
+            const missions = Array.isArray(previous.missions)
+              ? previous.missions.map((item: any) => String(item?.mission_id) === String(missionId) ? { ...item, live_events: events } : item)
+              : previous.missions;
+            const next = {
+              ...previous,
+              missions,
+              active_mission: String(previous?.active_mission?.mission_id ?? '') === String(missionId)
+                ? { ...previous.active_mission, live_events: events }
+                : previous.active_mission
+            };
+            overviewRef.current = next;
+            setO(next);
+            writeCached('meditation_overview', session.userId, next);
+          }
+        })
+        .catch(() => {});
+      void api('/missions/' + encodeURIComponent(missionId) + '/diagnostic', session.accessToken)
+        .then((diagnosticResult: any) => {
+          setMissionDiagnostic(diagnosticResult?.diagnostic ?? null);
+        })
+        .catch(() => {});
     } catch (x) {
       setError(x instanceof Error ? x.message : 'No se pudo abrir la misión.');
+      if (!cachedMission) setMissionDetailOpen(false);
     }
   }
 
@@ -3386,46 +3519,52 @@ function Capabilities({ session }: { session: Session }) {
 function PwaDataPreloader({ session, page }: { session: Session; page: string }) {
   useEffect(() => {
     let cancelled = false;
+    let running = false;
+
     const warm = async () => {
-      // Projects loads its own project-scoped missions/conversation. Do not run
-      // the global warm-up there: the previous 12-request burst saturated the
-      // App API and made valid project readbacks appear unavailable.
-      if (page === 'projects') return;
-      const projectIds = ['battlecruiser','cuevacoin','aria'];
-      const [system, missions, overview, ideas, capabilities, health, ...projectData] = await Promise.all([
-        api('/system', session.accessToken).catch(() => null),
-        api('/missions?limit=100', session.accessToken).catch(() => null),
-        api('/meditation/overview', session.accessToken).catch(() => null),
-        api('/meditation/ideas?limit=100', session.accessToken).catch(() => null),
-        api('/capabilities', session.accessToken).catch(() => null),
-        api('/diagnostics/health', session.accessToken).catch(() => null),
-        ...projectIds.flatMap(id => [
-          api('/projects/' + encodeURIComponent(id) + '/missions?limit=100', session.accessToken).catch(() => null),
-          api('/projects/' + encodeURIComponent(id) + '/conversation', session.accessToken).catch(() => null)
-        ])
-      ]);
-      if (cancelled) return;
-      if (system?.aria) writeCached('system', session.userId, system.aria);
-      if (overview) writeCached('meditation_overview', session.userId, overview);
-      if (Array.isArray(ideas?.items)) writeCached('meditation_ideas', session.userId, ideas.items);
-      if (capabilities?.capabilities) writeCached('capabilities', session.userId, capabilities.capabilities);
-      if (health?.health) writeCached('operational_health', session.userId, health.health);
-      if (Array.isArray(missions?.missions)) writeCached('active_mission', session.userId, selectLiveMission(missions) ?? null);
-      projectIds.forEach((id, i) => {
-        const missionData = projectData[i * 2];
-        const conversationData = projectData[i * 2 + 1];
-        if (Array.isArray(missionData?.missions)) writeCached('project_missions', session.userId + ':' + id, missionData.missions);
-        if (conversationData?.conversation_id) writeCached('project_conversation', session.userId + ':' + id, conversationData);
-      });
+      // Only warm the home dashboard. Meditation, Chat, Projects, Capabilities
+      // and Settings have their own readers; duplicating them here caused a
+      // 12-request burst and delayed every cache write until the slowest call.
+      if (page !== 'home' || running || !navigator.onLine || document.visibilityState === 'hidden') return;
+      running = true;
+      try {
+        const work = [
+          api('/system', session.accessToken).then((data: any) => {
+            if (!cancelled && data?.aria) writeCached('system', session.userId, data.aria);
+          }).catch(() => {}),
+          api('/missions?limit=100', session.accessToken).then((data: any) => {
+            if (!cancelled && Array.isArray(data?.missions)) {
+              writeCached('active_mission', session.userId, selectLiveMission(data) ?? null);
+            }
+          }).catch(() => {}),
+          api('/meditation/overview', session.accessToken).then((data: any) => {
+            if (!cancelled && data && typeof data === 'object') {
+              writeCached('meditation_overview', session.userId, data);
+            }
+          }).catch(() => {})
+        ];
+        // Each request writes its own cache as soon as it returns. Do not make
+        // the fastest endpoints wait for a slow or temporarily failed endpoint.
+        await Promise.allSettled(work);
+      } finally {
+        running = false;
+      }
     };
+
+    const onVisible = () => { if (document.visibilityState === 'visible') void warm(); };
     void warm();
-    const timer = window.setInterval(() => void warm(), 30000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [session.accessToken, session.userId]);
+    const timer = window.setInterval(() => void warm(), 120000);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onVisible);
+    };
+  }, [session.accessToken, session.userId, page]);
   return null;
 }
-
-
 function Settings({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -3709,7 +3848,7 @@ export default function App() {
       onPointerCancel={() => { globalSwipeStartRef.current = null; }}
     >
       <PwaNotificationCenter session={session} />
-      <PwaDataPreloader session={session} page={page} />
+      <PwaDataPreloader session={session} page={page === 'aria' ? (navigation.screen === 1 ? 'chat' : 'home') : page} />
       {page === 'projects'
         ? <ProjectWorkspace session={session} onBack={() => { window.location.hash = '#home'; }} />
         : page === 'meditation'
