@@ -134,10 +134,12 @@ BEGIN
         END
   RETURNING hit_count INTO v_hits;
 
-  v_retry := pg_catalog.greatest(
-    1,
-    pg_catalog.ceil(pg_catalog.extract(epoch FROM ((v_window + interval '1 minute') - pg_catalog.now())))::integer
-  );
+  v_retry := pg_catalog.ceil(
+    EXTRACT(EPOCH FROM ((v_window + interval '1 minute') - pg_catalog.now()))
+  )::integer;
+  IF v_retry < 1 THEN
+    v_retry := 1;
+  END IF;
 
   RETURN QUERY SELECT (v_hits <= v_limit), v_retry;
 END;
