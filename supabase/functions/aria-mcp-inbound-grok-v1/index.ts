@@ -815,7 +815,72 @@ async function cuevacoinMissionDeploymentDispatch(body: Record<string, unknown>)
           completed_at: new Date().toISOString(),
         };
       }
-      throw new Error("cuevacoin_deployment_prior_dispatch_ambiguous_no_redispatch");
+
+      // A dispatch intent can be left behind if the GitHub call or acknowledgement failed.
+      // Never retry while the intent is fresh, and never try this recovery twice.
+      const firstDispatchAt = Date.parse(String(state.dispatched_at || ""));
+      if (!Number.isFinite(firstDispatchAt) || Date.now() - firstDispatchAt < 120_000) {
+        throw new Error("cuevacoin_deployment_prior_dispatch_ambiguous_no_redispatch");
+      }
+      if (state.recovery_dispatch_attempted === true) {
+        throw new Error("cuevacoin_deployment_recovery_dispatch_already_attempted_no_redispatch");
+      }
+
+      // Only recover against the exact main commit recorded in the intent.
+      const currentRef: any = await cuevaCoinProjectControl({ operation: "github_ref_read", branch: "main" }, grant.client_id);
+      const currentMainSha = String(currentRef?.data?.sha || "");
+      if (currentRef?.ok !== true || currentMainSha !== String(state.commit_sha || "")) {
+        throw new Error("cuevacoin_deployment_main_sha_changed_during_recovery");
+      }
+
+      // Persist the one-shot recovery fence before the external write. If the response is lost,
+      // future attempts first reconcile a real run and otherwise stop without a second dispatch.
+      const recoveryDispatchedAt = new Date().toISOString();
+      const recoveryIntent = {
+        ...state,
+        initial_dispatched_at: String(state.initial_dispatched_at || state.dispatched_at || ""),
+        dispatched_at: recoveryDispatchedAt,
+        dispatch_state: "dispatching",
+        recovery_dispatch_attempted: true,
+        recovery_dispatch_attempted_at: recoveryDispatchedAt,
+      };
+      await persistCuevacoinDeploymentEvent(missionId, requestId, recoveryIntent);
+
+      const recoveryDispatchResult: any = await cuevaCoinProjectControl({
+        operation: "github_workflow_dispatch",
+        workflow_id: "cuevacoin-deploy.yml",
+        ref: "main",
+        confirm_project_ref: CUEVACOIN_PROJECT.projectRef,
+        confirm_production_write: true,
+        risk_level: "moderate",
+        change_summary: String(body.change_summary),
+      }, grant.client_id);
+      if (recoveryDispatchResult?.ok !== true || recoveryDispatchResult?.data?.accepted !== true) {
+        throw new Error("cuevacoin_deployment_recovery_dispatch_not_accepted");
+      }
+
+      const recoveryAccepted = {
+        ...recoveryIntent,
+        dispatch_state: "accepted",
+        recovery_dispatch_accepted: true,
+        accepted_at: new Date().toISOString(),
+        dispatch_http_status: recoveryDispatchResult?.data?.status ?? 202,
+      };
+      await persistCuevacoinDeploymentEvent(missionId, requestId, recoveryAccepted);
+      return {
+        ok: true, mission_id: missionId, request_id: requestId, action,
+        data: {
+          accepted: true,
+          idempotent_reuse: false,
+          recovery_dispatch: true,
+          workflow_id: "cuevacoin-deploy.yml",
+          ref: "main",
+          commit_sha: String(recoveryAccepted.commit_sha),
+          dispatched_at: String(recoveryAccepted.dispatched_at),
+          grant_scope_verified: true,
+        },
+        completed_at: new Date().toISOString(),
+      };
     }
 
     const refResult: any = await cuevaCoinProjectControl({ operation: "github_ref_read", branch: "main" }, grant.client_id);
