@@ -1257,6 +1257,7 @@ async function capabilityCatalog(userId:string){
   };
 }
 // Release-coupled read-only notification validation; the persistence browser predecessor also triggers for API-only changes.
+// Exact-SHA release checkpoint 2026-10-14: publish the acyclic Persistence + Recovery → Web Push/PWA gate graph with this API release.
 async function meditationNotificationsForUser(userId:string,unreadOnly=false,limit=50){
   const safeLimit=Math.max(1,Math.min(100,Number(limit)||50));
   const {data,error}=await serviceClient().schema("aria_internal").rpc("aria_meditation_notifications_for_user_v1",{

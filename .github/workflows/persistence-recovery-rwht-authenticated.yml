@@ -15,6 +15,9 @@ on:
       - 'tests/pwa-persistence-recovery-v1.test.js'
       - 'tests/pwa-auth-proxy-contract.test.js'
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
+      # The predecessor must re-run when either same-SHA successor gate definition changes.
+      - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
       - 'pwa/src/.rwht-persistence-recovery-trigger.ts'
       - 'pwa/ARIA-PC-RWHT-RELEASE-MARKER.md'
   workflow_dispatch:
