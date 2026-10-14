@@ -656,7 +656,10 @@ async function completeLocalChatInBackground(userId:string,conversationId:string
     );
   }catch{}
 }
-function isTransientModelFailure(error:any){const value=String(error instanceof Error?error.message:error||"").toLowerCase();return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502/.test(value);}
+function isTransientModelFailure(error:any){
+  const value=String(error instanceof Error?error.message:error||"").toLowerCase();
+  return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502|high demand|overload|capacity|service unavailable/.test(value);
+}
 async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
   const failures:any[]=[];
   if(step?.target){
@@ -675,10 +678,18 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
   const localRoute=routes.find((route:any)=>route.provider_id==="local_windows") || null;
   // The primary route is already in `seen`; select one genuinely different cloud
   // route instead of slicing routes first and accidentally selecting the same provider.
+  const primaryProvider=String(step?.target?.provider_id || "");
   const cloudFallbacks=routes.filter((route:any)=>{
     if(route.provider_id==="local_windows") return false;
     const key=String(route.provider_id)+"|"+String(route.account_id)+"|"+String(route.model_id);
     return !seen.has(key);
+  }).sort((a:any,b:any)=>{
+    const aSameProvider=String(a.provider_id)===primaryProvider;
+    const bSameProvider=String(b.provider_id)===primaryProvider;
+    if(aSameProvider!==bSameProvider) return aSameProvider ? 1 : -1;
+    return Number(b.score ?? 0)-Number(a.score ?? 0)
+      || String(a.provider_id).localeCompare(String(b.provider_id))
+      || String(a.model_id).localeCompare(String(b.model_id));
   }).slice(0,1);
   const candidateRoutes=[...cloudFallbacks,...(localRoute?[localRoute]:[])];
 
