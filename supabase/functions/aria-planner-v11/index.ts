@@ -152,7 +152,7 @@ async function tryVerifiedPathPlan(goal:string, context:any){
       for(const m of (memJson?.results||[])) candidates.push(m);
     }catch(_e){}
     try{
-      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").ilike("title","%verified multi-executor composition%").limit(8);
+      const {data}=await ROOT.from("memory_items").select("memory_id,title,content,memory_type,metadata,source_ref").eq("memory_type","skill").eq("metadata->>privacy_class","general").ilike("title","%verified multi-executor composition%").limit(8);
       for(const m of data||[]) candidates.push(m);
     }catch(_e){}
     for(const m of candidates){
