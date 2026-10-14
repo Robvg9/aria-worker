@@ -1501,6 +1501,22 @@ function isCuevacoinAuthorizedDeployMission(goal: unknown): boolean {
     && value.includes("despliegue controlado autorizado");
 }
 
+
+
+function isCuevacoinAuthorizedReadMission(goal: unknown): boolean {
+  const value = String(goal || "").toLowerCase();
+  const readOnlyIntent =
+    (value.includes("no despliegues") || value.includes("do not deploy") || value.includes("no deployment"))
+    && (value.includes("no escribas") || value.includes("do not write") || value.includes("read-only"))
+    && (value.includes("no ejecutes migraciones") || value.includes("no migrations"))
+    && (value.includes("no realices operaciones financieras") || value.includes("no financial operations"));
+  return value.includes("cuevacoin_connection_status")
+    && value.includes("cuevacoin_project_control")
+    && value.includes("aria.project.cuevacoin.control")
+    && readOnlyIntent
+    && !isCuevacoinAuthorizedDeployMission(goal);
+}
+
 function buildCuevacoinAuthorizedDeployPlan() {
   const changeSummary = "Despliegue controlado autorizado para cerrar el paso 8; desplegar el main actual y verificar la paridad SHA-256 LIVE de index.html y service-worker.js. Sin cambios SQL, migraciones ni operaciones financieras.";
   return [
