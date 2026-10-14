@@ -211,3 +211,12 @@ Deno.test("live smoke E2E validates controls and cleans all synthetic rows", asy
   assertStringIncludes(sql, "synthetic fixture cleanup left rows behind");
   assertStringIncludes(sql, "COMMIT;");
 });
+
+Deno.test("mission learning trigger requires an explicitly general mission", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014235000_aria_encrypt_step5_gate_mission_learning_trigger.sql");
+  assertStringIncludes(sql, "IF coalesce(new.metadata->>'privacy_class','') IS DISTINCT FROM 'general' THEN");
+  assertStringIncludes(sql, "mission_id,goal_id,category,summary,evidence,confidence,reusable,privacy_class");
+  assertStringIncludes(sql, "v_confidence,v_reusable,'general'");
+  assertStringIncludes(sql, "privacy_class=excluded.privacy_class");
+  assertStringIncludes(sql, "trg_capture_mission_learning");
+});
