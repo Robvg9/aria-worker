@@ -649,12 +649,25 @@ async function api(path: string, token: string, init: RequestInit = {}) {
   const isRead = method === 'GET' || method === 'HEAD';
   const attempts = isRead ? 2 : 1;
   let lastError: unknown = null;
+  let requestToken = token;
+  let refreshedAfter401 = false;
   const traceId = (init.headers && new Headers(init.headers).get('x-aria-trace-id')) || crypto.randomUUID();
   const requestId = (init.headers && new Headers(init.headers).get('x-aria-request-id')) || crypto.randomUUID();
 
+  // A sleeping PWA can resume with a token that passed its local timer but has
+  // already expired server-side. Refresh before sending writes; never replay a
+  // non-read request just because a downstream service returned an error.
+  try {
+    const snapshot = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    if (snapshot?.refreshToken && Number(snapshot.expiresAt) <= Date.now() + 30000) {
+      const refreshed = await refreshSessionOnce(snapshot, true);
+      if (refreshed?.userId === snapshot.userId) requestToken = refreshed.accessToken;
+    }
+  } catch {}
+
   for (let attempt = 0; attempt < attempts; attempt++) {
     const headers = new Headers(init.headers);
-    headers.set('authorization', 'Bearer ' + token);
+    headers.set('authorization', 'Bearer ' + requestToken);
     headers.set('x-aria-trace-id', traceId);
     headers.set('x-aria-request-id', requestId);
     headers.set('x-aria-pwa-build', BUILD);
@@ -666,6 +679,22 @@ async function api(path: string, token: string, init: RequestInit = {}) {
       const raw = await response.text();
       let data: any = null;
       try { data = raw ? JSON.parse(raw) : null; } catch {}
+
+      // A 401 on a read request is safe to retry once after auth refresh. Do not
+      // replay POST/PUT/PATCH requests, which may have reached an executor.
+      if (response.status === 401 && isRead && !refreshedAfter401) {
+        refreshedAfter401 = true;
+        try {
+          const snapshot = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+          const refreshed = snapshot?.refreshToken ? await refreshSessionOnce(snapshot, true) : null;
+          if (refreshed?.userId === snapshot?.userId && refreshed.accessToken && refreshed.accessToken !== requestToken) {
+            requestToken = refreshed.accessToken;
+            attempt -= 1;
+            continue;
+          }
+        } catch {}
+      }
+
       if (!response.ok) {
         const code = String(data?.error ?? 'aria_api_error');
         const detail = HUMAN_API_ERRORS[code];
@@ -693,7 +722,6 @@ async function api(path: string, token: string, init: RequestInit = {}) {
   }
   throw lastError instanceof Error ? lastError : new Error('No se pudo conectar con ARIA.');
 }
-
 async function parseAuthResponse(response: Response) {
   const d: any = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -816,6 +844,34 @@ async function refreshSession(session: Session) {
     throw proxyError instanceof Error ? proxyError : new Error('No se pudo renovar la sesión.');
   }
 }
+
+// Serialize refresh-token rotation across the timer and API requests. Supabase
+// may rotate refresh tokens; concurrent refreshes can invalidate one another.
+let sessionRefreshInFlight: Promise<Session | null> | null = null;
+async function refreshSessionOnce(session: Session, force = false): Promise<Session | null> {
+  if (sessionRefreshInFlight) return sessionRefreshInFlight;
+  sessionRefreshInFlight = (async () => {
+    let stored: Session | null = null;
+    try {
+      const value = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+      if (value && typeof value.accessToken === 'string' && typeof value.refreshToken === 'string') stored = value as Session;
+    } catch {}
+
+    const current = stored?.userId === session.userId ? stored : session;
+    if (!force && current.expiresAt > Date.now() + 30000) return current;
+    if (stored?.userId === session.userId && stored.accessToken !== session.accessToken && stored.expiresAt > Date.now() + 30000) {
+      return stored;
+    }
+
+    const next = await refreshSession(current);
+    if (!next?.accessToken || next.userId !== current.userId) throw new Error('No se pudo renovar la sesión de ARIA.');
+    localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent('aria-session-refreshed', { detail: next }));
+    return next;
+  })().catch(() => null).finally(() => { sessionRefreshInFlight = null; });
+  return sessionRefreshInFlight;
+}
+
 function authRouteFailureLabel(error: unknown) {
   const status = Number((error as any)?.status);
   if (Number.isInteger(status) && status > 0) return `HTTP ${status}`;
@@ -3701,6 +3757,27 @@ export default function App() {
   const signOut = () => { localStorage.removeItem(SESSION_KEY); setSession(null); };
 
   useEffect(() => {
+    const applyRefreshedSession = (event: Event) => {
+      const next = (event as CustomEvent<Session>).detail;
+      if (next?.userId && next.userId === session?.userId && next.accessToken) setSession(next);
+    };
+    const applyStoredSession = (event: StorageEvent) => {
+      if (event.key !== SESSION_KEY) return;
+      try {
+        const next = event.newValue ? JSON.parse(event.newValue) as Session : null;
+        if (!next?.accessToken || !next?.refreshToken || next.userId !== session?.userId) return;
+        setSession(next);
+      } catch {}
+    };
+    window.addEventListener('aria-session-refreshed', applyRefreshedSession);
+    window.addEventListener('storage', applyStoredSession);
+    return () => {
+      window.removeEventListener('aria-session-refreshed', applyRefreshedSession);
+      window.removeEventListener('storage', applyStoredSession);
+    };
+  }, [session?.userId]);
+
+  useEffect(() => {
     const syncNavigation = () => setNavigation(navigationFromHash());
     const syncPrefs = () => setUiPrefs(readUiPrefs());
     window.addEventListener('hashchange', syncNavigation);
@@ -3723,7 +3800,7 @@ export default function App() {
       const refreshIn = Math.max(5_000, session.expiresAt - Date.now() - 60_000);
       timer = window.setTimeout(async () => {
         try {
-          const next = await refreshSession(session);
+          const next = await refreshSessionOnce(session, true);
           if (cancelled) return;
           localStorage.setItem(SESSION_KEY, JSON.stringify(next));
           setSession(next);
@@ -3739,7 +3816,7 @@ export default function App() {
       if (Date.now() < session.expiresAt - 60_000) return;
       void (async () => {
         try {
-          const next = await refreshSession(session);
+          const next = await refreshSessionOnce(session, true);
           if (cancelled) return;
           localStorage.setItem(SESSION_KEY, JSON.stringify(next));
           setSession(next);
