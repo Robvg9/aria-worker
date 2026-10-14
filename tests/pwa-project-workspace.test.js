@@ -256,8 +256,11 @@ assert.match(plannerSource, /non_main_branch_required:true/);
 assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 const appPreloaderGuard = fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
-assert.match(appPreloaderGuard,/if \(page === 'projects'\) return;/);
-assert.match(appPreloaderGuard,/PwaDataPreloader session=\{session\} page=\{page\}/);
+assert.match(appPreloaderGuard,/if \(page !== 'home' \|\| running \|\| !navigator\.onLine \|\| document\.visibilityState === 'hidden'\) return;/);
+assert.match(appPreloaderGuard,/<PwaDataPreloader session=\{session\} page=\{page === 'aria' \? \(navigation\.screen === 1 \? 'chat' : 'home'\) : page\} \/>/);
+assert.match(appPreloaderGuard,/window\.setInterval\(\(\) => void warm\(\), 120000\)/);
+assert.doesNotMatch(appPreloaderGuard,/const projectIds = \['battlecruiser','cuevacoin','aria'\]/);
+assert.doesNotMatch(appPreloaderGuard,/const \[system, missions, overview, ideas, capabilities, health, \.\.\.projectData\] = await Promise\.all/);
 
 const appCurrent = fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 assert.match(appCurrent,/replan_required/);
