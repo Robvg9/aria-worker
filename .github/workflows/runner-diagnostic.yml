@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/runner-diagnostic.yml'
+      - '.github/workflows/robvg-dc-recovery-once.yml'
   workflow_dispatch:
 
 permissions:
