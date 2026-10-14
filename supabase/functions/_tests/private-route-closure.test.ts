@@ -173,6 +173,7 @@ Deno.test("internal learning table and legacy retrieval routes fail closed by cl
   assertStringIncludes(gateway, ".eq('metadata->>privacy_class','general').in('status',['succeeded','blocked','failed','timeout','cancelled'])");
   assertStringIncludes(gateway, "privacy_class:'general'");
   assertStringIncludes(gateway, ".eq('privacy_class','general').eq('reusable',true)");
+  assertStringIncludes(gateway, ".eq('mission_id',m.mission_id).eq('privacy_class','general').limit(1)");
 
   for (const version of ["v6", "v7", "v8", "v9"]) {
     const supervisor = await Deno.readTextFile("supabase/functions/aria-autonomy-supervisor-" + version + "/index.ts");
