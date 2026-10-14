@@ -141,4 +141,22 @@ assert.match(connectionStatus, /const readyForFullControl=gh\.write_access==="ve
 assert.match(connectionStatus, /deployment_control_verified:deployment\.state==="verified"/);
 assert.match(connectionStatus, /github_repository_write_permission_not_verified/);
 
+
+const deploymentEvidenceReader = between(
+  oauth,
+  'async function cuevacoinDeploymentEvents(',
+  'async function persistCuevacoinDeploymentEvent('
+);
+assert.match(deploymentEvidenceReader, /\.eq\("event_type",\s*"checkpoint_saved"\)/);
+assert.match(deploymentEvidenceReader, /\.eq\("payload->>kind",\s*"cuevacoin_deployment_dispatch_state"\)/);
+
+const deploymentEvidenceWriter = between(
+  oauth,
+  'async function persistCuevacoinDeploymentEvent(',
+  'async function cuevacoinDeploymentRunForCommit('
+);
+assert.match(deploymentEvidenceWriter, /event_type:\s*"checkpoint_saved"/);
+assert.match(deploymentEvidenceWriter, /payload:\s*\{\s*\.\.\.payload,\s*kind:\s*"cuevacoin_deployment_dispatch_state"/);
+assert.doesNotMatch(deploymentEvidenceWriter, /event_type:\s*"cuevacoin_deployment_dispatch_state"/);
+
 console.log('aria-cuevacoin-control-v1: PASS');
