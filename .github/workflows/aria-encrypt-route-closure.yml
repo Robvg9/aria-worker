@@ -6,6 +6,9 @@ on:
       - 'supabase/functions/aria-context-retrieval-v1/**'
       - 'supabase/functions/aria-memory-write-gate-v1/**'
       - 'supabase/functions/aria-memory-v2/**'
+      - 'supabase/functions/aria-learning-v2/**'
+      - 'supabase/functions/aria-learning-v3/**'
+      - 'supabase/functions/aria-learning-consolidator-v1/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
@@ -17,6 +20,9 @@ on:
       - 'supabase/functions/aria-context-retrieval-v1/**'
       - 'supabase/functions/aria-memory-write-gate-v1/**'
       - 'supabase/functions/aria-memory-v2/**'
+      - 'supabase/functions/aria-learning-v2/**'
+      - 'supabase/functions/aria-learning-v3/**'
+      - 'supabase/functions/aria-learning-consolidator-v1/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
@@ -45,3 +51,9 @@ jobs:
         run: deno check --config supabase/functions/aria-memory-write-gate-v1/deno.json supabase/functions/aria-memory-write-gate-v1/index.ts
       - name: Type-check internal memory route and privacy guard
         run: deno check --config supabase/functions/aria-memory-v2/deno.json supabase/functions/aria-memory-v2/index.ts
+      - name: Type-check internal learning route v2
+        run: deno check --config supabase/functions/aria-learning-v2/deno.json supabase/functions/aria-learning-v2/index.ts
+      - name: Type-check internal learning route v3
+        run: deno check --config supabase/functions/aria-learning-v3/deno.json supabase/functions/aria-learning-v3/index.ts
+      - name: Type-check internal learning consolidator
+        run: deno check --config supabase/functions/aria-learning-consolidator-v1/deno.json supabase/functions/aria-learning-consolidator-v1/index.ts
