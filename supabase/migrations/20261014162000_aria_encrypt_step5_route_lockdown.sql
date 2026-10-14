@@ -104,6 +104,628 @@ FOR EACH ROW EXECUTE FUNCTION public.aria_encrypt_require_general_candidate();
 
 -- Additional internal-memory consumers must not re-expose or transform unclassified rows.
 
+-- Keep the existing mastery/preflight behavior but require explicit general classification at every read/write boundary.
+
+CREATE OR REPLACE FUNCTION aria_internal.capture_failure_mastery()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'aria_internal', 'aria_memory', 'extensions'
+AS $function$
+declare
+  v_detail text;
+  v_goal text;
+  v_signature text;
+  v_terms jsonb := '[]'::jsonb;
+  v_content text;
+  v_hash text;
+  v_id uuid;
+  v_procedure jsonb;
+  v_previous_id uuid;
+  v_previous_status text;
+  v_occurrence integer := 0;
+  v_state text := 'incident';
+  v_recurred_after_promotion boolean := false;
+begin
+  if new.status <> 'failed' or (tg_op='UPDATE' and old.status='failed') then
+    return new;
+  end if;
+  -- Do not derive memory from an unclassified mission or its logs.
+  if coalesce(new.metadata->>'privacy_class','') IS DISTINCT FROM 'general' then
+    return new;
+  end if;
+
+  v_goal := trim(coalesce(new.goal,''));
+  v_detail := lower(left(coalesce(new.last_stderr,'') || ' ' || coalesce(new.next_action,'') || ' ' || coalesce(new.checkpoint->'recovery'->>'failure_reason',''),3000));
+  v_signature := encode(extensions.digest(
+    lower(v_goal) || '|' ||
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(
+          regexp_replace(v_detail,'mission[_-][0-9a-f-]+','<mission>','gi'),
+          '[0-9a-f]{8}-[0-9a-f-]{20,}','<uuid>','gi'
+        ),
+        '[0-9]+','<n>','g'
+      ),
+      '\\s+',' ','g'
+    ) || '|' ||
+    regexp_replace(coalesce(new.checkpoint->'recovery'->>'failure_reason',''), '[0-9]+','<n>','g'),
+    'sha256'
+  ),'hex');
+
+  if position('deno.json' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('deno.json'); end if;
+  if position('import_map' in v_detail)>0 or position('import-map' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('import_map'); end if;
+  if position('wrangler.toml' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('wrangler.toml'); end if;
+  if position('migration' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('migration'); end if;
+  if position('rls' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('rls'); end if;
+  if position('branch' in v_detail) > 0 or position('pull request' in v_detail)>0 then v_terms := v_terms || jsonb_build_array('branch'); end if;
+  if jsonb_array_length(v_terms)=0 then v_terms := jsonb_build_array('verify'); end if;
+
+  v_procedure := jsonb_build_array(
+    'Recuperar el fallo previo y su evidencia antes de elegir una estrategia.',
+    'No repetir la estrategia fallida salvo que exista evidencia nueva y explícita que la justifique.',
+    'Verificar los prerrequisitos asociados al fallo antes de ejecutar la acción.',
+    'Ejecutar una verificación real del resultado y persistir la evidencia.'
+  );
+
+  select m.memory_id,m.status,
+         greatest(1,coalesce((m.metadata->>'occurrence_count')::integer,1))
+    into v_previous_id,v_previous_status,v_occurrence
+  from aria_memory.memory_items m
+  where coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+    and m.metadata->>'privacy_class'='general'
+    and m.metadata->>'failure_signature'=v_signature
+    and m.memory_type='skill'
+  order by case when m.status='active' then 0 else 1 end, m.updated_at desc
+  limit 1;
+
+  if v_previous_id is null then
+    v_occurrence := 1;
+  else
+    v_occurrence := v_occurrence + 1;
+    v_recurred_after_promotion := v_previous_status='active';
+  end if;
+
+  v_state := case
+    when v_recurred_after_promotion then 'root_cause_required'
+    when v_occurrence >= 5 then 'root_cause_required'
+    when v_occurrence >= 4 then 'pattern_confirmed'
+    when v_occurrence >= 3 then 'pattern_candidate'
+    when v_occurrence >= 2 then 'recurrent'
+    else 'incident'
+  end;
+
+  if v_state='root_cause_required' then
+    v_terms := v_terms || jsonb_build_array('root_cause','verify');
+  end if;
+
+  if v_previous_id is not null then
+    update aria_memory.memory_items
+    set
+      updated_at=now(),
+      metadata = metadata
+        || jsonb_build_object(
+          'occurrence_count',v_occurrence,
+          'pattern_state',v_state,
+          'recurrence_after_promotion',v_recurred_after_promotion,
+          'last_seen_mission',new.mission_id,
+          'last_seen_at',clock_timestamp()
+        ),
+      confidence = greatest(confidence,case when v_state='root_cause_required' then .94 else .88 end)
+    where memory_id=v_previous_id and metadata->>'privacy_class'='general';
+
+    insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
+    values(
+      v_previous_id,
+      'updated',
+      new.mission_id,
+      jsonb_build_object(
+        'occurrence_count',v_occurrence,
+        'pattern_state',v_state,
+        'recurrence_after_promotion',v_recurred_after_promotion
+      )
+    );
+  end if;
+
+  v_content := 'Failure-prevention candidate. Goal='||v_goal||
+    '. Failure detail='||left(v_detail,1800)||
+    '. Prevention procedure='||v_procedure::text;
+
+  v_hash := encode(extensions.digest('failure-prevention|'||v_signature,'sha256'),'hex');
+
+  insert into aria_memory.memory_items(
+    memory_type,title,content,content_hash,status,confidence,importance,salience,
+    source_type,source_ref,provenance,metadata
+  )
+  values(
+    'skill',
+    'Failure prevention candidate: '||left(v_goal,160),
+    v_content,
+    v_hash,
+    'candidate',
+    .88,.90,.95,
+    'mission',
+    new.mission_id,
+    jsonb_build_object('engine','failure-mastery-v1','mission_id',new.mission_id,'failure_signature',v_signature),
+    jsonb_build_object(
+      'learning_kind','failure_prevention',
+      'privacy_class','general',
+      'activation_status',case when v_previous_id is null then 'candidate' else coalesce((select metadata->>'activation_status' from aria_memory.memory_items where memory_id=v_previous_id),'candidate') end,
+      'source_mission_id',new.mission_id,
+      'failure_signature',v_signature,
+      'scope',v_goal,
+      'procedure',v_procedure,
+      'preflight_required',case when v_previous_status='active' then true else false end,
+      'preflight_requirements',jsonb_build_object('mode','contains_all','terms',v_terms),
+      'occurrence_count',v_occurrence,
+      'pattern_state',v_state,
+      'recurrence_after_promotion',v_recurred_after_promotion
+    )
+  )
+  on conflict(content_hash) do update
+    set content=excluded.content, updated_at=now(), metadata=excluded.metadata, confidence=greatest(aria_memory.memory_items.confidence,excluded.confidence)
+  returning memory_id into v_id;
+
+  insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload)
+  values(
+    v_id,'created',new.mission_id,
+    jsonb_build_object('failure_signature',v_signature,'terms',v_terms,'procedure',v_procedure,'occurrence_count',v_occurrence,'pattern_state',v_state,'recurrence_after_promotion',v_recurred_after_promotion)
+  );
+
+  return new;
+end;
+$function$
+
+
+CREATE OR REPLACE FUNCTION aria_internal.enforce_learning_preflight()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_matches jsonb:='[]'::jsonb;
+  v_match jsonb;
+  v_meta jsonb;
+  v_req jsonb;
+  v_mode text;
+  v_terms jsonb;
+  v_plan_text text;
+  v_deployment boolean:=false;
+  v_failed boolean:=false;
+  v_learning_gate_mode text:=lower(coalesce(new.metadata->>'learning_gate_mode','advisory'));
+begin
+  if tg_op <> 'UPDATE' or new.status <> 'running' or old.status = 'running' then
+    return new;
+  end if;
+
+  -- The runner owns the canonical learning policy. The DB trigger must never
+  -- impose a hard gate on a mission that did not explicitly request one.
+  if v_learning_gate_mode <> 'hard' then
+    new.checkpoint:=jsonb_set(
+      coalesce(new.checkpoint,'{}'::jsonb),
+      '{cognitive_preflight}',
+      jsonb_build_object(
+        'status','passed',
+        'matched_skills','[]'::jsonb,
+        'deployment',false,
+        'checked_at',now(),
+        'advisory_only',true,
+        'learning_gate_mode',v_learning_gate_mode
+      ),
+      true
+    );
+    return new;
+  end if;
+
+  v_plan_text:=lower(coalesce(new.checkpoint->'plan','{}'::jsonb)::text);
+  v_deployment:=lower(coalesce(new.goal,'')) ~ '(^|[^a-z])(deploy|deployment|deploying|release|publish)([^a-z]|$)'
+    and lower(coalesce(new.goal,'')) !~ '(^|[^a-z])(read[- ]only|audit|review|inspect|diagnostic|forensic)([^a-z]|$)';
+
+  select coalesce(
+    jsonb_agg(jsonb_build_object(
+      'memory_id',m.memory_id,
+      'title',m.title,
+      'scope',m.metadata->>'scope',
+      'confidence',m.confidence,
+      'preflight_requirements',m.metadata->'preflight_requirements'
+    )),
+    '[]'::jsonb
+  )
+    into v_matches
+    from aria_memory.memory_items m
+   where m.status='active'
+     and m.memory_type='skill'
+     and coalesce(m.metadata->>'preflight_required','false')='true'
+     and m.confidence>=.9
+     and m.metadata->>'privacy_class'='general'
+     and (
+       lower(coalesce(m.title,'')) like '%'||lower(trim(new.goal))||'%'
+       or lower(coalesce(m.content,'')) like '%'||lower(trim(new.goal))||'%'
+       or lower(coalesce(m.metadata->>'scope','')) like '%supabase_edge_functions%'
+     );
+
+  for v_match in select * from jsonb_array_elements(v_matches) loop
+    v_meta:=v_match->'preflight_requirements';
+    if v_meta is null or jsonb_typeof(v_meta)<>'object' then continue; end if;
+    v_mode:=coalesce(v_meta->>'mode','contains_all');
+    v_terms:=coalesce(v_meta->'terms','[]'::jsonb);
+
+    if v_mode='contains_any' then
+      if not exists (
+        select 1 from jsonb_array_elements_text(v_terms) t
+        where position(lower(t) in v_plan_text)>0
+      ) then v_failed:=true; end if;
+    elsif v_mode='contains_all' then
+      if exists (
+        select 1 from jsonb_array_elements_text(v_terms) t
+        where position(lower(t) in v_plan_text)=0
+      ) then v_failed:=true; end if;
+    end if;
+  end loop;
+
+  if v_deployment and v_failed and jsonb_array_length(v_matches)>0 then
+    new.checkpoint:=jsonb_set(
+      coalesce(new.checkpoint,'{}'::jsonb),
+      '{cognitive_preflight}',
+      jsonb_build_object(
+        'status','blocked',
+        'reason','learned_preflight_missing',
+        'matched_skills',v_matches,
+        'deployment',true,
+        'learning_gate_mode','hard'
+      ),
+      true
+    );
+    new.next_action:='replan: satisfy learned preflight contract before execution';
+    raise exception 'learning_preflight_blocked:declared_requirements_not_satisfied';
+  end if;
+
+  new.checkpoint:=jsonb_set(
+    coalesce(new.checkpoint,'{}'::jsonb),
+    '{cognitive_preflight}',
+    jsonb_build_object(
+      'status','passed',
+      'matched_skills',v_matches,
+      'deployment',v_deployment,
+      'checked_at',now(),
+      'learning_gate_mode','hard'
+    ),
+    true
+  );
+  return new;
+end;
+$function$
+
+
+CREATE OR REPLACE FUNCTION aria_internal.validate_learning_preflight(p_goal text, p_plan jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'aria_internal', 'aria_memory'
+AS $function$
+declare
+  v_plan_text text := lower(coalesce(p_plan,'[]'::jsonb)::text);
+  v_required jsonb := '[]'::jsonb;
+  v_applied jsonb := '[]'::jsonb;
+  v_candidate_applied jsonb := '[]'::jsonb;
+  v_missing jsonb := '[]'::jsonb;
+  v_skill record;
+  v_candidate record;
+  v_req jsonb;
+  v_terms jsonb;
+  v_mode text;
+  v_ok boolean;
+  v_action boolean := jsonb_typeof(coalesce(p_plan->'steps','[]'::jsonb))='array'
+    and jsonb_array_length(coalesce(p_plan->'steps','[]'::jsonb)) > 0;
+begin
+  if not v_action then
+    return jsonb_build_object(
+      'version','mastery-learning-loop-v1-generic-action',
+      'passed',true,
+      'required',v_required,
+      'applied_memory_ids',v_applied,
+      'applied_active_memory_ids',v_applied,
+      'applied_candidate_memory_ids',v_candidate_applied,
+      'missing',v_missing,
+      'learning_application_required',false
+    );
+  end if;
+
+  for v_skill in
+    select m.memory_id,m.title,m.content,m.metadata,m.confidence
+    from aria_memory.memory_items m
+    where m.status='active'
+      and m.memory_type in ('skill','procedural')
+      and m.confidence >= .90
+      and m.metadata->>'privacy_class'='general'
+      and (
+        coalesce(m.metadata->>'preflight_required','false')='true'
+        or coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+      )
+      and (
+        lower(coalesce(m.title,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or lower(coalesce(m.content,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or lower(coalesce(m.metadata->>'scope','')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or (
+          coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+          and exists (
+            select 1
+            from regexp_split_to_table(lower(trim(coalesce(p_goal,''))),'\s+') token
+            where length(token) >= 5
+              and position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+          )
+        )
+      )
+  loop
+    v_req := coalesce(v_skill.metadata->'preflight_requirements','{}'::jsonb);
+    v_mode := coalesce(v_req->>'mode','contains_all');
+    v_terms := coalesce(v_req->'terms','[]'::jsonb);
+
+    if jsonb_array_length(v_terms)=0 then
+      -- A learned skill without explicit terms is still an applied context requirement;
+      -- it is satisfied by explicit skill memory injection into the plan context.
+      v_required := v_required || jsonb_build_array(
+        jsonb_build_object('memory_id',v_skill.memory_id,'title',v_skill.title,'confidence',v_skill.confidence,'mode','context_only')
+      );
+      v_applied := v_applied || jsonb_build_array(v_skill.memory_id::text);
+      continue;
+    end if;
+
+    if v_mode='contains_any' then
+      select exists(
+        select 1 from jsonb_array_elements_text(v_terms) t
+        where position(lower(t) in v_plan_text)>0
+      ) into v_ok;
+    else
+      select not exists(
+        select 1 from jsonb_array_elements_text(v_terms) t
+        where position(lower(t) in v_plan_text)=0
+      ) into v_ok;
+    end if;
+
+    v_required := v_required || jsonb_build_array(
+      jsonb_build_object(
+        'memory_id',v_skill.memory_id,
+        'title',v_skill.title,
+        'confidence',v_skill.confidence,
+        'mode',v_mode,
+        'terms',v_terms
+      )
+    );
+
+    if v_ok then
+      v_applied := v_applied || jsonb_build_array(v_skill.memory_id::text);
+    else
+      v_missing := v_missing || jsonb_build_array(
+        jsonb_build_object(
+          'memory_id',v_skill.memory_id,
+          'title',v_skill.title,
+          'mode',v_mode,
+          'terms',v_terms
+        )
+      );
+    end if;
+  end loop;
+
+  for v_candidate in
+    select m.memory_id,m.title,m.content,m.metadata,m.confidence
+    from aria_memory.memory_items m
+    where m.status='candidate'
+      and m.memory_type='skill'
+      and coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+      and m.metadata->>'privacy_class'='general'
+      and (
+        lower(coalesce(m.title,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or lower(coalesce(m.metadata->>'scope','')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or lower(coalesce(m.content,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or exists (
+          select 1 from regexp_split_to_table(lower(trim(coalesce(p_goal,''))),'\s+') token
+          where length(token) >= 5
+            and (
+              position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+              or position(token in lower(coalesce(m.title,''))) > 0
+            )
+        )
+      )
+  loop
+    v_req := coalesce(v_candidate.metadata->'preflight_requirements','{}'::jsonb);
+    v_terms := coalesce(v_req->'terms','[]'::jsonb);
+
+    if jsonb_array_length(v_terms)=0 then
+      v_candidate_applied := v_candidate_applied || jsonb_build_array(v_candidate.memory_id::text);
+      continue;
+    end if;
+
+    select not exists(
+      select 1 from jsonb_array_elements_text(v_terms) t
+      where position(lower(t) in v_plan_text)=0
+    )
+    and position('verify' in v_plan_text)>0
+    into v_ok;
+
+    if v_ok then
+      v_candidate_applied := v_candidate_applied || jsonb_build_array(v_candidate.memory_id::text);
+    else
+      v_missing := v_missing || jsonb_build_array(
+        jsonb_build_object(
+          'memory_id',v_candidate.memory_id,
+          'title',v_candidate.title,
+          'mode','candidate_prevention',
+          'terms',v_terms
+        )
+      );
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'version','mastery-learning-loop-v1-generic-action',
+    'passed',jsonb_array_length(v_missing)=0,
+    'required',v_required,
+    'applied_memory_ids',v_applied || v_candidate_applied,
+    'applied_active_memory_ids',v_applied,
+    'applied_candidate_memory_ids',v_candidate_applied,
+    'missing',v_missing,
+    'learning_application_required',true
+  );
+end;
+$function$
+
+
+CREATE OR REPLACE FUNCTION aria_internal.verify_learning_application(p_goal text, p_steps jsonb, p_results jsonb, p_applied_memory_ids jsonb DEFAULT '[]'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'aria_internal', 'aria_memory'
+AS $function$
+declare
+  v_required jsonb := '[]'::jsonb;
+  v_verified jsonb := '[]'::jsonb;
+  v_missing jsonb := '[]'::jsonb;
+  v_applied jsonb := coalesce(p_applied_memory_ids,'[]'::jsonb);
+  v_execution_text text := lower(coalesce(p_steps,'[]'::jsonb)::text || ' ' || coalesce(p_results,'{}'::jsonb)::text);
+  v_has_success boolean := v_execution_text ~ '"status"\s*:\s*"succeeded"';
+  v_skill record;
+  v_applied_skill record;
+  v_req jsonb;
+  v_terms jsonb;
+  v_ok boolean;
+begin
+  for v_skill in
+    select m.memory_id,m.title,m.content,m.metadata,m.confidence
+    from aria_memory.memory_items m
+    where m.status='active'
+      and m.memory_type in ('skill','procedural')
+      and m.confidence >= .90
+      and m.metadata->>'privacy_class'='general'
+      and (
+        coalesce(m.metadata->>'preflight_required','false')='true'
+        or coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+      )
+      and (
+        lower(coalesce(m.title,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or lower(coalesce(m.content,'')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or lower(coalesce(m.metadata->>'scope','')) like '%'||lower(trim(coalesce(p_goal,'')))||'%'
+        or (
+          coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+          and (
+            (
+              lower(trim(coalesce(m.metadata->>'scope',''))) = 'deploy supabase edge function'
+              and lower(trim(coalesce(p_goal,''))) ~ '(deploy|deployment|deploying|desplegar|despliegue)'
+              and lower(trim(coalesce(p_goal,''))) ~ '(edge function|edge functions|edge-function|función edge|funcion edge)'
+            )
+            or (
+              lower(trim(coalesce(m.metadata->>'scope',''))) <> 'deploy supabase edge function'
+              and exists (
+                select 1
+                from regexp_split_to_table(lower(trim(coalesce(p_goal,''))),'\s+') token
+                where length(token) >= 5
+                  and token not in ('supabase','database','project','mission','function','functions','edge','api','sql','read','write','execute','tool','runtime','aria','step')
+                  and position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+              )
+            )
+          )
+        )
+      )
+  loop
+    v_required := v_required || jsonb_build_array(v_skill.memory_id::text);
+
+    if not (v_applied ? (v_skill.memory_id::text)) then
+      v_missing := v_missing || jsonb_build_array(
+        jsonb_build_object('memory_id',v_skill.memory_id,'title',v_skill.title,'reason','not_marked_applied_before_execution')
+      );
+      continue;
+    end if;
+
+    v_req := coalesce(v_skill.metadata->'preflight_requirements','{}'::jsonb);
+    v_terms := coalesce(v_req->'terms','[]'::jsonb);
+
+    if jsonb_array_length(v_terms)=0 then
+      if v_has_success then
+        v_verified := v_verified || jsonb_build_array(v_skill.memory_id::text);
+      else
+        v_missing := v_missing || jsonb_build_array(
+          jsonb_build_object('memory_id',v_skill.memory_id,'title',v_skill.title,'reason','no_successful_execution_evidence')
+        );
+      end if;
+      continue;
+    end if;
+
+    select v_has_success
+      and not exists(
+        select 1 from jsonb_array_elements_text(v_terms) t
+        where position(lower(t) in v_execution_text)=0
+      )
+      into v_ok;
+
+    if v_ok then
+      v_verified := v_verified || jsonb_build_array(v_skill.memory_id::text);
+    else
+      v_missing := v_missing || jsonb_build_array(
+        jsonb_build_object(
+          'memory_id',v_skill.memory_id,
+          'title',v_skill.title,
+          'terms',v_terms,
+          'reason',case when not v_has_success then 'no_successful_execution_evidence' else 'required_terms_missing_from_execution_evidence' end
+        )
+      );
+    end if;
+  end loop;
+
+  for v_applied_skill in
+    select m.memory_id,m.title,m.content,m.metadata,m.status,m.confidence
+    from aria_memory.memory_items m
+    where m.memory_type='skill'
+      and coalesce(m.metadata->>'learning_kind','')='failure_prevention'
+      and m.metadata->>'privacy_class'='general'
+      and m.memory_id::text in (select jsonb_array_elements_text(v_applied))
+  loop
+    if v_applied_skill.status <> 'candidate' then continue; end if;
+
+    v_req := coalesce(v_applied_skill.metadata->'preflight_requirements','{}'::jsonb);
+    v_terms := coalesce(v_req->'terms','[]'::jsonb);
+
+    if jsonb_array_length(v_terms)=0 then
+      v_missing := v_missing || jsonb_build_array(
+        jsonb_build_object('memory_id',v_applied_skill.memory_id,'title',v_applied_skill.title,'reason','candidate_has_no_preflight_terms')
+      );
+      continue;
+    end if;
+
+    select v_has_success
+      and not exists(
+        select 1 from jsonb_array_elements_text(v_terms) t
+        where position(lower(t) in v_execution_text)=0
+      )
+      into v_ok;
+
+    if v_ok then
+      v_verified := v_verified || jsonb_build_array(v_applied_skill.memory_id::text);
+    else
+      v_missing := v_missing || jsonb_build_array(
+        jsonb_build_object(
+          'memory_id',v_applied_skill.memory_id,
+          'title',v_applied_skill.title,
+          'terms',v_terms,
+          'reason',case when not v_has_success then 'candidate_no_successful_execution_evidence' else 'candidate_terms_missing_from_execution_evidence' end
+        )
+      );
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'version','mastery-learning-loop-v1-generic-action',
+    'passed',jsonb_array_length(v_missing)=0,
+    'required_memory_ids',v_required,
+    'verified_memory_ids',v_verified,
+    'missing_memory_ids',v_missing,
+    'has_successful_execution_evidence',v_has_success,
+    'learning_application_required',true
+  );
+end;
+$function$
+
+
 -- Mission-derived memory capture is skipped unless the source mission is explicitly general.
 
 CREATE OR REPLACE FUNCTION aria_memory.capture_mission_outcome()
@@ -542,4 +1164,31 @@ COMMENT ON TABLE public.cb_documents IS
 COMMENT ON COLUMN public.cb_memory_candidates.privacy_class IS
   'Only explicitly general candidates are accepted. Private or unclassified candidate text must not be staged in the shared memory pipeline.';
 
+
+-- Scoped text-wrapper delegates to the class-filtered user-scoped hybrid search.
+CREATE OR REPLACE FUNCTION public.aria_memory_search_hybrid_text_scoped(
+  p_owner_user_id uuid,
+  p_query text,
+  p_query_embedding_text text DEFAULT NULL::text,
+  p_limit integer DEFAULT 12,
+  p_lexical_weight numeric DEFAULT 0.55,
+  p_semantic_weight numeric DEFAULT 0.45,
+  p_rrf_k integer DEFAULT 50
+)
+RETURNS TABLE(memory_id uuid, memory_type text, title text, content text, confidence numeric, importance numeric, salience numeric, hybrid_score numeric)
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'aria_memory', 'extensions'
+AS $function$
+  SELECT *
+  FROM aria_memory.search_hybrid_user_scoped(
+    p_owner_user_id,
+    p_query,
+    CASE WHEN p_query_embedding_text IS NULL THEN NULL ELSE p_query_embedding_text::extensions.vector END,
+    p_limit,
+    p_lexical_weight,
+    p_semantic_weight,
+    p_rrf_k
+  );
+$function$;
 COMMIT;
