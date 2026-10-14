@@ -489,9 +489,142 @@ function consentPage(pendingId: string, clientName: string, scope = SCOPE): stri
     : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="referrer" content="no-referrer"/><title>Authorize ARIA</title><style>body{font-family:system-ui,sans-serif;max-width:560px;margin:36px auto;padding:0 16px;color:#111}button{font:inherit;padding:12px 16px;width:100%;cursor:pointer;border-radius:8px;border:0;background:#111;color:#fff}.card{border:1px solid #e5e5e5;border-radius:12px;padding:20px}.muted{color:#666;font-size:14px;line-height:1.5}</style></head><body><div class="card"><h1>Authorize ARIA MCP</h1><p><strong>${safeName}</strong> is requesting access to ARIA tools.</p><p class="muted">Scopes: <code>${scopeText}</code><br/>Resource: ARIA inbound MCP</p>${notice}<form method="post" action="${ISSUER}/authorize/consent"><input type="hidden" name="pending_id" value="${pendingId}"/><input type="hidden" name="decision" value="allow"/>${controlField}<button type="submit">Authorize requested scopes</button></form><form method="post" action="${ISSUER}/authorize/consent" style="margin-top:8px"><input type="hidden" name="pending_id" value="${pendingId}"/><input type="hidden" name="decision" value="deny"/><button type="submit" style="background:#eee;color:#111">Deny</button></form></div></body></html>`;
 }
+
+async function requireActiveCuevacoinControlGrant() {
+  const database = db();
+  const { data: clients, error: clientError } = await database
+    .from("aria_mcp_oauth_clients").select("client_id,client_name")
+    .eq("client_name", "ARIA CuevaCoin Control E2E Verification").limit(30);
+  if (clientError) throw new Error("cuevacoin_oauth_client_lookup_failed");
+  const ids = (clients ?? []).map((x:any) => String(x.client_id || "")).filter(Boolean);
+  if (!ids.length) throw new Error("cuevacoin_control_scope_required");
+  const { data: grants, error: grantError } = await database
+    .from("aria_mcp_oauth_refresh_tokens")
+    .select("client_id,scope,resource,expires_at,created_at")
+    .in("client_id", ids).eq("resource", RESOURCE).is("revoked_at", null)
+    .gt("expires_at", new Date().toISOString()).order("created_at", { ascending: false }).limit(30);
+  if (grantError) throw new Error("cuevacoin_oauth_grant_lookup_failed");
+  const grant = (grants ?? []).find((row:any) => {
+    const scopes = String(row.scope || "").split(/\s+/).filter(Boolean);
+    return scopes.includes(SCOPE) && scopes.includes(CUEVACOIN_CONTROL_SCOPE);
+  });
+  if (!grant) throw new Error("cuevacoin_control_scope_required");
+  return {
+    client_id: String(grant.client_id), scope: String(grant.scope),
+    resource: String(grant.resource), expires_at: String(grant.expires_at),
+    validated_at: new Date().toISOString(), source: "public.aria_mcp_oauth_refresh_tokens"
+  };
+}
+
+async function cuevacoinMissionReadDispatch(body:Record<string,unknown>) {
+  const missionId = String(body.mission_id || "");
+  const requestId = String(body.request_id || "");
+  const toolName = String(body.tool_name || "");
+  if (!/^[A-Za-z0-9:_-]{1,220}$/.test(missionId)) throw new Error("cuevacoin_mission_id_invalid");
+  if (!/^[A-Za-z0-9:_-]{1,220}$/.test(requestId)) throw new Error("cuevacoin_request_id_invalid");
+  if (!["cuevacoin_connection_status", "cuevacoin_project_control"].includes(toolName)) {
+    throw new Error("cuevacoin_read_tool_not_allowlisted");
+  }
+  const grant = await requireActiveCuevacoinControlGrant();
+  const executionId = missionId + ":" + requestId + ":" + toolName + ":" + crypto.randomUUID();
+
+  if (toolName === "cuevacoin_connection_status") {
+    const result = await cuevaCoinConnectionStatus();
+    return {
+      ok: true, mission_id: missionId, request_id: requestId,
+      execution_id: executionId, tool_name: toolName,
+      auth: { scope_verified: true, required_scope: CUEVACOIN_CONTROL_SCOPE, grant },
+      data: { ...result, tool_name: toolName, execution_id: executionId, scope_verified: true, read_only: true },
+      completed_at: new Date().toISOString()
+    };
+  }
+
+  const ops = ["github_repo_read", "supabase_project_status", "supabase_edge_functions_list"];
+  const calls:any[] = [];
+  for (const operation of ops) {
+    const callId = executionId + ":" + operation;
+    try {
+      const result:any = await cuevaCoinProjectControl({ operation }, grant.client_id);
+      const hasData = result && Object.prototype.hasOwnProperty.call(result, "data") && result.data !== null;
+      const identityRead = operation === "supabase_project_status"
+        && String(result?.project_ref || "") === CUEVACOIN_PROJECT.projectRef;
+      const ok = result?.ok === true && (hasData || identityRead);
+      calls.push({
+        execution_id: callId, tool_name: "cuevacoin_project_control", operation,
+        status: ok ? "succeeded" : "failed", ok, result: ok ? result : null,
+        error: ok ? null : "read_result_missing_or_unverified"
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "provider_request_failed");
+      calls.push({
+        execution_id: callId, tool_name: "cuevacoin_project_control", operation,
+        status: "failed", ok: false, error: cuevacoinSafeProviderError(message)
+      });
+    }
+  }
+  const repoCall = calls.find((x:any) => x.operation === "github_repo_read");
+  const projectCall = calls.find((x:any) => x.operation === "supabase_project_status");
+  const functionsCall = calls.find((x:any) => x.operation === "supabase_edge_functions_list");
+  const projectData = projectCall?.result;
+  const projectRef = String(projectData?.project_ref || "");
+  const functionRows = functionsCall?.result?.data;
+  const functionCount = Array.isArray(functionRows) ? functionRows.length : null;
+  const verified = calls.length === ops.length && calls.every((x:any) => x.ok === true)
+    && repoCall?.result?.ok === true && projectCall?.result?.ok === true
+    && projectRef === CUEVACOIN_PROJECT.projectRef && functionsCall?.result?.ok === true
+    && functionCount !== null;
+  const summary = verified
+    ? "PASS: se consultaron el repositorio Robvg9/CuevaCoin, la identidad del proyecto Supabase zqgmjwfvluboiporytcq y el inventario de Edge Functions mediante llamadas reales de solo lectura."
+    : "BLOQUEADO: una o más lecturas reales de CuevaCoin no se pudieron verificar. No se afirma control completo; consulta los errores sanitizados adjuntos.";
+  return {
+    ok: true, mission_id: missionId, request_id: requestId,
+    execution_id: executionId, tool_name: toolName,
+    auth: { scope_verified: true, required_scope: CUEVACOIN_CONTROL_SCOPE, grant },
+    data: {
+      project: "CuevaCoin", repository: "Robvg9/CuevaCoin",
+      project_ref: CUEVACOIN_PROJECT.projectRef, tool_name: toolName,
+      execution_id: executionId, scope_verified: true, read_only: true,
+      verification_complete: verified,
+      inventory: {
+        edge_function_count: functionCount,
+        project_status: projectData?.project_status ?? null,
+        repository_read_verified: repoCall?.result?.ok === true,
+        project_identity_verified: projectRef === CUEVACOIN_PROJECT.projectRef,
+        edge_function_inventory_verified: functionsCall?.result?.ok === true && functionCount !== null
+      },
+      summary, calls
+    },
+    completed_at: new Date().toISOString()
+  };
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const path = url.pathname;
+
+  // Internal mission dispatch is service-role-only and requires an active elevated OAuth grant.
+  if (path.endsWith("/internal/mission-read-dispatch")) {
+    if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
+    if (!SERVICE_ROLE_KEY || bearer(req) !== SERVICE_ROLE_KEY) {
+      return json(401, { ok: false, error: "internal_dispatch_unauthorized" });
+    }
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") return json(400, { ok: false, error: "invalid_internal_dispatch" });
+    try {
+      return json(200, await cuevacoinMissionReadDispatch(body as Record<string,unknown>));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "internal_dispatch_failed");
+      const allowed = new Set([
+        "cuevacoin_control_scope_required", "cuevacoin_oauth_client_lookup_failed",
+        "cuevacoin_oauth_grant_lookup_failed", "cuevacoin_mission_id_invalid",
+        "cuevacoin_request_id_invalid", "cuevacoin_read_tool_not_allowlisted"
+      ]);
+      return json(message === "cuevacoin_control_scope_required" ? 403 : 409, {
+        ok: false, error: allowed.has(message) ? message : cuevacoinSafeProviderError(message),
+        required_scope: CUEVACOIN_CONTROL_SCOPE
+      });
+    }
+  }
 
   // Grok Web requires the OAuth challenge during the initial MCP handshake.
   const publicOAuthPath =

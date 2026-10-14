@@ -98,4 +98,19 @@ assert.ok(!cloudflareDeployWorkflow.includes("scopes_supported']==['aria.mcp.inb
 assert.ok(cloudflareDeployWorkflow.includes("aria.project.cuevacoin.control"), 'OAuth smoke test must require the new governed CuevaCoin scope');
 console.log('cloudflare-oauth-scope-parity-contract: PASS');
 
+
+const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
+assert.ok(oauth.includes('async function requireActiveCuevacoinControlGrant'));
+assert.ok(oauth.includes('internal/mission-read-dispatch'));
+assert.ok(oauth.includes('aria_mcp_oauth_refresh_tokens'));
+assert.ok(oauth.includes('SERVICE_ROLE_KEY'));
+assert.ok(oauth.includes('cuevacoinMissionReadDispatch'));
+assert.ok(oauth.includes('supabase_edge_functions_list'));
+assert.ok(oauth.includes('cuevacoin_read_tool_not_allowlisted'));
+assert.ok(runner.includes('isCuevacoinAuthorizedReadMission'));
+assert.ok(runner.includes('buildCuevacoinAuthorizedReadPlan'));
+assert.ok(runner.includes('cuevacoinAuthorizedReadOnlyExecute'));
+assert.ok(runner.includes('cuevacoin_control_verification_incomplete'));
+assert.ok(runner.includes('allowed_external_operations: ["github_repo_read", "supabase_project_status", "supabase_edge_functions_list"]'));
+
 console.log('aria-cuevacoin-control-v1: PASS');

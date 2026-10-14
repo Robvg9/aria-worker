@@ -1412,6 +1412,108 @@ async function finalGlobalReconcile(missionId: string, step: any, mission: any =
   };
 }
 
+
+function isCuevacoinAuthorizedReadMission(goal: unknown): boolean {
+  const value = String(goal || "").toLowerCase();
+  return value.includes("cuevacoin_connection_status")
+    && value.includes("cuevacoin_project_control")
+    && value.includes("aria.project.cuevacoin.control")
+    && value.includes("zqgmjwfvluboiporytcq")
+    && value.includes("robvg9/cuevacoin");
+}
+
+function buildCuevacoinAuthorizedReadPlan() {
+  return [
+    {
+      id: "cuevacoin_connection_status",
+      title: "Ejecutar cuevacoin_connection_status",
+      risk: "READ",
+      executor_type: "connector",
+      target: { type: "connector", connector_id: "cuevacoin" },
+      operation: "cuevacoin_connection_status",
+      input: {},
+      verify: { response_content_nonempty: true },
+      depends_on: [],
+      timeout_ms: 90000,
+    },
+    {
+      id: "cuevacoin_project_control",
+      title: "Ejecutar cuevacoin_project_control (solo lectura)",
+      risk: "READ",
+      executor_type: "connector",
+      target: { type: "connector", connector_id: "cuevacoin" },
+      operation: "cuevacoin_project_control",
+      input: { required_read_operations: ["github_repo_read", "supabase_project_status", "supabase_edge_functions_list"] },
+      verify: { response_content_nonempty: true },
+      depends_on: ["cuevacoin_connection_status"],
+      timeout_ms: 90000,
+    },
+  ];
+}
+
+async function cuevacoinAuthorizedReadOnlyExecute(missionId: string, step: any, mission: any = null) {
+  const operation = String(step?.operation || "");
+  if (!["cuevacoin_connection_status", "cuevacoin_project_control"].includes(operation)) {
+    throw new Error("cuevacoin_read_tool_not_allowlisted");
+  }
+  if (!isCuevacoinAuthorizedReadMission(mission?.goal)) {
+    throw new Error("cuevacoin_read_mission_scope_mismatch");
+  }
+  const requestId = String(mission?.metadata?.request_id || mission?.metadata?.trace_id || missionId).slice(0, 180);
+  const endpoint = URL + "/functions/v1/aria-mcp-inbound-grok-v1/internal/mission-read-dispatch";
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + KEY,
+      apikey: KEY,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      mission_id: missionId,
+      request_id: requestId,
+      tool_name: operation,
+    }),
+    signal: AbortSignal.timeout(85000),
+  });
+  const body: any = await response.json().catch(() => null);
+  if (!response.ok || body?.ok !== true || body?.tool_name !== operation || body?.mission_id !== missionId) {
+    throw new Error(String(body?.error || ("cuevacoin_internal_dispatch_http_" + response.status)));
+  }
+  const data = body.data && typeof body.data === "object" ? body.data : null;
+  if (!data || data.scope_verified !== true || data.read_only !== true || body.auth?.scope_verified !== true) {
+    throw new Error("cuevacoin_internal_dispatch_evidence_invalid");
+  }
+  const content = String(data.summary || (operation === "cuevacoin_connection_status"
+    ? "Estado CuevaCoin consultado. Control completo: " + (data.ready_for_full_control === true ? "PASS" : "NO CONFIRMADO") + "."
+    : "Control CuevaCoin consultado. Verificación completa: " + (data.verification_complete === true ? "PASS" : "BLOQUEADO") + "."));
+  return {
+    status: "succeeded",
+    executor_type: "connector",
+    connector_id: "cuevacoin",
+    operation,
+    data,
+    verification_evidence: {
+      verified: true,
+      tool_name: operation,
+      execution_id: body.execution_id,
+      request_id: requestId,
+      required_scope: "aria.project.cuevacoin.control",
+      scope_verified: true,
+      read_only: true,
+      verification_complete: data.verification_complete === true || data.ready_for_full_control === true,
+      calls: Array.isArray(data.calls) ? data.calls.map((call:any) => ({
+        execution_id: call.execution_id,
+        tool_name: call.tool_name,
+        operation: call.operation,
+        status: call.status,
+        ok: call.ok,
+        error: call.error || null,
+      })) : [],
+    },
+    response: { content },
+  };
+}
+
 async function cuevacoinStep6TempWriteProbe(step: any, mission: any = null) {
   const projectRef = "zqgmjwfvluboiporytcq";
   const input = step?.input && typeof step.input === "object" ? step.input : {};
@@ -1452,6 +1554,7 @@ async function connectorExecute(missionId: string, step: any, token: string | nu
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
   if (connector === "cuevacoin" && operation === "step6_temp_write_probe") return cuevacoinStep6TempWriteProbe(step, mission);
+  if (connector === "cuevacoin" && ["cuevacoin_connection_status", "cuevacoin_project_control"].includes(operation)) return cuevacoinAuthorizedReadOnlyExecute(missionId, step, mission);
   if (connector === "supabase" && operation === "global_final_reconcile") return finalGlobalReconcile(missionId, step, mission);
   if (connector === "supabase" && operation === "health") {
     return { status: "succeeded", executor_type: "connector", connector_id: connector, operation, data: { ok: true } };
@@ -2912,7 +3015,19 @@ Deno.serve(async (request) => {
       : null;
     const recoveryNeedsFreshPlan = recoveryState?.replan_required === true
       && !["retry_scheduled", "replanned"].includes(String(recoveryState?.status || ""));
-    if (Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length && !recoveryNeedsFreshPlan) {
+    if (isCuevacoinAuthorizedReadMission(mission?.goal)) {
+      const priorPlan = Array.isArray(mission.checkpoint?.plan) ? mission.checkpoint.plan : [];
+      steps = buildCuevacoinAuthorizedReadPlan();
+      await emitEvent(missionId, "mission_replanned", {
+        reason: "cuevacoin_oauth_scoped_read_only_tools",
+        planner_bypassed: true,
+        prior_plan_executor_types: [...new Set(priorPlan.map((step:any) => executorType(step)))],
+        scope_required: "aria.project.cuevacoin.control",
+        scope_must_be_verified_at_execution: true,
+        allowed_external_operations: ["github_repo_read", "supabase_project_status", "supabase_edge_functions_list"],
+        mutations_allowed: false,
+      });
+    } else if (Array.isArray(mission.checkpoint?.plan) && mission.checkpoint.plan.length && !recoveryNeedsFreshPlan) {
       steps = mission.checkpoint.plan;
     } else {
       try {
@@ -4424,6 +4539,15 @@ Deno.serve(async (request) => {
     if (missingRequiredConnectorOperations.length) {
       throw new Error("required_tool_call_evidence_missing:" + missingRequiredConnectorOperations.join(","));
     }
+    if (isCuevacoinAuthorizedReadMission(mission?.goal)) {
+      const projectControlStep = steps.find((step:any) => String(step?.operation || "") === "cuevacoin_project_control");
+      const projectControlResult: any = projectControlStep ? results[String(projectControlStep.id)] : null;
+      if (projectControlResult?.data?.verification_complete !== true
+        || projectControlResult?.verification_evidence?.scope_verified !== true
+        || projectControlResult?.verification_evidence?.read_only !== true) {
+        throw new Error("cuevacoin_control_verification_incomplete");
+      }
+    }
 
     const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
     if (!finalVerified) throw new Error("final_verification_failed");
@@ -4518,23 +4642,31 @@ Deno.serve(async (request) => {
     if (failedMissionId) {
       try {
         const requiredToolEvidenceMissing = reason.startsWith("required_tool_call_evidence_missing:");
-        if (requiredToolEvidenceMissing) {
+        const cuevacoinControlIncomplete = reason.startsWith("cuevacoin_control_verification_incomplete");
+        if (requiredToolEvidenceMissing || cuevacoinControlIncomplete) {
           try {
-            await emitEvent(failedMissionId, "required_tool_call_evidence_missing", {
+            await emitEvent(failedMissionId, requiredToolEvidenceMissing ? "required_tool_call_evidence_missing" : "cuevacoin_control_verification_incomplete", {
               reason,
               status: "blocked",
-              required_operations: reason.slice("required_tool_call_evidence_missing:".length).split(",").filter(Boolean),
-              remediation: "Habilitar y autorizar el adaptador de herramientas de solo lectura requerido; no sustituir su ejecución por una respuesta de modelo."
+              required_operations: requiredToolEvidenceMissing
+                ? reason.slice("required_tool_call_evidence_missing:".length).split(",").filter(Boolean)
+                : ["cuevacoin_connection_status", "cuevacoin_project_control"],
+              remediation: cuevacoinControlIncomplete
+                ? "Revisar el resultado sanitizado de las lecturas reales; no afirmar control completo hasta confirmar repositorio, proyecto Supabase y Edge Functions."
+                : "Habilitar y autorizar el adaptador de herramientas de solo lectura requerido; no sustituir su ejecución por una respuesta de modelo."
             });
           } catch {}
         }
+        const requiresHumanGate = requiredToolEvidenceMissing || cuevacoinControlIncomplete;
         const recovered = await updateMission(failedMissionId, {
-          status: reason.startsWith("planner_empty_steps") || requiredToolEvidenceMissing ? "blocked" : "paused",
+          status: reason.startsWith("planner_empty_steps") || requiresHumanGate ? "blocked" : "paused",
           next_action: requiredToolEvidenceMissing
             ? "human_gate:enable_authorized_required_connector_operations"
-            : reason.startsWith("planner_empty_steps")
-              ? "replan: planner returned no executable steps and no safe read-only fallback was available; build a materially different governed plan before retrying"
-              : "recovery: universal runner exception",
+            : cuevacoinControlIncomplete
+              ? "human_gate:resolve_cuevacoin_read_only_access"
+              : reason.startsWith("planner_empty_steps")
+                ? "replan: planner returned no executable steps and no safe read-only fallback was available; build a materially different governed plan before retrying"
+                : "recovery: universal runner exception",
           last_stderr: reason,
           lease_owner: null,
           lease_until: null,
@@ -4546,7 +4678,7 @@ Deno.serve(async (request) => {
     }
     return out({
       ok: false,
-      status: reason.startsWith("required_tool_call_evidence_missing:") || reason.startsWith("planner_empty_steps") ? "blocked" : "paused",
+      status: reason.startsWith("required_tool_call_evidence_missing:") || reason.startsWith("cuevacoin_control_verification_incomplete") || reason.startsWith("planner_empty_steps") ? "blocked" : "paused",
       mission_id: failedMissionId,
       runtime: V_LOGICAL,
       invocation_id: V,
