@@ -97,3 +97,22 @@ Deno.test("aria-memory-v2 fails closed before search, remember, embedding, and m
   assertStringIncludes(source, "privacy_classification_pending");
   assertStringIncludes(source, "temporarily_disabled_capabilities:['remember','search','embed_missing','maintenance']");
 });
+
+Deno.test("internal learning routes fail closed before reading mission evidence or writing memory", async () => {
+  const v2 = await Deno.readTextFile("supabase/functions/aria-learning-v2/index.ts");
+  const v3 = await Deno.readTextFile("supabase/functions/aria-learning-v3/index.ts");
+  const consolidator = await Deno.readTextFile("supabase/functions/aria-learning-consolidator-v1/index.ts");
+
+  assertStringIncludes(v2, "if(!(await auth(r)))return out({error:'unauthorized'},401);return out({error:'privacy_classification_pending',code:'ARIA_MEMORY_PRIVACY_GATE_CLOSED',retryable:true},503);");
+  assertStringIncludes(v2, "const b=await r.json()");
+  assertEquals(v2.indexOf("ARIA_MEMORY_PRIVACY_GATE_CLOSED") < v2.indexOf("const b=await r.json()"), true);
+  assertEquals(v2.indexOf("ARIA_MEMORY_PRIVACY_GATE_CLOSED") < v2.indexOf("async function learnMission"), false);
+
+  assertStringIncludes(v3, "if(!(await auth(r)))return out({error:'unauthorized'},401);return out({error:'privacy_classification_pending',code:'ARIA_MEMORY_PRIVACY_GATE_CLOSED',retryable:true},503);");
+  assertStringIncludes(v3, "const b=await r.json()");
+  assertEquals(v3.indexOf("ARIA_MEMORY_PRIVACY_GATE_CLOSED") < v3.indexOf("const b=await r.json()"), true);
+
+  assertStringIncludes(consolidator, 'if(!t||!SECRET||!eq(t,SECRET))return json({error:"unauthorized"},401);return json({error:"privacy_classification_pending",code:"ARIA_MEMORY_PRIVACY_GATE_CLOSED",retryable:true},503);');
+  assertStringIncludes(consolidator, '.from("mission_state")');
+  assertEquals(consolidator.indexOf("ARIA_MEMORY_PRIVACY_GATE_CLOSED") < consolidator.indexOf('.from("mission_state")'), true);
+});
