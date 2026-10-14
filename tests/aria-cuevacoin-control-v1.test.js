@@ -113,4 +113,12 @@ assert.ok(runner.includes('cuevacoinAuthorizedReadOnlyExecute'));
 assert.ok(runner.includes('cuevacoin_control_verification_incomplete'));
 assert.ok(runner.includes('allowed_external_operations: ["github_repo_read", "supabase_project_status", "supabase_edge_functions_list"]'));
 
+
+const connectionStatus = between(oauth, 'async function cuevaCoinConnectionStatus()', 'async function cuevaCoinProjectControl(');
+assert.match(connectionStatus, /ready_for_read_only_control:readyForReadOnlyControl/);
+assert.match(connectionStatus, /ready_for_full_control:readyForFullControl/);
+assert.match(connectionStatus, /const readyForFullControl=gh\.write_access==="verified"&&backend\.state==="connected"&&deployment\.state==="verified"/);
+assert.match(connectionStatus, /deployment_control_verified:deployment\.state==="verified"/);
+assert.match(connectionStatus, /github_repository_write_permission_not_verified/);
+
 console.log('aria-cuevacoin-control-v1: PASS');
