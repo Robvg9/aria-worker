@@ -155,8 +155,15 @@ const deploymentEvidenceWriter = between(
   'async function persistCuevacoinDeploymentEvent(',
   'async function cuevacoinDeploymentRunForCommit('
 );
+assert.match(deploymentEvidenceWriter, /db\(\)\.rpc\("aria_mission_append_event"/);
+assert.match(deploymentEvidenceWriter, /p_event:\s*\{/);
 assert.match(deploymentEvidenceWriter, /event_type:\s*"checkpoint_saved"/);
-assert.match(deploymentEvidenceWriter, /payload:\s*\{\s*\.\.\.payload,\s*kind:\s*"cuevacoin_deployment_dispatch_state"/);
+assert.match(deploymentEvidenceWriter, /kind:\s*"cuevacoin_deployment_dispatch_state"/);
+assert.match(deploymentEvidenceWriter, /request_id:\s*requestId/);
+assert.match(deploymentEvidenceWriter, /execution_id:\s*executionId/);
+assert.match(deploymentEvidenceWriter, /runtime_version:\s*runtimeVersion/);
+assert.match(deploymentEvidenceWriter, /source_sha:\s*sourceSha/);
+assert.doesNotMatch(deploymentEvidenceWriter, /\.schema\("aria_internal"\)\.from\("mission_events"\)\.insert/);
 assert.doesNotMatch(deploymentEvidenceWriter, /event_type:\s*"cuevacoin_deployment_dispatch_state"/);
 
 console.log('aria-cuevacoin-control-v1: PASS');
