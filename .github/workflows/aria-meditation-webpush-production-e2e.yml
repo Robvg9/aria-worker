@@ -12,6 +12,8 @@ on:
       - 'supabase/functions/aria-app-api-v3/**'
       - 'supabase/migrations/*meditation*'
       - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+      # The authenticated persistence predecessor gate is part of the same-SHA certification graph.
+      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
   workflow_dispatch:
 
 permissions:
