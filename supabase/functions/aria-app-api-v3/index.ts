@@ -1265,10 +1265,68 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
   });
   if(error)throw new Error(error.message);
   const result=data&&typeof data==="object"?data:{};
+  const rawNotifications=Array.isArray(result.notifications)?result.notifications:[];
+  const completedNotifications=rawNotifications.filter((n:any)=>
+    String(n?.kind||"")==="mission_completed_verified" && String(n?.mission_id||"").trim()
+  );
+
+  // A previously verified mission can later be invalidated. Keep completion
+  // notifications only when the mission is currently succeeded and this row
+  // points at its newest mission_verified event. This prevents stale success
+  // pushes from resurfacing a blocked or corrected mission in the PWA.
+  let visibleNotifications=rawNotifications;
+  let staleUnreadCount=0;
+  if(completedNotifications.length){
+    const missionIds=[...new Set(completedNotifications.map((n:any)=>String(n.mission_id)))];
+    const {data:missions,error:missionError}=await serviceClient().schema("aria_internal")
+      .from("mission_state")
+      .select("mission_id,status")
+      .in("mission_id",missionIds);
+    if(missionError)throw new Error("notification_mission_state_lookup_failed:"+missionError.message);
+
+    const {data:verifiedEvents,error:eventError}=await serviceClient().schema("aria_internal")
+      .from("mission_events")
+      .select("event_id,mission_id")
+      .eq("event_type","mission_verified")
+      .in("mission_id",missionIds)
+      .order("event_id",{ascending:false})
+      .limit(1000);
+    if(eventError)throw new Error("notification_verification_lookup_failed:"+eventError.message);
+
+    const statusByMission=new Map((missions??[]).map((m:any)=>[String(m.mission_id),String(m.status||"")]));
+    const latestVerifiedEventByMission=new Map<string,string>();
+    for(const event of (verifiedEvents??[])){
+      const missionId=String((event as any)?.mission_id||"");
+      if(missionId&&!latestVerifiedEventByMission.has(missionId)){
+        latestVerifiedEventByMission.set(missionId,String((event as any)?.event_id||""));
+      }
+    }
+
+    const staleIds=new Set<string>();
+    for(const notification of completedNotifications){
+      const missionId=String(notification?.mission_id||"");
+      const sourceEventId=String(notification?.metadata?.source_event_id||"");
+      const isCurrentVerifiedSuccess=statusByMission.get(missionId)==="succeeded"
+        && Boolean(sourceEventId)
+        && latestVerifiedEventByMission.get(missionId)===sourceEventId;
+      if(!isCurrentVerifiedSuccess)staleIds.add(String(notification?.notification_id||""));
+    }
+
+    visibleNotifications=rawNotifications.filter((notification:any)=>
+      String(notification?.kind||"")!=="mission_completed_verified"
+      || !staleIds.has(String(notification?.notification_id||""))
+    );
+    staleUnreadCount=rawNotifications.filter((notification:any)=>
+      String(notification?.kind||"")==="mission_completed_verified"
+      && staleIds.has(String(notification?.notification_id||""))
+      && !notification?.read_at
+    ).length;
+  }
+
   return{
     version:"aria-meditation-notifications-v1",
-    notifications:Array.isArray(result.notifications)?result.notifications:[],
-    unread_count:Math.max(0,Number(result.unread_count)||0),
+    notifications:visibleNotifications,
+    unread_count:Math.max(0,(Number(result.unread_count)||0)-staleUnreadCount),
     external_channels:result.external_channels&&typeof result.external_channels==="object"
       ? result.external_channels
       : {configured:true,channels:["web_push"]}

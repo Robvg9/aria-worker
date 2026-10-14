@@ -219,3 +219,11 @@ assertContains(appApi,'required_tool_call_evidence_missing','false-success corre
 assertContains(appApi,'verification_invalidated: true','correction response must explicitly report invalidation');
 assertContains(pwa,'CIERRE ANTERIOR INVALIDADO: no se ejecutaron todas las herramientas requeridas.','Meditación IA must explain why a tool-based false success was invalidated');
 console.log('CHAT DIAGNOSTICS + REQUIRED TOOL EVIDENCE CONTRACT: PASS');
+
+assertContains(appApi,'latestVerifiedEventByMission','only the latest verified event may back a completed notification');
+assertContains(appApi,'statusByMission.get(missionId)==="succeeded"','completed notifications must be hidden once their mission is no longer succeeded');
+assertContains(appApi,'latestVerifiedEventByMission.get(missionId)===sourceEventId','stale notifications must not point to an older verified event');
+assertContains(appApi,'staleUnreadCount','filtered stale notifications must be removed from unread count');
+assertContains(appApi,'source_event_id','mission completion notification must be bound to persisted verification evidence');
+console.log('MEDITATION STALE VERIFIED NOTIFICATION CONTRACT: PASS');
+
