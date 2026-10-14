@@ -5,6 +5,7 @@ on:
     paths:
       - 'supabase/functions/aria-context-retrieval-v1/**'
       - 'supabase/functions/aria-memory-write-gate-v1/**'
+      - 'supabase/functions/aria-memory-write-gate-v1/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/functions/aria-context-retrieval-v1/**'
+      - 'supabase/functions/aria-memory-write-gate-v1/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
@@ -37,4 +39,6 @@ jobs:
       - name: Run privacy boundary contract tests
         run: deno test --allow-read supabase/functions/_tests/private-route-closure.test.ts
       - name: Type-check retrieval and privacy contracts
-        run: deno check --config supabase/functions/aria-context-retrieval-v1/deno.json supabase/functions/aria-context-retrieval-v1/index.ts supabase/functions/_shared/private-route-contract.ts
+        run: deno check --config supabase/functions/aria-context-retrieval-v1/deno.json supabase/functions/aria-context-retrieval-v1/index.ts supabase/functions/aria-context-retrieval-v1/private-route-contract.ts supabase/functions/_shared/private-route-contract.ts
+      - name: Type-check fail-closed memory write gate
+        run: deno check supabase/functions/aria-memory-write-gate-v1/index.ts
