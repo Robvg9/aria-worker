@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertStringIncludes, assertStringExcludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { canEnterGeneralIndex, parseRetrievalQuery } from "../_shared/private-route-contract.ts";
 
 Deno.test("general retrieval requires exactly one bounded query field", () => {
@@ -35,7 +35,7 @@ Deno.test("retrieval source uses an explicit general-only query and does not ech
   assertStringIncludes(source, '.filter("cb_documents.metadata->>privacy_class", "eq", "general")');
   assertStringIncludes(source, "canEnterGeneralIndex(row.cb_documents?.metadata)");
   assertStringIncludes(source, 'query_text: "[REDACTED]"');
-  assertStringExcludes(source, "return reply(200, { query,");
-  assertStringExcludes(source, "metadata: item.row.metadata");
-  assertStringExcludes(source, "detail: error.message");
+  assertEquals(source.includes("return reply(200, { query,"), false);
+  assertEquals(source.includes("metadata: item.row.metadata"), false);
+  assertEquals(source.includes("detail: error.message"), false);
 });
