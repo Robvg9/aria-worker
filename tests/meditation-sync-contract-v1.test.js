@@ -48,8 +48,11 @@ assert.match(app,/executionHumanNow/);
 assert.match(app,/executionHumanLog/);
 assert.match(app,/executionOutcome/);
 assert.match(app,/api\('\/missions\/'\s*\+\s*encodeURIComponent\(missionId\)\s*\+\s*'\/events\?live='/);
-assert.match(app,/MEDITATION_LIVE_POLL_MS = 2500/);
+assert.match(app,/MEDITATION_LIVE_POLL_MS = 10000/);
 assert.match(app,/useLiveSync\(load, session\.accessToken, MEDITATION_LIVE_POLL_MS\)/);
+assert.match(app,/const cachedMission = \\[/);
+assert.match(app,/if \\(cachedMission\\) \\{/);
+assert.match(app,/setMissionDetailOpen\\(true\\)/);
 console.log('MEDITATION HUMAN LIVE EXECUTION CONTRACT: PASS');
 
 assert.doesNotMatch(app,/Parte de Meditación IA se sincronizó;/);
