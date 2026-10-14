@@ -24,6 +24,9 @@ assertContains(appApi,'find((device:any)=>isFreshLocalModelHeartbeat(device?.las
 assertContains(appApi,'fresh_windows_online','operational health must expose live Windows heartbeat state');
 assertContains(appApi,'stale_windows_online','operational health must count stale Windows registrations');
 assertContains(pwa,"const coreHealthy=status==='healthy'&&","overall degraded health must not render as healthy merely because dependencies report healthy");
+assertContains(appApi,'high demand|overload|capacity|service unavailable','chat must treat model overload as transient');
+assertContains(appApi,'const primaryProvider=String(step?.target?.provider_id || "")','chat fallback must know the failed provider');
+assertContains(appApi,'if(aSameProvider!==bSameProvider) return aSameProvider ? 1 : -1;','chat fallback must prefer a different provider before same-provider alternatives');
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
 assertContains(appApi,'path.endsWith("/conversation") && !path.includes("/projects/")','generic conversation route must not catch project conversation requests');
 assertContains(appApi,'const requestedConversationId = conversationUrl.searchParams.get("conversation_id")?.trim() || null;','chat API must support reading an explicit active conversation ID');
