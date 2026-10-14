@@ -34,6 +34,26 @@ Deno.test("migration closes client RPC access and redacts saved retrieval querie
   assertEquals(unembeddedStart >= 0, true);
   assertEquals(unembeddedEnd > unembeddedStart, true);
   assertStringIncludes(sql.slice(unembeddedStart, unembeddedEnd), "m.metadata->>'privacy_class' = 'general'");
+  const captureStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.capture_mission_outcome()");
+  const reflectStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.reflect_mission_outcome");
+  const compileStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.compile_skill_for_goal");
+  const promoteStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.promote_failure_learning");
+  const preflightStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.learning_preflight");
+  const consolidateStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.consolidate_duplicates");
+  const memoryGuardStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.aria_encrypt_require_general_memory()");
+  assertEquals(captureStart >= 0, true);
+  assertEquals(captureStart < reflectStart && reflectStart < compileStart && compileStart < promoteStart &&
+    promoteStart < preflightStart && preflightStart < consolidateStart && consolidateStart < memoryGuardStart, true);
+  assertStringIncludes(sql.slice(captureStart, reflectStart), "if coalesce(new.metadata->>'privacy_class','') IS DISTINCT FROM 'general' then return new; end if;");
+  assertStringIncludes(sql.slice(captureStart, reflectStart), "'privacy_class','general'");
+  assertStringIncludes(sql.slice(reflectStart, compileStart), "m.metadata->>'privacy_class'='general'");
+  assertStringIncludes(sql.slice(reflectStart, compileStart), "'privacy_class','general'");
+  assertStringIncludes(sql.slice(compileStart, promoteStart), "metadata->>'privacy_class'='general'");
+  assertStringIncludes(sql.slice(compileStart, promoteStart), "'privacy_class','general'");
+  assertStringIncludes(sql.slice(promoteStart, preflightStart), "metadata->>'privacy_class'='general'");
+  assertStringIncludes(sql.slice(promoteStart, preflightStart), "'privacy_class','general'");
+  assertStringIncludes(sql.slice(preflightStart, consolidateStart), "m.metadata->>'privacy_class'='general'");
+  assertStringIncludes(sql.slice(consolidateStart, memoryGuardStart), "b.metadata->>'privacy_class' = 'general'");
 });
 
 Deno.test("retrieval source uses an explicit general-only query and does not echo or return metadata blobs", async () => {
