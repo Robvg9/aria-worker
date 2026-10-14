@@ -1195,7 +1195,7 @@ function StatCard({ value, label, color = '' }: { value: string | number; label:
 function OperationalHealthPanel({ health }: { health: any }) {
   if(!health)return null;
   const status=String(health.status||'unknown').toLowerCase(), summary=health.summary||{}, dependencies=health.dependencies||{};
-  const coreHealthy=dependencies.device_transport?.status==='healthy'&&dependencies.model_runtime?.status==='healthy'&&dependencies.job_queue?.status==='healthy';
+  const coreHealthy=status==='healthy'&&dependencies.device_transport?.status==='healthy'&&dependencies.model_runtime?.status==='healthy'&&dependencies.job_queue?.status==='healthy';
   const headline=coreHealthy?'Núcleo operativo activo':status==='unavailable'?'Diagnóstico no disponible':'Hay una incidencia operativa que revisar';
   const detail=coreHealthy&&Number(summary.blocked_missions||0)>0
     ?'Los servicios necesarios para ejecutar están disponibles. Las misiones bloqueadas quedan como trabajo pendiente; no significan que esta ejecución esté fallando.'
