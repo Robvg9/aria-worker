@@ -12,6 +12,9 @@ const memory=read('supabase','functions','aria-memory-v2','index.ts');
 const direct=read('supabase','functions','aria-direct-v1','index.ts');
 const executor=read('supabase','functions','aria-execution-runtime-v1','index.ts');
 const appWorkflow=read('.github','workflows','aria-app-api-v3-deploy.yml');
+const persistenceWorkflow=read('.github','workflows','persistence-recovery-rwht-authenticated.yml');
+const cloudflareDeployWorkflow=read('.github','workflows','aria-cloudflare-deploy.yml');
+const pwaDeployWorkflow=read('.github','workflows','aria-pwa-fast-deploy.yml');
 const plannerWorkflow=read('.github','workflows','supabase-canonical-deploy.yml');
 function assertContains(source,fragment,message){if(!source.includes(fragment))throw new Error(message||`Missing: ${fragment}`);}
 function assertAny(source,fragments,message){if(!fragments.some(f=>source.includes(f)))throw new Error(message||`Missing one of: ${fragments.join(' | ')}`);}
@@ -220,6 +223,9 @@ assertContains(appApi,'verification_invalidated: true','correction response must
 assertContains(pwa,'CIERRE ANTERIOR INVALIDADO: no se ejecutaron todas las herramientas requeridas.','Meditación IA must explain why a tool-based false success was invalidated');
 console.log('CHAT DIAGNOSTICS + REQUIRED TOOL EVIDENCE CONTRACT: PASS');
 
+assertContains(persistenceWorkflow,"'supabase/functions/aria-app-api-v3/**'","persistence/recovery E2E must trigger for API-only releases so exact-SHA predecessor gates cannot wait forever");
+assertContains(cloudflareDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Worker exact-SHA release must trigger when persistence predecessor workflow changes");
+assertContains(pwaDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA exact-SHA release must trigger when persistence predecessor workflow changes");
 assertContains(appApi,'latestVerifiedEventByMission','only the latest verified event may back a completed notification');
 assertContains(appApi,'statusByMission.get(missionId)==="succeeded"','completed notifications must be hidden once their mission is no longer succeeded');
 assertContains(appApi,'latestVerifiedEventByMission.get(missionId)===sourceEventId','stale notifications must not point to an older verified event');
