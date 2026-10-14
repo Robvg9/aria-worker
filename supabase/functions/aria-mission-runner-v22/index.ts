@@ -4180,6 +4180,81 @@ Deno.serve(async (request) => {
         return out({ ok: true, status: "waiting", mission_id: missionId, runtime: V, completed_steps: completed.size, pending_step: String(waiting.step.id) });
       }
 
+      // Provider permission denials are operator-owned configuration gates, not
+      // recoverable execution failures. Pause rather than exhausting retries and
+      // repeatedly replanning the same impossible connector operation.
+      const providerPermissionFailure = outcomes.find((item) =>
+        !item.passed
+        && /github_app_permission_denied|github_app_actions_permission_required/i.test(
+          String(item.result?.error?.message || item.result?.error?.code || item.result?.stderr || "")
+        )
+      );
+      if (providerPermissionFailure) {
+        const failedStepId = String(providerPermissionFailure.step.id);
+        const instructions = "Abre GitHub Developer settings → GitHub Apps → aria-autonomous-agent → Permissions & events. En Repository permissions, configura Actions = Read and write y guarda. Después aprueba la actualización de permisos para la instalación de Robvg9. La misión debe reanudarse por su ruta cloud; no lances manualmente cuevacoin-deploy.yml.";
+        const details = {
+          kind: "human_gate",
+          recoverable: true,
+          reason: "La GitHub App de ARIA no tiene permiso suficiente para consultar o despachar ejecuciones de GitHub Actions.",
+          next_action: "human_gate:resolve_github_app_actions_permission",
+          remediation: "Conceder Actions: Read and write a aria-autonomous-agent y aprobar el cambio de permisos de la instalación. Después reanudar esta misma misión.",
+          evidence: {
+            step_id: failedStepId,
+            operation: String(providerPermissionFailure.step.operation || ""),
+            error_code: "github_app_permission_denied",
+            repo: "Robvg9/CuevaCoin",
+            workflow_id: "cuevacoin-deploy.yml",
+          },
+        };
+        const gateRecord = {
+          required: true,
+          status: "pending",
+          method: "external_configuration",
+          step_id: failedStepId,
+          reason: details.reason,
+          instructions,
+          created_at: new Date().toISOString(),
+        };
+        await emitEvent(missionId, "human_gate_requested", {
+          required: true,
+          step_id: failedStepId,
+          executor_type: executorType(providerPermissionFailure.step),
+          operation: providerPermissionFailure.step.operation,
+          reason: details.reason,
+          instructions,
+          error_code: "github_app_permission_denied",
+        });
+        await updateMission(missionId, {
+          status: "paused",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: details.next_action,
+          last_stderr: "github_app_permission_denied",
+          checkpoint: {
+            ...checkpoint,
+            recovery: {
+              status: "human_gate_required",
+              failed_step_id: failedStepId,
+              block_details: details,
+            },
+            human_gate: gateRecord,
+            active_step: null,
+          },
+          lease_owner: null,
+          lease_until: null,
+        });
+        return out({
+          ok: true,
+          status: "human_gate_required",
+          mission_id: missionId,
+          runtime: V,
+          completed_steps: completed.size,
+          blocked_step_id: failedStepId,
+          human_gate: gateRecord,
+          recovery: details,
+        });
+      }
+
       const failures = outcomes.filter((item) => !item.passed);
       if (failures.length) {
         const verificationWait = failures.find((item) => verificationPending(item.step, item.result));
