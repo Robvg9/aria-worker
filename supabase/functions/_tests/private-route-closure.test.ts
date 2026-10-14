@@ -149,3 +149,35 @@ Deno.test("internal mastery/preflight and scoped search require general classifi
   assertStringIncludes(scoped, "FROM aria_memory.search_hybrid_user_scoped");
   assertEquals(scoped.includes("FROM aria_memory.memory_items"), false);
 });
+
+Deno.test("internal learning table and legacy retrieval routes fail closed by classification", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014233000_aria_encrypt_step5_learning_table_and_cb_search.sql");
+  assertStringIncludes(sql, "ADD COLUMN IF NOT EXISTS privacy_class text NOT NULL DEFAULT 'unclassified'");
+  assertStringIncludes(sql, "NEW.privacy_class IS DISTINCT FROM 'general'");
+  assertStringIncludes(sql, "BEFORE INSERT OR UPDATE OF summary, evidence, privacy_class");
+  assertStringIncludes(sql, "AND d.metadata->>'privacy_class' = 'general'");
+  assertStringIncludes(sql, "REVOKE EXECUTE ON FUNCTION public.cb_search_chunks(text, integer)");
+  assertStringIncludes(sql, "GRANT EXECUTE ON FUNCTION public.cb_search_chunks(text, integer)");
+
+  const appApi = await Deno.readTextFile("supabase/functions/aria-app-api-v3/index.ts");
+  assertStringIncludes(appApi, ".eq('metadata->>privacy_class','general').gte('confidence',.9)");
+  const planner11 = await Deno.readTextFile("supabase/functions/aria-planner-v11/index.ts");
+  assertStringIncludes(planner11, '.eq("metadata->>privacy_class","general").ilike("title","%verified multi-executor composition%")');
+
+  for (const version of ["v7", "v8", "v9", "v10"]) {
+    const source = await Deno.readTextFile("supabase/functions/aria-planner-" + version + "/index.ts");
+    assertStringIncludes(source, '.eq("privacy_class","general").order("created_at"');
+  }
+
+  const gateway = await Deno.readTextFile("supabase/functions/aria-device-gateway/index.ts");
+  assertStringIncludes(gateway, ".eq('metadata->>privacy_class','general').in('status',['succeeded','blocked','failed','timeout','cancelled'])");
+  assertStringIncludes(gateway, "privacy_class:'general'");
+  assertStringIncludes(gateway, ".eq('privacy_class','general').eq('reusable',true)");
+
+  for (const version of ["v6", "v7", "v8", "v9"]) {
+    const supervisor = await Deno.readTextFile("supabase/functions/aria-autonomy-supervisor-" + version + "/index.ts");
+    assertStringIncludes(supervisor, '.eq("metadata->>privacy_class","general").in("status"');
+    assertStringIncludes(supervisor, 'privacy_class:"general"');
+    assertStringIncludes(supervisor, '.eq("privacy_class","general").limit(1)');
+  }
+});
