@@ -28,8 +28,8 @@ assert.match(continuity, /input\.action === "observe"/);
 assert.match(continuity, /input\.operation = "observe"/);
 
 
-const deployGuard = runner.match(/function isCuevacoinAuthorizedDeployMission\\(goal: unknown\\): boolean \\{[\\s\\S]*?\\n\\}/);
-const readGuard = runner.match(/function isCuevacoinAuthorizedReadMission\\(goal: unknown\\): boolean \\{[\\s\\S]*?\\n\\}/);
+const deployGuard = runner.match(/function isCuevacoinAuthorizedDeployMission\(goal: unknown\): boolean \{[\s\S]*?\n\}/);
+const readGuard = runner.match(/function isCuevacoinAuthorizedReadMission\(goal: unknown\): boolean \{[\s\S]*?\n\}/);
 assert.ok(deployGuard, 'CuevaCoin deploy authorization predicate must exist');
 assert.ok(readGuard, 'CuevaCoin read authorization predicate must be defined before its call sites');
 assert.ok(
@@ -39,12 +39,12 @@ assert.ok(
 );
 const executablePredicates = [deployGuard[0], readGuard[0]]
   .map((source) => source.replace('(goal: unknown): boolean {', '(goal) {'))
-  .join('\\n');
+  .join('\n');
 const predicates = {};
 vm.runInNewContext(
   executablePredicates
-    + '\\nthis.isCuevacoinAuthorizedDeployMission = isCuevacoinAuthorizedDeployMission;'
-    + '\\nthis.isCuevacoinAuthorizedReadMission = isCuevacoinAuthorizedReadMission;',
+    + '\nthis.isCuevacoinAuthorizedDeployMission = isCuevacoinAuthorizedDeployMission;'
+    + '\nthis.isCuevacoinAuthorizedReadMission = isCuevacoinAuthorizedReadMission;',
   predicates,
 );
 const deployGoal = '/ARIA-CuevaCoin cerrar el paso 8 con cuevacoin_project_control desde .github/workflows/cuevacoin-deploy.yml en Robvg9/CuevaCoin proyecto zqgmjwfvluboiporytcq confirm_project_ref, sin cambios SQL ni operaciones financieras, main, despliegue controlado autorizado';
