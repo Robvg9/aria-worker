@@ -1256,6 +1256,7 @@ async function capabilityCatalog(userId:string){
     }
   };
 }
+// Release-coupled read-only notification validation; the persistence browser predecessor also triggers for API-only changes.
 async function meditationNotificationsForUser(userId:string,unreadOnly=false,limit=50){
   const safeLimit=Math.max(1,Math.min(100,Number(limit)||50));
   const {data,error}=await serviceClient().schema("aria_internal").rpc("aria_meditation_notifications_for_user_v1",{

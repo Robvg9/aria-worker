@@ -27,6 +27,8 @@ on:
       - '.github/workflows/capabilities-rwht-authenticated.yml'
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      # Keep the browser persistence predecessor on the same release when its trigger contract changes.
+      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
   workflow_dispatch:
 
 concurrency:
