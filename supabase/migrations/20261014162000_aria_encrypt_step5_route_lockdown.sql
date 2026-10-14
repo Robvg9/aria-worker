@@ -274,9 +274,7 @@ begin
 
   return new;
 end;
-$function$
-
-
+$function$;
 CREATE OR REPLACE FUNCTION aria_internal.enforce_learning_preflight()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -395,9 +393,7 @@ begin
   );
   return new;
 end;
-$function$
-
-
+$function$;
 CREATE OR REPLACE FUNCTION aria_internal.validate_learning_preflight(p_goal text, p_plan jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -569,9 +565,7 @@ begin
     'learning_application_required',true
   );
 end;
-$function$
-
-
+$function$;
 CREATE OR REPLACE FUNCTION aria_internal.verify_learning_application(p_goal text, p_steps jsonb, p_results jsonb, p_applied_memory_ids jsonb DEFAULT '[]'::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -723,9 +717,7 @@ begin
     'learning_application_required',true
   );
 end;
-$function$
-
-
+$function$;
 -- Mission-derived memory capture is skipped unless the source mission is explicitly general.
 
 CREATE OR REPLACE FUNCTION aria_memory.capture_mission_outcome()
@@ -748,9 +740,7 @@ begin
  insert into aria_memory.memory_items(memory_type,title,content,content_hash,source_type,source_ref,provenance,metadata,confidence,importance,salience) values('episodic','Mission outcome '||new.mission_id,v_content,v_hash,'mission',new.mission_id,jsonb_build_object('capture','mission_state_trigger','status',new.status,'mission_id',new.mission_id),jsonb_build_object('goal',new.goal,'status',new.status,'completed_steps',new.completed_steps,'total_steps',new.total_steps,'recovery_count',new.recovery_count,'exit_code',new.last_exit_code,'failure_detail',case when v_failure_detail<>'' then v_failure_detail else null end,'next_strategy',case when v_strategy<>'' then v_strategy else null end,'world_entity_id',v_entity,'privacy_class','general'),case when new.status='succeeded' then 1 else .85 end,.8,.9) on conflict(content_hash) do update set updated_at=now() returning memory_id into v_id;
  insert into aria_memory.memory_events(memory_id,event_type,source_ref,payload) values(v_id,'created',new.mission_id,jsonb_build_object('trigger','mission_state','status',new.status,'world_entity_id',v_entity)); perform aria_memory.reflect_mission_outcome(v_id,new.mission_id,new.status,new.goal,new.completed_steps,new.total_steps,new.recovery_count); return new;
 end;
-$function$
-
-
+$function$;
 CREATE OR REPLACE FUNCTION aria_memory.reflect_mission_outcome(p_memory_id uuid, p_mission_id text, p_status text, p_goal text, p_completed_steps integer, p_total_steps integer, p_recovery_count integer)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -785,9 +775,7 @@ BEGIN
   IF p_status='succeeded' THEN PERFORM aria_memory.compile_skill_for_goal(coalesce(p_goal,'')); END IF;
   RETURN v_lesson;
 END;
-$function$
-
-
+$function$;
 CREATE OR REPLACE FUNCTION aria_memory.compile_skill_for_goal(p_goal text)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -896,9 +884,7 @@ begin
     'regression',v_regression
   );
 end;
-$function$
-
-
+$function$;
 CREATE OR REPLACE FUNCTION aria_memory.learning_preflight(p_goal text, p_plan jsonb DEFAULT '{}'::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -938,9 +924,7 @@ begin
   end loop;
   return v_count;
 end;
-$function$
-
-
+$function$;
 -- Existing canonical memory rows remain intact. Unclassified/explicitly private rows do not pass
 -- the general memory/search surface, and new writes/embeddings require an explicit general label.
 CREATE OR REPLACE FUNCTION aria_memory.aria_encrypt_require_general_memory()
