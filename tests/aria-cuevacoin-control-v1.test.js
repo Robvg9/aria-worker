@@ -142,6 +142,20 @@ assert.match(connectionStatus, /deployment_control_verified:deployment\.state===
 assert.match(connectionStatus, /github_repository_write_permission_not_verified/);
 
 
+const deploymentRecovery = between(
+  oauth,
+  'if (String(state.request_id || "") === requestId && state.dispatch_state === "dispatching") {',
+  '    const refResult: any = await cuevaCoinProjectControl({ operation: "github_ref_read", branch: "main" }, grant.client_id);'
+);
+assert.match(deploymentRecovery, /Date\.now\(\) - firstDispatchAt < 120_000/);
+assert.match(deploymentRecovery, /state\.recovery_dispatch_attempted === true/);
+assert.match(deploymentRecovery, /currentMainSha !== String\(state\.commit_sha \|\| ""\)/);
+assert.match(deploymentRecovery, /recovery_dispatch_attempted:\s*true/);
+assert.match(deploymentRecovery, /await persistCuevacoinDeploymentEvent\(missionId, requestId, recoveryIntent\)/);
+assert.match(deploymentRecovery, /operation: "github_workflow_dispatch"/);
+assert.match(deploymentRecovery, /recovery_dispatch_accepted:\s*true/);
+assert.match(deploymentRecovery, /cuevacoin_deployment_recovery_dispatch_already_attempted_no_redispatch/);
+
 const deploymentEvidenceReader = between(
   oauth,
   'async function cuevacoinDeploymentEvents(',
