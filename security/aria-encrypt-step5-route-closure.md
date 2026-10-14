@@ -41,7 +41,7 @@ Branch: `aria/encrypt-step5-route-closure`, stacked on Step 4 branch `aria/encry
 - `supabase/functions/_shared/private-route-contract.ts` and `supabase/functions/_tests/private-route-closure.test.ts`
   - Add bounded request/classification contracts and source-level guards for retrieval/write closure.
 - `.github/workflows/aria-encrypt-route-closure.yml`
-  - Runs Deno contract tests plus type checks for the deployed Retrieval and Write Gate source. CI run `38604939519` passed on commit `a25975b243b03328e05e8c35087e057d0eeb9d45` (four initial contracts plus the write-gate contract and both type checks).
+  - Runs Deno contract tests plus type checks for the deployed Retrieval and Write Gate source. CI run `38605443820` passed on PR commit `c8d2e0bfb567f9bbec9ed3e5351e6001f6ac24d` (privacy contracts plus type checks for Retrieval and Memory Write Gate). This workflow does not validate the later branch-only `aria-memory-v2` patch.
 - This report records the route-by-route audit and exact limitations.
 
 ## Important compatibility consequence — fail closed
@@ -69,7 +69,7 @@ Risk reduction is now live at the Retrieval and Memory Write Gate layers, but St
 - [x] Identify the retrieval plaintext path and raw query logging behavior; confirm that direct client RPC calls fail under the current role grants rather than overstate them as effective anonymous access.
 - [x] Prepare database changes that revoke direct content RPC access, redact new retrieval audit records, and filter general retrieval by explicit classification.
 - [x] Prepare bounded/JWT-protected retrieval handler and automated contract/type-check workflow.
-- [x] CI verified PASS on commit `a25975b243b03328e05e8c35087e057d0eeb9d45` — [run 38604939519](https://github.com/Robvg9/aria-worker/actions/runs/38604939519): privacy contract tests and type checks for Retrieval and Memory Write Gate.
+- [x] CI verified PASS on PR commit `c8d2e0bfb567f9bbec9ed3e5351e6001f6ac24d` — [run 38605443820](https://github.com/Robvg9/aria-worker/actions/runs/38605443820): privacy contract tests and type checks for Retrieval and Memory Write Gate. This run does not validate the branch-only `aria-memory-v2` patch.
 - [ ] Review and merge the Step 4 dependency and this stacked Step 5 PR in sequence.
 - [ ] Apply the SQL migration through the official authorized Supabase migration path; the call is currently blocked by tool safety controls. Then query back grants, triggers, function definitions and schema.
 - [x] Deploy Retrieval v101 with `verify_jwt=true`; hash `8bd0f71e618e13671c7b32d202e99a8ac00d2a53ad7f1286856930b8f9c0b192`.
