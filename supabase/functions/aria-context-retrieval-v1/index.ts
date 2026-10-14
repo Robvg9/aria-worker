@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { canEnterGeneralIndex, parseRetrievalQuery } from "../_shared/private-route-contract.ts";
+import { canEnterGeneralIndex, parseRetrievalQuery } from "./private-route-contract.ts";
 
 const LIMIT_BYTES = 65536;
 const ORIGIN = "https://aria.robvg9.workers.dev";
