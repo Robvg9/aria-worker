@@ -18,6 +18,12 @@ function assertAny(source,fragments,message){if(!fragments.some(f=>source.includ
 assertContains(appApi,'SUPABASE_SERVICE_ROLE_KEY','service-role binding missing');
 assertContains(appApi,'auth.getClaims(token)','server-side JWT claims verification missing');
 if(appApi.includes('auth.getUser(token)'))throw new Error('app v3 auth path must not perform network user lookup per request');
+assertContains(appApi,'isFreshLocalModelHeartbeat(lastSeenAt: unknown','local model route freshness helper missing');
+assertContains(appApi,'LOCAL_MODEL_HEARTBEAT_FRESHNESS_MS = 3 * 60_000','local model heartbeat freshness must be bounded');
+assertContains(appApi,'find((device:any)=>isFreshLocalModelHeartbeat(device?.last_seen_at))','chat must not select stale local model device records');
+assertContains(appApi,'fresh_windows_online','operational health must expose live Windows heartbeat state');
+assertContains(appApi,'stale_windows_online','operational health must count stale Windows registrations');
+assertContains(pwa,"const coreHealthy=status==='healthy'&&","overall degraded health must not render as healthy merely because dependencies report healthy");
 assertContains(appApi,'path.endsWith("/conversation")','conversation route missing');
 assertContains(appApi,'path.endsWith("/conversation") && !path.includes("/projects/")','generic conversation route must not catch project conversation requests');
 assertContains(appApi,'const requestedConversationId = conversationUrl.searchParams.get("conversation_id")?.trim() || null;','chat API must support reading an explicit active conversation ID');
