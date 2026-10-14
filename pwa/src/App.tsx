@@ -850,7 +850,7 @@ async function refreshSession(session: Session) {
 let sessionRefreshInFlight: Promise<Session | null> | null = null;
 async function refreshSessionOnce(session: Session, force = false): Promise<Session | null> {
   if (sessionRefreshInFlight) return sessionRefreshInFlight;
-  sessionRefreshInFlight = (async () => {
+  const pending = (async () => {
     let stored: Session | null = null;
     try {
       const value = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
@@ -868,8 +868,9 @@ async function refreshSessionOnce(session: Session, force = false): Promise<Sess
     localStorage.setItem(SESSION_KEY, JSON.stringify(next));
     window.dispatchEvent(new CustomEvent('aria-session-refreshed', { detail: next }));
     return next;
-  })().catch(() => null).finally(() => { sessionRefreshInFlight = null; });
-  return sessionRefreshInFlight;
+  })().catch(() => null).finally(() => { if (sessionRefreshInFlight === pending) sessionRefreshInFlight = null; });
+  sessionRefreshInFlight = pending;
+  return pending;
 }
 
 function authRouteFailureLabel(error: unknown) {
@@ -3802,6 +3803,7 @@ export default function App() {
         try {
           const next = await refreshSessionOnce(session, true);
           if (cancelled) return;
+          if (!next) throw new Error('refresh_failed');
           localStorage.setItem(SESSION_KEY, JSON.stringify(next));
           setSession(next);
         } catch (error) {
@@ -3818,6 +3820,7 @@ export default function App() {
         try {
           const next = await refreshSessionOnce(session, true);
           if (cancelled) return;
+          if (!next) throw new Error('refresh_failed');
           localStorage.setItem(SESSION_KEY, JSON.stringify(next));
           setSession(next);
         } catch {}
