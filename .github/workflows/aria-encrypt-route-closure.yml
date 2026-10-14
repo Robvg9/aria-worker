@@ -9,9 +9,21 @@ on:
       - 'supabase/functions/aria-learning-v2/**'
       - 'supabase/functions/aria-learning-v3/**'
       - 'supabase/functions/aria-learning-consolidator-v1/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'supabase/functions/aria-planner-v7/**'
+      - 'supabase/functions/aria-planner-v8/**'
+      - 'supabase/functions/aria-planner-v9/**'
+      - 'supabase/functions/aria-planner-v10/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v6/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v7/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v8/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v9/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
+      - 'supabase/migrations/20261014233000_aria_encrypt_step5_learning_table_and_cb_search.sql'
       - 'security/aria-encrypt-step5-route-closure.md'
       - '.github/workflows/aria-encrypt-route-closure.yml'
   push:
@@ -23,9 +35,21 @@ on:
       - 'supabase/functions/aria-learning-v2/**'
       - 'supabase/functions/aria-learning-v3/**'
       - 'supabase/functions/aria-learning-consolidator-v1/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'supabase/functions/aria-planner-v7/**'
+      - 'supabase/functions/aria-planner-v8/**'
+      - 'supabase/functions/aria-planner-v9/**'
+      - 'supabase/functions/aria-planner-v10/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v6/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v7/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v8/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v9/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
+      - 'supabase/migrations/20261014233000_aria_encrypt_step5_learning_table_and_cb_search.sql'
       - 'security/aria-encrypt-step5-route-closure.md'
       - '.github/workflows/aria-encrypt-route-closure.yml'
 
@@ -57,3 +81,25 @@ jobs:
         run: deno check --config supabase/functions/aria-learning-v3/deno.json supabase/functions/aria-learning-v3/index.ts
       - name: Type-check internal learning consolidator
         run: deno check --config supabase/functions/aria-learning-consolidator-v1/deno.json supabase/functions/aria-learning-consolidator-v1/index.ts
+      - name: Type-check PWA API direct-memory boundary
+        run: deno check --config supabase/functions/aria-app-api-v3/deno.json supabase/functions/aria-app-api-v3/index.ts
+      - name: Type-check device gateway learning boundary
+        run: deno check --config supabase/functions/aria-device-gateway/deno.json supabase/functions/aria-device-gateway/index.ts
+      - name: Type-check planner v7
+        run: deno check --config supabase/functions/aria-planner-v7/deno.json supabase/functions/aria-planner-v7/index.ts
+      - name: Type-check planner v8
+        run: deno check --config supabase/functions/aria-planner-v8/deno.json supabase/functions/aria-planner-v8/index.ts
+      - name: Type-check planner v9
+        run: deno check --config supabase/functions/aria-planner-v9/deno.json supabase/functions/aria-planner-v9/index.ts
+      - name: Type-check planner v10
+        run: deno check --config supabase/functions/aria-planner-v10/deno.json supabase/functions/aria-planner-v10/index.ts
+      - name: Type-check planner v11 direct-memory boundary
+        run: deno check --config supabase/functions/aria-planner-v11/deno.json supabase/functions/aria-planner-v11/index.ts
+      - name: Type-check autonomy supervisor v6
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v6/deno.json supabase/functions/aria-autonomy-supervisor-v6/index.ts
+      - name: Type-check autonomy supervisor v7
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v7/deno.json supabase/functions/aria-autonomy-supervisor-v7/index.ts
+      - name: Type-check autonomy supervisor v8
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v8/deno.json supabase/functions/aria-autonomy-supervisor-v8/index.ts
+      - name: Type-check autonomy supervisor v9
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v9/deno.json supabase/functions/aria-autonomy-supervisor-v9/index.ts
