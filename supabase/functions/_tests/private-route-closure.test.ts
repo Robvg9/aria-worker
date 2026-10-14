@@ -77,9 +77,9 @@ Deno.test("memory write gate fails closed and cannot persist unclassified candid
   assertStringIncludes(source, "aria_memory_write");
 });
 
-Deno.test("aria-memory-v2 fails closed before search, remember, and embedding actions", async () => {
+Deno.test("aria-memory-v2 fails closed before search, remember, embedding, and maintenance actions", async () => {
   const source = await Deno.readTextFile("supabase/functions/aria-memory-v2/index.ts");
-  const guardIndex = source.indexOf("if(['remember','search','embed_missing'].includes(action))");
+  const guardIndex = source.indexOf("if(['remember','search','embed_missing','maintenance'].includes(action))");
   const rememberHandlerIndex = source.indexOf("if(action==='remember')");
   const searchHandlerIndex = source.indexOf("if(action==='search')");
   const embedHandlerIndex = source.indexOf("if(action==='embed_missing')");
