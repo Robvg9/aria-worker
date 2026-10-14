@@ -19,7 +19,7 @@ Deno.test("only explicit general classification can enter the shared index", () 
 });
 
 Deno.test("migration closes client RPC access and redacts saved retrieval queries", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014225549_aria_encrypt_step5_route_lockdown.sql");
   assertStringIncludes(sql, "REVOKE EXECUTE ON FUNCTION public.cb_search_chunks(text, integer) FROM PUBLIC, anon, authenticated");
   assertStringIncludes(sql, "REVOKE EXECUTE ON FUNCTION aria_memory.learning_context_for_goal(text, integer) FROM PUBLIC, anon, authenticated");
   assertStringIncludes(sql, "GRANT EXECUTE ON FUNCTION aria_memory.learning_context_for_goal(text, integer) TO service_role;");
@@ -120,7 +120,7 @@ Deno.test("internal learning routes fail closed before reading mission evidence 
 });
 
 Deno.test("internal mastery/preflight and scoped search require general classification", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014225549_aria_encrypt_step5_route_lockdown.sql");
   assertEquals(/^\s*\$function\$\s*$/m.test(sql), false, "All copied PostgreSQL function bodies must be statement-terminated.");
   assertEquals(/(?:END;|RETURN [^;]+;)\s+\$function\$(?!;)/i.test(sql), false, "Inline function bodies must also end in a semicolon.");
   const failureStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.capture_failure_mastery()");
@@ -153,7 +153,7 @@ Deno.test("internal mastery/preflight and scoped search require general classifi
 });
 
 Deno.test("internal learning table and legacy retrieval routes fail closed by classification", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261014233000_aria_encrypt_step5_learning_table_and_cb_search.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014231437_aria_encrypt_step5_learning_table_and_cb_search.sql");
   assertStringIncludes(sql, "ADD COLUMN IF NOT EXISTS privacy_class text NOT NULL DEFAULT 'unclassified'");
   assertStringIncludes(sql, "NEW.privacy_class IS DISTINCT FROM 'general'");
   assertStringIncludes(sql, "BEFORE INSERT OR UPDATE OF summary, evidence, privacy_class");
@@ -186,7 +186,7 @@ Deno.test("internal learning table and legacy retrieval routes fail closed by cl
 });
 
 Deno.test("chunk search requires both parent and chunk general classification", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261014234000_aria_encrypt_step5_require_chunk_class.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014233857_aria_encrypt_step5_require_chunk_class.sql");
   assertStringIncludes(sql, "NEW.metadata, '{}'::jsonb)->>'privacy_class') IS DISTINCT FROM 'general'");
   assertStringIncludes(sql, "document_class IS DISTINCT FROM 'general'");
   assertStringIncludes(sql, "AND d.metadata->>'privacy_class' = 'general'");
@@ -195,7 +195,7 @@ Deno.test("chunk search requires both parent and chunk general classification", 
 });
 
 Deno.test("live smoke E2E validates controls and cleans all synthetic rows", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261014235500_aria_encrypt_step5_live_smoke_e2e.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014234014_aria_encrypt_step5_live_smoke_e2e.sql");
   assertStringIncludes(sql, "unclassified canonical memory insert was accepted");
   assertStringIncludes(sql, "FROM aria_memory.search_lexical(marker,20)");
   assertStringIncludes(sql, "public.aria_memory_search_hybrid_text(marker,NULL,20,0.55,0.45,50)");
@@ -215,7 +215,7 @@ Deno.test("live smoke E2E validates controls and cleans all synthetic rows", asy
 });
 
 Deno.test("mission learning trigger requires an explicitly general mission", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261014235000_aria_encrypt_step5_gate_mission_learning_trigger.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014234311_aria_encrypt_step5_gate_mission_learning_trigger.sql");
   assertStringIncludes(sql, "IF coalesce(new.metadata->>'privacy_class','') IS DISTINCT FROM 'general' THEN");
   assertStringIncludes(sql, "mission_id,goal_id,category,summary,evidence,confidence,reusable,privacy_class");
   assertStringIncludes(sql, "v_confidence,v_reusable,'general'");
@@ -234,7 +234,7 @@ Deno.test("shared chunk trigger requires a general-class parent document", async
 });
 
 Deno.test("authenticated HTTP probes use Vault internally and persist only safe response evidence", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261014235900_aria_encrypt_step5_authenticated_http_probes.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014234743_aria_encrypt_step5_authenticated_http_probes.sql");
   assertStringIncludes(sql, "FROM vault.decrypted_secrets");
   assertStringIncludes(sql, "name = 'aria_autonomy_cron_token'");
   assertStringIncludes(sql, "net.http_post(");
@@ -251,7 +251,7 @@ Deno.test("authenticated HTTP probes use Vault internally and persist only safe 
 });
 
 Deno.test("authenticated route probe results are persisted only after four clean 503 responses", async () => {
-  const sql = await Deno.readTextFile("supabase/migrations/20261015001000_aria_encrypt_step5_capture_authenticated_http_probe_results.sql");
+  const sql = await Deno.readTextFile("supabase/migrations/20261014234911_aria_encrypt_step5_capture_authenticated_http_probe_results.sql");
   assertStringIncludes(sql, "FROM net._http_response r");
   assertStringIncludes(sql, "r.status_code = e.expected_status_code");
   assertStringIncludes(sql, "'ARIA_MEMORY_PRIVACY_GATE_CLOSED'");
