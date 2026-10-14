@@ -123,6 +123,22 @@ BEFORE INSERT OR UPDATE OF title, content, metadata, embedding
 ON aria_memory.memory_items
 FOR EACH ROW EXECUTE FUNCTION aria_memory.aria_encrypt_require_general_memory();
 
+-- Internal embedding workers may only enumerate already-reviewed general content.
+CREATE OR REPLACE FUNCTION aria_memory.list_unembedded(p_limit integer DEFAULT 10)
+RETURNS TABLE(memory_id uuid, title text, content text)
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'aria_memory'
+AS $function$
+  SELECT m.memory_id, m.title, m.content
+    FROM aria_memory.memory_items m
+   WHERE m.embedding IS NULL
+     AND m.status = 'active'
+     AND m.metadata->>'privacy_class' = 'general'
+   ORDER BY m.created_at ASC
+   LIMIT greatest(1, least(coalesce(p_limit, 10), 20));
+$function$;
+
 CREATE OR REPLACE FUNCTION aria_memory.search_hybrid(
   p_query text,
   p_query_embedding extensions.vector DEFAULT NULL::extensions.vector,
