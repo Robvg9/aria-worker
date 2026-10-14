@@ -224,6 +224,12 @@ assertContains(pwa,'CIERRE ANTERIOR INVALIDADO: no se ejecutaron todas las herra
 console.log('CHAT DIAGNOSTICS + REQUIRED TOOL EVIDENCE CONTRACT: PASS');
 
 assertContains(persistenceWorkflow,"'supabase/functions/aria-app-api-v3/**'","persistence/recovery E2E must trigger for API-only releases so exact-SHA predecessor gates cannot wait forever");
+if(persistenceWorkflow.includes('LIVE_GATE_PREDECESSORS: "ARIA PWA Steps 7-8 LIVE Certification"')) {
+  throw new Error('persistence/recovery cannot wait for PWA Steps 7-8 because that gate requires persistence/recovery first');
+}
+assertContains(persistenceWorkflow,'Wait for exact-SHA deployments + PWA LIVE build','persistence/recovery must keep its direct exact-SHA deployment barrier');
+console.log('PERSISTENCE RELEASE GATE ACYCLICITY CONTRACT: PASS');
+
 assertContains(cloudflareDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Worker exact-SHA release must trigger when persistence predecessor workflow changes");
 assertContains(pwaDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA exact-SHA release must trigger when persistence predecessor workflow changes");
 assertContains(appApi,'latestVerifiedEventByMission','only the latest verified event may back a completed notification');
