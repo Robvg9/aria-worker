@@ -21,10 +21,10 @@ BEGIN
   denied := false;
   BEGIN
     INSERT INTO aria_memory.memory_items
-      (memory_type,title,content,content_hash,source_type,metadata,search_tsv)
+      (memory_type,title,content,content_hash,source_type,metadata)
     VALUES
       ('lesson',marker,marker || ' synthetic unclassified fixture',marker || 'unclassifiedhash',
-       'system','{}'::jsonb,to_tsvector('simple',marker || ' synthetic unclassified fixture'));
+       'system','{}'::jsonb);
   EXCEPTION WHEN SQLSTATE '42501' THEN
     denied := true;
   END;
@@ -32,11 +32,11 @@ BEGIN
 
   -- Explicitly general synthetic memory must insert and pass each live reader.
   INSERT INTO aria_memory.memory_items
-    (memory_type,title,content,content_hash,source_type,metadata,confidence,importance,salience,search_tsv)
+    (memory_type,title,content,content_hash,source_type,metadata,confidence,importance,salience)
   VALUES
     ('lesson',marker,marker || ' synthetic general lesson',marker || 'generalhash',
      'system',jsonb_build_object('privacy_class','general','scope','encrypt_e2e_synthetic'),
-     0.99,0.9,0.9,to_tsvector('simple',marker || ' synthetic general lesson'))
+     0.99,0.9,0.9)
   RETURNING memory_id INTO v_memory_id;
 
   SELECT count(*) INTO found_count
