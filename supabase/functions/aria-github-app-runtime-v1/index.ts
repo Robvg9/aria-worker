@@ -121,7 +121,7 @@ if(op==="main_workflow_runs"){
   const items=Array.isArray(runs?.workflow_runs)?runs.workflow_runs:[];
   const pending=items.filter((x:any)=>String(x.status||"")!=="completed");
   const failed=items.filter((x:any)=>String(x.status||"")==="completed"&&!["success","neutral","skipped"].includes(String(x.conclusion||"").toLowerCase()));
-  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{commit_sha:sha,total:items.length,pending:pending.length,failed:failed.length,all_passed:items.length===0?true:(pending.length===0&&failed.length===0),runs:items.map((x:any)=>({name:x.name,status:x.status,conclusion:x.conclusion,head_sha:x.head_sha,html_url:x.html_url}))},installation_id:installation.id,account:installation.account});
+  return out({ok:true,status:200,executor_type:"github_app",connector_id:"github",operation:op,data:{commit_sha:sha,total:items.length,pending:pending.length,failed:failed.length,all_passed:items.length===0?true:(pending.length===0&&failed.length===0),runs:items.map((x:any)=>({run_id:x.id,run_number:x.run_number,workflow_id:x.workflow_id,path:x.path,event:x.event,head_branch:x.head_branch,name:x.name,status:x.status,conclusion:x.conclusion,head_sha:x.head_sha,created_at:x.created_at,updated_at:x.updated_at,html_url:x.html_url}))},installation_id:installation.id,account:installation.account});
 }
 if(op==="pr_merge"){
   const number=Number(b.number);if(!Number.isInteger(number)||number<=0)throw new Error("pr_number_required");

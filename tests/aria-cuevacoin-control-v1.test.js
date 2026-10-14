@@ -113,6 +113,26 @@ assert.ok(runner.includes('cuevacoinAuthorizedReadOnlyExecute'));
 assert.ok(runner.includes('cuevacoin_control_verification_incomplete'));
 assert.ok(runner.includes('allowed_external_operations: ["github_repo_read", "supabase_project_status", "supabase_edge_functions_list"]'));
 
+// The production deployment path is separately goal-gated, fixed to one workflow,
+// idempotent across retries, scope-gated, and requires fresh run + exact LIVE hashes.
+assert.ok(runner.includes('isCuevacoinAuthorizedDeployMission'));
+assert.ok(runner.includes('buildCuevacoinAuthorizedDeployPlan'));
+assert.ok(runner.includes('cuevacoin_deploy_dispatch'));
+assert.ok(runner.includes('cuevacoin_deploy_verify_live'));
+assert.ok(runner.includes('cuevacoin_deployment_live_verification_incomplete'));
+assert.ok(oauth.includes('internal/mission-deployment-dispatch'));
+assert.ok(oauth.includes('cuevacoinMissionDeploymentDispatch'));
+assert.ok(oauth.includes('cuevacoin_deployment_prior_dispatch_ambiguous_no_redispatch'));
+assert.ok(oauth.includes('cuevacoin_deployment_workflow_source_not_verified'));
+assert.ok(oauth.includes('cuevacoinVerifyLiveHashes'));
+assert.ok(oauth.includes('source_sha256: sourceHash'));
+assert.ok(oauth.includes('live_sha256: liveHash'));
+assert.ok(runtime.includes('run_id:x.id'));
+assert.ok(runtime.includes('event:x.event'));
+assert.ok(runtime.includes('head_branch:x.head_branch'));
+assert.ok(runtime.includes('created_at:x.created_at'));
+
+
 
 const connectionStatus = between(oauth, 'async function cuevaCoinConnectionStatus()', 'async function cuevaCoinProjectControl(');
 assert.match(connectionStatus, /ready_for_read_only_control:readyForReadOnlyControl/);
