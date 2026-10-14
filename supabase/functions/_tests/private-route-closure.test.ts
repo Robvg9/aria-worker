@@ -182,3 +182,12 @@ Deno.test("internal learning table and legacy retrieval routes fail closed by cl
     assertStringIncludes(supervisor, '.eq("privacy_class","general").limit(1)');
   }
 });
+
+Deno.test("chunk search requires both parent and chunk general classification", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014234000_aria_encrypt_step5_require_chunk_class.sql");
+  assertStringIncludes(sql, "NEW.metadata, '{}'::jsonb)->>'privacy_class') IS DISTINCT FROM 'general'");
+  assertStringIncludes(sql, "document_class IS DISTINCT FROM 'general'");
+  assertStringIncludes(sql, "AND d.metadata->>'privacy_class' = 'general'");
+  assertStringIncludes(sql, "AND c.metadata->>'privacy_class' = 'general'");
+  assertStringIncludes(sql, "REVOKE EXECUTE ON FUNCTION public.cb_search_chunks(text, integer)");
+});
