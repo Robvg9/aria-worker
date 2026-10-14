@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths:
+      # App API changes can affect auth/session hydration and must have a same-SHA persistence predecessor for Web Push.
+      - 'supabase/functions/aria-app-api-v3/**'
       - 'pwa/src/App.tsx'
       - 'pwa/index.html'
       - 'pwa/src/testCatalog.ts'
