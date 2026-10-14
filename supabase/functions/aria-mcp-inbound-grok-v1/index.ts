@@ -109,7 +109,15 @@ async function cuevaCoinConnectionStatus(){
  let backend:Record<string,unknown>={state:"human_gate",project_ref:CUEVACOIN_PROJECT.projectRef,credential_name:CUEVACOIN_PROJECT.managementCredentialName,secret_name:CUEVACOIN_PROJECT.managementTokenSecretName,reason:"scoped_management_token_not_configured"};
  if(token){try{const {data}=await callCuevaCoinManagementApi(token,`/v1/projects/${CUEVACOIN_PROJECT.projectRef}`);const projectId=String(data?.id||data?.ref||"");backend=projectId===CUEVACOIN_PROJECT.projectRef?{state:"connected",project_ref:projectId,project_name:data?.name??null,project_status:data?.status??null}:{state:"project_identity_mismatch",expected_project_ref:CUEVACOIN_PROJECT.projectRef};}catch(error){backend={state:cuevacoinSafeProviderError(error),project_ref:CUEVACOIN_PROJECT.projectRef};}}
  const gh=githubResult.ok?{state:"connected_read_verified",repository:`${CUEVACOIN_PROJECT.owner}/${CUEVACOIN_PROJECT.repo}`,visibility:githubResult.value?.data?.private===true?"private":"public",default_branch:githubResult.value?.data?.default_branch??null,write_access:"not_yet_verified"}:{state:githubResult.error,repository:`${CUEVACOIN_PROJECT.owner}/${CUEVACOIN_PROJECT.repo}`,write_access:"not_verified"};
- return{ok:true,project:"CuevaCoin",project_ref:CUEVACOIN_PROJECT.projectRef,github:gh,supabase:backend,deployment:{state:"not_verified",note:"A dedicated deployment workflow and scoped deployment credential must be verified before claiming deployment control."},control_scope:CUEVACOIN_CONTROL_SCOPE,ready_for_full_control:gh.state==="connected_read_verified"&&backend.state==="connected",checked_at:new Date().toISOString()};
+ const deployment={state:"not_verified",note:"A dedicated deployment workflow and scoped deployment credential must be verified before claiming deployment control."};
+ const readyForReadOnlyControl=gh.state==="connected_read_verified"&&backend.state==="connected";
+ const readyForFullControl=gh.write_access==="verified"&&backend.state==="connected"&&deployment.state==="verified";
+ const missingFullControlRequirements=[
+   ...(gh.write_access!=="verified"?["github_repository_write_permission_not_verified"]:[]),
+   ...(backend.state!=="connected"?["supabase_project_connection_not_verified"]:[]),
+   ...(deployment.state!=="verified"?["deployment_control_not_verified"]:[])
+ ];
+ return{ok:true,project:"CuevaCoin",project_ref:CUEVACOIN_PROJECT.projectRef,github:gh,supabase:backend,deployment,control_scope:CUEVACOIN_CONTROL_SCOPE,ready_for_read_only_control:readyForReadOnlyControl,ready_for_full_control:readyForFullControl,control_verification:{read_only_verified:readyForReadOnlyControl,repository_write_permission_verified:gh.write_access==="verified",deployment_control_verified:deployment.state==="verified",full_control_verified:readyForFullControl,missing_full_control_requirements:missingFullControlRequirements},checked_at:new Date().toISOString()};
 }
 async function cuevaCoinProjectControl(args:Record<string,unknown>,clientId:string){
  const operation=String(args.operation||"");
