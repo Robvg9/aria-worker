@@ -22,7 +22,7 @@ A missing Supabase JWT gate does **not** by itself prove an endpoint is publicly
 4. **Candidate writes can stage plaintext.** The live `aria-memory-write-gate-v1` writes a submitted message into `cb_memory_candidates.candidate_text`. It checks the caller JWT and the `aria_memory_write` app-metadata claim, but does not itself require a privacy classification. The deployed bridge `aria-memory-bridge-9-4` is currently disabled.
 5. **Historical retrieval events may already contain raw queries.** The live `cb_retrieval_events` schema contains a text `query` field. This step does not bulk rewrite/delete existing events; that requires retention/backup review in Step 6.
 
-## Changes prepared in source control (not live)
+## Source remediations and partial LIVE deployment
 
 Branch: `aria/encrypt-step5-route-closure`, stacked on Step 4 branch `aria/encrypt-step4-vault-api`.
 
@@ -34,6 +34,7 @@ Branch: `aria/encrypt-step5-route-closure`, stacked on Step 4 branch `aria/encry
   - Restricts hybrid, lexical and learning-context memory queries to rows marked `metadata.privacy_class = 'general'`.
   - Keeps existing rows in place; it does not silently label or delete old data.
 - `supabase/functions/aria-context-retrieval-v1/index.ts`
+  - **Deployed LIVE as version 101** with `verify_jwt=true`; confirmed active through the Supabase function inventory after deployment. Deployed function hash: `8bd0f71e618e13671c7b32d202e99a8ac00d2a53ad7f1286856930b8f9c0b192`. Source blob `d7999fac5c75590077357d8323cffc1a4fdbcc8d`.
   - Verifies a real Supabase user token, rejects unapproved origins, caps the streamed request body, rejects unknown request fields, applies an explicit general-only predicate, rechecks class in code, redacts audit inputs, and avoids returning the query or raw DB errors.
 - `supabase/functions/_shared/private-route-contract.ts` and `supabase/functions/_tests/private-route-closure.test.ts`
   - Add bounded request/classification contracts and static boundary assertions.
@@ -52,10 +53,10 @@ No personal data was migrated, deleted, reclassified, or edited during the audit
 A direct attempt to apply the database privilege/redaction migration using the connected Supabase write tool was blocked by the tool's safety control. No alternate write path was used to bypass that control. Consequently:
 
 - the SQL migration is **not applied** to the project;
-- the retrieval Edge Function update is **not deployed**;
-- the RPC grants on the live database are **not changed**;
-- no anonymous/authenticated negative E2E has been run after a mitigation;
-- no live retrieval regression test has confirmed that unclassified content is denied;
+- Retrieval **is deployed LIVE as v101** with `verify_jwt=true` and a fail-closed `privacy_class=general` predicate; the live function list confirms the version/hash. However, no direct HTTP/authenticated/negative-data E2E was executable through the available test tools in this run;
+- the live RPC grants remain unchanged: a post-deployment database query still returned `anon_exec=true` and `authenticated_exec=true` for `cb_search_chunks` and `cb_record_retrieval`;
+- no anonymous/authenticated negative E2E has been run after the deployment;
+- no real request/response test has confirmed the new version's behavior under live JWT and database credentials.
 - no data/metadata has been bulk changed and no historical retrieval events have been cleaned.
 
 The security weakness remains present in the live system until the authorized migration and new function version are applied and verified.
@@ -69,7 +70,8 @@ The security weakness remains present in the live system until the authorized mi
 - [x] CI verified PASS (4/4 contract tests and Deno type-check) on commit `293550aaeb5684ea342b9d2e4d54aa870add8d06` — [run 38602247453](https://github.com/Robvg9/aria-worker/actions/runs/38602247453).
 - [ ] Review and merge the Step 4 dependency and this stacked Step 5 PR in sequence.
 - [ ] Apply the SQL migration through an authorized Supabase deployment path; then query back and verify grants, trigger/function definitions and schema.
-- [ ] Deploy the retrieval function and identify the deployed version/hash.
+- [x] Deploy Retrieval v101 with `verify_jwt=true`; persist the live hash `8bd0f71e618e13671c7b32d202e99a8ac00d2a53ad7f1286856930b8f9c0b192`.
+- [ ] Run authenticated live E2E and prove the general-only predicate rejects unclassified/private fixtures.
 - [ ] Run negative E2E using anon, an ordinary authenticated user, and unclassified/private synthetic data; verify all content routes deny it. Run positive E2E on a reviewed general fixture.
 - [ ] Review/write-gate caller compatibility and classify existing rows deliberately without silently exposing them. Existing unclassified content must remain excluded.
 - [ ] Inspect logs for new raw-query retention and schedule historical event review under Step 6.
