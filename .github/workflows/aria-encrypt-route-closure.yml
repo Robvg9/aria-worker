@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'supabase/functions/aria-context-retrieval-v1/**'
+      - 'supabase/functions/aria-memory-write-gate-v1/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
