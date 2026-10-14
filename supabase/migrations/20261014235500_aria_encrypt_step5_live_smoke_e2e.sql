@@ -91,9 +91,8 @@ BEGIN
           jsonb_build_object('privacy_class','general','synthetic_e2e',true))
   RETURNING id INTO v_document_id;
 
-  INSERT INTO public.cb_chunks(document_id,chunk_index,heading,content,search_text,metadata,content_hash)
+  INSERT INTO public.cb_chunks(document_id,chunk_index,heading,content,metadata,content_hash)
   VALUES (v_document_id,0,marker,marker || ' synthetic general chunk',
-          to_tsvector('simple',marker || ' synthetic general chunk'),
           jsonb_build_object('privacy_class','general','synthetic_e2e',true),marker || 'chunkhash')
   RETURNING id INTO v_chunk_id;
 
