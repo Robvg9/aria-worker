@@ -1853,7 +1853,7 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
       _verified_at: cap.verified_at || null,
       // Prefer a different provider before spending remaining same-provider
       // fallback attempts when the primary provider is exhausted.
-      _provider_priority: providerId === "google" ? 0 : 1,
+      _provider_priority: providerId === primaryProvider ? 1 : 0,
     });
   }
 
