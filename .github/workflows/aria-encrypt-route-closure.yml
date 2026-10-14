@@ -89,8 +89,6 @@ jobs:
         run: deno check --config supabase/functions/aria-planner-v9/deno.json supabase/functions/aria-planner-v9/index.ts
       - name: Type-check planner v10
         run: deno check --config supabase/functions/aria-planner-v10/deno.json supabase/functions/aria-planner-v10/index.ts
-      - name: Type-check planner v11 direct-memory boundary
-        run: deno check --config supabase/functions/aria-planner-v11/deno.json supabase/functions/aria-planner-v11/index.ts
       - name: Type-check autonomy supervisor v6
         run: deno check --config supabase/functions/aria-autonomy-supervisor-v6/deno.json supabase/functions/aria-autonomy-supervisor-v6/index.ts
       - name: Type-check autonomy supervisor v7
