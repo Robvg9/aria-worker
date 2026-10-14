@@ -661,7 +661,8 @@ async function cuevacoinDeploymentEvents(missionId: string) {
   const { data, error } = await db().schema("aria_internal").from("mission_events")
     .select("payload,created_at")
     .eq("mission_id", missionId)
-    .eq("event_type", "cuevacoin_deployment_dispatch_state")
+    .eq("event_type", "checkpoint_saved")
+    .eq("payload->>kind", "cuevacoin_deployment_dispatch_state")
     .order("created_at", { ascending: false })
     .limit(20);
   if (error) throw new Error("cuevacoin_deployment_evidence_read_failed");
@@ -674,8 +675,8 @@ async function cuevacoinDeploymentEvents(missionId: string) {
 async function persistCuevacoinDeploymentEvent(missionId: string, requestId: string, payload: Record<string, unknown>) {
   const { error } = await db().schema("aria_internal").from("mission_events").insert({
     mission_id: missionId,
-    event_type: "cuevacoin_deployment_dispatch_state",
-    payload,
+    event_type: "checkpoint_saved",
+    payload: { ...payload, kind: "cuevacoin_deployment_dispatch_state" },
     request_id: requestId,
     execution_id: missionId + ":" + requestId + ":cuevacoin-deploy:" + crypto.randomUUID(),
     runtime_version: "aria-cuevacoin-deployment-bridge-v1",
