@@ -673,16 +673,29 @@ async function cuevacoinDeploymentEvents(missionId: string) {
 }
 
 async function persistCuevacoinDeploymentEvent(missionId: string, requestId: string, payload: Record<string, unknown>) {
-  const { error } = await db().schema("aria_internal").from("mission_events").insert({
-    mission_id: missionId,
-    event_type: "checkpoint_saved",
-    payload: { ...payload, kind: "cuevacoin_deployment_dispatch_state" },
-    request_id: requestId,
-    execution_id: missionId + ":" + requestId + ":cuevacoin-deploy:" + crypto.randomUUID(),
-    runtime_version: "aria-cuevacoin-deployment-bridge-v1",
-    source_sha: typeof payload.commit_sha === "string" ? payload.commit_sha : null,
+  const executionId = missionId + ":" + requestId + ":cuevacoin-deploy:" + crypto.randomUUID();
+  const runtimeVersion = "aria-cuevacoin-deployment-bridge-v1";
+  const sourceSha = typeof payload.commit_sha === "string" ? payload.commit_sha : null;
+  // Use the existing SECURITY DEFINER append RPC. Direct PostgREST inserts run
+  // notification triggers under the API role and can fail on helper EXECUTE grants.
+  const { data, error } = await db().rpc("aria_mission_append_event", {
+    p_mission_id: missionId,
+    p_event: {
+      event_type: "checkpoint_saved",
+      payload: {
+        ...payload,
+        kind: "cuevacoin_deployment_dispatch_state",
+        request_id: requestId,
+        execution_id: executionId,
+        runtime_version: runtimeVersion,
+        source_sha: sourceSha,
+      },
+    },
   });
-  if (error) throw new Error("cuevacoin_deployment_evidence_write_failed");
+  if (error || !data) {
+    const diagnosticCode = typeof error?.code === "string" ? error.code : "rpc_error";
+    throw new Error("cuevacoin_deployment_evidence_write_failed:" + diagnosticCode);
+  }
 }
 
 async function cuevacoinDeploymentRunForCommit(clientId: string, commitSha: string, dispatchedAt: string) {
