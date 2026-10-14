@@ -18,6 +18,7 @@ GRANT EXECUTE ON FUNCTION public.cb_search_chunks(text, integer) TO service_role
 REVOKE EXECUTE ON FUNCTION public.cb_record_retrieval(text, uuid[], text, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.cb_record_retrieval(text, uuid[], text, jsonb) TO service_role;
 REVOKE EXECUTE ON FUNCTION aria_memory.learning_context_for_goal(text, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION aria_memory.learning_context_for_goal(text, integer) TO service_role;
 
 -- Staged memory candidates get an explicit class. Legacy writers omit the field and are rejected
 -- by the trigger below until they are updated to send an explicit general-only classification.
