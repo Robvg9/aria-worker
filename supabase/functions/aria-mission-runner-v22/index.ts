@@ -3337,6 +3337,58 @@ Deno.serve(async (request) => {
       const failureMessage = String(failureError?.message || failedEvidence?.message || failureCode);
       const originalGoal = String(mission.goal || "");
 
+      // A fixed production deployment cannot be replanned around a missing GitHub App
+      // Actions permission. Stop this exact CuevaCoin dispatch loop and surface the
+      // required human gate rather than repeating the same production write indefinitely.
+      const cuevacoinActionsPermissionBlocked =
+        failedStepId === "cuevacoin_deploy_dispatch"
+        && originalGoal.toLowerCase().includes("cuevacoin")
+        && originalGoal.includes("cuevacoin-deploy.yml")
+        && /github_app_permission_denied|cuevacoin_deployment_github_app_actions_permission_denied/i.test(failureCode + " " + failureMessage);
+      if (cuevacoinActionsPermissionBlocked) {
+        const hardBlock = {
+          status: "hard_block",
+          recoverable: false,
+          kind: "github_app_actions_permission_required",
+          reason: "La GitHub App de ARIA no tiene permiso para despachar el workflow de CuevaCoin.",
+          next_action: "human_gate: conceder Actions Read and write a la GitHub App de ARIA y confirmar la instalación en Robvg9/CuevaCoin; después reanudar esta misma misión.",
+          remediation: "En la configuración de la GitHub App que usa ARIA, habilitar Repository permissions → Actions → Read and write; guardar/aceptar la actualización de permisos para la instalación de Robvg9 y verificar que CuevaCoin sigue seleccionado. No intentar otro dispatch antes de esa validación.",
+          evidence: {
+            failed_step_id: failedStepId,
+            failure_code: failureCode,
+            failure_message: failureMessage,
+            mission_id: missionId,
+            request_id: String(mission?.metadata?.request_id || ""),
+            workflow_id: "cuevacoin-deploy.yml",
+            target_repository: "Robvg9/CuevaCoin",
+            no_dispatch_run_verified: true,
+          },
+        };
+        await emitEvent(missionId, "mission_hard_blocked", hardBlock);
+        await updateMission(missionId, {
+          status: "blocked",
+          current_step: completed.size,
+          completed_steps: completed.size,
+          next_action: hardBlock.next_action,
+          last_stderr: "github_app_actions_permission_required",
+          checkpoint: {
+            ...checkpoint,
+            recovery: {
+              status: "hard_block",
+              recoverable: false,
+              failure_reason: "github_app_permission_denied",
+              failed_step_ids: [failedStepId],
+              block_details: hardBlock,
+              previous_plan: recoveryPreviousPlan,
+              previous_results: previousResults,
+            },
+          },
+          lease_owner: null,
+          lease_until: null,
+        });
+        return out({ ok: false, status: "blocked", mission_id: missionId, runtime: V_LOGICAL, invocation_id: V, completed_steps: completed.size, failed_steps: [failedStepId], block_details: hardBlock });
+      }
+
       // One governed escape hatch: before declaring an identical strategy terminal,
       // ask the planner for a materially different strategy using explicit failure
       // evidence. This is especially important for protocol missions such as All For One.
