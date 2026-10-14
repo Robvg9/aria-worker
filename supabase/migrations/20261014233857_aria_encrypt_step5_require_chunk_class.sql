@@ -28,6 +28,12 @@ BEGIN
 END;
 $function$;
 
+DROP TRIGGER IF EXISTS aria_encrypt_general_chunk_guard ON public.cb_chunks;
+CREATE TRIGGER aria_encrypt_general_chunk_guard
+BEFORE INSERT OR UPDATE OF document_id, heading, content, metadata
+ON public.cb_chunks
+FOR EACH ROW EXECUTE FUNCTION public.aria_encrypt_require_general_chunk();
+
 CREATE OR REPLACE FUNCTION public.cb_search_chunks(search_query text, result_limit integer DEFAULT 8)
 RETURNS TABLE(
   chunk_id uuid,
