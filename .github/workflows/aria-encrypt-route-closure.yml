@@ -44,4 +44,4 @@ jobs:
       - name: Type-check fail-closed memory write gate
         run: deno check --config supabase/functions/aria-memory-write-gate-v1/deno.json supabase/functions/aria-memory-write-gate-v1/index.ts
       - name: Type-check internal memory route and privacy guard
-        run: deno check supabase/functions/aria-memory-v2/index.ts
+        run: deno check --config supabase/functions/aria-memory-v2/deno.json supabase/functions/aria-memory-v2/index.ts
