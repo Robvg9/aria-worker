@@ -4403,6 +4403,28 @@ Deno.serve(async (request) => {
       });
     }
 
+    // Named mandatory tool calls are execution requirements, not natural-language
+    // instructions that a model may merely describe. The mission cannot be green
+    // unless the canonical connector actually ran every named operation and returned evidence.
+    const requiredConnectorOperations = ["cuevacoin_connection_status", "cuevacoin_project_control"]
+      .filter(operation => String(mission?.goal || "").toLowerCase().includes(operation));
+    const missingRequiredConnectorOperations = requiredConnectorOperations.filter(operation =>
+      !steps.some((step:any) => {
+        const stepId = String(step?.id || "");
+        const result:any = results[stepId];
+        return executorType(step) === "connector"
+          && String(step?.operation || "") === operation
+          && completed.has(stepId)
+          && verifyStep(step, result)
+          && String(result?.status || "") === "succeeded"
+          && result?.data !== null
+          && typeof result?.data === "object";
+      })
+    );
+    if (missingRequiredConnectorOperations.length) {
+      throw new Error("required_tool_call_evidence_missing:" + missingRequiredConnectorOperations.join(","));
+    }
+
     const finalVerified = steps.every((step) => completed.has(String(step.id)) && verifyStep(step, results[String(step.id)]));
     if (!finalVerified) throw new Error("final_verification_failed");
 
@@ -4495,9 +4517,24 @@ Deno.serve(async (request) => {
     let recoveryUpdate = "not_attempted";
     if (failedMissionId) {
       try {
+        const requiredToolEvidenceMissing = reason.startsWith("required_tool_call_evidence_missing:");
+        if (requiredToolEvidenceMissing) {
+          try {
+            await emitEvent(failedMissionId, "required_tool_call_evidence_missing", {
+              reason,
+              status: "blocked",
+              required_operations: reason.slice("required_tool_call_evidence_missing:".length).split(",").filter(Boolean),
+              remediation: "Habilitar y autorizar el adaptador de herramientas de solo lectura requerido; no sustituir su ejecución por una respuesta de modelo."
+            });
+          } catch {}
+        }
         const recovered = await updateMission(failedMissionId, {
-          status: reason.startsWith("planner_empty_steps") ? "blocked" : "paused",
-          next_action: reason.startsWith("planner_empty_steps") ? "replan: planner returned no executable steps and no safe read-only fallback was available; build a materially different governed plan before retrying" : "recovery: universal runner exception",
+          status: reason.startsWith("planner_empty_steps") || requiredToolEvidenceMissing ? "blocked" : "paused",
+          next_action: requiredToolEvidenceMissing
+            ? "human_gate:enable_authorized_required_connector_operations"
+            : reason.startsWith("planner_empty_steps")
+              ? "replan: planner returned no executable steps and no safe read-only fallback was available; build a materially different governed plan before retrying"
+              : "recovery: universal runner exception",
           last_stderr: reason,
           lease_owner: null,
           lease_until: null,
@@ -4507,6 +4544,14 @@ Deno.serve(async (request) => {
         recoveryUpdate = `failed:${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
       }
     }
-    return out({ ok: false, status: "paused", mission_id: failedMissionId, runtime: V_LOGICAL, invocation_id: V, error: reason, recovery_update: recoveryUpdate });
+    return out({
+      ok: false,
+      status: reason.startsWith("required_tool_call_evidence_missing:") || reason.startsWith("planner_empty_steps") ? "blocked" : "paused",
+      mission_id: failedMissionId,
+      runtime: V_LOGICAL,
+      invocation_id: V,
+      error: reason,
+      recovery_update: recoveryUpdate
+    });
   }
 });
