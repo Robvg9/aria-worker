@@ -83,13 +83,17 @@ Deno.test("aria-memory-v2 fails closed before search, remember, and embedding ac
   const rememberHandlerIndex = source.indexOf("if(action==='remember')");
   const searchHandlerIndex = source.indexOf("if(action==='search')");
   const embedHandlerIndex = source.indexOf("if(action==='embed_missing')");
+  const maintenanceHandlerIndex = source.indexOf("if(action==='maintenance')");
   assertEquals(guardIndex >= 0, true);
   assertEquals(rememberHandlerIndex >= 0, true);
   assertEquals(searchHandlerIndex >= 0, true);
   assertEquals(embedHandlerIndex >= 0, true);
+  assertEquals(maintenanceHandlerIndex >= 0, true);
   assertEquals(guardIndex < rememberHandlerIndex, true);
   assertEquals(guardIndex < searchHandlerIndex, true);
   assertEquals(guardIndex < embedHandlerIndex, true);
+  assertEquals(guardIndex < maintenanceHandlerIndex, true);
   assertStringIncludes(source, "ARIA_MEMORY_PRIVACY_GATE_CLOSED");
   assertStringIncludes(source, "privacy_classification_pending");
+  assertStringIncludes(source, "temporarily_disabled_capabilities:['remember','search','embed_missing','maintenance']");
 });
