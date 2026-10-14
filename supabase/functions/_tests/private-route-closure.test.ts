@@ -220,3 +220,13 @@ Deno.test("mission learning trigger requires an explicitly general mission", asy
   assertStringIncludes(sql, "privacy_class=excluded.privacy_class");
   assertStringIncludes(sql, "CREATE OR REPLACE FUNCTION aria_internal.capture_mission_learning()");
 });
+
+Deno.test("shared chunk trigger requires a general-class parent document", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014233857_aria_encrypt_step5_require_chunk_class.sql");
+  assertStringIncludes(sql, "SELECT d.metadata->>'privacy_class'");
+  assertStringIncludes(sql, "IF document_class IS DISTINCT FROM 'general'");
+  assertStringIncludes(sql, "parent_document_not_classified_general");
+  assertStringIncludes(sql, "BEFORE INSERT OR UPDATE OF document_id, heading, content, metadata");
+  assertStringIncludes(sql, "EXECUTE FUNCTION public.aria_encrypt_require_general_chunk()");
+  assertStringIncludes(sql, "COMMIT;");
+});
