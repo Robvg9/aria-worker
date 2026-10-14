@@ -1,6 +1,6 @@
 # ARIA Encrypt — Step 5 route closure review
 
-**Status: multiple fail-closed mitigations are LIVE; full Step 5 remains BLOCKED.** Retrieval v101 excludes unclassified documents; Memory Write Gate v101 rejects candidate writes; and `aria-memory-v2` v110 (hash `788fb3fb1c59af6f364b73b437e8e6a102abfd92de2573e0fe53622924edcf84`) now closes `remember`, `search`, `embed_missing`, and `maintenance` behind its existing internal authentication until classification controls are live. The database classification/grant migration remains unapplied because the official Supabase migration operation was blocked; no alternate SQL write channel was used.
+**Status: route-level fail-closed mitigations are LIVE across identified retrieval, memory-write, and internal learning paths; full Step 5 remains BLOCKED.** Retrieval v101 excludes unclassified documents; Memory Write Gate v101 rejects candidate writes; `aria-memory-v2` v110 closes `remember`, `search`, `embed_missing`, and `maintenance`; and `aria-learning-v2` v92, `aria-learning-v3` v93, and `aria-learning-consolidator-v1` v93 return 503 after their existing internal authorization and before reading mission data. The database classification/grant migration remains unapplied because the official Supabase migration operation was blocked; no alternate SQL write channel was used.
 
 ## Scope and current project evidence
 
@@ -10,6 +10,9 @@ Project checked: Supabase `icuqsstxfdbvjytkhlog`, 14 October 2026. The Edge Func
 - `aria-memory-bridge-v1` v100 and `aria-memory-bridge-9-4` v104, both `verify_jwt=true`; the inspected 9-4 bridge currently has `BRIDGE_ENABLED = false`
 - `aria-memory-write-gate-v1` v101, `verify_jwt=true` (deployed temporary write stop until classification control is live)
 - `aria-memory-v2` v110, `verify_jwt=false` (existing custom shared-secret/cron authorization retained; the action guard is deployed LIVE, hash `788fb3fb1c59af6f364b73b437e8e6a102abfd92de2573e0fe53622924edcf84`)
+- `aria-learning-v2` v92, `verify_jwt=false`, hash `5256756b0389468af3e839434a4c3c68c64f1b168b41535df9ab9dbf5ad04899` (internal auth retained; gated before mission reads)
+- `aria-learning-v3` v93, `verify_jwt=false`, hash `a8f613604959db8d4724c2e1a9bc321f3179b1d4b9b6c673cf7c04ffb3755168` (internal auth retained; gated before mission reads)
+- `aria-learning-consolidator-v1` v93, `verify_jwt=false`, hash `af00bb9bd7434969b846077cb3c5e1fecceaa214cf319b5a22ac38957c5a8fcc` (internal auth retained; gated before scanning mission state)
 - multiple MCP server/gateway/OAuth versions, including `aria-mcp-server-v2` v104, `aria-mcp-server-v3` v101 and `aria-mcp-inbound-grok-v1` v126
 
 A missing Supabase JWT gate does **not** by itself prove an endpoint is publicly exposed. Several MCP/OAuth handlers perform their own token, JWT, or OAuth checks. The issue identified here is specific to the confirmed read/write paths below, not a blanket assertion that every `verify_jwt=false` function is vulnerable.
@@ -41,12 +44,12 @@ Branch: `aria/encrypt-step5-route-closure`, stacked on Step 4 branch `aria/encry
 - `supabase/functions/_shared/private-route-contract.ts` and `supabase/functions/_tests/private-route-closure.test.ts`
   - Add bounded request/classification contracts and source-level guards for retrieval/write closure.
 - `.github/workflows/aria-encrypt-route-closure.yml`
-  - Runs privacy contract tests plus Deno type checks for Retrieval, Memory Write Gate, and `aria-memory-v2`. Historical run `38605443820` validated only the first two functions. The updated workflow is now green on commit `4d8fd48cd3156c9c3b2cd16a3d7dc4c3593dfe30` — [run 38624073227](https://github.com/Robvg9/aria-worker/actions/runs/38624073227), including the internal memory guard and migration contracts.
+  - Current workflow [run 38626099409](https://github.com/Robvg9/aria-worker/actions/runs/38626099409), commit `15a38c293bda3ab1ad7d571fc33509ce3dd637a4`, passed **8/8 contract tests** and Deno type-checks for Retrieval, Memory Write Gate, `aria-memory-v2`, `aria-learning-v2`, `aria-learning-v3`, and `aria-learning-consolidator-v1`. The tests also assert proposed SQL class filters for internal mastery/preflight and the scoped-search wrapper.
 - This report records the route-by-route audit and exact limitations.
 
 ## Important compatibility consequence — fail closed
 
-Current sampled content has no explicit `privacy_class = 'general'`, so Retrieval v101 excludes those rows and fails closed until classification. Memory Write Gate v101 returns 503 for candidate writes. `aria-memory-v2` v110 is now deployed fail-closed for `remember`, `search`, `embed_missing`, and `maintenance` after its existing internal authorization checks. The updated contract suite and Deno type-check for that guard passed in run `38624073227`. This is source/route verification, not a valid-secret E2E or evidence that the SQL migration is live. The migration's new triggers will reject unclassified writes once applied.
+Current sampled content has no explicit `privacy_class = 'general'`, so Retrieval v101 excludes those rows and fails closed until classification. Memory Write Gate v101 returns 503 for candidate writes. `aria-memory-v2` v110 blocks `remember`, `search`, `embed_missing`, and `maintenance`. The three internal learning routes now also return 503 after internal authentication and before parsing body-provided mission identifiers or querying `mission_state`. The current workflow's contracts and type checks passed in run `38626099409`. These are route/source checks plus no-auth probes, not valid internal-token E2E and not evidence that the SQL migration is live.
 
 No personal data was migrated, deleted, reclassified, or edited during the audit.
 
@@ -61,7 +64,7 @@ A direct attempt to apply the database privilege/redaction migration using the c
 - `aria-memory-v2` fail-closed guard is now validated by contract tests and Deno type-check in [run 38624073227](https://github.com/Robvg9/aria-worker/actions/runs/38624073227), and deployed LIVE as v110 with hash `788fb3fb1c59af6f364b73b437e8e6a102abfd92de2573e0fe53622924edcf84`. The remaining HTTP probe without internal auth returns 401; a valid internal-secret/cron-token E2E has not been run.
 - no valid signed-in JWT E2E, no positive general-content E2E, no schema/grant verification after migration, no bulk data changes, and no historical event cleanup have occurred.
 
-Risk reduction is now live at the Retrieval, Memory Write Gate, and `aria-memory-v2` layers. Step 5 remains incomplete because the database migration is unapplied, database grants/triggers/function definitions have not been read back after migration, and E2E with valid internal auth plus classified/unclassified fixtures has not been run.
+Risk reduction is now live across Retrieval, Memory Write Gate, `aria-memory-v2`, and three internal learning/consolidation endpoints. Step 5 remains incomplete because the database migration is unapplied, so SQL-trigger/query-filter changes (including internal preflight/mastery and the scoped hybrid-search wrapper) are not live; no post-migration catalog readback or valid internal-auth E2E with classified/unclassified fixtures has been run.
 
 ## Acceptance checklist
 
@@ -70,7 +73,7 @@ Risk reduction is now live at the Retrieval, Memory Write Gate, and `aria-memory
 - [x] Prepare database changes that revoke direct content RPC access, redact new retrieval audit records, and filter general retrieval by explicit classification.
 - [x] Prepare bounded/JWT-protected retrieval handler and automated contract/type-check workflow.
 - [x] Earlier CI run `38605443820` passed the Retrieval and Memory Write Gate contracts/type checks.
-- [x] Updated CI verified PASS on commit `4d8fd48cd3156c9c3b2cd16a3d7dc4c3593dfe30` — [run 38624073227](https://github.com/Robvg9/aria-worker/actions/runs/38624073227): contract tests plus type checks for Retrieval, Memory Write Gate, and the `aria-memory-v2` privacy guard; migration contracts cover internal learning filters.
+- [x] Updated CI verified PASS on commit `15a38c293bda3ab1ad7d571fc33509ce3dd637a4` — [run 38626099409](https://github.com/Robvg9/aria-worker/actions/runs/38626099409): 8/8 contract tests and Deno type-checks for Retrieval, Memory Write Gate, `aria-memory-v2`, learning-v2, learning-v3, and the consolidator; includes SQL classification contracts for internal preflight/mastery and the scoped-search wrapper.
 - [ ] Review and merge the Step 4 dependency and this stacked Step 5 PR in sequence.
 - [ ] Apply the SQL migration through the official authorized Supabase migration path; the call is currently blocked by tool safety controls. Then query back grants, triggers, function definitions and schema.
 - [x] Deploy Retrieval v101 with `verify_jwt=true`; hash `8bd0f71e618e13671c7b32d202e99a8ac00d2a53ad7f1286856930b8f9c0b192`.
@@ -82,9 +85,9 @@ Risk reduction is now live at the Retrieval, Memory Write Gate, and `aria-memory
 - [ ] Inspect logs for new raw-query retention and schedule historical event review under Step 6.
 - [ ] Persist deployment, tests, grants, synthetic request/response and hash evidence before marking the step PASS.
 
-**Latest live verification (14-10-2026):** `aria-memory-v2` v110 is ACTIVE with `verify_jwt=false` and its custom internal shared-secret/cron authorization retained. A RobVG HTTP smoke test returned GET `200` with only `access` listed as enabled and `remember`, `search`, `embed_missing`, and `maintenance` listed as temporarily disabled; a POST without internal auth returned `401`. These probes do not exercise the guarded `503` branch with a valid internal token.
+**Latest live verification (14-10-2026):** `aria-memory-v2` v110, `aria-learning-v2` v92, `aria-learning-v3` v93, and `aria-learning-consolidator-v1` v93 are ACTIVE with existing internal auth retained (`verify_jwt=false`). RobVG POST probes without internal auth returned 401 for all four. `aria-memory-v2` GET returned 200 with only `access` listed as active and its other memory/maintenance actions temporarily disabled. No probe used a valid internal secret/cron token, so the guarded 503 branches are source/CI-verified, not valid-token E2E.
 
-**Conclusion:** Step 5 remains **PARTIALLY MITIGATED but NOT CLOSED**. Retrieval v101, Memory Write Gate v101, and `aria-memory-v2` v110 are deployed fail-closed; CI contract tests and all three type checks pass. The SQL migration is still unapplied, so the database-level grants, triggers, general-only memory/search filters, embedding-list filter, and internal-learning guards have not taken effect in production. A valid internal-auth E2E with general/private/unclassified fixtures and post-migration readback is still required. Do not merge the stacked PR until the authorized migration and all live acceptance checks are complete. Steps 6–8 and the mission remain open.
+**Conclusion:** Step 5 remains **PARTIALLY MITIGATED but NOT CLOSED**. Retrieval v101, Memory Write Gate v101, `aria-memory-v2` v110, and the three internal learning/consolidation routes are deployed fail-closed. CI passes 8/8 contract tests plus Deno type-checks for the six source areas. The migration source also filters `capture_failure_mastery`, `enforce_learning_preflight`, `validate_learning_preflight`, `verify_learning_application`, and replaces `aria_memory_search_hybrid_text_scoped` with a class-filtered wrapper. However, the migration is **not applied**, so none of these database-level filters/triggers/grant changes are production controls yet. The current database preflight/mastery functions remain a residual LIVE gap until the authorized migration is applied and verified. A valid internal-auth E2E with general/private/unclassified fixtures and post-migration catalog readback is required. Do not merge the stacked draft PR until then; Steps 6–8 and the global mission remain open.
 
 ## Superseding follow-up — live internal memory closure and database-read audit (14-10-2026)
 
@@ -94,3 +97,12 @@ Risk reduction is now live at the Retrieval, Memory Write Gate, and `aria-memory
 - A catalog review confirmed `aria_memory.learning_context_for_goal` currently has default PUBLIC execute (catalog ACL is NULL). The migration explicitly revokes PUBLIC/anon/authenticated and re-grants `EXECUTE` to `service_role` so least-privilege hardening does not accidentally remove the trusted internal grant.
 - Actual deployment and HTTP probe evidence: LIVE v110 hash `788fb3fb1c59af6f364b73b437e8e6a102abfd92de2573e0fe53622924edcf84`; GET returns `200` and advertises only `access` as active; POST without internal auth returns `401`. Authenticated action-level E2E remains pending because the test did not possess the internal shared secret or cron token.
 - The database migration call remains blocked by the official write-tool safety control; no alternate SQL write channel was used. Thus the SQL edits described above are reviewed, source-controlled, and contract-tested in the branch, but are **not production database controls yet**.
+
+
+## Superseding follow-up — expanded internal route and SQL consumer audit (14-10-2026)
+
+- Additional live internal learning routes are now closed while classification is pending: `aria-learning-v2` v92, `aria-learning-v3` v93, and `aria-learning-consolidator-v1` v93. Each keeps its existing secret/cron authorization and responds 503 before parsing body-provided mission identifiers, scanning `mission_state`, or writing learning records. POST requests without internal authentication returned HTTP 401 on all three routes.
+- MCP route scan: `aria-mcp-server-v3`, `aria-mcp-server-9-5`, and `aria-mcp-server-grok-v4` delegate context retrieval to `aria-context-retrieval-v1` and memory capture to the disabled `aria-memory-bridge-9-4`. Legacy `aria-mcp-server` and `aria-mcp-server-v2` refer to the absent `chatbending-auto-retrieval` handler rather than a direct `aria_memory.memory_items` query. `aria-mcp-server-static` responds with fixed text; `aria-mcp-inbound-grok-v1` uses a static read-only context snapshot and has no direct `memory_items` query.
+- The migration source now additionally replaces `aria_internal.capture_failure_mastery` with a general-class source gate and a general-only lookup/update; filters `aria_internal.enforce_learning_preflight`, `validate_learning_preflight`, and `verify_learning_application` to explicitly general-class memories; and replaces `public.aria_memory_search_hybrid_text_scoped` with a wrapper delegating to the class-filtered `aria_memory.search_hybrid_user_scoped`.
+- Strengthened source contracts passed in [run 38626099409](https://github.com/Robvg9/aria-worker/actions/runs/38626099409): 8 tests, 0 failures, and type-checks for Retrieval, Memory Write Gate, `aria-memory-v2`, learning-v2, learning-v3, and the consolidator.
+- **Residual remains unchanged:** these SQL changes are only in the open PR's migration file. The official Supabase migration call was blocked; no alternate SQL write channel was used. Production database triggers/filters/grants therefore remain unchanged, including the existing preflight/mastery SQL consumers. Step 5 remains open.
