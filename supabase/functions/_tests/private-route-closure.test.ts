@@ -232,3 +232,20 @@ Deno.test("shared chunk trigger requires a general-class parent document", async
   assertStringIncludes(sql, "EXECUTE FUNCTION public.aria_encrypt_require_general_chunk()");
   assertStringIncludes(sql, "COMMIT;");
 });
+
+Deno.test("authenticated HTTP probes use Vault internally and persist only safe response evidence", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014235900_aria_encrypt_step5_authenticated_http_probes.sql");
+  assertStringIncludes(sql, "FROM vault.decrypted_secrets");
+  assertStringIncludes(sql, "name = 'aria_autonomy_cron_token'");
+  assertStringIncludes(sql, "net.http_post(");
+  assertStringIncludes(sql, "'x-aria-autonomy-token',v_cron_token");
+  assertStringIncludes(sql, "aria-memory-v2");
+  assertStringIncludes(sql, "aria-learning-v2");
+  assertStringIncludes(sql, "aria-learning-v3");
+  assertStringIncludes(sql, "aria-learning-consolidator-v1");
+  assertStringIncludes(sql, "aria_encrypt_step5_http_probe_evidence");
+  assertStringIncludes(sql, "expected_status_code integer NOT NULL DEFAULT 503");
+  assertStringIncludes(sql, "v_cron_token text");
+  assertEquals(sql.includes("RAISE NOTICE"), false);
+  assertStringIncludes(sql, "REVOKE ALL PRIVILEGES ON TABLE aria_internal.aria_encrypt_step5_http_probe_evidence");
+});
