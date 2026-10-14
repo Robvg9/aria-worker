@@ -606,6 +606,349 @@ async function cuevacoinMissionReadDispatch(body:Record<string,unknown>) {
   };
 }
 
+async function readCuevacoinGitHubFileBytes(clientId: string, path: string, ref: string): Promise<Uint8Array> {
+  const result: any = await cuevaCoinProjectControl({ operation: "github_file_read", path, ref }, clientId);
+  if (result?.ok !== true || !result?.data || typeof result.data.content !== "string") {
+    throw new Error("cuevacoin_deployment_source_file_unavailable");
+  }
+  const encoding = String(result.data.encoding || "").toLowerCase();
+  if (encoding === "base64") {
+    const encoded = String(result.data.content).replace(/\\s+/g, "");
+    try {
+      return Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+    } catch {
+      throw new Error("cuevacoin_deployment_source_file_decode_failed");
+    }
+  }
+  return new TextEncoder().encode(String(result.data.content));
+}
+
+function cuevacoinDeploymentSha256Hex(bytes: Uint8Array): Promise<string> {
+  return crypto.subtle.digest("SHA-256", bytes).then((digest) =>
+    Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("")
+  );
+}
+
+function cuevacoinDeploymentGoalAllowed(goal: unknown): boolean {
+  const value = String(goal || "").toLowerCase();
+  return value.includes("/aria-cuevacoin")
+    && value.includes("paso 8")
+    && value.includes("cuevacoin_project_control")
+    && value.includes(".github/workflows/cuevacoin-deploy.yml")
+    && value.includes("robvg9/cuevacoin")
+    && value.includes("zqgmjwfvluboiporytcq")
+    && value.includes("confirm_project_ref")
+    && value.includes("sin cambios sql")
+    && value.includes("operaciones financieras")
+    && value.includes("main")
+    && value.includes("despliegue controlado autorizado");
+}
+
+async function cuevacoinDeploymentMissionState(missionId: string, requestId: string) {
+  const { data, error } = await db().schema("aria_internal").from("mission_state")
+    .select("mission_id,goal,status,metadata")
+    .eq("mission_id", missionId).maybeSingle();
+  if (error || !data) throw new Error("cuevacoin_deployment_mission_not_found");
+  if (String(data.status || "") !== "running") throw new Error("cuevacoin_deployment_mission_not_running");
+  if (!cuevacoinDeploymentGoalAllowed(data.goal)) throw new Error("cuevacoin_deployment_goal_not_allowlisted");
+  const metadata = data.metadata && typeof data.metadata === "object" ? data.metadata : {};
+  const canonicalRequestId = String(metadata.request_id || metadata.trace_id || missionId);
+  if (canonicalRequestId !== requestId) throw new Error("cuevacoin_deployment_request_mismatch");
+  return data;
+}
+
+async function cuevacoinDeploymentEvents(missionId: string) {
+  const { data, error } = await db().schema("aria_internal").from("mission_events")
+    .select("payload,created_at")
+    .eq("mission_id", missionId)
+    .eq("event_type", "cuevacoin_deployment_dispatch_state")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) throw new Error("cuevacoin_deployment_evidence_read_failed");
+  return (Array.isArray(data) ? data : []).map((row: any) => ({
+    created_at: String(row.created_at || ""),
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+  }));
+}
+
+async function persistCuevacoinDeploymentEvent(missionId: string, requestId: string, payload: Record<string, unknown>) {
+  const { error } = await db().schema("aria_internal").from("mission_events").insert({
+    mission_id: missionId,
+    event_type: "cuevacoin_deployment_dispatch_state",
+    payload,
+    request_id: requestId,
+    execution_id: missionId + ":" + requestId + ":cuevacoin-deploy:" + crypto.randomUUID(),
+    runtime_version: "aria-cuevacoin-deployment-bridge-v1",
+    source_sha: typeof payload.commit_sha === "string" ? payload.commit_sha : null,
+  });
+  if (error) throw new Error("cuevacoin_deployment_evidence_write_failed");
+}
+
+async function cuevacoinDeploymentRunForCommit(clientId: string, commitSha: string, dispatchedAt: string) {
+  const result: any = await cuevaCoinProjectControl({ operation: "github_workflow_runs", commit_sha: commitSha }, clientId);
+  if (result?.ok !== true || !Array.isArray(result?.data?.runs)) throw new Error("cuevacoin_deployment_workflow_runs_unavailable");
+  const dispatchTime = Date.parse(dispatchedAt);
+  const eligible = result.data.runs.filter((run: any) =>
+    String(run?.event || "") === "workflow_dispatch"
+    && String(run?.path || "").replace(/^\\//, "") === ".github/workflows/cuevacoin-deploy.yml"
+    && String(run?.head_branch || "") === "main"
+    && String(run?.head_sha || "") === commitSha
+    && Number.isFinite(Date.parse(String(run?.created_at || "")))
+    && Date.parse(String(run.created_at)) >= dispatchTime - 5000
+    && /^[0-9]+$/.test(String(run?.run_id || ""))
+  );
+  eligible.sort((a: any, b: any) => Date.parse(String(b.created_at)) - Date.parse(String(a.created_at)));
+  return eligible[0] || null;
+}
+
+async function cuevacoinVerifyLiveHashes(clientId: string, commitSha: string) {
+  const files = [
+    { key: "index_html", path: "index.html", url: "https://cuevacoin.robvg9.workers.dev/" },
+    { key: "service_worker_js", path: "service-worker.js", url: "https://cuevacoin.robvg9.workers.dev/service-worker.js" },
+  ];
+  const output: Record<string, unknown> = {};
+  for (const file of files) {
+    const sourceBytes = await readCuevacoinGitHubFileBytes(clientId, file.path, commitSha);
+    const url = new URL(file.url);
+    url.searchParams.set("aria_release_verify", commitSha);
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      cache: "no-store",
+      headers: { "cache-control": "no-cache", pragma: "no-cache" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (response.status !== 200) throw new Error("cuevacoin_deployment_live_http_" + file.key);
+    const liveBytes = new Uint8Array(await response.arrayBuffer());
+    const sourceHash = await cuevacoinDeploymentSha256Hex(sourceBytes);
+    const liveHash = await cuevacoinDeploymentSha256Hex(liveBytes);
+    output[file.key] = {
+      path: file.path,
+      source_sha256: sourceHash,
+      live_sha256: liveHash,
+      match: sourceHash === liveHash,
+      http_status: response.status,
+      source_bytes: sourceBytes.byteLength,
+      live_bytes: liveBytes.byteLength,
+    };
+  }
+  const indexHtml: any = output.index_html;
+  const serviceWorkerJs: any = output.service_worker_js;
+  return {
+    index_html: indexHtml,
+    service_worker_js: serviceWorkerJs,
+    live_hashes_match: indexHtml?.match === true && serviceWorkerJs?.match === true,
+  };
+}
+
+async function cuevacoinMissionDeploymentDispatch(body: Record<string, unknown>) {
+  const missionId = String(body.mission_id || "");
+  const requestId = String(body.request_id || "");
+  const action = String(body.action || "");
+  if (!/^[A-Za-z0-9:_-]{1,220}$/.test(missionId)) throw new Error("cuevacoin_deployment_mission_id_invalid");
+  if (!/^[A-Za-z0-9:_-]{1,220}$/.test(requestId)) throw new Error("cuevacoin_deployment_request_id_invalid");
+  if (!["dispatch", "verify"].includes(action)) throw new Error("cuevacoin_deployment_action_not_allowlisted");
+  if (String(body.tool_name || "") !== "cuevacoin_project_control"
+    || String(body.workflow_id || "") !== "cuevacoin-deploy.yml"
+    || String(body.ref || "main") !== "main"
+    || String(body.confirm_project_ref || "") !== CUEVACOIN_PROJECT.projectRef
+    || body.confirm_production_write !== true
+    || String(body.risk_level || "") !== "moderate"
+    || String(body.change_summary || "") !== "Despliegue controlado autorizado para cerrar el paso 8; desplegar el main actual y verificar la paridad SHA-256 LIVE de index.html y service-worker.js. Sin cambios SQL, migraciones ni operaciones financieras.") {
+    throw new Error("cuevacoin_deployment_confirmation_mismatch");
+  }
+
+  const mission = await cuevacoinDeploymentMissionState(missionId, requestId);
+  const grant = await requireActiveCuevacoinControlGrant();
+  const events = await cuevacoinDeploymentEvents(missionId);
+  let state = events[0]?.payload || {};
+
+  if (action === "dispatch") {
+    if (String(state.request_id || "") === requestId && state.dispatch_state === "accepted") {
+      return {
+        ok: true, mission_id: missionId, request_id: requestId, action,
+        data: {
+          accepted: true,
+          idempotent_reuse: true,
+          workflow_id: "cuevacoin-deploy.yml",
+          ref: "main",
+          commit_sha: String(state.commit_sha || ""),
+          dispatched_at: String(state.dispatched_at || ""),
+          grant_scope_verified: true,
+        },
+        completed_at: new Date().toISOString(),
+      };
+    }
+
+    if (String(state.request_id || "") === requestId && state.dispatch_state === "dispatching") {
+      const priorRun = state.commit_sha && state.dispatched_at
+        ? await cuevacoinDeploymentRunForCommit(grant.client_id, String(state.commit_sha), String(state.dispatched_at)).catch(() => null)
+        : null;
+      if (priorRun) {
+        const accepted = {
+          ...state,
+          dispatch_state: "accepted",
+          run_id: Number(priorRun.run_id),
+          run_url: String(priorRun.html_url || ""),
+          workflow_status: String(priorRun.status || ""),
+          workflow_conclusion: priorRun.conclusion == null ? null : String(priorRun.conclusion),
+          reconciled_after_retry: true,
+          accepted_at: new Date().toISOString(),
+        };
+        await persistCuevacoinDeploymentEvent(missionId, requestId, accepted);
+        return {
+          ok: true, mission_id: missionId, request_id: requestId, action,
+          data: { accepted: true, idempotent_reuse: true, workflow_id: "cuevacoin-deploy.yml", ref: "main", commit_sha: String(accepted.commit_sha), run_id: accepted.run_id, run_url: accepted.run_url, dispatched_at: String(accepted.dispatched_at), grant_scope_verified: true },
+          completed_at: new Date().toISOString(),
+        };
+      }
+      throw new Error("cuevacoin_deployment_prior_dispatch_ambiguous_no_redispatch");
+    }
+
+    const refResult: any = await cuevaCoinProjectControl({ operation: "github_ref_read", branch: "main" }, grant.client_id);
+    const commitSha = String(refResult?.data?.sha || "");
+    if (refResult?.ok !== true || !/^[0-9a-f]{40}$/i.test(commitSha)) throw new Error("cuevacoin_deployment_main_sha_unavailable");
+
+    const workflowBytes = await readCuevacoinGitHubFileBytes(grant.client_id, ".github/workflows/cuevacoin-deploy.yml", commitSha);
+    const workflow = new TextDecoder().decode(workflowBytes);
+    if (!workflow.includes("workflow_dispatch:")
+      || !workflow.includes("confirm_project_ref")
+      || !workflow.includes("Deploy CuevaCoin Worker")
+      || !workflow.includes("SHA256=")) {
+      throw new Error("cuevacoin_deployment_workflow_source_not_verified");
+    }
+
+    const dispatchedAt = new Date().toISOString();
+    const dispatchIntent = {
+      request_id: requestId,
+      dispatch_state: "dispatching",
+      workflow_id: "cuevacoin-deploy.yml",
+      ref: "main",
+      project_ref: CUEVACOIN_PROJECT.projectRef,
+      commit_sha: commitSha,
+      dispatched_at: dispatchedAt,
+      confirmation_verified: true,
+      grant_scope_verified: true,
+      grant_expires_at: grant.expires_at,
+      started_at: new Date().toISOString(),
+    };
+    await persistCuevacoinDeploymentEvent(missionId, requestId, dispatchIntent);
+
+    const dispatchResult: any = await cuevaCoinProjectControl({
+      operation: "github_workflow_dispatch",
+      workflow_id: "cuevacoin-deploy.yml",
+      ref: "main",
+      confirm_project_ref: CUEVACOIN_PROJECT.projectRef,
+      confirm_production_write: true,
+      risk_level: "moderate",
+      change_summary: String(body.change_summary),
+    }, grant.client_id);
+    if (dispatchResult?.ok !== true || dispatchResult?.data?.accepted !== true) {
+      throw new Error("cuevacoin_deployment_dispatch_not_accepted");
+    }
+    const accepted = {
+      ...dispatchIntent,
+      dispatch_state: "accepted",
+      accepted_at: new Date().toISOString(),
+      dispatch_http_status: dispatchResult?.data?.status ?? 202,
+    };
+    await persistCuevacoinDeploymentEvent(missionId, requestId, accepted);
+    return {
+      ok: true, mission_id: missionId, request_id: requestId, action,
+      data: {
+        accepted: true,
+        idempotent_reuse: false,
+        workflow_id: "cuevacoin-deploy.yml",
+        ref: "main",
+        commit_sha: commitSha,
+        dispatched_at: dispatchedAt,
+        grant_scope_verified: true,
+      },
+      completed_at: new Date().toISOString(),
+    };
+  }
+
+  if (!state || String(state.request_id || "") !== requestId || !["accepted", "dispatching"].includes(String(state.dispatch_state || ""))) {
+    throw new Error("cuevacoin_deployment_dispatch_evidence_missing");
+  }
+  if (!state.commit_sha || !state.dispatched_at) throw new Error("cuevacoin_deployment_dispatch_identity_missing");
+  let run: any = null;
+  const deadline = Date.now() + 65000;
+  while (Date.now() < deadline) {
+    run = await cuevacoinDeploymentRunForCommit(grant.client_id, String(state.commit_sha), String(state.dispatched_at));
+    if (run && String(run.status || "") === "completed") break;
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+  }
+  if (!run) {
+    const pending = { ...state, verification_state: "pending_workflow_run", verification_checked_at: new Date().toISOString() };
+    await persistCuevacoinDeploymentEvent(missionId, requestId, pending);
+    return {
+      ok: true, mission_id: missionId, request_id: requestId, action,
+      data: { verification_complete: false, state: "pending_workflow_run", workflow_id: "cuevacoin-deploy.yml", commit_sha: String(state.commit_sha), dispatched_at: String(state.dispatched_at), retryable: true },
+      completed_at: new Date().toISOString(),
+    };
+  }
+  if (String(run.status || "") !== "completed") {
+    const pending = { ...state, verification_state: "workflow_in_progress", run_id: Number(run.run_id), run_url: String(run.html_url || ""), workflow_status: String(run.status || ""), workflow_conclusion: run.conclusion == null ? null : String(run.conclusion), verification_checked_at: new Date().toISOString() };
+    await persistCuevacoinDeploymentEvent(missionId, requestId, pending);
+    return {
+      ok: true, mission_id: missionId, request_id: requestId, action,
+      data: { verification_complete: false, state: "workflow_in_progress", workflow_id: "cuevacoin-deploy.yml", run_id: Number(run.run_id), run_url: String(run.html_url || ""), workflow_status: String(run.status || ""), commit_sha: String(state.commit_sha), retryable: true },
+      completed_at: new Date().toISOString(),
+    };
+  }
+  if (String(run.conclusion || "").toLowerCase() !== "success") {
+    const failed = { ...state, verification_state: "workflow_failed", run_id: Number(run.run_id), run_url: String(run.html_url || ""), workflow_status: String(run.status || ""), workflow_conclusion: String(run.conclusion || "unknown"), verification_checked_at: new Date().toISOString() };
+    await persistCuevacoinDeploymentEvent(missionId, requestId, failed);
+    return {
+      ok: true, mission_id: missionId, request_id: requestId, action,
+      data: { verification_complete: false, state: "workflow_failed", workflow_id: "cuevacoin-deploy.yml", run_id: Number(run.run_id), run_url: String(run.html_url || ""), workflow_status: String(run.status || ""), workflow_conclusion: String(run.conclusion || "unknown"), commit_sha: String(state.commit_sha), retryable: false },
+      completed_at: new Date().toISOString(),
+    };
+  }
+
+  const verifiedCommitSha = String(run.head_sha || state.commit_sha || "");
+  if (!/^[0-9a-f]{40}$/i.test(verifiedCommitSha)) throw new Error("cuevacoin_deployment_run_sha_unavailable");
+  const hashes = await cuevacoinVerifyLiveHashes(grant.client_id, verifiedCommitSha);
+  const evidence = {
+    ...state,
+    dispatch_state: "accepted",
+    verification_state: hashes.live_hashes_match ? "PASS" : "live_hash_mismatch",
+    verification_complete: hashes.live_hashes_match,
+    workflow_id: "cuevacoin-deploy.yml",
+    run_id: Number(run.run_id),
+    run_url: String(run.html_url || ""),
+    workflow_status: "completed",
+    workflow_conclusion: "success",
+    commit_sha: verifiedCommitSha,
+    initial_main_sha: String(state.commit_sha),
+    live_hashes_match: hashes.live_hashes_match,
+    index_html: hashes.index_html,
+    service_worker_js: hashes.service_worker_js,
+    verified_at: new Date().toISOString(),
+  };
+  await persistCuevacoinDeploymentEvent(missionId, requestId, evidence);
+  return {
+    ok: true, mission_id: missionId, request_id: requestId, action,
+    data: {
+      verification_complete: hashes.live_hashes_match,
+      state: hashes.live_hashes_match ? "PASS" : "live_hash_mismatch",
+      workflow_id: "cuevacoin-deploy.yml",
+      run_id: Number(run.run_id),
+      run_url: String(run.html_url || ""),
+      workflow_status: "completed",
+      workflow_conclusion: "success",
+      commit_sha: verifiedCommitSha,
+      initial_main_sha: String(state.commit_sha),
+      dispatched_at: String(state.dispatched_at),
+      index_html: hashes.index_html,
+      service_worker_js: hashes.service_worker_js,
+      live_hashes_match: hashes.live_hashes_match,
+      verified_at: evidence.verified_at,
+    },
+    completed_at: new Date().toISOString(),
+  };
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -630,6 +973,26 @@ Deno.serve(async (req) => {
       return json(message === "cuevacoin_control_scope_required" ? 403 : 409, {
         ok: false, error: allowed.has(message) ? message : cuevacoinSafeProviderError(message),
         required_scope: CUEVACOIN_CONTROL_SCOPE
+      });
+    }
+  }
+
+  // Internal mission deployment dispatch is service-role-only, scope-gated, fixed to CuevaCoin,
+  // idempotent across mission retries, and never accepts arbitrary repositories/workflows.
+  if (path.endsWith("/internal/mission-deployment-dispatch")) {
+    if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
+    if (!SERVICE_ROLE_KEY || bearer(req) !== SERVICE_ROLE_KEY) {
+      return json(401, { ok: false, error: "internal_dispatch_unauthorized" });
+    }
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") return json(400, { ok: false, error: "invalid_internal_dispatch" });
+    try {
+      return json(200, await cuevacoinMissionDeploymentDispatch(body as Record<string, unknown>));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "internal_deployment_dispatch_failed");
+      const safeMessage = /^cuevacoin_deployment_[a-z0-9_]+$/.test(message) ? message : cuevacoinSafeProviderError(message);
+      return json(message === "cuevacoin_control_scope_required" ? 403 : 409, {
+        ok: false, error: safeMessage, required_scope: CUEVACOIN_CONTROL_SCOPE
       });
     }
   }
