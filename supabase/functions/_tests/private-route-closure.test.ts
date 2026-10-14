@@ -116,3 +116,34 @@ Deno.test("internal learning routes fail closed before reading mission evidence 
   assertStringIncludes(consolidator, '.from("mission_state")');
   assertEquals(consolidator.indexOf("ARIA_MEMORY_PRIVACY_GATE_CLOSED") < consolidator.indexOf('.from("mission_state")'), true);
 });
+
+Deno.test("internal mastery/preflight and scoped search require general classification", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql");
+  const failureStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.capture_failure_mastery()");
+  const enforceStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.enforce_learning_preflight()");
+  const validateStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.validate_learning_preflight(");
+  const verifyStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.verify_learning_application(");
+  const missionOutcomeStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.capture_mission_outcome()");
+  assertEquals(failureStart >= 0, true);
+  assertEquals(failureStart < enforceStart && enforceStart < validateStart &&
+    validateStart < verifyStart && verifyStart < missionOutcomeStart, true);
+
+  const failure = sql.slice(failureStart, enforceStart);
+  const enforce = sql.slice(enforceStart, validateStart);
+  const validate = sql.slice(validateStart, verifyStart);
+  const verify = sql.slice(verifyStart, missionOutcomeStart);
+  assertStringIncludes(failure, "new.metadata->>'privacy_class','') IS DISTINCT FROM 'general'");
+  assertStringIncludes(failure, "m.metadata->>'privacy_class'='general'");
+  assertStringIncludes(failure, "'privacy_class','general'");
+  assertStringIncludes(enforce, "m.metadata->>'privacy_class'='general'");
+  assertStringIncludes(validate, "m.metadata->>'privacy_class'='general'");
+  assertStringIncludes(verify, "m.metadata->>'privacy_class'='general'");
+
+  const scopedStart = sql.indexOf("CREATE OR REPLACE FUNCTION public.aria_memory_search_hybrid_text_scoped(");
+  assertEquals(scopedStart >= 0, true);
+  const scopedEnd = sql.indexOf("COMMIT;", scopedStart);
+  assertEquals(scopedEnd > scopedStart, true);
+  const scoped = sql.slice(scopedStart, scopedEnd);
+  assertStringIncludes(scoped, "FROM aria_memory.search_hybrid_user_scoped");
+  assertEquals(scoped.includes("FROM aria_memory.memory_items"), false);
+});
