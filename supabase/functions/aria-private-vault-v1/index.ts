@@ -1,5 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.117.3";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.117.3";
+type VaultAdminClient = SupabaseClient<any, "public", "public">;
+
 import {
   isUuid,
   parseOptionalRevision,
@@ -153,7 +155,7 @@ function outcomeFor(status: number): string {
 }
 
 async function appendAudit(
-  admin: ReturnType<typeof createClient>,
+  admin: VaultAdminClient,
   ownerId: string,
   requestId: string,
   action: string,
@@ -178,7 +180,7 @@ async function appendAudit(
 }
 
 async function finalizeAudit(
-  admin: ReturnType<typeof createClient>,
+  admin: VaultAdminClient,
   ownerId: string,
   auditId: string,
   status: number,
@@ -196,7 +198,7 @@ async function finalizeAudit(
 }
 
 async function rateGate(
-  admin: ReturnType<typeof createClient>,
+  admin: VaultAdminClient,
   ownerId: string,
   action: string,
 ): Promise<{ allowed: boolean; retryAfter: number } | null> {
@@ -214,7 +216,7 @@ async function parseRouteBody(request: Request): Promise<unknown> {
   return await parseJsonBounded(request);
 }
 
-async function ensureOwnedVault(admin: ReturnType<typeof createClient>, ownerId: string, vaultId: string) {
+async function ensureOwnedVault(admin: VaultAdminClient, ownerId: string, vaultId: string) {
   const { data, error } = await admin
     .from("aria_vault_vaults")
     .select("vault_id")
@@ -230,7 +232,7 @@ async function dispatch(
   url: URL,
   parts: string[],
   action: string,
-  admin: ReturnType<typeof createClient>,
+  admin: VaultAdminClient,
   ownerId: string,
   origin: string | null,
   requestId: string,
