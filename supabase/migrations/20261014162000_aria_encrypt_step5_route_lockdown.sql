@@ -252,8 +252,8 @@ SELECT m.memory_id, m.memory_type, m.title, m.content, m.status, m.confidence, m
          lower(coalesce(m.title,'')) LIKE '%' || lower(trim(coalesce(p_goal,''))) || '%'
          OR lower(coalesce(m.metadata->>'scope','')) LIKE '%' || lower(trim(coalesce(p_goal,''))) || '%'
          OR EXISTS (
-           SELECT 1 FROM regexp_split_to_table(lower(trim(coalesce(p_goal,''))), '[[:space:]]+') token
-            WHERE length(token) >= 5 AND position(token in lower(coalesce(m.metadata->>'scope',''))) > 0
+           SELECT 1 FROM regexp_split_to_table(lower(trim(coalesce(p_goal,''))), '[[:space:]]+') AS token(value)
+            WHERE length(value) >= 5 AND position(value in lower(coalesce(m.metadata->>'scope',''))) > 0
          )
        )
      )
