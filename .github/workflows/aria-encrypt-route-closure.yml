@@ -26,6 +26,7 @@ on:
       - 'supabase/migrations/20261014233000_aria_encrypt_step5_learning_table_and_cb_search.sql'
       - 'supabase/migrations/20261014235500_aria_encrypt_step5_live_smoke_e2e.sql'
       - 'supabase/migrations/20261014234000_aria_encrypt_step5_require_chunk_class.sql'
+      - 'supabase/migrations/20261014235000_aria_encrypt_step5_gate_mission_learning_trigger.sql'
       - 'security/aria-encrypt-step5-route-closure.md'
       - '.github/workflows/aria-encrypt-route-closure.yml'
   push:
@@ -54,6 +55,7 @@ on:
       - 'supabase/migrations/20261014233000_aria_encrypt_step5_learning_table_and_cb_search.sql'
       - 'supabase/migrations/20261014235500_aria_encrypt_step5_live_smoke_e2e.sql'
       - 'supabase/migrations/20261014234000_aria_encrypt_step5_require_chunk_class.sql'
+      - 'supabase/migrations/20261014235000_aria_encrypt_step5_gate_mission_learning_trigger.sql'
       - 'security/aria-encrypt-step5-route-closure.md'
       - '.github/workflows/aria-encrypt-route-closure.yml'
 
