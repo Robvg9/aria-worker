@@ -147,8 +147,11 @@ const deploymentRecovery = between(
   'if (String(state.request_id || "") === requestId && state.dispatch_state === "dispatching") {',
   '    const refResult: any = await cuevaCoinProjectControl({ operation: "github_ref_read", branch: "main" }, grant.client_id);'
 );
-assert.match(deploymentRecovery, /Date\.now\(\) - firstDispatchAt < 120_000/);
-assert.match(deploymentRecovery, /state\.recovery_dispatch_attempted === true/);
+assert.match(deploymentRecovery, /Date\.now\(\) - lastDispatchAttemptAt < 120_000/);
+assert.match(deploymentRecovery, /recoveryDispatchCount >= 2/);
+assert.match(deploymentRecovery, /state\.recovery_dispatch_attempted === true \? 1 : 0/);
+assert.match(deploymentRecovery, /recovery_dispatch_count:\s*recoveryDispatchCount \+ 1/);
+assert.match(deploymentRecovery, /recovery_dispatch_attempted_at:\s*recoveryDispatchedAt/);
 assert.match(deploymentRecovery, /currentMainSha !== String\(state\.commit_sha \|\| ""\)/);
 assert.match(deploymentRecovery, /recovery_dispatch_attempted:\s*true/);
 assert.match(deploymentRecovery, /await persistCuevacoinDeploymentEvent\(missionId, requestId, recoveryIntent\)/);
