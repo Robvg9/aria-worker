@@ -546,7 +546,9 @@ async function cuevacoinMissionReadDispatch(body:Record<string,unknown>) {
     try {
       const result:any = await cuevaCoinProjectControl({ operation }, grant.client_id);
       const hasData = result && Object.prototype.hasOwnProperty.call(result, "data") && result.data !== null;
-      const ok = result?.ok === true && hasData;
+      const identityRead = operation === "supabase_project_status"
+        && String(result?.project_ref || "") === CUEVACOIN_PROJECT.projectRef;
+      const ok = result?.ok === true && (hasData || identityRead);
       calls.push({
         execution_id: callId, tool_name: "cuevacoin_project_control", operation,
         status: ok ? "succeeded" : "failed", ok, result: ok ? result : null,
