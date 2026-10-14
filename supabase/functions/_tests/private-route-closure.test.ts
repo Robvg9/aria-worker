@@ -120,6 +120,7 @@ Deno.test("internal learning routes fail closed before reading mission evidence 
 Deno.test("internal mastery/preflight and scoped search require general classification", async () => {
   const sql = await Deno.readTextFile("supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql");
   assertEquals(/^\s*\$function\$\s*$/m.test(sql), false, "All copied PostgreSQL function bodies must be statement-terminated.");
+  assertEquals(/(?:END;|RETURN [^;]+;)\s+\$function\$(?!;)/i.test(sql), false, "Inline function bodies must also end in a semicolon.");
   const failureStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.capture_failure_mastery()");
   const enforceStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.enforce_learning_preflight()");
   const validateStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_internal.validate_learning_preflight(");
