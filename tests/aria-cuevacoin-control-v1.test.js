@@ -180,4 +180,12 @@ assert.match(deploymentEvidenceWriter, /source_sha:\s*sourceSha/);
 assert.doesNotMatch(deploymentEvidenceWriter, /\.schema\("aria_internal"\)\.from\("mission_events"\)\.insert/);
 assert.doesNotMatch(deploymentEvidenceWriter, /event_type:\s*"cuevacoin_deployment_dispatch_state"/);
 
+
+assert.match(oauth, /recoveryAgeMs < 120000/);
+assert.match(oauth, /recoveryRetryCount >= 1/);
+assert.match(oauth, /cuevacoin_deployment_main_changed_during_ambiguous_dispatch_no_redispatch/);
+assert.match(oauth, /verified_no_matching_workflow_run_after_grace_period/);
+assert.match(oauth, /recovered_after_ambiguous_dispatch/);
+assert.doesNotMatch(oauth, /cuevacoinDeploymentRunForCommit\(grant\.client_id, String\(state\.commit_sha\), String\(state\.dispatched_at\)\)\.catch\(\(\) => null\)/);
+
 console.log('aria-cuevacoin-control-v1: PASS');
