@@ -818,11 +818,12 @@ async function cuevacoinMissionDeploymentDispatch(body: Record<string, unknown>)
         };
       }
 
-      const firstDispatchAt = Date.parse(String(state.dispatched_at || ""));
-      if (!Number.isFinite(firstDispatchAt) || Date.now() - firstDispatchAt < 120_000) {
+      const lastDispatchAttemptAt = Date.parse(String(state.recovery_dispatch_attempted_at || state.dispatched_at || ""));
+      const recoveryDispatchCount = Number(state.recovery_dispatch_count ?? (state.recovery_dispatch_attempted === true ? 1 : 0));
+      if (!Number.isFinite(lastDispatchAttemptAt) || Date.now() - lastDispatchAttemptAt < 120_000) {
         throw new Error("cuevacoin_deployment_prior_dispatch_ambiguous_no_redispatch");
       }
-      if (state.recovery_dispatch_attempted === true) {
+      if (recoveryDispatchCount >= 2) {
         throw new Error("cuevacoin_deployment_recovery_dispatch_already_attempted_no_redispatch");
       }
 
@@ -856,10 +857,13 @@ async function cuevacoinMissionDeploymentDispatch(body: Record<string, unknown>)
         ref: "main",
         project_ref: CUEVACOIN_PROJECT.projectRef,
         commit_sha: currentMainSha,
+        initial_dispatched_at: String(state.initial_dispatched_at || state.dispatched_at),
         previous_dispatched_at: String(state.dispatched_at),
         dispatched_at: recoveryDispatchedAt,
         started_at: recoveryDispatchedAt,
+        recovery_dispatch_count: recoveryDispatchCount + 1,
         recovery_dispatch_attempted: true,
+        recovery_dispatch_attempted_at: recoveryDispatchedAt,
         recovery_reason: "verified_no_matching_workflow_run_after_grace_period",
         prior_dispatch_reconciled_at: new Date().toISOString(),
         grant_scope_verified: true,
