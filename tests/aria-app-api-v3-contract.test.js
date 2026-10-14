@@ -15,6 +15,8 @@ const appWorkflow=read('.github','workflows','aria-app-api-v3-deploy.yml');
 const persistenceWorkflow=read('.github','workflows','persistence-recovery-rwht-authenticated.yml');
 const cloudflareDeployWorkflow=read('.github','workflows','aria-cloudflare-deploy.yml');
 const pwaDeployWorkflow=read('.github','workflows','aria-pwa-fast-deploy.yml');
+const webpushWorkflow=read('.github','workflows','aria-meditation-webpush-production-e2e.yml');
+const pwaCertificationWorkflow=read('.github','workflows','aria-pwa-steps-7-8-live.yml');
 const plannerWorkflow=read('.github','workflows','supabase-canonical-deploy.yml');
 function assertContains(source,fragment,message){if(!source.includes(fragment))throw new Error(message||`Missing: ${fragment}`);}
 function assertAny(source,fragments,message){if(!fragments.some(f=>source.includes(f)))throw new Error(message||`Missing one of: ${fragments.join(' | ')}`);}
@@ -232,6 +234,9 @@ console.log('PERSISTENCE RELEASE GATE ACYCLICITY CONTRACT: PASS');
 
 assertContains(cloudflareDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Worker exact-SHA release must trigger when persistence predecessor workflow changes");
 assertContains(pwaDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA exact-SHA release must trigger when persistence predecessor workflow changes");
+assertContains(webpushWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Web Push E2E must re-run when its required exact-SHA persistence predecessor changes");
+assertContains(pwaCertificationWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA Steps 7-8 must re-run when its required exact-SHA persistence predecessor changes");
+console.log('EXACT-SHA PERSISTENCE SUCCESSOR TRIGGER CONTRACT: PASS');
 assertContains(appApi,'latestVerifiedEventByMission','only the latest verified event may back a completed notification');
 assertContains(appApi,'statusByMission.get(missionId)==="succeeded"','completed notifications must be hidden once their mission is no longer succeeded');
 assertContains(appApi,'latestVerifiedEventByMission.get(missionId)===sourceEventId','stale notifications must not point to an older verified event');
