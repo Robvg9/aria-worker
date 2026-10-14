@@ -14,6 +14,7 @@ const required = [
   'providerId === "openrouter" && !modelId.endsWith(":free")',
   'Array.isArray(a.models)',
   'a.models.includes(modelId)',
+  '_provider_priority: providerId === primaryProvider ? 1 : 0',
   "_provider_priority",
   "model_fallback_used",
   "model_execution_failures",
