@@ -76,10 +76,10 @@ ALTER TABLE public.aria_vault_rate_windows ENABLE ROW LEVEL SECURITY;
 
 -- The tables live in the exposed public schema, but only the server's service_role
 -- can access them. There are deliberately no policies for client roles.
-REVOKE ALL ON TABLE public.aria_vault_vaults FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.aria_vault_records FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.aria_vault_audit_events FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.aria_vault_rate_windows FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.aria_vault_vaults FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aria_vault_records FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aria_vault_audit_events FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aria_vault_rate_windows FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT SELECT, INSERT, UPDATE ON TABLE public.aria_vault_vaults TO service_role;
 GRANT SELECT, INSERT ON TABLE public.aria_vault_records TO service_role;
@@ -145,7 +145,7 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.aria_vault_consume_rate_limit_v1(uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.aria_vault_consume_rate_limit_v1(uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.aria_vault_consume_rate_limit_v1(uuid, text) TO service_role;
 
 COMMENT ON TABLE public.aria_vault_vaults IS
