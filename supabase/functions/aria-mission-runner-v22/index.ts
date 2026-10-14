@@ -1413,13 +1413,125 @@ async function finalGlobalReconcile(missionId: string, step: any, mission: any =
 }
 
 
-function isCuevacoinAuthorizedReadMission(goal: unknown): boolean {
+async function cuevacoinAuthorizedDeploymentExecute(missionId: string, step: any, mission: any = null) {
+  if (!isCuevacoinAuthorizedDeployMission(mission?.goal)) throw new Error("cuevacoin_deployment_mission_scope_mismatch");
+  const action = String(step?.input?.deployment_action || "");
+  if (!["dispatch", "verify"].includes(action)) throw new Error("cuevacoin_deployment_action_not_allowlisted");
+  const requestId = String(mission?.metadata?.request_id || mission?.metadata?.trace_id || missionId).slice(0, 180);
+  const endpoint = URL + "/functions/v1/aria-mcp-inbound-grok-v1/internal/mission-deployment-dispatch";
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + KEY,
+      apikey: KEY,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      mission_id: missionId,
+      request_id: requestId,
+      action,
+      tool_name: "cuevacoin_project_control",
+      workflow_id: "cuevacoin-deploy.yml",
+      ref: "main",
+      confirm_project_ref: "zqgmjwfvluboiporytcq",
+      confirm_production_write: true,
+      risk_level: "moderate",
+      change_summary: "Despliegue controlado autorizado para cerrar el paso 8; desplegar el main actual y verificar la paridad SHA-256 LIVE de index.html y service-worker.js. Sin cambios SQL, migraciones ni operaciones financieras.",
+    }),
+    signal: AbortSignal.timeout(80000),
+  });
+  const body: any = await response.json().catch(() => null);
+  if (!response.ok || body?.ok !== true || body?.mission_id !== missionId || body?.request_id !== requestId || body?.action !== action) {
+    throw new Error(String(body?.error || ("cuevacoin_deployment_internal_http_" + response.status)));
+  }
+  const data: any = body.data;
+  if (!data || typeof data !== "object") throw new Error("cuevacoin_deployment_evidence_missing");
+  if (action === "dispatch" && data.accepted !== true) throw new Error("cuevacoin_deployment_dispatch_not_accepted");
+  if (action === "verify" && (
+    data.verification_complete !== true
+    || data.workflow_conclusion !== "success"
+    || data.live_hashes_match !== true
+    || !/^[0-9]+$/.test(String(data.run_id || ""))
+    || !/^[0-9a-f]{40}$/i.test(String(data.commit_sha || ""))
+    || data.index_html?.match !== true
+    || data.service_worker_js?.match !== true
+  )) {
+    throw new Error("cuevacoin_deployment_not_verified:" + String(data.state || data.workflow_conclusion || "verification_incomplete"));
+  }
+  const result: any = {
+    status: "succeeded",
+    executor_type: "connector",
+    connector_id: "cuevacoin",
+    operation: "cuevacoin_project_control",
+    data,
+    response: { content: JSON.stringify(data) },
+  };
+  if (action === "verify") {
+    const evidence = {
+      verified: true,
+      workflow_id: "cuevacoin-deploy.yml",
+      run_id: Number(data.run_id),
+      run_url: String(data.run_url),
+      commit_sha: String(data.commit_sha),
+      workflow_conclusion: String(data.workflow_conclusion),
+      live_hashes_match: true,
+      index_html: data.index_html,
+      service_worker_js: data.service_worker_js,
+      verified_at: String(data.verified_at || new Date().toISOString()),
+    };
+    result.__aria_verified_by_runner = true;
+    result.__aria_verification_evidence = evidence;
+    result.verification_evidence = evidence;
+  }
+  return result;
+}
+
+function isCuevacoinAuthorizedDeployMission(goal: unknown): boolean {
   const value = String(goal || "").toLowerCase();
-  return value.includes("cuevacoin_connection_status")
+  return value.includes("/aria-cuevacoin")
+    && value.includes("paso 8")
     && value.includes("cuevacoin_project_control")
-    && value.includes("aria.project.cuevacoin.control")
+    && value.includes(".github/workflows/cuevacoin-deploy.yml")
+    && value.includes("robvg9/cuevacoin")
     && value.includes("zqgmjwfvluboiporytcq")
-    && value.includes("robvg9/cuevacoin");
+    && value.includes("confirm_project_ref")
+    && value.includes("sin cambios sql")
+    && value.includes("operaciones financieras")
+    && value.includes("main")
+    && value.includes("despliegue controlado autorizado");
+}
+
+function buildCuevacoinAuthorizedDeployPlan() {
+  const changeSummary = "Despliegue controlado autorizado para cerrar el paso 8; desplegar el main actual y verificar la paridad SHA-256 LIVE de index.html y service-worker.js. Sin cambios SQL, migraciones ni operaciones financieras.";
+  return [
+    {
+      id: "cuevacoin_deploy_dispatch",
+      title: "Despachar el workflow gobernado de CuevaCoin desde main",
+      risk: "MODERATE_WRITE",
+      executor_type: "connector",
+      target: { type: "connector", connector_id: "cuevacoin" },
+      operation: "cuevacoin_project_control",
+      input: { deployment_action: "dispatch" },
+      authorization: { status: "approved", risk_class: "MODERATE_WRITE", evidence_ref: "explicit-user-mission:/ARIA-CuevaCoin/step-8" },
+      policy: { governed_production_deploy: true, oauth_scope_required: "aria.project.cuevacoin.control", no_sql: true, no_financial_operations: true },
+      verify: { response_content_nonempty: true },
+      depends_on: [],
+      timeout_ms: 85000,
+    },
+    {
+      id: "cuevacoin_deploy_verify_live",
+      title: "Verificar Run ID, resultado y hashes SHA-256 LIVE",
+      risk: "READ",
+      executor_type: "connector",
+      target: { type: "connector", connector_id: "cuevacoin" },
+      operation: "cuevacoin_project_control",
+      input: { deployment_action: "verify" },
+      policy: { governed_deployment_verification: true, oauth_scope_required: "aria.project.cuevacoin.control", no_sql: true, no_financial_operations: true },
+      verify: { response_content_nonempty: true },
+      depends_on: ["cuevacoin_deploy_dispatch"],
+      timeout_ms: 85000,
+    },
+  ];
 }
 
 function buildCuevacoinAuthorizedReadPlan() {
@@ -1556,6 +1668,9 @@ async function connectorExecute(missionId: string, step: any, token: string | nu
   const connector = String(step.target.connector_id);
   const operation = String(step.operation);
   if (connector === "cuevacoin" && operation === "step6_temp_write_probe") return cuevacoinStep6TempWriteProbe(step, mission);
+  if (connector === "cuevacoin" && operation === "cuevacoin_project_control" && isCuevacoinAuthorizedDeployMission(mission?.goal)) {
+    return cuevacoinAuthorizedDeploymentExecute(missionId, step, mission);
+  }
   if (connector === "cuevacoin" && ["cuevacoin_connection_status", "cuevacoin_project_control"].includes(operation)) return cuevacoinAuthorizedReadOnlyExecute(missionId, step, mission);
   if (connector === "supabase" && operation === "global_final_reconcile") return finalGlobalReconcile(missionId, step, mission);
   if (connector === "supabase" && operation === "health") {
@@ -3017,7 +3132,24 @@ Deno.serve(async (request) => {
       : null;
     const recoveryNeedsFreshPlan = recoveryState?.replan_required === true
       && !["retry_scheduled", "replanned"].includes(String(recoveryState?.status || ""));
-    if (isCuevacoinAuthorizedReadMission(mission?.goal)) {
+    if (isCuevacoinAuthorizedDeployMission(mission?.goal)) {
+      const priorPlan = Array.isArray(mission.checkpoint?.plan) ? mission.checkpoint.plan : [];
+      steps = buildCuevacoinAuthorizedDeployPlan();
+      await emitEvent(missionId, "mission_replanned", {
+        reason: "cuevacoin_authorized_production_deployment_v1",
+        planner_bypassed: true,
+        prior_plan_executor_types: [...new Set(priorPlan.map((step:any) => executorType(step)))],
+        scope_required: "aria.project.cuevacoin.control",
+        allowed_external_operations: ["github_ref_read", "github_file_read", "github_workflow_dispatch", "github_workflow_runs"],
+        workflow_id: "cuevacoin-deploy.yml",
+        ref: "main",
+        project_ref: "zqgmjwfvluboiporytcq",
+        mutations_allowed: true,
+        mutation_scope: "one explicitly authorized CuevaCoin Worker deployment only",
+        sql_allowed: false,
+        financial_operations_allowed: false,
+      });
+    } else if (isCuevacoinAuthorizedReadMission(mission?.goal)) {
       const priorPlan = Array.isArray(mission.checkpoint?.plan) ? mission.checkpoint.plan : [];
       steps = buildCuevacoinAuthorizedReadPlan();
       await emitEvent(missionId, "mission_replanned", {
@@ -4548,6 +4680,26 @@ Deno.serve(async (request) => {
         || projectControlResult?.verification_evidence?.scope_verified !== true
         || projectControlResult?.verification_evidence?.read_only !== true) {
         throw new Error("cuevacoin_control_verification_incomplete");
+      }
+    }
+
+    if (isCuevacoinAuthorizedDeployMission(mission?.goal)) {
+      const dispatchResult: any = results["cuevacoin_deploy_dispatch"];
+      const verificationResult: any = results["cuevacoin_deploy_verify_live"];
+      const evidence: any = verificationResult?.data;
+      if (!completed.has("cuevacoin_deploy_dispatch")
+        || dispatchResult?.status !== "succeeded"
+        || dispatchResult?.data?.accepted !== true
+        || !completed.has("cuevacoin_deploy_verify_live")
+        || verificationResult?.status !== "succeeded"
+        || evidence?.verification_complete !== true
+        || evidence?.workflow_conclusion !== "success"
+        || evidence?.live_hashes_match !== true
+        || evidence?.index_html?.match !== true
+        || evidence?.service_worker_js?.match !== true
+        || !/^[0-9]+$/.test(String(evidence?.run_id || ""))
+        || !/^[0-9a-f]{40}$/i.test(String(evidence?.commit_sha || ""))) {
+        throw new Error("cuevacoin_deployment_live_verification_incomplete");
       }
     }
 
