@@ -218,5 +218,5 @@ Deno.test("mission learning trigger requires an explicitly general mission", asy
   assertStringIncludes(sql, "mission_id,goal_id,category,summary,evidence,confidence,reusable,privacy_class");
   assertStringIncludes(sql, "v_confidence,v_reusable,'general'");
   assertStringIncludes(sql, "privacy_class=excluded.privacy_class");
-  assertStringIncludes(sql, "trg_capture_mission_learning");
+  assertStringIncludes(sql, "CREATE OR REPLACE FUNCTION aria_internal.capture_mission_learning()");
 });
