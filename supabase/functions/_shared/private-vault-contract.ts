@@ -143,9 +143,10 @@ export function parsePagination(url: URL): { limit: number; offset: number } | n
 }
 
 export function parseOptionalRevision(url: URL): number | null | undefined {
-  const value = url.searchParams.get("revision");
-  if (value === null) return undefined;
-  const revision = Number(value);
+  const values = url.searchParams.getAll("revision");
+  if (values.length === 0) return undefined;
+  if (values.length !== 1) return null;
+  const revision = Number(values[0]);
   if (!Number.isSafeInteger(revision) || revision < 1) return null;
   return revision;
 }
