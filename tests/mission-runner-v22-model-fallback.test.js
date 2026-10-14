@@ -27,8 +27,14 @@ const required = [
   'requiredConnectorOperations = ["cuevacoin_connection_status", "cuevacoin_project_control"]',
   "missingRequiredConnectorOperations",
   "required_tool_call_evidence_missing:",
-  'status: reason.startsWith("planner_empty_steps") || requiredToolEvidenceMissing ? "blocked" : "paused"',
+  'status: reason.startsWith("planner_empty_steps") || requiresHumanGate ? "blocked" : "paused"',
   '"human_gate:enable_authorized_required_connector_operations"',
+  "cuevacoinControlIncomplete",
+  "cuevacoin_control_verification_incomplete",
+  "human_gate:resolve_cuevacoin_read_only_access",
+  "function buildCuevacoinAuthorizedReadPlan()",
+  "internal/mission-read-dispatch",
+  "allowed_external_operations: [\"github_repo_read\", \"supabase_project_status\", \"supabase_edge_functions_list\"]",
 ];
 
 for (const fragment of required) {
