@@ -5,7 +5,7 @@ on:
     paths:
       - 'supabase/functions/aria-context-retrieval-v1/**'
       - 'supabase/functions/aria-memory-write-gate-v1/**'
-      - 'supabase/functions/aria-memory-write-gate-v1/**'
+      - 'supabase/functions/aria-memory-v2/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
@@ -16,6 +16,7 @@ on:
     paths:
       - 'supabase/functions/aria-context-retrieval-v1/**'
       - 'supabase/functions/aria-memory-write-gate-v1/**'
+      - 'supabase/functions/aria-memory-v2/**'
       - 'supabase/functions/_shared/private-route-contract.ts'
       - 'supabase/functions/_tests/private-route-closure.test.ts'
       - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
@@ -42,3 +43,5 @@ jobs:
         run: deno check --config supabase/functions/aria-context-retrieval-v1/deno.json supabase/functions/aria-context-retrieval-v1/index.ts supabase/functions/aria-context-retrieval-v1/private-route-contract.ts supabase/functions/_shared/private-route-contract.ts
       - name: Type-check fail-closed memory write gate
         run: deno check --config supabase/functions/aria-memory-write-gate-v1/deno.json supabase/functions/aria-memory-write-gate-v1/index.ts
+      - name: Type-check internal memory route and privacy guard
+        run: deno check supabase/functions/aria-memory-v2/index.ts
