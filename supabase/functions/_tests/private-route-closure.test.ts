@@ -29,6 +29,11 @@ Deno.test("migration closes client RPC access and redacts saved retrieval querie
   assertStringIncludes(sql, "aria_encrypt_general_chunk_guard");
   assertStringIncludes(sql, "aria_encrypt_general_candidate_guard");
   assertStringIncludes(sql, "m.metadata->>'privacy_class'='general'");
+  const unembeddedStart = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.list_unembedded");
+  const unembeddedEnd = sql.indexOf("CREATE OR REPLACE FUNCTION aria_memory.search_hybrid");
+  assertEquals(unembeddedStart >= 0, true);
+  assertEquals(unembeddedEnd > unembeddedStart, true);
+  assertStringIncludes(sql.slice(unembeddedStart, unembeddedEnd), "m.metadata->>'privacy_class' = 'general'");
 });
 
 Deno.test("retrieval source uses an explicit general-only query and does not echo or return metadata blobs", async () => {
