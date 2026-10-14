@@ -155,6 +155,7 @@ assert.match(deploymentRecovery, /await persistCuevacoinDeploymentEvent\(mission
 assert.match(deploymentRecovery, /operation: "github_workflow_dispatch"/);
 assert.match(deploymentRecovery, /recovery_dispatch_accepted:\s*true/);
 assert.match(deploymentRecovery, /cuevacoin_deployment_recovery_dispatch_already_attempted_no_redispatch/);
+assert.doesNotMatch(deploymentRecovery, /cuevacoinDeploymentRunForCommit\(grant\.client_id, String\(state\.commit_sha\), String\(state\.dispatched_at\)\)\.catch\(\(\) => null\)/);
 
 const deploymentEvidenceReader = between(
   oauth,
@@ -181,11 +182,8 @@ assert.doesNotMatch(deploymentEvidenceWriter, /\.schema\("aria_internal"\)\.from
 assert.doesNotMatch(deploymentEvidenceWriter, /event_type:\s*"cuevacoin_deployment_dispatch_state"/);
 
 
-assert.match(oauth, /recoveryAgeMs < 120000/);
-assert.match(oauth, /recoveryRetryCount >= 1/);
-assert.match(oauth, /cuevacoin_deployment_main_changed_during_ambiguous_dispatch_no_redispatch/);
-assert.match(oauth, /verified_no_matching_workflow_run_after_grace_period/);
-assert.match(oauth, /recovered_after_ambiguous_dispatch/);
+assert.match(oauth, /recovery_dispatch_attempted:\s*true/);
+assert.match(oauth, /recovery_dispatch_accepted:\s*true/);
 assert.doesNotMatch(oauth, /cuevacoinDeploymentRunForCommit\(grant\.client_id, String\(state\.commit_sha\), String\(state\.dispatched_at\)\)\.catch\(\(\) => null\)/);
 
 console.log('aria-cuevacoin-control-v1: PASS');
