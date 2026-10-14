@@ -66,7 +66,7 @@ The security weakness remains present in the live system until the authorized mi
 - [x] Identify the exact plaintext-returning RPCs and raw query logging path with live privilege/code evidence.
 - [x] Prepare database changes that revoke direct content RPC access, redact new retrieval audit records, and filter general retrieval by explicit classification.
 - [x] Prepare bounded/JWT-protected retrieval handler and automated contract/type-check workflow.
-- [ ] Run the branch CI and require PASS.
+- [x] CI verified PASS (4/4 contract tests and Deno type-check) on commit `293550aaeb5684ea342b9d2e4d54aa870add8d06` — [run 38602247453](https://github.com/Robvg9/aria-worker/actions/runs/38602247453).
 - [ ] Review and merge the Step 4 dependency and this stacked Step 5 PR in sequence.
 - [ ] Apply the SQL migration through an authorized Supabase deployment path; then query back and verify grants, trigger/function definitions and schema.
 - [ ] Deploy the retrieval function and identify the deployed version/hash.
