@@ -29,6 +29,7 @@ const EAS_PROJECT_ID = '1b23b091-f7b6-4dc2-b328-c8e5ec07de57';
 const LEASE_FOR = "00:15:00";
 const MAX_STEP_ATTEMPTS = 3;
 const ECC_POLL_BUDGET_MS = 45_000;
+const LOCAL_DEVICE_HEARTBEAT_FRESHNESS_MS = 3 * 60_000;
 // Historical contract marker retained for compatibility. Phase 4 uses explicit
 // same-strategy thresholds (3 => change strategy, 5 => hard block) instead of
 // using a finite global replan count as the recovery authority.
@@ -112,6 +113,13 @@ function deviceSupportsOperation(capabilities: unknown, operation: string, agent
   return capabilities.some((capability) => String(capability) === operation);
 }
 
+function isFreshDeviceHeartbeat(lastSeenAt: unknown, now = Date.now()) {
+  const timestamp = Date.parse(String(lastSeenAt ?? ""));
+  if (!Number.isFinite(timestamp)) return false;
+  const age = now - timestamp;
+  return age >= -30_000 && age <= LOCAL_DEVICE_HEARTBEAT_FRESHNESS_MS;
+}
+
 async function buildLocalQwenRecoveryStep(mission: any, recovery: any) {
   if (!recovery?.replan_required) return null;
   const previous = Array.isArray(recovery?.previous_plan) ? recovery.previous_plan : [];
@@ -131,6 +139,7 @@ async function buildLocalQwenRecoveryStep(mission: any, recovery: any) {
   if (error) throw new Error("local_qwen_recovery_device_lookup:" + error.message);
 
   const qwenCandidates = (Array.isArray(data) ? data : []).filter((d:any) =>
+    isFreshDeviceHeartbeat(d?.last_seen_at) &&
     Array.isArray(d?.capabilities) && d.capabilities.map(String).includes("ollama.qwen3")
   );
   const requestedLocalDeviceId = String(
@@ -1861,7 +1870,7 @@ async function verifiedModelFallbackRoutes(original: any, operation: string) {
 
   if (!localDevicesError) {
     const localCandidates = (Array.isArray(localDevices) ? localDevices : [])
-      .filter((device: any) => deviceSupportsOperation(device.capabilities, "ollama.qwen3"))
+      .filter((device: any) => isFreshDeviceHeartbeat(device?.last_seen_at) && deviceSupportsOperation(device.capabilities, "ollama.qwen3"))
       .sort((a: any, b: any) => {
         const aTime = Date.parse(String(a.last_seen_at || "")) || 0;
         const bTime = Date.parse(String(b.last_seen_at || "")) || 0;
@@ -1908,7 +1917,7 @@ async function modelExecute(missionId: string, step: any, auth: AuthContext) {
       .order("last_seen_at", { ascending: false })
       .limit(8);
     const liveLocal = (Array.isArray(localDevices) ? localDevices : []).find((device:any) =>
-      deviceSupportsOperation(device.capabilities, "ollama.qwen3")
+      isFreshDeviceHeartbeat(device?.last_seen_at) && deviceSupportsOperation(device.capabilities, "ollama.qwen3")
     );
     primaryLocalAvailable = Boolean(liveLocal);
     if (liveLocal) primaryRoute = { ...primary, device_id: String(liveLocal.device_id) };
@@ -3791,7 +3800,24 @@ Deno.serve(async (request) => {
           return { step, result, waiting: true, passed: false };
         }
 
-        await emitEvent(missionId, "step_failed", { step_id: id, executor_type: executorType(step), operation: step.operation, attempt: nextAttempt, reason: result?.error?.code || (String(result?.status || "") === "succeeded" ? "verification_failed" : (result?.status || "verification_failed")), result_status: result?.status ?? null, verification_status: result?.repair?.verification_status ?? result?.verification_status ?? null });
+        await emitEvent(missionId, "step_failed", {
+          step_id: id,
+          executor_type: executorType(step),
+          operation: step.operation,
+          attempt: nextAttempt,
+          reason: result?.error?.code || (String(result?.status || "") === "succeeded" ? "verification_failed" : (result?.status || "verification_failed")),
+          result_status: result?.status ?? null,
+          verification_status: result?.repair?.verification_status ?? result?.verification_status ?? null,
+          model_execution_failures: Array.isArray(result?.model_execution_failures)
+            ? result.model_execution_failures.map((failure:any) => ({
+                provider_id: String(failure?.provider_id || ""),
+                model_id: String(failure?.model_id || ""),
+                http_status: Number.isInteger(failure?.http_status) ? failure.http_status : null,
+                code: String(failure?.code || "execution_failed"),
+                provider_status: failure?.provider_status == null ? null : String(failure.provider_status),
+              })).slice(0, 4)
+            : undefined,
+        });
         return { step, result, passed: false, waiting: false };
       }));
 
