@@ -613,7 +613,7 @@ async function readCuevacoinGitHubFileBytes(clientId: string, path: string, ref:
   }
   const encoding = String(result.data.encoding || "").toLowerCase();
   if (encoding === "base64") {
-    const encoded = String(result.data.content).replace(/\\s+/g, "");
+    const encoded = String(result.data.content).replace(/\s+/g, "");
     try {
       return Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
     } catch {
@@ -690,7 +690,7 @@ async function cuevacoinDeploymentRunForCommit(clientId: string, commitSha: stri
   const dispatchTime = Date.parse(dispatchedAt);
   const eligible = result.data.runs.filter((run: any) =>
     String(run?.event || "") === "workflow_dispatch"
-    && String(run?.path || "").replace(/^\\//, "") === ".github/workflows/cuevacoin-deploy.yml"
+    && String(run?.path || "").split("@")[0] === ".github/workflows/cuevacoin-deploy.yml"
     && String(run?.head_branch || "") === "main"
     && String(run?.head_sha || "") === commitSha
     && Number.isFinite(Date.parse(String(run?.created_at || "")))
