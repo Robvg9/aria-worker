@@ -249,3 +249,15 @@ Deno.test("authenticated HTTP probes use Vault internally and persist only safe 
   assertEquals(sql.includes("RAISE NOTICE"), false);
   assertStringIncludes(sql, "REVOKE ALL PRIVILEGES ON TABLE aria_internal.aria_encrypt_step5_http_probe_evidence");
 });
+
+Deno.test("authenticated route probe results are persisted only after four clean 503 responses", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261015001000_aria_encrypt_step5_capture_authenticated_http_probe_results.sql");
+  assertStringIncludes(sql, "FROM net._http_response r");
+  assertStringIncludes(sql, "r.status_code = e.expected_status_code");
+  assertStringIncludes(sql, "'ARIA_MEMORY_PRIVACY_GATE_CLOSED'");
+  assertStringIncludes(sql, "v_total_count <> 4 OR v_pass_count <> 4");
+  assertStringIncludes(sql, "authenticated probe requests remain queued");
+  assertStringIncludes(sql, "response_body = r.content::jsonb");
+  assertEquals(sql.includes("decrypted_secret"), false);
+  assertStringIncludes(sql, "COMMIT;");
+});
