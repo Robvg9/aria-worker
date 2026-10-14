@@ -23,8 +23,15 @@ async function validUser(token: string) {
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
-  if (origin && origin !== ORIGIN && !origin.startsWith("http://localhost:")) return reply(403, { error: "origin_forbidden" });
-  const cors = origin === ORIGIN ? { "access-control-allow-origin": ORIGIN, "access-control-allow-methods": "POST,OPTIONS", "access-control-allow-headers": "authorization,content-type", "vary": "Origin" } : {};
+  const allowedOrigin = Boolean(origin && (
+    origin === ORIGIN ||
+    origin.startsWith("http://localhost:") ||
+    origin.startsWith("http://127.0.0.1:")
+  ));
+  if (origin && !allowedOrigin) return reply(403, { error: "origin_forbidden" });
+  const cors = origin && allowedOrigin
+    ? { "access-control-allow-origin": origin, "access-control-allow-methods": "POST,OPTIONS", "access-control-allow-headers": "authorization,content-type", "vary": "Origin" }
+    : {};
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...headers, ...cors } });
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" }, cors);
   if (!(req.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) return reply(415, { error: "application_json_required" }, cors);
@@ -34,9 +41,32 @@ Deno.serve(async (req: Request) => {
   const user = await validUser(token);
   if (!user) return reply(401, { error: "invalid_token" }, cors);
 
+  const declaredLength = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > LIMIT_BYTES) return reply(413, { error: "request_too_large" }, cors);
   let raw = "";
-  try { raw = await req.text(); } catch { return reply(400, { error: "invalid_json" }, cors); }
-  if (new TextEncoder().encode(raw).byteLength > LIMIT_BYTES) return reply(413, { error: "request_too_large" }, cors);
+  try {
+    const reader = req.body?.getReader();
+    if (!reader) return reply(400, { error: "invalid_json" }, cors);
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.byteLength;
+      if (total > LIMIT_BYTES) {
+        await reader.cancel();
+        return reply(413, { error: "request_too_large" }, cors);
+      }
+      chunks.push(part.value);
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    raw = new TextDecoder("utf-8", { fatal: true }).decode(merged);
+  } catch { return reply(400, { error: "invalid_json" }, cors); }
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return reply(400, { error: "invalid_json" }, cors); }
   const query = parseRetrievalQuery(body);
