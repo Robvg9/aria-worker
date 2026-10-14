@@ -24,6 +24,11 @@ const required = [
   "isFreshDeviceHeartbeat(device?.last_seen_at)",
   "model_execution_failures: Array.isArray(result?.model_execution_failures)",
   "provider_status: failure?.provider_status == null ? null : String(failure.provider_status)",
+  'requiredConnectorOperations = ["cuevacoin_connection_status", "cuevacoin_project_control"]',
+  "missingRequiredConnectorOperations",
+  "required_tool_call_evidence_missing:",
+  'status: reason.startsWith("planner_empty_steps") || requiredToolEvidenceMissing ? "blocked" : "paused"',
+  '"human_gate:enable_authorized_required_connector_operations"',
 ];
 
 for (const fragment of required) {
@@ -33,3 +38,8 @@ for (const fragment of required) {
 }
 
 console.log("mission-runner-v22 model fallback multi-provider contract: PASS");
+
+if (!source.includes('executorType(step) === "connector"') || !source.includes('result?.data !== null')) {
+  throw new Error("named tool success must be backed by a connector execution result");
+}
+console.log("mission runner required connector evidence anti-false-success contract: PASS");

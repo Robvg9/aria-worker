@@ -209,3 +209,13 @@ console.log('FASE 1 BUG-PC-002/003 SSoT CONTRACT: PASS');
 assertContains(direct,'hasExplicitVisualContext','direct mission intake must detect explicit visual context');
 assertContains(direct,'const memoryContext = hasExplicitVisualContext ? [] : await recall(goal);','visual missions must skip redundant semantic recall');
 assertContains(direct,'source: hasExplicitVisualContext ? "explicit_visual_context" : "aria-memory-v2"','visual mission provenance must explain skipped recall');
+
+assertContains(appApi,'function sanitizeChatFailureDetail','chat failure diagnostics must redact secrets before logging or showing errors');
+assertContains(appApi,'function chatFailureMessage','chat must distinguish saturation, credential rejection, and actual timeout');
+assertContains(appApi,'[ARIA-CHAT-EXECUTION-FAILURE]','chat executor errors must leave a sanitized correlated diagnostic');
+assertContains(appApi,'[ARIA-CHAT-BACKGROUND-FAILURE]','background chat failures must persist a diagnostic');
+assertContains(appApi,'path.endsWith("/invalidate-unverified-success")','API must permit evidence-checked invalidation of a false success');
+assertContains(appApi,'required_tool_call_evidence_missing','false-success correction must require real connector evidence');
+assertContains(appApi,'verification_invalidated: true','correction response must explicitly report invalidation');
+assertContains(pwa,'CIERRE ANTERIOR INVALIDADO: no se ejecutaron todas las herramientas requeridas.','Meditación IA must explain why a tool-based false success was invalidated');
+console.log('CHAT DIAGNOSTICS + REQUIRED TOOL EVIDENCE CONTRACT: PASS');

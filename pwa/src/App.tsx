@@ -173,6 +173,20 @@ function missionResultText(mission: any): string {
     const reason = String(verification?.reason || '').toLowerCase();
     const expected = verification?.expected || {};
     const claimed = verification?.verifier_claim || {};
+    if (reason === 'required_tool_call_evidence_missing') {
+      const required = Array.isArray(expected?.required_operations) ? expected.required_operations.map((x:any) => String(x)) : [];
+      const observed = Array.isArray(claimed?.observed_operations) ? claimed.observed_operations.map((x:any) => String(x)) : [];
+      const missing = Array.isArray(verification?.missing_operations)
+        ? verification.missing_operations.map((x:any) => String(x))
+        : required.filter((operation:string) => !observed.includes(operation));
+      return [
+        'CIERRE ANTERIOR INVALIDADO: no se ejecutaron todas las herramientas requeridas.',
+        missing.length ? 'Faltan llamadas verificables a: ' + missing.join(', ') + '.' : 'No hay evidencia de llamadas reales a las herramientas requeridas.',
+        'Una respuesta de texto del modelo no sustituye la invocación del conector ni demuestra acceso autorizado.',
+        'Estado correcto: bloqueado hasta habilitar y autorizar el adaptador de solo lectura requerido.',
+        'La evidencia y el motivo de invalidación están guardados en el historial de la misión.'
+      ].join(' ');
+    }
     if (reason === 'mutation_verification_evidence_mismatch' || expected?.branch || expected?.path) {
       const target = [
         expected?.path ? 'el archivo sí quedó creado' : '',
