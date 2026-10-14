@@ -39,3 +39,14 @@ Deno.test("retrieval source uses an explicit general-only query and does not ech
   assertEquals(source.includes("metadata: item.row.metadata"), false);
   assertEquals(source.includes("detail: error.message"), false);
 });
+
+
+Deno.test("memory write gate fails closed and cannot persist unclassified candidate text", async () => {
+  const source = await Deno.readTextFile("supabase/functions/aria-memory-write-gate-v1/index.ts");
+  assertStringIncludes(source, "ARIA_MEMORY_PRIVACY_GATE_CLOSED");
+  assertStringIncludes(source, "privacy_classification_unavailable");
+  assertStringIncludes(source, "return respond(503");
+  assertEquals(source.includes('.from("cb_memory_candidates")'), false);
+  assertEquals(source.includes(".insert("), false);
+  assertStringIncludes(source, "aria_memory_write");
+});
