@@ -458,6 +458,36 @@ async function conversationRoutes() {
   return routes;
 }
 
+function sanitizeChatFailureDetail(value: unknown): string {
+  return String(value ?? "execution_failed")
+    .replace(/Bearer +[A-Za-z0-9._-]+/gi, "Bearer [redacted]")
+    .replace(/AIza[A-Za-z0-9_-]{20,}/g, "[redacted]")
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "[redacted]")
+    .replace(/or-v1-[A-Za-z0-9_-]{8,}/g, "[redacted]")
+    .replace(/xai-[A-Za-z0-9_-]{8,}/g, "[redacted]")
+    .replace(/  +/g, " ")
+    .slice(0, 260);
+}
+
+function chatFailureMessage(error: unknown, traceId: string): string {
+  const detail = sanitizeChatFailureDetail(error instanceof Error ? error.message : error);
+  const lower = detail.toLowerCase();
+  const trace = String(traceId || "unavailable").slice(0, 80);
+  if (/high demand|429|quota|resource.?exhausted|rate.?limit|overload|capacity/.test(lower)) {
+    return "No se pudo completar la respuesta: el proveedor de IA rechazó la solicitud por saturación o cuota temporal. El mensaje quedó guardado, pero no se generó una respuesta. Puedes reintentar cuando la ruta esté disponible. Referencia: " + trace + ".";
+  }
+  if (/credential_unavailable|invalid.?api.?key|unauthorized|provider.*401|provider.*403/.test(lower)) {
+    return "No se pudo completar la respuesta porque la credencial de la ruta autorizada de IA no está disponible o fue rechazada. No se cambió a una ruta no autorizada. Referencia: " + trace + ".";
+  }
+  if (/route_not_selectable|model_not_verified|adapter_unavailable|capability_missing/.test(lower)) {
+    return "No se pudo completar la respuesta porque el router no encontró una ruta de modelo autorizada para esta petición. Referencia: " + trace + ".";
+  }
+  if (/transport_timeout|timed out|timeout|fetch failed|transport_error|gateway/.test(lower)) {
+    return "No se pudo completar la respuesta porque la llamada al runtime de IA agotó su límite de tiempo. El mensaje quedó guardado. Referencia: " + trace + ".";
+  }
+  return "No se pudo completar la respuesta de ARIA. Diagnóstico: " + detail + ". El mensaje quedó guardado; la referencia técnica es " + trace + ".";
+}
+
 async function execute(step: any, prompt: string, conversationId: string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
   const target = step?.target;
   if (!target?.provider_id || !target?.account_id || !target?.model_id) throw new Error("executor_contract_route_incomplete");
@@ -585,7 +615,22 @@ async function execute(step: any, prompt: string, conversationId: string, visual
     multimodal=true;
   }
   const x=await internal(EXEC,{execution_version:"1",request_id:conversationId+":"+crypto.randomUUID(),task_id:"conversation:"+conversationId,capability:"text_generation",selected_route:{status:"selected",provider_id:target.provider_id,account_id:target.account_id,model_id:target.model_id,capability:"text_generation"},authorization:{status:"approved",risk_class:"READ",evidence_ref:"aria-app-api-v3"},input:{payload},policy:{},metadata:{conversation_id:conversationId,source_application:"aria-app-v1",executor_type:"model",multimodal}},45000);
-  if(!x.r.ok||x.b?.status!=="succeeded") throw new Error("executor_http_"+x.r.status+"_"+(x.b?.error?.code??x.b?.reason??"execution_failed"));
+  if(!x.r.ok||x.b?.status!=="succeeded") {
+    const failure = x.b?.error && typeof x.b.error === "object" ? x.b.error : {};
+    const code = sanitizeChatFailureDetail(failure.code ?? x.b?.reason ?? x.b?.status ?? "execution_failed").replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 100);
+    const providerStatus = Number.isInteger(Number(failure.provider_status)) ? Number(failure.provider_status) : null;
+    const detail = sanitizeChatFailureDetail(failure.message ?? x.b?.reason ?? "execution failed");
+    console.error("[ARIA-CHAT-EXECUTION-FAILURE] " + JSON.stringify({
+      conversation_id: conversationId,
+      provider_id: String(target.provider_id),
+      model_id: String(target.model_id),
+      runtime_http_status: x.r.status,
+      provider_status: providerStatus,
+      error_code: code,
+      detail
+    }));
+    throw new Error("chat_executor_failure:" + code + (providerStatus ? ":provider_status_" + providerStatus : "") + ":" + detail);
+  }
   return x.b;
 }
 
@@ -766,9 +811,16 @@ async function completeConversationInBackground(args:{
       project
     );
   } catch(error) {
-    // Do not leave the project chat with a user bubble and an endless spinner.
-    // Persist an explicit failure; never manufacture a successful assistant answer.
-    const message="No se pudo completar la respuesta de ARIA porque la ruta de ejecución no respondió dentro del límite. El mensaje quedó guardado; puedes reintentarlo cuando el servicio esté disponible.";
+    // Preserve the real, sanitized failure instead of labeling every error a timeout.
+    const detail = sanitizeChatFailureDetail(error instanceof Error ? error.message : error);
+    console.error("[ARIA-CHAT-BACKGROUND-FAILURE] " + JSON.stringify({
+      conversation_id: conversationId,
+      trace_id: traceId,
+      provider_id: String(step?.target?.provider_id || "unknown"),
+      model_id: String(step?.target?.model_id || "unknown"),
+      detail
+    }));
+    const message=chatFailureMessage(error, traceId);
     try {
       await persistConversationMessage(
         userId,
@@ -2618,6 +2670,82 @@ Deno.serve(async (req) => {
             : null,
         trace_id: trace
       });
+    }
+    if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/invalidate-unverified-success")) {
+      const missionId = decodeURIComponent(path.split("/missions/")[1].replace("/invalidate-unverified-success", ""));
+      const original = await missionForUser(missionId, user.id);
+      if (!original) return json({ error: "mission_not_found", trace_id: trace }, 404);
+      if (String(original.status || "") !== "succeeded") {
+        return json({ error: "mission_not_successful", detail: "Solo se corrige aquí una misión cerrada como completada.", trace_id: trace }, 409);
+      }
+      const goal = String(original.goal || "").toLowerCase();
+      const knownRequiredOperations = ["cuevacoin_connection_status", "cuevacoin_project_control"];
+      const requiredOperations = knownRequiredOperations.filter(operation => goal.includes(operation));
+      if (requiredOperations.length !== knownRequiredOperations.length) {
+        return json({ error: "mission_scope_not_eligible", trace_id: trace }, 409);
+      }
+      const sb = serviceClient();
+      const { data: events, error: eventsError } = await sb.schema("aria_internal")
+        .from("mission_events").select("event_type,payload,created_at")
+        .eq("mission_id", missionId).order("event_id", { ascending: false }).limit(400);
+      if (eventsError) return json({ error: "mission_evidence_lookup_failed", detail: eventsError.message, trace_id: trace }, 502);
+      const observedOperations = [...new Set((events ?? [])
+        .filter((event:any) => ["step_succeeded", "step_verified"].includes(String(event.event_type)))
+        .filter((event:any) => String(event?.payload?.executor_type || "") === "connector" && event?.payload?.verified !== false)
+        .map((event:any) => String(event?.payload?.operation || ""))
+        .filter((operation:string) => requiredOperations.includes(operation)))];
+      const missingOperations = requiredOperations.filter(operation => !observedOperations.includes(operation));
+      if (!missingOperations.length) {
+        return json({ error: "required_tool_call_evidence_present", detail: "Los eventos ya contienen evidencia del ejecutor para todas las operaciones requeridas; no se invalidó el cierre.", trace_id: trace }, 409);
+      }
+      const now = new Date().toISOString();
+      const priorCheckpoint = original.checkpoint && typeof original.checkpoint === "object" ? original.checkpoint : {};
+      const nextCheckpoint = {
+        ...priorCheckpoint,
+        verification: {
+          status: "invalidated",
+          reason: "required_tool_call_evidence_missing",
+          invalidated_at: now,
+          expected: { required_operations: requiredOperations },
+          verifier_claim: { observed_operations: observedOperations },
+          missing_operations: missingOperations
+        },
+        human_gate: {
+          required: true,
+          status: "pending",
+          method: "authorized_connector_setup",
+          instructions: "Habilitar y autorizar las herramientas CuevaCoin de solo lectura con el scope aria.project.cuevacoin.control; luego volver a ejecutar la verificación.",
+          reason: "required_tool_call_evidence_missing"
+        }
+      };
+      const { data: updated, error: updateError } = await sb.schema("aria_internal").from("mission_state")
+        .update({
+          status: "blocked",
+          next_action: "human_gate:enable_authorized_cuevacoin_read_only_tools",
+          last_stderr: "required_tool_call_evidence_missing:" + missingOperations.join(","),
+          finished_at: null, lease_owner: null, lease_until: null,
+          checkpoint: nextCheckpoint
+        })
+        .eq("mission_id", missionId).eq("status", "succeeded")
+        .select("mission_id,status,current_step,total_steps,completed_steps,goal,updated_at,last_stderr,next_action,checkpoint,metadata")
+        .maybeSingle();
+      if (updateError) return json({ error: "mission_verification_invalidation_failed", detail: updateError.message, trace_id: trace }, 502);
+      if (!updated) return json({ error: "mission_status_changed", detail: "La misión cambió de estado antes de corregir el cierre.", trace_id: trace }, 409);
+      const { error: eventError } = await sb.schema("aria_internal").from("mission_events").insert({
+        mission_id: missionId, event_type: "mission_verification_invalidated",
+        payload: {
+          reason: "required_tool_call_evidence_missing", previous_status: "succeeded", corrected_status: "blocked",
+          required_operations: requiredOperations, observed_operations: observedOperations, missing_operations: missingOperations,
+          invalidated_by: user.id, invalidated_at: now
+        },
+        created_at: now
+      });
+      return json({
+        ok: true, mission: await enrichMission(updated, sb, false), verification_invalidated: true,
+        required_operations: requiredOperations, observed_operations: observedOperations, missing_operations: missingOperations,
+        evidence_warning: eventError ? "El estado se corrigió, pero el evento de auditoría no pudo persistirse: " + eventError.message : null,
+        trace_id: trace
+      }, 200);
     }
     if (req.method === "POST" && path.includes("/missions/") && path.endsWith("/retry")) {
       const missionId = decodeURIComponent(path.split("/missions/")[1].replace(/\/retry$/,""));
