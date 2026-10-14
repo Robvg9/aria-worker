@@ -17,6 +17,8 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/capabilities-rwht-authenticated.yml'
+      # Re-run this successor whenever its required persistence predecessor changes.
+      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
   workflow_dispatch:
 
 permissions:
