@@ -1,0 +1,39 @@
+name: ARIA Encrypt route closure
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/aria-context-retrieval-v1/**'
+      - 'supabase/functions/_shared/private-route-contract.ts'
+      - 'supabase/functions/_tests/private-route-closure.test.ts'
+      - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
+      - 'security/aria-encrypt-step5-route-closure.md'
+      - '.github/workflows/aria-encrypt-route-closure.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/aria-context-retrieval-v1/**'
+      - 'supabase/functions/_shared/private-route-contract.ts'
+      - 'supabase/functions/_tests/private-route-closure.test.ts'
+      - 'supabase/migrations/20261014162000_aria_encrypt_step5_route_lockdown.sql'
+      - 'security/aria-encrypt-step5-route-closure.md'
+      - '.github/workflows/aria-encrypt-route-closure.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  route-closure:
+    name: Privacy boundary contracts and retrieval type-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run privacy boundary contract tests
+        run: deno test --allow-read supabase/functions/_tests/private-route-closure.test.ts
+      - name: Type-check retrieval and privacy contracts
+        run: deno check --config supabase/functions/aria-context-retrieval-v1/deno.json supabase/functions/aria-context-retrieval-v1/index.ts supabase/functions/_shared/private-route-contract.ts
