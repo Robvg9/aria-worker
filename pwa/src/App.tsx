@@ -921,6 +921,7 @@ async function signIn(email: string, password: string) {
   }
 }
 const UNLEASED_RECOVERY_MAX_AGE_MS = 30 * 60 * 1000;
+const UNLEASED_WAITING_ACTION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function missionActivityTimestamp(mission: any): number {
   const candidates = [
@@ -958,6 +959,14 @@ function activeMissionRank(status: any, leaseOwner?: any, leaseUntil?: any, miss
   ]);
   if (visibleRecoveryStatuses.has(recoveryStatus) && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) {
     return value === 'running' ? 50 : 40;
+  }
+  // A recoverable waiting mission must stay visible even when the replan
+  // event exists but the checkpoint lacks recovery.status. This is especially
+  // important after the planner exhausted retries: hiding it makes the user
+  // think no mission was created.
+  if (value === 'waiting' && !leased && !hasPendingJob && age >= 0 && age <= UNLEASED_WAITING_ACTION_MAX_AGE_MS) {
+    const nextAction = String(mission?.next_action ?? '').toLowerCase();
+    if (nextAction.startsWith('retry:') || nextAction.startsWith('replan:') || nextAction.startsWith('recovery:')) return 38;
   }
   if (value === 'running' && !leased && !hasPendingJob && age >= 0 && age <= UNLEASED_RECOVERY_MAX_AGE_MS) {
     const nextAction = String(mission?.next_action ?? '').toLowerCase();
