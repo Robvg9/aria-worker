@@ -86,11 +86,11 @@ test('Meditation center catalog and manual queue contracts are present', () => {
 
 test('Meditation mission detail uses declared and enforced open state', () => {
   const start = app.indexOf('function Meditation({ session }: { session: Session }) {');
-  const end = app.indexOf('\\nfunction executionEventTitle', start);
+  const end = app.indexOf('function executionEventTitle', start);
   assert.ok(start >= 0 && end > start, 'Meditation component boundaries must exist');
   const meditation = app.slice(start, end);
-  assert.match(meditation, /const \\[missionDetailOpen, setMissionDetailOpen\\] = useState\\(false\\);/);
-  assert.match(meditation, /\\{missionDetail && missionDetailOpen && <MissionDetail/);
-  assert.match(meditation, /onClose=\\{\\(\\) => \\{ setMissionDetailOpen\\(false\\); setMissionDetail\\(null\\);/);
+  assert.ok(meditation.includes('const [missionDetailOpen, setMissionDetailOpen] = useState(false);'));
+  assert.ok(meditation.includes('{missionDetail && missionDetailOpen && <MissionDetail'));
+  assert.ok(meditation.includes('onClose={() => { setMissionDetailOpen(false); setMissionDetail(null);'));
   assert.ok(!meditation.includes('setMissionDetailOpen is not defined'));
 });
