@@ -1288,7 +1288,7 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
 
     const {data:verifiedEvents,error:eventError}=await serviceClient().schema("aria_internal")
       .from("mission_events")
-      .select("event_id,mission_id")
+      .select("event_id,mission_id,payload")
       .eq("event_type","mission_verified")
       .in("mission_id",missionIds)
       .order("event_id",{ascending:false})
@@ -1296,11 +1296,14 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
     if(eventError)throw new Error("notification_verification_lookup_failed:"+eventError.message);
 
     const statusByMission=new Map((missions??[]).map((m:any)=>[String(m.mission_id),String(m.status||"")]));
-    const latestVerifiedEventByMission=new Map<string,string>();
+    const latestVerificationByMission=new Map<string,{eventId:string;verified:boolean}>();
     for(const event of (verifiedEvents??[])){
-      const missionId=String((event as any)?.mission_id||"");
-      if(missionId&&!latestVerifiedEventByMission.has(missionId)){
-        latestVerifiedEventByMission.set(missionId,String((event as any)?.event_id||""));
+      const row=event as any;
+      const missionId=String(row?.mission_id||"");
+      if(missionId&&!latestVerificationByMission.has(missionId)){
+        const payload=row?.payload&&typeof row.payload==="object"?row.payload:{};
+        const verified=payload.verified===true||String(payload.verified||"").toLowerCase()==="true";
+        latestVerificationByMission.set(missionId,{eventId:String(row?.event_id||""),verified});
       }
     }
 
@@ -1308,9 +1311,11 @@ async function meditationNotificationsForUser(userId:string,unreadOnly=false,lim
     for(const notification of completedNotifications){
       const missionId=String(notification?.mission_id||"");
       const sourceEventId=String(notification?.metadata?.source_event_id||"");
+      const latestVerification=latestVerificationByMission.get(missionId);
       const isCurrentVerifiedSuccess=statusByMission.get(missionId)==="succeeded"
         && Boolean(sourceEventId)
-        && latestVerifiedEventByMission.get(missionId)===sourceEventId;
+        && latestVerification?.eventId===sourceEventId
+        && latestVerification?.verified===true;
       if(!isCurrentVerifiedSuccess)staleIds.add(String(notification?.notification_id||""));
     }
 
