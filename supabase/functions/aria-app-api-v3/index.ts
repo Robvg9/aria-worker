@@ -3030,9 +3030,11 @@ Deno.serve(async (req) => {
       const missionId=decodeURIComponent(path.split("/missions/")[1].replace(/\/events$/,""));
       const mission=await missionForUser(missionId,user.id);
       if(!mission) return json({error:"mission_not_found",trace_id:trace},404);
-      const {data,error}=await serviceClient().schema("aria_internal").from("mission_events").select("event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha").eq("mission_id",missionId).order("created_at",{ascending:true}).limit(200);
+      // Return the most recent evidence window. Ordering by event_id keeps it consistent
+      // with notification proof reconciliation, which selects the newest verified event.
+      const {data,error}=await serviceClient().schema("aria_internal").from("mission_events").select("event_id,mission_id,step_index,event_type,payload,created_at,trace_id,span_id,request_id,execution_id,error_code,runtime_version,source_sha").eq("mission_id",missionId).order("event_id",{ascending:false}).limit(200);
       if(error) return json({error:"mission_events_failed",detail:error.message,trace_id:trace},502);
-      return json({ok:true,events:data??[],trace_id:trace});
+      return json({ok:true,events:[...(data??[])].reverse(),trace_id:trace});
     }
     if (req.method === "GET" && path.includes("/missions/")) { const missionId = decodeURIComponent(path.split("/missions/")[1]); const mission = await missionForUser(missionId, user.id); if (!mission) return json({ error: "mission_not_found", trace_id: trace }, 404); return json({ mission, trace_id: trace }); }
     if (req.method === "POST" && path.endsWith("/memory/search")) { const body = await req.json().catch(() => null); const text = typeof body?.query === "string" ? body.query.trim() : ""; if (!text) return json({ error: "query_required", stage: "input", trace_id: trace }, 400); const results = await recall(text, user.id); return json({ ok: true, query: text, result_count: results.length, results, scope: "user", trace_id: trace }); }
