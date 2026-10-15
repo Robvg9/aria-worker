@@ -383,11 +383,33 @@ async function run() {
       const sourceEventsResult = await expectApi(page, '/missions/' + encodeURIComponent(pushProbeMissionId) + '/events', session.accessToken);
       assert.equal(sourceEventsResult.status, 200, 'notification_mission_events_api_http_' + sourceEventsResult.status);
       const sourceEvents = Array.isArray(sourceEventsResult.body?.events) ? sourceEventsResult.body.events : [];
-      assert.ok(sourceEvents.some(event => String(event?.event_type || '') === 'mission_verified' &&
-        (event?.payload?.verified === true || String(event?.payload?.verified || '') === 'true')),
-        'notification_mission_verified_evidence_missing');
+      const sourceEventId = String(sourceNotification?.metadata?.source_event_id || '');
+      const notificationProofEvent = sourceEvents.find(event => String(event?.event_id || '') === sourceEventId);
+      const notificationProofVerified = notificationProofEvent && (
+        notificationProofEvent?.payload?.verified === true ||
+        String(notificationProofEvent?.payload?.verified || '').toLowerCase() === 'true'
+      );
+      if (!notificationProofVerified) {
+        const verifiedEventRows = sourceEvents
+          .filter(event => String(event?.event_type || '') === 'mission_verified')
+          .slice(-5)
+          .map(event => ({
+            event_id: String(event?.event_id || ''),
+            verified: event?.payload?.verified ?? null,
+            created_at: event?.created_at || null
+          }));
+        console.log('WEBPUSH_VERIFICATION_PROOF_DIAGNOSTIC=' + JSON.stringify({
+          mission_id: pushProbeMissionId,
+          source_event_id_present: Boolean(sourceEventId),
+          source_event_id: sourceEventId || null,
+          events_returned: sourceEvents.length,
+          mission_verified_events_returned: sourceEvents.filter(event => String(event?.event_type || '') === 'mission_verified').length,
+          latest_mission_verified_events: verifiedEventRows
+        }));
+      }
+      assert.ok(notificationProofVerified, 'notification_mission_verified_evidence_missing');
       report.notification_detail_mission_id = pushProbeMissionId;
-      console.log('WEBPUSH_E2E_REAL_NOTIFICATION_OK id=' + pushProbeNotificationId + ' mission=' + pushProbeMissionId);
+      console.log('WEBPUSH_E2E_REAL_NOTIFICATION_OK id=' + pushProbeNotificationId + ' mission=' + pushProbeMissionId + ' source_event=' + sourceEventId);
 
       // Close the PWA page before the notification is delivered.
       await page.close();
