@@ -261,3 +261,15 @@ Deno.test("authenticated route probe results are persisted only after four clean
   assertEquals(sql.includes("decrypted_secret"), false);
   assertStringIncludes(sql, "COMMIT;");
 });
+
+Deno.test("private-class writes are rejected in all indexed and learning stores", async () => {
+  const sql = await Deno.readTextFile("supabase/migrations/20261014235500_aria_encrypt_step5_private_class_denial_e2e.sql");
+  assertStringIncludes(sql, "private canonical-memory insert was accepted");
+  assertStringIncludes(sql, "private learning insert was accepted");
+  assertStringIncludes(sql, "private shared-document insert was accepted");
+  assertStringIncludes(sql, "private shared-chunk insert was accepted");
+  assertStringIncludes(sql, "private memory candidate was accepted");
+  assertStringIncludes(sql, "DELETE FROM public.cb_documents WHERE id=v_document_id;");
+  assertStringIncludes(sql, "private-class denial fixtures left rows behind");
+  assertStringIncludes(sql, "COMMIT;");
+});
