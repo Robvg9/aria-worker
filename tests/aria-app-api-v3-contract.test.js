@@ -240,9 +240,10 @@ assertContains(pwaDeployWorkflow,".github/workflows/persistence-recovery-rwht-au
 assertContains(webpushWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Web Push E2E must re-run when its required exact-SHA persistence predecessor changes");
 assertContains(pwaCertificationWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA Steps 7-8 must re-run when its required exact-SHA persistence predecessor changes");
 console.log('EXACT-SHA PERSISTENCE SUCCESSOR TRIGGER CONTRACT: PASS');
-assertContains(appApi,'latestVerifiedEventByMission','only the latest verified event may back a completed notification');
+assertContains(appApi,'latestVerificationByMission','completion notification reconciliation must retain the latest verification event and its proof payload');
 assertContains(appApi,'statusByMission.get(missionId)==="succeeded"','completed notifications must be hidden once their mission is no longer succeeded');
-assertContains(appApi,'latestVerifiedEventByMission.get(missionId)===sourceEventId','stale notifications must not point to an older verified event');
+assertContains(appApi,'latestVerification?.eventId===sourceEventId','stale notifications must not point to an older verified event');
+assertContains(appApi,'latestVerification?.verified===true','only an event whose latest payload confirms verified=true may back a completed notification');
 assertContains(appApi,'staleUnreadCount','filtered stale notifications must be removed from unread count');
 assertContains(appApi,'source_event_id','mission completion notification must be bound to persisted verification evidence');
 console.log('MEDITATION STALE VERIFIED NOTIFICATION CONTRACT: PASS');
