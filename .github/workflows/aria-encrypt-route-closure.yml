@@ -30,6 +30,7 @@ on:
       - 'supabase/migrations/20261014234311_aria_encrypt_step5_gate_mission_learning_trigger.sql'
       - 'security/aria-encrypt-step5-route-closure.md'
       - 'supabase/migrations/20261014234911_aria_encrypt_step5_capture_authenticated_http_probe_results.sql'
+      - 'supabase/migrations/20261014235500_aria_encrypt_step5_private_class_denial_e2e.sql'
       - '.github/workflows/aria-encrypt-route-closure.yml'
   push:
     branches: [main]
@@ -61,6 +62,7 @@ on:
       - 'supabase/migrations/20261014234311_aria_encrypt_step5_gate_mission_learning_trigger.sql'
       - 'security/aria-encrypt-step5-route-closure.md'
       - 'supabase/migrations/20261014234911_aria_encrypt_step5_capture_authenticated_http_probe_results.sql'
+      - 'supabase/migrations/20261014235500_aria_encrypt_step5_private_class_denial_e2e.sql'
       - '.github/workflows/aria-encrypt-route-closure.yml'
 
 permissions:
