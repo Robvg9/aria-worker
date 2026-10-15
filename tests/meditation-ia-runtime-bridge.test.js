@@ -10,6 +10,7 @@ const canonical = fs.readFileSync(path.join(root, 'supabase/functions/aria-canon
 const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
 const controller = fs.readFileSync(path.join(root, 'agents/windows/aria-meditation-controller.js'), 'utf8');
 const queueMigration = fs.readFileSync(path.join(root, 'supabase/migrations/20260918021000_meditation_center_queue_v1.sql'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
 
 test('Meditation IA tick delegates execution to canonical runtime', () => {
   assert.ok(gateway.includes('/functions/v1/aria-canonical-runtime-v1'));
@@ -80,4 +81,16 @@ test('Meditation center catalog and manual queue contracts are present', () => {
   assert.ok(queueMigration.includes('unique(device_id,item_type,item_id)'));
   assert.ok(queueMigration.includes('revoke all on aria_internal.meditation_queue from anon, authenticated'));
   assert.ok(queueMigration.includes('grant execute on function public.meditation_queue_add(text,text,text) to service_role'));
+});
+
+
+test('Meditation mission detail uses declared and enforced open state', () => {
+  const start = app.indexOf('function Meditation({ session }: { session: Session }) {');
+  const end = app.indexOf('function executionEventTitle', start);
+  assert.ok(start >= 0 && end > start, 'Meditation component boundaries must exist');
+  const meditation = app.slice(start, end);
+  assert.ok(meditation.includes('const [missionDetailOpen, setMissionDetailOpen] = useState(false);'));
+  assert.ok(meditation.includes('{missionDetail && missionDetailOpen && <MissionDetail'));
+  assert.ok(meditation.includes('onClose={() => { setMissionDetailOpen(false); setMissionDetail(null);'));
+  assert.ok(!meditation.includes('setMissionDetailOpen is not defined'));
 });

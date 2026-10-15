@@ -2630,6 +2630,7 @@ function Meditation({ session }: { session: Session }) {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [operationalHealth, setOperationalHealth] = useState<any>(null);
   const [missionDetail, setMissionDetail] = useState<any>(null);
+  const [missionDetailOpen, setMissionDetailOpen] = useState(false);
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const [ideaText, setIdeaText] = useState('');
@@ -3281,7 +3282,7 @@ function Meditation({ session }: { session: Session }) {
         </div>
       )}
 
-      {missionDetail && <MissionDetail mission={missionDetail} events={missionEvents} diagnostic={missionDiagnostic} onRetry={() => retryMission(String(missionDetail.mission_id))} onVerifyRetry={() => retryMissionVerification(String(missionDetail.mission_id))} onHumanGateApprove={() => approveHumanGate(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetail(null); setMissionEvents([]); setMissionDiagnostic(null); }} />}
+      {missionDetail && missionDetailOpen && <MissionDetail mission={missionDetail} events={missionEvents} diagnostic={missionDiagnostic} onRetry={() => retryMission(String(missionDetail.mission_id))} onVerifyRetry={() => retryMissionVerification(String(missionDetail.mission_id))} onHumanGateApprove={() => approveHumanGate(String(missionDetail.mission_id))} onCancel={() => cancelMission(String(missionDetail.mission_id))} onClose={() => { setMissionDetailOpen(false); setMissionDetail(null); setMissionEvents([]); setMissionDiagnostic(null); }} />}
       </div>
     </main>
   );
