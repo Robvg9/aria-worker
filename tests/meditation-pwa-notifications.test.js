@@ -48,6 +48,12 @@ const notificationRouteEnd = api.indexOf('if (req.method === "GET" && path.endsW
 const notificationRoute = api.slice(notificationRouteStart, notificationRouteEnd);
 assert(notificationRoute.includes('meditation_notifications_get_failed'), 'notification GET route must log controlled failures');
 assert(notificationRoute.includes('meditation_notifications_unavailable'), 'notification GET route must return a controlled error on failure');
+assert(api.includes('.select("event_id,mission_id,payload")'), 'completion notification reconciliation must inspect persisted mission verification payloads');
+assert(api.includes('const latestVerificationByMission=new Map<string,{eventId:string;verified:boolean}>();'), 'notification reconciliation must retain the latest verification event proof');
+assert(api.includes('const verified=payload.verified===true||String(payload.verified||"").toLowerCase()==="true";'), 'only an explicit verified=true payload may validate completion proof');
+assert(api.includes('&& latestVerification?.eventId===sourceEventId'), 'completion notification must reference the latest verification event');
+assert(api.includes('&& latestVerification?.verified===true;'), 'a succeeded mission notification must be suppressed when latest verification payload is not verified=true');
+
 
 assert(app.includes("from './notifications'"), 'PWA notification helper import missing');
 assert(app.includes('PwaNotificationCenter'), 'PWA notification center missing');
