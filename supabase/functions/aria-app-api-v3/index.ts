@@ -391,7 +391,7 @@ async function learnedContext(project:any){
   if(learnedContextCache&&learnedContextCache.key===key&&learnedContextCache.expiresAt>now)return learnedContextCache.value;
   const sb=serviceClient(); const term=String(project?.name||'').replace(/[%_]/g,'');
   const [skills,world]=await Promise.all([
-    sb.schema('aria_memory').from('memory_items').select('memory_id,title,content,confidence,metadata').eq('memory_type','skill').eq('status','active').gte('confidence',.9).or(term?'title.ilike.%'+term+'%,content.ilike.%'+term+'%':'memory_id.not.is.null').order('confidence',{ascending:false}).limit(8),
+    sb.schema('aria_memory').from('memory_items').select('memory_id,title,content,confidence,metadata').eq('memory_type','skill').eq('status','active').eq('metadata->>privacy_class','general').gte('confidence',.9).or(term?'title.ilike.%'+term+'%,content.ilike.%'+term+'%':'memory_id.not.is.null').order('confidence',{ascending:false}).limit(8),
     project?sb.schema('aria_memory').from('world_entities').select('entity_id,entity_type,canonical_name,status,attributes,confidence,source_ref').eq('entity_type','project').eq('canonical_name',project.name).maybeSingle():Promise.resolve({data:null,error:null})
   ]);
   const value={skills:skills.error?[]:(skills.data??[]),world_model:world.error?null:world.data}; learnedContextCache={key,expiresAt:now+30000,value}; return value;

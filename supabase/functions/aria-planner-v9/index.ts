@@ -32,7 +32,7 @@ Deno.serve(async r=>{
   try{
     const p=fixed(goal);
     if(p)return json({ok:true,plan:attachCognitiveContext({goal,steps:p,model_id:"deterministic",planner_version:"aria-planner-v9.2"},context)});
-    const ls=await sb.schema("aria_internal").from("autonomy_learnings").select("category,summary,confidence,created_at").eq("reusable",true).order("created_at",{ascending:false}).limit(8);
+    const ls=await sb.schema("aria_internal").from("autonomy_learnings").select("category,summary,confidence,created_at").eq("reusable",true).eq("privacy_class","general").order("created_at",{ascending:false}).limit(8);
     return json({ok:true,plan:attachCognitiveContext({goal,steps:[step(1,"file_read","README.md")],model_id:"deterministic-fallback",planner_version:"aria-planner-v9.2",learning_context:ls.data??[]},context)});
   }catch(e){return json({error:e instanceof Error?e.message:"planner_failed"},502)}
 });

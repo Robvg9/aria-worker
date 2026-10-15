@@ -1,0 +1,111 @@
+name: ARIA Encrypt route closure
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/aria-context-retrieval-v1/**'
+      - 'supabase/functions/aria-memory-write-gate-v1/**'
+      - 'supabase/functions/aria-memory-v2/**'
+      - 'supabase/functions/aria-learning-v2/**'
+      - 'supabase/functions/aria-learning-v3/**'
+      - 'supabase/functions/aria-learning-consolidator-v1/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'supabase/functions/aria-planner-v7/**'
+      - 'supabase/functions/aria-planner-v8/**'
+      - 'supabase/functions/aria-planner-v9/**'
+      - 'supabase/functions/aria-planner-v10/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v6/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v7/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v8/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v9/**'
+      - 'supabase/functions/_shared/private-route-contract.ts'
+      - 'supabase/functions/_tests/private-route-closure.test.ts'
+      - 'supabase/migrations/20261014225549_aria_encrypt_step5_route_lockdown.sql'
+      - 'supabase/migrations/20261014233857_aria_encrypt_step5_require_chunk_class.sql'
+      - 'supabase/migrations/20261014234743_aria_encrypt_step5_authenticated_http_probes.sql'
+      - 'supabase/migrations/20261014231437_aria_encrypt_step5_learning_table_and_cb_search.sql'
+      - 'supabase/migrations/20261014234014_aria_encrypt_step5_live_smoke_e2e.sql'
+      - 'supabase/migrations/20261014234311_aria_encrypt_step5_gate_mission_learning_trigger.sql'
+      - 'security/aria-encrypt-step5-route-closure.md'
+      - 'supabase/migrations/20261014234911_aria_encrypt_step5_capture_authenticated_http_probe_results.sql'
+      - 'supabase/migrations/20261015000716_aria_encrypt_step5_private_class_denial_e2e.sql'
+      - '.github/workflows/aria-encrypt-route-closure.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/aria-context-retrieval-v1/**'
+      - 'supabase/functions/aria-memory-write-gate-v1/**'
+      - 'supabase/functions/aria-memory-v2/**'
+      - 'supabase/functions/aria-learning-v2/**'
+      - 'supabase/functions/aria-learning-v3/**'
+      - 'supabase/functions/aria-learning-consolidator-v1/**'
+      - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-device-gateway/**'
+      - 'supabase/functions/aria-planner-v7/**'
+      - 'supabase/functions/aria-planner-v8/**'
+      - 'supabase/functions/aria-planner-v9/**'
+      - 'supabase/functions/aria-planner-v10/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v6/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v7/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v8/**'
+      - 'supabase/functions/aria-autonomy-supervisor-v9/**'
+      - 'supabase/functions/_shared/private-route-contract.ts'
+      - 'supabase/functions/_tests/private-route-closure.test.ts'
+      - 'supabase/migrations/20261014225549_aria_encrypt_step5_route_lockdown.sql'
+      - 'supabase/migrations/20261014233857_aria_encrypt_step5_require_chunk_class.sql'
+      - 'supabase/migrations/20261014234743_aria_encrypt_step5_authenticated_http_probes.sql'
+      - 'supabase/migrations/20261014231437_aria_encrypt_step5_learning_table_and_cb_search.sql'
+      - 'supabase/migrations/20261014234014_aria_encrypt_step5_live_smoke_e2e.sql'
+      - 'supabase/migrations/20261014234311_aria_encrypt_step5_gate_mission_learning_trigger.sql'
+      - 'security/aria-encrypt-step5-route-closure.md'
+      - 'supabase/migrations/20261014234911_aria_encrypt_step5_capture_authenticated_http_probe_results.sql'
+      - 'supabase/migrations/20261015000716_aria_encrypt_step5_private_class_denial_e2e.sql'
+      - '.github/workflows/aria-encrypt-route-closure.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  route-closure:
+    name: Privacy boundary contracts and retrieval type-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run privacy boundary contract tests
+        run: deno test --allow-read supabase/functions/_tests/private-route-closure.test.ts
+      - name: Type-check retrieval and privacy contracts
+        run: deno check --config supabase/functions/aria-context-retrieval-v1/deno.json supabase/functions/aria-context-retrieval-v1/index.ts supabase/functions/aria-context-retrieval-v1/private-route-contract.ts supabase/functions/_shared/private-route-contract.ts
+      - name: Type-check fail-closed memory write gate
+        run: deno check --config supabase/functions/aria-memory-write-gate-v1/deno.json supabase/functions/aria-memory-write-gate-v1/index.ts
+      - name: Type-check internal memory route and privacy guard
+        run: deno check --config supabase/functions/aria-memory-v2/deno.json supabase/functions/aria-memory-v2/index.ts
+      - name: Type-check internal learning route v2
+        run: deno check --config supabase/functions/aria-learning-v2/deno.json supabase/functions/aria-learning-v2/index.ts
+      - name: Type-check internal learning route v3
+        run: deno check --config supabase/functions/aria-learning-v3/deno.json supabase/functions/aria-learning-v3/index.ts
+      - name: Type-check internal learning consolidator
+        run: deno check --config supabase/functions/aria-learning-consolidator-v1/deno.json supabase/functions/aria-learning-consolidator-v1/index.ts
+      - name: Type-check planner v7
+        run: deno check --config supabase/functions/aria-planner-v7/deno.json supabase/functions/aria-planner-v7/index.ts
+      - name: Type-check planner v8
+        run: deno check --config supabase/functions/aria-planner-v8/deno.json supabase/functions/aria-planner-v8/index.ts
+      - name: Type-check planner v9
+        run: deno check --config supabase/functions/aria-planner-v9/deno.json supabase/functions/aria-planner-v9/index.ts
+      - name: Type-check planner v10
+        run: deno check --config supabase/functions/aria-planner-v10/deno.json supabase/functions/aria-planner-v10/index.ts
+      - name: Type-check autonomy supervisor v6
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v6/deno.json supabase/functions/aria-autonomy-supervisor-v6/index.ts
+      - name: Type-check autonomy supervisor v7
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v7/deno.json supabase/functions/aria-autonomy-supervisor-v7/index.ts
+      - name: Type-check autonomy supervisor v8
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v8/deno.json supabase/functions/aria-autonomy-supervisor-v8/index.ts
+      - name: Type-check autonomy supervisor v9
+        run: deno check --config supabase/functions/aria-autonomy-supervisor-v9/deno.json supabase/functions/aria-autonomy-supervisor-v9/index.ts
