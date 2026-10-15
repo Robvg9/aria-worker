@@ -246,5 +246,7 @@ assertContains(appApi,'latestVerification?.eventId===sourceEventId','stale notif
 assertContains(appApi,'latestVerification?.verified===true','only an event whose latest payload confirms verified=true may back a completed notification');
 assertContains(appApi,'staleUnreadCount','filtered stale notifications must be removed from unread count');
 assertContains(appApi,'source_event_id','mission completion notification must be bound to persisted verification evidence');
+assertContains(appApi,'.order("event_id",{ascending:false}).limit(200)','mission events endpoint must fetch the newest bounded evidence window');
+assertContains(appApi,'events:[...(data??[])].reverse()','mission events endpoint must preserve chronological display order within the newest window');
 console.log('MEDITATION STALE VERIFIED NOTIFICATION CONTRACT: PASS');
 
