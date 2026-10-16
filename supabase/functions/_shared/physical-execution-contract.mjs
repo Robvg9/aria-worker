@@ -124,9 +124,9 @@ export function validatePhysicalExecutionEvidence(mission, steps, results, verif
   if (typeof verifyStep === "function" && verifyStep(step, result) !== true) {
     return { ok: false, required: true, reason: "physical_execution_step_verification_failed", requirement, stepId: String(step.id || "") };
   }
+  if (!physicalClean(result.job_id)) return { ok: false, required: true, reason: "physical_execution_job_id_missing", requirement, stepId: String(step.id || "") };
   if (requirement.operation === "shell.execute") {
     const marker = requirement.structuredVerificationMarker;
-    if (!physicalClean(result.job_id)) return { ok: false, required: true, reason: "physical_execution_job_id_missing", requirement, stepId: String(step.id || "") };
     if (Number(result.exit_code) !== 0) return { ok: false, required: true, reason: "physical_execution_exit_code_not_zero", requirement, stepId: String(step.id || "") };
     if (!marker || typeof result.stdout !== "string" || !result.stdout.includes(marker)) {
       return { ok: false, required: true, reason: "physical_execution_stdout_marker_missing", requirement, stepId: String(step.id || "") };
