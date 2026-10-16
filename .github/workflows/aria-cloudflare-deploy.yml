@@ -6,15 +6,6 @@ on:
   # A second pull_request_target deployment races that push and causes exact-SHA builds to be cancelled.
   push:
     branches: [main]
-    paths:
-      - 'worker.js'
-      - 'wrangler.toml'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'pwa/**'
-      - 'scripts/cloudflare-workers-build.js'
-      - 'integrations/cloudflare-*.js'
-      - 'integrations/cuevacoin-oauth-e2e.js'
       # Deploy UI against the same release SHA when authenticated App API code changes.
       - 'supabase/functions/aria-app-api-v3/**'
       - 'tests/aria-cuevacoin-oauth-callback.test.js'
