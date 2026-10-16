@@ -4,21 +4,7 @@ name: Deploy ARIA PWA Fast Lane
 on:
   push:
     branches: [main]
-      # Keep PWA version/SW release SHA aligned with App API diagnostics fixes.
-      - "supabase/functions/aria-app-api-v3/**"
-      - "wrangler.toml"
-      - ".github/workflows/aria-pwa-fast-deploy.yml"
-      - ".github/workflows/capabilities-rwht-authenticated.yml"
-      - ".github/workflows/chat-rwht-authenticated.yml"
-      - ".github/workflows/aria-pwa-steps-7-8-live.yml"
-      - ".github/workflows/persistence-recovery-rwht-authenticated.yml"
-      - ".github/workflows/aria-meditation-webpush-production-e2e.yml"
-      - "rwht/pc-browser/rwht-meditation-pwa-e2e.mjs"
-      # Keep PWA release SHA aligned when the full PC audit harness/contract changes.
-      - "rwht/pc-browser/rwht-pc-browser.mjs"
-      - "tests/pc-rwht-browser.test.js"
   workflow_dispatch:
-
 concurrency:
   group: aria-cloudflare-production-deploy
   cancel-in-progress: false
