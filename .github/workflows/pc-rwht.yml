@@ -6,6 +6,12 @@ on:
       - 'rwht/pc-browser/**'
       - 'tests/pc-rwht-browser.test.js'
       - 'pwa/**'
+      # Worker-only releases change the versioned shell and must run the full Overview/Projects/ARTIA certification on that exact SHA.
+      - 'worker.js'
+      - 'wrangler.toml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/aria-scheduler-transport-deploy.yml'
       - 'supabase/functions/aria-app-api-v3/**'
       - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
@@ -16,6 +22,12 @@ on:
       - 'rwht/pc-browser/**'
       - 'tests/pc-rwht-browser.test.js'
       - 'pwa/**'
+      # Worker-only releases change the versioned shell and must run the full Overview/Projects/ARTIA certification on that exact SHA.
+      - 'worker.js'
+      - 'wrangler.toml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/aria-scheduler-transport-deploy.yml'
       - 'supabase/functions/aria-app-api-v3/**'
       - '.github/workflows/pc-rwht.yml'
 
