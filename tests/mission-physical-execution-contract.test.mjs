@@ -58,6 +58,7 @@ assert.equal(validatePhysicalExecutionPlan(validMission, [{ ...validStep, target
 const goodResult = { status: "succeeded", executor_type: "device", operation: "shell.execute", job_id: "uo_test_device_shell_a1", exit_code: 0, stdout: marker, stderr: "" };
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: goodResult }, () => true).ok, true, "physical success requires status, exit code, marker, and step verifier");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, exit_code: 1 } }, () => true).ok, false, "non-zero exit code must fail");
+assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, exit_code: null } }, () => true).ok, false, "missing exit code must not be coerced to zero");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, stdout: "different output" } }, () => true).ok, false, "missing stdout marker must fail");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, job_id: "" } }, () => true).ok, false, "missing execution-job identity must fail");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, executor_type: "model" } }, () => true).ok, false, "model result must not satisfy a physical-device step");
