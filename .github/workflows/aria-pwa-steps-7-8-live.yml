@@ -20,6 +20,8 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+      - '.github/workflows/aria-scheduler-transport-deploy.yml'
       # Re-run this successor whenever its required persistence predecessor changes.
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
       - '.github/workflows/pc-rwht.yml'
