@@ -8,7 +8,7 @@ import { buildIdeaMissionProposal, validateProposal } from "../_shared/idea-to-m
 import { deriveOperationalDiagnostic } from "../_shared/operational-diagnostics.mjs";
 import { inspectGithubSource, buildCapabilityIndex, buildAbsorptionPlan, buildAbsorptionIdentity, advanceAbsorptionPlan, evaluateAbsorptionCompletion } from "../_shared/absorb-engine.mjs";
 import { deriveMissionDisplayTitle, MISSION_TITLE_VERSION } from "../_shared/mission-title.mjs";
-import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultPreflight } from "./private-vault.ts";
+import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -1895,11 +1895,18 @@ Deno.serve(async (req) => {
   }
   let user: any;
   try { user = await requireUser(bearer(req)); }
-  catch (e) { const status = (e as any)?.status === 401 ? 401 : 500; return json({ error: status === 401 ? "invalid_or_expired_session" : "gateway_auth_failure", stage: "auth", detail: String((e as any)?.message ?? e), trace_id: trace }, status); }
+  catch (e) {
+    const status = (e as any)?.status === 401 ? 401 : 500;
+    const errorCode = status === 401 ? "invalid_or_expired_session" : "gateway_auth_failure";
+    if (isPrivateVaultRoute(internalPath)) {
+      return privateVaultAuthFailure(req.headers.get("origin"), status, errorCode, crypto.randomUUID());
+    }
+    return json({ error: errorCode, stage: "auth", detail: String((e as any)?.message ?? e), trace_id: trace }, status);
+  }
   try {
     const path = new URL(req.url).pathname.replace(/\/+$/, "");
     if (isPrivateVaultRoute(path)) {
-      return await handlePrivateVaultRequest(req, String(user.id), trace, serviceClient());
+      return await handlePrivateVaultRequest(req, String(user.id), crypto.randomUUID(), serviceClient());
     }
     if (req.method === "GET" && path.endsWith("/session")) return json({ ok: true, service: "aria-app-api-v3", user: { id: user.id, email: user.email ?? null }, trace_id: trace });
     if (req.method === "GET" && path.endsWith("/system")) { const r = await fetch(DIRECT); const b = await r.json().catch(() => null); return json({ ok: r.ok, service: "aria-app-api-v3", user_id: user.id, aria: b, trace_id: trace }, r.ok ? 200 : 502); }
