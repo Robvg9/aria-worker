@@ -50,7 +50,7 @@ assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { devi
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, stdout: "different output" } }, () => true).ok, false, "missing stdout marker must fail");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, job_id: "" } }, () => true).ok, false, "missing execution-job identity must fail");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, executor_type: "model" } }, () => true).ok, false, "model result must not satisfy a physical-device step");
-assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { status: "succeeded", exit_code: 0, stdout: marker, __aria_verified_by_runner: true } }, () => true).ok, true, "verified result is accepted only with the explicit exit code and marker");
+assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, __aria_verified_by_runner: true } }, () => true).ok, true, "verified result is accepted only with the explicit device result, job id, exit code, and marker");
 
 const planner = fs.readFileSync(new URL("../supabase/functions/aria-planner-v11/index.ts", import.meta.url), "utf8");
 const runner = fs.readFileSync(new URL("../supabase/functions/aria-mission-runner-v22/index.ts", import.meta.url), "utf8");
