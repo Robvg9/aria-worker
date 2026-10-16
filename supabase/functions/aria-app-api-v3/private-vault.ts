@@ -1,6 +1,4 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.117.3";
-type VaultAdminClient = SupabaseClient<any, "public", "public">;
+type VaultAdminClient = any;
 
 import {
   isUuid,
@@ -12,10 +10,6 @@ import {
 } from "../_shared/private-vault-contract.ts";
 
 const FUNCTION_SLUG = "private-vault";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const PUBLIC_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ??
-  Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ALLOWED_ORIGINS = new Set([
   "https://aria.robvg9.workers.dev",
   "http://localhost:5173",
@@ -376,7 +370,7 @@ async function dispatch(
  * supply the user ID returned by requireUser(); never accept an owner ID from JSON.
  */
 export function isPrivateVaultRoute(path: string): boolean {
-  return /\\/private-vault(?:\\/|$)/.test(path);
+  return path.includes("/private-vault/") || path.endsWith("/private-vault");
 }
 
 export function privateVaultPreflight(origin: string | null): Response {
@@ -387,15 +381,9 @@ export async function handlePrivateVaultRequest(
   request: Request,
   ownerId: string,
   requestId: string,
+  admin: VaultAdminClient,
 ): Promise<Response> {
   const origin = request.headers.get("origin");
-  if (!SUPABASE_URL || !PUBLIC_KEY || !SERVICE_ROLE_KEY) {
-    return reply(503, { error: "vault_api_not_configured" }, origin, requestId);
-  }
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-  });
   const url = new URL(request.url);
   const parts = extractSegments(url);
   const action = resolveAction(request.method.toUpperCase(), parts);
