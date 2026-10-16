@@ -157,7 +157,7 @@ assert.ok(project.includes("projectChatReady"), 'project chat readiness state mu
 assert.match(project,/const projectChatReadGenerationRef=useRef\(0\)/,'project chat reads must be generation-scoped');
 assert.match(project,/const projectChatWriteInFlightRef=useRef\(false\)/,'a new server read must not surface a timeout as a chat failure while a write is processing');
 assert.ok(project.includes("!options.quiet&&!projectChatWriteInFlightRef.current"), 'transient conversation read errors are suppressed only during an active chat write');
-assert.ok(project.includes("if(!clean||sending||projectChatWriteInFlightRef.current)return;"), 'chat send is idempotently guarded against overlapping submissions');
+assert.ok(project.includes("if(!messageText||sending||projectChatWriteInFlightRef.current)return;"), 'chat send is idempotently guarded and accepts an audio-only message');
 assert.ok(project.includes("finally{projectChatWriteInFlightRef.current=false;setSending(false)}"), 'chat write state is always released');
 assert.match(project,/const isProjectConversationRead=method==='GET'&&path\.startsWith\('\/projects\/'\)&&path\.endsWith\('\/conversation'\)/,'project conversation reads need a separate latency budget');
 assert.match(project,/const isProjectChatWrite=method==='POST'&&path==='\/conversation'/,'project chat writes need a separate latency budget');
