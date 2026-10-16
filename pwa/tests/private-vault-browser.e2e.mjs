@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 
 const ORIGIN = "http://localhost:5173";
 const PAGE_URL = ORIGIN + "/pwa/#settings";
-const API_BASE = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-private-vault-v1";
+const API_BASE = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3/private-vault";
 const PASSWORD = "synthetic-browser-passphrase-2026";
 const NOTE_TITLE = "synthetic encrypted title";
 const NOTE_CONTENT = "synthetic private test payload that must never leave the browser as plaintext";
@@ -88,7 +88,7 @@ try {
     const req = route.request();
     const method = req.method().toUpperCase();
     const url = new URL(req.url());
-    const marker = "/aria-private-vault-v1";
+    const marker = "/private-vault";
     const index = url.pathname.indexOf(marker);
     const path = index >= 0 ? url.pathname.slice(index + marker.length) : url.pathname;
     const cors = {
