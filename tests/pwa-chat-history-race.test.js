@@ -31,16 +31,22 @@ assert.match(app, /chatMutationVersionRef\.current \+= 1/g, 'Chat sends and miss
   assert.match(app, /function renderInlineMarkdown\(value: string\)/, 'Chat responses must use the shared Markdown renderer.');
   const markdownTokenSource = app.match(/const token = \/(.*)\/gu;/)?.[1];
   assert.ok(markdownTokenSource, 'The inline Markdown token expression must be available for regression checks.');
+  const markdownToken = new RegExp(markdownTokenSource, 'u');
+  assert.equal(
+    markdownToken.test('conversation_all_routes_failed'),
+    false,
+    'Technical identifiers with internal underscores must not be parsed as emphasis.'
+  );
+  assert.equal(
+    markdownToken.test('_cursiva correcta_'),
+    true,
+    'Standalone underscore emphasis must remain supported.'
+  );
   const markdownTokens = new RegExp(markdownTokenSource, 'gu');
   assert.deepStrictEqual(
     'conversation_all_routes_failed'.split(markdownTokens).filter(part => part !== ''),
     ['conversation_all_routes_failed'],
-    'Technical identifiers with internal underscores must remain literal and must not be parsed as emphasis.'
-  );
-  assert.deepStrictEqual(
-    '_cursiva correcta_'.split(markdownTokens).filter(part => part !== ''),
-    ['_cursiva correcta_'],
-    'Standalone underscore emphasis must remain supported.'
+    'Splitting rendered text must keep technical identifiers literal.'
   );
   console.log('pwa-chat-history-race PASS');
 })().catch(error => {
