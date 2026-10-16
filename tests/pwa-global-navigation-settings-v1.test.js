@@ -37,7 +37,7 @@ assert.match(settingsRwht,/await waitForPwaBoot\(page, 'direct_settings_navigati
 assert.match(settingsRwht,/page\.waitForNavigation\(\{ waitUntil: 'domcontentloaded', timeout: 30000 \}\)/);
 assert.match(settingsRwht,/authRequestDiagnostics\.push\(/);
 assert.match(settingsRwht,/has_password: typeof body\.password === 'string'/);
-assert.ok(settingsRwht.includes("page.locator('.dashboardScreen,.projectShell,.settingsViewport').first()"),
+assert.ok(settingsRwht.includes("page.locator('.dashboardScreen:visible,.projectShell:visible,.settingsViewport:visible').first()"),
   'Settings relogin must recognize the current authenticated Settings route as a valid surface');
 assert.ok(settingsRwht.includes("document.querySelectorAll('.dashboardScreen,.projectShell,.settingsViewport')"),
   'Settings relogin wait must resolve after an authenticated route surface becomes visible');
