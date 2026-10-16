@@ -243,6 +243,10 @@ assert.match(pcWorkflow, /LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE
 const steps78WorkflowTriggers = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
 assert.ok(steps78WorkflowTriggers.includes("'.github/workflows/pc-rwht.yml'"),
   'Steps 7-8 certification must rerun when the PC certification workflow graph changes');
+assert.ok(steps78WorkflowTriggers.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"),
+  'Steps 7-8 must rerun when the PC RWHT execution harness changes');
+assert.ok(steps78WorkflowTriggers.includes("'tests/pc-rwht-browser.test.js'"),
+  'Steps 7-8 must rerun when the PC RWHT contract changes');
 for (const workflowPath of [
   '.github/workflows/aria-meditation-webpush-production-e2e.yml',
   '.github/workflows/capabilities-rwht-authenticated.yml',
