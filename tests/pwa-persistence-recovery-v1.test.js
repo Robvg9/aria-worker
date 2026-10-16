@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'pwa', 'src', 'App.tsx'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'rwht', 'pc-browser', 'rwht-persistence-recovery-e2e.mjs'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
+assert.ok(workflow.includes("- 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'"), 'Persistence + Recovery must run on the same SHA whenever the Web Push runner changes');
 
 for (const fragment of [
   "SESSION_KEY = 'aria_session_v2'",
