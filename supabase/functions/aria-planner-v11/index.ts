@@ -1460,7 +1460,17 @@ function cuevacoinStep6Plan(goal: string) {
   };
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);const cuevacoinStep6=cuevacoinStep6Plan(goal);if(cuevacoinStep6)return out({ok:true,plan:cuevacoinStep6,planner_version:cuevacoinStep6.planner_version,cuevacoin_step6_cloud_probe:true});try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);
+const earlyPhysicalMetadata=context?.mission_planner_contract || context?.metadata?.mission_planner_contract || context;
+const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement({goal,metadata:earlyPhysicalMetadata});
+if(earlyPhysicalRequirement.required){
+  const earlyPhysicalPlan=directDeviceIntentPlan(goal,context);
+  if(!earlyPhysicalPlan)return out({error:"explicit_physical_execution_contract_incomplete",reason:"no_structured_device_plan",operation:earlyPhysicalRequirement.operation||null,next_action:"Re-submit with a structured requested_device_id and requested_capability; shell.execute also requires command and verification_marker. No device command was dispatched.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
+  const earlyPhysicalValidation=validatePhysicalExecutionPlan({goal,metadata:earlyPhysicalMetadata},earlyPhysicalPlan.steps);
+  if(!earlyPhysicalValidation.ok)return out({error:"explicit_physical_execution_contract_incomplete",reason:earlyPhysicalValidation.reason,operation:earlyPhysicalRequirement.operation||null,next_action:"Complete the structured physical execution contract. No device command was dispatched.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
+  return out({ok:true,plan:earlyPhysicalPlan,planner_version:earlyPhysicalPlan.planner_version,explicit_device_intent:true,physical_contract_validated:true});
+}
+const cuevacoinStep6=cuevacoinStep6Plan(goal);if(cuevacoinStep6)return out({ok:true,plan:cuevacoinStep6,planner_version:cuevacoinStep6.planner_version,cuevacoin_step6_cloud_probe:true});try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
 const explicitRequestedDevice=String(
   context?.mission_planner_contract?.requested_device_id ||
   context?.requested_device_id ||
