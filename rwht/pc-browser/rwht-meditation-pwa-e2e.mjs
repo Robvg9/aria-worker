@@ -328,10 +328,26 @@ async function run() {
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) }, ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) });
   let page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
-  page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
-  page.on('pageerror', e => pageErrors.push(String(e?.message || e)));
-  page.on('response', response => { if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() }); });
-  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, failure:null };
+  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, failed_responses:0, page_error_details:[], console_error_details:[], failed_response_details:[], failure:null };
+  function trackPage(targetPage) {
+    targetPage.on('console', message => {
+      if (message.type() === 'error') consoleErrors.push({ url: targetPage.url(), text: message.text() });
+    });
+    targetPage.on('pageerror', error => pageErrors.push({ url: targetPage.url(), message: String(error?.message || error) }));
+    targetPage.on('response', response => {
+      if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() });
+    });
+    return targetPage;
+  }
+  function syncBrowserDiagnostics() {
+    report.page_errors = pageErrors.length;
+    report.console_errors = consoleErrors.length;
+    report.failed_responses = failedResponses.length;
+    report.page_error_details = pageErrors.slice();
+    report.console_error_details = consoleErrors.slice();
+    report.failed_response_details = failedResponses.slice();
+  }
+  trackPage(page);
   try {
     await page.goto(base + '#projects', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(1200);
@@ -416,7 +432,7 @@ async function run() {
 
       // The CDP ServiceWorker domain must be attached to the PWA origin so
       // Chrome resolves the active registration rather than an about:blank target.
-      const controllerPage = await context.newPage();
+      const controllerPage = trackPage(await context.newPage());
       // The production HTML registers its versioned SW from the window "load"
       // handler. Wait for that lifecycle point; domcontentloaded is too early.
       await controllerPage.goto(base + '#meditation', { waitUntil:'load', timeout:30000 });
@@ -453,10 +469,7 @@ async function run() {
       await controllerPage.close();
       console.log('WEBPUSH_E2E_CONTROL_PAGE_CLOSED_BEFORE_RECEIPT');
 
-      const probePage = await context.newPage();
-      probePage.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
-      probePage.on('pageerror', e => pageErrors.push(String(e?.message || e)));
-      probePage.on('response', response => { if (response.status() >= 500) failedResponses.push({ status: response.status(), url: response.url() }); });
+      const probePage = trackPage(await context.newPage());
       await probePage.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
 
       let pushReceipt = null;
@@ -532,12 +545,27 @@ async function run() {
       if (envBool('RWHT_BACKGROUND_PUSH_ONLY', false)) {
         report.status = 'verified';
         report.cleaned_up = true;
+        syncBrowserDiagnostics();
+        const browserErrorDetails = {
+          page_errors: report.page_errors,
+          page_error_details: report.page_error_details,
+          console_errors: report.console_errors,
+          console_error_details: report.console_error_details,
+          failed_responses: report.failed_responses,
+          failed_response_details: report.failed_response_details
+        };
+        console.log('WEBPUSH_E2E_BROWSER_DIAGNOSTICS=' + JSON.stringify(browserErrorDetails));
+        if (report.page_errors || report.console_errors || report.failed_responses) {
+          report.status = 'partial_or_failed';
+          report.failure = 'meditation_pwa_browser_errors';
+          throw new Error('meditation_pwa_browser_errors: ' + JSON.stringify(browserErrorDetails));
+        }
         return;
       }
       await controllerPage.close();
     }
 
-    page = await context.newPage();
+    page = trackPage(await context.newPage());
     await page.goto(base + '#meditation', { waitUntil:'domcontentloaded', timeout:30000 });
     await page.waitForTimeout(1500);
     const [overview, health, ideas, notifications] = await Promise.all([
@@ -596,7 +624,7 @@ async function run() {
     report.status='verified';
   } catch (error) { report.failure=String(error?.message || error); throw error; }
   finally {
-    report.page_errors=pageErrors.length; report.console_errors=consoleErrors.length; report.failed_responses=failedResponses.length;
+    syncBrowserDiagnostics();
     fs.writeFileSync(path.join(artifactDir,'rwht-meditation-pwa-report.json'), JSON.stringify(report,null,2));
     await page.screenshot({ path:path.join(artifactDir,'meditation-pwa-final.png'), fullPage:true }).catch(()=>{}); await browser.close();
   }
