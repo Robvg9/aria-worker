@@ -113,6 +113,8 @@ assert.match(project,/\{type:'file',fileId:path,path,mimeType:'image\/png'/);
 assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
 assert.match(project,/previewUrl:'https:\/\/cuevacoin\.robvg9\.workers\.dev\/', previewMode:'auth-required'/, 'CuevaCoin must embed its actual deployed PWA and preserve the independent authentication boundary');
 assert.doesNotMatch(project,/id:'cuevacoin'.*project-preview\/cuevacoin\//, 'CuevaCoin must not use ARTIA screenshot/reference source as its main preview');
+assert.match(project,/Abrir CuevaCoin LIVE/, 'ARTIA and project overview must offer the real PWA in a top-level tab for independent login');
+assert.match(project,/href=\{livePreviewUrl\} target='_blank' rel='noreferrer'/, 'real preview must be directly openable outside the iframe');
 assert.match(project,/previewUrl:'https:\/\/aria\.robvg9\.workers\.dev\/project-preview\/aria\//);
 assert.doesNotMatch(project,/No hay una PWA LIVE configurada para este proyecto/);
 assert.match(project,/REFERENCIA VISUAL · ESTRUCTURA REAL · NO LIVE/);
