@@ -175,6 +175,11 @@ const pwaTestCatalog = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'src', 
 const projectsRwhtWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'projects-rwht-authenticated.yml'), 'utf8');
 const pcRwhtWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'), 'utf8');
 const pwaFastDeployWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-fast-deploy.yml'), 'utf8');
+const cloudflareDeployWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-cloudflare-deploy.yml'), 'utf8');
+assert.ok(pwaFastDeployWorkflow.includes('"rwht/pc-browser/rwht-pc-browser.mjs"'), 'PC RWHT runner changes must trigger exact-SHA PWA deployment');
+assert.ok(pwaFastDeployWorkflow.includes('"tests/pc-rwht-browser.test.js"'), 'PC RWHT contract changes must trigger exact-SHA PWA deployment');
+assert.ok(cloudflareDeployWorkflow.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"), 'PC RWHT runner changes must trigger exact-SHA Worker deployment');
+assert.ok(cloudflareDeployWorkflow.includes("'tests/pc-rwht-browser.test.js'"), 'PC RWHT contract changes must trigger exact-SHA Worker deployment');
 assert.match(pwaIndex, /aria-test-catalog-version/);
 assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_VERSION__'/);
 assert.match(pwaIndex, /aria-test-catalog-total/);
