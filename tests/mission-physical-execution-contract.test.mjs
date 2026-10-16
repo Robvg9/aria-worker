@@ -7,6 +7,14 @@ const modelOnlyMission = {
   metadata: {},
 };
 assert.equal(explicitPhysicalExecutionRequirement(modelOnlyMission).required, false, "cloud-only text work must remain eligible for model execution");
+const modelOnlyWithContextDevice = { goal: "Summarize this API issue", metadata: { device_id: "windows-lacueva-780886" } };
+assert.equal(validatePhysicalExecutionPlan(modelOnlyWithContextDevice, [{
+  id: "cloud_review",
+  operation: "text_generation",
+  executor_type: "model",
+  target: { type: "model", provider_id: "google", account_id: "acct_google_gemini_free", model_id: "google/gemini-3.5-flash-lite-direct" },
+  verify: { response_content_nonempty: true },
+}]).required, false, "a contextual device id must not turn an ordinary model-only mission into a physical-device mission");
 const nestedTargetMission = { goal: "Inspect this target", metadata: { request_id: "test", mission_planner_contract: { requested_device_id: "windows-lacueva-780886", requested_capability: "computer.use" } } };
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).required, true, "a nested structured device target must force physical execution");
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).targetDeviceId, "windows-lacueva-780886", "nested structured device target must be read by the runner");
