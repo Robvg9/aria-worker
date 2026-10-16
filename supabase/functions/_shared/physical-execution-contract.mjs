@@ -131,7 +131,12 @@ export function validatePhysicalExecutionEvidence(mission, steps, results, verif
   if (!result || !(result.status === "succeeded" || result.ok === true) || result.error) {
     return { ok: false, required: true, reason: "physical_execution_result_not_succeeded", requirement, stepId: String(step.id || "") };
   }
-  if (result.executor_type !== "device" || deviceOperation({ operation: result.operation }) !== deviceOperation(step)) {
+  const requestedOperation = deviceOperation(step);
+  const reportedOperation = deviceOperation({ operation: result.operation });
+  const androidGenericComputerUseAlias = requestedOperation === "computer.use"
+    && reportedOperation === "computer.use.android"
+    && physicalClean(step?.target?.device_id || step?.input?.device_id).startsWith("android-termux-");
+  if (result.executor_type !== "device" || (reportedOperation !== requestedOperation && !androidGenericComputerUseAlias)) {
     return { ok: false, required: true, reason: "physical_execution_result_executor_mismatch", requirement, stepId: String(step.id || "") };
   }
   if (typeof verifyStep === "function" && verifyStep(step, result) !== true) {
