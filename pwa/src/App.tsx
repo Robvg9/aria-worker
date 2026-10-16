@@ -2141,6 +2141,7 @@ function Chat({
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [missionAudioFile, setMissionAudioFile] = useState<File | null>(null);
   const [screen, setScreen] = useState<0 | 1>(() => initialNavigation.screen);
   const [conversationId, setConversationId] = useState<string | null>(cachedChat?.conversationId ?? null);
   const [pendingMissionConfirmation, setPendingMissionConfirmation] = useState<{ goal: string; conversationId: string } | null>(cachedChat?.pendingMission ?? null);
@@ -2458,21 +2459,47 @@ function Chat({
 
   async function runMission() {
     const clean = goal.trim();
-    if (!clean || sending) return;
+    const outgoingAudio = missionAudioFile;
+    const missionGoal = clean || (outgoingAudio
+      ? 'El usuario adjuntó un audio de voz para definir esta misión. La transcripción automática no estuvo disponible; procesa el audio adjunto si tu ruta de ejecución lo permite.'
+      : '');
+    if (!missionGoal || sending) return;
     setSending(true);
     setError('');
     setMissionCreatedNotice('Creando misión…');
     setShowNewMission(false);
     if (window.location.hash === '#mission') window.location.hash = '#home';
     try {
-      const d = await api('/missions', session.accessToken, { method: 'POST', body: JSON.stringify({ goal: clean }) });
-      const missionId = d?.mission?.mission_id;
+      const audioAttachments: Array<{ path: string; filename: string; mime_type: string }> = [];
+      if (outgoingAudio) {
+        const contentType = outgoingAudio.type || 'audio/webm';
+        const up = await api('/media/upload-url', session.accessToken, {
+          method: 'POST',
+          body: JSON.stringify({ fileName: outgoingAudio.name, contentType })
+        });
+        const signed = up?.signedUrl ?? up?.upload?.signed_url;
+        const path = up?.path ?? up?.upload?.path;
+        if (!signed || !path) throw new Error('ARIA no confirmó la ubicación del audio de la misión.');
+        const put = await fetch(signed, { method: 'PUT', headers: { 'content-type': contentType }, body: outgoingAudio });
+        if (!put.ok) throw new Error('No se pudo subir el audio de la misión.');
+        audioAttachments.push({ path, filename: outgoingAudio.name, mime_type: contentType });
+      }
+      const d = await api('/missions', session.accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          goal: missionGoal,
+          audio_attachments: audioAttachments,
+          audio_transcript: clean
+        })
+      });
+      const missionId = d?.mission?.mission_id ?? d?.mission_id;
       if (!missionId) throw new Error('ARIA no confirmó la creación de la misión.');
       setGoal('');
-      const createdTitle = missionHumanTitle(d.mission);
+      setMissionAudioFile(null);
+      const createdTitle = missionHumanTitle(d.mission || { goal: missionGoal });
       setMissionCreatedNotice('Misión creada: ' + createdTitle);
       window.setTimeout(() => setMissionCreatedNotice(''), 5000);
-      setMission(d.mission);
+      if (d?.mission) setMission(d.mission);
       void trackMission(missionId);
     } catch (x) {
       setMissionCreatedNotice('');
@@ -2622,11 +2649,12 @@ function Chat({
             <p className='muted'>La solicitud seguirá el runtime canónico y sus controles de governance.</p>
             <div className='voicePromptField'>
               <textarea aria-label='Objetivo de la misión' value={goal} onChange={e => setGoal(e.target.value)} placeholder='Describe el resultado que quieres. ARIA decide cómo conseguirlo.' />
-              <VoiceInputButton onTranscript={transcript => setGoal(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
+              <VoiceInputButton captureAudio onAudio={setMissionAudioFile} onTranscript={transcript => setGoal(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
             </div>
+            {missionAudioFile && <div className='fileChip'>🎙️ {missionAudioFile.name}<button aria-label='Quitar audio de la misión' onClick={() => setMissionAudioFile(null)}>×</button></div>}
             <div className='modalActions'>
               <button className='ghost' onClick={() => setShowNewMission(false)}>Cancelar</button>
-              <button className='primary' disabled={!goal.trim() || sending} onClick={runMission}>{sending ? 'Enviando…' : 'Crear misión'}</button>
+              <button className='primary' disabled={(!goal.trim() && !missionAudioFile) || sending} onClick={runMission}>{sending ? 'Enviando…' : 'Crear misión'}</button>
             </div>
           </section>
         </div>
@@ -2683,6 +2711,7 @@ function Meditation({ session }: { session: Session }) {
   const [missionEvents, setMissionEvents] = useState<MissionEvent[]>([]);
   const [missionDiagnostic, setMissionDiagnostic] = useState<any>(null);
   const [ideaText, setIdeaText] = useState('');
+  const [ideaAudioFile, setIdeaAudioFile] = useState<File | null>(null);
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [ideaError, setIdeaError] = useState('');
   const [ideaProposals, setIdeaProposals] = useState<any[]>([]);
@@ -2703,16 +2732,35 @@ function Meditation({ session }: { session: Session }) {
   }
 
   async function analyzeIdea() {
-    const idea = ideaText.trim();
+    const clean = ideaText.trim();
+    const outgoingAudio = ideaAudioFile;
+    const idea = clean || (outgoingAudio
+      ? 'El usuario adjuntó un audio de voz para analizar como idea. La transcripción automática no estuvo disponible; procesa el audio adjunto si tu ruta lo permite.'
+      : '');
     if (!idea || ideaBusy) return;
     setIdeaBusy(true);
     setIdeaError('');
     try {
+      const audioAttachments: Array<{ path: string; filename: string; mime_type: string }> = [];
+      if (outgoingAudio) {
+        const contentType = outgoingAudio.type || 'audio/webm';
+        const up = await api('/media/upload-url', session.accessToken, {
+          method: 'POST',
+          body: JSON.stringify({ fileName: outgoingAudio.name, contentType })
+        });
+        const signed = up?.signedUrl ?? up?.upload?.signed_url;
+        const path = up?.path ?? up?.upload?.path;
+        if (!signed || !path) throw new Error('ARIA no confirmó la ubicación del audio de la idea.');
+        const put = await fetch(signed, { method: 'PUT', headers: { 'content-type': contentType }, body: outgoingAudio });
+        if (!put.ok) throw new Error('No se pudo subir el audio de la idea.');
+        audioAttachments.push({ path, filename: outgoingAudio.name, mime_type: contentType });
+      }
       await api('/meditation/idea-to-mission', session.accessToken, {
         method: 'POST',
-        body: JSON.stringify({ idea })
+        body: JSON.stringify({ idea, audio_attachments: audioAttachments, audio_transcript: clean })
       });
       setIdeaText('');
+      setIdeaAudioFile(null);
       await loadIdeas();
     } catch (x) {
       setIdeaError(x instanceof Error ? x.message : 'No se pudo analizar la idea.');
@@ -3250,9 +3298,10 @@ function Meditation({ session }: { session: Session }) {
             <div className='ideaModalComposer'>
               <div className='voicePromptField'>
                 <textarea className='ideaAnalyzerInput' aria-label='Idea para analizar' value={ideaText} maxLength={4000} onChange={e => setIdeaText(e.target.value)} placeholder='Escribe una nueva idea…' rows={3} />
-                <VoiceInputButton onTranscript={transcript => setIdeaText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
+                <VoiceInputButton captureAudio onAudio={setIdeaAudioFile} onTranscript={transcript => setIdeaText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
               </div>
-              <button className='primary' disabled={ideaBusy || !ideaText.trim()} onClick={() => void analyzeIdea()}>{ideaBusy ? 'ANALIZANDO…' : 'ANALIZAR Y PROPONER'}</button>
+              {ideaAudioFile && <div className='fileChip'>🎙️ {ideaAudioFile.name}<button aria-label='Quitar audio de la idea' onClick={() => setIdeaAudioFile(null)}>×</button></div>}
+              <button className='primary' disabled={ideaBusy || (!ideaText.trim() && !ideaAudioFile)} onClick={() => void analyzeIdea()}>{ideaBusy ? 'ANALIZANDO…' : 'ANALIZAR Y PROPONER'}</button>
             </div>
             {ideaError && <div className='errorBox'>{ideaError}</div>}
             <div className='ideaModalIntro'>
