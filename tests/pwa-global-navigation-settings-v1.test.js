@@ -6,6 +6,8 @@ const app=fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
 const certStreak=fs.readFileSync(path.join(root,'.github/workflows/aria-pwa-certification-streak.yml'),'utf8');
 const settingsRwht=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-settings-e2e.mjs'),'utf8');
+const pcRwhtWorkflow=fs.readFileSync(path.join(root,'.github/workflows/pc-rwht.yml'),'utf8');
+const steps78Workflow=fs.readFileSync(path.join(root,'.github/workflows/aria-pwa-steps-7-8-live.yml'),'utf8');
 
 assert.match(app,/AppPage = 'aria'.*'settings'/);
 assert.match(app,/case '#settings'/);
@@ -39,6 +41,10 @@ assert.ok(settingsRwht.includes("page.locator('.dashboardScreen,.projectShell,.s
   'Settings relogin must recognize the current authenticated Settings route as a valid surface');
 assert.ok(settingsRwht.includes("document.querySelectorAll('.dashboardScreen,.projectShell,.settingsViewport')"),
   'Settings relogin wait must resolve after an authenticated route surface becomes visible');
+assert.ok(pcRwhtWorkflow.includes("'tests/pwa-global-navigation-settings-v1.test.js'"),
+  'PC Browser exact-SHA certification must rerun when the Settings authenticated regression test changes');
+assert.ok(steps78Workflow.includes("'.github/workflows/pc-rwht.yml'"),
+  'Steps 7-8 must rerun when the PC Browser certification graph changes');
 
 console.log('CONFIG SETTINGS CONTRACT: PASS');
 assert.match(app,/Actualizar app/);
