@@ -17,6 +17,9 @@ on:
       # Keep this same-SHA predecessor active when the PC audit harness changes.
       - 'rwht/pc-browser/rwht-pc-browser.mjs'
       - 'tests/pc-rwht-browser.test.js'
+      # Keep the persistence predecessor on the same release when the Responsive UX contract or gate definition changes.
+      - 'tests/pwa-responsive-ux-v1.test.js'
+      - '.github/workflows/responsive-ux-rwht-authenticated.yml'
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
       # The predecessor must re-run when either same-SHA successor gate definition changes.
       - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
