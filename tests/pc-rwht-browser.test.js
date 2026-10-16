@@ -123,6 +123,10 @@ assert.ok(!authVerification.includes(`page.locator('input[type="password"]')`), 
 
 assert.match(runner, /images_missing_alt/);
 assert.match(runner, /unlabeled_inputs/);
+assert.ok(runner.includes("const associatedLabelText = Array.from(element.labels || [])"),
+  'unnamed-interactive audit must derive the accessible name from native associated labels');
+assert.ok(runner.includes("if (element.labels?.length) return false;"),
+  'unlabeled-input audit must recognize both wrapping labels and label[for] associations');
 assert.match(runner, /controls_verified/);
 assert.match(runner, /controls_blocked/);
 assert.match(runner, /controls_failed/);
@@ -239,6 +243,10 @@ assert.match(pcWorkflow, /LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE
 const steps78WorkflowTriggers = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
 assert.ok(steps78WorkflowTriggers.includes("'.github/workflows/pc-rwht.yml'"),
   'Steps 7-8 certification must rerun when the PC certification workflow graph changes');
+assert.ok(steps78WorkflowTriggers.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"),
+  'Steps 7-8 must rerun when the PC RWHT execution harness changes');
+assert.ok(steps78WorkflowTriggers.includes("'tests/pc-rwht-browser.test.js'"),
+  'Steps 7-8 must rerun when the PC RWHT contract changes');
 for (const workflowPath of [
   '.github/workflows/aria-meditation-webpush-production-e2e.yml',
   '.github/workflows/capabilities-rwht-authenticated.yml',
@@ -367,7 +375,7 @@ assert.match(appSource, /data-testid='chat-window'/);
 assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
 
 const projectsSource = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-projects-e2e.mjs'), 'utf8');
-assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.1\.9/);
+assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.1\.10/);
 assert.match(projectsSource, /battlecruiser|cuevacoin|aria/);
 assert.match(projectsSource, /server_persistence_verified/);
 assert.match(projectsSource, /visual_mission_verified/);

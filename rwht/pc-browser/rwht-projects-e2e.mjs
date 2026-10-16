@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.1.9';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.10';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/project-preview/aria/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -22,6 +22,13 @@ const PROJECTS = [
 ];
 
 function waitFor(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+function isVisualMissionConfirmation(value) {
+  // Accept the legacy wording and the current UI wording. The latter adds
+  // “, las anotaciones y el audio”; a wording-only UI change must not wait 120 s
+  // and erase otherwise valid E2E evidence.
+  return /Misión confirmada por ARIA con el diseño(?:,)?(?: las anotaciones| y las anotaciones)(?: y el audio)?\./i.test(String(value || ''));
+}
 
 async function waitForPreviewContent(page, expectedSrc, projectId) {
   const normalizedExpected = String(expectedSrc).replace(/\/$/, '');
@@ -904,11 +911,11 @@ async function run() {
       await visualMissionButton.click();
       await page.waitForFunction(() => [...document.querySelectorAll('.visualBoardPanel .notice')].some((node) => {
         const text = node.textContent || '';
-        return text.includes('Misión confirmada por ARIA con el diseño y las anotaciones.')
+        return isVisualMissionConfirmation(text)
           || /visual_mission_create_not_confirmed|ARIA no confirmó la creación de la misión|No se pudo guardar el diseño|No se pudo enviar el diseño/i.test(text);
       }), null, { timeout: 120000 });
       const missionNotice = (await page.locator('.visualBoardPanel .notice').last().innerText().catch(() => '')).trim();
-      if (!missionNotice.includes('Misión confirmada por ARIA con el diseño y las anotaciones.')) {
+      if (!isVisualMissionConfirmation(missionNotice)) {
         throw new Error('visual_mission_submission_failed_' + visualProject.id + '_' + missionNotice.slice(0, 240));
       }
 

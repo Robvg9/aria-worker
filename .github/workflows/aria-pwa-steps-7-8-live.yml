@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'pwa/**'
+      # PC audit-harness changes alter the certification graph; re-run Steps 7-8 on that exact release SHA.
+      - 'rwht/pc-browser/rwht-pc-browser.mjs'
+      - 'tests/pc-rwht-browser.test.js'
       - 'worker.js'
       - 'wrangler.toml'
       - 'package.json'
