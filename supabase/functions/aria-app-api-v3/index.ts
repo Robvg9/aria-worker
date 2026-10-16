@@ -722,6 +722,14 @@ function isTransientModelFailure(error:any){
   const value=String(error instanceof Error?error.message:error||"").toLowerCase();
   return /429|quota|rate|resource_exhausted|temporarily|timeout|gateway|503|502|high demand|overload|capacity|service unavailable/.test(value);
 }
+function shouldRetryPrimaryRouteOnce(error:any) {
+  const value=String(error instanceof Error?error.message:error||"").toLowerCase();
+  // Retry only transient provider availability failures. Never retry quota/rate-limit
+  // or credential/auth failures, which must not be evaded by repeated requests.
+  if(/429|quota|rate.?limit|resource.?exhausted|credential_unavailable|invalid.?api.?key|unauthorized|provider.*401|provider.*403/.test(value)) return false;
+  return /provider_status_(?:502|503|504)\\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
+}
+
 async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
   const failures:any[]=[];
   if(step?.target){
@@ -730,6 +738,21 @@ async function executeConversationWithFallback(step:any, prompt:string, conversa
       return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,failures};
     }catch(error){
       failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,error:String(error instanceof Error?error.message:error)});
+      if(shouldRetryPrimaryRouteOnce(error)){
+        console.warn("[ARIA-CHAT-PRIMARY-TRANSIENT-RETRY] "+JSON.stringify({
+          provider_id:String(step.target.provider_id),
+          model_id:String(step.target.model_id),
+          delay_ms:1200,
+          retry_number:1
+        }));
+        await new Promise(resolve=>setTimeout(resolve,1200));
+        try{
+          const result=await execute(step,prompt,conversationId,visualContext,clientMessageId,waitForLocal);
+          return {result,route:{provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id},fallback_count:0,primary_retry_count:1,failures};
+        }catch(retryError){
+          failures.push({provider_id:step.target.provider_id,account_id:step.target.account_id,model_id:step.target.model_id,attempt:2,error:String(retryError instanceof Error?retryError.message:retryError)});
+        }
+      }
     }
   }
 
