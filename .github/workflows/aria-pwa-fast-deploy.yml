@@ -20,6 +20,13 @@ on:
       # Keep PWA release SHA aligned when the full PC audit harness/contract changes.
       - "rwht/pc-browser/rwht-pc-browser.mjs"
       - "tests/pc-rwht-browser.test.js"
+      # Keep deployment SHA aligned for Responsive UX and Persistence + Recovery harness changes.
+      - "rwht/pc-browser/rwht-responsive-ux-e2e.mjs"
+      - "tests/pwa-responsive-ux-v1.test.js"
+      - "rwht/pc-browser/rwht-persistence-recovery-e2e.mjs"
+      - "tests/pwa-persistence-recovery-v1.test.js"
+      # A Cloudflare Worker release-workflow change must also deploy the PWA on the same SHA.
+      - ".github/workflows/aria-cloudflare-deploy.yml"
   workflow_dispatch:
 
 concurrency:
