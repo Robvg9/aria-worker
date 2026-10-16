@@ -404,6 +404,16 @@ assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
 
 const projectsSource = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-projects-e2e.mjs'), 'utf8');
 assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.1\.10/);
+assert.match(
+  projectsSource,
+  /return \/Misión confirmada por ARIA con el diseño/,
+  'The serialized Playwright browser predicate must inline its mission-confirmation matcher.'
+);
+assert.doesNotMatch(
+  projectsSource,
+  /return isVisualMissionConfirmation\(text\)/,
+  'The Playwright page context must not call the Node-only isVisualMissionConfirmation helper.'
+);
 assert.match(projectsSource, /battlecruiser|cuevacoin|aria/);
 assert.match(projectsSource, /server_persistence_verified/);
 assert.match(projectsSource, /visual_mission_verified/);
