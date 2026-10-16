@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-projects-rwht-e2e-v1.1.8';
+const VERSION = 'aria-projects-rwht-e2e-v1.1.9';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/project-preview/aria/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -594,21 +594,32 @@ async function run() {
     const overviewPreviewResults = report.overview_preview_results;
     if (!STEPS_7_8_ONLY) {
     for (const expected of [
-      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/' },
-      { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/' },
-      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/' }
+      { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'auth-required' },
+      // The overview embeds CuevaCoin's canonical LIVE runtime. The old
+      // /project-preview/cuevacoin/ reference is not the configured overview source.
+      { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://cuevacoin.robvg9.workers.dev/', mode: 'auth-required' },
+      { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     ]) {
       await page.locator('.projectGrid .projectCard').filter({ hasText: expected.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'Resumen' }).click();
-      await page.waitForSelector('.projectOverviewPreview', { state: 'visible', timeout: 30000 });
-      const overviewIframe = page.locator('.projectOverviewPreview iframe').first();
+      const overviewPanel = page.locator('.projectOverviewPreview');
+      await overviewPanel.waitFor({ state: 'visible', timeout: 30000 });
+      const overviewMode = await overviewPanel.getAttribute('data-preview-mode');
+      if (overviewMode !== expected.mode) throw new Error('project_overview_preview_mode_mismatch_' + expected.id + '_actual_' + String(overviewMode));
+      const overviewIframe = overviewPanel.locator('iframe').first();
       if (await overviewIframe.count() !== 1) throw new Error('project_overview_preview_missing_' + expected.id);
       const overviewSrc = await overviewIframe.getAttribute('src');
-      if (overviewSrc !== expected.src) throw new Error('project_overview_preview_src_mismatch_' + expected.id);
+      if (overviewSrc !== expected.src) throw new Error('project_overview_preview_src_mismatch_' + expected.id + '_actual_' + String(overviewSrc));
+      if (expected.mode === 'auth-required') {
+        const badge = overviewPanel.locator('.projectReferenceBadge').first();
+        await badge.waitFor({ state: 'visible', timeout: 10000 });
+        const badgeText = (await badge.innerText()).toLowerCase();
+        if (!badgeText.includes('requiere sesión') || !badgeText.includes('dashboard no verificado')) throw new Error('project_overview_auth_contract_missing_' + expected.id);
+      }
       const overviewLoaded = await waitForPreviewContent(page, expected.src, expected.id);
       const overviewSearchable = (overviewLoaded.title + ' ' + overviewLoaded.body_text).toLowerCase();
       if (!overviewSearchable.includes(expected.name.toLowerCase())) throw new Error('project_overview_preview_content_mismatch_' + expected.id);
-      overviewPreviewResults.push({ id: expected.id, src: overviewSrc, loaded: true });
+      overviewPreviewResults.push({ id: expected.id, src: overviewSrc, mode: overviewMode, loaded: true });
     }
     }
     const tabs = page.locator('.projectTabs .tabButton');
@@ -705,7 +716,7 @@ async function run() {
     // ARTIA must accept real visual mission creation for every project, not only BattleCruiser.
     const visualMissionExpectations = {
       battlecruiser: { src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'auth-required' },
-      cuevacoin: { src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
+      cuevacoin: { src: 'https://cuevacoin.robvg9.workers.dev/', mode: 'auth-required' },
       aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
     for (const visualProject of PROJECTS) {
@@ -982,7 +993,7 @@ async function run() {
     // ARTIA preview certification: every project must expose a real preview surface.
     const previewExpectations = [
       { id: 'battlecruiser', name: 'BattleCruiser', src: 'https://battlecruiser.robvg9.workers.dev/', mode: 'auth-required' },
-      { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://aria.robvg9.workers.dev/project-preview/cuevacoin/', mode: 'source' },
+      { id: 'cuevacoin', name: 'CuevaCoin', src: 'https://cuevacoin.robvg9.workers.dev/', mode: 'auth-required' },
       { id: 'aria', name: 'ARIA', src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     ];
     const previewResults = report.preview_results;
