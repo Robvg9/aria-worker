@@ -178,10 +178,10 @@ const pwaFastDeployWorkflow = fs.readFileSync(path.join(__dirname, '..', '.githu
 const cloudflareDeployWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-cloudflare-deploy.yml'), 'utf8');
 const persistenceRecoveryWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
 const webPushGateTriggerWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'), 'utf8');
-assert.ok(pwaFastDeployWorkflow.includes('"rwht/pc-browser/rwht-pc-browser.mjs"'), 'PC RWHT runner changes must trigger exact-SHA PWA deployment');
-assert.ok(pwaFastDeployWorkflow.includes('"tests/pc-rwht-browser.test.js"'), 'PC RWHT contract changes must trigger exact-SHA PWA deployment');
-assert.ok(cloudflareDeployWorkflow.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"), 'PC RWHT runner changes must trigger exact-SHA Worker deployment');
-assert.ok(cloudflareDeployWorkflow.includes("'tests/pc-rwht-browser.test.js'"), 'PC RWHT contract changes must trigger exact-SHA Worker deployment');
+assert.match(pwaFastDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,'PC RWHT runner changes are covered because PWA deploys every main SHA for Exact-SHA certification');
+assert.doesNotMatch(pwaFastDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,'PWA deploy cannot path-filter out a SHA required by Exact-SHA certification');
+assert.match(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,'PC RWHT runner changes are covered because Worker deploys every main SHA for Exact-SHA certification');
+assert.doesNotMatch(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,'Worker deploy cannot path-filter out a SHA required by Exact-SHA certification');
 for (const [workflowName, workflow] of [
   ['Persistence + Recovery RWHT', persistenceRecoveryWorkflow],
   ['Production Web Push E2E', webPushGateTriggerWorkflow],
