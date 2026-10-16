@@ -6,6 +6,12 @@ on:
       - main
     paths:
       - 'pwa/**'
+      # Worker-only releases still change the versioned PWA shell and must participate in same-SHA certification.
+      - 'worker.js'
+      - 'wrangler.toml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/aria-scheduler-transport-deploy.yml'
       - 'supabase/functions/aria-app-api-v3/**'
       - 'rwht/pc-browser/rwht-chat-e2e.mjs'
       - 'tests/pc-rwht-browser.test.js'
