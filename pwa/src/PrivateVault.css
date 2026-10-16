@@ -1,0 +1,20 @@
+.privateVaultPanel { display: flex; flex-direction: column; gap: 12px; }
+.privateVaultSecurityNote { padding: 12px; border: 1px solid rgba(128,128,128,.38); border-radius: 12px; line-height: 1.45; }
+.privateVaultField { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; min-width: 0; }
+.privateVaultField span { font-weight: 600; }
+.privateVaultField input, .privateVaultField textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+.privateVaultField textarea { resize: vertical; min-height: 96px; }
+.privateVaultDivider { border-top: 1px solid rgba(128,128,128,.25); margin: 8px 0; }
+.privateVaultRecovery { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid rgba(128,128,128,.4); border-radius: 14px; }
+.privateVaultRecovery h3, .privateVaultPanel h3 { margin: 4px 0; }
+.privateVaultRecoveryCode { display: block; overflow-wrap: anywhere; word-break: break-word; user-select: all; padding: 12px; border: 1px dashed rgba(128,128,128,.55); border-radius: 10px; line-height: 1.6; }
+.privateVaultUnlocked { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px; border: 1px solid rgba(128,128,128,.35); border-radius: 12px; }
+.privateVaultUnlocked > div { display: flex; flex-direction: column; gap: 4px; }
+.privateVaultUnlocked small, .privateVaultRecord small { display: block; opacity: .78; margin-top: 4px; }
+.privateVaultRecordHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.privateVaultRecord { border: 1px solid rgba(128,128,128,.25); border-radius: 12px; padding: 12px; margin: 8px 0; overflow-wrap: anywhere; }
+.privateVaultRecord p { white-space: pre-wrap; margin-bottom: 0; }
+@media (max-width: 540px) {
+  .privateVaultUnlocked { align-items: flex-start; }
+  .privateVaultRecoveryCode { font-size: .82rem; }
+}
