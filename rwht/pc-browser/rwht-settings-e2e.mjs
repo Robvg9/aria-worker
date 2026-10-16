@@ -82,7 +82,7 @@ async function waitForPwaBoot(page, stage) {
 
 async function login(page) {
   const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[autocomplete="username"]').first();
-  const authenticatedSurface = page.locator('.dashboardScreen,.projectShell,.settingsViewport').first();
+  const authenticatedSurface = page.locator('.dashboardScreen:visible,.projectShell:visible,.settingsViewport:visible').first();
   await Promise.race([
     authForm.waitFor({ state: 'visible', timeout: 60000 }),
     authenticatedSurface.waitFor({ state: 'visible', timeout: 60000 })
