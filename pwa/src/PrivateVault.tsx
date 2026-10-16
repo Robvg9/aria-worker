@@ -24,7 +24,7 @@ type VaultConfig = {
 };
 type VaultRecordView = { recordId: string; revision: number; title: string; content: string; createdAt?: string };
 
-const API_BASE = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-private-vault-v1";
+const API_BASE = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3/private-vault";
 const MAX_VISIBLE_RECORDS = 15;
 const AUTO_LOCK_MS = 5 * 60 * 1000;
 
