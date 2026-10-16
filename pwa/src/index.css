@@ -133,7 +133,7 @@ h1{margin:2px 0 4px;font-size:28px;letter-spacing:-.03em}h2{margin:4px 0 7px;fon
   .toggleButton{min-width:88px}
   .missionGoalLine{font-size:11px}
 
-  .notificationLauncher{right:12px;bottom:12px}
+  .notificationLauncher{right:8px;top:10px;bottom:auto;padding:8px 10px;gap:6px;max-width:calc(100vw - 16px)}
   .notificationBackdrop{padding:10px}
   .notificationPanel{border-radius:20px;max-height:88vh}
   .notificationHeader{align-items:center}

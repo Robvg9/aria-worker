@@ -70,6 +70,7 @@ assert.ok(css.includes(`@media(max-width:700px){
   .notificationLauncher{top:10px;right:8px;bottom:auto;padding:8px 10px;gap:6px;max-width:calc(100vw - 16px)}
   .notificationLauncher>span:nth-child(2){display:none}
 }`), 'mobile notification launcher must move to the top-right compact position');
+assert.ok(css.includes('.notificationLauncher{right:8px;top:10px;bottom:auto;padding:8px 10px;gap:6px;max-width:calc(100vw - 16px)}'), 'later mobile overrides must not restore bottom positioning after top-right placement');
 assert.match(app,/aria-label=\{permission === 'granted' \? 'Abrir avisos de ARIA' : 'Activar avisos de ARIA'\}/);
 
 console.log('RESPONSIVE UX CONTRACT: PASS');
