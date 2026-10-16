@@ -170,8 +170,7 @@ async function schedulerTick(request,env){
 async function runScheduledMission(env){if(!env.ARIA_RUNTIME_SHARED_SECRET){console.error("[ARIA CRON] runtime secret not configured");return}try{const response=await fetch(CANONICAL_RUNTIME,{method:"POST",headers:{"content-type":"application/json","x-aria-trigger":"scheduler","authorization":`Bearer ${env.ARIA_RUNTIME_SHARED_SECRET}`},body:"{}"});console.log(`[ARIA CRON] canonical-runtime status=${response.status}`);if(!response.ok){const text=await response.text().catch(()=>"");console.error(`[ARIA CRON] canonical-runtime failure status=${response.status} body=${text.slice(0,500)}`)}}catch(error){console.error(`[ARIA CRON] canonical-runtime request failed: ${error instanceof Error?error.message:String(error)}`)}}
 // 2026-10-07 scheduler transport fallback
 const PROJECT_PREVIEW_ASSETS = Object.freeze({
-  battlecruiser: '/project-previews/battlecruiser-reference.html',
-  cuevacoin: '/project-previews/cuevacoin-reference.html'
+  battlecruiser: '/project-previews/battlecruiser-reference.html'
 });
 
 async function serveAriaProjectPreview(request,env,url){
@@ -204,6 +203,18 @@ async function serveProjectPreview(request,env,url){
     .replace(/\/+$/,'')
     .trim()
     .toLowerCase();
+  // The legacy ARTIA route must never serve a mock screenshot for CuevaCoin.
+  // Redirect to the independently deployed PWA so both old bookmarks and new embeds reach the real app.
+  if(key==='cuevacoin'){
+    return new Response(null,{
+      status:302,
+      headers:{
+        location:'https://cuevacoin.robvg9.workers.dev/',
+        'cache-control':'no-store',
+        'x-aria-preview-source':'cuevacoin-live-redirect'
+      }
+    });
+  }
   const assetPath=PROJECT_PREVIEW_ASSETS[key];
   if(!assetPath)return new Response('Unknown project preview',{status:404,headers:{'cache-control':'no-store'}});
   const assetUrl=new URL(request.url);
