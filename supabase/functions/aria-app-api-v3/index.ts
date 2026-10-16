@@ -727,7 +727,7 @@ function shouldRetryPrimaryRouteOnce(error:any) {
   // Retry only transient provider availability failures. Never retry quota/rate-limit
   // or credential/auth failures, which must not be evaded by repeated requests.
   if(/429|quota|rate.?limit|resource.?exhausted|credential_unavailable|invalid.?api.?key|unauthorized|provider.*401|provider.*403/.test(value)) return false;
-  return /provider_status_(?:502|503|504)\\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
+  return /provider_status_(?:502|503|504)\b|high demand|overload|temporarily unavailable|service unavailable|bad gateway/.test(value);
 }
 
 async function executeConversationWithFallback(step:any, prompt:string, conversationId:string, visualContext:any=null, clientMessageId:string|null=null, waitForLocal:boolean=true) {
