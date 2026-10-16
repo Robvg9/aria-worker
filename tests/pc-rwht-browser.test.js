@@ -14,8 +14,8 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.ok((pcRwhtWorkflow.match(/'worker\\.js'/g) || []).length >= 2, 'PC Browser RWHT must run on Worker auth/proxy changes for both PR and main push');
-assert.ok((pcRwhtWorkflow.match(/'supabase\\/functions\\/aria-app-api-v3\\/\\*\\*'/g) || []).length >= 2, 'PC Browser RWHT must run on app API runtime changes for both PR and main push');
+assert.ok(pcRwhtWorkflow.split("'worker.js'").length - 1 >= 2, 'PC Browser RWHT must run on Worker auth/proxy changes for both PR and main push');
+assert.ok(pcRwhtWorkflow.split("'supabase/functions/aria-app-api-v3/**'").length - 1 >= 2, 'PC Browser RWHT must run on app API runtime changes for both PR and main push');
 
 assert.match(runner, /aria-pc-browser-rwht-v1.5.7/);
 assert.match(runner, /playwright/);
