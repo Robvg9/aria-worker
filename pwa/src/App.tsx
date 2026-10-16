@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
+import { PrivateVault } from './PrivateVault';
 import { VoiceInputButton } from './VoiceInputButton';
 import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
@@ -3829,6 +3830,7 @@ function Settings({ session, onSignOut }: { session: Session; onSignOut: () => v
         <div><div className='eyebrow'>ARIA / CONFIGURACIÓN</div><h1>Configuración</h1><div className='sub'>Ajustes básicos, mantenimiento y control de la PWA.</div></div>
       </header>
       <div className='pageBodyViewport settingsViewport'>
+        <PrivateVault token={session.accessToken} publishableKey={ANON} />
         <section className='panel settingsHero'>
           <div className='panelTitle'>APLICACIÓN</div>
           <h2>Build actual: {shortBuild(BUILD)}</h2>
