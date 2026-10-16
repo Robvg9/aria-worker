@@ -168,9 +168,18 @@ async function checkUx(page) {
         .map((id) => document.getElementById(id)?.innerText || '')
         .join(' ')
         .trim();
+      // Include native associated labels (wrapping <label> or label[for]) in the accessible name.
+      // Without this, password inputs in PrivateVault were falsely reported as unnamed
+      // even though the visible label correctly named them for assistive technology.
+      const associatedLabelText = Array.from(element.labels || [])
+        .map((label) => (label.innerText || label.textContent || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
       const name = (
         element.getAttribute('aria-label') ||
         labelledBy ||
+        associatedLabelText ||
         element.getAttribute('title') ||
         element.getAttribute('placeholder') ||
         element.innerText ||
@@ -214,7 +223,8 @@ async function checkUx(page) {
         const aria = element.getAttribute('aria-label') || element.getAttribute('aria-labelledby');
         if (aria?.trim()) return false;
         if (element.getAttribute('placeholder')?.trim()) return false;
-        if (element.id && [...document.querySelectorAll('label')].some((label) => label.htmlFor === element.id)) return false;
+        // HTMLInputElement.labels includes both explicit label[for] and a wrapping <label>.
+        if (element.labels?.length) return false;
         return true;
       })
       .map((element) => ({
