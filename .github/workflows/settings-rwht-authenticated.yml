@@ -6,9 +6,11 @@ on:
     paths:
       - 'pwa/src/App.tsx'
       - 'pwa/src/index.css'
+      - 'supabase/functions/aria-app-api-v3/**'
       - 'rwht/pc-browser/rwht-settings-e2e.mjs'
       - 'tests/pwa-global-navigation-settings-v1.test.js'
       - '.github/workflows/settings-rwht-authenticated.yml'
+      - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
 
 concurrency:
