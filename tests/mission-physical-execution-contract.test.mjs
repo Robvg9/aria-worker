@@ -50,6 +50,9 @@ assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { devi
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, stdout: "different output" } }, () => true).ok, false, "missing stdout marker must fail");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, job_id: "" } }, () => true).ok, false, "missing execution-job identity must fail");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, executor_type: "model" } }, () => true).ok, false, "model result must not satisfy a physical-device step");
+const computerUseMission = { goal: "Use computer.use on device_id=windows-lacueva-780886 and verify the UI result", metadata: { requested_capability: "computer.use", requested_device_id: "windows-lacueva-780886" } };
+const computerUseStep = { id: "device_ui", operation: "computer.use", executor_type: "device", target: { type: "device", device_id: "windows-lacueva-780886" }, verify: { status_succeeded: true } };
+assert.equal(validatePhysicalExecutionEvidence(computerUseMission, [computerUseStep], { device_ui: { status: "succeeded", executor_type: "device", operation: "computer.use", job_id: "", stdout: "looks okay" } }, () => true).ok, false, "computer.use must also require an execution-job ID");
 assert.equal(validatePhysicalExecutionEvidence(validMission, [validStep], { device_shell: { ...goodResult, __aria_verified_by_runner: true } }, () => true).ok, true, "verified result is accepted only with the explicit device result, job id, exit code, and marker");
 
 const planner = fs.readFileSync(new URL("../supabase/functions/aria-planner-v11/index.ts", import.meta.url), "utf8");
