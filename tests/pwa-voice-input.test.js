@@ -40,8 +40,13 @@ assert.match(project, /audio_attachments:audioAttachments/, 'project mission req
 
 const api = fs.readFileSync(path.join(root, 'supabase/functions/aria-app-api-v3/index.ts'), 'utf8');
 assert.match(api, /function normalizeAudioAttachments\(userId: string, raw: any\)/, 'backend must validate and normalize audio references');
+assert.match(api, /validPath = storagePath\.startsWith\(userId \+ "\/"\)/, 'audio metadata must only reference objects owned by the authenticated user');
 assert.match(api, /audio_attachments:audioAttachments/, 'canonical mission metadata must preserve audio references');
 assert.match(api, /audio_attachments:Array\.isArray\(row\.metadata\?\.audio_attachments\)/, 'Meditation IA proposals must retain audio references');
+
+const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
+assert.match(runner, /audio_attachments: Array\.isArray\(mission\?\.metadata\?\.audio_attachments\)/, 'mission audio references must survive the intake-to-planner handoff');
+assert.match(runner, /audio_transcript: typeof mission\?\.metadata\?\.audio_transcript === "string"/, 'the mission planner must receive the automatic transcript');
 assert.match(css, /\.voiceInputButton/);
 assert.match(css, /\.voiceInputNotice/);
 assert.match(css, /\.voicePromptField/);
