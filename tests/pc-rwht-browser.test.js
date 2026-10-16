@@ -238,6 +238,11 @@ const pcWorkflow = fs.readFileSync(
 );
 assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-app-api-v3\/\*\*'/g) || []).length, 2,
   'PC Browser RWHT must run on push and PR changes to the canonical App API');
+assert.equal(pcWorkflow.split("'worker.js'").length - 1, 2, 'Full PC RWHT must trigger for worker-only release changes on both PR and main pushes');
+assert.equal(pcWorkflow.split("'wrangler.toml'").length - 1, 2, 'Full PC RWHT must trigger for Wrangler config changes on both PR and main pushes');
+assert.equal(pcWorkflow.split("'.github/workflows/aria-cloudflare-deploy.yml'").length - 1, 2, 'Full PC RWHT must trigger for Worker deploy changes on both PR and main pushes');
+assert.equal(pcWorkflow.split("'.github/workflows/aria-pwa-fast-deploy.yml'").length - 1, 2, 'Full PC RWHT must trigger for PWA fast deploy changes on both PR and main pushes');
+assert.equal(pcWorkflow.split("'.github/workflows/aria-scheduler-transport-deploy.yml'").length - 1, 2, 'Full PC RWHT must trigger for scheduler transport deploy changes on both PR and main pushes');
 assert.match(pcWorkflow, /LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE E2E;ARIA Chat Browser RWHT Authenticated;ARIA Capabilities Browser RWHT Authenticated;ARIA PWA Steps 7-8 LIVE Certification;ARIA npm test;ARIA Autonomous Windows Qwen3;All For One Forensic Audit"/,
   'Full PC RWHT may certify only after every exact-SHA predecessor, including Steps 7-8, succeeds');
 const steps78WorkflowTriggers = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
@@ -259,6 +264,29 @@ for (const workflowPath of [
   assert.ok(workflow.includes("'.github/workflows/pc-rwht.yml'"),
     workflowPath + ' must rerun on PC RWHT exact-SHA gate changes');
 }
+const physicalExecutionReleasePaths = [
+  'supabase/functions/aria-planner-v11/**',
+  'supabase/functions/aria-mission-runner-v22/**',
+  'supabase/functions/_shared/physical-execution-contract.mjs',
+];
+const physicalExecutionSameShaGates = [
+  '.github/workflows/pc-rwht.yml',
+  '.github/workflows/aria-pwa-steps-7-8-live.yml',
+  '.github/workflows/chat-rwht-authenticated.yml',
+  '.github/workflows/capabilities-rwht-authenticated.yml',
+  '.github/workflows/persistence-recovery-rwht-authenticated.yml',
+  '.github/workflows/aria-meditation-webpush-production-e2e.yml',
+];
+for (const workflowPath of physicalExecutionSameShaGates) {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', workflowPath), 'utf8');
+  for (const releasePath of physicalExecutionReleasePaths) {
+    assert.ok(workflow.includes("'" + releasePath + "'"),
+      workflowPath + ' must trigger same-SHA certification when the physical mission execution guard changes: ' + releasePath);
+  }
+}
+assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-planner-v11\/\*\*'/g) || []).length, 2, 'PC RWHT must trigger the physical planner on both pull_request and main push');
+assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-mission-runner-v22\/\*\*'/g) || []).length, 2, 'PC RWHT must trigger the canonical mission runner on both pull_request and main push');
+assert.equal((pcWorkflow.match(/'supabase\/functions\/_shared\/physical-execution-contract\.mjs'/g) || []).length, 2, 'PC RWHT must trigger the physical contract on both pull_request and main push');
 assert.match(pcWorkflow, /RWHT_STORAGE_STATE_B64/);
 assert.match(pcWorkflow, /Load persistent authenticated browser state/);
 assert.match(pcWorkflow, /RWHT_REQUIRE_AUTH:.*RWHT_STORAGE_STATE_B64/);
