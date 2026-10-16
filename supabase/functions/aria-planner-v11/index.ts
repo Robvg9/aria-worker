@@ -1464,7 +1464,7 @@ Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"
 const earlyPhysicalMetadata=context?.mission_planner_contract || context?.metadata?.mission_planner_contract || context;
 const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement({goal,metadata:earlyPhysicalMetadata});
 if(earlyPhysicalRequirement.required){
-  const earlyPhysicalPlan=directDeviceIntentPlan(goal,context);
+  const earlyPhysicalPlan=directDeviceIntentPlan(goal,{...context,mission_planner_contract:earlyPhysicalMetadata});
   if(!earlyPhysicalPlan)return out({error:"explicit_physical_execution_contract_incomplete",reason:"no_structured_device_plan",operation:earlyPhysicalRequirement.operation||null,next_action:"Re-submit with a structured requested_device_id and requested_capability; shell.execute also requires command and verification_marker. No device command was dispatched.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
   const earlyPhysicalValidation=validatePhysicalExecutionPlan({goal,metadata:earlyPhysicalMetadata},earlyPhysicalPlan.steps);
   if(!earlyPhysicalValidation.ok)return out({error:"explicit_physical_execution_contract_incomplete",reason:earlyPhysicalValidation.reason,operation:earlyPhysicalRequirement.operation||null,next_action:"Complete the structured physical execution contract. No device command was dispatched.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
