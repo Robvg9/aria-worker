@@ -2,38 +2,9 @@ name: Deploy ARIA Cloudflare Worker
 # 2026-10-05: force production redeploy after mission lifecycle fix #959. No behavior change.
 
 on:
-  # Canonical production release is the resulting push to main (or explicit dispatch).
-  # A second pull_request_target deployment races that push and causes exact-SHA builds to be cancelled.
   push:
     branches: [main]
-    paths:
-      - 'worker.js'
-      - 'wrangler.toml'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'pwa/**'
-      - 'scripts/cloudflare-workers-build.js'
-      - 'integrations/cloudflare-*.js'
-      - 'integrations/cuevacoin-oauth-e2e.js'
-      # Deploy UI against the same release SHA when authenticated App API code changes.
-      - 'supabase/functions/aria-app-api-v3/**'
-      - 'tests/aria-cuevacoin-oauth-callback.test.js'
-      - 'autonomy/**'
-      - 'chatbending/**'
-      # Keep exact-SHA post-deploy Projects/ARTIA certification reproducible when its harness changes.
-      - 'rwht/pc-browser/rwht-projects-e2e.mjs'
-      - 'tests/pwa-project-workspace.test.js'
-      # Keep production release SHA aligned when the full PC RWHT harness/contract changes.
-      - 'rwht/pc-browser/rwht-pc-browser.mjs'
-      - 'tests/pc-rwht-browser.test.js'
-      - '.github/workflows/aria-cloudflare-deploy.yml'
-      - '.github/workflows/capabilities-rwht-authenticated.yml'
-      - '.github/workflows/chat-rwht-authenticated.yml'
-      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
-      # Keep the browser persistence predecessor on the same release when its trigger contract changes.
-      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
   workflow_dispatch:
-
 concurrency:
   # Never interrupt a production deploy after it starts. The PWA fast lane
   # shares this group; cancellation here previously killed the exact-SHA deploy

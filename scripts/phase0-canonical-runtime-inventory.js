@@ -18,9 +18,8 @@ assert.match(runner, /aria-execution-runtime-v1/);
 assert.match(runner, /aria-runtime-gateway-v1/);
 
 const cloudflare = read(".github/workflows/aria-cloudflare-deploy.yml");
-assert.match(cloudflare, /paths:/);
-assert.match(cloudflare, /worker\.js/);
-assert.match(cloudflare, /pwa\/\*\*/);
+assert.match(cloudflare, /push:\s*\n\s*branches:\s*\[main\]/, "canonical Cloudflare deploy must run for every main SHA");
+assert.doesNotMatch(cloudflare, /push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/, "canonical Cloudflare deploy must not path-filter Exact-SHA release commits");
 
 const legacyActive = [
   ".github/workflows/apply-claim-source-instrument.yml",
