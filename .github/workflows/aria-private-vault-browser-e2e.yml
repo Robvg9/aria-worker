@@ -1,0 +1,50 @@
+name: ARIA private vault browser E2E
+on:
+  pull_request:
+    paths:
+      - 'pwa/src/privateVault/**'
+      - 'pwa/src/PrivateVault.tsx'
+      - 'pwa/src/PrivateVault.css'
+      - 'pwa/src/App.tsx'
+      - 'pwa/tests/private-vault-*.mjs'
+      - 'pwa/package.json'
+      - 'pwa/package-lock.json'
+      - '.github/workflows/aria-private-vault-browser-e2e.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'pwa/src/privateVault/**'
+      - 'pwa/src/PrivateVault.tsx'
+      - 'pwa/src/PrivateVault.css'
+      - 'pwa/src/App.tsx'
+      - 'pwa/tests/private-vault-*.mjs'
+      - 'pwa/package.json'
+      - 'pwa/package-lock.json'
+      - '.github/workflows/aria-private-vault-browser-e2e.yml'
+permissions:
+  contents: read
+jobs:
+  private-vault-browser-e2e:
+    name: Synthetic browser E2E — vault confidentiality and lock
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: pwa/package-lock.json
+      - name: Install PWA dependencies from lockfile
+        run: npm ci --prefix pwa
+      - name: Install pinned Playwright test runner
+        run: npm install --prefix pwa --no-save --package-lock=false playwright@1.64.1
+      - name: Install Chromium and OS dependencies
+        run: ./pwa/node_modules/.bin/playwright install --with-deps chromium
+      - name: Build the PWA
+        run: npm run build --prefix pwa
+      - name: Run vault unit tests
+        run: npm run test:vault --prefix pwa
+      - name: Run synthetic browser E2E
+        run: npm run test:vault:e2e --prefix pwa
