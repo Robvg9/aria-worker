@@ -182,6 +182,23 @@ assert.ok(pwaFastDeployWorkflow.includes('"rwht/pc-browser/rwht-pc-browser.mjs"'
 assert.ok(pwaFastDeployWorkflow.includes('"tests/pc-rwht-browser.test.js"'), 'PC RWHT contract changes must trigger exact-SHA PWA deployment');
 assert.ok(cloudflareDeployWorkflow.includes("'rwht/pc-browser/rwht-pc-browser.mjs'"), 'PC RWHT runner changes must trigger exact-SHA Worker deployment');
 assert.ok(cloudflareDeployWorkflow.includes("'tests/pc-rwht-browser.test.js'"), 'PC RWHT contract changes must trigger exact-SHA Worker deployment');
+
+const sharedReleasePaths = [
+  'rwht/pc-browser/rwht-responsive-ux-e2e.mjs',
+  'tests/pwa-responsive-ux-v1.test.js',
+  'rwht/pc-browser/rwht-persistence-recovery-e2e.mjs',
+  'tests/pwa-persistence-recovery-v1.test.js'
+];
+for (const releasePath of sharedReleasePaths) {
+  assert.ok(pwaFastDeployWorkflow.includes(`"${releasePath}"`) || pwaFastDeployWorkflow.includes(`'${releasePath}'`),
+    `PWA deploy must trigger on ${releasePath}`);
+  assert.ok(cloudflareDeployWorkflow.includes(`'${releasePath}'`) || cloudflareDeployWorkflow.includes(`"${releasePath}"`),
+    `Worker deploy must trigger on ${releasePath}`);
+}
+assert.ok(pwaFastDeployWorkflow.includes('".github/workflows/aria-cloudflare-deploy.yml"'),
+  'PWA deploy must trigger when the paired Worker deploy workflow changes');
+assert.ok(cloudflareDeployWorkflow.includes("'.github/workflows/aria-pwa-fast-deploy.yml'"),
+  'Worker deploy must trigger when the paired PWA deploy workflow changes');
 for (const [workflowName, workflow] of [
   ['Persistence + Recovery RWHT', persistenceRecoveryWorkflow],
   ['Production Web Push E2E', webPushGateTriggerWorkflow],
