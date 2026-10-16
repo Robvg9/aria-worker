@@ -9,6 +9,8 @@ on:
       - 'tests/pwa-responsive-ux-v1.test.js'
       - 'rwht/pc-browser/rwht-responsive-ux-e2e.mjs'
       - '.github/workflows/responsive-ux-rwht-authenticated.yml'
+      # Responsive UX must rerun when the same-SHA persistence predecessor's gate definition changes.
+      - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
   workflow_dispatch:
 
 concurrency:
