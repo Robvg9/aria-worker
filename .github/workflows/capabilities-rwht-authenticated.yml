@@ -6,8 +6,17 @@ on:
       - main
     paths:
       - 'pwa/**'
+      # Worker-only releases still change the versioned PWA shell and must have a same-SHA capability predecessor.
+      - 'worker.js'
+      - 'wrangler.toml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/aria-scheduler-transport-deploy.yml'
       # Keep the authenticated capability E2E in the exact-SHA release gate for API fixes.
       - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-mission-runner-v22/**'
+      - 'supabase/functions/_shared/physical-execution-contract.mjs'
       - 'rwht/pc-browser/rwht-pc-browser.mjs'
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/capabilities-rwht-authenticated.yml'
