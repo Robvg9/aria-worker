@@ -13,6 +13,9 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-mission-runner-v22/**'
+      - 'supabase/functions/_shared/physical-execution-contract.mjs'
       - 'rwht/pc-browser/rwht-projects-e2e.mjs'
       - 'scripts/ci/wait-for-aria-exact-sha-deploys.sh'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
@@ -20,6 +23,8 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+      - '.github/workflows/aria-scheduler-transport-deploy.yml'
       # Re-run this successor whenever its required persistence predecessor changes.
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
       - '.github/workflows/pc-rwht.yml'
