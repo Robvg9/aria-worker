@@ -1,3 +1,4 @@
+import { analyzeMissionConsistency } from './mission-consistency.mjs';
 export const registry = {"version":"aria-operational-diagnostics-v1.0.0","status_categories":["healthy","degraded","failed","blocked","unavailable","unknown"],"severity":["info","warning","error","critical"],"categories":["pwa","device","runtime","provider","model","connector","agent","eas","auth","credential","lease","timeout","backpressure","verifier","policy","routing","unknown"],"required_diagnosis":["root_cause","summary","explanation","expected","observed","dependency","next_action"]};
 const SECRET_PATTERNS=[/Bearer\s+[A-Za-z0-9._\-]+/gi,/\bsk-[A-Za-z0-9_\-]{8,}/g,/\bor-v1-[A-Za-z0-9_\-]{8,}/g,/(api[_-]?key|token|secret|password)\s*[:=]\s*\S+/gi];
 function sanitizeText(value,max=600){let out=value==null?'':String(value);for(const re of SECRET_PATTERNS)out=out.replace(re,'[REDACTED]');return out.slice(0,max);}
@@ -73,11 +74,11 @@ function deriveOperationalDiagnostic({mission,steps=[],events=[],jobs=[],jobEven
  const attempts=buildAttemptHistory(steps,events,jobs);
  const evidence_chain=buildEvidenceChain(events,jobs,jobEvents);
  const correlation=extractCorrelation(mission,events);
- const versions=extractVersions(mission,events);
+ const versions=extractVersions(mission,events);const consistency=analyzeMissionConsistency({mission,steps,events,jobs,jobEvents});
  const finalClassification=mission?.status==='succeeded'?{category:'unknown',root_cause:'none',severity:'info'}:classification;
  const finalDiagnosis=humanDiagnosis({mission,classification:finalClassification,lastFailure:lastFailure?{event_type:lastFailure.event_type,error_code:firstString(lastFailure.error_code,lastPayload.error_code,lastPayload.error?.code),message:firstString(lastPayload.message,lastPayload.error?.message,mission?.last_stderr)}:null,dependency,attemptCount:attempts.length});
  if(finalClassification.root_cause==='none') finalDiagnosis.summary='SIN FALLOS DETECTADOS';
  if(finalClassification.root_cause==='none') finalDiagnosis.explanation='ARIA no detectó un fallo operacional en la evidencia disponible para esta misión.';
- return{version:registry.version,mission_id:String(mission?.mission_id||''),status:String(mission?.status||'unknown'),generated_at:new Date().toISOString(),correlation,classification:finalClassification,diagnosis:finalDiagnosis,versions,attempts,evidence_chain,health:{...health,dependency,status:String(health.status||'unknown')}};
+ return{version:registry.version,mission_id:String(mission?.mission_id||''),status:String(mission?.status||'unknown'),generated_at:new Date().toISOString(),correlation,classification:finalClassification,diagnosis:finalDiagnosis,versions,attempts,evidence_chain,consistency,health:{...health,dependency,status:String(health.status||'unknown')}};
 }
 export {sanitizeText,classifyDiagnostic,extractCorrelation,extractVersions,buildEvidenceChain,buildAttemptHistory,humanDiagnosis,deriveOperationalDiagnostic};
