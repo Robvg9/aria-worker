@@ -107,9 +107,9 @@ assert.match(runner, /RWHT_STORAGE_STATE/);
 assert.match(runner, /authentication_human_gate/);
 assert.match(runner, /discoverInteractive/);
 assert.match(runner, /checkUx/);
-assert.match(runner, /const nativeLabel = el\\.labels \\?/,
+assert.match(runner, /const nativeLabel = el\.labels \?/,
   'Interactive-control discovery must include the native associated label, including wrapping labels');
-assert.match(runner, /const nativeLabel = element\\.labels \\?/,
+assert.match(runner, /const nativeLabel = element\.labels \?/,
   'UX audit must calculate accessible names from native associated labels');
 assert.ok(runner.includes("if (element.labels?.length || element.closest('label')) return false;"),
   'Input-label audit must recognize both explicit and wrapping native labels');
