@@ -659,3 +659,10 @@ button{touch-action:manipulation;}
 .artiaPreviewBadge{position:absolute;top:10px;right:10px;z-index:3;padding:5px 8px;border:1px solid rgba(159,124,255,.35);border-radius:999px;background:rgba(12,8,22,.82);backdrop-filter:blur(8px);color:rgba(255,255,255,.78);font-size:9px;font-weight:800;letter-spacing:.04em;pointer-events:none}
 /* RWHT Settings certification release marker 2026-10-12: boot/reload evidence gate update; no UI behavior change. */
 /* Settings RWHT exact-SHA release trigger: correlated Auth 400 diagnostics — 2026-10-12 */
+
+/* Keep the LIVE project preview header usable at narrow phone widths. */
+@media(max-width:380px){
+  .projectOverviewPreview .panelHeading{flex-direction:column;align-items:stretch}
+  .projectOverviewPreview .panelHeading>div:last-child{min-width:0;max-width:100%;justify-content:flex-start!important}
+  .projectOverviewPreview .panelHeading>div:last-child>a.ghost{max-width:100%;box-sizing:border-box;white-space:normal!important;overflow-wrap:anywhere}
+}
