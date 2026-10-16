@@ -12,6 +12,12 @@ on:
       - 'pwa/src/notifications.ts'
       - 'pwa/public/sw.js'
       - 'pwa/**'
+      # Exact-SHA Web Push remains a predecessor for ABSORB on Worker-only releases as well.
+      - 'worker.js'
+      - 'wrangler.toml'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/aria-scheduler-transport-deploy.yml'
       - 'supabase/functions/aria-app-api-v3/**'
       - 'supabase/migrations/*meditation*'
       - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
