@@ -337,7 +337,7 @@ async function run() {
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) }, ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) });
   let page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
-  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, web_push_config_verified:false, web_push_config_elapsed_ms:null, web_push_config_timeout_ms:null, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, total_console_errors:0, external_console_errors:0, failed_responses:0, page_error_details:[], console_error_details:[], external_console_error_details:[], failed_response_details:[], failure:null };
+  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, web_push_config_verified:false, web_push_config_elapsed_ms:null, web_push_config_timeout_ms:null, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, total_console_errors:0, external_console_errors:0, browser_environment_warnings:0, failed_responses:0, page_error_details:[], console_error_details:[], external_console_error_details:[], browser_environment_warning_details:[], failed_response_details:[], failure:null };
   function trackPage(targetPage) {
     targetPage.on('console', message => {
       if (message.type() === 'error') {
@@ -347,7 +347,11 @@ async function run() {
         try { sourceOrigin = new URL(sourceUrl).origin; } catch {}
         let ariaOrigin = null;
         try { ariaOrigin = new URL(base).origin; } catch {}
-        consoleErrors.push({ page_url: targetPage.url(), source_url: sourceUrl || null, source_origin: sourceOrigin, external_to_aria: Boolean(sourceOrigin && ariaOrigin && sourceOrigin !== ariaOrigin), text: message.text() });
+        const messageText = message.text();
+        // Playwright's isolated Chromium context reports this exact platform limitation when app code probes PushManager.
+        // It is retained in evidence as an environment warning, not misreported as an ARIA console defect.
+        const browserEnvironmentWarning = /Chrome currently does not support the Push API in incognito mode \(https:\/\/crbug\.com\/41124656\)/i.test(messageText);
+        consoleErrors.push({ page_url: targetPage.url(), source_url: sourceUrl || null, source_origin: sourceOrigin, external_to_aria: Boolean(sourceOrigin && ariaOrigin && sourceOrigin !== ariaOrigin), browser_environment_warning: browserEnvironmentWarning, text: messageText });
       }
     });
     targetPage.on('pageerror', error => pageErrors.push({ url: targetPage.url(), message: String(error?.message || error) }));
@@ -358,15 +362,18 @@ async function run() {
   }
   function syncBrowserDiagnostics() {
     report.page_errors = pageErrors.length;
-    const externalConsoleErrors = consoleErrors.filter(entry => entry.external_to_aria);
-    const ariaConsoleErrors = consoleErrors.filter(entry => !entry.external_to_aria);
+    const browserEnvironmentWarnings = consoleErrors.filter(entry => entry.browser_environment_warning);
+    const externalConsoleErrors = consoleErrors.filter(entry => entry.external_to_aria && !entry.browser_environment_warning);
+    const ariaConsoleErrors = consoleErrors.filter(entry => !entry.external_to_aria && !entry.browser_environment_warning);
     report.console_errors = ariaConsoleErrors.length;
     report.total_console_errors = consoleErrors.length;
     report.external_console_errors = externalConsoleErrors.length;
+    report.browser_environment_warnings = browserEnvironmentWarnings.length;
     report.failed_responses = failedResponses.length;
     report.page_error_details = pageErrors.slice();
     report.console_error_details = ariaConsoleErrors.slice();
     report.external_console_error_details = externalConsoleErrors.slice();
+    report.browser_environment_warning_details = browserEnvironmentWarnings.slice();
     report.failed_response_details = failedResponses.slice();
   }
   trackPage(page);
@@ -579,6 +586,8 @@ async function run() {
           total_console_errors: report.total_console_errors,
           external_console_errors: report.external_console_errors,
           external_console_error_details: report.external_console_error_details,
+          browser_environment_warnings: report.browser_environment_warnings,
+          browser_environment_warning_details: report.browser_environment_warning_details,
           failed_responses: report.failed_responses,
           failed_response_details: report.failed_response_details
         };

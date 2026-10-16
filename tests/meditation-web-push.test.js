@@ -44,6 +44,13 @@ assert(pushOnlyBranch.includes('WEBPUSH_E2E_BROWSER_DIAGNOSTICS='), 'push-only W
 assert(e2e.includes('const timeoutMs = 45000'), 'Web Push API checks must use a finite 45s ceiling matching observed production latency');
 assert(e2e.includes('web_push_config_elapsed_ms'), 'Web Push E2E must persist config endpoint latency');
 assert(e2e.includes('WEBPUSH_E2E_CONFIG_OK elapsed_ms='), 'Web Push E2E must log config endpoint latency');
+
+assert(e2e.includes('Chrome currently does not support the Push API in incognito mode'), 'Web Push E2E must identify the exact known Chromium isolated-context warning');
+assert(e2e.includes('browser_environment_warning: browserEnvironmentWarning'), 'Web Push E2E must tag the known browser-environment warning explicitly');
+assert(e2e.includes('report.browser_environment_warnings = browserEnvironmentWarnings.length'), 'Web Push E2E must keep environment warnings separate from application console errors');
+assert(e2e.includes('report.browser_environment_warning_details = browserEnvironmentWarnings.slice()'), 'Web Push E2E must persist full browser-environment warning details');
+assert(e2e.includes('!entry.browser_environment_warning'), 'only explicitly tagged browser-environment diagnostics may be excluded from app-console failure count');
+
 assert(e2e.includes('elapsed_ms: Math.round(performance.now() - startedAt)'), 'Web Push API response and failure records must include elapsed time');
 assert(e2e.includes('timeout_ms: timeoutMs'), 'Web Push API report must preserve its timeout threshold');
 
