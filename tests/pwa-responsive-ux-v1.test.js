@@ -64,4 +64,9 @@ assert.match(app,/function handleGlobalPointerUp/);
 assert.match(app,/role='dialog'/);
 assert.match(app,/aria-label='Confirmar inicio de misión'/);
 
+// The fixed notification launcher must not cover mobile CTAs/content.
+assert.match(css,/@media\(max-width:700px\)\{[^}]*\.notificationLauncher\{[^}]*top:10px;right:8px;bottom:auto/);
+assert.match(css,/@media\(max-width:700px\)\{[^}]*\.notificationLauncher>span:nth-child\(2\)\{display:none\}\}/);
+assert.match(app,/aria-label=\{permission === 'granted' \? 'Abrir avisos de ARIA' : 'Activar avisos de ARIA'\}/);
+
 console.log('RESPONSIVE UX CONTRACT: PASS');
