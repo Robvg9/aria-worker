@@ -461,8 +461,8 @@ jobs:
           echo "CUEVACOIN_CANONICAL_LIVE_STATUS=$live_code"
           test "$live_code" = "200"
           grep -qi "^content-type: text/html" "$live_headers"
-          grep -q "CuevaCoin" "$live_body"
-          if grep -qi "Referencia visual" "$live_body"; then echo "::error::CuevaCoin preview resolved to a static reference instead of the real PWA"; exit 1; fi
+          grep -Eqi "<title[^>]*>[[:space:]]*CuevaCoin[[:space:]]*-[[:space:]]*Banco Digital[[:space:]]*</title>" "$live_body"
+          if grep -Eqi "<title[^>]*>[^<]*Referencia visual ARTIA" "$live_body"; then echo "::error::CuevaCoin preview resolved to a static ARTIA reference instead of the real PWA"; exit 1; fi
           echo CUEVACOIN_PROJECT_PREVIEW_CANONICAL_LIVE_OK
       - name: Smoke test BattleCruiser project preview source
         run: |
