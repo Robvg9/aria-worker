@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VERSION = 'aria-persistence-recovery-rwht-e2e-v1.0.1';
+const VERSION = 'aria-persistence-recovery-rwht-e2e-v1.0.2';
 const BASE_URL = String(process.env.RWHT_URL || 'https://aria.robvg9.workers.dev/pwa/').replace(/#.*$/, '');
 const EMAIL = String(process.env.RWHT_EMAIL || '');
 const PASSWORD = String(process.env.RWHT_PASSWORD || '');
@@ -409,9 +409,21 @@ async function run() {
     const semanticResponseText = report.chat.response_text.replace(/\n\s*Procesado en\b[\s\S]*$/i, '').trim();
     await page.waitForFunction(
       ({markerValue, responseValue}) => {
-        const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
-        const userOk = [...document.querySelectorAll('.chatScreen .bubble.user')].some(node => normalize(node.textContent).includes(normalize(markerValue)));
-        const assistantOk = [...document.querySelectorAll('.chatScreen .bubble.aria')].some(node => normalize(node.textContent).includes(normalize(responseValue)));
+        // The Markdown renderer treats characters such as "_" and "*" as
+        // formatting markers. Compare the semantic text, not its source markup.
+        const normalize = value => String(value ?? '')
+          .normalize('NFKC')
+          .replace(/[\\u200b-\\u200f\\uFEFF]/g, '')
+          .replace(/[_*\\`~]/g, '')
+          .replace(/\\s+/g, ' ')
+          .trim()
+          .toLocaleLowerCase();
+        const expectedUser = normalize(markerValue);
+        const expectedAssistant = normalize(responseValue);
+        const userOk = [...document.querySelectorAll('.chatScreen .bubble.user')]
+          .some(node => normalize(node.textContent).includes(expectedUser));
+        const assistantOk = [...document.querySelectorAll('.chatScreen .bubble.aria')]
+          .some(node => normalize(node.textContent).includes(expectedAssistant));
         return userOk && assistantOk;
       },
       { markerValue: marker, responseValue: semanticResponseText },
