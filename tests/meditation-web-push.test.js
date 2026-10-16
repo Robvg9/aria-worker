@@ -41,6 +41,13 @@ const earlyReturn = pushOnlyBranch.indexOf('return;');
 assert(errorGate >= 0 && earlyReturn > errorGate, 'push-only Web Push E2E must enforce the zero browser-error gate before returning');
 assert(pushOnlyBranch.includes('WEBPUSH_E2E_BROWSER_DIAGNOSTICS='), 'push-only Web Push E2E must emit full browser diagnostics into workflow logs');
 
+assert(e2e.includes('const timeoutMs = 45000'), 'Web Push API checks must use a finite 45s ceiling matching observed production latency');
+assert(e2e.includes('web_push_config_elapsed_ms'), 'Web Push E2E must persist config endpoint latency');
+assert(e2e.includes('WEBPUSH_E2E_CONFIG_OK elapsed_ms='), 'Web Push E2E must log config endpoint latency');
+assert(e2e.includes('elapsed_ms: Math.round(performance.now() - startedAt)'), 'Web Push API response and failure records must include elapsed time');
+assert(e2e.includes('timeout_ms: timeoutMs'), 'Web Push API report must preserve its timeout threshold');
+
+
 
 assert(migration.includes('meditation_push_subscriptions'), 'background push subscription table missing');
 assert(migration.includes('meditation_push_deliveries'), 'push delivery evidence table missing');
