@@ -4961,7 +4961,7 @@ if (!physicalPlanValidation.ok) {
           const operationMatches = persistedOperation === requestedOperation
             || (requestedOperation === "computer.use" && persistedOperation === "computer.use.android");
           const shellEvidenceMatches = requestedOperation !== "shell.execute"
-            || (Number(persistedJob.exit_code) === 0
+            || (Number.isInteger(persistedJob.exit_code) && persistedJob.exit_code === 0
               && Boolean(requirement.structuredVerificationMarker)
               && String(persistedJob.stdout || "").includes(String(requirement.structuredVerificationMarker)));
           const completedResultExists = requestedOperation === "shell.execute"
