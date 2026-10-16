@@ -168,9 +168,15 @@ async function checkUx(page) {
         .map((id) => document.getElementById(id)?.innerText || '')
         .join(' ')
         .trim();
+      const implicitLabel = Array.from(element.labels || [])
+        .map((label) => label.innerText || label.textContent || '')
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       const name = (
         element.getAttribute('aria-label') ||
         labelledBy ||
+        implicitLabel ||
         element.getAttribute('title') ||
         element.getAttribute('placeholder') ||
         element.innerText ||
