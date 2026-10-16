@@ -157,7 +157,7 @@ assert.ok(project.includes("projectChatReady"), 'project chat readiness state mu
 assert.match(project,/const projectChatReadGenerationRef=useRef\(0\)/,'project chat reads must be generation-scoped');
 assert.match(project,/const projectChatWriteInFlightRef=useRef\(false\)/,'a new server read must not surface a timeout as a chat failure while a write is processing');
 assert.ok(project.includes("!options.quiet&&!projectChatWriteInFlightRef.current"), 'transient conversation read errors are suppressed only during an active chat write');
-assert.ok(project.includes("if(!clean||sending||projectChatWriteInFlightRef.current)return;"), 'chat send is idempotently guarded against overlapping submissions');
+assert.ok(project.includes("if(!messageText||sending||projectChatWriteInFlightRef.current)return;"), 'chat send is idempotently guarded and accepts an audio-only message');
 assert.ok(project.includes("finally{projectChatWriteInFlightRef.current=false;setSending(false)}"), 'chat write state is always released');
 assert.match(project,/const isProjectConversationRead=method==='GET'&&path\.startsWith\('\/projects\/'\)&&path\.endsWith\('\/conversation'\)/,'project conversation reads need a separate latency budget');
 assert.match(project,/const isProjectChatWrite=method==='POST'&&path==='\/conversation'/,'project chat writes need a separate latency budget');
@@ -181,7 +181,7 @@ assert.ok(project.includes("aria-label={'Previsualización de '+project.name}"),
 assert.ok(project.includes("onLoad={()=>setLoadState('loaded')}"), 'project preview must record successful iframe load');
 assert.ok(project.includes("No hay fuente de previsualización configurada"), 'project preview must fail clearly when no source exists');
 assert.ok(project.includes("setActions([]);") && project.includes("[project.id]"), 'ARTIA drawing state must reset when changing project');
-assert.ok(project.includes("disabled={sending||!text.trim()||!projectChatReady}"), 'project chat send must wait for ready conversation');
+assert.ok(project.includes("disabled={sending||(!text.trim()&&!audioFile)||!projectChatReady}"), 'project chat send must wait for a ready conversation and accept audio-only messages');
 assert.ok(project.includes("Cargando conversación"), 'project chat must expose loading state');
 
 const missionEventsIndexMigration = fs.readFileSync(
