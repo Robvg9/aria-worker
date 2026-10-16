@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-13-canonical';
+export const TEST_CATALOG_VERSION = '2026-10-16-voice-input-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "aria-cuevacoin-oauth-callback",
@@ -2930,6 +2930,15 @@ export const TEST_CATALOG: TestCatalogItem[] = [
     "includedInNpmTest": true,
     "how": "Comprueba la suscripción persistente, el envío servidor-a-dispositivo y el manejo de notificaciones con la PWA cerrada.",
     "capabilities": "Valida Web Push en segundo plano, Service Worker, VAPID, persistencia de suscripciones y evidencia de entrega."
+  },
+  {
+    "id": "pwa-voice-input",
+    "file": "tests/pwa-voice-input.test.js",
+    "title": "PWA Audio Dictation + Automatic Transcription",
+    "category": "PWA / UX / API",
+    "includedInNpmTest": true,
+    "how": "Comprueba que las superficies de chat, crear misión, analizar ideas y Proyectos expongan dictado por micrófono con transcripción.",
+    "capabilities": "Detecta regresiones de SpeechRecognition, idioma español, permisos del micrófono, inserción de transcripción y controles responsive."
   },
 ];
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ProjectWorkspace } from './ProjectWorkspace';
+import { VoiceInputButton } from './VoiceInputButton';
 import { mergeRestoredChatMessages } from './chatHistory';
 import { missionActivityLabel, missionGoalPreview, missionHumanTitle, missionListLabel } from './missionPresentation';
 import { artifactKindLabel, missionArtifacts, type MissionArtifact } from './missionArtifacts';
@@ -575,7 +576,15 @@ function readCached<T>(kind: string, userId: string): T | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const ttl = CACHE_TTL_MS[kind] ?? 30000;
-    if (!Number.isFinite(parsed?.savedAt) || Date.now() - Number(parsed.savedAt) > ttl) {
+    if (!Number.isFinite(parsed?.savedAt)) {
+      localStorage.removeItem(cacheKey(kind, userId));
+      return null;
+    }
+    if (Date.now() - Number(parsed.savedAt) > ttl) {
+      // Mission history is an offline fallback, not disposable cache. Keep stale
+      // data until the LIVE overview successfully reconciles it; never erase it
+      // merely because a 15-second refresh window elapsed.
+      if (kind === 'meditation_overview') return parsed?.data ?? null;
       localStorage.removeItem(cacheKey(kind, userId));
       return null;
     }
@@ -585,9 +594,38 @@ function readCached<T>(kind: string, userId: string): T | null {
   }
 }
 
+function missionOverviewClaimsEmpty(value: any): boolean {
+  if (!value || !Array.isArray(value.missions)) return false;
+  const total = Number(value?.counts?.total ?? value?.counts?.missions ?? value.missions.length);
+  const history = Number(value?.counts?.history ?? 0);
+  return value.missions.length === 0 && total === 0 && history === 0;
+}
+
+function hasMissionOverviewData(value: any): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (Number(value?.counts?.total ?? value?.counts?.missions ?? 0) > 0 || Number(value?.counts?.history ?? 0) > 0) return true;
+  if (value?.active_mission?.mission_id || value?.foreground_mission?.mission_id) return true;
+  return ['missions', 'queued_missions', 'blocked', 'failed', 'human_gates', 'verification_pending']
+    .some(key => Array.isArray(value?.[key]) && value[key].length > 0);
+}
+
+function shouldPreserveMissionOverview(previous: any, incoming: any): boolean {
+  return hasMissionOverviewData(previous) && missionOverviewClaimsEmpty(incoming);
+}
+
 function writeCached<T>(kind: string, userId: string, data: T) {
   try {
-    localStorage.setItem(cacheKey(kind, userId), JSON.stringify({ savedAt: Date.now(), data }));
+    const key = cacheKey(kind, userId);
+    if (kind === 'meditation_overview') {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const previous = JSON.parse(raw)?.data;
+        // Guard every cache writer, including the background preloader. A late
+        // empty response must never overwrite a previously observed mission log.
+        if (shouldPreserveMissionOverview(previous, data)) return;
+      }
+    }
+    localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), data }));
   } catch {}
 }
 
@@ -2556,6 +2594,7 @@ function Chat({
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   placeholder='Habla con ARIA…'
                 />
+                <VoiceInputButton onTranscript={transcript => setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
                 <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
                 <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
               </div>
@@ -2574,7 +2613,10 @@ function Chat({
             <div className='eyebrow'>NUEVA MISIÓN</div>
             <h2>¿Qué debe hacer ARIA?</h2>
             <p className='muted'>La solicitud seguirá el runtime canónico y sus controles de governance.</p>
-            <textarea aria-label='Objetivo de la misión' value={goal} onChange={e => setGoal(e.target.value)} placeholder='Describe el resultado que quieres. ARIA decide cómo conseguirlo.' />
+            <div className='voicePromptField'>
+              <textarea aria-label='Objetivo de la misión' value={goal} onChange={e => setGoal(e.target.value)} placeholder='Describe el resultado que quieres. ARIA decide cómo conseguirlo.' />
+              <VoiceInputButton onTranscript={transcript => setGoal(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
+            </div>
             <div className='modalActions'>
               <button className='ghost' onClick={() => setShowNewMission(false)}>Cancelar</button>
               <button className='primary' disabled={!goal.trim() || sending} onClick={runMission}>{sending ? 'Enviando…' : 'Crear misión'}</button>
@@ -2735,6 +2777,7 @@ function Meditation({ session }: { session: Session }) {
     const result = { main: false, capabilities: false, health: false };
     let fetchedOverview: any = null;
     let fetchedMissions: any = null;
+    let historyMismatchPreserved = false;
 
     const publishOverview = () => {
       const previous = overviewRef.current;
@@ -2763,6 +2806,18 @@ function Meditation({ session }: { session: Session }) {
             foreground_mission: null,
             counts: { missions: missions.length, queued: 0, human_gates: 0, blocked: 0, verification_pending: 0 }
           };
+
+      // An empty first response is not proof that the user's mission history is empty.
+      // Wait until both primary reads finish, and do not replace known history with
+      // zero-count data unless the saved state itself had no mission history.
+      const primarySourcesConfirmed = Boolean(fetchedOverview) && Boolean(fetchedMissions);
+      const serverHistoryEmpty = missionOverviewClaimsEmpty(merged);
+      const previousHasHistory = hasMissionOverviewData(previous);
+      if (serverHistoryEmpty && !primarySourcesConfirmed) return;
+      if (serverHistoryEmpty && previousHasHistory) {
+        historyMismatchPreserved = true;
+        return;
+      }
 
       const candidate = selectLiveMission(merged);
       const foreground = selectForegroundMission(base ?? merged);
@@ -2829,8 +2884,9 @@ function Meditation({ session }: { session: Session }) {
     try {
       await Promise.allSettled(tasks);
       const successes = (result.main ? 1 : 0) + (result.capabilities ? 1 : 0) + (result.health ? 1 : 0);
-      setLastSyncAt(successes > 0 ? Date.now() : null);
+      setLastSyncAt(result.main ? Date.now() : null);
       setError(
+        historyMismatchPreserved ? 'El servidor devolvió un historial vacío que contradice los datos guardados. Se conserva el historial disponible y se volverá a verificar.' :
         successes === 3 ? '' :
         successes > 0 ? 'No se pudieron actualizar todos los datos de Meditación IA; se conserva la información disponible.' :
         'No se pudieron sincronizar los datos de Meditación IA. Revisa la conexión y pulsa Reintentar ahora.'
@@ -3185,7 +3241,10 @@ function Meditation({ session }: { session: Session }) {
               <button className='ghost' onClick={() => setIdeasOpen(false)}>Cerrar</button>
             </div>
             <div className='ideaModalComposer'>
-              <textarea className='ideaAnalyzerInput' aria-label='Idea para analizar' value={ideaText} maxLength={4000} onChange={e => setIdeaText(e.target.value)} placeholder='Escribe una nueva idea…' rows={3} />
+              <div className='voicePromptField'>
+                <textarea className='ideaAnalyzerInput' aria-label='Idea para analizar' value={ideaText} maxLength={4000} onChange={e => setIdeaText(e.target.value)} placeholder='Escribe una nueva idea…' rows={3} />
+                <VoiceInputButton onTranscript={transcript => setIdeaText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
+              </div>
               <button className='primary' disabled={ideaBusy || !ideaText.trim()} onClick={() => void analyzeIdea()}>{ideaBusy ? 'ANALIZANDO…' : 'ANALIZAR Y PROPONER'}</button>
             </div>
             {ideaError && <div className='errorBox'>{ideaError}</div>}
