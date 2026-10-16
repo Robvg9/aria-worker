@@ -182,7 +182,7 @@ assert.match(pwaIndex, /content='__ARIA_TEST_CATALOG_TOTAL__'/);
 assert.match(pwaViteConfig, /TEST_CATALOG_VERSION/);
 assert.match(pwaViteConfig, /testCatalogTotal/);
 assert.match(pwaViteConfig, /aria-test-catalog-metadata/);
-assert.match(pwaTestCatalog, /export const TEST_CATALOG_VERSION = '2026-10-16-voice-input-v1'/);
+assert.match(pwaTestCatalog, /export const TEST_CATALOG_VERSION = '2026-10-16-voice-audio-v2'/);
 assert.equal([...pwaTestCatalog.matchAll(/"file": "tests\//g)].length, 325);
 assert.match(projectsRwhtWorkflow, /export const TEST_CATALOG_VERSION/);
 assert.match(projectsRwhtWorkflow, /grep -c '"file": "tests\//);
