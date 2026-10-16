@@ -82,7 +82,7 @@ async function waitForPwaBoot(page, stage) {
 
 async function login(page) {
   const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[autocomplete="username"]').first();
-  const authenticatedSurface = page.locator('.dashboardScreen,.projectShell').first();
+  const authenticatedSurface = page.locator('.dashboardScreen,.projectShell,.settingsViewport').first();
   await Promise.race([
     authForm.waitFor({ state: 'visible', timeout: 60000 }),
     authenticatedSurface.waitFor({ state: 'visible', timeout: 60000 })
@@ -107,7 +107,12 @@ async function login(page) {
           const r = el.getBoundingClientRect();
           return r.width > 0 && r.height > 0;
         });
-        return !!document.querySelector('.dashboardScreen,.projectShell') || !!document.querySelector('.errorBox') || !pwd;
+        const authenticatedSurface = [...document.querySelectorAll('.dashboardScreen,.projectShell,.settingsViewport')].some(el => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        });
+        return authenticatedSurface || !!document.querySelector('.errorBox') || !pwd;
       }, null, { timeout: 30000 });
       const authError = await page.locator('.errorBox').innerText().catch(() => '');
       if (authError) {
