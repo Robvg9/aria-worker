@@ -14,6 +14,9 @@ on:
       - 'rwht/pc-browser/rwht-persistence-recovery-e2e.mjs'
       - 'tests/pwa-persistence-recovery-v1.test.js'
       - 'tests/pwa-auth-proxy-contract.test.js'
+      # Keep this same-SHA predecessor active when the PC audit harness changes.
+      - 'rwht/pc-browser/rwht-pc-browser.mjs'
+      - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
       # The predecessor must re-run when either same-SHA successor gate definition changes.
       - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
