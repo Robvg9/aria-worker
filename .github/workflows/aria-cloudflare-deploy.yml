@@ -26,6 +26,13 @@ on:
       # Keep production release SHA aligned when the full PC RWHT harness/contract changes.
       - 'rwht/pc-browser/rwht-pc-browser.mjs'
       - 'tests/pc-rwht-browser.test.js'
+      # Keep both production release workflows on the same SHA when RWHT harness/contract changes.
+      - 'rwht/pc-browser/rwht-responsive-ux-e2e.mjs'
+      - 'tests/pwa-responsive-ux-v1.test.js'
+      - 'rwht/pc-browser/rwht-persistence-recovery-e2e.mjs'
+      - 'tests/pwa-persistence-recovery-v1.test.js'
+      # A PWA release-workflow change must also deploy the Worker on the same SHA.
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/capabilities-rwht-authenticated.yml'
       - '.github/workflows/chat-rwht-authenticated.yml'
