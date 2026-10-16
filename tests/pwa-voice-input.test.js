@@ -1,0 +1,24 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const app = fs.readFileSync(path.join(root, 'pwa/src/App.tsx'), 'utf8');
+const project = fs.readFileSync(path.join(root, 'pwa/src/ProjectWorkspace.tsx'), 'utf8');
+const voice = fs.readFileSync(path.join(root, 'pwa/src/VoiceInputButton.tsx'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'pwa/src/index.css'), 'utf8');
+
+assert.match(voice, /SpeechRecognitionConstructor/);
+assert.match(voice, /webkitSpeechRecognition/);
+assert.match(voice, /recognition\.lang = 'es-PR'/);
+assert.match(voice, /recognition\.onresult/);
+assert.match(voice, /onTranscriptRef\.current\(finalTranscript\.trim\(\)\)/);
+assert.match(voice, /Permite el acceso al micrófono/);
+assert.match(voice, /transcripción automática por voz/);
+assert.match(voice, /Revísala y envíala/);
+assert.equal((app.match(/<VoiceInputButton/g) || []).length, 3, 'main chat, create mission, and idea analyzer must support voice');
+assert.equal((project.match(/<VoiceInputButton/g) || []).length, 3, 'project chat, project mission, and ARTIA instruction must support voice');
+assert.match(css, /\.voiceInputButton/);
+assert.match(css, /\.voiceInputNotice/);
+assert.match(css, /\.voicePromptField/);
+assert.match(css, /\.visualInstructionComposer/);
+console.log('PWA AUDIO DICTATION COVERAGE + TRANSCRIPTION CONTRACT: PASS');
