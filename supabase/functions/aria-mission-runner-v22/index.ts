@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
 import { resolveDeviceTargetPolicy } from "./device-target-policy-v1.mjs";
+import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan, validatePhysicalExecutionEvidence } from "../_shared/physical-execution-contract.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
 // Per-invocation fence: unique lease owner per tick.
@@ -3276,6 +3277,35 @@ Deno.serve(async (request) => {
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
 
     const normalizedSteps = steps.map((step: any) => normalizeExecutionStep(step, mission));
+const physicalPlanValidation = validatePhysicalExecutionPlan(mission, normalizedSteps);
+if (!physicalPlanValidation.ok) {
+  const gateDetails = {
+    kind: "explicit_physical_execution_contract_incomplete",
+    status: "blocked",
+    reason: physicalPlanValidation.reason,
+    operation: physicalPlanValidation.requirement?.operation || null,
+    required_device_id: physicalPlanValidation.requirement?.targetDeviceId || null,
+    next_action: "human_gate:resubmit_structured_physical_execution_contract",
+    at: new Date().toISOString(),
+  };
+  await updateMission(missionId, {
+    status: "blocked",
+    current_step: Number(mission?.current_step || 0),
+    completed_steps: Number(mission?.completed_steps || 0),
+    next_action: gateDetails.next_action,
+    last_stderr: gateDetails.reason,
+    checkpoint: {
+      ...(mission.checkpoint || {}),
+      plan: normalizedSteps,
+      physical_execution_gate: gateDetails,
+      planner_diagnostic: { code: gateDetails.kind, message: gateDetails.reason, at: gateDetails.at, recoverable: false },
+    },
+    lease_owner: null,
+    lease_until: null,
+  });
+  await emitEvent(missionId, "physical_execution_contract_rejected", gateDetails);
+  return out({ ok: false, status: "blocked", mission_id: missionId, error: gateDetails.kind, reason: gateDetails.reason, next_action: gateDetails.next_action }, 409);
+}
     const inferredExecutorSteps = normalizedSteps
       .map((step: any, index: number) => ({
         index: index + 1,
@@ -4900,6 +4930,39 @@ Deno.serve(async (request) => {
         completed_steps: completed.size,
         human_gate: { status: "pending", method: humanGate.method, instructions: humanGate.instructions },
       });
+    }
+
+    const physicalEvidenceValidation = validatePhysicalExecutionEvidence(mission, steps, results, verifyStep);
+    if (!physicalEvidenceValidation.ok) {
+      const gateDetails = {
+        kind: "explicit_physical_execution_evidence_incomplete",
+        status: "blocked",
+        reason: physicalEvidenceValidation.reason,
+        operation: physicalEvidenceValidation.requirement?.operation || null,
+        required_device_id: physicalEvidenceValidation.requirement?.targetDeviceId || null,
+        step_id: physicalEvidenceValidation.stepId || null,
+        next_action: "recovery:physical_execution_evidence_missing",
+        at: new Date().toISOString(),
+      };
+      await updateMission(missionId, {
+        status: "blocked",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: gateDetails.next_action,
+        last_stderr: gateDetails.reason,
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          plan: steps,
+          completed_steps: [...completed],
+          attempts,
+          results,
+          physical_execution_gate: gateDetails,
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      await emitEvent(missionId, "physical_execution_evidence_rejected", gateDetails);
+      return out({ ok: false, status: "blocked", mission_id: missionId, error: gateDetails.kind, reason: gateDetails.reason, next_action: gateDetails.next_action }, 409);
     }
 
     const executorTypes = [...new Set(steps.map(executorType))];
