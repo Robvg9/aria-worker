@@ -16,6 +16,7 @@ on:
     paths:
       - 'rwht/pc-browser/**'
       - 'tests/pc-rwht-browser.test.js'
+      - 'tests/pwa-global-navigation-settings-v1.test.js'
       - 'pwa/**'
       - 'supabase/functions/aria-app-api-v3/**'
       - '.github/workflows/pc-rwht.yml'
