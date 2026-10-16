@@ -7,6 +7,10 @@ const modelOnlyMission = {
   metadata: {},
 };
 assert.equal(explicitPhysicalExecutionRequirement(modelOnlyMission).required, false, "cloud-only text work must remain eligible for model execution");
+const nestedTargetMission = { goal: "Inspect this target", metadata: { request_id: "test", mission_planner_contract: { requested_device_id: "windows-lacueva-780886", requested_capability: "computer.use" } } };
+assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).required, true, "a nested structured device target must force physical execution");
+assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).targetDeviceId, "windows-lacueva-780886", "nested structured device target must be read by the runner");
+
 
 const historicalFalsePositive = {
   goal: "Run shell.execute on device_id=windows-lacueva-780886; execute PowerShell and SSH; report ARIA_SSH_QUEUE_E2E_OK",
