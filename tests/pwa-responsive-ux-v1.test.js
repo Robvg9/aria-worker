@@ -82,4 +82,9 @@ assert.ok(css.lastIndexOf(mobileLauncherRule) > css.indexOf('@media(min-width:70
 assert.doesNotMatch(css,/\.notificationLauncher\{right:10px;bottom:calc\(82px/,
   'obsolete bottom-offset mobile launcher rule must stay removed');
 
+const persistenceWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
+const responsiveWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'responsive-ux-rwht-authenticated.yml'), 'utf8');
+assert.ok(responsiveWorkflow.includes("'.github/workflows/persistence-recovery-rwht-authenticated.yml'"), 'Responsive UX must rerun when the same-SHA persistence predecessor definition changes');
+assert.ok(persistenceWorkflow.includes("'tests/pwa-responsive-ux-v1.test.js'"), 'Persistence + Recovery must be triggered by Responsive UX contract changes');
+
 console.log('RESPONSIVE UX CONTRACT: PASS');
