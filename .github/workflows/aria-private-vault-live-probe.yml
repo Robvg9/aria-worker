@@ -37,7 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: write
     env:
       SUPABASE_URL: https://icuqsstxfdbvjytkhlog.supabase.co
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw
@@ -58,27 +57,20 @@ jobs:
           report="$(cat live-vault-probe.json)"
           printf 'report=%s\n' "$report" >> "$GITHUB_OUTPUT"
           if [ "$exit_code" -ne 0 ]; then exit "$exit_code"; fi
-      - name: Persist LIVE probe report on Step 5 PR
+      - name: Publish LIVE probe report to workflow summary
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
           PROBE_OUTCOME: ${{ steps.probe.outcome }}
           PROBE_REPORT: ${{ steps.probe.outputs.report }}
-          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
           report="${PROBE_REPORT:-No JSON report emitted; inspect the workflow logs.}"
-          body="$(printf '<!-- aria-private-vault-live-probe -->\n## LIVE private-vault security probe\n**Result:** %s\n**Workflow:** %s\n\n```json\n%s\n```' "$PROBE_OUTCOME" "$RUN_URL" "$report")"
-          comments="$(gh api "repos/$REPOSITORY/issues/1230/comments?per_page=100" --paginate --jq '.[] | select(.body | contains("<!-- aria-private-vault-live-probe -->")) | .id' || true)"
-          existing="$(printf '%s\n' "$comments" | tail -n 1)"
-          if [ -n "$existing" ]; then
-            gh api --method PATCH "repos/$REPOSITORY/issues/comments/$existing" -f body="$body" >/dev/null
-          else
-            gh api --method POST "repos/$REPOSITORY/issues/1230/comments" -f body="$body" >/dev/null
-          fi
+          {
+            printf '## LIVE private-vault security probe\n\n**Result:** %s\n**Workflow:** %s\n\n' "$PROBE_OUTCOME" "$RUN_URL"
+            printf '\x60\x60\x60json\n%s\n\x60\x60\x60\n' "$report"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload probe evidence
         if: always()
         uses: actions/upload-artifact@v4
