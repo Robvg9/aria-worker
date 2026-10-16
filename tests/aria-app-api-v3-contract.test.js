@@ -235,8 +235,10 @@ assertContains(persistenceWorkflow,".github/workflows/aria-pwa-steps-7-8-live.ym
 console.log('EXACT-SHA PREDECESSOR/SUCCESSOR TRIGGER GRAPH CONTRACT: PASS');
 console.log('PERSISTENCE RELEASE GATE ACYCLICITY CONTRACT: PASS');
 
-assertContains(cloudflareDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Worker exact-SHA release must trigger when persistence predecessor workflow changes");
-assertContains(pwaDeployWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA exact-SHA release must trigger when persistence predecessor workflow changes");
+assert.match(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,"Worker deploy must run on each main SHA required by Exact-SHA certification");
+assert.doesNotMatch(cloudflareDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,"Worker deploy must not path-filter away unrelated main SHAs required by Exact-SHA certification");
+assert.match(pwaDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]/,"PWA deploy must run on each main SHA required by Exact-SHA certification");
+assert.doesNotMatch(pwaDeployWorkflow,/push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/,"PWA deploy must not path-filter away unrelated main SHAs required by Exact-SHA certification");
 assertContains(webpushWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","Web Push E2E must re-run when its required exact-SHA persistence predecessor changes");
 assertContains(pwaCertificationWorkflow,".github/workflows/persistence-recovery-rwht-authenticated.yml","PWA Steps 7-8 must re-run when its required exact-SHA persistence predecessor changes");
 console.log('EXACT-SHA PERSISTENCE SUCCESSOR TRIGGER CONTRACT: PASS');
