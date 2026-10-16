@@ -39,6 +39,16 @@ assert.match(responsiveRunner,/externalPreviewRuntimeErrors/);
 assert.match(responsiveRunner,/new Set\(\['aria\.robvg9\.workers\.dev', 'icuqsstxfdbvjytkhlog\.supabase\.co'\]\)/);
 assert.match(responsiveRunner,/evidence\.external_preview_runtime_errors/);
 
+// The real-scroll probe must move from either current endpoint, then restore
+// the original position. This guards the regression where the chat auto-scrolls
+// to its bottom and the test mistakenly assigns the same scrollTop again.
+assert.match(responsiveRunner,/const max = el\.scrollHeight - el\.clientHeight/);
+assert.match(responsiveRunner,/const target = before < max \? max : 0/);
+assert.match(responsiveRunner,/const after = el\.scrollTop/);
+assert.match(responsiveRunner,/el\.scrollTop = before/);
+assert.match(responsiveRunner,/changed: after !== before/);
+assert.match(responsiveRunner,/real_scroll_did_not_move/);
+
 assert.match(app,/function GlobalBottomNav/);
 assert.match(app,/aria-label='Navegación principal'/);
 assert.match(app,/aria-label='Nueva misión'/);
