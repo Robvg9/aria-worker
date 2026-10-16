@@ -404,9 +404,27 @@ assert.match(appSource, /node\.scrollTop = node\.scrollHeight/);
 
 const projectsSource = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-projects-e2e.mjs'), 'utf8');
 assert.match(projectsSource, /aria-projects-rwht-e2e-v1\.1\.10/);
+assert.match(
+  projectsSource,
+  /return \/Misión confirmada por ARIA con el diseño/,
+  'The serialized Playwright browser predicate must inline its mission-confirmation matcher.'
+);
+assert.doesNotMatch(
+  projectsSource,
+  /return isVisualMissionConfirmation\(text\)/,
+  'The Playwright page context must not call the Node-only isVisualMissionConfirmation helper.'
+);
 assert.match(projectsSource, /battlecruiser|cuevacoin|aria/);
 assert.match(projectsSource, /server_persistence_verified/);
 assert.match(projectsSource, /visual_mission_verified/);
+assert.match(projectsSource, /async function cleanupInterruptedRwhtVisualMissions/,
+  'Projects E2E must recover only scoped orphan markers left by an interrupted visual-mission run.');
+assert.match(projectsSource, /cleanupInterruptedRwhtVisualMissions\(page, visualProject\.id, session\.userId\)/,
+  'Orphan recovery must run for each project before a new visual-mission test starts.');
+assert.match(projectsSource, /rwht_visual_orphan_cleanup_unconfirmed/,
+  'Orphan cleanup must verify a terminal server read-back instead of assuming cancellation worked.');
+assert.match(projectsSource, /report\.recovered_orphan_visual_missions\.push\(\.\.\.recoveredOrphans\)/,
+  'Recovered orphan cleanup must be included in persisted E2E evidence.');
 assert.match(projectsSource, /png_persisted/);
 assert.match(projectsSource, /externalPreviewConsoleErrors/);
 assert.match(projectsSource, /external_preview_console_errors/);
