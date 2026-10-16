@@ -17,6 +17,9 @@ assert.match(app,/if \(kind === 'meditation_overview'\) return parsed\?\.data \?
 assert.match(app,/primarySourcesConfirmed = Boolean\(fetchedOverview\) && Boolean\(fetchedMissions\)/, 'empty history waits for both primary reads');
 assert.match(app,/if \(serverHistoryEmpty && previousHasHistory\)/, 'an empty API response must not erase a known history');
 assert.match(app,/historyMismatchPreserved/, 'inconsistent zero-count sync must remain visible to the user');
+assert.match(app,/function shouldPreserveMissionOverview/, 'all cache writers must use the same preservation contract');
+assert.match(app,/if \(shouldPreserveMissionOverview\(previous, data\)\) return/, 'background preloading cannot replace populated history with an empty response');
+assert.match(app,/function missionOverviewClaimsEmpty/, 'zero is treated as empty only when the returned shape supports that claim');
 assert.match(app,/UNLEASED_WAITING_ACTION_MAX_AGE_MS = 24 \* 60 \* 60 \* 1000/);
 assert.match(app,/value === 'waiting' && !leased && !hasPendingJob/);
 assert.match(app,/nextAction\.startsWith\('recovery:'\)\) return 38/);
