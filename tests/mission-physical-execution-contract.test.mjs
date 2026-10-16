@@ -10,6 +10,11 @@ assert.equal(explicitPhysicalExecutionRequirement(modelOnlyMission).required, fa
 const nestedTargetMission = { goal: "Inspect this target", metadata: { request_id: "test", mission_planner_contract: { requested_device_id: "windows-lacueva-780886", requested_capability: "computer.use" } } };
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).required, true, "a nested structured device target must force physical execution");
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).targetDeviceId, "windows-lacueva-780886", "nested structured device target must be read by the runner");
+for (const operation of ["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "android.notification", "ollama.qwen3", "ecc.execute"]) {
+  const detected = explicitPhysicalExecutionRequirement({ goal: "Execute one authorized operation", metadata: { requested_capability: operation, requested_device_id: "windows-lacueva-780886" } });
+  assert.equal(detected.required, true, operation + " must require physical execution evidence");
+  assert.equal(detected.operation, operation, operation + " identity must be preserved");
+}
 
 
 const historicalFalsePositive = {
