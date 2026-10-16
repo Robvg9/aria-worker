@@ -2140,6 +2140,7 @@ function Chat({
   const [goal, setGoal] = useState('');
   const [error, setError] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
   const [screen, setScreen] = useState<0 | 1>(() => initialNavigation.screen);
   const [conversationId, setConversationId] = useState<string | null>(cachedChat?.conversationId ?? null);
   const [pendingMissionConfirmation, setPendingMissionConfirmation] = useState<{ goal: string; conversationId: string } | null>(cachedChat?.pendingMission ?? null);
@@ -2289,7 +2290,9 @@ function Chat({
 
   async function send() {
     const clean = text.trim();
-    if ((!clean && !file) || sending) return;
+    if ((!clean && !file && !audioFile) || sending) return;
+    const messageText = clean || (audioFile ? 'El usuario adjuntó un audio de voz. Procesa el audio adjunto y responde.' : '');
+    const attachments = [file, audioFile].filter(Boolean) as File[];
     chatMutationVersionRef.current += 1;
     setSending(true); setError('');
     processingStartedAtRef.current = Date.now();
@@ -2298,7 +2301,7 @@ function Chat({
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
-      text: clean + (file ? '\\n[' + file.name + ']' : '')
+      text: messageText + attachments.map(attachment => '\\n[' + attachment.name + ']').join('')
     };
     const activeConversationId = conversationId ?? crypto.randomUUID();
     const activeConversationReadPath = '/conversation?conversation_id=' + encodeURIComponent(activeConversationId);
@@ -2316,16 +2319,19 @@ function Chat({
     setText('');
     try {
       const parts: any[] = [];
-      if (clean) parts.push({ type: 'text', text: clean });
-      if (file) {
-        const up = await api('/media/upload-url', session.accessToken, { method: 'POST', body: JSON.stringify({ fileName: file.name, contentType: file.type || 'application/octet-stream' }) });
+      if (messageText) parts.push({ type: 'text', text: messageText });
+      for (const attachment of attachments) {
+        const contentType = attachment.type || 'application/octet-stream';
+        const up = await api('/media/upload-url', session.accessToken, { method: 'POST', body: JSON.stringify({ fileName: attachment.name, contentType }) });
         const signed = up.signedUrl ?? up.upload?.signed_url;
         const path = up.path ?? up.upload?.path;
-        const put = await fetch(signed, { method: 'PUT', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file });
-        if (!put.ok) throw new Error('No se pudo subir el archivo.');
-        parts.push({ type: 'file', fileId: path, path, mimeType: file.type || 'application/octet-stream', filename: file.name });
+        if (!signed || !path) throw new Error('ARIA no confirmó la ubicación del archivo adjunto.');
+        const put = await fetch(signed, { method: 'PUT', headers: { 'content-type': contentType }, body: attachment });
+        if (!put.ok) throw new Error('No se pudo subir el archivo adjunto.');
+        parts.push({ type: 'file', fileId: path, path, mimeType: contentType, filename: attachment.name });
       }
       setFile(null);
+      setAudioFile(null);
       const clientMessageId = crypto.randomUUID();
       const d = await api('/conversation', session.accessToken, { method: 'POST', body: JSON.stringify({ parts, clientMessageId, conversationId: activeConversationId }) });
       let responseData = d;
@@ -2344,7 +2350,7 @@ function Chat({
                 }))
                 .filter((m: any) => m.text.trim())
             : [];
-          const markerIndex = [...restored].map((m: any) => m.text).lastIndexOf(clean);
+          const markerIndex = [...restored].map((m: any) => m.text).lastIndexOf(messageText);
           const assistant = markerIndex >= 0
             ? restored.slice(markerIndex + 1).find((m: any) => m.role === 'aria' && m.text.trim())
             : null;
@@ -2583,6 +2589,7 @@ function Chat({
                 </div>
               )}
               {file && <div className='fileChip'>{file.name}<button aria-label='Quitar archivo adjunto' onClick={() => setFile(null)}>×</button></div>}
+              {audioFile && <div className='fileChip'>🎙️ {audioFile.name}<button aria-label='Quitar audio adjunto' onClick={() => setAudioFile(null)}>×</button></div>}
               {error && <div className='errorBox'>{error}</div>}
               <div className='composer'>
                 <input type='file' ref={fileRef} hidden onChange={e => setFile(e.target.files?.[0] ?? null)} />
@@ -2594,8 +2601,8 @@ function Chat({
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   placeholder='Habla con ARIA…'
                 />
-                <VoiceInputButton onTranscript={transcript => setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
-                <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file)} onClick={send}>{sending ? '…' : '↑'}</button>
+                <VoiceInputButton captureAudio onAudio={setAudioFile} onTranscript={transcript => setText(previous => previous.trim() ? previous.replace(/\s+$/, '') + ' ' + transcript : transcript)} />
+                <button className='send' aria-label={sending ? 'Enviando mensaje' : 'Enviar mensaje'} disabled={sending || (!text.trim() && !file && !audioFile)} onClick={send}>{sending ? '…' : '↑'}</button>
                 <div className='composerStatus' aria-live='polite'>{sending ? ('Procesando… ' + formatProcessingTime(processingElapsedMs)) : error ? 'Error · revisa el mensaje' : lastProcessingMs != null ? ('Último procesamiento · ' + formatProcessingTime(lastProcessingMs)) : 'Listo para enviar'}</div>
               </div>
             </section>
