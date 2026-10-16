@@ -455,6 +455,7 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
   const [color,setColor] = useState('#9f7cff');
   const [size,setSize] = useState(6);
   const [instruction,setInstruction] = useState('');
+  const [instructionAudioFile,setInstructionAudioFile] = useState<File|null>(null);
   const [actions,setActions] = useState<DrawAction[]>([]);
   const [busy,setBusy] = useState(false);
   const [notice,setNotice] = useState('');
@@ -613,11 +614,22 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       const signed=up?.signedUrl??up?.upload?.signed_url;const path=up?.path??up?.upload?.path;
       if(!signed||!path)throw new Error('ARIA no confirmó la ubicación del diseño.');
       const put=await fetch(signed,{method:'PUT',headers:{'content-type':'image/png'},body:blob});if(!put.ok)throw new Error('No se pudo guardar el diseño.');
+      let audioAttachment:{path:string;filename:string;mime_type:string}|null=null;
+      if(instructionAudioFile){
+        const contentType=instructionAudioFile.type||'audio/webm';
+        const audioUp=await api('/media/upload-url',session.accessToken,{method:'POST',body:JSON.stringify({fileName:instructionAudioFile.name,contentType})});
+        const audioSigned=audioUp?.signedUrl??audioUp?.upload?.signed_url;
+        const audioPath=audioUp?.path??audioUp?.upload?.path;
+        if(!audioSigned||!audioPath)throw new Error('ARIA no confirmó la ubicación del audio visual.');
+        const audioPut=await fetch(audioSigned,{method:'PUT',headers:{'content-type':contentType},body:instructionAudioFile});
+        if(!audioPut.ok)throw new Error('No se pudo subir el audio de las instrucciones visuales.');
+        audioAttachment={path:audioPath,filename:instructionAudioFile.name,mime_type:contentType};
+      }
       const visualContext={project_preview:true,preview_paused:true,preview_url:livePreviewUrl,preview_mode:previewMode,instruction:instruction.trim(),annotation_summary:'Proyecto='+project.name+'. Fuente de previsualización='+previewMode+'. La vista está pausada para anotar. Lienzo 1100x650. Anotaciones: '+annotationSummary+'.',annotations:actions.slice(0,128).map(a=>({tool:a.tool,color:a.color,size:a.size,points:a.points.slice(0,512).map(pt=>({x:Math.round(pt.x*100)/100,y:Math.round(pt.y*100)/100})),text:a.text??null})),image_path:path,mime_type:'image/png'};
       const text='TRABAJO VISUAL DE PROYECTO. Proyecto: '+project.name+'. Fuente de previsualización: '+(livePreviewUrl||'no configurada')+' · modo='+previewMode+'. El usuario pausó la superficie visual y realizó estas anotaciones: '+annotationSummary+'. INSTRUCCIÓN DEL USUARIO: '+(instruction.trim()||'Interpreta las anotaciones como instrucciones exactas y pregunta solo si algo es realmente ambiguo.')+'\\n\\nVISUAL_CONTEXT:\\n'+visualContext.annotation_summary;
       const activeConversationId=conversationId||crypto.randomUUID();
-      if(createMission){const result=await onMission({goal:text,visual_context:visualContext});if(result!==true)throw new Error('ARIA no confirmó la creación de la misión. Revisa el error del proyecto antes de volver a intentarlo.');setNotice('Misión confirmada por ARIA con el diseño y las anotaciones.')}
-      else{const parts:any[]=[{type:'text',text},{type:'file',fileId:path,path,mimeType:'image/png',filename:project.id+'-visual.png'}]; const response=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts,clientMessageId:crypto.randomUUID(),conversationId:activeConversationId,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});const reply=response.parts?.find((p:any)=>p.type==='text')?.text||'Diseño visual enviado a ARIA.';onChat(reply,activeConversationId);setNotice('Diseño enviado a ARIA en el chat exclusivo del proyecto.')}
+      if(createMission){const result=await onMission({goal:text,visual_context:visualContext,audio_attachments:audioAttachment?[audioAttachment]:[],audio_transcript:instruction.trim()});if(result!==true)throw new Error('ARIA no confirmó la creación de la misión. Revisa el error del proyecto antes de volver a intentarlo.');setInstructionAudioFile(null);setNotice('Misión confirmada por ARIA con el diseño, las anotaciones y el audio.')}
+      else{const parts:any[]=[{type:'text',text},{type:'file',fileId:path,path,mimeType:'image/png',filename:project.id+'-visual.png'}];if(audioAttachment)parts.push({type:'file',fileId:audioAttachment.path,path:audioAttachment.path,mimeType:audioAttachment.mime_type,filename:audioAttachment.filename});const response=await api('/conversation',session.accessToken,{method:'POST',body:JSON.stringify({parts,clientMessageId:crypto.randomUUID(),conversationId:activeConversationId,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});const reply=response.parts?.find((p:any)=>p.type==='text')?.text||'Diseño visual enviado a ARIA.';onChat(reply,activeConversationId);setInstructionAudioFile(null);setNotice('Diseño y audio enviados a ARIA en el chat exclusivo del proyecto.')}
     }catch(e){setNotice(e instanceof Error?e.message:'No se pudo enviar el diseño.')}finally{setBusy(false)}
   }
 
@@ -638,9 +650,11 @@ function VisualBoard({session,project,conversationId,onChat,onMission}:{session:
       {previewMode==='auth-required' && <div className='projectReferenceBadge' role='note'>LIVE · REQUIERE SESIÓN · DASHBOARD NO VERIFICADO</div>}{previewMode==='source' && <div className='projectReferenceBadge' role='note'>REFERENCIA VISUAL · CÓDIGO REAL · main · NO LIVE</div>}{previewMode==='reference' && <div className='projectReferenceBadge' role='note'>Referencia visual · sin fuente LIVE</div>}
       {previewFullscreen && <button type='button' className='artiaFullscreenExit' onClick={()=>void togglePreviewFullscreen()} aria-label='Salir de pantalla completa'>↙ Salir</button>}
     </div>
-    <div className='visualInstructionComposer'><textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Describe qué debe cambiar. Lo escrito + lo pintado se convierten en contexto de ARIA y pueden saltar directamente como misión.'/><VoiceInputButton onTranscript={(transcript)=>setInstruction(previous=>previous.trim()?previous.replace(/\s+$/,'')+' '+transcript:transcript)}/></div><div className='muted visualHint'>Anotaciones: {actions.length} · {previewPaused?'La vista está pausada; las anotaciones quedan sobre la referencia.':'Pausa la vista para habilitar el lienzo.'}</div>
+    <div className='visualInstructionComposer'><textarea className='visualInstruction' value={instruction} onChange={e=>setInstruction(e.target.value)} placeholder='Describe qué debe cambiar. Lo escrito + lo pintado se convierten en contexto de ARIA y pueden saltar directamente como misión.'/><VoiceInputButton captureAudio onAudio={setInstructionAudioFile} onTranscript={(transcript)=>setInstruction(previous=>previous.trim()?previous.replace(/\s+$/,'')+' '+transcript:transcript)}/></div>
+    {instructionAudioFile&&<div className='fileChip'>🎙️ {instructionAudioFile.name}<button aria-label='Quitar audio de las instrucciones visuales' onClick={()=>setInstructionAudioFile(null)}>×</button></div>}
+    <div className='muted visualHint'>Anotaciones: {actions.length} · {previewPaused?'La vista está pausada; las anotaciones quedan sobre la referencia.':'Pausa la vista para habilitar el lienzo.'}</div>
     {notice&&<div className='notice'>{notice}</div>}
-    <div className='modalActions'><button className='ghost' disabled={busy||!previewPaused} onClick={()=>void send(false)}>Enviar a chat</button><button className='primary' disabled={busy||!previewPaused||(!instruction.trim()&&!actions.length)} onClick={()=>void send(true)}>Crear misión con este diseño</button></div>
+    <div className='modalActions'><button className='ghost' disabled={busy||!previewPaused||(!instruction.trim()&&!actions.length&&!instructionAudioFile)} onClick={()=>void send(false)}>Enviar a chat</button><button className='primary' disabled={busy||!previewPaused||(!instruction.trim()&&!actions.length&&!instructionAudioFile)} onClick={()=>void send(true)}>Crear misión con este diseño</button></div>
   </section>;
 }
 
@@ -667,6 +681,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   const [projectChatReady,setProjectChatReady]=useState(false);
   const [text,setText]=useState('');
   const [audioFile,setAudioFile]=useState<File|null>(null);
+  const [missionAudioFile,setMissionAudioFile]=useState<File|null>(null);
   const [goal,setGoal]=useState('');
   const [sending,setSending]=useState(false);
   const [error,setError]=useState('');
@@ -857,14 +872,38 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
   }
 
   async function createMission(payload:any={}):Promise<boolean>{
-    const clean=String(payload.goal??goal).trim();if(!clean||sending)return false;
+    const suppliedAudioAttachments=Array.isArray(payload.audio_attachments)?payload.audio_attachments.slice(0,3):[];
+    const outgoingAudio:File|null=payload.audioFile instanceof File?payload.audioFile:(suppliedAudioAttachments.length?null:missionAudioFile);
+    const clean=String(payload.goal??goal).trim();
+    const missionGoal=clean||(outgoingAudio||suppliedAudioAttachments.length
+      ?'El usuario adjuntó audio de voz para definir esta misión. La transcripción automática no estuvo disponible; procesa el archivo adjunto si tu ruta lo permite.'
+      :'');
+    if(!missionGoal||sending)return false;
     const visualContext=payload.visual_context||null;
-    const requestKey=JSON.stringify({projectId:project.id,goal:clean,visual_context:visualContext});
+    const requestAudioKey=outgoingAudio?{name:outgoingAudio.name,size:outgoingAudio.size,lastModified:outgoingAudio.lastModified,type:outgoingAudio.type}:suppliedAudioAttachments;
+    const requestKey=JSON.stringify({projectId:project.id,goal:missionGoal,visual_context:visualContext,audio:requestAudioKey});
     let request=createMissionRequestRef.current;
     if(!request||request.key!==requestKey){request={key:requestKey,requestId:crypto.randomUUID()};createMissionRequestRef.current=request;}
     setSending(true);setError('');
     try{
-      const d=await api('/missions',session.accessToken,{method:'POST',headers:{'x-aria-request-id':request.requestId},body:JSON.stringify({goal:clean,project_id:project.id,project:{id:project.id,name:project.name,context:project.context},visual_context:visualContext})});
+      const audioAttachments=[...suppliedAudioAttachments];
+      if(outgoingAudio){
+        const contentType=outgoingAudio.type||'audio/webm';
+        const up=await api('/media/upload-url',session.accessToken,{method:'POST',body:JSON.stringify({fileName:outgoingAudio.name,contentType})});
+        const signed=up?.signedUrl??up?.upload?.signed_url;const audioPath=up?.path??up?.upload?.path;
+        if(!signed||!audioPath)throw new Error('ARIA no confirmó la ubicación del audio de la misión.');
+        const put=await fetch(signed,{method:'PUT',headers:{'content-type':contentType},body:outgoingAudio});
+        if(!put.ok)throw new Error('No se pudo subir el audio de la misión.');
+        audioAttachments.push({path:audioPath,filename:outgoingAudio.name,mime_type:contentType});
+      }
+      const d=await api('/missions',session.accessToken,{method:'POST',headers:{'x-aria-request-id':request.requestId},body:JSON.stringify({
+        goal:missionGoal,
+        project_id:project.id,
+        project:{id:project.id,name:project.name,context:project.context},
+        visual_context:visualContext,
+        audio_attachments:audioAttachments,
+        audio_transcript:String(payload.audio_transcript??clean).slice(0,4000)
+      })});
       // The canonical API exposes both mission.mission_id and top-level mission_id.
       // Normalize the documented response shapes instead of reporting a false failure
       // after DIRECT already persisted and even completed the mission.
@@ -874,7 +913,8 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         throw new Error('ARIA no confirmó la creación de la misión ('+detail+').');
       }
       createMissionRequestRef.current=null;
-      setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);
+      setGoal('');if(outgoingAudio)setMissionAudioFile(null);
+      void loadMissions();setTimeout(()=>void loadMissions(),1200);
       return true;
     }catch(e){setError(e instanceof Error?e.message:'No se pudo crear la misión.');return false}finally{setSending(false)}
   }
@@ -897,7 +937,7 @@ export function ProjectWorkspace({session,onBack}:{session:Session;onBack:()=>vo
         <ProjectOverviewPreview project={project}/>
       </>}
       {tab==='chat'&&<section className='panel chatPanel'><div className='panelTitle'>CHAT EXCLUSIVO · {project.name.toUpperCase()}</div><div className='chatWindow projectChatWindow'>{messages.length?messages.map(m=><div key={m.id} className={'bubble '+m.role}><div className='markdownBody'>{renderProjectMarkdown(m.text)}</div>{m.role==='aria'&&m.processingMs!=null&&<small className='messageMeta'>Procesado en {formatProcessingTime(m.processingMs)}</small>}</div>):<div className='emptyState'>Contexto activo: {project.name}. ARIA debe distinguir este proyecto de los demás y usar solo memoria autorizada.</div>}</div>{sending&&<div className='chatThinking' role='status' aria-live='polite'><span className='thinkingOrb' aria-hidden='true'>🧠</span><div className='thinkingCopy'><strong>{processingLabel(processingElapsedMs)}</strong><small>Procesamiento en curso · {formatProcessingTime(processingElapsedMs)}</small></div><span className='thinkingDots' aria-hidden='true'>•••</span></div>}{audioFile&&<div className='fileChip'>🎙️ {audioFile.name}<button aria-label='Quitar audio adjunto' onClick={()=>setAudioFile(null)}>×</button></div>}<div className='composer'><textarea ref={projectChatRef} value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void send()}}} placeholder={'Habla con ARIA sobre '+project.name+'…'}/><VoiceInputButton captureAudio onAudio={setAudioFile} onTranscript={(transcript)=>setText(previous=>previous.trim()?previous.replace(/\s+$/,'')+' '+transcript:transcript)}/><button className='send' aria-label={sending?'Procesando mensaje':'Enviar mensaje'} disabled={sending||(!text.trim()&&!audioFile)||!projectChatReady} onClick={()=>void send()}>{sending?'…':'↑'}</button><div className='composerStatus' aria-live='polite'>{sending?('Procesando… '+formatProcessingTime(processingElapsedMs)):error?'Error · revisa el mensaje':!projectChatReady?'Cargando conversación…':lastProcessingMs!=null?('Último procesamiento · '+formatProcessingTime(lastProcessingMs)):'Listo para enviar'}</div></div></section>}
-      {tab==='missions'&&<section className='panel'><div className='panelHeading'><div><div className='panelTitle'>MISIONES · {project.name.toUpperCase()}</div><h2>Cola y evidencia</h2></div><button className='ghost' onClick={()=>void loadMissions()}>Actualizar</button></div><div className='missionCreateRow'><textarea value={goal} onChange={e=>setGoal(e.target.value)} placeholder={'Describe la misión que ARIA debe realizar en '+project.name+'…'}/><VoiceInputButton onTranscript={(transcript)=>setGoal(previous=>previous.trim()?previous.replace(/\s+$/,'')+' '+transcript:transcript)}/><button className='primary' disabled={sending||!goal.trim()} onClick={()=>void createMission()}>{sending?'…':'Crear misión'}</button></div><div className='catalogList'>{missions.map((m,index)=><button key={m.mission_id} className={'projectMissionRow '+statusClass(String(m.status))} onClick={()=>void openMission(m.mission_id)}><div className='projectMissionMain'><div className='projectMissionHeader'><strong>{missionListLabel({...m,project_id:project.id},index)}</strong><span className={'pill '+statusClass(String(m.status))}>{statusLabel(String(m.status))}</span></div><small className='projectMissionTitle'>{missionHumanTitle({...m,project_id:project.id})}</small><small>{statusLabel(String(m.status))} · {m.completed_steps??0}/{m.total_steps??m.steps?.length??0} pasos · {m.updated_at?new Date(m.updated_at).toLocaleTimeString('es'):''}</small><small>{missionGoalPreview(m,90)}</small><span className='projectMissionProgress' aria-hidden='true'><i style={{width:(Math.max(0,Math.min(100,Number(m.completed_steps??0)/Math.max(1,Number(m.total_steps??m.steps?.length??1))*100))+'%')}} /></span></div></button>)}{!missions.length&&<div className='emptyState'>Todavía no hay misiones para este proyecto.</div>}</div></section>}
+      {tab==='missions'&&<section className='panel'><div className='panelHeading'><div><div className='panelTitle'>MISIONES · {project.name.toUpperCase()}</div><h2>Cola y evidencia</h2></div><button className='ghost' onClick={()=>void loadMissions()}>Actualizar</button></div><div className='missionCreateRow'><textarea value={goal} onChange={e=>setGoal(e.target.value)} placeholder={'Describe la misión que ARIA debe realizar en '+project.name+'…'}/><VoiceInputButton captureAudio onAudio={setMissionAudioFile} onTranscript={(transcript)=>setGoal(previous=>previous.trim()?previous.replace(/\s+$/,'')+' '+transcript:transcript)}/><button className='primary' disabled={sending||(!goal.trim()&&!missionAudioFile)} onClick={()=>void createMission()}>{sending?'…':'Crear misión'}</button></div>{missionAudioFile&&<div className='fileChip'>🎙️ {missionAudioFile.name}<button aria-label='Quitar audio de la misión del proyecto' onClick={()=>setMissionAudioFile(null)}>×</button></div>}<div className='catalogList'>{missions.map((m,index)=><button key={m.mission_id} className={'projectMissionRow '+statusClass(String(m.status))} onClick={()=>void openMission(m.mission_id)}><div className='projectMissionMain'><div className='projectMissionHeader'><strong>{missionListLabel({...m,project_id:project.id},index)}</strong><span className={'pill '+statusClass(String(m.status))}>{statusLabel(String(m.status))}</span></div><small className='projectMissionTitle'>{missionHumanTitle({...m,project_id:project.id})}</small><small>{statusLabel(String(m.status))} · {m.completed_steps??0}/{m.total_steps??m.steps?.length??0} pasos · {m.updated_at?new Date(m.updated_at).toLocaleTimeString('es'):''}</small><small>{missionGoalPreview(m,90)}</small><span className='projectMissionProgress' aria-hidden='true'><i style={{width:(Math.max(0,Math.min(100,Number(m.completed_steps??0)/Math.max(1,Number(m.total_steps??m.steps?.length??1))*100))+'%')}} /></span></div></button>)}{!missions.length&&<div className='emptyState'>Todavía no hay misiones para este proyecto.</div>}</div></section>}
       {tab==='visual'&&<VisualBoard session={session} project={project} conversationId={conversationId} onChat={(m,cid)=>{if(cid)setConversationId(cid);setMessages(x=>[...x,{id:crypto.randomUUID(),role:'aria',text:m}]);selectTab('chat')}} onMission={createMission}/>}
     </div>
     {selectedMission&&<div className='modalBackdrop' onClick={()=>setSelectedMission(null)}><section className='detailModal' onClick={e=>e.stopPropagation()}><div className='detailTop'><div><div className='eyebrow'>MISIÓN · {project.name}</div><h2>{selectedMission.goal}</h2><span className={'pill '+statusClass(String(selectedMission.status))}>{statusLabel(String(selectedMission.status))}</span></div><button className='ghost' onClick={()=>setSelectedMission(null)}>Cerrar</button></div>{selectedMission.block_details&&['blocked','failed','waiting'].includes(String(selectedMission.status))&&<div className='detailResult'><div className='panelTitle'>{String(selectedMission.status)==='blocked'?'DIAGNÓSTICO DEL BLOQUEO':'RECUPERACIÓN / DIAGNÓSTICO'}</div><div className='humanSummaryGrid'><div><strong>Motivo</strong><p>{selectedMission.block_details.reason||'Sin motivo registrado.'}</p></div><div><strong>Qué está haciendo ARIA</strong><p>{selectedMission.block_details.next_action||selectedMission.next_action||'ARIA determinará la siguiente estrategia gobernada.'}</p></div><div><strong>Cómo solucionarlo</strong><p>{selectedMission.block_details.remediation||'Revisar la evidencia y definir una estrategia gobernada.'}</p></div><div><strong>¿Se puede recuperar?</strong><p>{selectedMission.block_details.recoverable?'Sí.':'No con la estrategia actual.'}</p></div></div>{selectedMission.block_details.evidence&&<div className='muted'>Evidencia: paso {String(selectedMission.block_details.evidence.step_id||'—')} · {String(selectedMission.block_details.evidence.verification_status||selectedMission.block_details.evidence.result_status||'estado registrado')}</div>}</div>}<div className='detailGrid'><div className='statCard'><div className='statValue'>{selectedMission.completed_steps??0}</div><div className='statLabel'>Pasos</div></div><div className='statCard'><div className='statValue'>{selectedMission.total_steps??selectedMission.steps?.length??0}</div><div className='statLabel'>Total</div></div><div className='statCard'><div className='statValue'>{selectedMission.finished_at?'Final':'En curso'}</div><div className='statLabel'>Estado</div></div></div><div className='detailResult'><div className='panelTitle'>RESULTADO</div><pre>{resultText(selectedMission)||'Aún no existe resultado textual final.'}</pre></div><div className='detailTimeline'><div className='panelTitle'>PASOS Y VERIFICACIÓN</div>{(selectedMission.steps||[]).map((s:any)=><div className='timelineRow' key={s.id}><span className='timelineDot'/><div><strong>Paso {s.index}: {s.title}</strong><small>{statusLabel(String(s.status))} · {s.executor_type||'ejecución'} · {s.operation||'operación'} · verificación: {s?.result?.__aria_verification_evidence?.verified===true||s?.result?.verification_status==='verified'||s?.result?.repair?.verification_status==='verified'?'PASS':'pendiente/no expuesta'}</small></div></div>)}</div></section></div>}
