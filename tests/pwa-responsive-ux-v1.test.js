@@ -32,6 +32,9 @@ assert.match(css,/@media\(max-width:700px\)/);
 assert.match(css,/@media\(max-width:380px\)/);
 assert.match(css,/\.realityBoardEntry \.panelHeading\{flex-direction:column;align-items:stretch\}/);
 assert.match(css,/\.realityBoardEntry \.panelHeading>a\.ghost\{[^}]*white-space:normal!important;/);
+assert.match(css,/@media\(max-width:380px\)\{\s*\.projectOverviewPreview \.panelHeading\{flex-direction:column;align-items:stretch\}/, 'live project preview heading must stack on 320px phones');
+assert.match(css,/\.projectOverviewPreview \.panelHeading>div:last-child>a\.ghost\{[^}]*white-space:normal!important;overflow-wrap:anywhere\}/, 'project LIVE link must wrap without clipping narrow-screen preview status');
+
 assert.match(responsiveRunner,/externalPreviewRuntimeErrors/);
 assert.match(responsiveRunner,/new Set\(\['aria\.robvg9\.workers\.dev', 'icuqsstxfdbvjytkhlog\.supabase\.co'\]\)/);
 assert.match(responsiveRunner,/evidence\.external_preview_runtime_errors/);
