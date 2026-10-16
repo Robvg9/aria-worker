@@ -10,6 +10,8 @@ assert.equal(explicitPhysicalExecutionRequirement(modelOnlyMission).required, fa
 const nestedTargetMission = { goal: "Inspect this target", metadata: { request_id: "test", mission_planner_contract: { requested_device_id: "windows-lacueva-780886", requested_capability: "computer.use" } } };
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).required, true, "a nested structured device target must force physical execution");
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).targetDeviceId, "windows-lacueva-780886", "nested structured device target must be read by the runner");
+const targetOnlyMission = { goal: "Inspect this target", metadata: { requested_device_id: "windows-lacueva-780886" } };
+assert.equal(validatePhysicalExecutionPlan(targetOnlyMission, [{ id: "device", operation: "computer.use", executor_type: "device", target: { type: "device", device_id: "windows-lacueva-780886" } }]).reason, "structured_device_capability_missing", "physical target must declare the capability to be run");
 for (const operation of ["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "android.notification", "ollama.qwen3", "ecc.execute"]) {
   const detected = explicitPhysicalExecutionRequirement({ goal: "Execute one authorized operation", metadata: { requested_capability: operation, requested_device_id: "windows-lacueva-780886" } });
   assert.equal(detected.required, true, operation + " must require physical execution evidence");
