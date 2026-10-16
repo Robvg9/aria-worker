@@ -46,19 +46,24 @@ export function explicitPhysicalExecutionRequirement(mission = {}) {
   const goal = String(mission?.goal || "");
   const metadataCapability = physicalClean(metadata.requested_capability || metadata.capability).toLowerCase();
   const goalCapability = (goal.match(/\b(shell\.execute|computer\.use(?:\.autonomous|\.android)?|android\.notification|ollama\.qwen3|ecc\.execute)\b/i)?.[1] || "").toLowerCase();
-  const structuredDeviceId = physicalClean(metadata.requested_device_id || metadata.device_id);
+  const explicitRequestedDeviceId = physicalClean(metadata.requested_device_id);
+  const contextDeviceId = physicalClean(metadata.device_id);
+  const structuredDeviceId = explicitRequestedDeviceId || contextDeviceId;
   const goalDeviceId = targetHintFromGoal(goal);
   const shellCue = /\b(?:powershell|test-netconnection|ssh(?:\.exe)?|exit[_ -]?code|execution[_ -]?job|stdout|ARIA_[A-Z0-9_]*E2E[A-Z0-9_]*)\b/i.test(goal);
   const operation = PHYSICAL_EXECUTION_CAPABILITIES.has(metadataCapability)
     ? metadataCapability
     : (goalCapability || ((structuredDeviceId || goalDeviceId) && shellCue ? "shell.execute" : ""));
   const required = PHYSICAL_EXECUTION_CAPABILITIES.has(metadataCapability)
-    || Boolean(structuredDeviceId)
-    || Boolean(goalDeviceId && (goalCapability || shellCue));
+    || Boolean(explicitRequestedDeviceId)
+    || Boolean(goalDeviceId && (goalCapability || shellCue))
+    || Boolean(contextDeviceId && (goalCapability || shellCue));
   return {
     required,
     operation,
     structuredDeviceId,
+    explicitRequestedDeviceId,
+    contextDeviceId,
     goalDeviceId,
     targetDeviceId: structuredDeviceId || goalDeviceId,
     structuredCommand: physicalClean(metadata.command),
@@ -77,7 +82,33 @@ function isDeviceStep(step) {
 }
 
 export function validatePhysicalExecutionPlan(mission, steps) {
-  const requirement = explicitPhysicalExecutionRequirement(mission);
+  let requirement = explicitPhysicalExecutionRequirement(mission);
+  const candidateSteps = (Array.isArray(steps) ? steps : []).filter(isDeviceStep);
+  // Some governed missions (including Human Gate) already contain an explicit device plan
+  // in the persisted checkpoint instead of request-level requested_* fields.
+  // Accept that plan as the contract only when the goal has no device-ID hint and the
+  // caller did not explicitly request a device ID without a capability.
+  if (!requirement.explicitRequestedDeviceId && !requirement.goalDeviceId && candidateSteps.length > 0) {
+    const candidate = candidateSteps.find((step) => {
+      const deviceId = physicalClean(step?.target?.device_id || step?.input?.device_id);
+      return Boolean(deviceId) && (!requirement.contextDeviceId || deviceId === requirement.contextDeviceId);
+    });
+    if (candidate) {
+      const deviceId = physicalClean(candidate?.target?.device_id || candidate?.input?.device_id);
+      const marker = physicalClean(candidate?.verify?.stdout_contains);
+      requirement = {
+        ...requirement,
+        required: true,
+        operation: deviceOperation(candidate),
+        structuredDeviceId: requirement.contextDeviceId || deviceId,
+        targetDeviceId: requirement.contextDeviceId || deviceId,
+        structuredCommand: requirement.structuredCommand || physicalClean(candidate?.input?.command),
+        structuredVerificationMarker: requirement.structuredVerificationMarker || marker,
+        verificationMarker: requirement.verificationMarker || marker,
+        contract_source: "persisted_explicit_device_plan",
+      };
+    }
+  }
   if (!requirement.required) return { ok: true, required: false, reason: "not_a_physical_execution_mission" };
   if (!requirement.operation) return { ok: false, required: true, reason: "structured_device_capability_missing", requirement };
 
@@ -108,7 +139,8 @@ export function validatePhysicalExecutionPlan(mission, steps) {
     const command = physicalClean(matchingStep?.input?.command);
     const expectedExitCode = matchingStep?.verify?.expected_exit_code;
     const marker = physicalClean(matchingStep?.verify?.stdout_contains);
-    if (command !== requirement.structuredCommand || expectedExitCode !== 0 || marker !== requirement.structuredVerificationMarker) {
+    const expectedExitCodeIsSafe = expectedExitCode === undefined || expectedExitCode === null || (Number.isInteger(expectedExitCode) && expectedExitCode === 0);
+    if (command !== requirement.structuredCommand || !expectedExitCodeIsSafe || marker !== requirement.structuredVerificationMarker) {
       return { ok: false, required: true, reason: "shell_execution_verification_contract_incomplete", requirement };
     }
   }
