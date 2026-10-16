@@ -78,13 +78,15 @@ jobs:
           sed -i "s/__PWA_BUILD__/$GITHUB_SHA/g" worker.js
           wrangler deploy worker.js --name aria
 
-      - name: Smoke test CuevaCoin preview
+      - name: Smoke test CuevaCoin redirect to LIVE PWA
         run: |
           set -euo pipefail
-          headers="$(curl --fail --silent --show-error --max-time 30 --retry 4 --retry-delay 2 -D - -o /tmp/cuevacoin-preview.html -w 'HTTP_STATUS:%{http_code}' "https://aria.robvg9.workers.dev/project-preview/cuevacoin/?probe=$GITHUB_SHA")"
+          headers="$(curl --silent --show-error --max-time 30 -D - -o /tmp/cuevacoin-redirect-body -w 'HTTP_STATUS:%{http_code}' "https://aria.robvg9.workers.dev/project-preview/cuevacoin/?probe=$GITHUB_SHA")"
           echo "$headers"
-          grep -qi "x-aria-preview-source: aria-static-reference" <<<"$headers"
-          grep -qi "CuevaCoin" /tmp/cuevacoin-preview.html
+          grep -q "HTTP_STATUS:302" <<<"$headers"
+          grep -qi "x-aria-preview-source: cuevacoin-live-redirect" <<<"$headers"
+          grep -qi "location: https://cuevacoin.robvg9.workers.dev/" <<<"$headers"
+          test ! -s /tmp/cuevacoin-redirect-body
 
       - name: Smoke test scheduler transport auth boundary
         run: |
