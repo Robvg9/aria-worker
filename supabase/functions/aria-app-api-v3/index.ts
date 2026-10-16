@@ -1879,11 +1879,11 @@ async function reorderMeditationQueue(userId:string, orderedMissionIds:string[])
 
 Deno.serve(async (req) => {
   const trace = req.headers.get("x-aria-trace-id") ?? crypto.randomUUID();
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const internalPath = new URL(req.url).pathname.replace(/\/+$/, "");
   if (req.method === "OPTIONS" && isPrivateVaultRoute(internalPath)) {
     return privateVaultPreflight(req.headers.get("origin"));
   }
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method === "POST" && internalPath.endsWith("/meditation/push/dispatch")) {
     try {
       const payload = await req.json().catch(() => null);
