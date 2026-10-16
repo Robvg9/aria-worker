@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import "./PrivateVault.css";
 import {
   createVaultCrypto,
   decryptRecord,
@@ -403,7 +404,7 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
         </div>
       )}
 
-      {isUnlocked && selectedVault && (
+      {isUnlocked && selectedVault && !pendingRecovery && (
         <>
           <div className="privateVaultUnlocked" role="status">
             <div><strong>Bóveda desbloqueada</strong><small>La clave es no extraíble y se mantiene en memoria. Bloqueo por inactividad: 5 minutos; al ocultar la app se bloquea inmediatamente.</small></div>
