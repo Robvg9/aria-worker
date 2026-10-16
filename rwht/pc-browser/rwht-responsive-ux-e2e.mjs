@@ -246,17 +246,27 @@ async function verifyRealScroll(page) {
       });
     const el = candidates[0];
     if (!el) return { available: false, changed: false };
+    const originalScrollTop = el.scrollTop;
+    const originalScrollBehavior = el.style.scrollBehavior;
+    // A route may leave the first scrollable panel already at its bottom.
+    // Start at the top so the test verifies genuine movement in either state.
+    el.style.scrollBehavior = 'auto';
+    el.scrollTop = 0;
     const before = el.scrollTop;
     const max = el.scrollHeight - el.clientHeight;
-    el.scrollTop = Math.min(max, Math.max(40, Math.round(max * 0.35)));
+    const target = Math.min(max, Math.max(40, Math.round(max * 0.35)));
+    el.scrollTop = target;
     const after = el.scrollTop;
-    el.scrollTop = before;
+    el.scrollTop = originalScrollTop;
+    el.style.scrollBehavior = originalScrollBehavior;
     return {
       available: true,
-      changed: after !== before,
+      changed: after > before,
       className: String(el.className || ''),
+      original_scroll_top: Math.round(originalScrollTop),
       before: Math.round(before),
       after: Math.round(after),
+      target: Math.round(target),
       scrollHeight: Math.round(el.scrollHeight),
       clientHeight: Math.round(el.clientHeight)
     };
