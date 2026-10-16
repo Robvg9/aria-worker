@@ -1,0 +1,39 @@
+name: ARIA Physical Execution Fail-Closed Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/physical-execution-contract.mjs'
+      - 'supabase/functions/aria-planner-v11/index.ts'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'tests/mission-physical-execution-contract.test.mjs'
+      - '.github/workflows/aria-physical-execution-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/physical-execution-contract.mjs'
+      - 'supabase/functions/aria-planner-v11/index.ts'
+      - 'supabase/functions/aria-mission-runner-v22/index.ts'
+      - 'tests/mission-physical-execution-contract.test.mjs'
+      - '.github/workflows/aria-physical-execution-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Physical execution fail-closed contract
+        run: node tests/mission-physical-execution-contract.test.mjs
+      - name: Existing executor contract regressions
+        run: |
+          node tests/explicit-device-intent-planner-contract.test.js
+          node tests/mission-runner-v22-executor-inference.test.js
+          node tests/mission-runner-v22-verified-terminalization.test.js
