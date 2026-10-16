@@ -140,6 +140,8 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
     setRotationSecret("");
     setNewPassword("");
     setNewPasswordConfirm("");
+    setCreatePassword("");
+    setCreateConfirm("");
     setNoteTitle("");
     setNoteContent("");
     setRotationOpen(false);
@@ -149,7 +151,7 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
   }
 
   useEffect(() => {
-    if (!key) return;
+    if (!key && !pendingRecovery) return;
     let timer = window.setTimeout(() => lockVault(), AUTO_LOCK_MS);
     const reset = () => {
       window.clearTimeout(timer);
@@ -170,9 +172,9 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
       window.removeEventListener("touchstart", reset);
       document.removeEventListener("visibilitychange", visibility);
     };
-    // Any unlock creates a fresh inactivity/visibility lock timer.
+    // While unlocked OR waiting for recovery confirmation, expire sensitive in-memory values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, vaultId]);
+  }, [key, vaultId, pendingRecovery]);
 
   async function prepareCreate() {
     setBusy(true); setError(""); setMessage("");
@@ -181,6 +183,7 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
       if (createPassword !== createConfirm) throw new Error("Las dos contraseñas no coinciden.");
       const id = globalThis.crypto.randomUUID();
       const created = await createVaultCrypto(id, createPassword);
+      setCreatePassword(""); setCreateConfirm("");
       setPendingRecovery({ kind: "create", vaultId: id, config: created.config, key: created.key, recoveryKey: created.recoveryKey });
       setRecoveryConfirm("");
       setMessage("Guarda la clave de recuperación fuera de ARIA y confírmala para guardar la configuración cifrada.");
@@ -194,19 +197,28 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
   async function unlock() {
     if (!selectedVault) { setError("Selecciona una bóveda."); return; }
     setBusy(true); setError(""); setMessage("");
+    let unlockedKey: CryptoKey;
     try {
-      const unlockedKey = unlockMethod === "password"
+      unlockedKey = unlockMethod === "password"
         ? await unlockVaultWithPassword(selectedVault.vault_id, selectedVault, unlockSecret)
         : await unlockVaultWithRecoveryKey(selectedVault.vault_id, selectedVault, unlockSecret.trim());
-      if (!isSecretKey(unlockedKey)) throw new Error("El desbloqueo no produjo una clave válida.");
-      setKey(unlockedKey);
-      setUnlockSecret("");
-      const count = await loadRecords(selectedVault.vault_id, unlockedKey);
-      setMessage("Bóveda desbloqueada localmente. " + count + " registro(s) descifrado(s) en este dispositivo.");
+      if (!isSecretKey(unlockedKey)) throw new Error("La clave derivada no es válida.");
     } catch {
       setKey(null);
       setRecords([]);
-      setError("No se pudo desbloquear: la contraseña/clave puede ser incorrecta o un registro puede estar alterado. No se ha enviado la clave al servidor.");
+      setError("No se pudo desbloquear: la contraseña/clave puede ser incorrecta o la configuración puede estar dañada. No se ha enviado la credencial al servidor.");
+      setBusy(false);
+      return;
+    }
+    setKey(unlockedKey);
+    setUnlockSecret("");
+    try {
+      const count = await loadRecords(selectedVault.vault_id, unlockedKey);
+      setMessage("Bóveda desbloqueada localmente. " + count + " registro(s) descifrado(s) en este dispositivo.");
+    } catch (reason) {
+      setKey(null);
+      setRecords([]);
+      setError(reason instanceof Error ? reason.message : "No se pudieron leer y validar los registros cifrados.");
     } finally {
       setBusy(false);
     }
@@ -291,11 +303,12 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
         type: rotationMethod,
         secret: rotationMethod === "password" ? rotationSecret : rotationSecret.trim(),
       }, newPassword);
+      setRotationSecret(""); setNewPassword(""); setNewPasswordConfirm("");
       setPendingRecovery({ kind: "rotate", vaultId: selectedVault.vault_id, config: rotated.config, key: rotated.key, recoveryKey: rotated.recoveryKey });
       setRecoveryConfirm("");
       setMessage("La nueva clave de recuperación se muestra una sola vez. Confírmala antes de cambiar la configuración del servidor.");
-    } catch {
-      setError("No se pudo rotar la clave: la credencial actual puede ser incorrecta. La configuración remota permanece sin cambios.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo preparar la rotación. La configuración remota permanece sin cambios.");
     } finally {
       setBusy(false);
     }
@@ -310,7 +323,16 @@ export function PrivateVault({ token, publishableKey }: { token: string; publish
         method: "PUT",
         body: JSON.stringify(pendingRecovery.config),
       });
-      await refreshVaults();
+      const readback = await apiRequest("/vaults/" + encodeURIComponent(pendingRecovery.vaultId), token, publishableKey);
+      if (readback?.vault?.vault_id !== pendingRecovery.vaultId ||
+          readback?.vault?.wrapped_vault_key !== pendingRecovery.config.wrapped_vault_key) {
+        throw new Error("La API aceptó el guardado, pero la lectura posterior no confirmó la configuración exacta. Conserva la clave de recuperación mostrada y no migres datos.");
+      }
+      setVaults(previous => [
+        { ...pendingRecovery.config, vault_id: pendingRecovery.vaultId, created_at: readback.vault.created_at, updated_at: readback.vault.updated_at },
+        ...previous.filter(item => item.vault_id !== pendingRecovery.vaultId),
+      ]);
+      setApiReady(true);
       setVaultId(pendingRecovery.vaultId);
       setKey(pendingRecovery.key);
       setRecords([]);
