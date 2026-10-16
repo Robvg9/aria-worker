@@ -23,8 +23,30 @@ assert.equal((app.match(/<VoiceInputButton/g) || []).length, 3, 'main chat, crea
 assert.equal((project.match(/<VoiceInputButton/g) || []).length, 3, 'project chat, project mission, and ARTIA instruction must support voice');
 assert.match(app, /VoiceInputButton captureAudio onAudio=\{setAudioFile\}/, 'main chat must attach the original audio file');
 assert.match(app, /for \(const attachment of attachments\)/, 'main chat must upload audio alongside normal attachments');
+assert.match(app, /VoiceInputButton captureAudio onAudio=\{setMissionAudioFile\}/, 'mission creation must record and attach its audio');
+assert.match(app, /VoiceInputButton captureAudio onAudio=\{setIdeaAudioFile\}/, 'Meditation IA idea analysis must record and attach its audio');
+assert.equal((app.match(/<VoiceInputButton captureAudio/g) || []).length, 3, 'all three main PWA AI input surfaces must record original audio, not dictation only');
+assert.match(app, /audio_attachments: audioAttachments/, 'main mission request must send uploaded audio metadata');
+assert.match(app, /audio_transcript: clean/, 'mission and idea requests must include the transcribed text');
+
 assert.match(project, /VoiceInputButton captureAudio onAudio=\{setAudioFile\}/, 'project chat must attach the original audio file');
-assert.match(project, /api\('\/media\/upload-url'/, 'project chat must upload the recorded audio before sending');
+assert.match(project, /VoiceInputButton captureAudio onAudio=\{setMissionAudioFile\}/, 'project mission creation must record and attach audio');
+assert.match(project, /VoiceInputButton captureAudio onAudio=\{setInstructionAudioFile\}/, 'ARTIA visual instructions must record and attach audio');
+assert.equal((project.match(/<VoiceInputButton captureAudio/g) || []).length, 3, 'all three project AI input surfaces must record original audio');
+assert.match(project, /api\('\/media\/upload-url'/, 'project chat and mission/visual sends must upload the recorded audio before sending');
+assert.match(project, /audio_attachments:audioAttachment\?\[audioAttachment\]:\[\]/, 'ARTIA-created missions must forward audio metadata');
+assert.match(project, /parts\.push\(\{type:'file',fileId:audioAttachment\.path/, 'ARTIA chat must attach the original audio file alongside the visual');
+assert.match(project, /audio_attachments:audioAttachments/, 'project mission request must send uploaded audio metadata');
+
+const api = fs.readFileSync(path.join(root, 'supabase/functions/aria-app-api-v3/index.ts'), 'utf8');
+assert.match(api, /function normalizeAudioAttachments\(userId: string, raw: any\)/, 'backend must validate and normalize audio references');
+assert.match(api, /validPath = storagePath\.startsWith\(userId \+ "\/"\)/, 'audio metadata must only reference objects owned by the authenticated user');
+assert.match(api, /audio_attachments:audioAttachments/, 'canonical mission metadata must preserve audio references');
+assert.match(api, /audio_attachments:Array\.isArray\(row\.metadata\?\.audio_attachments\)/, 'Meditation IA proposals must retain audio references');
+
+const runner = fs.readFileSync(path.join(root, 'supabase/functions/aria-mission-runner-v22/index.ts'), 'utf8');
+assert.match(runner, /audio_attachments: Array\.isArray\(mission\?\.metadata\?\.audio_attachments\)/, 'mission audio references must survive the intake-to-planner handoff');
+assert.match(runner, /audio_transcript: typeof mission\?\.metadata\?\.audio_transcript === "string"/, 'the mission planner must receive the automatic transcript');
 assert.match(css, /\.voiceInputButton/);
 assert.match(css, /\.voiceInputNotice/);
 assert.match(css, /\.voicePromptField/);

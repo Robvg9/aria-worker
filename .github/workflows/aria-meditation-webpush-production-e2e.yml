@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
+      # The Web Push predecessor must run on the same SHA for full PC audit releases.
+      - 'rwht/pc-browser/rwht-pc-browser.mjs'
+      - 'tests/pc-rwht-browser.test.js'
       - 'rwht/pc-browser/cloudflare-live-webpush-physical-e2e.mjs'
       - 'pwa/src/notifications.ts'
       - 'pwa/public/sw.js'

@@ -443,20 +443,27 @@ jobs:
           test "$stale_sw_code" = "200"
           test "$stale_sw_build" = "$GITHUB_SHA"
           grep -qi 'no-store' <<<"$stale_sw_cache"
-      - name: Smoke test CuevaCoin project preview source
+      - name: Smoke test CuevaCoin project preview redirects to canonical LIVE PWA
         run: |
           set -euo pipefail
           base="https://aria.robvg9.workers.dev"
           headers="$(mktemp)"
-          body="$(mktemp)"
-          code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -D "$headers" -o "$body" -w '%{http_code}' "$base/project-preview/cuevacoin/?probe=${GITHUB_SHA}")"
-          echo "CUEVACOIN_PROJECT_PREVIEW_STATUS=$code"
+          code="$(curl --silent --show-error --max-time 20 --retry 3 --retry-delay 1 -D "$headers" -o /dev/null -w '%{http_code}' "$base/project-preview/cuevacoin/?probe=${GITHUB_SHA}")"
+          echo "CUEVACOIN_PROJECT_PREVIEW_REDIRECT_STATUS=$code"
           cat "$headers"
-          test "$code" = "200"
-          grep -qi "^content-type: text/html" "$headers"
-          grep -qi "^x-aria-preview-source: aria-static-reference" "$headers"
-          grep -q "CuevaCoin" "$body"
-          echo PROJECT_PREVIEW_CUEVACOIN_LIVE_OK
+          test "$code" = "302"
+          grep -qi "^location: https://cuevacoin.robvg9.workers.dev/" "$headers"
+          grep -qi "^x-aria-preview-source: cuevacoin-live-redirect" "$headers"
+          grep -qi "^cache-control: no-store" "$headers"
+          live_headers="$(mktemp)"
+          live_body="$(mktemp)"
+          live_code="$(curl --silent --show-error --location --max-time 30 --retry 2 --retry-delay 1 -D "$live_headers" -o "$live_body" -w '%{http_code}' "$base/project-preview/cuevacoin/?probe=${GITHUB_SHA}")"
+          echo "CUEVACOIN_CANONICAL_LIVE_STATUS=$live_code"
+          test "$live_code" = "200"
+          grep -qi "^content-type: text/html" "$live_headers"
+          grep -Eqi "<title[^>]*>[[:space:]]*CuevaCoin[[:space:]]*-[[:space:]]*Banco Digital[[:space:]]*</title>" "$live_body"
+          if grep -Eqi "<title[^>]*>[^<]*Referencia visual ARTIA" "$live_body"; then echo "::error::CuevaCoin preview resolved to a static ARTIA reference instead of the real PWA"; exit 1; fi
+          echo CUEVACOIN_PROJECT_PREVIEW_CANONICAL_LIVE_OK
       - name: Smoke test BattleCruiser project preview source
         run: |
           set -euo pipefail

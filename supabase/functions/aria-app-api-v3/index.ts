@@ -216,6 +216,22 @@ function normalizeAttachments(parts: any[]) {
   }));
 }
 
+function normalizeAudioAttachments(userId: string, raw: any) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 3).flatMap((item: any) => {
+    const storagePath = typeof item?.path === "string" ? item.path.trim().slice(0, 500) : "";
+    const filename = typeof item?.filename === "string" ? item.filename.trim().slice(0, 200) : "";
+    const mimeType = String(item?.mime_type ?? item?.mimeType ?? "").trim().toLowerCase().slice(0, 100);
+    const validPath = storagePath.startsWith(userId + "/")
+      && !storagePath.includes("..")
+      && !storagePath.includes("\\")
+      && /^[A-Za-z0-9._/-]+$/.test(storagePath);
+    const validMime = /^audio\/(?:webm|ogg|mp4|mpeg|wav|x-wav|aac|m4a|flac|3gpp|3gpp2)(?:\s*;\s*[a-z0-9=._-]+)*$/i.test(mimeType);
+    if (!validPath || !filename || !validMime) return [];
+    return [{ path: storagePath, filename, mime_type: mimeType }];
+  });
+}
+
 const bearer = (req: Request) => { const value = req.headers.get("authorization") ?? ""; return value.startsWith("Bearer ") ? value.slice(7).trim() : ""; };
 
 function presentAbsorption(row:any){ return row ? { ...row, completion: evaluateAbsorptionCompletion(row) } : row; }
@@ -1504,19 +1520,45 @@ function presentMeditationIdeaProposal(row:any){
     created_from:row.metadata?.created_from??{source:"meditation-idea-analyzer-v2",device_id:row.source_device_id??null,created_by:"aria-pwa"},
     summary:row.metadata?.summary??null,
     converted_missions:row.metadata?.converted_missions??[],
+    audio_attachments:Array.isArray(row.metadata?.audio_attachments)?row.metadata.audio_attachments:[],
+    audio_transcript:typeof row.metadata?.audio_transcript==="string"?row.metadata.audio_transcript:null,
     auto_enqueued:Boolean(row.auto_enqueued),
     created_at:row.created_at,
     updated_at:row.updated_at
   };
 }
 
-async function createMeditationIdeaProposalForUser(userId:string, ideaInput:string){
+async function createMeditationIdeaProposalForUser(
+  userId:string,
+  ideaInput:string,
+  audioAttachments:any[]=[],
+  audioTranscript:string=""
+){
   const idea=String(ideaInput??"").trim();
   if(!idea) throw Object.assign(new Error("idea_required"),{status:400});
   const proposal=await buildIdeaMissionProposal(idea,{created_by:userId});
   const validation=validateProposal(proposal);
   if(!validation.valid) throw Object.assign(new Error("proposal_invalid:"+String(validation.reason??"unknown")),{status:400});
   const sb=serviceClient().schema("aria_internal");
+  const preserveAudio=async(row:any)=>{
+    if(!audioAttachments.length) return row;
+    if(String(row?.owner_user_id??"")!==String(userId)){
+      throw Object.assign(new Error("idea_audio_owner_mismatch"),{status:409});
+    }
+    const currentMetadata=row.metadata&&typeof row.metadata==="object"&&!Array.isArray(row.metadata)?row.metadata:{};
+    const nextMetadata={
+      ...currentMetadata,
+      audio_attachments:audioAttachments.slice(0,3),
+      audio_transcript:String(audioTranscript||idea).slice(0,4000)
+    };
+    const {data:updated,error:updateError}=await sb.from("meditation_idea_proposals")
+      .update({metadata:nextMetadata,updated_at:new Date().toISOString()})
+      .eq("proposal_id",String(row.proposal_id))
+      .eq("owner_user_id",userId)
+      .select("*").maybeSingle();
+    if(updateError) throw new Error("idea_audio_metadata_persist_failed:"+updateError.message);
+    return updated??{...row,metadata:nextMetadata};
+  };
   const {data:existing,error:lookupError}=await sb.from("meditation_idea_proposals")
     .select("*").eq("fingerprint",proposal.fingerprint).maybeSingle();
   if(lookupError) throw new Error(lookupError.message);
@@ -1524,6 +1566,7 @@ async function createMeditationIdeaProposalForUser(userId:string, ideaInput:stri
     if(existing.owner_user_id && String(existing.owner_user_id)!==String(userId)){
       throw Object.assign(new Error("idea_already_exists_for_another_owner"),{status:409});
     }
+    let owned=existing;
     if(!existing.owner_user_id){
       const {data:claimed,error:claimError}=await sb.from("meditation_idea_proposals")
         .update({owner_user_id:userId,updated_at:new Date().toISOString()})
@@ -1531,9 +1574,21 @@ async function createMeditationIdeaProposalForUser(userId:string, ideaInput:stri
         .is("owner_user_id",null)
         .select("*").maybeSingle();
       if(claimError) throw new Error(claimError.message);
-      if(claimed) return {ok:true,status:String(claimed.status),deduplicated:true,proposal:presentMeditationIdeaProposal(claimed)};
+      if(!claimed) throw Object.assign(new Error("idea_owner_claim_conflict"),{status:409});
+      owned=claimed;
     }
-    return {ok:true,status:String(existing.status),deduplicated:true,proposal:presentMeditationIdeaProposal(existing)};
+    const withAudio=await preserveAudio(owned);
+    return {ok:true,status:String(withAudio.status),deduplicated:true,proposal:presentMeditationIdeaProposal(withAudio)};
+  }
+  const metadata:any={
+    created_from:{source:"meditation-idea-analyzer-v2",device_id:null,created_by:userId},
+    summary:proposal.summary,
+    queue_policy:proposal.queue_policy,
+    closure:proposal.closure
+  };
+  if(audioAttachments.length){
+    metadata.audio_attachments=audioAttachments.slice(0,3);
+    metadata.audio_transcript=String(audioTranscript||idea).slice(0,4000);
   }
   const {data:row,error}=await sb.from("meditation_idea_proposals").insert({
     fingerprint:proposal.fingerprint,
@@ -1546,19 +1601,27 @@ async function createMeditationIdeaProposalForUser(userId:string, ideaInput:stri
     subobjectives:proposal.subobjectives,
     missions:proposal.missions,
     blockers:proposal.classification.blockers??[],
-    metadata:{
-      created_from:{source:"meditation-idea-analyzer-v2",device_id:null,created_by:userId},
-      summary:proposal.summary,
-      queue_policy:proposal.queue_policy,
-      closure:proposal.closure
-    },
+    metadata,
     auto_enqueued:false,
     source_device_id:null
   }).select("*").single();
   if(error){
     const duplicate=await sb.from("meditation_idea_proposals").select("*").eq("fingerprint",proposal.fingerprint).maybeSingle();
-    if(!duplicate.error&&duplicate.data&&(!duplicate.data.owner_user_id||String(duplicate.data.owner_user_id)===String(userId))){
-      return {ok:true,status:String(duplicate.data.status),deduplicated:true,proposal:presentMeditationIdeaProposal(duplicate.data)};
+    if(!duplicate.error&&duplicate.data){
+      if(duplicate.data.owner_user_id&&String(duplicate.data.owner_user_id)!==String(userId)){
+        throw Object.assign(new Error("idea_already_exists_for_another_owner"),{status:409});
+      }
+      let owned=duplicate.data;
+      if(!owned.owner_user_id){
+        const {data:claimed,error:claimError}=await sb.from("meditation_idea_proposals")
+          .update({owner_user_id:userId,updated_at:new Date().toISOString()})
+          .eq("proposal_id",owned.proposal_id).is("owner_user_id",null).select("*").maybeSingle();
+        if(claimError) throw new Error(claimError.message);
+        if(!claimed) throw Object.assign(new Error("idea_owner_claim_conflict"),{status:409});
+        owned=claimed;
+      }
+      const withAudio=await preserveAudio(owned);
+      return {ok:true,status:String(withAudio.status),deduplicated:true,proposal:presentMeditationIdeaProposal(withAudio)};
     }
     throw Object.assign(new Error(error.message),{status:String(error.code)==="23505"?409:500});
   }
@@ -2096,8 +2159,13 @@ Deno.serve(async (req) => {
 
     if (req.method === "POST" && path.endsWith("/meditation/idea-to-mission")) {
       const body = await req.json().catch(() => null);
+      const audioAttachments=normalizeAudioAttachments(user.id,body?.audio_attachments);
+      if(Array.isArray(body?.audio_attachments)&&audioAttachments.length!==Math.min(body.audio_attachments.length,3)){
+        return json({error:"invalid_audio_attachments",stage:"input",trace_id:trace},400);
+      }
+      const audioTranscript=typeof body?.audio_transcript==="string"?body.audio_transcript.slice(0,4000):"";
       try {
-        return json({ ok:true, ...(await createMeditationIdeaProposalForUser(user.id,String(body?.idea??""))), trace_id:trace });
+        return json({ ok:true, ...(await createMeditationIdeaProposalForUser(user.id,String(body?.idea??""),audioAttachments,audioTranscript)), trace_id:trace });
       } catch(e) {
         const status=Number((e as any)?.status||500);
         return json({ error:String((e as any)?.message||e), trace_id:trace }, status);
@@ -2440,6 +2508,11 @@ Deno.serve(async (req) => {
         ? await battleCruiserLiveUserContext(req.headers.get("x-battlecruiser-access-token"))
         : null;
       const visual_context = normalizeVisualContext(body);
+      const audioAttachments=normalizeAudioAttachments(user.id,body?.audio_attachments);
+      if(Array.isArray(body?.audio_attachments)&&audioAttachments.length!==Math.min(body.audio_attachments.length,3)){
+        return json({error:"invalid_audio_attachments",stage:"input",trace_id:trace},400);
+      }
+      const audioTranscript=typeof body?.audio_transcript==="string"?body.audio_transcript.slice(0,4000):"";
       const intakeMetadata = {
         source_application: "aria-app-v1",
         user_id: user.id,
@@ -2449,6 +2522,8 @@ Deno.serve(async (req) => {
         project_context: project?.context ?? null,
         battlecruiser_live_context: battleCruiserLiveContext,
         visual_context,
+        audio_attachments:audioAttachments,
+        audio_transcript:audioTranscript||goal,
         trace_id: trace,
         request_id: requestId,
         pwa_build: pwaBuild,
