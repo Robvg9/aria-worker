@@ -39,6 +39,20 @@ assert.match(responsiveRunner,/externalPreviewRuntimeErrors/);
 assert.match(responsiveRunner,/new Set\(\['aria\.robvg9\.workers\.dev', 'icuqsstxfdbvjytkhlog\.supabase\.co'\]\)/);
 assert.match(responsiveRunner,/evidence\.external_preview_runtime_errors/);
 
+// Keep the LIVE responsive RWHT contract strict for narrow phones and real scrolling.
+assert.match(responsiveRunner, /\{ name: 'mobile-narrow', width: 320, height: 700 \}/,
+  'Responsive E2E must exercise the narrow 320px viewport');
+assert.match(responsiveRunner, /const target = before < max \? max : 0;/,
+  'Real-scroll probe must choose the opposite endpoint if the current scroll is already at bottom');
+assert.match(responsiveRunner, /el\.scrollTop = target/,
+  'Real-scroll probe must actually assign the target position');
+assert.match(responsiveRunner, /changed: after !== before/,
+  'Real-scroll probe must report observed movement, not just availability');
+assert.match(responsiveRunner, /el\.scrollTop = before/,
+  'Real-scroll probe must restore the original scroll position after measurement');
+assert.match(responsiveRunner, /if \(result\.available && !result\.changed\)/,
+  'Real-scroll probe must fail closed when a scrollable container is found but does not move');
+
 assert.match(app,/function GlobalBottomNav/);
 assert.match(app,/aria-label='Navegación principal'/);
 assert.match(app,/aria-label='Nueva misión'/);
