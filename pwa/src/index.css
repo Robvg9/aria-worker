@@ -311,7 +311,7 @@ button{touch-action:manipulation;}
 .projectCard .projectIcon{flex:0 0 auto;}
 .modalBackdrop{padding:12px;box-sizing:border-box;}
 .detailModal{max-height:calc(100dvh - 24px);}
-.notificationLauncher{bottom:calc(78px + env(safe-area-inset-bottom));}
+@media(min-width:701px){.notificationLauncher{bottom:calc(78px + env(safe-area-inset-bottom));}}
 .notificationPanel{max-height:calc(100dvh - 96px);}
 .settingsViewport{display:flex;flex-direction:column;gap:12px}.settingsHero{display:grid;gap:8px}.settingsViewport .actions{flex-wrap:wrap}
 .navBack{display:inline-flex}
@@ -347,7 +347,7 @@ button{touch-action:manipulation;}
   .attachmentButton{width:46px;min-width:46px;padding:0;}
   .composer{gap:6px;}
   .composer textarea{font-size:14px;}
-  .notificationLauncher{right:10px;bottom:calc(82px + env(safe-area-inset-bottom));padding:9px 12px;}
+  .notificationLauncher{right:8px;top:10px;bottom:auto;padding:8px 10px;gap:6px;max-width:calc(100vw - 16px)}
   .notificationBackdrop{padding:10px 10px calc(86px + env(safe-area-inset-bottom));}
   .notificationPanel{width:100%;max-height:calc(100dvh - 110px);}
   .projectGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;}
