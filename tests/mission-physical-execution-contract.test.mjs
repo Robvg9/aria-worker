@@ -63,6 +63,11 @@ const planner = fs.readFileSync(new URL("../supabase/functions/aria-planner-v11/
 const runner = fs.readFileSync(new URL("../supabase/functions/aria-mission-runner-v22/index.ts", import.meta.url), "utf8");
 assert.match(planner, /validatePhysicalExecutionPlan\(\{goal,metadata:context\?\.mission_planner_contract\},directDevice\.steps\)/);
 assert.match(planner, /explicit_physical_execution_contract_incomplete/);
+assert.match(planner, /physical_contract_validated:true/);
+const plannerEntry = planner.indexOf("Deno.serve(async r=>");
+const earlyPhysicalGate = planner.indexOf("const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement", plannerEntry);
+const firstGenericPlannerRoute = planner.indexOf("const cuevacoinStep6=cuevacoinStep6Plan(goal)", plannerEntry);
+assert.ok(plannerEntry >= 0 && earlyPhysicalGate > plannerEntry && earlyPhysicalGate < firstGenericPlannerRoute, "physical-intent rejection/route selection must happen before any generic planner fast path");
 assert.match(runner, /validatePhysicalExecutionPlan\(mission, normalizedSteps\)/);
 assert.match(runner, /validatePhysicalExecutionEvidence\(mission, steps, results, verifyStep\)/);
 assert.match(runner, /from\("execution_jobs"\)/);
