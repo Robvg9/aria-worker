@@ -11,6 +11,7 @@ on:
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - '.github/workflows/pc-rwht.yml'
   pull_request:
     paths:
       - 'pwa/**'
@@ -19,6 +20,7 @@ on:
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
 
 permissions:
