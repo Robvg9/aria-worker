@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bitriseExecute } from "./bitrise.ts";
 import { createPlanWithTimeout, buildDeviceEnqueuePayload, cloudflareConnectorExecute, DEVICE_OPS_ALLOWLIST } from "./forensic-continuity-fixes.ts";
 import { resolveDeviceTargetPolicy } from "./device-target-policy-v1.mjs";
+import { validatePhysicalExecutionPlan, validatePhysicalExecutionEvidence } from "../_shared/physical-execution-contract.mjs";
 
 const V_LOGICAL = "aria-mission-runner-v22-universal";
 // Per-invocation fence: unique lease owner per tick.
@@ -3276,6 +3277,35 @@ Deno.serve(async (request) => {
     steps = applyRecoveryAgentFallbacks(steps, mission?.checkpoint?.recovery);
 
     const normalizedSteps = steps.map((step: any) => normalizeExecutionStep(step, mission));
+const physicalPlanValidation = validatePhysicalExecutionPlan(mission, normalizedSteps);
+if (!physicalPlanValidation.ok) {
+  const gateDetails = {
+    kind: "explicit_physical_execution_contract_incomplete",
+    status: "blocked",
+    reason: physicalPlanValidation.reason,
+    operation: physicalPlanValidation.requirement?.operation || null,
+    required_device_id: physicalPlanValidation.requirement?.targetDeviceId || null,
+    next_action: "human_gate:resubmit_structured_physical_execution_contract",
+    at: new Date().toISOString(),
+  };
+  await updateMission(missionId, {
+    status: "blocked",
+    current_step: Number(mission?.current_step || 0),
+    completed_steps: Number(mission?.completed_steps || 0),
+    next_action: gateDetails.next_action,
+    last_stderr: gateDetails.reason,
+    checkpoint: {
+      ...(mission.checkpoint || {}),
+      plan: normalizedSteps,
+      physical_execution_gate: gateDetails,
+      planner_diagnostic: { code: gateDetails.kind, message: gateDetails.reason, at: gateDetails.at, recoverable: false },
+    },
+    lease_owner: null,
+    lease_until: null,
+  });
+  await emitEvent(missionId, "physical_execution_contract_rejected", gateDetails);
+  return out({ ok: false, status: "blocked", mission_id: missionId, error: gateDetails.kind, reason: gateDetails.reason, next_action: gateDetails.next_action }, 409);
+}
     const inferredExecutorSteps = normalizedSteps
       .map((step: any, index: number) => ({
         index: index + 1,
@@ -4900,6 +4930,88 @@ Deno.serve(async (request) => {
         completed_steps: completed.size,
         human_gate: { status: "pending", method: humanGate.method, instructions: humanGate.instructions },
       });
+    }
+
+    const physicalEvidenceValidation = validatePhysicalExecutionEvidence(mission, steps, results, verifyStep);
+    let physicalPersistedJobValidation:any = { ok: true, required: false };
+    if (physicalEvidenceValidation.ok && physicalEvidenceValidation.required === true) {
+      const physicalStep = steps.find((candidate:any) => String(candidate?.id || "") === String(physicalEvidenceValidation.stepId || ""));
+      const physicalResult = physicalStep ? results[String(physicalStep.id)] : null;
+      const jobId = String(physicalResult?.job_id || "").trim();
+      const requirement = physicalEvidenceValidation.requirement;
+      const stepId = String(physicalStep?.id || "");
+      if (!jobId) {
+        physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_id_missing", requirement, stepId };
+      } else {
+        const { data: persistedJob, error: persistedJobError } = await sb.schema("aria_internal")
+          .from("execution_jobs")
+          .select("job_id,mission_id,device_id,operation,status,exit_code,stdout,result,completed_at")
+          .eq("job_id", jobId)
+          .eq("mission_id", missionId)
+          .maybeSingle();
+        if (persistedJobError) {
+          physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_lookup_failed", requirement, stepId };
+        } else if (!persistedJob) {
+          physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_not_persisted", requirement, stepId };
+        } else if (String(persistedJob.device_id || "") !== String(requirement.targetDeviceId || physicalStep?.target?.device_id || "")) {
+          physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_device_mismatch", requirement, stepId };
+        } else {
+          const requestedOperation = String(requirement.operation || "");
+          const persistedOperation = String(persistedJob.operation || "");
+          const requestedDeviceId = String(requirement.targetDeviceId || physicalStep?.target?.device_id || "");
+          const operationMatches = persistedOperation === requestedOperation
+            || (requestedOperation === "computer.use" && persistedOperation === "computer.use.android"
+              && requestedDeviceId.startsWith("android-termux-"));
+          const shellEvidenceMatches = requestedOperation !== "shell.execute"
+            || (Number.isInteger(persistedJob.exit_code) && persistedJob.exit_code === 0
+              && Boolean(requirement.structuredVerificationMarker)
+              && String(persistedJob.stdout || "").includes(String(requirement.structuredVerificationMarker)));
+          const completedResultExists = requestedOperation === "shell.execute"
+            || persistedJob.result !== null && persistedJob.result !== undefined
+            || Boolean(String(persistedJob.stdout || "").trim());
+          if (!operationMatches || String(persistedJob.status || "") !== "succeeded"
+            || !persistedJob.completed_at || !shellEvidenceMatches || !completedResultExists) {
+            physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_verification_mismatch", requirement, stepId };
+          } else {
+            physicalPersistedJobValidation = { ok: true, required: true, reason: "physical_execution_job_persisted_and_verified", requirement, stepId, jobId };
+          }
+        }
+      }
+    }
+    const finalPhysicalEvidenceValidation = !physicalEvidenceValidation.ok
+      ? physicalEvidenceValidation
+      : physicalPersistedJobValidation;
+    if (!finalPhysicalEvidenceValidation.ok) {
+      const gateDetails = {
+        kind: "explicit_physical_execution_evidence_incomplete",
+        status: "blocked",
+        reason: finalPhysicalEvidenceValidation.reason,
+        operation: finalPhysicalEvidenceValidation.requirement?.operation || null,
+        required_device_id: finalPhysicalEvidenceValidation.requirement?.targetDeviceId || null,
+        step_id: finalPhysicalEvidenceValidation.stepId || null,
+        job_id: finalPhysicalEvidenceValidation.jobId || null,
+        next_action: "recovery:physical_execution_evidence_missing",
+        at: new Date().toISOString(),
+      };
+      await updateMission(missionId, {
+        status: "blocked",
+        current_step: completed.size,
+        completed_steps: completed.size,
+        next_action: gateDetails.next_action,
+        last_stderr: gateDetails.reason,
+        checkpoint: {
+          ...(mission.checkpoint || {}),
+          plan: steps,
+          completed_steps: [...completed],
+          attempts,
+          results,
+          physical_execution_gate: gateDetails,
+        },
+        lease_owner: null,
+        lease_until: null,
+      });
+      await emitEvent(missionId, "physical_execution_evidence_rejected", gateDetails);
+      return out({ ok: false, status: "blocked", mission_id: missionId, error: gateDetails.kind, reason: gateDetails.reason, next_action: gateDetails.next_action }, 409);
     }
 
     const executorTypes = [...new Set(steps.map(executorType))];

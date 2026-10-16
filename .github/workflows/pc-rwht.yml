@@ -13,6 +13,9 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/aria-scheduler-transport-deploy.yml'
       - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-mission-runner-v22/**'
+      - 'supabase/functions/_shared/physical-execution-contract.mjs'
       - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
   push:
@@ -29,6 +32,9 @@ on:
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/aria-scheduler-transport-deploy.yml'
       - 'supabase/functions/aria-app-api-v3/**'
+      - 'supabase/functions/aria-planner-v11/**'
+      - 'supabase/functions/aria-mission-runner-v22/**'
+      - 'supabase/functions/_shared/physical-execution-contract.mjs'
       - '.github/workflows/pc-rwht.yml'
 
 permissions:

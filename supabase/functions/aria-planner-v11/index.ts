@@ -3,6 +3,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { hasExplicitBattleCruiserGitHubWriteIntent } from "../_shared/battlecruiser-github-write-intent.mjs";
+import { explicitPhysicalExecutionRequirement, validatePhysicalExecutionPlan } from "../_shared/physical-execution-contract.mjs";
 const URL=Deno.env.get("SUPABASE_URL")!, KEY=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, SECRET=Deno.env.get("ARIA_RUNTIME_SHARED_SECRET")!;
 const ROOT=createClient(URL,KEY,{auth:{persistSession:false,autoRefreshToken:false,autoRefreshSession:false}});
 const EAS_PROJECT_ID="1b23b091-f7b6-4dc2-b328-c8e5ec07de57"; const db=ROOT.schema("aria_internal");
@@ -85,7 +86,7 @@ function explicitDeviceIntent(goal:string, context:any){
   const c=extractMissionPlannerContract(context);
   const requested=String(c?.requested_capability || c?.capability || "").trim().toLowerCase();
   const deviceId=String(c?.requested_device_id || c?.device_id || "").trim();
-  const normalized = requested === "shell.execute" || requested === "computer.use" || requested === "computer.use.autonomous" || requested === "computer.use.android"
+  const normalized = ["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "android.notification", "ollama.qwen3", "ecc.execute"].includes(requested)
     ? requested
     : ((goal.match(/\b(shell\.execute|computer\.use(?:\.autonomous|\.android)?)\b/i)?.[1] || "").toLowerCase());
   if(!normalized || !deviceId) return null;
@@ -1459,7 +1460,17 @@ function cuevacoinStep6Plan(goal: string) {
   };
 }
 
-Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);const cuevacoinStep6=cuevacoinStep6Plan(goal);if(cuevacoinStep6)return out({ok:true,plan:cuevacoinStep6,planner_version:cuevacoinStep6.planner_version,cuevacoin_step6_cloud_probe:true});try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
+Deno.serve(async r=>{if(r.method!=="POST")return out({error:"method_not_allowed"},405);if(!(await auth(r)))return out({error:"unauthorized"},401);const b=await r.json().catch(()=>({}));const goal=typeof b.goal==="string"?b.goal.trim():"";let context=b.context&&typeof b.context==="object"&&!Array.isArray(b.context)?{...b.context}:{};if(!goal)return out({error:"goal_required"},400);
+const earlyPhysicalMetadata=context?.mission_planner_contract || context?.metadata?.mission_planner_contract || context;
+const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement({goal,metadata:earlyPhysicalMetadata});
+if(earlyPhysicalRequirement.required){
+  const earlyPhysicalPlan=directDeviceIntentPlan(goal,{...context,mission_planner_contract:earlyPhysicalMetadata});
+  if(!earlyPhysicalPlan)return out({error:"explicit_physical_execution_contract_incomplete",reason:"no_structured_device_plan",operation:earlyPhysicalRequirement.operation||null,next_action:"Re-submit with a structured requested_device_id and requested_capability; shell.execute also requires command and verification_marker. No device command was dispatched.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
+  const earlyPhysicalValidation=validatePhysicalExecutionPlan({goal,metadata:earlyPhysicalMetadata},earlyPhysicalPlan.steps);
+  if(!earlyPhysicalValidation.ok)return out({error:"explicit_physical_execution_contract_incomplete",reason:earlyPhysicalValidation.reason,operation:earlyPhysicalRequirement.operation||null,next_action:"Complete the structured physical execution contract. No device command was dispatched.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
+  return out({ok:true,plan:earlyPhysicalPlan,planner_version:earlyPhysicalPlan.planner_version,explicit_device_intent:true,physical_contract_validated:true});
+}
+const cuevacoinStep6=cuevacoinStep6Plan(goal);if(cuevacoinStep6)return out({ok:true,plan:cuevacoinStep6,planner_version:cuevacoinStep6.planner_version,cuevacoin_step6_cloud_probe:true});try{const recoveryLocal=await localQwenRecoveryPlan(goal,context);if(recoveryLocal)return out({ok:true,plan:recoveryLocal,planner_version:recoveryLocal.planner_version,recovery_route:recoveryLocal.recovery_route});
 const explicitRequestedDevice=String(
   context?.mission_planner_contract?.requested_device_id ||
   context?.requested_device_id ||
@@ -1470,7 +1481,15 @@ if(explicitRequestedDevice.startsWith("windows-")){
   const windowsFastPath=await windowsPcRwhtPlan(goal,context);
   if(windowsFastPath)return windowsFastPath;
 }
-const visualProjectMission=visualProjectMissionPlan(goal,context);if(visualProjectMission)return out({ok:true,plan:visualProjectMission,planner_version:visualProjectMission.planner_version,visual_project_mission:true});const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context);if(battlecruiserAudit)return out({ok:true,plan:battlecruiserAudit});const realityBoard=await multiProjectRealityBoardPlan(goal,context);if(realityBoard)return out({ok:true,plan:realityBoard,planner_version:realityBoard.planner_version,multi_project_reality_board:true});const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);if(directDevice)return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
+const visualProjectMission=visualProjectMissionPlan(goal,context);if(visualProjectMission)return out({ok:true,plan:visualProjectMission,planner_version:visualProjectMission.planner_version,visual_project_mission:true});const battlecruiserAudit=await battlecruiserReadonlyAuditPlan(goal,context);if(battlecruiserAudit)return out({ok:true,plan:battlecruiserAudit});const realityBoard=await multiProjectRealityBoardPlan(goal,context);if(realityBoard)return out({ok:true,plan:realityBoard,planner_version:realityBoard.planner_version,multi_project_reality_board:true});const learned=await learningContextForGoal(goal);context={...context,learned_knowledge:learned,learning_prompt:learningPromptSuffix(learned)};const master=await ariaPwaMasterMissionPlan(goal,context);if(master)return out({ok:true,plan:master,planner_version:master.planner_version,primary_objective:true});const directDevice=directDeviceIntentPlan(goal,context);
+const physicalRequirement=explicitPhysicalExecutionRequirement({goal,metadata:context?.mission_planner_contract});
+if(directDevice){
+  const directCheck=validatePhysicalExecutionPlan({goal,metadata:context?.mission_planner_contract},directDevice.steps);
+  if(!directCheck.ok)return out({error:"explicit_physical_execution_contract_incomplete",reason:directCheck.reason,operation:physicalRequirement.operation||null,next_action:"Re-submit this mission with structured requested_capability, requested_device_id, command and verification_marker. No device command was dispatched.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
+  return out({ok:true,plan:directDevice,planner_version:directDevice.planner_version,explicit_device_intent:true});
+}
+if(physicalRequirement.required)return out({error:"explicit_physical_execution_contract_incomplete",reason:"physical_intent_without_structured_device_plan",operation:physicalRequirement.operation||null,next_action:"Re-submit this mission with a structured device contract; model-only execution is prohibited for explicit physical objectives.",planner_version:"aria-planner-v11-physical-contract-gate-v1"},409);
+const verifiedPath=await tryVerifiedPathPlan(goal,context);if(verifiedPath)return out({ok:true,plan:verifiedPath,planner_version:verifiedPath.planner_version||"aria-planner-v11-verified-path-reuse-v1",verified_path_reuse:true});const allForOne=await allForOnePlan(goal,context);
 if(allForOne){
 if(allForOne.error)return out(allForOne,409);
 return out({ok:true,plan:allForOne,planner_version:"aria-planner-v12-all-for-one-v1",all_for_one:true});
