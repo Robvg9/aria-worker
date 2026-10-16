@@ -248,7 +248,11 @@ async function verifyRealScroll(page) {
     if (!el) return { available: false, changed: false };
     const before = el.scrollTop;
     const max = el.scrollHeight - el.clientHeight;
-    el.scrollTop = Math.min(max, Math.max(40, Math.round(max * 0.35)));
+    // The selected container may already be at max scrollTop (e.g. the chat
+    // auto-scrolls to the bottom). Choose the opposite endpoint so this probe
+    // always attempts an actual movement instead of assigning the current value.
+    const target = before < max ? max : 0;
+    el.scrollTop = target;
     const after = el.scrollTop;
     el.scrollTop = before;
     return {
