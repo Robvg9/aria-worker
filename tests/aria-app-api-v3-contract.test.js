@@ -34,6 +34,7 @@ assertContains(appApi,'const primaryProvider=String(step?.target?.provider_id ||
 assertContains(appApi,'if(aSameProvider!==bSameProvider) return aSameProvider ? 1 : -1;','chat fallback must prefer a different provider before same-provider alternatives');
 assertContains(appApi,'function shouldRetryPrimaryRouteOnce(error:any)','transient provider retry gate must be explicit and bounded');
 assertContains(appApi,'provider_status_(?:502|503|504)','transient retry must be limited to provider 5xx availability failures');
+assertContains(appApi,'provider_status_(?:502|503|504)\\\\b','provider 5xx retry must match the complete status code');
 assertContains(appApi,'if(/429|quota|rate.?limit|resource.?exhausted|credential_unavailable|invalid.?api.?key|unauthorized|provider.*401|provider.*403/.test(value)) return false;','transient retry must not repeat quota, rate-limit, or credential failures');
 assertContains(appApi,'delay_ms:1200','transient retry must apply a bounded delay');
 assertContains(appApi,'primary_retry_count:1','successful same-route retry must be observable separately from fallback');
