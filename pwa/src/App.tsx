@@ -594,9 +594,38 @@ function readCached<T>(kind: string, userId: string): T | null {
   }
 }
 
+function missionOverviewClaimsEmpty(value: any): boolean {
+  if (!value || !Array.isArray(value.missions)) return false;
+  const total = Number(value?.counts?.total ?? value?.counts?.missions ?? value.missions.length);
+  const history = Number(value?.counts?.history ?? 0);
+  return value.missions.length === 0 && total === 0 && history === 0;
+}
+
+function hasMissionOverviewData(value: any): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (Number(value?.counts?.total ?? value?.counts?.missions ?? 0) > 0 || Number(value?.counts?.history ?? 0) > 0) return true;
+  if (value?.active_mission?.mission_id || value?.foreground_mission?.mission_id) return true;
+  return ['missions', 'queued_missions', 'blocked', 'failed', 'human_gates', 'verification_pending']
+    .some(key => Array.isArray(value?.[key]) && value[key].length > 0);
+}
+
+function shouldPreserveMissionOverview(previous: any, incoming: any): boolean {
+  return hasMissionOverviewData(previous) && missionOverviewClaimsEmpty(incoming);
+}
+
 function writeCached<T>(kind: string, userId: string, data: T) {
   try {
-    localStorage.setItem(cacheKey(kind, userId), JSON.stringify({ savedAt: Date.now(), data }));
+    const key = cacheKey(kind, userId);
+    if (kind === 'meditation_overview') {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const previous = JSON.parse(raw)?.data;
+        // Guard every cache writer, including the background preloader. A late
+        // empty response must never overwrite a previously observed mission log.
+        if (shouldPreserveMissionOverview(previous, data)) return;
+      }
+    }
+    localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), data }));
   } catch {}
 }
 
@@ -2782,12 +2811,8 @@ function Meditation({ session }: { session: Session }) {
       // Wait until both primary reads finish, and do not replace known history with
       // zero-count data unless the saved state itself had no mission history.
       const primarySourcesConfirmed = Boolean(fetchedOverview) && Boolean(fetchedMissions);
-      const serverHistoryEmpty = missions.length === 0
-        && Number(merged?.counts?.total ?? merged?.counts?.missions ?? 0) === 0
-        && Number(merged?.counts?.history ?? 0) === 0;
-      const previousHasHistory = Number(previous?.counts?.history ?? 0) > 0
-        || (Array.isArray(previous?.missions) && previous.missions.some((item: any) =>
-          !['queued', 'planning', 'running', 'waiting'].includes(String(item?.status ?? '').toLowerCase())));
+      const serverHistoryEmpty = missionOverviewClaimsEmpty(merged);
+      const previousHasHistory = hasMissionOverviewData(previous);
       if (serverHistoryEmpty && !primarySourcesConfirmed) return;
       if (serverHistoryEmpty && previousHasHistory) {
         historyMismatchPreserved = true;
