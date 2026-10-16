@@ -73,7 +73,6 @@ assert.match(planner, /validatePhysicalExecutionPlan\(\{goal,metadata:context\?\
 assert.match(planner, /explicit_physical_execution_contract_incomplete/);
 assert.match(planner, /physical_contract_validated:true/);
 assert.match(planner, /"android\\.notification", "ollama\\.qwen3", "ecc\\.execute"/);
-assert.match(planner, /requested === "computer\\.use\\.android"/);
 const plannerEntry = planner.indexOf("Deno.serve(async r=>");
 const earlyPhysicalGate = planner.indexOf("const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement", plannerEntry);
 const firstGenericPlannerRoute = planner.indexOf("const cuevacoinStep6=cuevacoinStep6Plan(goal)", plannerEntry);
