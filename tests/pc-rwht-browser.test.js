@@ -123,6 +123,10 @@ assert.ok(!authVerification.includes(`page.locator('input[type="password"]')`), 
 
 assert.match(runner, /images_missing_alt/);
 assert.match(runner, /unlabeled_inputs/);
+assert.ok(runner.includes("const associatedLabelText = Array.from(element.labels || [])"),
+  'unnamed-interactive audit must derive the accessible name from native associated labels');
+assert.ok(runner.includes("if (element.labels?.length) return false;"),
+  'unlabeled-input audit must recognize both wrapping labels and label[for] associations');
 assert.match(runner, /controls_verified/);
 assert.match(runner, /controls_blocked/);
 assert.match(runner, /controls_failed/);
