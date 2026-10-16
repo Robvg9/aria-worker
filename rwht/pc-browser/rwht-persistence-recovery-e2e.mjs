@@ -413,9 +413,9 @@ async function run() {
         // formatting markers. Compare the semantic text, not its source markup.
         const normalize = value => String(value ?? '')
           .normalize('NFKC')
-          .replace(/[\\u200b-\\u200f\\uFEFF]/g, '')
-          .replace(/[_*\\`~]/g, '')
-          .replace(/\\s+/g, ' ')
+          .replace(/[\u200b-\u200f\uFEFF]/g, '')
+          .replace(/[_*`~]/g, '')
+          .replace(/\s+/g, ' ')
           .trim()
           .toLocaleLowerCase();
         const expectedUser = normalize(markerValue);
