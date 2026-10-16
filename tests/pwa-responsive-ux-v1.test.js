@@ -74,8 +74,11 @@ assert.ok(css.includes('.notificationLauncher{right:8px;top:10px;bottom:auto;pad
 assert.match(app,/aria-label=\{permission === 'granted' \? 'Abrir avisos de ARIA' : 'Activar avisos de ARIA'\}/);
 assert.ok(css.includes('@media(min-width:701px){.notificationLauncher{bottom:calc(78px + env(safe-area-inset-bottom));}}'),
   'desktop bottom offset must not leak into mobile viewports');
-assert.ok(css.includes('@media(max-width:700px){.notificationLauncher{right:8px;top:10px;bottom:auto;padding:8px 10px;gap:6px;max-width:calc(100vw - 16px)}}'),
-  'last mobile notification override must preserve top-right placement and natural height');
+const mobileLauncherRule = '.notificationLauncher{right:8px;top:10px;bottom:auto;padding:8px 10px;gap:6px;max-width:calc(100vw - 16px)}';
+assert.ok(css.includes(mobileLauncherRule),
+  'mobile launcher final rule must preserve top-right placement and natural height');
+assert.ok(css.lastIndexOf(mobileLauncherRule) > css.indexOf('@media(min-width:701px){.notificationLauncher{bottom:calc(78px + env(safe-area-inset-bottom));}}'),
+  'final mobile top-right rule must appear after the desktop-only bottom offset');
 assert.doesNotMatch(css,/\.notificationLauncher\{right:10px;bottom:calc\(82px/,
   'obsolete bottom-offset mobile launcher rule must stay removed');
 
