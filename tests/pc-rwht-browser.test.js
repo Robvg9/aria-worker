@@ -13,7 +13,7 @@ const missionRunnerFixes = fs.readFileSync(
   'utf8',
 );
 
-assert.match(runner, /aria-pc-browser-rwht-v1.5.7/);
+assert.match(runner, /aria-pc-browser-rwht-v1.5.8/);
 assert.match(runner, /playwright/);
 assert.match(runner, /DEFAULT_ROUTES/);
 assert.match(runner, /aria\.robvg9\.workers\.dev\/pwa/);
@@ -107,6 +107,12 @@ assert.match(runner, /RWHT_STORAGE_STATE/);
 assert.match(runner, /authentication_human_gate/);
 assert.match(runner, /discoverInteractive/);
 assert.match(runner, /checkUx/);
+assert.match(runner, /const nativeLabel = el\\.labels \\?/,
+  'Interactive-control discovery must include the native associated label, including wrapping labels');
+assert.match(runner, /const nativeLabel = element\\.labels \\?/,
+  'UX audit must calculate accessible names from native associated labels');
+assert.ok(runner.includes("if (element.labels?.length || element.closest('label')) return false;"),
+  'Input-label audit must recognize both explicit and wrapping native labels');
 assert.match(runner, /horizontal_overflow/);
 assert.match(runner, /unnamed_interactive/);
 assert.match(runner, /const ariaChatCta = control\.role === 'button' && \/Hablar con ARIA\/i\.test\(label\)/);
