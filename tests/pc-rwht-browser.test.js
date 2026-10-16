@@ -419,6 +419,8 @@ assert.match(projectsSource, /server_persistence_verified/);
 assert.match(projectsSource, /visual_mission_verified/);
 assert.match(projectsSource, /async function cleanupInterruptedRwhtVisualMissions/,
   'Projects E2E must recover only scoped orphan markers left by an interrupted visual-mission run.');
+assert.match(projectsSource, /cleanupInterruptedRwhtVisualMissions\(page, visualProject\.id, session\.userId\)/,
+  'Orphan recovery must run for each project before a new visual-mission test starts.');
 assert.match(projectsSource, /rwht_visual_orphan_cleanup_unconfirmed/,
   'Orphan cleanup must verify a terminal server read-back instead of assuming cancellation worked.');
 assert.match(projectsSource, /report\.recovered_orphan_visual_missions\.push\(\.\.\.recoveredOrphans\)/,
