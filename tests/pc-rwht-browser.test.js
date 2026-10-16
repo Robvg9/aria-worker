@@ -295,6 +295,8 @@ assert.match(runner, /isInActiveSurface/);
 assert.match(runner, /activeSurfaceSelector/);
 const uxAudit = runner.slice(runner.indexOf('async function checkUx'), runner.indexOf('async function loginIfConfigured'));
 assert.ok(uxAudit.includes("routeHash === '#projects' ? '.projectShell'"), 'Projects UX checks must ignore inactive PWA surfaces');
+assert.ok(uxAudit.includes('const implicitLabel = Array.from(element.labels || [])'), 'UX name detection must honor native implicit label associations');
+assert.ok(uxAudit.includes('labelledBy ||\n        implicitLabel ||\n        element.getAttribute(\'title\')'), 'Explicit ARIA labels and native label text must be preferred to placeholder/text fallbacks');
 assert.ok(runner.includes('await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});'), 'Each route UX audit must start from the canonical top scroll position');
 assert.match(runner, /function isBattleCruiserExternalAuthSnapshot/);
 assert.ok(runner.includes('(!externalAuthBoundary && (!control.visible || control.disabled))'), 'Human-gated external auth remains blocked/testable while ordinary disabled controls count only as skipped');
