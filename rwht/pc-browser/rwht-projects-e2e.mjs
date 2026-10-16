@@ -465,6 +465,91 @@ async function waitForProjectMission(page, token, projectId, goalMarker, timeout
   return { result: last, mission: null, metadata: null, visual_context: null };
 }
 
+async function cleanupInterruptedRwhtVisualMissions(page, projectId, expectedUserId) {
+  const terminalStatuses = new Set(['succeeded', 'failed', 'blocked', 'cancelled']);
+  const markerPattern = new RegExp('RWHTVISUALMISSION' + String(projectId).toUpperCase() + '\\d+', 'i');
+  const listed = await readApiCurrent(page, '/projects/' + encodeURIComponent(projectId) + '/missions?limit=100');
+  if (listed.status !== 200 || listed.body?.queue !== 'canonical' || !Array.isArray(listed.body?.missions)) {
+    throw new Error('rwht_visual_orphan_scan_failed_' + projectId + '_http_' + listed.status);
+  }
+
+  const candidates = listed.body.missions.filter((row) => {
+    const metadata = normalizeMetadata(row?.metadata);
+    const visual = normalizeMetadata(metadata.visual_context);
+    const description = [
+      row?.goal,
+      row?.title,
+      row?.name,
+      visual.instruction
+    ].map((value) => String(value || '')).join(' ');
+    const rowProject = String(metadata.project_id || projectId).toLowerCase();
+    return rowProject === String(projectId).toLowerCase() && markerPattern.test(description);
+  });
+  const recovered = [];
+
+  for (const candidate of candidates) {
+    const missionId = String(candidate?.mission_id || '').trim();
+    if (!missionId) throw new Error('rwht_visual_orphan_missing_mission_id_' + projectId);
+    const direct = await readApiCurrent(page, '/missions/' + encodeURIComponent(missionId));
+    if (direct.status !== 200 || direct.body?.mission?.mission_id !== missionId) {
+      throw new Error('rwht_visual_orphan_readback_failed_' + projectId + '_' + missionId + '_http_' + direct.status);
+    }
+
+    let mission = direct.body.mission;
+    const metadata = normalizeMetadata(mission.metadata);
+    const visual = normalizeMetadata(metadata.visual_context);
+    const description = [
+      mission.goal,
+      mission.title,
+      mission.name,
+      visual.instruction
+    ].map((value) => String(value || '')).join(' ');
+    if (!markerPattern.test(description) || String(metadata.project_id || projectId).toLowerCase() !== String(projectId).toLowerCase()) {
+      throw new Error('rwht_visual_orphan_scope_mismatch_' + projectId + '_' + missionId);
+    }
+
+    const statusBefore = String(mission.status || '');
+    let cleanupStatus = statusBefore;
+    if (!terminalStatuses.has(cleanupStatus)) {
+      const liveForCleanup = await ensureLiveSession(page);
+      if (!liveForCleanup?.accessToken || liveForCleanup.userId !== expectedUserId) {
+        throw new Error('rwht_visual_orphan_cleanup_session_mismatch_' + projectId + '_' + missionId);
+      }
+      const cancelResult = await page.evaluate(async ({ missionId, token }) => {
+        try {
+          const response = await fetch('/api/missions/' + encodeURIComponent(missionId) + '/cancel', {
+            method: 'POST',
+            headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+            cache: 'no-store'
+          });
+          const body = await response.json().catch(() => null);
+          return { status: response.status, body };
+        } catch (error) {
+          return { status: 0, body: { error: error instanceof Error ? error.message : String(error) } };
+        }
+      }, { missionId, token: liveForCleanup.accessToken });
+
+      const afterCancel = await readApiCurrent(page, '/missions/' + encodeURIComponent(missionId));
+      mission = afterCancel.status === 200 ? afterCancel.body?.mission : null;
+      cleanupStatus = String(mission?.status || '');
+      if (!terminalStatuses.has(cleanupStatus)) {
+        throw new Error('rwht_visual_orphan_cleanup_unconfirmed_' + projectId + '_' + missionId + '_http_' + cancelResult.status + '_status_' + cleanupStatus);
+      }
+    }
+
+    recovered.push({
+      mission_id: missionId,
+      project_id: projectId,
+      recovered_orphan: true,
+      status_before: statusBefore,
+      cleanup_terminal_status: cleanupStatus,
+      readback_verified: true
+    });
+  }
+
+  return recovered;
+}
+
 async function run() {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   const { chromium } = await import('playwright');
@@ -532,6 +617,7 @@ async function run() {
     projects: [],
     overview_preview_results: [],
     preview_results: [],
+    recovered_orphan_visual_missions: [],
     visual_missions: [],
     visual_mission: null,
     ux: null,
@@ -727,6 +813,8 @@ async function run() {
       aria: { src: 'https://aria.robvg9.workers.dev/project-preview/aria/', mode: 'live' }
     };
     for (const visualProject of PROJECTS) {
+      const recoveredOrphans = await cleanupInterruptedRwhtVisualMissions(page, visualProject.id, session.userId);
+      report.recovered_orphan_visual_missions.push(...recoveredOrphans);
       await page.locator('.projectGrid .projectCard').filter({ hasText: visualProject.name }).first().click();
       await page.locator('.projectTabs .tabButton').filter({ hasText: 'ARTIA' }).click();
       await page.waitForSelector('.artiaPreviewShell', { state: 'visible', timeout: 30000 });
