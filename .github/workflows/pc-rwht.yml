@@ -17,6 +17,8 @@ on:
       - 'rwht/pc-browser/**'
       - 'tests/pc-rwht-browser.test.js'
       - 'pwa/**'
+      - 'worker.js'
+      - 'supabase/functions/aria-app-api-v3/**'
       - '.github/workflows/pc-rwht.yml'
 
 permissions:
