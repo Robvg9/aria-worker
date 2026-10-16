@@ -186,21 +186,27 @@ async function ensureLiveSession(page) {
 async function verifyWebPushConfig(page, token) {
   await page.context().grantPermissions(['notifications'], { origin: new URL(page.url()).origin });
   const result = await page.evaluate(async ({ token }) => {
+    const startedAt = performance.now();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    // LIVE logs showed a successful 200 response after ~34s under concurrent worker load.
+    // Keep a finite 45s ceiling and persist latency; a timeout is still a hard failure.
+    const timeoutMs = 45000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch('/api/meditation/push/status', {
         headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
         cache: 'no-store',
         signal: controller.signal
       });
+      const elapsedMs = Math.round(performance.now() - startedAt);
       const body = await response.json().catch(() => null);
       if (response.status !== 200 || body?.configured !== true || !body?.vapid_public) {
-        throw new Error('web_push_not_ready:' + response.status + ':' + JSON.stringify(body));
+        throw new Error('web_push_not_ready:' + response.status + ':' + JSON.stringify(body) + ':elapsed_ms=' + elapsedMs);
       }
-      return { configured: true, has_vapid_public: true };
+      return { configured: true, has_vapid_public: true, elapsed_ms: elapsedMs, timeout_ms: timeoutMs };
     } catch (error) {
-      throw new Error('web_push_status_request_failed:' + String(error?.name || error?.message || error));
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      throw new Error('web_push_status_request_failed:' + String(error?.name || error?.message || error) + ':elapsed_ms=' + elapsedMs + ':timeout_ms=' + timeoutMs);
     } finally {
       clearTimeout(timer);
     }
@@ -299,8 +305,11 @@ async function dispatchNotificationClickViaServiceWorker(context, page, notifica
 
 async function expectApi(page, apiPath, token) {
   const result = await page.evaluate(async ({ apiPath, token }) => {
+    const startedAt = performance.now();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    // Keep a finite ceiling but tolerate observed production Edge latency; report timing per request.
+    const timeoutMs = 45000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const r = await fetch('/api' + apiPath, {
         headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
@@ -308,14 +317,14 @@ async function expectApi(page, apiPath, token) {
         cache: 'no-store'
       });
       const body = await r.json().catch(() => null);
-      return { status: r.status, body, error: null };
+      return { status: r.status, body, error: null, elapsed_ms: Math.round(performance.now() - startedAt), timeout_ms: timeoutMs };
     } catch (error) {
-      return { status: 0, body: null, error: String(error?.name || error?.message || error) };
+      return { status: 0, body: null, error: String(error?.name || error?.message || error), elapsed_ms: Math.round(performance.now() - startedAt), timeout_ms: timeoutMs };
     } finally {
       clearTimeout(timer);
     }
   }, { apiPath, token });
-  if (result.error) throw new Error('api_request_failed:' + apiPath + ':' + result.error);
+  if (result.error) throw new Error('api_request_failed:' + apiPath + ':' + result.error + ':elapsed_ms=' + result.elapsed_ms + ':timeout_ms=' + result.timeout_ms);
   return result;
 }
 
@@ -328,7 +337,7 @@ async function run() {
   const context = await browser.newContext({ viewport: { width: Number(process.env.RWHT_VIEWPORT_WIDTH || 1440), height: Number(process.env.RWHT_VIEWPORT_HEIGHT || 900) }, ...(STORAGE_STATE ? { storageState: STORAGE_STATE } : {}) });
   let page = await context.newPage();
   const consoleErrors = []; const pageErrors = []; const failedResponses = [];
-  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, total_console_errors:0, external_console_errors:0, failed_responses:0, page_error_details:[], console_error_details:[], external_console_error_details:[], failed_response_details:[], failure:null };
+  const report = { status:'partial_or_failed', auth_verified:false, reload_auth_verified:false, meditation_surface_verified:false, background_push_verified:false, notification_click_through_verified:false, notification_detail_verified:false, notification_detail_mission_id:null, notification_detail_title:null, api_health_verified:false, idea_analyzer_verified:false, governed_proposal_verified:false, mission_conversion_verified:false, mission_persistence_verified:false, notifications_route_verified:false, web_push_config_verified:false, web_push_config_elapsed_ms:null, web_push_config_timeout_ms:null, cleaned_up:false, mission_id:null, proposal_id:null, page_errors:0, console_errors:0, total_console_errors:0, external_console_errors:0, failed_responses:0, page_error_details:[], console_error_details:[], external_console_error_details:[], failed_response_details:[], failure:null };
   function trackPage(targetPage) {
     targetPage.on('console', message => {
       if (message.type() === 'error') {
@@ -392,8 +401,11 @@ async function run() {
     assert.ok(session?.accessToken && session?.userId, 'aria session missing after login');
     const backgroundPushEnabled = /^(1|true|yes)$/i.test(String(process.env.RWHT_BACKGROUND_PUSH_E2E || 'false'));
     if (backgroundPushEnabled) {
-      await verifyWebPushConfig(page, session.accessToken);
-      console.log('WEBPUSH_E2E_CONFIG_OK');
+      const pushConfig = await verifyWebPushConfig(page, session.accessToken);
+      report.web_push_config_verified = true;
+      report.web_push_config_elapsed_ms = Number(pushConfig.elapsed_ms);
+      report.web_push_config_timeout_ms = Number(pushConfig.timeout_ms);
+      console.log('WEBPUSH_E2E_CONFIG_OK elapsed_ms=' + report.web_push_config_elapsed_ms + ' timeout_ms=' + report.web_push_config_timeout_ms);
 
       // Use an actual persisted, verified mission notification instead of an invented ID.
       const notificationSource = await expectApi(page, '/meditation/notifications?limit=50', session.accessToken);
