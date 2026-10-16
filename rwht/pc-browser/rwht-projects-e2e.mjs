@@ -911,7 +911,9 @@ async function run() {
       await visualMissionButton.click();
       await page.waitForFunction(() => [...document.querySelectorAll('.visualBoardPanel .notice')].some((node) => {
         const text = node.textContent || '';
-        return isVisualMissionConfirmation(text)
+        // page.waitForFunction serializes this predicate into the browser context;
+        // do not call the Node-side helper from inside it.
+        return /Misión confirmada por ARIA con el diseño(?:,)?(?: las anotaciones| y las anotaciones)(?: y el audio)?\./i.test(String(text || ''))
           || /visual_mission_create_not_confirmed|ARIA no confirmó la creación de la misión|No se pudo guardar el diseño|No se pudo enviar el diseño/i.test(text);
       }), null, { timeout: 120000 });
       const missionNotice = (await page.locator('.visualBoardPanel .notice').last().innerText().catch(() => '')).trim();
