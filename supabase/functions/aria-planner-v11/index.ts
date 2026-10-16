@@ -86,7 +86,7 @@ function explicitDeviceIntent(goal:string, context:any){
   const c=extractMissionPlannerContract(context);
   const requested=String(c?.requested_capability || c?.capability || "").trim().toLowerCase();
   const deviceId=String(c?.requested_device_id || c?.device_id || "").trim();
-  const normalized = requested === "shell.execute" || requested === "computer.use" || requested === "computer.use.autonomous" || requested === "computer.use.android"
+  const normalized = ["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "android.notification", "ollama.qwen3", "ecc.execute"].includes(requested)
     ? requested
     : ((goal.match(/\b(shell\.execute|computer\.use(?:\.autonomous|\.android)?)\b/i)?.[1] || "").toLowerCase());
   if(!normalized || !deviceId) return null;
