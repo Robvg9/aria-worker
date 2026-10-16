@@ -38,4 +38,4 @@ jobs:
       - name: Test request validation and source security contracts
         run: deno test --allow-read supabase/functions/_tests/private-vault-v1.test.ts
       - name: Type-check the Edge Function and shared validators
-        run: deno check --config supabase/functions/aria-private-vault-v1/deno.json supabase/functions/aria-private-vault-v1/index.ts supabase/functions/aria-app-api-v3/private-vault.ts supabase/functions/aria-app-api-v3/index.ts supabase/functions/_shared/private-vault-contract.ts
+        run: deno check --config supabase/functions/aria-private-vault-v1/deno.json supabase/functions/aria-private-vault-v1/index.ts supabase/functions/aria-app-api-v3/private-vault.ts supabase/functions/_shared/private-vault-contract.ts
