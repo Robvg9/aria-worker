@@ -36,7 +36,7 @@ for (const fragment of [
 }
 
 for (const fragment of [
-  'aria-persistence-recovery-rwht-e2e-v1.0.1',
+  'aria-persistence-recovery-rwht-e2e-v1.0.2',
   'aria_session_v2',
   'aria-runtime-cache-v3',
   'aria-chat-history-v1:',
@@ -45,6 +45,9 @@ for (const fragment of [
   'session_reload_persistence_missing',
   'chat_server_persistence_missing',
   'chat_reload_persistence_verified',
+  "replace(/[_*`~]/g, '')",
+  "toLocaleLowerCase()",
+  'return userOk && assistantOk;',
   'dashboard_recovery_from_api_failure_missing',
   'live_sync_recovered',
   'Núcleo conectado',
