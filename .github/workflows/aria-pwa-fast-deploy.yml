@@ -4,9 +4,6 @@ name: Deploy ARIA PWA Fast Lane
 on:
   push:
     branches: [main]
-    paths:
-      - "pwa/**"
-      - "worker.js"
       # Keep PWA version/SW release SHA aligned with App API diagnostics fixes.
       - "supabase/functions/aria-app-api-v3/**"
       - "wrangler.toml"
