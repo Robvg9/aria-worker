@@ -258,7 +258,7 @@ assert.match(plannerSource, /source_read_before_any_change:true/);
 assert.match(plannerSource, /independent_verification_required:true/);
 assert.match(plannerSource, /non_main_branch_required:true/);
 
-assert.ok(project.includes("setGoal('');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
+assert.ok(project.includes("setGoal('');if(outgoingAudio)setMissionAudioFile(null);void loadMissions();setTimeout(()=>void loadMissions(),1200);"), 'mission submission must clear the goal and successful audio upload, then refresh the canonical project queue');
 assert.ok(!project.includes("setGoal('');selectTab('missions');void loadMissions();setTimeout(()=>void loadMissions(),1200);"));
 const appPreloaderGuard = fs.readFileSync(path.join(root,'pwa/src/App.tsx'),'utf8');
 assert.match(appPreloaderGuard,/if \(page !== 'home' \|\| running \|\| !navigator\.onLine \|\| document\.visibilityState === 'hidden'\) return;/);
