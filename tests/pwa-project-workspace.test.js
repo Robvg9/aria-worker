@@ -8,6 +8,7 @@ const css=fs.readFileSync(path.join(root,'pwa/src/index.css'),'utf8');
 const api=fs.readFileSync(path.join(root,'supabase/functions/aria-app-api-v3/index.ts'),'utf8');
 const runner=fs.readFileSync(path.join(root,'supabase/functions/aria-mission-runner-v22/index.ts'),'utf8');
 const worker=fs.readFileSync(path.join(root,'worker.js'),'utf8');
+const schedulerDeployWorkflow=fs.readFileSync(path.join(root,'.github/workflows/aria-scheduler-transport-deploy.yml'),'utf8');
 const battlecruiserReference=fs.readFileSync(path.join(root,'pwa/public/project-previews/battlecruiser-reference.html'),'utf8');
 const projectsRwht=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-projects-e2e.mjs'),'utf8').replace(/\r\n/g,'\n');
 
@@ -114,6 +115,10 @@ assert.match(project,/const livePreviewUrl = project\.previewUrl \|\| null/);
 assert.match(project,/previewUrl:'https:\/\/cuevacoin\.robvg9\.workers\.dev\/', previewMode:'auth-required'/, 'CuevaCoin must embed its actual deployed PWA and preserve the independent authentication boundary');
 assert.doesNotMatch(worker,/cuevacoin: '\/project-previews\/cuevacoin-reference\.html'/, 'Legacy CuevaCoin preview must not serve a static ARTIA reference asset');
 assert.match(worker,/if\(key==='cuevacoin'\)\{[\s\S]*?status:302[\s\S]*?location:'https:\/\/cuevacoin\.robvg9\.workers\.dev\/'[\s\S]*?x-aria-preview-source':'cuevacoin-live-redirect'/, 'Legacy CuevaCoin preview route must redirect to the canonical LIVE PWA');
+assert.match(schedulerDeployWorkflow,/HTTP_STATUS:302/, 'scheduler deploy smoke must assert the redirect response rather than a legacy static screenshot');
+assert.match(schedulerDeployWorkflow,/x-aria-preview-source: cuevacoin-live-redirect/, 'scheduler deploy smoke must require the live redirect marker');
+assert.match(schedulerDeployWorkflow,/location: https:\/\/cuevacoin\.robvg9\.workers\.dev\//, 'scheduler deploy smoke must target the canonical CuevaCoin LIVE host');
+assert.doesNotMatch(schedulerDeployWorkflow,/x-aria-preview-source: aria-static-reference/, 'scheduler deploy smoke must not expect the retired static CuevaCoin preview');
 assert.match(worker,/cache-control':'no-store'/, 'Legacy CuevaCoin preview redirect must not be cached as the static reference');
 assert.doesNotMatch(project,/id:'cuevacoin'.*project-preview\/cuevacoin\//, 'CuevaCoin must not use ARTIA screenshot/reference source as its main preview');
 assert.match(project,/Abrir CuevaCoin LIVE/, 'ARTIA and project overview must offer the real PWA in a top-level tab for independent login');
