@@ -10,9 +10,17 @@ function physicalClean(value) {
 }
 
 function physicalMetadata(mission) {
-  if (mission?.metadata && typeof mission.metadata === "object" && !Array.isArray(mission.metadata)) return mission.metadata;
-  if (mission?.mission_planner_contract && typeof mission.mission_planner_contract === "object" && !Array.isArray(mission.mission_planner_contract)) return mission.mission_planner_contract;
-  return {};
+  const metadata = mission?.metadata && typeof mission.metadata === "object" && !Array.isArray(mission.metadata)
+    ? mission.metadata
+    : {};
+  const nested = metadata.mission_planner_contract && typeof metadata.mission_planner_contract === "object" && !Array.isArray(metadata.mission_planner_contract)
+    ? metadata.mission_planner_contract
+    : null;
+  if (nested) return { ...metadata, ...nested };
+  if (mission?.mission_planner_contract && typeof mission.mission_planner_contract === "object" && !Array.isArray(mission.mission_planner_contract)) {
+    return { ...metadata, ...mission.mission_planner_contract };
+  }
+  return metadata;
 }
 
 function targetHintFromGoal(goal) {
@@ -42,7 +50,8 @@ export function explicitPhysicalExecutionRequirement(mission = {}) {
     ? metadataCapability
     : (goalCapability || ((structuredDeviceId || goalDeviceId) && shellCue ? "shell.execute" : ""));
   const required = PHYSICAL_EXECUTION_CAPABILITIES.has(metadataCapability)
-    || Boolean((structuredDeviceId || goalDeviceId) && (goalCapability || shellCue));
+    || Boolean(structuredDeviceId)
+    || Boolean(goalDeviceId && (goalCapability || shellCue));
   return {
     required,
     operation,
