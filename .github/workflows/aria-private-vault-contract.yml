@@ -15,6 +15,8 @@ on:
     branches: [main]
     paths:
       - 'supabase/functions/aria-private-vault-v1/**'
+      - 'supabase/functions/aria-app-api-v3/index.ts'
+      - 'supabase/functions/aria-app-api-v3/private-vault.ts'
       - 'supabase/functions/_shared/private-vault-contract.ts'
       - 'supabase/functions/_tests/private-vault-v1.test.ts'
       - 'supabase/migrations/20261016150000_aria_private_vault_v1.sql'
@@ -39,3 +41,28 @@ jobs:
         run: deno test --allow-read supabase/functions/_tests/private-vault-v1.test.ts
       - name: Type-check the Edge Function and shared validators
         run: deno check --config supabase/functions/aria-private-vault-v1/deno.json supabase/functions/aria-private-vault-v1/index.ts supabase/functions/aria-app-api-v3/private-vault.ts supabase/functions/_shared/private-vault-contract.ts
+      - name: Verify deployed LIVE vault auth and CORS gate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SUPABASE_URL: https://icuqsstxfdbvjytkhlog.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          endpoint="$SUPABASE_URL/functions/v1/aria-app-api-v3/private-vault/vaults?limit=1&offset=0"
+          status="$(curl --connect-timeout 5 --max-time 20 --silent --show-error --dump-header "$tmpdir/auth.headers" --output "$tmpdir/auth.body" --write-out '%{http_code}' "$endpoint" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H 'Origin: https://aria.robvg9.workers.dev')"
+          test "$status" = "401"
+          grep -qi '^access-control-allow-origin: https://aria.robvg9.workers.dev' "$tmpdir/auth.headers"
+          grep -q '"error":"invalid_or_expired_session"' "$tmpdir/auth.body"
+          allowed_status="$(curl --connect-timeout 5 --max-time 20 --silent --show-error --request OPTIONS --dump-header "$tmpdir/allowed.headers" --output /dev/null --write-out '%{http_code}' "$endpoint" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H 'Origin: https://aria.robvg9.workers.dev' -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: authorization,apikey,content-type')"
+          test "$allowed_status" = "204"
+          grep -qi '^access-control-allow-origin: https://aria.robvg9.workers.dev' "$tmpdir/allowed.headers"
+          denied_status="$(curl --connect-timeout 5 --max-time 20 --silent --show-error --request OPTIONS --dump-header "$tmpdir/denied.headers" --output /dev/null --write-out '%{http_code}' "$endpoint" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H 'Origin: https://attacker.invalid' -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: authorization,apikey,content-type')"
+          test "$denied_status" = "204"
+          if grep -qi '^access-control-allow-origin:' "$tmpdir/denied.headers"; then
+            echo 'Disallowed origin received Access-Control-Allow-Origin; refusing PASS.'
+            exit 1
+          fi
+          echo 'PASS: LIVE missing-auth request returns 401; ARIA origin is allowed; untrusted origin receives no CORS grant.'
+
