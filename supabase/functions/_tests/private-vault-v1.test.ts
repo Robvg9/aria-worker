@@ -123,11 +123,14 @@ Deno.test("rate-limit RPC rejects null action and keeps execution server-only", 
 Deno.test("vault routes through the existing authenticated API without an extra Edge Function", async () => {
   const api = await Deno.readTextFile(new URL("../aria-app-api-v3/index.ts", import.meta.url));
   const embedded = await Deno.readTextFile(new URL("../aria-app-api-v3/private-vault.ts", import.meta.url));
-  assertStringIncludes(api, 'import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultPreflight } from "./private-vault.ts";');
+  assertStringIncludes(api, 'import { handlePrivateVaultRequest, isPrivateVaultRoute, privateVaultAuthFailure, privateVaultPreflight } from "./private-vault.ts";');
   assertStringIncludes(api, 'if (req.method === "OPTIONS" && isPrivateVaultRoute(internalPath))');
+  assertStringIncludes(api, 'return privateVaultAuthFailure(req.headers.get("origin"), status, errorCode, crypto.randomUUID());');
+  assertStringIncludes(api, 'handlePrivateVaultRequest(req, String(user.id), crypto.randomUUID(), serviceClient())');
   assertStringIncludes(api, 'return await handlePrivateVaultRequest(req, String(user.id), trace, serviceClient());');
   assertStringIncludes(embedded, 'const FUNCTION_SLUG = "private-vault";');
   assertStringIncludes(embedded, 'return path.includes("/private-vault/") || path.endsWith("/private-vault");');
+  assertStringIncludes(embedded, "export function privateVaultAuthFailure");
   assertStringIncludes(embedded, '.eq("owner_id", ownerId)');
   assertStringIncludes(embedded, "aria_vault_consume_rate_limit_v1");
   assertStringIncludes(embedded, "aria_vault_audit_events");
