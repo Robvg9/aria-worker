@@ -238,7 +238,6 @@ const pcWorkflow = fs.readFileSync(
 );
 assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-app-api-v3\/\*\*'/g) || []).length, 2,
   'PC Browser RWHT must run on push and PR changes to the canonical App API');
-  'PC Browser RWHT must run on push and PR changes to the canonical App API');
 assert.equal(pcWorkflow.split("'worker.js'").length - 1, 2, 'Full PC RWHT must trigger for worker-only release changes on both PR and main pushes');
 assert.equal(pcWorkflow.split("'wrangler.toml'").length - 1, 2, 'Full PC RWHT must trigger for Wrangler config changes on both PR and main pushes');
 assert.equal(pcWorkflow.split("'.github/workflows/aria-cloudflare-deploy.yml'").length - 1, 2, 'Full PC RWHT must trigger for Worker deploy changes on both PR and main pushes');
