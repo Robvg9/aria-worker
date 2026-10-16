@@ -7,11 +7,15 @@ const path = require('node:path');
 const runner = fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'rwht-pc-browser.mjs'), 'utf8');
 const pwaIndex = fs.readFileSync(path.join(__dirname, '..', 'pwa', 'index.html'), 'utf8');
 const pwaFastDeploy = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-fast-deploy.yml'), 'utf8');
+const pcRwhtWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'rwht', 'pc-browser', 'package.json'), 'utf8'));
 const missionRunnerFixes = fs.readFileSync(
   path.join(__dirname, '..', 'supabase', 'functions', 'aria-mission-runner-v22', 'forensic-continuity-fixes.ts'),
   'utf8',
 );
+
+assert.ok((pcRwhtWorkflow.match(/'worker\\.js'/g) || []).length >= 2, 'PC Browser RWHT must run on Worker auth/proxy changes for both PR and main push');
+assert.ok((pcRwhtWorkflow.match(/'supabase\\/functions\\/aria-app-api-v3\\/\\*\\*'/g) || []).length >= 2, 'PC Browser RWHT must run on app API runtime changes for both PR and main push');
 
 assert.match(runner, /aria-pc-browser-rwht-v1.5.7/);
 assert.match(runner, /playwright/);
