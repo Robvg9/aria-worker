@@ -377,6 +377,15 @@ export function privateVaultPreflight(origin: string | null): Response {
   return new Response(null, { status: 204, headers: headersFor(origin) });
 }
 
+export function privateVaultAuthFailure(
+  origin: string | null,
+  status: number,
+  errorCode: string,
+  requestId: string,
+): Response {
+  return reply(status, { error: errorCode }, origin, requestId);
+}
+
 export async function handlePrivateVaultRequest(
   request: Request,
   ownerId: string,
