@@ -13,6 +13,7 @@ on:
       - '.github/workflows/capabilities-rwht-authenticated.yml'
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
 
 permissions:
