@@ -4958,8 +4958,10 @@ if (!physicalPlanValidation.ok) {
         } else {
           const requestedOperation = String(requirement.operation || "");
           const persistedOperation = String(persistedJob.operation || "");
+          const requestedDeviceId = String(requirement.targetDeviceId || physicalStep?.target?.device_id || "");
           const operationMatches = persistedOperation === requestedOperation
-            || (requestedOperation === "computer.use" && persistedOperation === "computer.use.android");
+            || (requestedOperation === "computer.use" && persistedOperation === "computer.use.android"
+              && requestedDeviceId.startsWith("android-termux-"));
           const shellEvidenceMatches = requestedOperation !== "shell.execute"
             || (Number.isInteger(persistedJob.exit_code) && persistedJob.exit_code === 0
               && Boolean(requirement.structuredVerificationMarker)
