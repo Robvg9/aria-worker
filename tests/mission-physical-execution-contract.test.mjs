@@ -7,11 +7,31 @@ const modelOnlyMission = {
   metadata: {},
 };
 assert.equal(explicitPhysicalExecutionRequirement(modelOnlyMission).required, false, "cloud-only text work must remain eligible for model execution");
+const modelOnlyWithContextDevice = { goal: "Summarize this API issue", metadata: { device_id: "windows-lacueva-780886" } };
+assert.equal(validatePhysicalExecutionPlan(modelOnlyWithContextDevice, [{
+  id: "cloud_review",
+  operation: "text_generation",
+  executor_type: "model",
+  target: { type: "model", provider_id: "google", account_id: "acct_google_gemini_free", model_id: "google/gemini-3.5-flash-lite-direct" },
+  verify: { response_content_nonempty: true },
+}]).required, false, "a contextual device id must not turn an ordinary model-only mission into a physical-device mission");
 const nestedTargetMission = { goal: "Inspect this target", metadata: { request_id: "test", mission_planner_contract: { requested_device_id: "windows-lacueva-780886", requested_capability: "computer.use" } } };
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).required, true, "a nested structured device target must force physical execution");
 assert.equal(explicitPhysicalExecutionRequirement(nestedTargetMission).targetDeviceId, "windows-lacueva-780886", "nested structured device target must be read by the runner");
 const targetOnlyMission = { goal: "Inspect this target", metadata: { requested_device_id: "windows-lacueva-780886" } };
 assert.equal(validatePhysicalExecutionPlan(targetOnlyMission, [{ id: "device", operation: "computer.use", executor_type: "device", target: { type: "device", device_id: "windows-lacueva-780886" } }]).reason, "structured_device_capability_missing", "physical target must declare the capability to be run");
+
+const persistedHumanGateMission = { goal: "Safe autonomy no gate", metadata: { goal_source: "human_gate_e2e", device_id: "windows-lacueva-780886" } };
+const persistedHumanGatePlan = [
+  { id: "safe_c1", operation: "health", executor_type: "connector", target: { type: "connector", connector_id: "supabase" }, risk: "READ", input: {}, verify: {} },
+  { id: "safe_d1", operation: "shell.execute", executor_type: "device", target: { type: "device", device_id: "windows-lacueva-780886" }, risk: "READ", input: { command: "Write-Output SAFE_AUTONOMY_OK", cwd: "D:\\ARIA-Windows-Agent" }, policy: { runtime_probe: true }, verify: { stdout_contains: "SAFE_AUTONOMY_OK" }, depends_on: ["safe_c1"] },
+];
+const persistedHumanGateValidation = validatePhysicalExecutionPlan(persistedHumanGateMission, persistedHumanGatePlan);
+assert.equal(persistedHumanGateValidation.ok, true, "a persisted explicit device plan must remain valid for legacy Human Gate missions without request-level capability fields");
+assert.equal(persistedHumanGateValidation.requirement.contract_source, "persisted_explicit_device_plan");
+const persistedHumanGateResult = { status: "succeeded", executor_type: "device", operation: "shell.execute", job_id: "uo_safe_d1_a1", exit_code: 0, stdout: "SAFE_AUTONOMY_OK", stderr: "" };
+assert.equal(validatePhysicalExecutionEvidence(persistedHumanGateMission, persistedHumanGatePlan, { safe_d1: persistedHumanGateResult }, () => true).ok, true, "plan-derived shell contracts must still require a real successful device result");
+
 for (const operation of ["shell.execute", "computer.use", "computer.use.autonomous", "computer.use.android", "android.notification", "ollama.qwen3", "ecc.execute"]) {
   const detected = explicitPhysicalExecutionRequirement({ goal: "Execute one authorized operation", metadata: { requested_capability: operation, requested_device_id: "windows-lacueva-780886" } });
   assert.equal(detected.required, true, operation + " must require physical execution evidence");
