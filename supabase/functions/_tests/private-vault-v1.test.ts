@@ -101,7 +101,7 @@ Deno.test("API authenticates with Supabase Auth and never decrypts server-side",
 });
 
 Deno.test("migration keeps direct client roles out and locks down rate-limit RPC", async () => {
-  const sql = await Deno.readTextFile(new URL("../../migrations/20261014155000_aria_private_vault_v1.sql", import.meta.url));
+  const sql = await Deno.readTextFile(new URL("../../migrations/20261016150000_aria_private_vault_v1.sql", import.meta.url));
   for (const table of ["aria_vault_vaults", "aria_vault_records", "aria_vault_audit_events", "aria_vault_rate_windows"]) {
     assertStringIncludes(sql, `ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`);
     assertStringIncludes(sql, `REVOKE ALL ON TABLE public.${table} FROM PUBLIC, anon, authenticated`);
