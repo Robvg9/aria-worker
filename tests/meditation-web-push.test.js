@@ -25,6 +25,23 @@ assert(e2e.includes('form.authCard button[type="submit"]'), 'Web Push E2E must s
 assert(e2e.includes("aria_auth_rejected:"), 'Web Push E2E must preserve visible ARIA login rejection evidence');
 assert(!e2e.includes("return !pwd;"), 'Web Push E2E must prove persisted ARIA session rather than waiting for unrelated password fields to disappear');
 
+assert(e2e.includes('console_error_details:[]'), 'Web Push E2E must persist console error messages, not only an error count');
+assert(e2e.includes('report.console_error_details = ariaConsoleErrors.slice()'), 'Web Push E2E must write ARIA-origin console error detail into the evidence report');
+assert(e2e.includes('report.external_console_errors = externalConsoleErrors.length'), 'Web Push E2E must count and distinguish external preview console errors');
+assert(e2e.includes('report.external_console_error_details = externalConsoleErrors.slice()'), 'Web Push E2E must persist external preview console error details separately');
+assert(e2e.includes('source_origin: sourceOrigin'), 'Web Push E2E must record the console error source origin');
+assert(e2e.includes('report.page_error_details = pageErrors.slice()'), 'Web Push E2E must write page error detail into the evidence report');
+assert(e2e.includes('report.failed_response_details = failedResponses.slice()'), 'Web Push E2E must write failed response detail into the evidence report');
+const pushOnlyStart = e2e.indexOf("if (envBool('RWHT_BACKGROUND_PUSH_ONLY', false))");
+const pushOnlyEnd = e2e.indexOf('await controllerPage.close();', pushOnlyStart);
+assert(pushOnlyStart >= 0 && pushOnlyEnd > pushOnlyStart, 'Web Push push-only branch must be present and bounded');
+const pushOnlyBranch = e2e.slice(pushOnlyStart, pushOnlyEnd);
+const errorGate = pushOnlyBranch.indexOf('if (report.page_errors || report.console_errors || report.failed_responses)');
+const earlyReturn = pushOnlyBranch.indexOf('return;');
+assert(errorGate >= 0 && earlyReturn > errorGate, 'push-only Web Push E2E must enforce the zero browser-error gate before returning');
+assert(pushOnlyBranch.includes('WEBPUSH_E2E_BROWSER_DIAGNOSTICS='), 'push-only Web Push E2E must emit full browser diagnostics into workflow logs');
+
+
 assert(migration.includes('meditation_push_subscriptions'), 'background push subscription table missing');
 assert(migration.includes('meditation_push_deliveries'), 'push delivery evidence table missing');
 assert(migration.includes('aria_get_web_push_runtime_config'), 'Vault runtime config RPC missing');
