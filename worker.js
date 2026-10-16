@@ -33,6 +33,9 @@ const SUPABASE_AUTH = "https://icuqsstxfdbvjytkhlog.supabase.co";
 const SUPABASE_APP_API = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3";
 const APP_API_GET_TIMEOUT_MS = 120000;
 const APP_API_POST_TIMEOUT_MS = 180000;
+// Supabase Edge can transiently return a gateway 502/503/504 without invoking the function.
+// Retry one idempotent GET once; never retry POST/PUT/DELETE mutations.
+const APP_API_GET_TRANSIENT_RETRY_DELAY_MS = 350;
 const PWA_BUILD = "__PWA_BUILD__";
 const PWA_RELEASE = "2026.09.24-pwa-v10";
 const RESOURCE = PUBLIC_RESOURCE;
@@ -58,19 +61,31 @@ async function proxyAppApi(request,url){
   const upstreamUrl=SUPABASE_APP_API+suffix+url.search;
   const headers=new Headers(request.headers);
   headers.delete("host");
-  const controller=new AbortController();
   const timeoutMs=request.method==="GET"?APP_API_GET_TIMEOUT_MS:APP_API_POST_TIMEOUT_MS;
-  const timer=setTimeout(()=>controller.abort(),timeoutMs);
-  try{
-    const upstream=await fetch(new Request(upstreamUrl,{method:request.method,headers,body:request.method==="GET"||request.method==="HEAD"?undefined:request.body,redirect:"manual",signal:controller.signal}));
-    const outHeaders=new Headers(upstream.headers);
-    outHeaders.set("cache-control","no-store, max-age=0");
-    outHeaders.delete("set-cookie");
-    return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:outHeaders});
-  }catch(error){
-    const timedOut=error?.name==="AbortError";
-    return json({error:"app_api_unreachable",error_description:timedOut?"ARIA tardó demasiado en responder.": "No se pudo conectar con ARIA.",stage:"network",method:request.method,timeout_ms:timeoutMs},504);
-  }finally{clearTimeout(timer);}
+  const maxAttempts=request.method==="GET"?2:1;
+  for(let attempt=0;attempt<maxAttempts;attempt++){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),timeoutMs);
+    try{
+      const upstream=await fetch(new Request(upstreamUrl,{method:request.method,headers,body:request.method==="GET"||request.method==="HEAD"?undefined:request.body,redirect:"manual",signal:controller.signal}));
+      if(request.method==="GET"&&attempt===0&&[502,503,504].includes(upstream.status)){
+        // Release the transient gateway response before the single bounded retry.
+        try{await upstream.body?.cancel()}catch(_){}
+        clearTimeout(timer);
+        await new Promise(resolve=>setTimeout(resolve,APP_API_GET_TRANSIENT_RETRY_DELAY_MS));
+        continue;
+      }
+      const outHeaders=new Headers(upstream.headers);
+      outHeaders.set("cache-control","no-store, max-age=0");
+      outHeaders.delete("set-cookie");
+      if(attempt>0)outHeaders.set("x-aria-app-api-retry-count",String(attempt));
+      return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:outHeaders});
+    }catch(error){
+      const timedOut=error?.name==="AbortError";
+      return json({error:"app_api_unreachable",error_description:timedOut?"ARIA tardó demasiado en responder.": "No se pudo conectar con ARIA.",stage:"network",method:request.method,timeout_ms:timeoutMs},504);
+    }finally{clearTimeout(timer);}
+  }
+  return json({error:"app_api_unreachable",error_description:"ARIA no respondió tras un reintento de lectura.",stage:"network",method:request.method,timeout_ms:timeoutMs},504);
 }
 async function proxyPasswordSignIn(request, url){
   if(request.method!=="POST")return json({error:"method_not_allowed"},405);

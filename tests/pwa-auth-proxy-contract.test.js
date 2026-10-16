@@ -22,6 +22,15 @@ if (!worker.includes('request.headers.get("apikey")')) throw new Error('worker m
 if (!worker.includes('grantType==="refresh_token"?60000:20000')) throw new Error('password auth proxy timeout must be bounded at 20s');
 if (!worker.includes('if(url.pathname==="/api"||url.pathname.startsWith("/api/"))')) throw new Error('missing same-origin app api proxy');
 if (!worker.includes('async function proxyAppApi')) throw new Error('missing app api proxy implementation');
+const appApiProxyStart = worker.indexOf('async function proxyAppApi(request,url)');
+const appApiProxyEnd = worker.indexOf('async function proxyPasswordSignIn', appApiProxyStart);
+const appApiProxy = worker.slice(appApiProxyStart, appApiProxyEnd);
+if (!worker.includes('const APP_API_GET_TRANSIENT_RETRY_DELAY_MS = 350;')) throw new Error('app API GET gateway retry delay must remain bounded');
+if (!appApiProxy.includes('const maxAttempts=request.method==="GET"?2:1;')) throw new Error('only idempotent GET may receive one extra attempt');
+if (!appApiProxy.includes('request.method==="GET"&&attempt===0&&[502,503,504].includes(upstream.status)')) throw new Error('only first-attempt transient gateway errors may trigger the bounded GET retry');
+if (!appApiProxy.includes('try{await upstream.body?.cancel()}catch(_){}')) throw new Error('transient gateway response body must be released before retry');
+if (!appApiProxy.includes('if(attempt>0)outHeaders.set("x-aria-app-api-retry-count",String(attempt));')) throw new Error('successful retry must leave a sanitized retry-count response header');
+if (!appApiProxy.includes('return json({error:"app_api_unreachable",error_description:timedOut?"ARIA tardó demasiado en responder.": "No se pudo conectar con ARIA.",stage:"network",method:request.method,timeout_ms:timeoutMs},504);')) throw new Error('network exceptions must remain fail-closed and must not be misreported as transient HTTP retries');
 if (!app.includes("const API = '/api';")) throw new Error('PWA must use same-origin app api');
 if (!app.includes('CACHE_PREFIX')) throw new Error('PWA cache layer missing');
 if (!app.includes('readCached')) throw new Error('PWA stale-cache read path missing');
