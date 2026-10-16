@@ -1,0 +1,75 @@
+name: ARIA private vault LIVE security probes
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify-private-vault-live.mjs'
+      - '.github/workflows/aria-private-vault-live-probe.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/verify-private-vault-live.mjs'
+      - '.github/workflows/aria-private-vault-live-probe.yml'
+      - '.github/workflows/aria-private-vault-contract.yml'
+      - 'supabase/functions/aria-app-api-v3/index.ts'
+      - 'supabase/functions/aria-app-api-v3/private-vault.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-vault-probe:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      SUPABASE_URL: https://icuqsstxfdbvjytkhlog.supabase.co
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_E2AmZNo2hAbOYlytkVbyBQ_X7JH0HPw
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Probe live auth and CORS boundaries
+        id: probe
+        shell: bash
+        run: |
+          set -uo pipefail
+          node scripts/verify-private-vault-live.mjs > live-vault-probe.json
+          exit_code=$?
+          report="$(cat live-vault-probe.json)"
+          printf 'report=%s\n' "$report" >> "$GITHUB_OUTPUT"
+          if [ "$exit_code" -ne 0 ]; then exit "$exit_code"; fi
+      - name: Persist LIVE probe report on Step 5 PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          PROBE_REPORT: ${{ steps.probe.outputs.report }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="${PROBE_REPORT:-No JSON report emitted; inspect the workflow logs.}"
+          body="$(printf '<!-- aria-private-vault-live-probe -->\n## LIVE private-vault security probe\n**Result:** %s\n**Workflow:** %s\n\n```json\n%s\n```' "$PROBE_OUTCOME" "$RUN_URL" "$report")"
+          comments="$(gh api "repos/$REPOSITORY/issues/1230/comments?per_page=100" --paginate --jq '.[] | select(.body | contains("<!-- aria-private-vault-live-probe -->")) | .id' || true)"
+          existing="$(printf '%s\n' "$comments" | tail -n 1)"
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$REPOSITORY/issues/comments/$existing" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$REPOSITORY/issues/1230/comments" -f body="$body" >/dev/null
+          fi
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-private-vault-live-probe-${{ github.run_id }}
+          path: live-vault-probe.json
+          if-no-files-found: warn
