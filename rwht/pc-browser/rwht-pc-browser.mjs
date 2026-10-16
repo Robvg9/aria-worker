@@ -154,6 +154,7 @@ async function checkUx(page) {
           routeHash === '#capabilities' ? '.capabilitiesViewport' :
           routeHash === '#settings' ? '.settingsViewport' :
           routeHash === '#meditation' ? '.meditationViewport' :
+          routeHash === '#projects' ? '.projectShell' :
           null;
     const isInActiveSurface = (element) =>
       !activeSurfaceSelector || Boolean(element.closest(activeSurfaceSelector));
@@ -379,6 +380,15 @@ async function closeDialogs(page) {
   return !remainingBlockingSurface;
 }
 
+
+function isBattleCruiserExternalAuthSnapshot(control, routeHash) {
+  if (routeHash !== '#projects') return false;
+  const label = safeLabel(control?.name);
+  if (control.tag === 'button' && EXTERNAL_CONNECTION_AUTH.test(label)) return true;
+  return control.tag === 'input' &&
+    String(control.type || '').toLowerCase() === 'email' &&
+    /^correo@ejemplo\.com$/i.test(label);
+}
 
 async function isBattleCruiserExternalAuthField(page, control, label) {
   const routeHash = (new URL(page.url()).hash || '#home').split('?')[0];
@@ -942,6 +952,8 @@ async function auditRoute(page, url, routeIndex, config) {
       reload: reloadAuth
     };
   }
+  // A previous route/control may leave the SPA vertically scrolled. Audit each route from its canonical top.
+  await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
   const ux = await checkUx(page);
 
   // Authentication is a hard boundary for authenticated RWHT. Never audit
@@ -974,7 +986,9 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_testable: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
       const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
-      return control.visible && !control.disabled && ((!dynamicMission && !dynamicQueueOpen) || isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
+      const externalAuthBoundary = isBattleCruiserExternalAuthSnapshot(control, routeForReadiness);
+      return (externalAuthBoundary || (control.visible && !control.disabled)) &&
+        ((!dynamicMission && !dynamicQueueOpen) || isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
     }).length,
     controls_verified: 0,
     controls_blocked: 0,
@@ -982,7 +996,9 @@ async function auditRoute(page, url, routeIndex, config) {
     controls_skipped: initialControls.filter((control) => {
       const dynamicMission = new RegExp('^Misión\\s+\\d+\\s+·', 'i').test(safeLabel(control.name));
       const dynamicQueueOpen = new RegExp('^Abrir\\s+\\d+\\s+·\\s+PRIORIDAD$', 'i').test(safeLabel(control.name));
-      return !control.visible || control.disabled || ((dynamicMission || dynamicQueueOpen) && !isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
+      const externalAuthBoundary = isBattleCruiserExternalAuthSnapshot(control, routeForReadiness);
+      return (!externalAuthBoundary && (!control.visible || control.disabled)) ||
+        ((dynamicMission || dynamicQueueOpen) && !isSafeReadOnlyMeditationAction(control, routeForReadiness, safeLabel(control.name)));
     }).length,
     ux,
     login,
@@ -1070,11 +1086,7 @@ async function auditRoute(page, url, routeIndex, config) {
     // The selected BattleCruiser project can legitimately reset on a fresh reload.
     // Its credentials/submit action remain a human gate and must not become a false
     // "control_not_reproducible" failure merely because the project selection changed.
-    const battleCruiserExternalAuthSnapshot = routeHash === '#projects' && (
-      (original.tag === 'button' && EXTERNAL_CONNECTION_AUTH.test(originalLabel)) ||
-      (original.tag === 'input' && String(original.type || '').toLowerCase() === 'email' &&
-        /^correo@ejemplo\.com$/i.test(originalLabel))
-    );
+    const battleCruiserExternalAuthSnapshot = isBattleCruiserExternalAuthSnapshot(original, routeHash);
     if (battleCruiserExternalAuthSnapshot) {
       routeResult.actions.push({
         control: original,
@@ -1106,6 +1118,15 @@ async function auditRoute(page, url, routeIndex, config) {
       });
       // This control was already counted as skipped when the initial snapshot
       // built controls_skipped/controls_testable; do not count it twice on replay.
+      continue;
+    }
+    if (!original.visible || original.disabled) {
+      routeResult.actions.push({
+        control: original,
+        outcome: 'skipped',
+        action: 'inspect',
+        reason: !original.visible ? 'not_visible_initial_snapshot' : 'disabled_initial_snapshot'
+      });
       continue;
     }
     if (routeHash === '#settings' && settingsPresenceControl) {
