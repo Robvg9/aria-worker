@@ -72,6 +72,7 @@ const runner = fs.readFileSync(new URL("../supabase/functions/aria-mission-runne
 assert.match(planner, /validatePhysicalExecutionPlan\(\{goal,metadata:context\?\.mission_planner_contract\},directDevice\.steps\)/);
 assert.match(planner, /explicit_physical_execution_contract_incomplete/);
 assert.match(planner, /physical_contract_validated:true/);
+assert.ok(planner.includes("directDeviceIntentPlan(goal,{...context,mission_planner_contract:earlyPhysicalMetadata})"), "early physical routing must normalize nested mission_planner_contract before plan creation");
 assert.ok(planner.includes('"android.notification", "ollama.qwen3", "ecc.execute"'), "planner explicit capability allowlist must include the non-shell physical operations");
 const plannerEntry = planner.indexOf("Deno.serve(async r=>");
 const earlyPhysicalGate = planner.indexOf("const earlyPhysicalRequirement=explicitPhysicalExecutionRequirement", plannerEntry);
