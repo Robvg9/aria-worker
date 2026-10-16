@@ -3,6 +3,9 @@ const PHYSICAL_EXECUTION_CAPABILITIES = new Set([
   "computer.use",
   "computer.use.autonomous",
   "computer.use.android",
+  "android.notification",
+  "ollama.qwen3",
+  "ecc.execute",
 ]);
 
 function physicalClean(value) {
