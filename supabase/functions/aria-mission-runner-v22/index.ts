@@ -3111,6 +3111,14 @@ Deno.serve(async (request) => {
         : (mission?.checkpoint?.visual_context && typeof mission.checkpoint.visual_context === "object"
           ? mission.checkpoint.visual_context
           : (mission?.visual_context && typeof mission.visual_context === "object" ? mission.visual_context : null)),
+      // Voice input must survive the intake -> runner -> planner handoff with both
+      // the user-visible transcript and the original user-owned media object references.
+      audio_attachments: Array.isArray(mission?.metadata?.audio_attachments)
+        ? mission.metadata.audio_attachments.filter((item: any) => item && typeof item.path === "string").slice(0, 3)
+        : [],
+      audio_transcript: typeof mission?.metadata?.audio_transcript === "string"
+        ? mission.metadata.audio_transcript.slice(0, 4000)
+        : "",
       mission_planner_contract: {
         requested_capability: typeof mission?.metadata?.requested_capability === "string" ? mission.metadata.requested_capability : null,
         requested_device_id: typeof mission?.metadata?.requested_device_id === "string" ? mission.metadata.requested_device_id : (typeof mission?.metadata?.device_id === "string" ? mission.metadata.device_id : null),
