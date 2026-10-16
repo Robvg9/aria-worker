@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'pwa', 'src', 'App.tsx'), 'utf8');
 const runner = fs.readFileSync(path.join(root, 'rwht', 'pc-browser', 'rwht-persistence-recovery-e2e.mjs'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'persistence-recovery-rwht-authenticated.yml'), 'utf8');
+const responsiveWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'responsive-ux-rwht-authenticated.yml'), 'utf8');
 
 for (const fragment of [
   "SESSION_KEY = 'aria_session_v2'",
@@ -89,5 +90,9 @@ for (const fragment of [
 
 assert.doesNotMatch(runner, /console\.(log|error)\([^\n]*(password|refreshToken|accessToken)/i);
 assert.doesNotMatch(runner, /key\.startsWith\(chatPrefix \+ ':'\)/);
+
+assert.ok(workflow.includes("'tests/pwa-responsive-ux-v1.test.js'"), 'Persistence + Recovery must rerun when the Responsive UX contract changes');
+assert.ok(workflow.includes("'.github/workflows/responsive-ux-rwht-authenticated.yml'"), 'Persistence + Recovery must rerun when the Responsive UX gate changes');
+assert.ok(responsiveWorkflow.includes("'.github/workflows/persistence-recovery-rwht-authenticated.yml'"), 'Responsive UX must rerun when its same-SHA persistence predecessor gate changes');
 
 console.log('PWA PERSISTENCE + RECOVERY CONTRACT: PASS');
