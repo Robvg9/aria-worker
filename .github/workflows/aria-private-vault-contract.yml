@@ -1,0 +1,39 @@
+name: ARIA private vault contracts
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/aria-private-vault-v1/**'
+      - 'supabase/functions/_shared/private-vault-contract.ts'
+      - 'supabase/functions/_tests/private-vault-v1.test.ts'
+      - 'supabase/migrations/20261016150000_aria_private_vault_v1.sql'
+      - 'security/aria-private-vault-v1.md'
+      - '.github/workflows/aria-private-vault-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/aria-private-vault-v1/**'
+      - 'supabase/functions/_shared/private-vault-contract.ts'
+      - 'supabase/functions/_tests/private-vault-v1.test.ts'
+      - 'supabase/migrations/20261016150000_aria_private_vault_v1.sql'
+      - 'security/aria-private-vault-v1.md'
+      - '.github/workflows/aria-private-vault-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  private-vault-contract:
+    name: Private vault security contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test request validation and source security contracts
+        run: deno test --allow-read supabase/functions/_tests/private-vault-v1.test.ts
+      - name: Type-check the Edge Function and shared validators
+        run: deno check --config supabase/functions/aria-private-vault-v1/deno.json supabase/functions/aria-private-vault-v1/index.ts supabase/functions/_shared/private-vault-contract.ts
