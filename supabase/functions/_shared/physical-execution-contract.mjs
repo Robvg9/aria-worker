@@ -79,6 +79,7 @@ function isDeviceStep(step) {
 export function validatePhysicalExecutionPlan(mission, steps) {
   const requirement = explicitPhysicalExecutionRequirement(mission);
   if (!requirement.required) return { ok: true, required: false, reason: "not_a_physical_execution_mission" };
+  if (!requirement.operation) return { ok: false, required: true, reason: "structured_device_capability_missing", requirement };
 
   if (requirement.operation === "shell.execute") {
     if (!requirement.structuredDeviceId) return { ok: false, required: true, reason: "structured_device_id_missing", requirement };
