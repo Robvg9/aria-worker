@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const VERSION = 'aria-pc-browser-rwht-v1.5.7';
+const VERSION = 'aria-pc-browser-rwht-v1.5.8';
 const DEFAULT_ROUTES = ['#home', '#chat', '#projects', '#meditation', '#capabilities', '#settings', '#mission'];
 const SAFE_BLOCKED = /(delete|remove|destroy|reset|revoke|logout|log[ -]?out|sign[ -]?out|clear[ -]?all|wipe|trash|borrar|eliminar|destruir|restablecer|revocar|cerrar\s*sesión|cerrar\s*sesion|cerrar\s+(?:la\s+)?conexión|cerrar\s+(?:la\s+)?conexion|desconectar|disconnect|close\s+connection|salir|vaciar)/i;
 const SECRET = /(password|passwd|token|secret|api[_ -]?key|private\s*key|bearer|credential|contraseña|contrasena)/i;
@@ -83,10 +83,12 @@ async function discoverInteractive(page) {
       .map((id) => document.getElementById(id)?.innerText || '')
       .join(' ')
       .trim();
+    const nativeLabel = el.labels ? [...el.labels].map((label) => label.innerText || label.textContent || '').join(' ').trim() : '';
     const name = (
       el.getAttribute('aria-label') ||
       labelledBy ||
       el.getAttribute('title') ||
+      nativeLabel ||
       el.getAttribute('placeholder') ||
       el.innerText ||
       el.textContent ||
@@ -168,10 +170,12 @@ async function checkUx(page) {
         .map((id) => document.getElementById(id)?.innerText || '')
         .join(' ')
         .trim();
+      const nativeLabel = element.labels ? [...element.labels].map((label) => label.innerText || label.textContent || '').join(' ').trim() : '';
       const name = (
         element.getAttribute('aria-label') ||
         labelledBy ||
         element.getAttribute('title') ||
+        nativeLabel ||
         element.getAttribute('placeholder') ||
         element.innerText ||
         element.textContent ||
@@ -214,7 +218,7 @@ async function checkUx(page) {
         const aria = element.getAttribute('aria-label') || element.getAttribute('aria-labelledby');
         if (aria?.trim()) return false;
         if (element.getAttribute('placeholder')?.trim()) return false;
-        if (element.id && [...document.querySelectorAll('label')].some((label) => label.htmlFor === element.id)) return false;
+        if (element.labels?.length || element.closest('label')) return false;
         return true;
       })
       .map((element) => ({
