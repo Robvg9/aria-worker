@@ -232,6 +232,25 @@ const pcWorkflow = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'pc-rwht.yml'),
   'utf8',
 );
+assert.equal((pcWorkflow.match(/'supabase\/functions\/aria-app-api-v3\/\*\*'/g) || []).length, 2,
+  'PC Browser RWHT must run on push and PR changes to the canonical App API');
+assert.match(pcWorkflow, /LIVE_GATE_PREDECESSORS: "ARIA ABSORB Contract and LIVE E2E;ARIA Chat Browser RWHT Authenticated;ARIA Capabilities Browser RWHT Authenticated;ARIA PWA Steps 7-8 LIVE Certification;ARIA npm test;ARIA Autonomous Windows Qwen3;All For One Forensic Audit"/,
+  'Full PC RWHT may certify only after every exact-SHA predecessor, including Steps 7-8, succeeds');
+const steps78WorkflowTriggers = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-pwa-steps-7-8-live.yml'), 'utf8');
+assert.ok(steps78WorkflowTriggers.includes("'.github/workflows/pc-rwht.yml'"),
+  'Steps 7-8 certification must rerun when the PC certification workflow graph changes');
+for (const workflowPath of [
+  '.github/workflows/aria-meditation-webpush-production-e2e.yml',
+  '.github/workflows/capabilities-rwht-authenticated.yml',
+  '.github/workflows/chat-rwht-authenticated.yml',
+  '.github/workflows/persistence-recovery-rwht-authenticated.yml',
+  '.github/workflows/responsive-ux-rwht-authenticated.yml',
+  '.github/workflows/settings-rwht-authenticated.yml',
+]) {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', workflowPath), 'utf8');
+  assert.ok(workflow.includes("'.github/workflows/pc-rwht.yml'"),
+    workflowPath + ' must rerun on PC RWHT exact-SHA gate changes');
+}
 assert.match(pcWorkflow, /RWHT_STORAGE_STATE_B64/);
 assert.match(pcWorkflow, /Load persistent authenticated browser state/);
 assert.match(pcWorkflow, /RWHT_REQUIRE_AUTH:.*RWHT_STORAGE_STATE_B64/);
