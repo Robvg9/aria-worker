@@ -4933,14 +4933,52 @@ if (!physicalPlanValidation.ok) {
     }
 
     const physicalEvidenceValidation = validatePhysicalExecutionEvidence(mission, steps, results, verifyStep);
-    if (!physicalEvidenceValidation.ok) {
+    let physicalPersistedJobValidation:any = { ok: true, required: false };
+    if (physicalEvidenceValidation.ok && physicalEvidenceValidation.required === true
+      && physicalEvidenceValidation.requirement?.operation === "shell.execute") {
+      const physicalStep = steps.find((candidate:any) => String(candidate?.id || "") === String(physicalEvidenceValidation.stepId || ""));
+      const physicalResult = physicalStep ? results[String(physicalStep.id)] : null;
+      const jobId = String(physicalResult?.job_id || "").trim();
+      const requirement = physicalEvidenceValidation.requirement;
+      const stepId = String(physicalStep?.id || "");
+      if (!jobId) {
+        physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_id_missing", requirement, stepId };
+      } else {
+        const { data: persistedJob, error: persistedJobError } = await sb.schema("aria_internal")
+          .from("execution_jobs")
+          .select("job_id,mission_id,device_id,operation,status,exit_code,stdout,completed_at")
+          .eq("job_id", jobId)
+          .eq("mission_id", missionId)
+          .maybeSingle();
+        if (persistedJobError) {
+          physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_lookup_failed", requirement, stepId };
+        } else if (!persistedJob) {
+          physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_not_persisted", requirement, stepId };
+        } else if (String(persistedJob.device_id || "") !== String(requirement.targetDeviceId || physicalStep?.target?.device_id || "")) {
+          physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_device_mismatch", requirement, stepId };
+        } else if (String(persistedJob.operation || "") !== "shell.execute"
+          || String(persistedJob.status || "") !== "succeeded"
+          || Number(persistedJob.exit_code) !== 0
+          || !String(persistedJob.stdout || "").includes(String(requirement.structuredVerificationMarker || ""))
+          || !persistedJob.completed_at) {
+          physicalPersistedJobValidation = { ok: false, required: true, reason: "physical_execution_job_verification_mismatch", requirement, stepId };
+        } else {
+          physicalPersistedJobValidation = { ok: true, required: true, reason: "physical_execution_job_persisted_and_verified", requirement, stepId, jobId };
+        }
+      }
+    }
+    const finalPhysicalEvidenceValidation = !physicalEvidenceValidation.ok
+      ? physicalEvidenceValidation
+      : physicalPersistedJobValidation;
+    if (!finalPhysicalEvidenceValidation.ok) {
       const gateDetails = {
         kind: "explicit_physical_execution_evidence_incomplete",
         status: "blocked",
-        reason: physicalEvidenceValidation.reason,
-        operation: physicalEvidenceValidation.requirement?.operation || null,
-        required_device_id: physicalEvidenceValidation.requirement?.targetDeviceId || null,
-        step_id: physicalEvidenceValidation.stepId || null,
+        reason: finalPhysicalEvidenceValidation.reason,
+        operation: finalPhysicalEvidenceValidation.requirement?.operation || null,
+        required_device_id: finalPhysicalEvidenceValidation.requirement?.targetDeviceId || null,
+        step_id: finalPhysicalEvidenceValidation.stepId || null,
+        job_id: finalPhysicalEvidenceValidation.jobId || null,
         next_action: "recovery:physical_execution_evidence_missing",
         at: new Date().toISOString(),
       };
