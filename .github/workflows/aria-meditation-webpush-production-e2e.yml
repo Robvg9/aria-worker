@@ -17,6 +17,7 @@ on:
       - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
       # The authenticated persistence predecessor gate is part of the same-SHA certification graph.
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
+      - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
 
 permissions:
