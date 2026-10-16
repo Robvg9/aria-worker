@@ -26,7 +26,10 @@ assert(e2e.includes("aria_auth_rejected:"), 'Web Push E2E must preserve visible 
 assert(!e2e.includes("return !pwd;"), 'Web Push E2E must prove persisted ARIA session rather than waiting for unrelated password fields to disappear');
 
 assert(e2e.includes('console_error_details:[]'), 'Web Push E2E must persist console error messages, not only an error count');
-assert(e2e.includes('report.console_error_details = consoleErrors.slice()'), 'Web Push E2E must write console error detail into the evidence report');
+assert(e2e.includes('report.console_error_details = ariaConsoleErrors.slice()'), 'Web Push E2E must write ARIA-origin console error detail into the evidence report');
+assert(e2e.includes('report.external_console_errors = externalConsoleErrors.length'), 'Web Push E2E must count and distinguish external preview console errors');
+assert(e2e.includes('report.external_console_error_details = externalConsoleErrors.slice()'), 'Web Push E2E must persist external preview console error details separately');
+assert(e2e.includes('source_origin: sourceOrigin'), 'Web Push E2E must record the console error source origin');
 assert(e2e.includes('report.page_error_details = pageErrors.slice()'), 'Web Push E2E must write page error detail into the evidence report');
 assert(e2e.includes('report.failed_response_details = failedResponses.slice()'), 'Web Push E2E must write failed response detail into the evidence report');
 const pushOnlyStart = e2e.indexOf("if (envBool('RWHT_BACKGROUND_PUSH_ONLY', false))");
