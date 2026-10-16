@@ -22,6 +22,8 @@ on:
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
       - '.github/workflows/pc-rwht.yml'
+      # The predecessor must re-run whenever the Web Push E2E runner changes; Web Push waits on this exact-SHA gate.
+      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
       # The predecessor must re-run when either same-SHA successor gate definition changes.
       - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
