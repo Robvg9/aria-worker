@@ -43,7 +43,10 @@ assert.ok(shellExecutor.includes('killProcessTree(child.pid)'), 'PowerShell runn
 assert.ok(desktopAdapter.includes('function abortableDelay(ms, signal)'), 'desktop waits must be interruptible');
 assert.ok(desktopAdapter.includes("status: 'cancelled'"), 'desktop automation must propagate cancellation');
 assert.ok(rwhtController.includes('assertNotCancelled'), 'RWHT must check revocation between physical actions');
-assert.ok(deviceGateway.includes("const jobStatusMatch=p.match(/^\\\\/v1\\\\/jobs\\\\/([^/]+)\\\\/status$/)"), 'device gateway must expose the authenticated job status endpoint');
+assert.ok(deviceGateway.includes('jobStatusMatch=p.match'), 'device gateway must expose the authenticated job status endpoint');
+assert.ok(deviceGateway.includes("supabase.rpc('execution_job_authorization_status_gateway'"), 'device gateway must use the protected security-definer RPC, not direct internal schema access');
+assert.ok(sql.includes('REVOKE ALL ON FUNCTION public.execution_job_authorization_status_gateway'), 'authorization status RPC must not be public');
+assert.ok(sql.includes('GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway'), 'only the service-role gateway may call the status RPC');
 assert.ok(deviceGateway.includes("authorized:missionAuthorized&&status==='running'"), 'device gateway must deny jobs whose mission is not active');
 assert.ok(integrationSql.includes("mi_running_revoke"), 'integration SQL must cover cancellation after a job reaches running');
 assert.ok(integrationSql.includes("has_function_privilege('anon'"), 'integration SQL must verify the authorization RPC privilege boundary');
