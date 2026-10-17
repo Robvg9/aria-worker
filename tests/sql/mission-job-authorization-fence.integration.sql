@@ -132,6 +132,34 @@ BEGIN
 END;
 $function$;
 
+
+
+-- A late agent success must never overwrite a job revoked by the parent mission.
+DO $function$
+DECLARE
+  late_result jsonb;
+  r aria_internal.execution_jobs%ROWTYPE;
+BEGIN
+  late_result := public.complete_execution_job_gateway(
+    'job_running_001','device-test','succeeded',0,'SAFE_AUTONOMY_OK','',
+    jsonb_build_object('status','succeeded','exit_code',0,'stdout','SAFE_AUTONOMY_OK')
+  );
+  IF late_result IS NOT NULL THEN
+    RAISE EXCEPTION 'late completion must be rejected after mission revocation: %',late_result;
+  END IF;
+
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_running_001';
+  IF r.status <> 'cancelled' OR r.exit_code IS NOT NULL OR r.stdout IS NOT NULL THEN
+    RAISE EXCEPTION 'late result resurrected a revoked job: %',row_to_json(r);
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM aria_internal.execution_job_events
+              WHERE job_id='job_running_001' AND event_type='job.succeeded') THEN
+    RAISE EXCEPTION 'late result emitted job.succeeded evidence after revocation';
+  END IF;
+END;
+$function$;
+
 -- The authenticated status RPC sees the authorized state and then a revocation.
 INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_status_check','running');
 SELECT public.enqueue_execution_job_gateway('job_status_001','mi_status_check','device-test','shell.execute','echo status',NULL,10000,'{}'::jsonb,'{}'::jsonb);
