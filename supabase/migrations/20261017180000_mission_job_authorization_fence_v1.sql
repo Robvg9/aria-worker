@@ -269,3 +269,8 @@ BEGIN
   );
 END;
 $function$;
+
+-- This SECURITY DEFINER RPC is reachable only through the authenticated Edge
+-- gateway's service-role client; never expose it to browser/API roles directly.
+REVOKE ALL ON FUNCTION public.execution_job_authorization_status_gateway(text,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway(text,text) TO service_role;
