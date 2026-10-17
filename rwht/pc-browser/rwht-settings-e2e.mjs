@@ -81,57 +81,108 @@ async function waitForPwaBoot(page, stage) {
 
 
 async function login(page) {
-  const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[autocomplete="username"]').first();
-  const authenticatedSurface = page.locator('.dashboardScreen,.projectShell').first();
+  // Use only the active Auth form. Document-wide selectors can resolve a stale
+  // or hidden field and can race React's form transition after logout.
+  const authenticatedSurface = page.locator('.dashboardScreen:visible, .projectShell:visible').first();
+  const authForm = page.locator('.authScreen:visible form.authCard').first();
+  const authEmail = authForm.locator('input[aria-label="Correo"]');
+  const passwordInput = authForm.locator('input[aria-label="Contraseña"]');
+  const submitButton = authForm.locator('button.primary.wide');
+
+  const authenticatedAndPersisted = async () => {
+    const visibleSurface = await authenticatedSurface.isVisible().catch(() => false);
+    const sessionPresent = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2'))).catch(() => false);
+    return visibleSurface && sessionPresent;
+  };
+
   await Promise.race([
-    authForm.waitFor({ state: 'visible', timeout: 60000 }),
+    authEmail.waitFor({ state: 'visible', timeout: 60000 }),
     authenticatedSurface.waitFor({ state: 'visible', timeout: 60000 })
   ]).catch(() => {});
 
-  if (await authenticatedSurface.isVisible().catch(() => false)) return;
+  if (await authenticatedAndPersisted()) return;
 
-  if (!(await authForm.isVisible().catch(() => false))) {
-    throw new Error('settings_auth_surface_not_visible');
-  }
-
-  const passwordInput = page.locator('input[aria-label="Contraseña"],input[type="password"],input[autocomplete="current-password"]').first();
-  await passwordInput.waitFor({ state: 'visible', timeout: 30000 });
-
+  let lastFailure = 'auth_form_not_ready';
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await authForm.fill(email);
-    await passwordInput.fill(password);
-    await page.getByRole('button', { name: 'ENTRAR EN ARIA' }).click();
     try {
-      await page.waitForFunction(() => {
-        const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        });
-        return !!document.querySelector('.dashboardScreen,.projectShell') || !!document.querySelector('.errorBox') || !pwd;
-      }, null, { timeout: 30000 });
-      const authError = await page.locator('.errorBox').innerText().catch(() => '');
-      if (authError) {
-        throw new Error('settings_auth_ui_error:' + authError.slice(0, 300) + ':' + JSON.stringify(responseDiagnostics.slice(-6)));
+      // Resolve and wait again on every attempt; the form may be re-mounted
+      // between logout, hash routing, hydration and a retry reload.
+      await authForm.waitFor({ state: 'visible', timeout: 30000 });
+      await authEmail.waitFor({ state: 'visible', timeout: 15000 });
+      await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+      await submitButton.waitFor({ state: 'visible', timeout: 15000 });
+
+      await authEmail.fill(email, { timeout: 15000 });
+      await passwordInput.fill(password, { timeout: 15000 });
+      const submittedEmail = await authEmail.inputValue();
+      const submittedPassword = await passwordInput.inputValue();
+      if (submittedEmail.trim() !== email.trim() || submittedPassword !== password) {
+        throw new Error('settings_auth_submit_input_mismatch:' + JSON.stringify({
+          attempt,
+          email_present: Boolean(submittedEmail.trim()),
+          email_matches_config: submittedEmail.trim() === email.trim(),
+          password_present: Boolean(submittedPassword),
+          password_matches_config: submittedPassword === password
+        }));
       }
-      return;
+
+      // Verify controlled input state in the active form before submitting.
+      await page.waitForFunction(() => {
+        const form = document.querySelector('.authScreen form.authCard');
+        const emailField = form?.querySelector('input[aria-label="Correo"]');
+        const passwordField = form?.querySelector('input[aria-label="Contraseña"]');
+        const visible = (el) => {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+        return visible(form) && visible(emailField) && visible(passwordField) &&
+          Boolean(emailField.value?.trim()) && Boolean(passwordField.value);
+      }, null, { timeout: 5000 });
+
+      await submitButton.click({ timeout: 15000 });
+      await page.waitForFunction(() => {
+        const visible = (el) => {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+        const authenticated = visible(document.querySelector('.dashboardScreen')) ||
+          visible(document.querySelector('.projectShell'));
+        const authError = visible(document.querySelector('.authScreen .errorBox'));
+        const session = Boolean(localStorage.getItem('aria_session_v2'));
+        return (authenticated && session) || authError;
+      }, null, { timeout: 30000 });
+
+      const authError = await page.locator('.authScreen:visible .errorBox').innerText().catch(() => '');
+      if (authError) throw new Error('settings_auth_ui_error:' + authError.slice(0, 300));
+      if (await authenticatedAndPersisted()) return;
+      throw new Error('settings_login_did_not_establish_persisted_session');
     } catch (error) {
+      const message = String(error?.message || error);
+      lastFailure = message.startsWith('settings_auth_submit_input_mismatch') ? 'input_mismatch' :
+        message.startsWith('settings_auth_ui_error') ? 'auth_ui_error' :
+        /Timeout|timeout/i.test(message) ? 'locator_or_transition_timeout' :
+        message.startsWith('settings_login_did_not_establish') ? 'session_not_established' : 'login_attempt_error';
+
+      if (await authenticatedAndPersisted()) return;
       if (attempt === 3) {
-        const authError = await page.locator('.errorBox').innerText().catch(() => '');
-        const sessionPresent = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2')));
+        const authError = await page.locator('.authScreen:visible .errorBox').innerText().catch(() => '');
+        const bootState = await readPwaBootState(page).catch(() => null);
         throw new Error('settings_authenticated_login_failed_after_3_attempts:' + JSON.stringify({
-          visible_error: authError.slice(0, 300),
-          session_present: sessionPresent,
+          last_failure: lastFailure,
+          visible_error_present: Boolean(authError),
+          session_present: Boolean(bootState?.session_present),
+          auth_surface_visible: Boolean(bootState?.auth_surface_visible),
           auth_responses: responseDiagnostics.slice(-6)
         }));
       }
+
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-      await Promise.race([
-        authForm.waitFor({ state: 'visible', timeout: 30000 }),
-        authenticatedSurface.waitFor({ state: 'visible', timeout: 30000 })
-      ]).catch(() => {});
-      if (await authenticatedSurface.isVisible().catch(() => false)) return;
-      await passwordInput.waitFor({ state: 'visible', timeout: 30000 });
+      await waitForPwaBoot(page, 'login_retry_' + attempt).catch(() => {});
+      if (await authenticatedAndPersisted()) return;
     }
   }
 }
@@ -222,23 +273,27 @@ function panel(page, text) {
       /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(item.url) &&
       /missing email or phone/i.test(String(item.auth_error || ''))
     );
-    const emptyPasswordProbes = authRequestDiagnostics.filter(item =>
+    // Only classify the exact, credential-free Auth boot probe as expected:
+    // an explicit 400 "missing email or phone" response is harmless only when
+    // no email, phone, password or refresh token was sent in that correlated request.
+    const emptyAuthProbes = authRequestDiagnostics.filter(item =>
       item.method === 'POST' &&
       item.grant_type === 'password' &&
-      item.has_password &&
       !item.has_email &&
-      !item.has_phone
+      !item.has_phone &&
+      !item.has_password &&
+      !item.has_refresh_token
     );
     let matchedExpected = 0;
     for (const consoleError of pendingGenericResource400) {
       const matchIndex = expectedAuth400s.findIndex(response => {
         if (Math.abs(consoleError.observed_at - response.observed_at) > 5000) return false;
-        const requestIndex = emptyPasswordProbes.findIndex(request =>
+        const requestIndex = emptyAuthProbes.findIndex(request =>
           request.observed_at <= response.observed_at + 1000 &&
           response.observed_at - request.observed_at <= 10000
         );
         if (requestIndex < 0) return false;
-        emptyPasswordProbes.splice(requestIndex, 1);
+        emptyAuthProbes.splice(requestIndex, 1);
         return true;
       });
       if (matchIndex >= 0) {
