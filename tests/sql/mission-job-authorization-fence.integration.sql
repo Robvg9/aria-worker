@@ -192,6 +192,11 @@ SELECT public.enqueue_execution_job_gateway(
   'job_async_pause_001','mi_async_pause','device-test','shell.execute',
   'echo async-waiter',NULL,10000,'{}'::jsonb,'{}'::jsonb
 );
+SELECT public.enqueue_execution_job_gateway(
+  'job_async_unrelated_001','mi_async_pause','device-test','shell.execute',
+  'echo must-not-run-while-async-paused',NULL,10000,'{}'::jsonb,'{}'::jsonb
+);
+-- The first queued ID is the one the checkpoint will authorize.
 SELECT public.claim_execution_job_gateway('device-test');
 UPDATE aria_internal.mission_state
    SET status='paused',
@@ -203,11 +208,16 @@ UPDATE aria_internal.mission_state
        )
  WHERE mission_id='mi_async_pause';
 DO $function$
-DECLARE r aria_internal.execution_jobs%ROWTYPE; started jsonb; state jsonb; completed jsonb;
+DECLARE r aria_internal.execution_jobs%ROWTYPE; unrelated aria_internal.execution_jobs%ROWTYPE; started jsonb; state jsonb; completed jsonb;
 BEGIN
   SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_async_pause_001';
   IF r.status <> 'claimed' OR r.completed_at IS NOT NULL THEN
     RAISE EXCEPTION 'exact pending async job was cancelled by legitimate pause: %',row_to_json(r);
+  END IF;
+
+  SELECT * INTO unrelated FROM aria_internal.execution_jobs WHERE job_id='job_async_unrelated_001';
+  IF unrelated.status <> 'blocked' OR unrelated.completed_at IS NULL OR unrelated.lease_owner IS NOT NULL OR unrelated.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'mission pause preserved an unrelated job not bound by checkpoint.pending_jobs: %',row_to_json(unrelated);
   END IF;
 
   started := public.start_execution_job_gateway('job_async_pause_001','device-test');
