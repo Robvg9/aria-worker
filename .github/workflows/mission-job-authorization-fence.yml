@@ -8,6 +8,9 @@ on:
       - 'tests/mission-job-authorization-fence-contract.test.js'
       - 'tests/sql/mission-job-authorization-fence-fixture.sql'
       - 'tests/sql/mission-job-authorization-fence.integration.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-start.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-block.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-setup.sql'
       - '.github/workflows/mission-job-authorization-fence.yml'
   push:
     branches: [main]
@@ -64,3 +67,17 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261017180000_mission_job_authorization_fence_v1.sql
       - name: Verify queue / claim / start authorization state transitions
         run: psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence.integration.sql
+
+      - name: Reproduce concurrent mission-block vs physical-job-start race
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-race-setup.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-race-block.sql &
+          BLOCK_PID=$!
+          cleanup() { kill "$BLOCK_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          sleep 0.15
+          psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-race-start.sql
+          wait "$BLOCK_PID"
+          trap - EXIT
