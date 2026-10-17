@@ -92,4 +92,29 @@ BEGIN
 END;
 $function$;
 
+
+-- Running jobs are revoked on mission block, and the physical agent's status monitor can observe cancellation.
+INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_running_revoke','running');
+SELECT public.enqueue_execution_job_gateway('job_running_001','mi_running_revoke','device-test','shell.execute','echo running',NULL,10000,'{}'::jsonb,'{}'::jsonb);
+SELECT public.claim_execution_job_gateway('device-test');
+DO $function$
+DECLARE started jsonb;
+BEGIN
+  started := public.start_execution_job_gateway('job_running_001','device-test');
+  IF started IS NULL OR started->>'status' <> 'running' THEN
+    RAISE EXCEPTION 'test job was not started: %', started;
+  END IF;
+END;
+$function$;
+UPDATE aria_internal.mission_state SET status='blocked' WHERE mission_id='mi_running_revoke';
+DO $function$
+DECLARE r aria_internal.execution_jobs%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_running_001';
+  IF r.status <> 'cancelled' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'running job not revoked coherently: %', row_to_json(r);
+  END IF;
+END;
+$function$;
+
 SELECT 'MISSION_JOB_AUTHORIZATION_FENCE_INTEGRATION_PASS' AS result;
