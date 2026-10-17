@@ -4223,7 +4223,9 @@ if (!physicalPlanValidation.ok) {
 
       if (waiting) {
         await updateMission(missionId, {
-          status: "paused",
+          // A dispatched device job must remain authorized while awaiting its result.
+          // "paused" is a deliberate authorization stop used by Human Gate.
+          status: "waiting",
           current_step: completed.size,
           completed_steps: completed.size,
           next_action: `resume: pending device job ${String(waiting.step.id)}`,
