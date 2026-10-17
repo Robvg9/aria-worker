@@ -97,6 +97,7 @@ const freshExecutorWorkflow = fs.readFileSync(path.join(__dirname, '..', '.githu
 assert.match(freshExecutorWorkflow, /last_seen_at > now\(\) - interval '120 seconds'/, 'Human Gate E2E must only select executors with fresh heartbeats');
 assert.match(freshExecutorWorkflow, /capabilities @> '\["shell\.execute"\]'::jsonb/, 'Human Gate E2E must require declared shell capability');
 assert.match(freshExecutorWorkflow, /DEVICE_AGENT_TYPE = executor_matches\[0\]/, 'Human Gate E2E must target the selected registry device');
+assert.ok(freshExecutorWorkflow.includes('executor_matches = re.findall(r"([A-Za-z0-9_-]{8,128})\\|(windows-local|android-termux)", fresh_executor)'), 'fresh executor parser must handle psql table borders while limiting supported agent types');
 assert.match(freshExecutorWorkflow, /SAFE_COMMAND = "printf SAFE_AUTONOMY_OK"/, 'Termux executor must use a POSIX-safe benign command');
 assert.match(freshExecutorWorkflow, /PROTECTED_COMMAND = "printf PROTECTED_ACTION_OK"/, 'Termux protected-gate probe must remain harmless');
 assert.doesNotMatch(freshExecutorWorkflow, /DEVICE_ID="windows-lacueva-780886"/, 'Human Gate E2E must not hardcode a stale Windows device');
