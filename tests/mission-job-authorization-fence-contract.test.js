@@ -93,12 +93,12 @@ assert.ok(humanGateWorkflow.includes('"SAFE_AUTONOMY_OK" in sj'), 'safe physical
 assert.ok(humanGateWorkflow.includes('"PROTECTED_ACTION_OK" in pj'), 'protected physical PASS must verify the exact stdout marker');
 
 
-const humanGateWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'e2e-human-gate-safe-autonomy.yml'), 'utf8');
-assert.match(humanGateWorkflow, /last_seen_at > now\(\) - interval '120 seconds'/, 'Human Gate E2E must only select executors with fresh heartbeats');
-assert.match(humanGateWorkflow, /capabilities @> '\["shell\.execute"\]'::jsonb/, 'Human Gate E2E must require declared shell capability');
-assert.match(humanGateWorkflow, /DEVICE_AGENT_TYPE = executor_matches\[0\]/, 'Human Gate E2E must target the selected registry device');
-assert.match(humanGateWorkflow, /SAFE_COMMAND = "printf SAFE_AUTONOMY_OK"/, 'Termux executor must use a POSIX-safe benign command');
-assert.match(humanGateWorkflow, /PROTECTED_COMMAND = "printf PROTECTED_ACTION_OK"/, 'Termux protected-gate probe must remain harmless');
-assert.doesNotMatch(humanGateWorkflow, /DEVICE_ID="windows-lacueva-780886"/, 'Human Gate E2E must not hardcode a stale Windows device');
+const freshExecutorWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'e2e-human-gate-safe-autonomy.yml'), 'utf8');
+assert.match(freshExecutorWorkflow, /last_seen_at > now\(\) - interval '120 seconds'/, 'Human Gate E2E must only select executors with fresh heartbeats');
+assert.match(freshExecutorWorkflow, /capabilities @> '\["shell\.execute"\]'::jsonb/, 'Human Gate E2E must require declared shell capability');
+assert.match(freshExecutorWorkflow, /DEVICE_AGENT_TYPE = executor_matches\[0\]/, 'Human Gate E2E must target the selected registry device');
+assert.match(freshExecutorWorkflow, /SAFE_COMMAND = "printf SAFE_AUTONOMY_OK"/, 'Termux executor must use a POSIX-safe benign command');
+assert.match(freshExecutorWorkflow, /PROTECTED_COMMAND = "printf PROTECTED_ACTION_OK"/, 'Termux protected-gate probe must remain harmless');
+assert.doesNotMatch(freshExecutorWorkflow, /DEVICE_ID="windows-lacueva-780886"/, 'Human Gate E2E must not hardcode a stale Windows device');
 
 console.log('mission job authorization fence contract tests passed');
