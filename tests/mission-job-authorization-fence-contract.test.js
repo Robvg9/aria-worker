@@ -19,6 +19,8 @@ const requiredSqlFragments = [
   "status = CASE WHEN j.status = 'queued' THEN 'blocked' ELSE 'cancelled' END",
   'CREATE TRIGGER trg_mission_job_authorization_fence',
   'CREATE OR REPLACE FUNCTION public.start_execution_job_gateway',
+  'CREATE OR REPLACE FUNCTION public.complete_execution_job_gateway',
+  'fail_closed:mission_not_authorized_at_completion',
   'fail_closed:mission_not_authorized_at_start',
   'CREATE OR REPLACE FUNCTION public.claim_execution_job_gateway',
   'fail_closed:mission_not_authorized_at_claim',
@@ -57,5 +59,6 @@ assert.ok(deviceGateway.includes("supabase.rpc('execution_job_authorization_stat
 assert.ok(integrationSql.includes("mi_running_revoke"), 'integration SQL must cover cancellation after a job reaches running');
 assert.ok(integrationSql.includes('late agent success must never overwrite'), 'integration SQL must reject stale completion after revocation');
 assert.ok(integrationSql.includes('late completion must be rejected after mission revocation'), 'integration SQL must assert that late job results cannot resurrect success');
+assert.ok(sql.includes('SELECT m.status INTO v_mission_status') && sql.indexOf('CREATE OR REPLACE FUNCTION public.complete_execution_job_gateway') < sql.lastIndexOf('SELECT m.status INTO v_mission_status'), 'completion path must lock mission before updating a job');
 assert.ok(integrationSql.includes("has_function_privilege('anon'"), 'integration SQL must verify the authorization RPC privilege boundary');
 console.log('mission job authorization fence contract tests passed');
