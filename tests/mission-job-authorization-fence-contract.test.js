@@ -37,6 +37,7 @@ for (const fragment of requiredSqlFragments) {
 }
 
 assert.ok(agent.includes('startJobAuthorizationMonitor(job)'), 'physical agent must supervise live mission authorization');
+assert.ok(agent.includes('RWHT\\s+PC\\s+E2E'), 'authorization monitor changes must preserve deterministic RWHT goal classification');
 assert.ok(agent.includes("'/v1/jobs/'+encodeURIComponent(job.job_id)+'/status'"), 'physical agent must poll the authenticated job status endpoint');
 assert.ok(agent.includes('signal:guard.signal'), 'physical execution paths must receive the cancellation signal');
 assert.ok(shellExecutor.includes("status: 'cancelled'"), 'PowerShell runner must report cancellation as a non-success');
