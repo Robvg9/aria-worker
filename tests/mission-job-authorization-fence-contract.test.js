@@ -88,5 +88,8 @@ assert.ok(humanGateWorkflow.includes('assert "waiting" in pdb,pdb'), 'protected 
 assert.ok(humanGateWorkflow.includes('STALE_TEST_MISSIONS_CLEANED'), 'live E2E must emit stale test-owned mission cleanup evidence');
 assert.ok(humanGateWorkflow.includes("metadata->>'probe'='human_gate_safe_autonomy'"), "cleanup must be scoped only to this workflow's probe missions");
 assert.ok(humanGateWorkflow.includes("updated_at < now() - interval '10 minutes'"), 'cleanup must leave recently created test missions untouched');
+assert.ok((humanGateWorkflow.match(/coalesce\(stdout,''\)/g) || []).length >= 2, 'both physical success branches must read the actual job stdout');
+assert.ok(humanGateWorkflow.includes('"SAFE_AUTONOMY_OK" in sj'), 'safe physical PASS must verify the exact stdout marker');
+assert.ok(humanGateWorkflow.includes('"PROTECTED_ACTION_OK" in pj'), 'protected physical PASS must verify the exact stdout marker');
 
 console.log('mission job authorization fence contract tests passed');
