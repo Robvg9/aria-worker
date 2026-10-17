@@ -49,6 +49,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Runtime syntax checks
+        run: |
+          node --check agents/windows/aria-agent.js
+          node --check autonomy/windows-shell-executor.js
+          node --check computer-use/windows-desktop-adapter.js
+          node --check agents/windows/autonomous-rwht-controller.js
+          node --check tests/mission-job-authorization-fence-contract.test.js
       - name: Static fail-closed contract
         run: node tests/mission-job-authorization-fence-contract.test.js
       - name: Load isolated fixture schema
