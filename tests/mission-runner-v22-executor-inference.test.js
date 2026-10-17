@@ -20,6 +20,10 @@ assert.match(runner, /function normalizeExecutionStep\(step: any, mission: any\)
 assert.match(runner, /mission\?\.metadata\?\.device_id/);
 assert.match(runner, /normalizeExecutionStep\(step, mission\)/);
 assert.match(runner, /executor_selected/);
+const asyncWaitBranch = runner.match(/if \(waiting\) \{[\s\S]*?await updateMission\(missionId, \{([\s\S]*?)\n\s*\}\);/);
+assert.ok(asyncWaitBranch, 'async device wait branch must update the parent mission');
+assert.match(asyncWaitBranch[1], /status:\s*"waiting"/, 'parent mission must stay executable while its physical job is pending');
+assert.doesNotMatch(asyncWaitBranch[1], /status:\s*"paused"/, 'paused is a fail-closed authorization stop, not an async executor wait state');
 assert.match(continuity, /"computer\.use"/);
 assert.match(continuity, /"computer\.use\.autonomous"/);
 assert.match(continuity, /"computer\.use\.android"/);
