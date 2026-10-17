@@ -21,6 +21,10 @@ on:
       - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
       - 'tests/meditation-web-push.test.js'
       - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/responsive-ux-rwht-authenticated.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
       - '.github/workflows/pc-rwht.yml'
   pull_request:
@@ -35,6 +39,10 @@ on:
       - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
       - 'tests/meditation-web-push.test.js'
       - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/responsive-ux-rwht-authenticated.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
       - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
