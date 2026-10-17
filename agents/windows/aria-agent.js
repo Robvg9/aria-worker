@@ -47,7 +47,7 @@ function nativeGatewayRequest(url, options = {}) {
       res.on('data', chunk => { text += chunk; });
       res.on('end', () => resolve({ status: Number(res.statusCode || 0), text }));
     });
-    req.setTimeout(GATEWAY_TIMEOUT_MS, () => {
+    req.setTimeout(Math.max(1000,Number(options.timeoutMs)||GATEWAY_TIMEOUT_MS), () => {
       req.destroy(new Error('gateway_timeout'));
     });
     req.on('error', reject);
@@ -105,7 +105,29 @@ function parseAutonomousRwhtPayload(job){
   };
 }
 function parseQwenPayload(job){if(!job||job.device_id!==DEVICE_ID||job.operation!==OLLAMA_OPERATION)throw new Error('unsupported_job');if(typeof job.command!=='string'||!job.command.trim())throw new Error('ollama_payload_required');let payload;try{payload=JSON.parse(job.command)}catch{throw new Error('ollama_payload_invalid_json')}if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('ollama_payload_invalid');const keys=Object.keys(payload);if(keys.some(key=>!['prompt','model','timeout_ms'].includes(key)))throw new Error('ollama_payload_field_rejected');if(typeof payload.prompt!=='string'||!payload.prompt.trim())throw new Error('ollama_prompt_required');if(payload.model!==undefined&&payload.model!==OLLAMA_MODEL)throw new Error('ollama_model_rejected');if(payload.timeout_ms!==undefined&&(!Number.isInteger(payload.timeout_ms)||payload.timeout_ms<1000||payload.timeout_ms>3_600_000))throw new Error('ollama_timeout_rejected');return{prompt:payload.prompt,model:OLLAMA_MODEL,timeout_ms:payload.timeout_ms??job.timeout_ms??120_000}}
-async function callOllama({prompt,model,timeout_ms}){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(1000,timeout_ms)),started=Date.now();try{const response=await fetch(`${OLLAMA_URL}/api/generate`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model,prompt,stream:false,think:false,options:{temperature:0,num_predict:32}}),signal:controller.signal});const text=await response.text();if(!response.ok)throw new Error(`ollama ${response.status}: ${text.slice(0,1024)}`);let body;try{body=JSON.parse(text)}catch{throw new Error('ollama_invalid_json')}if(typeof body.response!=='string')throw new Error('ollama_response_missing');return{status:'succeeded',exit_code:0,stdout:normalizeQwenResponse(body.response),stderr:'',duration_ms:Date.now()-started,metadata:{raw_response_available:true}}}catch(error){return{status:error?.name==='AbortError'?'timeout':'failed',exit_code:null,stdout:'',stderr:redact(String(error?.message||error).slice(0,4096)),duration_ms:Date.now()-started}}finally{clearTimeout(timer)}}
+async function callOllama({prompt,model,timeout_ms,signal}){
+  if(signal&&signal.aborted)return{status:'cancelled',exit_code:null,stdout:'',stderr:'mission_authorization_revoked',duration_ms:0,metadata:{cancelled:true}};
+  const controller=new AbortController();let timedOut=false;
+  const timer=setTimeout(()=>{timedOut=true;controller.abort()},Math.max(1000,timeout_ms));
+  const onAbort=()=>controller.abort();
+  if(signal)signal.addEventListener('abort',onAbort,{once:true});
+  if(signal&&signal.aborted)onAbort();
+  const started=Date.now();
+  try{
+    const response=await fetch(`${OLLAMA_URL}/api/generate`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model,prompt,stream:false,think:false,options:{temperature:0,num_predict:32}}),signal:controller.signal});
+    const text=await response.text();
+    if(!response.ok)throw new Error(`ollama ${response.status}: ${text.slice(0,1024)}`);
+    let body;try{body=JSON.parse(text)}catch{throw new Error('ollama_invalid_json')}
+    if(typeof body.response!=='string')throw new Error('ollama_response_missing');
+    return{status:'succeeded',exit_code:0,stdout:normalizeQwenResponse(body.response),stderr:'',duration_ms:Date.now()-started,metadata:{raw_response_available:true}};
+  }catch(error){
+    const status=signal&&signal.aborted?'cancelled':timedOut?'timeout':'failed';
+    return{status,exit_code:null,stdout:'',stderr:signal&&signal.aborted?'mission_authorization_revoked':redact(String(error?.message||error).slice(0,4096)),duration_ms:Date.now()-started,metadata:{cancelled:status==='cancelled'}};
+  }finally{
+    clearTimeout(timer);
+    if(signal)signal.removeEventListener('abort',onAbort);
+  }
+}
 async function enroll(){return api('/v1/devices/enroll',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,token:DEVICE_TOKEN})})}
 async function heartbeat(){touchProcessHeartbeat('attempt');try{const capabilities=[SHELL_OPERATION,COMPUTER_OPERATION,AUTONOMOUS_COMPUTER_OPERATION];if(OLLAMA_ENABLED)capabilities.unshift(OLLAMA_OPERATION);await api('/v1/devices/heartbeat',{method:'POST',body:JSON.stringify({device_id:DEVICE_ID,agent_type:'windows-local',capabilities})});touchProcessHeartbeat('online');log(`ONLINE device=${DEVICE_ID} capabilities=${capabilities.join(',')}`)}catch(error){touchProcessHeartbeat('transport_error');console.error(`[heartbeat] ${error.message}`)}}
 function emitTelemetry(message){try{void Promise.resolve(meditationController.event(message)).catch(error=>console.error(`[meditation] ${error.message}`))}catch(error){console.error(`[meditation] ${error.message}`)}}
