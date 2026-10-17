@@ -84,7 +84,7 @@ async function waitForPwaBoot(page, stage) {
 async function login(page) {
   // Use only the active Auth form. Document-wide selectors can resolve a stale
   // or hidden field and can race React's form transition after logout.
-  const authenticatedSurface = page.locator('.dashboardScreen:visible, .projectShell:visible').first();
+  const authenticatedSurface = page.locator('.dashboardScreen:visible, .projectShell:visible, .settingsViewport:visible').first();
   const authForm = page.locator('.authScreen:visible form.authCard').first();
   const authEmail = authForm.locator('input[aria-label="Correo"]');
   const passwordInput = authForm.locator('input[aria-label="Contraseña"]');
