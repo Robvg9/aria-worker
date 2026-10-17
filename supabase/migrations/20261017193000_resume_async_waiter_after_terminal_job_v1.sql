@@ -148,10 +148,10 @@ BEGIN
              ELSE coalesce(m.recovery_count,0)
            END,
            last_recovery_reason=CASE
+             WHEN coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_async_executor' THEN 'async_executor_completed_resumed'
              WHEN m.status='failed' THEN 'failed_mission_replanned'
              WHEN m.status='waiting' AND coalesce(m.checkpoint->'recovery'->>'status','')='verification_pending' THEN 'verification_pending_resumed'
              WHEN m.status='waiting' AND coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_alternative_strategy' THEN 'alternative_strategy_recovery_resumed'
-             WHEN m.status='waiting' AND coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_async_executor' THEN 'async_executor_completed_resumed'
              WHEN m.lease_until IS NOT NULL AND m.lease_until<clock_timestamp() THEN 'lease_expired_reclaimed'
              WHEN m.status='paused' THEN 'explicit_resume_reclaimed'
              ELSE m.last_recovery_reason
@@ -160,7 +160,7 @@ BEGIN
              WHEN m.status='failed' THEN 'replan: prior strategy failed'
              WHEN m.status='waiting' AND coalesce(m.checkpoint->'recovery'->>'status','')='verification_pending' THEN 'verification:resume_pending_verification'
              WHEN m.status='waiting' AND coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_alternative_strategy' THEN 'next_ready_batch'
-             WHEN m.status='waiting' AND coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_async_executor' THEN 'resume:completed_async_device_job'
+             WHEN coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_async_executor' THEN 'resume:completed_async_device_job'
              ELSE m.next_action
            END,
            checkpoint=aria_internal.aria_materialize_human_gate_approval(
