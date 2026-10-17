@@ -167,3 +167,8 @@ assert.match(settingsRunner,/settings_auth_submit_input_mismatch/);
 assert.match(settingsRunner,/authEmail\.fill\(email, \{ timeout: 15000 \}\)/);
 assert.match(settingsRunner,/login_retry_/);
 console.log('SETTINGS RWHT SCOPED LOGIN CONTRACT: PASS');
+
+assert.match(settingsRunner,/const auth400Responses = responseDiagnostics\.filter/);
+assert.match(settingsRunner,/unexpected_auth_http_400/);
+assert.doesNotMatch(settingsRunner,/expected_auth_fallback_observed/,'No Auth HTTP 400 may be reported as an expected fallback.');
+console.log('SETTINGS RWHT AUTH 400 FAIL-CLOSED CONTRACT: PASS');
