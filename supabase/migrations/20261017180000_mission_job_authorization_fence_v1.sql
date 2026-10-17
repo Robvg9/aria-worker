@@ -274,3 +274,6 @@ $function$;
 -- gateway's service-role client; never expose it to browser/API roles directly.
 REVOKE ALL ON FUNCTION public.execution_job_authorization_status_gateway(text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway(text,text) TO service_role;
+
+REVOKE ALL ON FUNCTION aria_internal.cancel_unauthorized_pending_jobs(text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION aria_internal.enforce_mission_job_authorization_fence() FROM PUBLIC, anon, authenticated;
