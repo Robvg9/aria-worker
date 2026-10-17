@@ -160,6 +160,6 @@ assert.match(settingsRunner,/input\[aria-label="Contraseña"\]/);
 assert.match(settingsRunner,/settings_auth_submit_input_mismatch/);
 assert.match(settingsRunner,/authEmail\.fill\(email, \{ timeout: 15000 \}\)/);
 assert.match(settingsRunner,/login_retry_/);
-assert.match(settingsRunner,/!item\.has_email && !item\.has_phone && !item\.has_password && !item\.has_refresh_token/);
+assert.match(settingsRunner,/!item\.has_email\s*&&\s*!item\.has_phone\s*&&\s*!item\.has_password\s*&&\s*!item\.has_refresh_token/);
 assert.doesNotMatch(settingsRunner,/item\.has_password &&\s*!item\.has_email &&\s*!item\.has_phone/,'Only a fully credential-free Auth probe may be classified as expected.');
 console.log('SETTINGS RWHT SCOPED LOGIN + SAFE AUTH-400 CLASSIFICATION CONTRACT: PASS');
