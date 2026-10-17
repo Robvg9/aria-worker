@@ -10,6 +10,10 @@ on:
       - 'supabase/functions/aria-planner-v11/index.ts'
       - 'supabase/migrations/**'
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   human_gate:
     runs-on: ubuntu-latest
@@ -21,6 +25,21 @@ jobs:
         with:
           node-version: 22
       - run: npm install -g supabase
+      - name: Wait for exact-SHA Supabase Runtime deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            runs="$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+            if printf '%s' "$runs" | jq -e --arg sha "$GITHUB_SHA" '.workflow_runs[] | select(.head_sha==$sha and .name=="Deploy ARIA Supabase Runtime" and .status=="completed" and .conclusion=="success")' >/dev/null; then
+              echo "EXACT_SHA_SUPABASE_DEPLOY_PASS=$GITHUB_SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "EXACT_SHA_SUPABASE_DEPLOY_NOT_SUCCESS=$GITHUB_SHA"
+          exit 1
       - name: Run Human Gate E2E
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
