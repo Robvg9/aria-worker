@@ -154,6 +154,7 @@ assert.match(settingsRunner,/authRequestByObject\.set\(request, diagnostic\)/);
 assert.match(settingsRunner,/diagnostic\.auth_request = \{/);
 assert.match(settingsRunner,/auth_console_400_correlation/);
 assert.match(settingsRunner,/missing_identity_auth_submissions/);
+assert.match(settingsRunner,/!request\.has_email && !request\.has_phone/);
 assert.match(settingsRunner,/password-grant submitted without required email or phone/);
 assert.match(settingsRunner,/unclassified_console_events/);
 assert.doesNotMatch(settingsRunner,/matched_expected_empty_auth_probes/,'Auth 400s without identity must not be counted as expected.');
