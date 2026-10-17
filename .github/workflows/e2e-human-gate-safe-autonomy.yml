@@ -125,7 +125,8 @@ jobs:
            ORDER BY CASE WHEN agent_type='windows-local' THEN 0 ELSE 1 END, last_seen_at DESC
            LIMIT 1;
           """)
-          executor_matches = re.findall(r"(?m)^\s*([A-Za-z0-9_-]{8,128})\|([A-Za-z0-9_-]{3,32})\s*$", fresh_executor)
+          # sql() returns psql's Unicode table; parse the device/type cell without anchoring around the border glyphs.
+          executor_matches = re.findall(r"([A-Za-z0-9_-]{8,128})\|(windows-local|android-termux)", fresh_executor)
           assert executor_matches, "no shell executor with fresh heartbeat (<120 seconds)"
           DEVICE_ID, DEVICE_AGENT_TYPE = executor_matches[0]
           if DEVICE_AGENT_TYPE == "windows-local":
