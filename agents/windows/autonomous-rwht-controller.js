@@ -240,17 +240,18 @@ function findFreePort() {
   });
 }
 
-async function findCdpPage() {
+async function findCdpPage(signal) {
   try {
-    const tabs = await fetchJsonWithTimeout(CDP_BASE_URL + '/json', 2500);
+    const tabs = await fetchJsonWithTimeout(CDP_BASE_URL + '/json', 2500, signal);
     return tabs.find((tab) => tab && tab.type === 'page' && String(tab.url || '').includes('aria.robvg9.workers.dev/pwa')) || null;
   } catch {
     return null;
   }
 }
 
-async function ensureCdpBrowser(startUrl) {
-  const existing = await findCdpPage();
+async function ensureCdpBrowser(startUrl, signal) {
+  const existing = await findCdpPage(signal);
+  if (signal && signal.aborted) throw new Error('mission_authorization_revoked');
   if (existing) return { ready: true, managed: false, page: existing };
 
   if (managedBrowser && managedBrowser.child && !managedBrowser.child.killed) {
@@ -289,7 +290,11 @@ async function ensureCdpBrowser(startUrl) {
 
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
-    const page = await findCdpPage();
+    const page = await findCdpPage(signal);
+    if (signal && signal.aborted) {
+      if (managedBrowser && managedBrowser.child === child) await cleanupManagedBrowser();
+      throw new Error('mission_authorization_revoked');
+    }
     if (page) return { ready: true, managed: true, page };
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -739,7 +744,7 @@ async function runAutonomousRwht(options) {
   };
 
   const cdpBootstrap = cdpEnabled
-    ? await ensureCdpBrowser(startUrl).catch((error) => ({
+    ? await ensureCdpBrowser(startUrl, signal).catch((error) => ({
       ready: false,
       error: String(error && error.message || error),
     }))
@@ -762,7 +767,7 @@ async function runAutonomousRwht(options) {
 
   const observe = async (reason = 'initial') => {
     assertNotCancelled();
-    if (cdpEnabled) await ensureCdpBrowser(startUrl).catch(() => null);
+    if (cdpEnabled) await ensureCdpBrowser(startUrl, signal).catch(() => null);
     assertNotCancelled();
     await emitProgress('computer_use_observation_started', {
       reason,
