@@ -8,7 +8,7 @@ export type TestCatalogItem = {
   capabilities: string;
 };
 
-export const TEST_CATALOG_VERSION = '2026-10-16-voice-audio-v2';
+export const TEST_CATALOG_VERSION = '2026-10-17-mission-job-authorization-fence-v1';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
     "id": "mission-job-authorization-fence",
