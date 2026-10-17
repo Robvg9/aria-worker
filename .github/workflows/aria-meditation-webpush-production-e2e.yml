@@ -24,6 +24,9 @@ on:
       - 'supabase/functions/_shared/physical-execution-contract.mjs'
       - 'supabase/migrations/*meditation*'
       - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+      # Keep the exact-SHA deployment and Human Gate predecessor in this release graph.
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
       # The authenticated persistence predecessor gate is part of the same-SHA certification graph.
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
       - '.github/workflows/pc-rwht.yml'

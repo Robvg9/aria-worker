@@ -21,6 +21,8 @@ on:
       - 'rwht/pc-browser/rwht-pc-browser.mjs'
       - 'tests/pc-rwht-browser.test.js'
       - '.github/workflows/persistence-recovery-rwht-authenticated.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
       - '.github/workflows/pc-rwht.yml'
       # The predecessor must re-run whenever the Web Push E2E runner changes; Web Push waits on this exact-SHA gate.
       - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'

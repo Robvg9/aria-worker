@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      # This gate checks deployments on the current SHA; trigger its predecessor when the gate contract changes.
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+      - '.github/workflows/pc-rwht.yml'
       - 'supabase/functions/aria-mission-runner-v22/index.ts'
       - 'supabase/functions/aria-execution-runtime-v1/index.ts'
       - 'supabase/functions/aria-planner-v11/index.ts'

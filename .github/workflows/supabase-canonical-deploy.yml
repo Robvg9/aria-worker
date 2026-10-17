@@ -11,6 +11,11 @@ on:
       - 'autonomy/**'
       - 'scripts/patch-eas-into-mission-runner-v22.js'
       - '.github/workflows/supabase-canonical-deploy.yml'
+      # Keep every same-SHA consumer gate paired with the production runtime deployment.
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/aria-meditation-webpush-production-e2e.yml'
+      - '.github/workflows/pc-rwht.yml'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
       - 'tests/mission-runner-v22-executor-inference.test.js'
       - 'tests/phase3-canonical-runtime-contract.test.js'
       - 'tests/supabase-canonical-deploy-contract.test.js'
