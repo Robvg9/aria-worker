@@ -84,6 +84,8 @@ jobs:
           print("PLANNER_HUMAN_GATE_PASS",[(s.get("id"),s.get("risk")) for s in gated])
 
           DEVICE_ID="windows-lacueva-780886"
+          safe_physical_execution_pass=False
+          protected_physical_execution_pass=False
 
           safe_steps=[
            {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
@@ -108,6 +110,7 @@ jobs:
           print("SAFE_AUTHORIZATION",s,sdb,sj,exact)
           if s.get("status")=="succeeded" or ("succeeded" in sdb and "2" in sdb):
               assert "succeeded" in sdb and "2" in sdb and "SAFE_AUTONOMY_OK" in sj,(s,sdb,sj)
+              safe_physical_execution_pass=True
               print("SAFE_PHYSICAL_EXECUTION_PASS")
           else:
               assert s.get("status")=="waiting",s
@@ -157,6 +160,7 @@ jobs:
           print("POS_AUTHORIZATION",pf,pdb,started,pj,exactPos)
           if pf.get("status")=="succeeded" or ("succeeded" in pdb and "2" in pdb and "completed" in pdb):
               assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b2\b",started),(pf,pdb,started)
+              protected_physical_execution_pass=True
               print("HG_PROTECTED_PHYSICAL_EXECUTION_PASS")
           else:
               assert pf.get("status")=="waiting",pf
@@ -197,7 +201,7 @@ jobs:
 
           print("HG_E2E_PASS")
           print("HUMAN_GATE_AUTHORIZATION = VERIFIED E2E")
-          print("PHYSICAL_EXECUTION = VERIFIED" if "SAFE_PHYSICAL_EXECUTION_PASS" in locals() else "PHYSICAL_EXECUTION_GATE_REMAINS_SEPARATE")
+          print("PHYSICAL_EXECUTION = VERIFIED" if safe_physical_execution_pass and protected_physical_execution_pass else "PHYSICAL_EXECUTION_GATE_REMAINS_SEPARATE")
           print("ALL_PASS")
           PY
 
