@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
       - 'supabase/functions/aria-mission-runner-v22/index.ts'
       - 'supabase/functions/aria-execution-runtime-v1/index.ts'
       - 'supabase/functions/aria-planner-v11/index.ts'
