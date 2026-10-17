@@ -25,6 +25,10 @@ on:
       - '.github/workflows/chat-rwht-authenticated.yml'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
       - '.github/workflows/pc-rwht.yml'
+      # Every path that starts PC RWHT must also create its same-SHA capability predecessor.
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/responsive-ux-rwht-authenticated.yml'
   workflow_dispatch:
 
 permissions:

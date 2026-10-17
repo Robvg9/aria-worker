@@ -78,11 +78,18 @@ jobs:
           def tick(mid):
               return call("aria-mission-runner-v22",{"mission_id":mid})
 
-          def wait_terminal(mid):
+          def wait_terminal(mid, attempts=90):
               last=None
-              for _ in range(20):
+              escaped_mid=mid.replace("'","''")
+              terminal={"succeeded","failed","blocked","rejected","cancelled"}
+              for _ in range(attempts):
                   _,last=tick(mid)
-                  if last.get("status") in {"succeeded","failed","blocked","rejected","cancelled"}:
+                  # The async physical result and the mission continuation can
+                  # commit in separate transactions. Read persisted mission state
+                  # after each tick instead of treating the first idle response as
+                  # a terminal result or racing the device completion.
+                  persisted=sql("SELECT status FROM aria_internal.mission_state WHERE mission_id='"+escaped_mid+"';")
+                  if any(status in persisted for status in terminal):
                       return last
                   time.sleep(1)
               return last
