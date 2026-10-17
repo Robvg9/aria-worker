@@ -1,0 +1,95 @@
+\set ON_ERROR_STOP on
+
+-- Enqueue is rejected for a mission that is already blocked.
+INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_blocked_enqueue','blocked');
+DO $function$
+BEGIN
+  BEGIN
+    PERFORM public.enqueue_execution_job_gateway('job_reject_001','mi_blocked_enqueue','device-test','shell.execute','echo should-not-run',NULL,10000,'{}'::jsonb,'{}'::jsonb);
+    RAISE EXCEPTION 'expected enqueue to reject blocked mission';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  IF EXISTS (SELECT 1 FROM aria_internal.execution_jobs WHERE job_id='job_reject_001') THEN
+    RAISE EXCEPTION 'blocked mission created an execution job';
+  END IF;
+END;
+$function$;
+
+-- A queued job is terminalized in the same transaction as mission revocation.
+INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_queued_to_block','running');
+SELECT public.enqueue_execution_job_gateway('job_queued_001','mi_queued_to_block','device-test','shell.execute','echo queued',NULL,10000,'{}'::jsonb,'{}'::jsonb);
+UPDATE aria_internal.mission_state SET status='blocked' WHERE mission_id='mi_queued_to_block';
+DO $function$
+DECLARE r aria_internal.execution_jobs%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_queued_001';
+  IF r.status <> 'blocked' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'queued job did not terminalize coherently: %', row_to_json(r);
+  END IF;
+END;
+$function$;
+
+-- A job claimed immediately before revocation must be cancelled and cannot start.
+INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_claim_to_block','running');
+SELECT public.enqueue_execution_job_gateway('job_claim_001','mi_claim_to_block','device-test','shell.execute','echo claimed',NULL,10000,'{}'::jsonb,'{}'::jsonb);
+SELECT public.claim_execution_job_gateway('device-test');
+UPDATE aria_internal.mission_state SET status='blocked' WHERE mission_id='mi_claim_to_block';
+DO $function$
+DECLARE r aria_internal.execution_jobs%ROWTYPE; started jsonb;
+BEGIN
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_claim_001';
+  IF r.status <> 'cancelled' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'claimed job did not terminalize coherently: %', row_to_json(r);
+  END IF;
+  started := public.start_execution_job_gateway('job_claim_001','device-test');
+  IF started IS NOT NULL THEN RAISE EXCEPTION 'unauthorized claimed job was started: %', started; END IF;
+END;
+$function$;
+
+-- A pre-migration queued row attached to an already-blocked mission is cancelled at claim.
+INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_legacy_blocked','blocked');
+INSERT INTO aria_internal.execution_jobs(job_id,mission_id,device_id,operation,command,status,lease_owner,lease_until)
+VALUES ('job_legacy_001','mi_legacy_blocked','device-test','shell.execute','echo legacy','queued',NULL,NULL);
+DO $function$
+DECLARE claimed jsonb; r aria_internal.execution_jobs%ROWTYPE;
+BEGIN
+  claimed := public.claim_execution_job_gateway('device-test');
+  IF claimed IS NOT NULL THEN RAISE EXCEPTION 'claim returned unauthorized job: %', claimed; END IF;
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_legacy_001';
+  IF r.status <> 'cancelled' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'legacy job did not terminalize on claim: %', row_to_json(r);
+  END IF;
+END;
+$function$;
+
+-- A legacy claimed row is denied by the start gateway when its mission is blocked.
+INSERT INTO aria_internal.execution_jobs(job_id,mission_id,device_id,operation,command,status,claimed_at,lease_owner,lease_until)
+VALUES ('job_legacy_claim','mi_legacy_blocked','device-test','shell.execute','echo no-start','claimed',clock_timestamp(),'legacy-lease',clock_timestamp()+interval '1 minute');
+DO $function$
+DECLARE started jsonb; r aria_internal.execution_jobs%ROWTYPE;
+BEGIN
+  started := public.start_execution_job_gateway('job_legacy_claim','device-test');
+  IF started IS NOT NULL THEN RAISE EXCEPTION 'start accepted an unauthorized legacy claim: %', started; END IF;
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_legacy_claim';
+  IF r.status <> 'cancelled' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'legacy claim was not terminalized on start: %', row_to_json(r);
+  END IF;
+END;
+$function$;
+
+-- Valid execution remains possible for a live authorized mission.
+INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_valid_start','running');
+SELECT public.enqueue_execution_job_gateway('job_valid_001','mi_valid_start','device-test','shell.execute','echo ok',NULL,10000,'{}'::jsonb,'{}'::jsonb);
+SELECT public.claim_execution_job_gateway('device-test');
+DO $function$
+DECLARE started jsonb;
+BEGIN
+  started := public.start_execution_job_gateway('job_valid_001','device-test');
+  IF started IS NULL OR started->>'status' <> 'running' THEN
+    RAISE EXCEPTION 'authorized job failed to start: %', started;
+  END IF;
+END;
+$function$;
+
+SELECT 'MISSION_JOB_AUTHORIZATION_FENCE_INTEGRATION_PASS' AS result;
