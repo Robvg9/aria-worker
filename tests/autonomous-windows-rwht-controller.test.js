@@ -88,6 +88,40 @@ const { runAutonomousRwht, capabilityProfile } = require('../agents/windows/auto
     'computer_use_verification_completed'
   ]) assert.equal(progressTypes.has(type), true, 'missing live progress event: ' + type);
 
+  const revoked = new AbortController();
+  let revokedObservations = 0;
+  let revokedClicks = 0;
+  const revokedAdapter = async (request, options = {}) => {
+    assert.equal(options.signal, revoked.signal, 'mission cancellation signal must reach every physical adapter call');
+    if (request.action === 'observe') {
+      revokedObservations += 1;
+      return { status: 'succeeded', action: 'observe', ui: uiInitial };
+    }
+    if (request.action === 'click') {
+      revokedClicks += 1;
+      revoked.abort();
+      return { status: 'succeeded', action: 'click' };
+    }
+    return { status: 'succeeded', action: request.action };
+  };
+  await assert.rejects(
+    runAutonomousRwht({
+      mission_id: 'rwht-controller-revocation-test',
+      goal: 'RWHT_CONTROL_DISCOVERY_VERIFY cancellation regression',
+      device_id: 'windows-test',
+      adapter: revokedAdapter,
+      start_url: null,
+      max_actions: 5,
+      max_runtime_ms: 30000,
+      capture_screenshots: false,
+      signal: revoked.signal,
+      on_progress: async () => {}
+    }),
+    /mission_authorization_revoked/
+  );
+  assert.equal(revokedObservations, 1, 'RWHT must not observe or act again after mission revocation');
+  assert.equal(revokedClicks, 1, 'RWHT must stop immediately after the in-flight action receives revocation');
+
   console.log('AUTONOMOUS WINDOWS RWHT CONTROLLER: PASS');
 })().catch((error) => {
   console.error(error);

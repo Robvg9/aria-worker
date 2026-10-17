@@ -28,21 +28,26 @@ function semanticQueryFromTarget(target) {
   return query;
 }
 
-async function executeSemanticClick(payload, timeoutMs) {
+async function executeSemanticClick(payload, timeoutMs, signal) {
+  if (signal && signal.aborted) return { status: 'cancelled', action: payload.action, error: 'mission_authorization_revoked', version: VERSION };
   const uia = await spawnPowerShell(
     ['-NoLogo','-NoProfile','-NonInteractive','-STA','-ExecutionPolicy','Bypass','-File',UIA_ACTION_SCRIPT],
     payload,
-    timeoutMs
+    timeoutMs,
+    signal
   );
+  if (uia.status === 'cancelled' || (signal && signal.aborted)) return { ...uia, status: 'cancelled', error: 'mission_authorization_revoked' };
   if (uia.status === 'succeeded') {
     const observed = await spawnPowerShell(
       ['-NoLogo','-NoProfile','-NonInteractive','-STA','-ExecutionPolicy','Bypass','-File',UIA_SCRIPT],
       { action: 'observe' },
-      timeoutMs
+      timeoutMs,
+      signal
     );
     return { ...uia, ui: observed.status === 'succeeded' ? observed.ui : null, method: 'windows-uia-semantic' };
   }
-  const cdp = await executeChromeSemanticAction(payload, { timeout_ms: Math.min(15000, Math.max(1000, timeoutMs || 7000)) });
+  if (signal && signal.aborted) return { status: 'cancelled', action: payload.action, error: 'mission_authorization_revoked', version: VERSION };
+  const cdp = await executeChromeSemanticAction(payload, { timeout_ms: Math.min(15000, Math.max(1000, timeoutMs || 7000)), signal });
   if (cdp.status === 'succeeded') return cdp;
   return {
     status: 'failed',
@@ -92,7 +97,8 @@ function parseJsonStdout(text) {
   return null;
 }
 
-function spawnPowerShell(args, payload, timeoutMs) {
+function spawnPowerShell(args, payload, timeoutMs, signal) {
+  if (signal && signal.aborted) return Promise.resolve({ status: 'cancelled', action: payload.action, error: 'mission_authorization_revoked', version: VERSION });
   return new Promise((resolve) => {
     const child = spawn('powershell.exe', args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
@@ -102,12 +108,19 @@ function spawnPowerShell(args, payload, timeoutMs) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
       resolve(value);
     };
     const timer = setTimeout(() => {
       killProcessTree(child.pid);
       finish({ status: 'timeout', action: payload.action, error: 'desktop_timeout', version: VERSION });
     }, Math.max(1000, timeoutMs));
+    const onAbort = () => {
+      killProcessTree(child.pid);
+      finish({ status: 'cancelled', action: payload.action, error: 'mission_authorization_revoked', version: VERSION });
+    };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    if (signal && signal.aborted) onAbort();
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString('utf8');
       if (stdout.length > MAX_SCREENSHOT_B64 + 100000) killProcessTree(child.pid);
@@ -148,7 +161,8 @@ function spawnPowerShell(args, payload, timeoutMs) {
   });
 }
 
-function openDirectly(payload) {
+function openDirectly(payload, signal) {
+  if (signal && signal.aborted) return Promise.resolve({ status: 'cancelled', action: 'open', error: 'mission_authorization_revoked', version: VERSION });
   return new Promise((resolve) => {
     const value = String(payload.path || '');
     const isUrl = /^https?:\/\//i.test(value);
@@ -181,20 +195,41 @@ function openDirectly(payload) {
   });
 }
 
-async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
+function abortableDelay(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal && signal.aborted) return resolve(false);
+    let settled = false;
+    const finish = (completed) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve(completed);
+    };
+    const timer = setTimeout(() => finish(true), Math.max(0, ms));
+    const onAbort = () => finish(false);
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    if (signal && signal.aborted) onAbort();
+  });
+}
+
+async function executeWindowsDesktop(request, { timeout_ms = 30_000, signal } = {}) {
+  if (signal && signal.aborted) return { status: 'cancelled', action: String(request?.action || ''), error: 'mission_authorization_revoked', version: VERSION };
   const payload = validateRequest(request);
-  if (payload.action === 'open') return openDirectly(payload);
+  if (payload.action === 'open') return openDirectly(payload, signal);
   if ((payload.action === 'click' || payload.action === 'double_click') && payload.target && !(Number.isInteger(payload.x) && Number.isInteger(payload.y))) {
-    return executeSemanticClick(payload, timeout_ms);
+    return executeSemanticClick(payload, timeout_ms, signal);
   }
   if (payload.action === 'wait') {
     const startedAt = Date.now();
     const budget = Math.max(1000, timeout_ms);
     if (payload.ms > budget) {
-      await new Promise((resolve) => setTimeout(resolve, budget));
+      const completed = await abortableDelay(budget, signal);
+      if (!completed) return { status: 'cancelled', action: 'wait', ms: payload.ms, error: 'mission_authorization_revoked', version: VERSION };
       return { status: 'timeout', action: 'wait', ms: payload.ms, timeout_ms: budget, elapsed_ms: Date.now() - startedAt, error: 'desktop_timeout', version: VERSION, method: 'node_timer' };
     }
-    await new Promise((resolve) => setTimeout(resolve, payload.ms));
+    const completed = await abortableDelay(payload.ms, signal);
+    if (!completed) return { status: 'cancelled', action: 'wait', ms: payload.ms, error: 'mission_authorization_revoked', version: VERSION };
     return { status: 'succeeded', action: 'wait', ms: payload.ms, elapsed_ms: Date.now() - startedAt, version: VERSION, method: 'node_timer' };
   }
   const args = payload.action === 'observe'
@@ -202,7 +237,7 @@ async function executeWindowsDesktop(request, { timeout_ms = 30_000 } = {}) {
     : payload.action === 'hotkey'
       ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', HOTKEY_SCRIPT]
       : ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', RUNNER];
-  return spawnPowerShell(args, payload, timeout_ms);
+  return spawnPowerShell(args, payload, timeout_ms, signal);
 }
 
 module.exports = Object.freeze({ VERSION, ACTIONS, RUNNER, UIA_SCRIPT, UIA_ACTION_SCRIPT, HOTKEY_SCRIPT, validateRequest, executeWindowsDesktop, semanticQueryFromTarget });
