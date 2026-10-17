@@ -306,7 +306,7 @@ function panel(page, text) {
         request &&
         request.method === 'POST' &&
         request.grant_type === 'password' &&
-        (!request.has_email || !request.has_phone)
+        (!request.has_email && !request.has_phone)
       ) {
         missingIdentityAuthSubmissions += 1;
         runtimeErrors.push('auth: password-grant submitted without required email or phone');
