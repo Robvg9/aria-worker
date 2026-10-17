@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const migrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017180000_mission_job_authorization_fence_v1.sql');
+const asyncPauseMigrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017190000_mission_job_authorization_fence_async_pause_v1.sql');
 const sql = fs.readFileSync(migrationPath, 'utf8');
+const asyncPauseSql = fs.readFileSync(asyncPauseMigrationPath, 'utf8');
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'aria-agent.js'), 'utf8');
 const shellExecutor = fs.readFileSync(path.join(__dirname, '..', 'autonomy', 'windows-shell-executor.js'), 'utf8');
 const desktopAdapter = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
@@ -61,4 +63,14 @@ assert.ok(integrationSql.includes('late agent success must never overwrite'), 'i
 assert.ok(integrationSql.includes('late completion must be rejected after mission revocation'), 'integration SQL must assert that late job results cannot resurrect success');
 assert.ok(sql.includes('SELECT m.status INTO v_mission_status') && sql.indexOf('CREATE OR REPLACE FUNCTION public.complete_execution_job_gateway') < sql.lastIndexOf('SELECT m.status INTO v_mission_status'), 'completion path must lock mission before updating a job');
 assert.ok(integrationSql.includes("has_function_privilege('anon'"), 'integration SQL must verify the authorization RPC privilege boundary');
+
+assert.ok(asyncPauseSql.includes('CREATE OR REPLACE FUNCTION aria_internal.mission_job_authorization_allowed'), 'corrective migration must use a single mission/job authorization predicate');
+assert.ok(asyncPauseSql.includes("v_checkpoint->'recovery'->>'status'"), 'async exception must require waiting_for_async_executor recovery state');
+assert.ok(asyncPauseSql.includes("pending.job->>'job_id'=p_job_id"), 'async exception must bind authorization to the exact persisted pending job ID');
+assert.ok(asyncPauseSql.includes("v_mission_status <> 'running'"), 'new jobs may only be enqueued while the mission is running');
+assert.ok(asyncPauseSql.includes('NOT aria_internal.mission_job_authorization_allowed(v_mission_id,p_job_id)'), 'start/completion/status must consult the async-aware fail-closed predicate');
+assert.ok(integrationSql.includes('mi_async_pause'), 'integration SQL must preserve the single pending async job during pause');
+assert.ok(integrationSql.includes('mi_human_gate_pause'), 'integration SQL must cancel unrelated jobs during a Human Gate pause');
+assert.ok(integrationSql.includes('mi_alternative_wait'), 'integration SQL must cancel jobs while replanning for an alternative strategy');
+
 console.log('mission job authorization fence contract tests passed');
