@@ -1,0 +1,59 @@
+name: Mission Job Authorization Fence Integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261017180000_mission_job_authorization_fence_v1.sql'
+      - 'tests/mission-job-authorization-fence-contract.test.js'
+      - 'tests/sql/mission-job-authorization-fence-fixture.sql'
+      - 'tests/sql/mission-job-authorization-fence.integration.sql'
+      - '.github/workflows/mission-job-authorization-fence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261017180000_mission_job_authorization_fence_v1.sql'
+      - 'tests/mission-job-authorization-fence-contract.test.js'
+      - 'tests/sql/mission-job-authorization-fence-fixture.sql'
+      - 'tests/sql/mission-job-authorization-fence.integration.sql'
+      - '.github/workflows/mission-job-authorization-fence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract-and-postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aria_fence_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d aria_fence_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: aria_fence_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Static fail-closed contract
+        run: node tests/mission-job-authorization-fence-contract.test.js
+      - name: Load isolated fixture schema
+        run: psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-fixture.sql
+      - name: Apply proposed migration to isolated PostgreSQL
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261017180000_mission_job_authorization_fence_v1.sql
+      - name: Verify queue / claim / start authorization state transitions
+        run: psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence.integration.sql
