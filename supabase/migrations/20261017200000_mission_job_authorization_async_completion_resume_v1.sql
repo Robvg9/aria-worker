@@ -25,7 +25,7 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  IF p_job_status NOT IN ('succeeded','failed','timeout') THEN
+  IF p_job_status IS NULL OR p_job_status NOT IN ('succeeded','failed','timeout') THEN
     RETURN NULL;
   END IF;
 
@@ -58,13 +58,17 @@ BEGIN
     -- A Human Gate pause, alternate-strategy wait, unrelated job, or stale
     -- completion remains a no-op and cannot wake the mission.
     IF coalesce(v_checkpoint->'recovery'->>'status','')
-         <> 'waiting_for_async_executor'
-       OR jsonb_typeof(v_checkpoint->'pending_jobs') IS DISTINCT FROM 'object'
-       OR NOT EXISTS (
-         SELECT 1
-           FROM jsonb_each(v_checkpoint->'pending_jobs') AS pending(step_id, job)
-          WHERE pending.job->>'job_id' = p_job_id
-       ) THEN
+         <> 'waiting_for_async_executor' THEN
+      RETURN NULL;
+    END IF;
+    IF jsonb_typeof(v_checkpoint->'pending_jobs') IS DISTINCT FROM 'object' THEN
+      RETURN NULL;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1
+        FROM jsonb_each(v_checkpoint->'pending_jobs') AS pending(step_id, job)
+       WHERE pending.job->>'job_id' = p_job_id
+    ) THEN
       RETURN NULL;
     END IF;
 
