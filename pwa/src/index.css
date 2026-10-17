@@ -671,3 +671,4 @@ button{touch-action:manipulation;}
   .projectOverviewPreview .panelHeading>div:last-child{min-width:0;max-width:100%;justify-content:flex-start!important}
   .projectOverviewPreview .panelHeading>div:last-child>a.ghost{max-width:100%;box-sizing:border-box;white-space:normal!important;overflow-wrap:anywhere}
 }
+/* Settings RWHT scoped login + credential-free Auth probe classification, 2026-10-17; no UI behavior change. */
