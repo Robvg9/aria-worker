@@ -23,6 +23,7 @@ if (!email || !password) {
 
 const responseDiagnostics = [];
 const authRequestDiagnostics = [];
+const authProxyResponseDiagnostics = [];
 const authRequestByObject = new WeakMap();
 
 
@@ -254,10 +255,29 @@ function panel(page, text) {
     authRequestByObject.set(request, diagnostic);
   });
   page.on('response', async response => {
+    const target = response.url();
+    const authRequest = authRequestByObject.get(response.request());
+    if (authRequest && /\/auth\/token|\/auth\/v1\/token/i.test(target)) {
+      const headers = response.headers();
+      let route = 'unknown';
+      try {
+        const parsed = new URL(target);
+        if (parsed.pathname === '/auth/token') route = 'worker_proxy';
+        else if (parsed.pathname === '/auth/v1/token') route = 'supabase_direct';
+      } catch {}
+      authProxyResponseDiagnostics.push({
+        status: response.status(),
+        route,
+        grant_type: authRequest.grant_type,
+        method: authRequest.method,
+        has_email: authRequest.has_email,
+        has_phone: authRequest.has_phone,
+        has_password: authRequest.has_password,
+        retry_count: Number(headers['x-aria-auth-retry-count'] || 0) || 0
+      });
+    }
     if (response.status() >= 400) {
-      const target = response.url();
       const diagnostic = { status: response.status(), url: target, observed_at: Date.now() };
-      const authRequest = authRequestByObject.get(response.request());
       if (authRequest) {
         diagnostic.auth_request = {
           method: authRequest.method,
@@ -436,6 +456,7 @@ function panel(page, text) {
     evidence.checks.relogin_verified = true;
     evidence.checks.error_responses_observed = responseDiagnostics.filter(x => x.status >= 400);
     evidence.checks.auth_request_diagnostics = authRequestDiagnostics.slice(-30);
+    evidence.checks.auth_proxy_response_diagnostics = authProxyResponseDiagnostics.slice(-30);
     flushConsoleDiagnostics();
 
     const auth400Responses = responseDiagnostics.filter(x =>
