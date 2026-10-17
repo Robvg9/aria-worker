@@ -8,7 +8,7 @@ const sql = fs.readFileSync(migrationPath, 'utf8');
 
 const requiredSqlFragments = [
   'CREATE OR REPLACE FUNCTION aria_internal.cancel_unauthorized_pending_jobs',
-  "j.status IN ('queued','claimed')",
+  "j.status IN ('queued','claimed','running')",
   "status = CASE WHEN j.status = 'queued' THEN 'blocked' ELSE 'cancelled' END",
   'CREATE TRIGGER trg_mission_job_authorization_fence',
   'CREATE OR REPLACE FUNCTION public.start_execution_job_gateway',
