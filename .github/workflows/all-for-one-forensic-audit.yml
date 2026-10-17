@@ -3,8 +3,52 @@ name: All For One Forensic Audit
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'pwa/**'
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'supabase/functions/**'
+      - 'supabase/migrations/20261017*mission_job_authorization*'
+      - 'autonomy/**'
+      - 'rwht/pc-browser/**'
+      - 'tests/pc-rwht-browser.test.js'
+      - 'tests/mission-job-authorization-fence-contract.test.js'
+      - 'tests/sql/mission-job-authorization-fence-*.sql'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/mission-job-authorization-fence.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/pc-rwht.yml'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - 'tests/all-for-one-forensic-audit.test.js'
+      - '.github/workflows/all-for-one-forensic-audit.yml'
   push:
     branches: [main, "feat/all-for-one-forensic-audit-v1"]
+    paths:
+      - 'pwa/**'
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'supabase/functions/**'
+      - 'supabase/migrations/20261017*mission_job_authorization*'
+      - 'autonomy/**'
+      - 'rwht/pc-browser/**'
+      - 'tests/pc-rwht-browser.test.js'
+      - 'tests/mission-job-authorization-fence-contract.test.js'
+      - 'tests/sql/mission-job-authorization-fence-*.sql'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/mission-job-authorization-fence.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/pc-rwht.yml'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - 'tests/all-for-one-forensic-audit.test.js'
+      - '.github/workflows/all-for-one-forensic-audit.yml'
 
 jobs:
   contract:
