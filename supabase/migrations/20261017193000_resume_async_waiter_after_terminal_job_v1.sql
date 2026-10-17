@@ -27,6 +27,8 @@ SELECT EXISTS (
             AND j.mission_id=m.mission_id
           WHERE j.status IN ('succeeded','failed','timeout')
             AND j.completed_at IS NOT NULL
+            AND j.completed_at > clock_timestamp() - interval '24 hours'
+            AND m.updated_at > clock_timestamp() - interval '24 hours'
        )
      )
      AND (
@@ -130,6 +132,8 @@ BEGIN
                   AND j.mission_id=m.mission_id
                 WHERE j.status IN ('succeeded','failed','timeout')
                   AND j.completed_at IS NOT NULL
+                  AND j.completed_at > clock_timestamp() - interval '24 hours'
+                  AND m.updated_at > clock_timestamp() - interval '24 hours'
              ))
        )
        AND aria_internal.aria_mission_claim_eligible(m.mission_id)
