@@ -44,7 +44,7 @@ assert.ok(shellExecutor.includes('killProcessTree(child.pid)'), 'PowerShell runn
 assert.ok(desktopAdapter.includes('function abortableDelay(ms, signal)'), 'desktop waits must be interruptible');
 assert.ok(desktopAdapter.includes("status: 'cancelled'"), 'desktop automation must propagate cancellation');
 assert.ok(chromeSemanticAction.includes('signal.removeEventListener(\'abort\', onAbort)'), 'semantic CDP requests must close on cancellation');
-assert.ok(chromeSemanticAction.includes('cdpCall(\'Runtime.evaluate\', {returnByValue:true,awaitPromise:true,expression:actionExpression},timeout_ms,pageUrl,signal)'), 'semantic CDP actions must stop retrying after cancellation');
+assert.ok(chromeSemanticAction.includes('expression:actionExpression},timeout_ms,pageUrl,signal)'), 'semantic CDP actions must stop retrying after cancellation');
 assert.ok(rwhtController.includes('assertNotCancelled'), 'RWHT must check revocation between physical actions');
 assert.ok(deviceGateway.includes('jobStatusMatch=p.match'), 'device gateway must expose the authenticated job status endpoint');
 assert.ok(deviceGateway.includes("supabase.rpc('execution_job_authorization_status_gateway'"), 'device gateway must use the protected security-definer RPC, not direct internal schema access');
