@@ -187,7 +187,9 @@ const emptyCredentialReturn = authSubmit.indexOf('return;', emptyCredentialGuard
 const passwordGrantCall = authSubmit.indexOf('await signIn(emailValue, password)');
 assert.ok(emptyCredentialGuard >= 0 && emptyCredentialReturn > emptyCredentialGuard && passwordGrantCall > emptyCredentialReturn, 'Empty email/password must return before calling Auth');
 assert.match(authSubmit,/const emailValue = email\.trim\(\)/);
-assert.match(authComponent,/<input[^>]*aria-label=['"]Correo['"][^>]*required\s*\/>/);
-assert.match(authComponent,/<input[^>]*aria-label=['"]Contraseña['"][^>]*required\s*\/>/);
+const emailInputLine = authComponent.split('\n').find(line => line.includes("aria-label='Correo'"));
+assert.ok(emailInputLine && emailInputLine.includes('required />'), 'Email input must be required');
+const passwordInputLine = authComponent.split('\n').find(line => line.includes("aria-label='Contraseña'"));
+assert.ok(passwordInputLine && passwordInputLine.includes('required />'), 'Password input must be required');
 assert.match(authSubmit,/Introduce tu correo y contraseña para iniciar sesión\./);
 console.log('AUTH EMPTY CREDENTIALS BLOCKED BEFORE PASSWORD-GRANT CONTRACT: PASS');
