@@ -192,7 +192,7 @@ async function executeOllamaJob(job){
 function loadDesktopExecutor(){const modulePath=require.resolve('./windows-desktop-adapter');delete require.cache[modulePath];const adapter=require(modulePath);if(!adapter||typeof adapter.executeWindowsDesktop!=='function')throw new Error('desktop_adapter_invalid');return adapter}
 async function executeAutonomousRwhtJob(job){
   let payload;try{payload=parseAutonomousRwhtPayload(job)}catch(error){await rejectClaimedJob(job,String(error.message||'unsupported_autonomous_computer_use_job'),AUTONOMOUS_COMPUTER_OPERATION);return}
-  const deterministicPwaRwht=/(RWHT_CONTROL_DISCOVERY_VERIFY|RWHT\\s+PC\\s+E2E|ARIA\\s+PWA|PWA\\s+LIVE)/i.test(payload.goal);
+  const deterministicPwaRwht=/(RWHT_CONTROL_DISCOVERY_VERIFY|RWHT\s+PC\s+E2E|ARIA\s+PWA|PWA\s+LIVE)/i.test(payload.goal);
   if(!OLLAMA_ENABLED&&!deterministicPwaRwht){await rejectClaimedJob(job,`local_llm_resource_guard:${RESOURCE_PROFILE.guard_reason}`,AUTONOMOUS_COMPUTER_OPERATION);return}
   log(`JOB RECEIVED id=${job.job_id} operation=${AUTONOMOUS_COMPUTER_OPERATION} mode=${payload.mode}`);
   await api(`/v1/jobs/${encodeURIComponent(job.job_id)}/start`,{method:'POST',body:JSON.stringify({device_id:DEVICE_ID})});
