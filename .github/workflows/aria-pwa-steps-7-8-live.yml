@@ -21,6 +21,8 @@ on:
       - 'tests/meditation-web-push.test.js'
       - 'scripts/ci/wait-for-aria-exact-sha-deploys.sh'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
       - '.github/workflows/aria-pwa-fast-deploy.yml'
       - '.github/workflows/chat-rwht-authenticated.yml'
