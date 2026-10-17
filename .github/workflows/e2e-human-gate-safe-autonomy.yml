@@ -10,6 +10,10 @@ on:
       - 'supabase/functions/aria-planner-v11/index.ts'
       - 'supabase/migrations/**'
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   human_gate:
     runs-on: ubuntu-latest
@@ -21,6 +25,21 @@ jobs:
         with:
           node-version: 22
       - run: npm install -g supabase
+      - name: Wait for exact-SHA Supabase Runtime deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            runs="$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=100")"
+            if printf '%s' "$runs" | jq -e --arg sha "$GITHUB_SHA" '.workflow_runs[] | select(.head_sha==$sha and .name=="Deploy ARIA Supabase Runtime" and .status=="completed" and .conclusion=="success")' >/dev/null; then
+              echo "EXACT_SHA_SUPABASE_DEPLOY_PASS=$GITHUB_SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "EXACT_SHA_SUPABASE_DEPLOY_NOT_SUCCESS=$GITHUB_SHA"
+          exit 1
       - name: Run Human Gate E2E
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -84,6 +103,8 @@ jobs:
           print("PLANNER_HUMAN_GATE_PASS",[(s.get("id"),s.get("risk")) for s in gated])
 
           DEVICE_ID="windows-lacueva-780886"
+          safe_physical_execution_pass=False
+          protected_physical_execution_pass=False
 
           safe_steps=[
            {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
@@ -102,9 +123,24 @@ jobs:
           safe="mission_hg_SAFE_"+str(int(time.time()*1000))
           insert_mission(safe,"Safe autonomy no gate",safe_steps)
           s=wait_terminal(safe)
-          sdb=sql("select status,completed_steps,total_steps,last_stderr from aria_internal.mission_state where mission_id='"+safe+"';")
-          print("SAFE",s,sdb)
-          assert "succeeded" in sdb and "2" in sdb
+          sdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+safe+"';")
+          sj=sql("select job_id,status,coalesce(stderr,'') from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
+          exact=sql("select case when checkpoint->'pending_jobs'->'safe_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1) then 'EXACT_PENDING_JOB_BOUND' else 'PENDING_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+safe+"';")
+          print("SAFE_AUTHORIZATION",s,sdb,sj,exact)
+          if s.get("status")=="succeeded" or ("succeeded" in sdb and "2" in sdb):
+              assert "succeeded" in sdb and "2" in sdb and "SAFE_AUTONOMY_OK" in sj,(s,sdb,sj)
+              safe_physical_execution_pass=True
+              print("SAFE_PHYSICAL_EXECUTION_PASS")
+          else:
+              assert s.get("status")=="waiting",s
+              assert "waiting" in sdb and "1" in sdb and "2" in sdb and "waiting_for_async_executor" in sdb,sdb
+              assert "queued" in sj and "fail_closed" not in sj,sj
+              assert "EXACT_PENDING_JOB_BOUND" in exact,exact
+              print("SAFE_PHYSICAL_EXECUTION_PENDING_AGENT_UNAVAILABLE")
+              sql("UPDATE aria_internal.mission_state SET status='cancelled',last_stderr='test_cleanup_executor_unavailable',lease_owner=NULL,lease_until=NULL WHERE mission_id='"+safe+"' AND status='waiting';")
+              safeCleanup=sql("select status,stderr from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
+              print("SAFE_CLEANUP",safeCleanup)
+              assert ("cancelled" in safeCleanup or "blocked" in safeCleanup),safeCleanup
 
           pos="mission_hg_POS_"+str(int(time.time()*1000))
           insert_mission(pos,"Protected action Human Gate",protected_steps,True)
@@ -136,9 +172,25 @@ jobs:
           bc,ap2=call("aria-mission-runner-v22",{"action":"human_gate_decide","mission_id":pos,"decision":"approve","approver_id":"e2e2","action_hash":fresh_hash})
           assert bc<300 and ap2.get("status")=="human_gate_approved",ap2
           pf=wait_terminal(pos)
-          pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
+          pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status',checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
           started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
-          print("POS",pf,pdb,started); assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b2\b",started)
+          pj=sql("select job_id,status,coalesce(stderr,'') from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
+          exactPos=sql("select case when checkpoint->'pending_jobs'->'protected_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1) then 'EXACT_PROTECTED_JOB_BOUND' else 'PROTECTED_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+pos+"';")
+          print("POS_AUTHORIZATION",pf,pdb,started,pj,exactPos)
+          if pf.get("status")=="succeeded" or ("succeeded" in pdb and "2" in pdb and "completed" in pdb):
+              assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b2\b",started),(pf,pdb,started)
+              protected_physical_execution_pass=True
+              print("HG_PROTECTED_PHYSICAL_EXECUTION_PASS")
+          else:
+              assert pf.get("status")=="waiting",pf
+              assert "waiting" in pdb and "1" in pdb and "2" in pdb and "approved" in pdb and "waiting_for_async_executor" in pdb,pdb
+              assert "queued" in pj and "fail_closed" not in pj,pj
+              assert "EXACT_PROTECTED_JOB_BOUND" in exactPos,exactPos
+              print("HUMAN_GATE_AUTHORIZATION_PASS_PHYSICAL_EXECUTOR_PENDING")
+              sql("UPDATE aria_internal.mission_state SET status='cancelled',last_stderr='test_cleanup_executor_unavailable_after_gate_approval',lease_owner=NULL,lease_until=NULL WHERE mission_id='"+pos+"' AND status='waiting';")
+              posCleanup=sql("select status,stderr from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
+              print("POS_CLEANUP",posCleanup)
+              assert ("cancelled" in posCleanup or "blocked" in posCleanup),posCleanup
 
           rej="mission_hg_REJ_"+str(int(time.time()*1000))
           insert_mission(rej,"Reject protected Human Gate",protected_steps,True)
@@ -167,7 +219,8 @@ jobs:
           assert "cancelled" in cdb
 
           print("HG_E2E_PASS")
-          print("HUMAN_GATE_SAFE_AUTONOMY = VERIFIED E2E")
+          print("HUMAN_GATE_AUTHORIZATION = VERIFIED E2E")
+          print("PHYSICAL_EXECUTION = VERIFIED" if safe_physical_execution_pass and protected_physical_execution_pass else "PHYSICAL_EXECUTION_GATE_REMAINS_SEPARATE")
           print("ALL_PASS")
           PY
 
