@@ -438,15 +438,15 @@ function panel(page, text) {
     evidence.checks.auth_request_diagnostics = authRequestDiagnostics.slice(-30);
     flushConsoleDiagnostics();
 
+    const auth400Responses = responseDiagnostics.filter(x =>
+      x.status === 400 && /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(x.url)
+    );
+    if (auth400Responses.length) {
+      throw new Error('unexpected_auth_http_400:' + JSON.stringify(auth400Responses));
+    }
     const unexpectedResponses = responseDiagnostics.filter(x => x.status >= 500);
     if (unexpectedResponses.length) throw new Error('unexpected_server_errors:' + JSON.stringify(unexpectedResponses));
     if (runtimeErrors.length) throw new Error(runtimeErrors.join(' | '));
-    evidence.checks.expected_auth_fallback_observed =
-      responseDiagnostics.some(x =>
-        x.status === 400 &&
-        /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(x.url) &&
-        /missing email or phone/i.test(String(x.auth_error || ''))
-      );
     evidence.status = 'verified';
     evidence.finished_at = new Date().toISOString();
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'settings-rwht-evidence.json'), JSON.stringify(evidence, null, 2));
