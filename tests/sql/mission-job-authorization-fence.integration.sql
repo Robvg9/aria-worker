@@ -117,4 +117,28 @@ BEGIN
 END;
 $function$;
 
+-- The authenticated status RPC sees the authorized state and then a revocation.
+INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_status_check','running');
+SELECT public.enqueue_execution_job_gateway('job_status_001','mi_status_check','device-test','shell.execute','echo status',NULL,10000,'{}'::jsonb,'{}'::jsonb);
+SELECT public.claim_execution_job_gateway('device-test');
+SELECT public.start_execution_job_gateway('job_status_001','device-test');
+DO $function$
+DECLARE state jsonb;
+BEGIN
+  state := public.execution_job_authorization_status_gateway('job_status_001','device-test');
+  IF state->>'authorized' <> 'true' OR state->>'status' <> 'running' THEN
+    RAISE EXCEPTION 'active job status should be authorized: %',state;
+  END IF;
+END;
+$function$;
+UPDATE aria_internal.mission_state SET status='blocked' WHERE mission_id='mi_status_check';
+DO $function$
+DECLARE state jsonb;
+BEGIN
+  state := public.execution_job_authorization_status_gateway('job_status_001','device-test');
+  IF state->>'authorized' <> 'false' OR state->>'status' <> 'cancelled' OR state->>'mission_status' <> 'blocked' THEN
+    RAISE EXCEPTION 'revoked job status should fail closed: %',state;
+  END IF;
+END;
+$function$;
 SELECT 'MISSION_JOB_AUTHORIZATION_FENCE_INTEGRATION_PASS' AS result;
