@@ -17,6 +17,8 @@ on:
       - 'supabase/functions/aria-mission-runner-v22/**'
       - 'supabase/functions/_shared/physical-execution-contract.mjs'
       - 'rwht/pc-browser/rwht-projects-e2e.mjs'
+      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
+      - 'tests/meditation-web-push.test.js'
       - 'scripts/ci/wait-for-aria-exact-sha-deploys.sh'
       - '.github/workflows/aria-pwa-steps-7-8-live.yml'
       - '.github/workflows/aria-cloudflare-deploy.yml'
