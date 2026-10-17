@@ -5,6 +5,12 @@ const path = require('node:path');
 
 const migrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017180000_mission_job_authorization_fence_v1.sql');
 const sql = fs.readFileSync(migrationPath, 'utf8');
+const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'aria-agent.js'), 'utf8');
+const shellExecutor = fs.readFileSync(path.join(__dirname, '..', 'autonomy', 'windows-shell-executor.js'), 'utf8');
+const desktopAdapter = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
+const rwhtController = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'autonomous-rwht-controller.js'), 'utf8');
+const deviceGateway = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-device-gateway', 'index.ts'), 'utf8');
+const integrationSql = fs.readFileSync(path.join(__dirname, 'sql', 'mission-job-authorization-fence.integration.sql'), 'utf8');
 
 const requiredSqlFragments = [
   'CREATE OR REPLACE FUNCTION aria_internal.cancel_unauthorized_pending_jobs',
@@ -27,4 +33,15 @@ for (const fragment of requiredSqlFragments) {
   assert.ok(sql.includes(fragment), `authorization fence migration missing required fragment: ${fragment}`);
 }
 
+assert.ok(agent.includes('startJobAuthorizationMonitor(job)'), 'physical agent must supervise live mission authorization');
+assert.ok(agent.includes("'/v1/jobs/'+encodeURIComponent(job.job_id)+'/status'"), 'physical agent must poll the authenticated job status endpoint');
+assert.ok(agent.includes('signal:guard.signal'), 'physical execution paths must receive the cancellation signal');
+assert.ok(shellExecutor.includes("status: 'cancelled'"), 'PowerShell runner must report cancellation as a non-success');
+assert.ok(shellExecutor.includes('killProcessTree(child.pid)'), 'PowerShell runner must terminate the child process tree on cancellation');
+assert.ok(desktopAdapter.includes('function abortableDelay(ms, signal)'), 'desktop waits must be interruptible');
+assert.ok(desktopAdapter.includes("status: 'cancelled'"), 'desktop automation must propagate cancellation');
+assert.ok(rwhtController.includes('assertNotCancelled'), 'RWHT must check revocation between physical actions');
+assert.ok(deviceGateway.includes("const jobStatusMatch=p.match(/^\\\\/v1\\\\/jobs\\\\/([^/]+)\\\\/status$/)"), 'device gateway must expose the authenticated job status endpoint');
+assert.ok(deviceGateway.includes("authorized:missionAuthorized&&status==='running'"), 'device gateway must deny jobs whose mission is not active');
+assert.ok(integrationSql.includes("mi_running_revoke"), 'integration SQL must cover cancellation after a job reaches running');
 console.log('mission job authorization fence contract tests passed');
