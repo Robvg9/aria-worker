@@ -1228,9 +1228,16 @@ function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;
+    const emailValue = email.trim();
+    // Never send an empty or stale controlled-field state to Auth. A form may
+    // submit while React is between a DOM input update and its state commit.
+    if (!emailValue || !password) {
+      setError('Introduce tu correo y contraseña para iniciar sesión.');
+      return;
+    }
     setBusy(true);
     setError('');
-    try { onSignedIn(await signIn(email, password)); }
+    try { onSignedIn(await signIn(emailValue, password)); }
     catch (x) { setError(x instanceof Error ? x.message : 'No se pudo iniciar sesión.'); }
     finally { setBusy(false); }
   }
@@ -1241,8 +1248,8 @@ function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <div className='brandMark'>A</div>
                 <h1>Tu centro de mando cognitivo.</h1>
         <p>Conversación, misiones, modelos, agentes, dispositivos y Meditación IA en una sola interfaz.</p>
-        <input aria-label='Correo' type='email' inputMode='email' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo electrónico' autoComplete='username' />
-        <input aria-label='Contraseña' type='password' value={password} onChange={e => setPassword(e.target.value)} placeholder='Contraseña' autoComplete='current-password' />
+        <input aria-label='Correo' type='email' inputMode='email' value={email} onChange={e => setEmail(e.target.value)} placeholder='Correo electrónico' autoComplete='username' required />
+        <input aria-label='Contraseña' type='password' value={password} onChange={e => setPassword(e.target.value)} placeholder='Contraseña' autoComplete='current-password' required />
         {error && <div className='errorBox'><div>{error}</div>{error.includes('sincronizar') && <button className='ghost' disabled={syncing} onClick={() => void load()}>{syncing ? 'Sincronizando…' : 'Reintentar ahora'}</button>}</div>}
         <button className='primary wide' disabled={busy}>{busy ? 'ENTRANDO…' : 'ENTRAR EN ARIA'}</button>
       </form>

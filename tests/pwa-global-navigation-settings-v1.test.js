@@ -172,3 +172,24 @@ assert.match(settingsRunner,/const auth400Responses = responseDiagnostics\.filte
 assert.match(settingsRunner,/unexpected_auth_http_400/);
 assert.doesNotMatch(settingsRunner,/expected_auth_fallback_observed/,'No Auth HTTP 400 may be reported as an expected fallback.');
 console.log('SETTINGS RWHT AUTH 400 FAIL-CLOSED CONTRACT: PASS');
+
+
+const authComponentStart = app.indexOf('function Auth({ onSignedIn }');
+const authComponentEnd = app.indexOf('function StatCard(', authComponentStart);
+assert.ok(authComponentStart >= 0 && authComponentEnd > authComponentStart, 'Auth component boundaries must be discoverable');
+const authComponent = app.slice(authComponentStart, authComponentEnd);
+const authSubmitStart = authComponent.indexOf('async function submit(e: React.FormEvent)');
+const authSubmitEnd = authComponent.indexOf('  return (', authSubmitStart);
+assert.ok(authSubmitStart >= 0 && authSubmitEnd > authSubmitStart, 'Auth submit handler must be discoverable');
+const authSubmit = authComponent.slice(authSubmitStart, authSubmitEnd);
+const emptyCredentialGuard = authSubmit.indexOf('if (!emailValue || !password)');
+const emptyCredentialReturn = authSubmit.indexOf('return;', emptyCredentialGuard);
+const passwordGrantCall = authSubmit.indexOf('await signIn(emailValue, password)');
+assert.ok(emptyCredentialGuard >= 0 && emptyCredentialReturn > emptyCredentialGuard && passwordGrantCall > emptyCredentialReturn, 'Empty email/password must return before calling Auth');
+assert.match(authSubmit,/const emailValue = email\.trim\(\)/);
+const emailInputLine = authComponent.split('\n').find(line => line.includes("aria-label='Correo'"));
+assert.ok(emailInputLine && emailInputLine.includes('required />'), 'Email input must be required');
+const passwordInputLine = authComponent.split('\n').find(line => line.includes("aria-label='Contraseña'"));
+assert.ok(passwordInputLine && passwordInputLine.includes('required />'), 'Password input must be required');
+assert.match(authSubmit,/Introduce tu correo y contraseña para iniciar sesión\./);
+console.log('AUTH EMPTY CREDENTIALS BLOCKED BEFORE PASSWORD-GRANT CONTRACT: PASS');
