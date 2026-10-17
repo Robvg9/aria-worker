@@ -149,10 +149,15 @@ const settingsRunner=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-settin
 assert.match(settingsRunner,/pendingGenericResource400/);
 assert.match(settingsRunner,/function flushConsoleDiagnostics\(\)/);
 assert.ok(settingsRunner.includes("400 \\(\\)"), 'Generic Chromium 400 matcher must target the exact status text');
-assert.match(settingsRunner,/matched_expected_empty_auth_probes/);
-assert.match(settingsRunner,/missing email or phone/);
+assert.match(settingsRunner,/authRequestByObject = new WeakMap\(\)/);
+assert.match(settingsRunner,/authRequestByObject\.set\(request, diagnostic\)/);
+assert.match(settingsRunner,/diagnostic\.auth_request = \{/);
+assert.match(settingsRunner,/auth_console_400_correlation/);
+assert.match(settingsRunner,/missing_identity_auth_submissions/);
+assert.match(settingsRunner,/password-grant submitted without required email or phone/);
 assert.match(settingsRunner,/unclassified_console_events/);
-console.log('SETTINGS RWHT CORRELATED AUTH-400 DIAGNOSTICS CONTRACT: PASS');
+assert.doesNotMatch(settingsRunner,/matched_expected_empty_auth_probes/,'Auth 400s without identity must not be counted as expected.');
+console.log('SETTINGS RWHT STRICT AUTH-400 CORRELATION CONTRACT: PASS');
 
 assert.match(settingsRunner,/\.authScreen:visible form\.authCard/);
 assert.match(settingsRunner,/input\[aria-label="Correo"\]/);
@@ -160,6 +165,4 @@ assert.match(settingsRunner,/input\[aria-label="Contraseña"\]/);
 assert.match(settingsRunner,/settings_auth_submit_input_mismatch/);
 assert.match(settingsRunner,/authEmail\.fill\(email, \{ timeout: 15000 \}\)/);
 assert.match(settingsRunner,/login_retry_/);
-assert.match(settingsRunner,/!item\.has_email\s*&&\s*!item\.has_phone\s*&&\s*!item\.has_password\s*&&\s*!item\.has_refresh_token/);
-assert.doesNotMatch(settingsRunner,/item\.has_password &&\s*!item\.has_email &&\s*!item\.has_phone/,'Only a fully credential-free Auth probe may be classified as expected.');
-console.log('SETTINGS RWHT SCOPED LOGIN + SAFE AUTH-400 CLASSIFICATION CONTRACT: PASS');
+console.log('SETTINGS RWHT SCOPED LOGIN CONTRACT: PASS');
