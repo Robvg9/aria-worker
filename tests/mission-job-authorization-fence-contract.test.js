@@ -25,6 +25,8 @@ const requiredSqlFragments = [
   'CREATE OR REPLACE FUNCTION public.enqueue_execution_job_gateway',
   'mission_not_authorized_for_execution',
   'REVOKE ALL ON FUNCTION public.execution_job_authorization_status_gateway(text,text) FROM PUBLIC, anon, authenticated;',
+  'REVOKE ALL ON FUNCTION aria_internal.cancel_unauthorized_pending_jobs(text, text) FROM PUBLIC, anon, authenticated;',
+  'REVOKE ALL ON FUNCTION aria_internal.enforce_mission_job_authorization_fence() FROM PUBLIC, anon, authenticated;',
   'GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway(text,text) TO service_role;',
   'FOR UPDATE',
   'enqueue_android_ui_job',
