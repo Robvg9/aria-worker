@@ -153,3 +153,13 @@ assert.match(settingsRunner,/matched_expected_empty_auth_probes/);
 assert.match(settingsRunner,/missing email or phone/);
 assert.match(settingsRunner,/unclassified_console_events/);
 console.log('SETTINGS RWHT CORRELATED AUTH-400 DIAGNOSTICS CONTRACT: PASS');
+
+assert.match(settingsRunner,/\.authScreen:visible form\.authCard/);
+assert.match(settingsRunner,/input\[aria-label="Correo"\]/);
+assert.match(settingsRunner,/input\[aria-label="Contraseña"\]/);
+assert.match(settingsRunner,/settings_auth_submit_input_mismatch/);
+assert.match(settingsRunner,/authEmail\.fill\(email, \{ timeout: 15000 \}\)/);
+assert.match(settingsRunner,/login_retry_/);
+assert.match(settingsRunner,/!item\.has_email && !item\.has_phone && !item\.has_password && !item\.has_refresh_token/);
+assert.doesNotMatch(settingsRunner,/item\.has_password &&\s*!item\.has_email &&\s*!item\.has_phone/,'Only a fully credential-free Auth probe may be classified as expected.');
+console.log('SETTINGS RWHT SCOPED LOGIN + SAFE AUTH-400 CLASSIFICATION CONTRACT: PASS');
