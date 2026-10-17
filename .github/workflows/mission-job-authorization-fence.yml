@@ -57,6 +57,7 @@ jobs:
           node --check agents/windows/aria-agent.js
           node --check autonomy/windows-shell-executor.js
           node --check computer-use/windows-desktop-adapter.js
+          node --check computer-use/windows-chrome-semantic-action.js
           node --check agents/windows/autonomous-rwht-controller.js
           node --check tests/mission-job-authorization-fence-contract.test.js
       - name: Static fail-closed contract
