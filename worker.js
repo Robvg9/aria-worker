@@ -33,6 +33,9 @@ const SUPABASE_AUTH = "https://icuqsstxfdbvjytkhlog.supabase.co";
 const SUPABASE_APP_API = "https://icuqsstxfdbvjytkhlog.supabase.co/functions/v1/aria-app-api-v3";
 const APP_API_GET_TIMEOUT_MS = 120000;
 const APP_API_POST_TIMEOUT_MS = 180000;
+// Auth password-grant retries are bounded to fit inside the browser's 25s proxy deadline.
+const AUTH_PASSWORD_UPSTREAM_TIMEOUT_MS = 8000;
+const AUTH_TRANSIENT_RETRY_DELAY_MS = 350;
 // Supabase Edge can transiently return a gateway 502/503/504 without invoking the function.
 // Retry one idempotent GET once; never retry POST/PUT/DELETE mutations.
 const APP_API_GET_TRANSIENT_RETRY_DELAY_MS = 350;
@@ -95,24 +98,46 @@ async function proxyPasswordSignIn(request, url){
   if(!apiKey)return json({error:"missing_apikey"},400);
   const body=await request.text();
   if(!body)return json({error:"invalid_request",error_description:"Falta el cuerpo de autenticación."},400);
-  const controller=new AbortController();
-  const upstreamTimeoutMs=grantType==="refresh_token"?60000:20000;
-  const timer=setTimeout(()=>controller.abort(),upstreamTimeoutMs);
-  try{
-    const upstream=await fetch(SUPABASE_AUTH+"/auth/v1/token?grant_type="+encodeURIComponent(grantType),{
-      method:"POST",
-      headers:{"content-type":"application/json","apikey":apiKey,"accept":"application/json"},
-      body,
-      signal:controller.signal
-    });
-    const headers=new Headers(upstream.headers);
-    headers.set("cache-control","no-store, max-age=0");
-    headers.delete("set-cookie");
-    return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers});
-  }catch(error){
-    const timedOut=error?.name==="AbortError";
-    return json({error:"auth_upstream_unreachable",error_description:timedOut?"No se pudo contactar con el servicio de autenticación a tiempo.":"No se pudo contactar con el servicio de autenticación."},504);
-  }finally{clearTimeout(timer);}
+  // Password sign-in gets one bounded retry for transport failures and gateway 502/503/504 only.
+  // Credential/validation responses are never retried; refresh-token rotation is also never retried.
+  const maxAttempts=grantType==="password"?2:1;
+  let lastError=null;
+  for(let attempt=0;attempt<maxAttempts;attempt++){
+    const controller=new AbortController();
+    const upstreamTimeoutMs=grantType==="refresh_token"?60000:AUTH_PASSWORD_UPSTREAM_TIMEOUT_MS;
+    const timer=setTimeout(()=>controller.abort(),upstreamTimeoutMs);
+    let retry=false;
+    try{
+      const upstream=await fetch(SUPABASE_AUTH+"/auth/v1/token?grant_type="+encodeURIComponent(grantType),{
+        method:"POST",
+        headers:{"content-type":"application/json","apikey":apiKey,"accept":"application/json"},
+        body,
+        signal:controller.signal
+      });
+      if(grantType==="password"&&attempt===0&&[502,503,504].includes(upstream.status)){
+        try{await upstream.body?.cancel()}catch(_){}
+        retry=true;
+      }else{
+        const headers=new Headers(upstream.headers);
+        headers.set("cache-control","no-store, max-age=0");
+        headers.delete("set-cookie");
+        if(attempt>0)headers.set("x-aria-auth-retry-count",String(attempt));
+        return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers});
+      }
+    }catch(error){
+      lastError=error;
+      retry=attempt+1<maxAttempts;
+    }finally{
+      clearTimeout(timer);
+    }
+    if(retry&&attempt+1<maxAttempts){
+      await new Promise(resolve=>setTimeout(resolve,AUTH_TRANSIENT_RETRY_DELAY_MS));
+      continue;
+    }
+    break;
+  }
+  const timedOut=lastError?.name==="AbortError";
+  return json({error:"auth_upstream_unreachable",error_description:timedOut?"No se pudo contactar con el servicio de autenticación a tiempo.":"No se pudo contactar con el servicio de autenticación."},504);
 }
 function authorizationPage(pendingId,origin,clientName="Grok Custom Connector"){const id=encodeURIComponent(String(pendingId));const safeName=escapeHtml(clientName||"Grok Custom Connector");const allow=`${origin}/authorize/consent?pending_id=${id}&decision=allow`;const deny=`${origin}/authorize/consent?pending_id=${id}&decision=deny`;return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Authorize ARIA MCP</title><style>:root{color-scheme:dark;--bg:#090b12;--card:#111522;--line:#252b3c;--text:#f6f7fb;--muted:#a5adc2;--accent:#8b5cf6;--accent2:#6366f1}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(900px 500px at 50% 0,#1a1634 0%,var(--bg) 58%);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text);padding:22px}.card{width:min(430px,100%);background:rgba(17,21,34,.96);border:1px solid var(--line);border-radius:22px;box-shadow:0 24px 80px rgba(0,0,0,.45);padding:30px}.logo{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));font-weight:800;font-size:20px;margin-bottom:22px}h1{font-size:26px;margin:0 0 10px}.sub{color:var(--muted);line-height:1.5;margin:0 0 26px}.btn{display:block;width:100%;margin-top:14px;padding:14px 16px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;font-weight:700;font-size:16px;text-align:center;text-decoration:none}.btn.secondary{background:#2a3144}.foot{margin-top:18px;font-size:12px;color:#7f879c;text-align:center}</style></head><body><main class="card"><div class="logo">A</div><h1>Authorize ARIA MCP</h1><p class="sub"><strong>${safeName}</strong> is requesting access to ARIA read-only tools.</p><p class="sub">Scope: <code>aria.mcp.inbound</code><br>Resource: ARIA inbound MCP</p><a class="btn" href="${allow}">Authorize</a><a class="btn secondary" href="${deny}">Deny</a><div class="foot">Secure OAuth · ARIA MCP</div></main></body></html>`}
 async function oauthFetch(input,init={}){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),10000);try{return await fetch(input,{...init,signal:controller.signal})}catch(error){return null}finally{clearTimeout(timer)}}
