@@ -29,6 +29,14 @@ on:
       - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
       - '.github/workflows/supabase-canonical-deploy.yml'
       - '.github/workflows/responsive-ux-rwht-authenticated.yml'
+      - 'supabase/migrations/20261017*mission_job_authorization*'
+      - 'tests/mission-job-authorization-fence-contract.test.js'
+      - 'tests/sql/mission-job-authorization-fence-fixture.sql'
+      - 'tests/sql/mission-job-authorization-fence.integration.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-setup.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-start.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-block.sql'
+      - '.github/workflows/mission-job-authorization-fence.yml'
   workflow_dispatch:
 
 permissions:
