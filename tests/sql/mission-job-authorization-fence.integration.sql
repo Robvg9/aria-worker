@@ -1,5 +1,20 @@
 \set ON_ERROR_STOP on
 
+-- A SECURITY DEFINER status RPC must not be callable by public/browser roles.
+DO $function$
+BEGIN
+  IF has_function_privilege('anon','public.execution_job_authorization_status_gateway(text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'anon role must not execute authorization status RPC';
+  END IF;
+  IF has_function_privilege('authenticated','public.execution_job_authorization_status_gateway(text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated role must not execute authorization status RPC';
+  END IF;
+  IF NOT has_function_privilege('service_role','public.execution_job_authorization_status_gateway(text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'service_role must execute authorization status RPC';
+  END IF;
+END;
+$function$;
+
 -- Enqueue is rejected for a mission that is already blocked.
 INSERT INTO aria_internal.mission_state(mission_id,status) VALUES ('mi_blocked_enqueue','blocked');
 DO $function$
