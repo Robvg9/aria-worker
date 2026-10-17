@@ -9,6 +9,8 @@ on:
       - 'supabase/functions/aria-app-api-v3/**'
       - 'tests/pwa-responsive-ux-v1.test.js'
       - 'rwht/pc-browser/rwht-responsive-ux-e2e.mjs'
+      - 'rwht/pc-browser/rwht-meditation-pwa-e2e.mjs'
+      - 'tests/meditation-web-push.test.js'
       - '.github/workflows/responsive-ux-rwht-authenticated.yml'
       - '.github/workflows/pc-rwht.yml'
   workflow_dispatch:
