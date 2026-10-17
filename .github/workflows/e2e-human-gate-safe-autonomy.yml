@@ -92,6 +92,13 @@ jobs:
                   time.sleep(1)
               return last
 
+          # Clean only stale missions created by this Human Gate test itself.
+          # This prevents an earlier no-device run from leaving its harmless shell
+          # marker queued for a future device heartbeat. The v2 fence cancels that
+          # mission's jobs when the test-owned mission is marked cancelled.
+          stale = sql("WITH stale AS (UPDATE aria_internal.mission_state SET status='cancelled',last_stderr='stale_test_cleanup_executor_unavailable',lease_owner=NULL,lease_until=NULL WHERE metadata->>'probe'='human_gate_safe_autonomy' AND status IN ('waiting','paused') AND updated_at < now() - interval '10 minutes' AND mission_id ~ '^mission_hg_(SAFE|POS|REJ|CAN)_[0-9]+' RETURNING mission_id) SELECT coalesce(string_agg(mission_id,','),'none') FROM stale;")
+          print("STALE_TEST_MISSIONS_CLEANED",stale)
+
           # Planner contract is checked independently. The executable E2E deliberately
           # uses a harmless device shell route so Human Gate does not depend on a model
           # or provider being available in the current registry.
@@ -124,15 +131,15 @@ jobs:
           insert_mission(safe,"Safe autonomy no gate",safe_steps)
           s=wait_terminal(safe)
           sdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+safe+"';")
-          sj=sql("select job_id,status,coalesce(stderr,'') from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
+          sj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
           exact=sql("select case when checkpoint->'pending_jobs'->'safe_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1) then 'EXACT_PENDING_JOB_BOUND' else 'PENDING_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+safe+"';")
           print("SAFE_AUTHORIZATION",s,sdb,sj,exact)
-          if s.get("status")=="succeeded" or ("succeeded" in sdb and "2" in sdb):
+          if "succeeded" in sdb and "2" in sdb and "SAFE_AUTONOMY_OK" in sj:
               assert "succeeded" in sdb and "2" in sdb and "SAFE_AUTONOMY_OK" in sj,(s,sdb,sj)
               safe_physical_execution_pass=True
               print("SAFE_PHYSICAL_EXECUTION_PASS")
           else:
-              assert s.get("status")=="waiting",s
+              assert "waiting" in sdb,sdb
               assert "waiting" in sdb and "1" in sdb and "2" in sdb and "waiting_for_async_executor" in sdb,sdb
               assert "queued" in sj and "fail_closed" not in sj,sj
               assert "EXACT_PENDING_JOB_BOUND" in exact,exact
@@ -174,15 +181,15 @@ jobs:
           pf=wait_terminal(pos)
           pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status',checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
           started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
-          pj=sql("select job_id,status,coalesce(stderr,'') from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
+          pj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
           exactPos=sql("select case when checkpoint->'pending_jobs'->'protected_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1) then 'EXACT_PROTECTED_JOB_BOUND' else 'PROTECTED_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+pos+"';")
           print("POS_AUTHORIZATION",pf,pdb,started,pj,exactPos)
-          if pf.get("status")=="succeeded" or ("succeeded" in pdb and "2" in pdb and "completed" in pdb):
-              assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b2\b",started),(pf,pdb,started)
+          if "succeeded" in pdb and "2" in pdb and "completed" in pdb:
+              assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and "PROTECTED_ACTION_OK" in pj and re.search(r"\b2\b",started),(pf,pdb,started,pj)
               protected_physical_execution_pass=True
               print("HG_PROTECTED_PHYSICAL_EXECUTION_PASS")
           else:
-              assert pf.get("status")=="waiting",pf
+              assert "waiting" in pdb,pdb
               assert "waiting" in pdb and "1" in pdb and "2" in pdb and "approved" in pdb and "waiting_for_async_executor" in pdb,pdb
               assert "queued" in pj and "fail_closed" not in pj,pj
               assert "EXACT_PROTECTED_JOB_BOUND" in exactPos,exactPos

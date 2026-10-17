@@ -81,5 +81,15 @@ assert.ok(humanGateWorkflow.includes('EXACT_SHA_SUPABASE_DEPLOY_PASS'), 'live Hu
 assert.ok(humanGateWorkflow.includes('EXACT_PROTECTED_JOB_BOUND'), 'approved protected job must bind only the exact pending step');
 assert.ok(humanGateWorkflow.includes('HUMAN_GATE_AUTHORIZATION_PASS_PHYSICAL_EXECUTOR_PENDING'), 'workflow must report physical executor unavailable separately from gate authorization');
 assert.ok(humanGateWorkflow.includes('test_cleanup_executor_unavailable'), 'unclaimed test jobs must be cancelled rather than left on the production queue');
+assert.ok(!humanGateWorkflow.includes('assert s.get("status")=="waiting"'), 'async wait branch must trust persisted mission state, not the generic runner response status');
+assert.ok(!humanGateWorkflow.includes('assert pf.get("status")=="waiting"'), 'protected async wait branch must trust persisted mission state, not the generic runner response status');
+assert.ok(humanGateWorkflow.includes('assert "waiting" in sdb,sdb'), 'safe test must reconcile wait status from the database snapshot');
+assert.ok(humanGateWorkflow.includes('assert "waiting" in pdb,pdb'), 'protected test must reconcile wait status from the database snapshot');
+assert.ok(humanGateWorkflow.includes('STALE_TEST_MISSIONS_CLEANED'), 'live E2E must emit stale test-owned mission cleanup evidence');
+assert.ok(humanGateWorkflow.includes("metadata->>'probe'='human_gate_safe_autonomy'"), "cleanup must be scoped only to this workflow's probe missions");
+assert.ok(humanGateWorkflow.includes("updated_at < now() - interval '10 minutes'"), 'cleanup must leave recently created test missions untouched');
+assert.ok((humanGateWorkflow.match(/coalesce\(stdout,''\)/g) || []).length >= 2, 'both physical success branches must read the actual job stdout');
+assert.ok(humanGateWorkflow.includes('"SAFE_AUTONOMY_OK" in sj'), 'safe physical PASS must verify the exact stdout marker');
+assert.ok(humanGateWorkflow.includes('"PROTECTED_ACTION_OK" in pj'), 'protected physical PASS must verify the exact stdout marker');
 
 console.log('mission job authorization fence contract tests passed');
