@@ -302,6 +302,39 @@ BEGIN
 END;
 $function$;
 
+-- Stale asynchronous waiters need explicit operator revalidation, not automatic replay.
+INSERT INTO aria_internal.mission_state(
+  mission_id,goal,status,created_at,updated_at,checkpoint
+) VALUES (
+  'mi_async_stale_terminal','stale async waiter','paused',
+  clock_timestamp()-interval '2 days',
+  clock_timestamp()-interval '2 days',
+  jsonb_build_object(
+    'pending_jobs',jsonb_build_object(
+      'old_d1',jsonb_build_object('job_id','job_async_stale_terminal_001','status','succeeded','attempt',1)
+    ),
+    'recovery',jsonb_build_object('status','waiting_for_async_executor')
+  )
+);
+INSERT INTO aria_internal.execution_jobs(
+  job_id,mission_id,device_id,operation,command,status,requested_at,completed_at,exit_code,stdout,updated_at
+) VALUES (
+  'job_async_stale_terminal_001','mi_async_stale_terminal','device-test','shell.execute','printf OLD_MARKER',
+  'succeeded',clock_timestamp()-interval '2 days',clock_timestamp()-interval '2 days',0,'OLD_MARKER',clock_timestamp()-interval '2 days'
+);
+DO $function$
+DECLARE claimed jsonb;
+BEGIN
+  IF aria_internal.aria_mission_claim_eligible('mi_async_stale_terminal') THEN
+    RAISE EXCEPTION 'stale async waiter must not be automatically eligible after the 24-hour recovery window';
+  END IF;
+  claimed := aria_internal.aria_mission_claim_by_id_lease('mi_async_stale_terminal','stale-async-probe-worker');
+  IF claimed IS NOT NULL THEN
+    RAISE EXCEPTION 'stale async waiter was automatically reclaimed without operator revalidation: %',claimed;
+  END IF;
+END;
+$function$;
+
 -- A Human Gate pause is not an async-executor wait; no job may continue.
 INSERT INTO aria_internal.mission_state(mission_id,status)
 VALUES ('mi_human_gate_pause','running');
