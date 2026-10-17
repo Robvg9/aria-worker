@@ -81,5 +81,9 @@ assert.ok(humanGateWorkflow.includes('EXACT_SHA_SUPABASE_DEPLOY_PASS'), 'live Hu
 assert.ok(humanGateWorkflow.includes('EXACT_PROTECTED_JOB_BOUND'), 'approved protected job must bind only the exact pending step');
 assert.ok(humanGateWorkflow.includes('HUMAN_GATE_AUTHORIZATION_PASS_PHYSICAL_EXECUTOR_PENDING'), 'workflow must report physical executor unavailable separately from gate authorization');
 assert.ok(humanGateWorkflow.includes('test_cleanup_executor_unavailable'), 'unclaimed test jobs must be cancelled rather than left on the production queue');
+assert.ok(!humanGateWorkflow.includes('assert s.get("status")=="waiting"'), 'async wait branch must trust persisted mission state, not the generic runner response status');
+assert.ok(!humanGateWorkflow.includes('assert pf.get("status")=="waiting"'), 'protected async wait branch must trust persisted mission state, not the generic runner response status');
+assert.ok(humanGateWorkflow.includes('assert "waiting" in sdb,sdb'), 'safe test must reconcile wait status from the database snapshot');
+assert.ok(humanGateWorkflow.includes('assert "waiting" in pdb,pdb'), 'protected test must reconcile wait status from the database snapshot');
 
 console.log('mission job authorization fence contract tests passed');
