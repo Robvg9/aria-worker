@@ -79,6 +79,8 @@ assert.ok(asyncWaitResumeSql.includes("coalesce(m.checkpoint->'recovery'->>'stat
 assert.ok(asyncWaitResumeSql.includes("pending.pending_job->>'job_id'"), 'terminal async resume must match the exact pending job ID stored in checkpoint');
 assert.ok(asyncWaitResumeSql.includes("j.status IN ('succeeded','failed','timeout')") && asyncWaitResumeSql.includes('j.completed_at IS NOT NULL'), 'terminal async resume must wait for a persisted terminal job result');
 assert.ok(asyncWaitResumeSql.includes('async_executor_completed_resumed'), 'resume must persist a recovery reason for reconciliation');
+assert.ok(asyncWaitResumeSql.includes("coalesce(m.checkpoint->'recovery'->>'status','') <> 'waiting_for_async_executor'"), 'legacy paused async waiters must also require terminal evidence before being claimable');
+assert.ok(integrationSql.includes('paused async waiter resumed before its exact pending job was terminal'), 'integration SQL must reject early claim for a legacy paused async waiter');
 assert.ok(integrationSql.includes('mi_async_resume_terminal'), 'integration SQL must test re-entry after an async job completes');
 assert.ok(integrationSql.includes('async waiter resumed before its exact pending job reached terminal state'), 'integration SQL must reject premature async resumption');
 assert.ok(integrationSql.includes('parent mission did not resume after exact async job completion'), 'integration SQL must assert the parent mission can re-enter after terminal execution');
