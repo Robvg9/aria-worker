@@ -19,7 +19,7 @@ BEGIN
          lease_until = NULL,
          claimed_at = NULL,
          exit_code = NULL,
-         stderr = concat_ws(E'\\n', NULLIF(j.stderr,''), 'fail_closed:' || left(coalesce(p_reason,'mission_not_authorized'),160))
+         stderr = concat_ws(E'\n', NULLIF(j.stderr,''), 'fail_closed:' || left(coalesce(p_reason,'mission_not_authorized'),160))
    WHERE j.mission_id = p_mission_id
      AND j.status IN ('queued','claimed','running')
      AND j.completed_at IS NULL;
@@ -85,7 +85,7 @@ BEGIN
              lease_until=NULL,
              claimed_at=NULL,
              exit_code=NULL,
-             stderr=concat_ws(E'\\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_at_start')
+             stderr=concat_ws(E'\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_at_start')
        WHERE job_id=p_job_id AND device_id=p_device_id AND status='claimed'
        RETURNING to_jsonb(execution_jobs.*) INTO r;
       INSERT INTO aria_internal.execution_job_events(job_id,device_id,event_type,payload)
@@ -188,7 +188,7 @@ BEGIN
            lease_until=NULL,
            claimed_at=NULL,
            exit_code=NULL,
-           stderr=concat_ws(E'\\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_at_claim')
+           stderr=concat_ws(E'\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_at_claim')
      WHERE job_id=v_job.job_id AND status='claimed'
      RETURNING to_jsonb(execution_jobs.*) INTO r;
 
@@ -253,7 +253,7 @@ BEGIN
              lease_until=NULL,
              claimed_at=NULL,
              exit_code=NULL,
-             stderr=concat_ws(E'\\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_during_execution')
+             stderr=concat_ws(E'\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_during_execution')
        WHERE job_id=p_job_id AND device_id=p_device_id AND completed_at IS NULL;
       v_job_status := CASE WHEN v_job_status='queued' THEN 'blocked' ELSE 'cancelled' END;
     END IF;
