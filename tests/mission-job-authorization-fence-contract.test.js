@@ -55,5 +55,7 @@ assert.ok(sql.includes('REVOKE ALL ON FUNCTION public.execution_job_authorizatio
 assert.ok(sql.includes('GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway'), 'only the service-role gateway may call the status RPC');
 assert.ok(deviceGateway.includes("supabase.rpc('execution_job_authorization_status_gateway',{p_job_id:jobId,p_device_id:d.device_id})"), 'device gateway must use the privileged authorization status RPC after authenticating the device');
 assert.ok(integrationSql.includes("mi_running_revoke"), 'integration SQL must cover cancellation after a job reaches running');
+assert.ok(integrationSql.includes('late agent success must never overwrite'), 'integration SQL must reject stale completion after revocation');
+assert.ok(integrationSql.includes('late completion must be rejected after mission revocation'), 'integration SQL must assert that late job results cannot resurrect success');
 assert.ok(integrationSql.includes("has_function_privilege('anon'"), 'integration SQL must verify the authorization RPC privilege boundary');
 console.log('mission job authorization fence contract tests passed');
