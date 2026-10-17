@@ -23,6 +23,8 @@ const requiredSqlFragments = [
   'fail_closed:mission_not_authorized_at_claim',
   'CREATE OR REPLACE FUNCTION public.enqueue_execution_job_gateway',
   'mission_not_authorized_for_execution',
+  'REVOKE ALL ON FUNCTION public.execution_job_authorization_status_gateway(text,text) FROM PUBLIC, anon, authenticated;',
+  'GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway(text,text) TO service_role;',
   'FOR UPDATE',
   'enqueue_android_ui_job',
   'enqueue_android_notification_job',
@@ -44,4 +46,5 @@ assert.ok(rwhtController.includes('assertNotCancelled'), 'RWHT must check revoca
 assert.ok(deviceGateway.includes("const jobStatusMatch=p.match(/^\\\\/v1\\\\/jobs\\\\/([^/]+)\\\\/status$/)"), 'device gateway must expose the authenticated job status endpoint');
 assert.ok(deviceGateway.includes("authorized:missionAuthorized&&status==='running'"), 'device gateway must deny jobs whose mission is not active');
 assert.ok(integrationSql.includes("mi_running_revoke"), 'integration SQL must cover cancellation after a job reaches running');
+assert.ok(integrationSql.includes("has_function_privilege('anon'"), 'integration SQL must verify the authorization RPC privilege boundary');
 console.log('mission job authorization fence contract tests passed');
