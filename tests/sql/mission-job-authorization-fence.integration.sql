@@ -266,6 +266,15 @@ BEGIN
     RAISE EXCEPTION 'async waiter resumed before its exact pending job reached terminal state: %',claimed;
   END IF;
 
+  -- The older runner also used paused during an async wait. That state must
+  -- remain unclaimable until the same exact pending job is terminal.
+  UPDATE aria_internal.mission_state SET status='paused'
+   WHERE mission_id='mi_async_resume_terminal';
+  claimed := aria_internal.aria_mission_claim_by_id_lease('mi_async_resume_terminal','async-resume-probe-worker');
+  IF claimed IS NOT NULL THEN
+    RAISE EXCEPTION 'paused async waiter resumed before its exact pending job was terminal: %',claimed;
+  END IF;
+
   SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_async_resume_terminal_001';
   IF r.status <> 'claimed' THEN
     RAISE EXCEPTION 'pre-terminal async probe job should remain claimed: %',row_to_json(r);
