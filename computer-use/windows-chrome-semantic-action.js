@@ -60,19 +60,35 @@ function queryMatches(query) {
   '})()';
 }
 
-function cdpCall(method, params, timeoutMs, pageUrl = null) {
+function cdpCall(method, params, timeoutMs, pageUrl = null, signal) {
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) return reject(new Error('mission_authorization_revoked'));
     let settled = false;
     let ws = null;
-    const timer = setTimeout(() => {
+    const controller = new AbortController();
+    let timer = null;
+    const finish = (fn, value) => {
       if (settled) return;
       settled = true;
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      fn(value);
+    };
+    const onAbort = () => {
+      controller.abort();
       try { if (ws) ws.close(); } catch {}
-      reject(new Error('chrome_cdp_timeout'));
+      finish(reject, new Error('mission_authorization_revoked'));
+    };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    if (signal && signal.aborted) return onAbort();
+    timer = setTimeout(() => {
+      try { if (ws) ws.close(); } catch {}
+      finish(reject, new Error('chrome_cdp_timeout'));
     }, Math.max(1000, timeoutMs || 7000));
-    fetch(getCdpUrl() + '/json')
+    fetch(getCdpUrl() + '/json', { signal: controller.signal })
       .then((r) => { if (!r.ok) throw new Error('chrome_cdp_http_' + r.status); return r.json(); })
       .then((tabs) => {
+        if (signal && signal.aborted) throw new Error('mission_authorization_revoked');
         const pages = Array.isArray(tabs) ? tabs.filter((x) => x && x.type === 'page' && x.webSocketDebuggerUrl) : [];
         const requestedBase = pageUrl ? String(pageUrl).split('#')[0].replace(/\/+$/, '') : null;
         let candidates = requestedBase
@@ -90,29 +106,37 @@ function cdpCall(method, params, timeoutMs, pageUrl = null) {
             throw new Error('chrome_cdp_page_ambiguous');
           }
         }
+        if (signal && signal.aborted) throw new Error('mission_authorization_revoked');
         const page = candidates[0];
         if (typeof WebSocket !== 'function') throw new Error('chrome_cdp_websocket_unavailable');
         ws = new WebSocket(page.webSocketDebuggerUrl);
-        ws.onopen = () => ws.send(JSON.stringify({id:1,method,params:params || {}}));
+        ws.onopen = () => {
+          if (signal && signal.aborted) return onAbort();
+          ws.send(JSON.stringify({id:1,method,params:params || {}}));
+        };
         ws.onmessage = (event) => {
           if (settled) return;
           try {
             const msg = JSON.parse(String(event.data || ''));
             if (msg.id !== 1) return;
-            settled = true;
-            clearTimeout(timer);
+            if (msg.error) finish(reject, new Error(String(msg.error.message || 'chrome_cdp_error')));
+            else finish(resolve, msg.result || {});
             try { ws.close(); } catch {}
-            if (msg.error) reject(new Error(String(msg.error.message || 'chrome_cdp_error')));
-            else resolve(msg.result || {});
-          } catch (error) { settled = true; clearTimeout(timer); try { ws.close(); } catch {} reject(error); }
+          } catch (error) { try { ws.close(); } catch {} finish(reject, error); }
         };
-        ws.onerror = () => { if (!settled) { settled=true; clearTimeout(timer); reject(new Error('chrome_cdp_socket_error')); } };
+        ws.onerror = () => { try { ws.close(); } catch {} finish(reject, new Error('chrome_cdp_socket_error')); };
+        ws.onclose = () => {
+          if (!settled && signal && signal.aborted) finish(reject, new Error('mission_authorization_revoked'));
+        };
       })
-      .catch((error) => { if (!settled) { settled=true; clearTimeout(timer); reject(error); } });
+      .catch((error) => {
+        if (signal && signal.aborted) finish(reject, new Error('mission_authorization_revoked'));
+        else finish(reject, error);
+      });
   });
 }
-
-async function executeChromeSemanticAction(payload, {timeout_ms=7000}={}) {
+async function executeChromeSemanticAction(payload, {timeout_ms=7000, signal}={}) {
+  if (signal && signal.aborted) return {status:'cancelled',action:payload && payload.action,error:'mission_authorization_revoked'};
   const fullTarget = payload && payload.target;
   const target = fullTarget && fullTarget.query ? fullTarget.query : fullTarget;
   if (!target || typeof target !== 'object') return {status:'failed',action:payload && payload.action,error:'semantic_target_missing'};
@@ -138,7 +162,9 @@ async function executeChromeSemanticAction(payload, {timeout_ms=7000}={}) {
   let lastValue = null;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      const result = await cdpCall('Runtime.evaluate',{returnByValue:true,awaitPromise:true,expression:actionExpression},timeout_ms,pageUrl);
+      if (signal && signal.aborted) return {status:'cancelled',action,error:'mission_authorization_revoked'};
+      const result = await cdpCall('Runtime.evaluate',{returnByValue:true,awaitPromise:true,expression:actionExpression},timeout_ms,pageUrl,signal);
+      if (signal && signal.aborted) return {status:'cancelled',action,error:'mission_authorization_revoked'};
       const value = result && result.result && result.result.value;
       lastValue = value;
       if (value && value.ok === true) {
@@ -148,9 +174,13 @@ async function executeChromeSemanticAction(payload, {timeout_ms=7000}={}) {
         return {status:'failed',action,error:value.error || 'chrome_cdp_semantic_action_failed',version:'aria-windows-chrome-semantic-v1'};
       }
     } catch (error) {
+      if (signal && signal.aborted) return {status:'cancelled',action,error:'mission_authorization_revoked'};
       lastValue = {error:String(error && error.message || error)};
     }
-    if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 350));
+    if (attempt < 4) {
+      if (signal && signal.aborted) return {status:'cancelled',action,error:'mission_authorization_revoked'};
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
   }
   return {status:'failed',action,error:lastValue && lastValue.error || 'chrome_cdp_semantic_action_failed',version:'aria-windows-chrome-semantic-v1'};
 }
