@@ -277,3 +277,104 @@ GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway(text
 
 REVOKE ALL ON FUNCTION aria_internal.cancel_unauthorized_pending_jobs(text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION aria_internal.enforce_mission_job_authorization_fence() FROM PUBLIC, anon, authenticated;
+
+
+-- Serialize result completion against mission revocation using the same global
+-- lock order (mission row -> execution job row) as enqueue, start and status.
+CREATE OR REPLACE FUNCTION public.complete_execution_job_gateway(
+  p_job_id text,
+  p_device_id text,
+  p_status text,
+  p_exit_code integer,
+  p_stdout text,
+  p_stderr text,
+  p_result jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'aria_internal'
+AS $function$
+DECLARE
+  r jsonb;
+  v_mission_id text;
+  v_mission_status text;
+BEGIN
+  SELECT j.mission_id INTO v_mission_id
+    FROM aria_internal.execution_jobs j
+   WHERE j.job_id=p_job_id
+     AND j.device_id=p_device_id
+     AND j.status IN ('running','claimed');
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  SELECT m.status INTO v_mission_status
+    FROM aria_internal.mission_state m
+   WHERE m.mission_id=v_mission_id
+   FOR UPDATE;
+
+  IF NOT FOUND OR v_mission_status NOT IN ('running','waiting') THEN
+    UPDATE aria_internal.execution_jobs
+       SET status='cancelled',
+           completed_at=clock_timestamp(),
+           updated_at=clock_timestamp(),
+           lease_owner=NULL,
+           lease_until=NULL,
+           claimed_at=NULL,
+           exit_code=NULL,
+           stderr=concat_ws(E'\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_at_completion')
+     WHERE job_id=p_job_id
+       AND device_id=p_device_id
+       AND status IN ('running','claimed')
+       AND completed_at IS NULL
+     RETURNING to_jsonb(execution_jobs.*) INTO r;
+
+    IF r IS NOT NULL THEN
+      INSERT INTO aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+      VALUES (p_job_id,p_device_id,'job.blocked_mission_not_authorized',
+              jsonb_build_object('mission_id',v_mission_id,'mission_status',v_mission_status,'phase','complete','attempted_status',p_status,'at',clock_timestamp()));
+    END IF;
+    RETURN NULL;
+  END IF;
+
+  UPDATE aria_internal.execution_jobs
+     SET status=p_status,
+         exit_code=p_exit_code,
+         stdout=p_stdout,
+         stderr=p_stderr,
+         result=p_result,
+         completed_at=clock_timestamp(),
+         updated_at=clock_timestamp(),
+         lease_owner=NULL,
+         lease_until=NULL
+   WHERE job_id=p_job_id
+     AND device_id=p_device_id
+     AND status IN ('running','claimed')
+   RETURNING to_jsonb(execution_jobs.*), mission_id
+      INTO r, v_mission_id;
+
+  IF r IS NULL THEN RETURN NULL; END IF;
+
+  INSERT INTO aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+  VALUES (
+    p_job_id,
+    p_device_id,
+    'job.' || p_status,
+    jsonb_build_object(
+      'exit_code', p_exit_code,
+      'duration_ms', coalesce((p_result->>'duration_ms')::numeric, NULL),
+      'mission_id', v_mission_id
+    )
+  );
+
+  IF p_status IN ('succeeded','failed','timeout') THEN
+    PERFORM aria_internal.schedule_mission_runner_after_execution_job(
+      v_mission_id,
+      p_status,
+      p_job_id,
+      p_device_id
+    );
+  END IF;
+
+  RETURN r;
+END;
+$function$;
