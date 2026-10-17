@@ -144,3 +144,65 @@ BEGIN
   RETURN r;
 END;
 $function$;
+
+
+CREATE OR REPLACE FUNCTION aria_internal.schedule_mission_runner_after_execution_job(
+  p_mission_id text,
+  p_status text,
+  p_job_id text,
+  p_device_id text
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  RETURN;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.complete_execution_job_gateway(
+  p_job_id text,
+  p_device_id text,
+  p_status text,
+  p_exit_code integer,
+  p_stdout text,
+  p_stderr text,
+  p_result jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'aria_internal'
+AS $function$
+DECLARE
+  r jsonb;
+  v_mission_id text;
+BEGIN
+  UPDATE aria_internal.execution_jobs
+     SET status=p_status,
+         exit_code=p_exit_code,
+         stdout=p_stdout,
+         stderr=p_stderr,
+         result=p_result,
+         completed_at=now(),
+         updated_at=now(),
+         lease_owner=NULL,
+         lease_until=NULL
+   WHERE job_id=p_job_id
+     AND device_id=p_device_id
+     AND status IN ('running','claimed')
+   RETURNING to_jsonb(execution_jobs.*), mission_id
+      INTO r, v_mission_id;
+  IF r IS NULL THEN RETURN NULL; END IF;
+
+  INSERT INTO aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+  VALUES (p_job_id,p_device_id,'job.'||p_status,
+          jsonb_build_object('exit_code',p_exit_code,'mission_id',v_mission_id));
+  IF p_status IN ('succeeded','failed','timeout') THEN
+    PERFORM aria_internal.schedule_mission_runner_after_execution_job(
+      v_mission_id,p_status,p_job_id,p_device_id
+    );
+  END IF;
+  RETURN r;
+END;
+$function$;
