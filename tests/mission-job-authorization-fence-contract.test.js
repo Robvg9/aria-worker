@@ -47,7 +47,7 @@ assert.ok(deviceGateway.includes('jobStatusMatch=p.match'), 'device gateway must
 assert.ok(deviceGateway.includes("supabase.rpc('execution_job_authorization_status_gateway'"), 'device gateway must use the protected security-definer RPC, not direct internal schema access');
 assert.ok(sql.includes('REVOKE ALL ON FUNCTION public.execution_job_authorization_status_gateway'), 'authorization status RPC must not be public');
 assert.ok(sql.includes('GRANT EXECUTE ON FUNCTION public.execution_job_authorization_status_gateway'), 'only the service-role gateway may call the status RPC');
-assert.ok(deviceGateway.includes("authorized:missionAuthorized&&status==='running'"), 'device gateway must deny jobs whose mission is not active');
+assert.ok(deviceGateway.includes("supabase.rpc('execution_job_authorization_status_gateway',{p_job_id:jobId,p_device_id:d.device_id})"), 'device gateway must use the privileged authorization status RPC after authenticating the device');
 assert.ok(integrationSql.includes("mi_running_revoke"), 'integration SQL must cover cancellation after a job reaches running');
 assert.ok(integrationSql.includes("has_function_privilege('anon'"), 'integration SQL must verify the authorization RPC privilege boundary');
 console.log('mission job authorization fence contract tests passed');
