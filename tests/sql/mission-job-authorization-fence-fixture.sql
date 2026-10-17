@@ -1,4 +1,24 @@
 -- Minimal PostgreSQL contract schema for mission/job authorization-fence integration tests.
+-- Mirror the Supabase API roles for permission assertions in isolated PostgreSQL.
+DO $roles$
+BEGIN
+  CREATE ROLE anon NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END;
+$roles$;
+DO $roles$
+BEGIN
+  CREATE ROLE authenticated NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END;
+$roles$;
+DO $roles$
+BEGIN
+  CREATE ROLE service_role NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END;
+$roles$;
+
 CREATE SCHEMA aria_internal;
 
 CREATE TABLE aria_internal.mission_state (
