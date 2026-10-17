@@ -500,38 +500,45 @@ function validateDecision(decision, ui) {
   return { ok: true };
 }
 
-async function executeDecision(adapter, decision, ui) {
+async function executeDecision(adapter, decision, ui, signal) {
+  if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
   if (decision.action === 'finish') return { status: 'finished' };
-  if (decision.action === 'back') return adapter({ action: 'hotkey', keys: ['ALT', 'LEFT'] });
-  if (decision.action === 'scroll') return adapter({ action: 'scroll', delta: decision.delta });
-  if (decision.action === 'wait') return adapter({ action: 'wait', ms: decision.ms });
-  if (decision.action === 'screenshot') return adapter({ action: 'screenshot' });
+  if (decision.action === 'back') return adapter({ action: 'hotkey', keys: ['ALT', 'LEFT'] }, { signal });
+  if (decision.action === 'scroll') return adapter({ action: 'scroll', delta: decision.delta }, { signal });
+  if (decision.action === 'wait') return adapter({ action: 'wait', ms: decision.ms }, { signal });
+  if (decision.action === 'screenshot') return adapter({ action: 'screenshot' }, { signal });
 
   const node = find(ui, decision.node_id);
   if (!node) return { status: 'failed', error: 'target_not_found' };
   if (node.attributes && node.attributes.source === 'chrome-cdp') {
+    if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
     const cdp = await chromeCdpAct(node, decision.action, decision.text).catch((error) => ({ ok: false, error: String(error && error.message || error) }));
+    if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
     return { status: cdp && cdp.ok ? 'succeeded' : 'failed', error: cdp && cdp.error || null, method: 'chrome-cdp' };
   }
   const bounds = center(node);
   if (!bounds) return { status: 'failed', error: 'target_bounds_missing' };
 
   if (decision.action === 'type') {
-    const focus = await adapter({ action: 'click', x: bounds.x, y: bounds.y });
+    if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
+    const focus = await adapter({ action: 'click', x: bounds.x, y: bounds.y }, { signal });
     if (focus && focus.status !== 'succeeded') {
       return { status: 'failed', error: focus.error || 'type_target_focus_failed' };
     }
-    const typed = await adapter({ action: 'type', text: decision.text });
+    if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
+    const typed = await adapter({ action: 'type', text: decision.text }, { signal });
     return {
       status: typed && typed.status || 'failed',
       error: typed && typed.error || null,
     };
   }
 
-  return adapter({ action: decision.action, x: bounds.x, y: bounds.y });
+  if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
+  return adapter({ action: decision.action, x: bounds.x, y: bounds.y }, { signal });
 }
 
-async function navigate(adapter, url) {
+async function navigate(adapter, url, signal) {
+  if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
   if (!url) return { status: 'skipped' };
 
   const focusTargets = ['chrome', 'msedge'];
@@ -539,7 +546,8 @@ async function navigate(adapter, url) {
   let focused = false;
 
   for (const process of focusTargets) {
-    const focus = await adapter({ action: 'focus', process });
+    if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked', results };
+    const focus = await adapter({ action: 'focus', process }, { signal });
     results.push({
       action: 'focus',
       process,
@@ -553,7 +561,8 @@ async function navigate(adapter, url) {
   }
 
   if (!focused) {
-    const launched = await adapter({ action: 'open', path: url });
+    if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked', results };
+    const launched = await adapter({ action: 'open', path: url }, { signal });
     results.push({
       action: 'open',
       status: launched && launched.status || 'unknown',
@@ -563,7 +572,7 @@ async function navigate(adapter, url) {
     if (!launched || launched.status !== 'succeeded') {
       return { status: 'failed', results };
     }
-    await adapter({ action: 'wait', ms: 2500 });
+    await adapter({ action: 'wait', ms: 2500 }, { signal });
   }
 
   const navigationSteps = [
@@ -574,7 +583,8 @@ async function navigate(adapter, url) {
   ];
 
   for (const step of navigationSteps) {
-    const result = await adapter(step);
+    if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked', results };
+    const result = await adapter(step, { signal });
     results.push({
       action: step.action,
       status: result && result.status || 'unknown',
@@ -589,6 +599,10 @@ async function navigate(adapter, url) {
 }
 
 async function runAutonomousRwht(options) {
+  const o = options || {};
+  const signal = o.signal;
+  const assertNotCancelled = () => { if (signal && signal.aborted) throw new Error('mission_authorization_revoked'); };
+  if (signal && signal.aborted) return { status: 'cancelled', verified: false, verification_status: 'cancelled', error: 'mission_authorization_revoked' };
   if (!RESOURCE_PROFILE.local_llm_eligible) {
     return {
       status: 'failed',
@@ -600,7 +614,6 @@ async function runAutonomousRwht(options) {
       },
     };
   }
-  const o = options || {};
   const missionId = o.mission_id || ('rwht-' + Date.now());
   const goal = o.goal || 'Ejecutar RWHT autónomo desde PC.';
   const deviceId = o.device_id || null;
@@ -623,6 +636,7 @@ async function runAutonomousRwht(options) {
   const started = Date.now();
 
   async function emitProgress(event_type, payload = {}, step_index = null) {
+    assertNotCancelled();
     if (!onProgress) return;
     try {
       await onProgress({ event_type, step_index, payload: { ...payload, mission_id: missionId } });
@@ -655,6 +669,7 @@ async function runAutonomousRwht(options) {
   });
 
   const currentRoute = async () => {
+    assertNotCancelled();
     if (!cdpEnabled) return null;
     try {
       const response = await chromeCdpCall('Runtime.evaluate', {
@@ -668,19 +683,23 @@ async function runAutonomousRwht(options) {
   };
 
   const navigateToRoute = async (route) => {
+    assertNotCancelled();
     if (!startUrl || !route || !cdpEnabled) return { status: 'skipped', route };
     const base = String(startUrl).split('#')[0];
     const url = base + route;
     try {
       await chromeCdpCall('Page.navigate', { url });
+      assertNotCancelled();
       await new Promise((resolve) => setTimeout(resolve, 900));
+      assertNotCancelled();
       const observedRoute = await currentRoute();
       if (observedRoute === route) {
         visitedRoutes.add(route);
         return { status: 'succeeded', method: 'chrome-cdp', url, route, observed_route: observedRoute };
       }
     } catch {}
-    const fallback = await navigate(adapter, url);
+    assertNotCancelled();
+    const fallback = await navigate(adapter, url, signal);
     if (fallback.status !== 'succeeded') return { ...fallback, route, url };
     await new Promise((resolve) => setTimeout(resolve, 700));
     const observedRoute = await currentRoute();
@@ -715,7 +734,9 @@ async function runAutonomousRwht(options) {
   }));
 
   const observe = async (reason = 'initial') => {
+    assertNotCancelled();
     if (cdpEnabled) await ensureCdpBrowser(startUrl).catch(() => null);
+    assertNotCancelled();
     await emitProgress('computer_use_observation_started', {
       reason,
       full_pwa_coverage: fullPwaCoverageMode,
@@ -747,7 +768,7 @@ async function runAutonomousRwht(options) {
       } catch {}
       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 300));
     }
-    const result = await adapter({ action: 'observe' }, { timeout_ms: 30000 });
+    const result = await adapter({ action: 'observe' }, { timeout_ms: 30000, signal });
     if (!result || result.status !== 'succeeded') {
       await emitProgress('computer_use_observation_completed', {
         reason,
@@ -781,6 +802,7 @@ async function runAutonomousRwht(options) {
   }
 
   for (let step = 1; step <= maxActions && Date.now() - started < maxRuntimeMs; step += 1) {
+    assertNotCancelled();
     const routeNow = await currentRoute();
     if (fullPwaCoverageMode && routeNow && requiredRoutes.includes(routeNow)) {
       visitedRoutes.add(routeNow);
@@ -939,7 +961,9 @@ async function runAutonomousRwht(options) {
       reason: decision.reason,
     }, step);
 
-    const result = await executeDecision(adapter, decision, current);
+    assertNotCancelled();
+    const result = await executeDecision(adapter, decision, current, signal);
+    assertNotCancelled();
     await emitProgress('computer_use_action_executed', {
       step,
       action: decision.action,
@@ -1009,7 +1033,7 @@ async function runAutonomousRwht(options) {
 
     if (captureScreenshots && (step === 1 || step % 10 === 0)) {
       try {
-        const shot = await adapter({ action: 'screenshot' }, { timeout_ms: 30000 });
+        const shot = await adapter({ action: 'screenshot' }, { timeout_ms: 30000, signal });
         evidence.push({
           step,
           kind: 'screenshot',
