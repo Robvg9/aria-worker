@@ -7,6 +7,8 @@ const migrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '2026
 const asyncPauseMigrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017190000_mission_job_authorization_fence_async_pause_v1.sql');
 const sql = fs.readFileSync(migrationPath, 'utf8');
 const asyncPauseSql = fs.readFileSync(asyncPauseMigrationPath, 'utf8');
+const asyncWaitResumeMigrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017193000_resume_async_waiter_after_terminal_job_v1.sql');
+const asyncWaitResumeSql = fs.readFileSync(asyncWaitResumeMigrationPath, 'utf8');
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'aria-agent.js'), 'utf8');
 const shellExecutor = fs.readFileSync(path.join(__dirname, '..', 'autonomy', 'windows-shell-executor.js'), 'utf8');
 const desktopAdapter = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
@@ -73,6 +75,14 @@ assert.ok(integrationSql.includes('mi_async_pause'), 'integration SQL must prese
 assert.ok(integrationSql.includes('job_async_unrelated_001'), 'integration SQL must cancel jobs not exactly bound by pending_jobs');
 assert.ok(integrationSql.includes('mi_human_gate_pause'), 'integration SQL must cancel unrelated jobs during a Human Gate pause');
 assert.ok(integrationSql.includes('mi_alternative_wait'), 'integration SQL must cancel jobs while replanning for an alternative strategy');
+assert.ok(asyncWaitResumeSql.includes("coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_async_executor'"), 'terminal async resume must require the explicit async-executor recovery state');
+assert.ok(asyncWaitResumeSql.includes("pending.pending_job->>'job_id'"), 'terminal async resume must match the exact pending job ID stored in checkpoint');
+assert.ok(asyncWaitResumeSql.includes("j.status IN ('succeeded','failed','timeout')") && asyncWaitResumeSql.includes('j.completed_at IS NOT NULL'), 'terminal async resume must wait for a persisted terminal job result');
+assert.ok(asyncWaitResumeSql.includes('async_executor_completed_resumed'), 'resume must persist a recovery reason for reconciliation');
+assert.ok(integrationSql.includes('mi_async_resume_terminal'), 'integration SQL must test re-entry after an async job completes');
+assert.ok(integrationSql.includes('async waiter resumed before its exact pending job reached terminal state'), 'integration SQL must reject premature async resumption');
+assert.ok(integrationSql.includes('parent mission did not resume after exact async job completion'), 'integration SQL must assert the parent mission can re-enter after terminal execution');
+
 
 
 const humanGateWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'e2e-human-gate-safe-autonomy.yml'), 'utf8');
@@ -91,6 +101,8 @@ assert.ok(humanGateWorkflow.includes("updated_at < now() - interval '10 minutes'
 assert.ok((humanGateWorkflow.match(/coalesce\(stdout,''\)/g) || []).length >= 2, 'both physical success branches must read the actual job stdout');
 assert.ok(humanGateWorkflow.includes('"SAFE_AUTONOMY_OK" in sj'), 'safe physical PASS must verify the exact stdout marker');
 assert.ok(humanGateWorkflow.includes('"PROTECTED_ACTION_OK" in pj'), 'protected physical PASS must verify the exact stdout marker');
+assert.ok(humanGateWorkflow.includes('SAFE_DEVICE_MARKER_CONFIRMED_REPOLLING_MISSION'), 'live E2E must reconcile a terminal safe device result with parent mission state');
+assert.ok(humanGateWorkflow.includes('PROTECTED_DEVICE_MARKER_CONFIRMED_REPOLLING_MISSION'), 'live E2E must reconcile a terminal protected device result with parent mission state');
 
 
 const freshExecutorWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'e2e-human-gate-safe-autonomy.yml'), 'utf8');
