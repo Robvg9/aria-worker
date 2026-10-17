@@ -131,7 +131,7 @@ jobs:
           insert_mission(safe,"Safe autonomy no gate",safe_steps)
           s=wait_terminal(safe)
           sdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+safe+"';")
-          sj=sql("select job_id,status,coalesce(stderr,'') from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
+          sj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
           exact=sql("select case when checkpoint->'pending_jobs'->'safe_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1) then 'EXACT_PENDING_JOB_BOUND' else 'PENDING_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+safe+"';")
           print("SAFE_AUTHORIZATION",s,sdb,sj,exact)
           if "succeeded" in sdb and "2" in sdb and "SAFE_AUTONOMY_OK" in sj:
@@ -181,11 +181,11 @@ jobs:
           pf=wait_terminal(pos)
           pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status',checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
           started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
-          pj=sql("select job_id,status,coalesce(stderr,'') from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
+          pj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
           exactPos=sql("select case when checkpoint->'pending_jobs'->'protected_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1) then 'EXACT_PROTECTED_JOB_BOUND' else 'PROTECTED_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+pos+"';")
           print("POS_AUTHORIZATION",pf,pdb,started,pj,exactPos)
           if "succeeded" in pdb and "2" in pdb and "completed" in pdb:
-              assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and re.search(r"\b2\b",started),(pf,pdb,started)
+              assert "succeeded" in pdb and "2" in pdb and "completed" in pdb and "PROTECTED_ACTION_OK" in pj and re.search(r"\b2\b",started),(pf,pdb,started,pj)
               protected_physical_execution_pass=True
               print("HG_PROTECTED_PHYSICAL_EXECUTION_PASS")
           else:
