@@ -78,9 +78,9 @@ jobs:
           def tick(mid):
               return call("aria-mission-runner-v22",{"mission_id":mid})
 
-          def wait_terminal(mid):
+          def wait_terminal(mid, attempts=20):
               last=None
-              for _ in range(20):
+              for _ in range(attempts):
                   _,last=tick(mid)
                   if last.get("status") in {"succeeded","failed","blocked","rejected","cancelled"}:
                       return last
@@ -163,6 +163,12 @@ jobs:
           sdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+safe+"';")
           sj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
           exact=sql("select case when checkpoint->'pending_jobs'->'safe_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1) then 'EXACT_PENDING_JOB_BOUND' else 'PENDING_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+safe+"';")
+          if "succeeded" in sj and "SAFE_AUTONOMY_OK" in sj and not ("succeeded" in sdb and "2" in sdb):
+              print("SAFE_DEVICE_MARKER_CONFIRMED_REPOLLING_MISSION",sdb,sj)
+              s=wait_terminal(safe,attempts=10)
+              sdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+safe+"';")
+              sj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
+          exact=sql("select case when checkpoint->'pending_jobs'->'safe_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1) then 'EXACT_PENDING_JOB_BOUND' else 'PENDING_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+safe+"';")
           print("SAFE_AUTHORIZATION",s,sdb,sj,exact)
           if "succeeded" in sdb and "2" in sdb and "SAFE_AUTONOMY_OK" in sj:
               assert "succeeded" in sdb and "2" in sdb and "SAFE_AUTONOMY_OK" in sj,(s,sdb,sj)
@@ -212,6 +218,13 @@ jobs:
           pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status',checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
           started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
           pj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
+          exactPos=sql("select case when checkpoint->'pending_jobs'->'protected_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1) then 'EXACT_PROTECTED_JOB_BOUND' else 'PROTECTED_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+pos+"';")
+          if "succeeded" in pj and "PROTECTED_ACTION_OK" in pj and not ("succeeded" in pdb and "2" in pdb and "completed" in pdb):
+              print("PROTECTED_DEVICE_MARKER_CONFIRMED_REPOLLING_MISSION",pdb,pj)
+              pf=wait_terminal(pos,attempts=10)
+              pdb=sql("select status,completed_steps,total_steps,last_stderr,checkpoint->'human_gate'->>'status',checkpoint->'recovery'->>'status' from aria_internal.mission_state where mission_id='"+pos+"';")
+              started=sql("select count(*) from aria_internal.mission_events where mission_id='"+pos+"' and event_type='step_started' and payload->>'step_id'='protected_d1';")
+              pj=sql("select job_id,status,coalesce(stderr,''),coalesce(stdout,'') from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
           exactPos=sql("select case when checkpoint->'pending_jobs'->'protected_d1'->>'job_id'=(select job_id from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1) then 'EXACT_PROTECTED_JOB_BOUND' else 'PROTECTED_JOB_MISMATCH' end from aria_internal.mission_state where mission_id='"+pos+"';")
           print("POS_AUTHORIZATION",pf,pdb,started,pj,exactPos)
           if "succeeded" in pdb and "2" in pdb and "completed" in pdb:
