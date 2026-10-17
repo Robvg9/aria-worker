@@ -23,6 +23,7 @@ if (!email || !password) {
 
 const responseDiagnostics = [];
 const authRequestDiagnostics = [];
+const authRequestByObject = new WeakMap();
 
 
 const evidence = {
@@ -239,7 +240,7 @@ function panel(page, text) {
     try { body = request.postDataJSON() || {}; } catch {}
     let grantType = null;
     try { grantType = new URL(target).searchParams.get('grant_type'); } catch {}
-    authRequestDiagnostics.push({
+    const diagnostic = {
       method: request.method(),
       url: target,
       observed_at: Date.now(),
@@ -248,12 +249,25 @@ function panel(page, text) {
       has_phone: typeof body.phone === 'string' && Boolean(body.phone.trim()),
       has_password: typeof body.password === 'string' && Boolean(body.password),
       has_refresh_token: typeof body.refresh_token === 'string' && Boolean(body.refresh_token)
-    });
+    };
+    authRequestDiagnostics.push(diagnostic);
+    authRequestByObject.set(request, diagnostic);
   });
   page.on('response', async response => {
     if (response.status() >= 400) {
       const target = response.url();
       const diagnostic = { status: response.status(), url: target, observed_at: Date.now() };
+      const authRequest = authRequestByObject.get(response.request());
+      if (authRequest) {
+        diagnostic.auth_request = {
+          method: authRequest.method,
+          grant_type: authRequest.grant_type,
+          has_email: authRequest.has_email,
+          has_phone: authRequest.has_phone,
+          has_password: authRequest.has_password,
+          has_refresh_token: authRequest.has_refresh_token
+        };
+      }
       if (/auth\/token/i.test(target)) {
         try {
           const body = await response.json();
@@ -268,45 +282,45 @@ function panel(page, text) {
   function flushConsoleDiagnostics() {
     if (consoleDiagnosticsFlushed) return;
     consoleDiagnosticsFlushed = true;
-    const expectedAuth400s = responseDiagnostics.filter(item =>
+    const auth400Responses = responseDiagnostics.filter(item =>
       item.status === 400 &&
-      /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(item.url) &&
-      /missing email or phone/i.test(String(item.auth_error || ''))
+      /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(item.url)
     );
-    // Only classify the exact, credential-free Auth boot probe as expected:
-    // an explicit 400 "missing email or phone" response is harmless only when
-    // no email, phone, password or refresh token was sent in that correlated request.
-    const emptyAuthProbes = authRequestDiagnostics.filter(item =>
-      item.method === 'POST' &&
-      item.grant_type === 'password' &&
-      !item.has_email &&
-      !item.has_phone &&
-      !item.has_password &&
-      !item.has_refresh_token
-    );
-    let matchedExpected = 0;
+    let correlatedAuth400s = 0;
+    let missingIdentityAuthSubmissions = 0;
+    let unclassifiedConsoleEvents = 0;
     for (const consoleError of pendingGenericResource400) {
-      const matchIndex = expectedAuth400s.findIndex(response => {
-        if (Math.abs(consoleError.observed_at - response.observed_at) > 5000) return false;
-        const requestIndex = emptyAuthProbes.findIndex(request =>
-          request.observed_at <= response.observed_at + 1000 &&
-          response.observed_at - request.observed_at <= 10000
-        );
-        if (requestIndex < 0) return false;
-        emptyAuthProbes.splice(requestIndex, 1);
-        return true;
-      });
-      if (matchIndex >= 0) {
-        expectedAuth400s.splice(matchIndex, 1);
-        matchedExpected += 1;
-      } else {
+      const matchIndex = auth400Responses.findIndex(response =>
+        Math.abs(consoleError.observed_at - response.observed_at) <= 5000
+      );
+      if (matchIndex < 0) {
+        unclassifiedConsoleEvents += 1;
         runtimeErrors.push('console: ' + consoleError.message);
+        continue;
+      }
+
+      const [response] = auth400Responses.splice(matchIndex, 1);
+      correlatedAuth400s += 1;
+      const request = response.auth_request;
+      if (
+        request &&
+        request.method === 'POST' &&
+        request.grant_type === 'password' &&
+        (!request.has_email || !request.has_phone)
+      ) {
+        missingIdentityAuthSubmissions += 1;
+        runtimeErrors.push('auth: password-grant submitted without required email or phone');
+      } else {
+        // Correlation explains the generic Chromium console line; it does not
+        // turn an HTTP 400 into success or suppress an unexpected error.
+        runtimeErrors.push('console: HTTP 400 from Auth endpoint');
       }
     }
-    evidence.checks.expected_auth_console_400_classification = {
+    evidence.checks.auth_console_400_correlation = {
       generic_400_console_events: pendingGenericResource400.length,
-      matched_expected_empty_auth_probes: matchedExpected,
-      unclassified_console_events: pendingGenericResource400.length - matchedExpected
+      correlated_auth_400_responses: correlatedAuth400s,
+      missing_identity_auth_submissions: missingIdentityAuthSubmissions,
+      unclassified_console_events: unclassifiedConsoleEvents
     };
   }
 
