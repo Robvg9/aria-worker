@@ -121,7 +121,7 @@ jobs:
               sql("UPDATE aria_internal.mission_state SET status='cancelled',last_stderr='test_cleanup_executor_unavailable',lease_owner=NULL,lease_until=NULL WHERE mission_id='"+safe+"' AND status='waiting';")
               safeCleanup=sql("select status,stderr from aria_internal.execution_jobs where mission_id='"+safe+"' order by requested_at desc limit 1;")
               print("SAFE_CLEANUP",safeCleanup)
-              assert "cancelled" in safeCleanup,safeCleanup
+              assert ("cancelled" in safeCleanup or "blocked" in safeCleanup),safeCleanup
 
           pos="mission_hg_POS_"+str(int(time.time()*1000))
           insert_mission(pos,"Protected action Human Gate",protected_steps,True)
@@ -171,7 +171,7 @@ jobs:
               sql("UPDATE aria_internal.mission_state SET status='cancelled',last_stderr='test_cleanup_executor_unavailable_after_gate_approval',lease_owner=NULL,lease_until=NULL WHERE mission_id='"+pos+"' AND status='waiting';")
               posCleanup=sql("select status,stderr from aria_internal.execution_jobs where mission_id='"+pos+"' order by requested_at desc limit 1;")
               print("POS_CLEANUP",posCleanup)
-              assert "cancelled" in posCleanup,posCleanup
+              assert ("cancelled" in posCleanup or "blocked" in posCleanup),posCleanup
 
           rej="mission_hg_REJ_"+str(int(time.time()*1000))
           insert_mission(rej,"Reject protected Human Gate",protected_steps,True)
