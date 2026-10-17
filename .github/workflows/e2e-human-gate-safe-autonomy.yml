@@ -92,6 +92,13 @@ jobs:
                   time.sleep(1)
               return last
 
+          # Clean only stale missions created by this Human Gate test itself.
+          # This prevents an earlier no-device run from leaving its harmless shell
+          # marker queued for a future device heartbeat. The v2 fence cancels that
+          # mission's jobs when the test-owned mission is marked cancelled.
+          stale = sql("WITH stale AS (UPDATE aria_internal.mission_state SET status='cancelled',last_stderr='stale_test_cleanup_executor_unavailable',lease_owner=NULL,lease_until=NULL WHERE metadata->>'probe'='human_gate_safe_autonomy' AND status IN ('waiting','paused') AND updated_at < now() - interval '10 minutes' AND mission_id ~ '^mission_hg_(SAFE|POS|REJ|CAN)_[0-9]+' RETURNING mission_id) SELECT coalesce(string_agg(mission_id,','),'none') FROM stale;")
+          print("STALE_TEST_MISSIONS_CLEANED",stale)
+
           # Planner contract is checked independently. The executable E2E deliberately
           # uses a harmless device shell route so Human Gate does not depend on a model
           # or provider being available in the current registry.
