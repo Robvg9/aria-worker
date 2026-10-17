@@ -203,3 +203,69 @@ BEGIN
   RETURN to_jsonb(v_job);
 END;
 $function$;
+
+-- Public device-authenticated authorization status RPC. aria_internal is not
+-- exposed as a PostgREST schema, so the device gateway must use this function.
+CREATE OR REPLACE FUNCTION public.execution_job_authorization_status_gateway(
+  p_job_id text,
+  p_device_id text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'aria_internal'
+AS $function$
+DECLARE
+  v_mission_id text;
+  v_mission_status text;
+  v_job_status text;
+  v_authorized boolean := false;
+BEGIN
+  SELECT j.mission_id INTO v_mission_id
+    FROM aria_internal.execution_jobs j
+   WHERE j.job_id=p_job_id AND j.device_id=p_device_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('error','job_not_owned_or_missing','authorized',false);
+  END IF;
+
+  -- Lock the mission first, then re-read/lock the job to serialize against
+  -- mission transitions, which cancel jobs in their AFTER trigger.
+  SELECT m.status INTO v_mission_status
+    FROM aria_internal.mission_state m
+   WHERE m.mission_id=v_mission_id
+   FOR UPDATE;
+
+  SELECT j.status INTO v_job_status
+    FROM aria_internal.execution_jobs j
+   WHERE j.job_id=p_job_id AND j.device_id=p_device_id
+   FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('error','job_not_owned_or_missing','authorized',false);
+  END IF;
+
+  IF v_mission_status IS NULL OR v_mission_status NOT IN ('running','waiting') THEN
+    IF v_job_status IN ('queued','claimed','running') THEN
+      UPDATE aria_internal.execution_jobs
+         SET status=CASE WHEN v_job_status='queued' THEN 'blocked' ELSE 'cancelled' END,
+             completed_at=clock_timestamp(),
+             updated_at=clock_timestamp(),
+             lease_owner=NULL,
+             lease_until=NULL,
+             claimed_at=NULL,
+             exit_code=NULL,
+             stderr=concat_ws(E'\\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_during_execution')
+       WHERE job_id=p_job_id AND device_id=p_device_id AND completed_at IS NULL;
+      v_job_status := CASE WHEN v_job_status='queued' THEN 'blocked' ELSE 'cancelled' END;
+    END IF;
+  ELSE
+    v_authorized := v_job_status='running';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'job_id',p_job_id,
+    'status',v_job_status,
+    'mission_status',coalesce(v_mission_status,'missing'),
+    'authorized',v_authorized
+  );
+END;
+$function$;
