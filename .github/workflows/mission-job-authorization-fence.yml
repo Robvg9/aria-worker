@@ -78,11 +78,21 @@ jobs:
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-race-setup.sql
-          psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-race-block.sql &
+          psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-race-block.sql > race-block.log 2>&1 &
           BLOCK_PID=$!
           cleanup() { kill "$BLOCK_PID" 2>/dev/null || true; }
           trap cleanup EXIT
-          sleep 0.15
+          for attempt in $(seq 1 50); do
+            if grep -q 'RACE_LOCK_ACQUIRED' race-block.log; then break; fi
+            if ! kill -0 "$BLOCK_PID" 2>/dev/null; then cat race-block.log; exit 1; fi
+            sleep 0.1
+          done
+          if ! grep -q 'RACE_LOCK_ACQUIRED' race-block.log; then
+            cat race-block.log
+            echo 'ERROR: blocking transaction never acquired the mission lock'
+            exit 1
+          fi
           psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-race-start.sql
           wait "$BLOCK_PID"
+          cat race-block.log
           trap - EXIT
