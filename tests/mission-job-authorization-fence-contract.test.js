@@ -84,6 +84,10 @@ assert.ok(integrationSql.includes('paused async waiter resumed before its exact 
 assert.ok(integrationSql.includes('mi_async_resume_terminal'), 'integration SQL must test re-entry after an async job completes');
 assert.ok(integrationSql.includes('async waiter resumed before its exact pending job reached terminal state'), 'integration SQL must reject premature async resumption');
 assert.ok(integrationSql.includes('parent mission did not resume after exact async job completion'), 'integration SQL must assert the parent mission can re-enter after terminal execution');
+assert.ok(asyncWaitResumeSql.includes("j.completed_at > clock_timestamp() - interval '24 hours'"), 'only recent terminal physical outcomes may trigger automatic async resume');
+assert.ok(asyncWaitResumeSql.includes("m.updated_at > clock_timestamp() - interval '24 hours'"), 'stale async parent missions must be excluded from automatic resume');
+assert.ok(integrationSql.includes('mi_async_stale_terminal'), 'integration SQL must model an old pending async result');
+assert.ok(integrationSql.includes('stale async waiter was automatically reclaimed without operator revalidation'), 'integration SQL must reject auto-replay of stale async missions');
 
 
 
