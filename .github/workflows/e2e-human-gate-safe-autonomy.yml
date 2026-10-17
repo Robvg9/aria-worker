@@ -113,17 +113,42 @@ jobs:
           assert gated and any(str(s.get("risk","")).upper()=="HIGH_RISK_WRITE" for s in gated), plan
           print("PLANNER_HUMAN_GATE_PASS",[(s.get("id"),s.get("risk")) for s in gated])
 
-          DEVICE_ID="windows-lacueva-780886"
+          # Select a currently reachable shell executor, preferring Windows when fresh.
+          # The registry status bit alone is insufficient: require a recent heartbeat.
+          fresh_executor = sql("""
+          SELECT device_id || '|' || agent_type
+            FROM aria_internal.device_registry
+           WHERE status='online'
+             AND last_seen_at > now() - interval '120 seconds'
+             AND capabilities @> '["shell.execute"]'::jsonb
+             AND agent_type IN ('windows-local','android-termux')
+           ORDER BY CASE WHEN agent_type='windows-local' THEN 0 ELSE 1 END, last_seen_at DESC
+           LIMIT 1;
+          """)
+          executor_matches = re.findall(r"(?m)^\s*([A-Za-z0-9_-]{8,128})\|([A-Za-z0-9_-]{3,32})\s*$", fresh_executor)
+          assert executor_matches, "no shell executor with fresh heartbeat (<120 seconds)"
+          DEVICE_ID, DEVICE_AGENT_TYPE = executor_matches[0]
+          if DEVICE_AGENT_TYPE == "windows-local":
+              SAFE_COMMAND = "Write-Output SAFE_AUTONOMY_OK"
+              PROTECTED_COMMAND = "Write-Output PROTECTED_ACTION_OK"
+              DEVICE_CWD = "D:\\ARIA-Windows-Agent"
+          elif DEVICE_AGENT_TYPE == "android-termux":
+              SAFE_COMMAND = "printf SAFE_AUTONOMY_OK"
+              PROTECTED_COMMAND = "printf PROTECTED_ACTION_OK"
+              DEVICE_CWD = ""
+          else:
+              raise AssertionError("unsupported physical executor type: " + DEVICE_AGENT_TYPE)
+          print("E2E_EXECUTOR_SELECTED", DEVICE_ID, DEVICE_AGENT_TYPE)
           safe_physical_execution_pass=False
           protected_physical_execution_pass=False
 
           safe_steps=[
            {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
-           {"id":"safe_d1","operation":"shell.execute","executor_type":"device","target":{"type":"device","device_id":DEVICE_ID},"risk":"READ","input":{"command":"Write-Output SAFE_AUTONOMY_OK","cwd":"D:\\ARIA-Windows-Agent"},"policy":{"runtime_probe":True},"verify":{"stdout_contains":"SAFE_AUTONOMY_OK"},"depends_on":["safe_c1"]}
+           {"id":"safe_d1","operation":"shell.execute","executor_type":"device","target":{"type":"device","device_id":DEVICE_ID},"risk":"READ","input":{"command":SAFE_COMMAND,"cwd":DEVICE_CWD},"policy":{"runtime_probe":True},"verify":{"stdout_contains":"SAFE_AUTONOMY_OK"},"depends_on":["safe_c1"]}
           ]
           protected_steps=[
            {"id":"safe_c1","operation":"health","executor_type":"connector","target":{"type":"connector","connector_id":"supabase"},"risk":"READ","input":{},"policy":{"runtime_probe":True},"verify":{}},
-           {"id":"protected_d1","operation":"shell.execute","executor_type":"device","target":{"type":"device","device_id":DEVICE_ID},"risk":"HIGH_RISK_WRITE","input":{"command":"Write-Output PROTECTED_ACTION_OK","cwd":"D:\\ARIA-Windows-Agent"},"policy":{"human_gate_required":True,"human_gate_reason":"Controlled E2E protected action","human_gate_instructions":"Approve the exact protected shell action."},"verify":{"stdout_contains":"PROTECTED_ACTION_OK"},"depends_on":["safe_c1"]}
+           {"id":"protected_d1","operation":"shell.execute","executor_type":"device","target":{"type":"device","device_id":DEVICE_ID},"risk":"HIGH_RISK_WRITE","input":{"command":PROTECTED_COMMAND,"cwd":DEVICE_CWD},"policy":{"human_gate_required":True,"human_gate_reason":"Controlled E2E protected action","human_gate_instructions":"Approve the exact protected shell action."},"verify":{"stdout_contains":"PROTECTED_ACTION_OK"},"depends_on":["safe_c1"]}
           ]
 
           def insert_mission(mid, goal, steps, human_gate=False):
