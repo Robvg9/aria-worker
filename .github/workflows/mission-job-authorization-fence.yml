@@ -19,6 +19,10 @@ on:
       - 'tests/mission-job-authorization-fence-contract.test.js'
       - 'tests/sql/mission-job-authorization-fence-fixture.sql'
       - 'tests/sql/mission-job-authorization-fence.integration.sql'
+      - 'computer-use/windows-chrome-semantic-action.js'
+      - 'tests/sql/mission-job-authorization-fence-race-setup.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-block.sql'
+      - 'tests/sql/mission-job-authorization-fence-race-start.sql'
       - '.github/workflows/mission-job-authorization-fence.yml'
 
 permissions:
