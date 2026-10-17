@@ -149,7 +149,26 @@ const settingsRunner=fs.readFileSync(path.join(root,'rwht/pc-browser/rwht-settin
 assert.match(settingsRunner,/pendingGenericResource400/);
 assert.match(settingsRunner,/function flushConsoleDiagnostics\(\)/);
 assert.ok(settingsRunner.includes("400 \\(\\)"), 'Generic Chromium 400 matcher must target the exact status text');
-assert.match(settingsRunner,/matched_expected_empty_auth_probes/);
-assert.match(settingsRunner,/missing email or phone/);
+assert.match(settingsRunner,/authRequestByObject = new WeakMap\(\)/);
+assert.match(settingsRunner,/authRequestByObject\.set\(request, diagnostic\)/);
+assert.match(settingsRunner,/diagnostic\.auth_request = \{/);
+assert.match(settingsRunner,/auth_console_400_correlation/);
+assert.match(settingsRunner,/missing_identity_auth_submissions/);
+assert.match(settingsRunner,/!request\.has_email && !request\.has_phone/);
+assert.match(settingsRunner,/password-grant submitted without required email or phone/);
 assert.match(settingsRunner,/unclassified_console_events/);
-console.log('SETTINGS RWHT CORRELATED AUTH-400 DIAGNOSTICS CONTRACT: PASS');
+assert.doesNotMatch(settingsRunner,/matched_expected_empty_auth_probes/,'Auth 400s without identity must not be counted as expected.');
+console.log('SETTINGS RWHT STRICT AUTH-400 CORRELATION CONTRACT: PASS');
+
+assert.match(settingsRunner,/\.authScreen:visible form\.authCard/);
+assert.match(settingsRunner,/input\[aria-label="Correo"\]/);
+assert.match(settingsRunner,/input\[aria-label="Contraseña"\]/);
+assert.match(settingsRunner,/settings_auth_submit_input_mismatch/);
+assert.match(settingsRunner,/authEmail\.fill\(email, \{ timeout: 15000 \}\)/);
+assert.match(settingsRunner,/login_retry_/);
+console.log('SETTINGS RWHT SCOPED LOGIN CONTRACT: PASS');
+
+assert.match(settingsRunner,/const auth400Responses = responseDiagnostics\.filter/);
+assert.match(settingsRunner,/unexpected_auth_http_400/);
+assert.doesNotMatch(settingsRunner,/expected_auth_fallback_observed/,'No Auth HTTP 400 may be reported as an expected fallback.');
+console.log('SETTINGS RWHT AUTH 400 FAIL-CLOSED CONTRACT: PASS');

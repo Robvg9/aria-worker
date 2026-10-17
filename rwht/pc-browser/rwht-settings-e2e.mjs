@@ -23,6 +23,7 @@ if (!email || !password) {
 
 const responseDiagnostics = [];
 const authRequestDiagnostics = [];
+const authRequestByObject = new WeakMap();
 
 
 const evidence = {
@@ -81,57 +82,108 @@ async function waitForPwaBoot(page, stage) {
 
 
 async function login(page) {
-  const authForm = page.locator('input[aria-label="Correo"],input[type="email"],input[autocomplete="username"]').first();
-  const authenticatedSurface = page.locator('.dashboardScreen,.projectShell').first();
+  // Use only the active Auth form. Document-wide selectors can resolve a stale
+  // or hidden field and can race React's form transition after logout.
+  const authenticatedSurface = page.locator('.dashboardScreen:visible, .projectShell:visible').first();
+  const authForm = page.locator('.authScreen:visible form.authCard').first();
+  const authEmail = authForm.locator('input[aria-label="Correo"]');
+  const passwordInput = authForm.locator('input[aria-label="Contraseña"]');
+  const submitButton = authForm.locator('button.primary.wide');
+
+  const authenticatedAndPersisted = async () => {
+    const visibleSurface = await authenticatedSurface.isVisible().catch(() => false);
+    const sessionPresent = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2'))).catch(() => false);
+    return visibleSurface && sessionPresent;
+  };
+
   await Promise.race([
-    authForm.waitFor({ state: 'visible', timeout: 60000 }),
+    authEmail.waitFor({ state: 'visible', timeout: 60000 }),
     authenticatedSurface.waitFor({ state: 'visible', timeout: 60000 })
   ]).catch(() => {});
 
-  if (await authenticatedSurface.isVisible().catch(() => false)) return;
+  if (await authenticatedAndPersisted()) return;
 
-  if (!(await authForm.isVisible().catch(() => false))) {
-    throw new Error('settings_auth_surface_not_visible');
-  }
-
-  const passwordInput = page.locator('input[aria-label="Contraseña"],input[type="password"],input[autocomplete="current-password"]').first();
-  await passwordInput.waitFor({ state: 'visible', timeout: 30000 });
-
+  let lastFailure = 'auth_form_not_ready';
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await authForm.fill(email);
-    await passwordInput.fill(password);
-    await page.getByRole('button', { name: 'ENTRAR EN ARIA' }).click();
     try {
-      await page.waitForFunction(() => {
-        const pwd = [...document.querySelectorAll('input[type="password"]')].some(el => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        });
-        return !!document.querySelector('.dashboardScreen,.projectShell') || !!document.querySelector('.errorBox') || !pwd;
-      }, null, { timeout: 30000 });
-      const authError = await page.locator('.errorBox').innerText().catch(() => '');
-      if (authError) {
-        throw new Error('settings_auth_ui_error:' + authError.slice(0, 300) + ':' + JSON.stringify(responseDiagnostics.slice(-6)));
+      // Resolve and wait again on every attempt; the form may be re-mounted
+      // between logout, hash routing, hydration and a retry reload.
+      await authForm.waitFor({ state: 'visible', timeout: 30000 });
+      await authEmail.waitFor({ state: 'visible', timeout: 15000 });
+      await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+      await submitButton.waitFor({ state: 'visible', timeout: 15000 });
+
+      await authEmail.fill(email, { timeout: 15000 });
+      await passwordInput.fill(password, { timeout: 15000 });
+      const submittedEmail = await authEmail.inputValue();
+      const submittedPassword = await passwordInput.inputValue();
+      if (submittedEmail.trim() !== email.trim() || submittedPassword !== password) {
+        throw new Error('settings_auth_submit_input_mismatch:' + JSON.stringify({
+          attempt,
+          email_present: Boolean(submittedEmail.trim()),
+          email_matches_config: submittedEmail.trim() === email.trim(),
+          password_present: Boolean(submittedPassword),
+          password_matches_config: submittedPassword === password
+        }));
       }
-      return;
+
+      // Verify controlled input state in the active form before submitting.
+      await page.waitForFunction(() => {
+        const form = document.querySelector('.authScreen form.authCard');
+        const emailField = form?.querySelector('input[aria-label="Correo"]');
+        const passwordField = form?.querySelector('input[aria-label="Contraseña"]');
+        const visible = (el) => {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+        return visible(form) && visible(emailField) && visible(passwordField) &&
+          Boolean(emailField.value?.trim()) && Boolean(passwordField.value);
+      }, null, { timeout: 5000 });
+
+      await submitButton.click({ timeout: 15000 });
+      await page.waitForFunction(() => {
+        const visible = (el) => {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+        const authenticated = visible(document.querySelector('.dashboardScreen')) ||
+          visible(document.querySelector('.projectShell'));
+        const authError = visible(document.querySelector('.authScreen .errorBox'));
+        const session = Boolean(localStorage.getItem('aria_session_v2'));
+        return (authenticated && session) || authError;
+      }, null, { timeout: 30000 });
+
+      const authError = await page.locator('.authScreen:visible .errorBox').innerText().catch(() => '');
+      if (authError) throw new Error('settings_auth_ui_error:' + authError.slice(0, 300));
+      if (await authenticatedAndPersisted()) return;
+      throw new Error('settings_login_did_not_establish_persisted_session');
     } catch (error) {
+      const message = String(error?.message || error);
+      lastFailure = message.startsWith('settings_auth_submit_input_mismatch') ? 'input_mismatch' :
+        message.startsWith('settings_auth_ui_error') ? 'auth_ui_error' :
+        /Timeout|timeout/i.test(message) ? 'locator_or_transition_timeout' :
+        message.startsWith('settings_login_did_not_establish') ? 'session_not_established' : 'login_attempt_error';
+
+      if (await authenticatedAndPersisted()) return;
       if (attempt === 3) {
-        const authError = await page.locator('.errorBox').innerText().catch(() => '');
-        const sessionPresent = await page.evaluate(() => Boolean(localStorage.getItem('aria_session_v2')));
+        const authError = await page.locator('.authScreen:visible .errorBox').innerText().catch(() => '');
+        const bootState = await readPwaBootState(page).catch(() => null);
         throw new Error('settings_authenticated_login_failed_after_3_attempts:' + JSON.stringify({
-          visible_error: authError.slice(0, 300),
-          session_present: sessionPresent,
+          last_failure: lastFailure,
+          visible_error_present: Boolean(authError),
+          session_present: Boolean(bootState?.session_present),
+          auth_surface_visible: Boolean(bootState?.auth_surface_visible),
           auth_responses: responseDiagnostics.slice(-6)
         }));
       }
+
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-      await Promise.race([
-        authForm.waitFor({ state: 'visible', timeout: 30000 }),
-        authenticatedSurface.waitFor({ state: 'visible', timeout: 30000 })
-      ]).catch(() => {});
-      if (await authenticatedSurface.isVisible().catch(() => false)) return;
-      await passwordInput.waitFor({ state: 'visible', timeout: 30000 });
+      await waitForPwaBoot(page, 'login_retry_' + attempt).catch(() => {});
+      if (await authenticatedAndPersisted()) return;
     }
   }
 }
@@ -188,7 +240,7 @@ function panel(page, text) {
     try { body = request.postDataJSON() || {}; } catch {}
     let grantType = null;
     try { grantType = new URL(target).searchParams.get('grant_type'); } catch {}
-    authRequestDiagnostics.push({
+    const diagnostic = {
       method: request.method(),
       url: target,
       observed_at: Date.now(),
@@ -197,12 +249,25 @@ function panel(page, text) {
       has_phone: typeof body.phone === 'string' && Boolean(body.phone.trim()),
       has_password: typeof body.password === 'string' && Boolean(body.password),
       has_refresh_token: typeof body.refresh_token === 'string' && Boolean(body.refresh_token)
-    });
+    };
+    authRequestDiagnostics.push(diagnostic);
+    authRequestByObject.set(request, diagnostic);
   });
   page.on('response', async response => {
     if (response.status() >= 400) {
       const target = response.url();
       const diagnostic = { status: response.status(), url: target, observed_at: Date.now() };
+      const authRequest = authRequestByObject.get(response.request());
+      if (authRequest) {
+        diagnostic.auth_request = {
+          method: authRequest.method,
+          grant_type: authRequest.grant_type,
+          has_email: authRequest.has_email,
+          has_phone: authRequest.has_phone,
+          has_password: authRequest.has_password,
+          has_refresh_token: authRequest.has_refresh_token
+        };
+      }
       if (/auth\/token/i.test(target)) {
         try {
           const body = await response.json();
@@ -217,41 +282,45 @@ function panel(page, text) {
   function flushConsoleDiagnostics() {
     if (consoleDiagnosticsFlushed) return;
     consoleDiagnosticsFlushed = true;
-    const expectedAuth400s = responseDiagnostics.filter(item =>
+    const auth400Responses = responseDiagnostics.filter(item =>
       item.status === 400 &&
-      /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(item.url) &&
-      /missing email or phone/i.test(String(item.auth_error || ''))
+      /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(item.url)
     );
-    const emptyPasswordProbes = authRequestDiagnostics.filter(item =>
-      item.method === 'POST' &&
-      item.grant_type === 'password' &&
-      item.has_password &&
-      !item.has_email &&
-      !item.has_phone
-    );
-    let matchedExpected = 0;
+    let correlatedAuth400s = 0;
+    let missingIdentityAuthSubmissions = 0;
+    let unclassifiedConsoleEvents = 0;
     for (const consoleError of pendingGenericResource400) {
-      const matchIndex = expectedAuth400s.findIndex(response => {
-        if (Math.abs(consoleError.observed_at - response.observed_at) > 5000) return false;
-        const requestIndex = emptyPasswordProbes.findIndex(request =>
-          request.observed_at <= response.observed_at + 1000 &&
-          response.observed_at - request.observed_at <= 10000
-        );
-        if (requestIndex < 0) return false;
-        emptyPasswordProbes.splice(requestIndex, 1);
-        return true;
-      });
-      if (matchIndex >= 0) {
-        expectedAuth400s.splice(matchIndex, 1);
-        matchedExpected += 1;
-      } else {
+      const matchIndex = auth400Responses.findIndex(response =>
+        Math.abs(consoleError.observed_at - response.observed_at) <= 5000
+      );
+      if (matchIndex < 0) {
+        unclassifiedConsoleEvents += 1;
         runtimeErrors.push('console: ' + consoleError.message);
+        continue;
+      }
+
+      const [response] = auth400Responses.splice(matchIndex, 1);
+      correlatedAuth400s += 1;
+      const request = response.auth_request;
+      if (
+        request &&
+        request.method === 'POST' &&
+        request.grant_type === 'password' &&
+        (!request.has_email && !request.has_phone)
+      ) {
+        missingIdentityAuthSubmissions += 1;
+        runtimeErrors.push('auth: password-grant submitted without required email or phone');
+      } else {
+        // Correlation explains the generic Chromium console line; it does not
+        // turn an HTTP 400 into success or suppress an unexpected error.
+        runtimeErrors.push('console: HTTP 400 from Auth endpoint');
       }
     }
-    evidence.checks.expected_auth_console_400_classification = {
+    evidence.checks.auth_console_400_correlation = {
       generic_400_console_events: pendingGenericResource400.length,
-      matched_expected_empty_auth_probes: matchedExpected,
-      unclassified_console_events: pendingGenericResource400.length - matchedExpected
+      correlated_auth_400_responses: correlatedAuth400s,
+      missing_identity_auth_submissions: missingIdentityAuthSubmissions,
+      unclassified_console_events: unclassifiedConsoleEvents
     };
   }
 
@@ -369,15 +438,15 @@ function panel(page, text) {
     evidence.checks.auth_request_diagnostics = authRequestDiagnostics.slice(-30);
     flushConsoleDiagnostics();
 
+    const auth400Responses = responseDiagnostics.filter(x =>
+      x.status === 400 && /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(x.url)
+    );
+    if (auth400Responses.length) {
+      throw new Error('unexpected_auth_http_400:' + JSON.stringify(auth400Responses));
+    }
     const unexpectedResponses = responseDiagnostics.filter(x => x.status >= 500);
     if (unexpectedResponses.length) throw new Error('unexpected_server_errors:' + JSON.stringify(unexpectedResponses));
     if (runtimeErrors.length) throw new Error(runtimeErrors.join(' | '));
-    evidence.checks.expected_auth_fallback_observed =
-      responseDiagnostics.some(x =>
-        x.status === 400 &&
-        /\/(?:auth\/token|auth\/v1\/token)(?:\?|$)/i.test(x.url) &&
-        /missing email or phone/i.test(String(x.auth_error || ''))
-      );
     evidence.status = 'verified';
     evidence.finished_at = new Date().toISOString();
     fs.writeFileSync(path.join(ARTIFACT_DIR, 'settings-rwht-evidence.json'), JSON.stringify(evidence, null, 2));
