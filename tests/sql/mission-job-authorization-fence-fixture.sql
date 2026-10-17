@@ -24,7 +24,12 @@ CREATE SCHEMA aria_internal;
 CREATE TABLE aria_internal.mission_state (
   mission_id text PRIMARY KEY,
   status text NOT NULL CHECK (status IN ('queued','planning','running','waiting','blocked','paused','failed','succeeded','cancelled')),
-  checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb
+  checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,
+  next_action text,
+  last_stderr text,
+  lease_owner text,
+  lease_until timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE aria_internal.execution_jobs (
@@ -59,6 +64,25 @@ CREATE TABLE aria_internal.execution_job_events (
   event_type text NOT NULL,
   payload jsonb NOT NULL DEFAULT '{}'::jsonb
 );
+
+CREATE TABLE aria_internal.runner_tick_requests (
+  request_id bigserial PRIMARY KEY,
+  mission_id text NOT NULL,
+  requested_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION aria_internal.runner_tick_for_mission(p_mission_id text)
+RETURNS bigint
+LANGUAGE plpgsql
+AS $function$
+DECLARE v_request_id bigint;
+BEGIN
+  INSERT INTO aria_internal.runner_tick_requests(mission_id)
+  VALUES (p_mission_id)
+  RETURNING request_id INTO v_request_id;
+  RETURN v_request_id;
+END;
+$function$;
 
 CREATE OR REPLACE FUNCTION aria_internal.execution_job_can_transition(p_from text, p_to text)
 RETURNS boolean LANGUAGE sql IMMUTABLE AS $function$
@@ -153,11 +177,11 @@ CREATE OR REPLACE FUNCTION aria_internal.schedule_mission_runner_after_execution
   p_job_id text,
   p_device_id text
 )
-RETURNS void
+RETURNS bigint
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-  RETURN;
+  RETURN NULL;
 END;
 $function$;
 
