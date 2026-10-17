@@ -18,19 +18,21 @@ SELECT EXISTS (
      AND coalesce(m.checkpoint->'recovery'->>'status','') NOT IN
        ('waiting_for_human_gate','human_gate_pending','retry_exhausted')
      AND (
+       coalesce(m.checkpoint->'recovery'->>'status','') <> 'waiting_for_async_executor'
+       OR EXISTS (
+         SELECT 1
+           FROM jsonb_each(coalesce(m.checkpoint->'pending_jobs','{}'::jsonb)) pending(step_id,pending_job)
+           JOIN aria_internal.execution_jobs j
+             ON j.job_id=pending.pending_job->>'job_id'
+            AND j.mission_id=m.mission_id
+          WHERE j.status IN ('succeeded','failed','timeout')
+            AND j.completed_at IS NOT NULL
+       )
+     )
+     AND (
        m.status <> 'waiting'
-       OR coalesce(m.checkpoint->'recovery'->>'status','') IN ('verification_pending','waiting_for_alternative_strategy')
-       OR (
-         coalesce(m.checkpoint->'recovery'->>'status','')='waiting_for_async_executor'
-         AND EXISTS (
-           SELECT 1
-             FROM jsonb_each(coalesce(m.checkpoint->'pending_jobs','{}'::jsonb)) pending(step_id,pending_job)
-             JOIN aria_internal.execution_jobs j
-               ON j.job_id=pending.pending_job->>'job_id'
-              AND j.mission_id=m.mission_id
-            WHERE j.status IN ('succeeded','failed','timeout')
-              AND j.completed_at IS NOT NULL
-         )
+       OR coalesce(m.checkpoint->'recovery'->>'status','') IN (
+         'verification_pending','waiting_for_alternative_strategy','waiting_for_async_executor'
        )
      )
      AND NOT (
