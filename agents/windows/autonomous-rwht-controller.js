@@ -309,15 +309,21 @@ async function cleanupManagedBrowser() {
   } catch {}
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs = 5000) {
+async function fetchJsonWithTimeout(url, timeoutMs = 5000, externalSignal) {
+  if (externalSignal && externalSignal.aborted) throw new Error('mission_authorization_revoked');
   const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (externalSignal) externalSignal.addEventListener('abort', onAbort, { once: true });
+  if (externalSignal && externalSignal.aborted) onAbort();
   const timer = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
   try {
     const response = await fetch(url, { signal: controller.signal });
+    if (externalSignal && externalSignal.aborted) throw new Error('mission_authorization_revoked');
     if (!response.ok) throw new Error('http_' + response.status);
     return await response.json();
   } finally {
     clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
   }
 }
 
