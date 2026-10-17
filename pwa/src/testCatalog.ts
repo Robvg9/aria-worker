@@ -11,6 +11,15 @@ export type TestCatalogItem = {
 export const TEST_CATALOG_VERSION = '2026-10-16-voice-audio-v2';
 export const TEST_CATALOG: TestCatalogItem[] = [
   {
+    "id": "mission-job-authorization-fence",
+    "file": "tests/mission-job-authorization-fence-contract.test.js",
+    "title": "Mission Job Authorization Fence",
+    "category": "Autonomía / seguridad de ejecución",
+    "includedInNpmTest": true,
+    "how": "Comprueba el contrato fail-closed para impedir enqueue, claim o start cuando la misión padre ya no está autorizada.",
+    "capabilities": "Detecta regresiones que puedan despachar trabajos físicos encolados o reclamados después de que una misión se bloquee, cancele o salga de estados ejecutables."
+  },
+  {
     "id": "aria-cuevacoin-oauth-callback",
     "file": "tests/aria-cuevacoin-oauth-callback.test.js",
     "title": "ARIA CuevaCoin OAuth Callback",
