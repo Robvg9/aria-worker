@@ -23,7 +23,8 @@ CREATE SCHEMA aria_internal;
 
 CREATE TABLE aria_internal.mission_state (
   mission_id text PRIMARY KEY,
-  status text NOT NULL CHECK (status IN ('queued','planning','running','waiting','blocked','paused','failed','succeeded','cancelled'))
+  status text NOT NULL CHECK (status IN ('queued','planning','running','waiting','blocked','paused','failed','succeeded','cancelled')),
+  checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE aria_internal.execution_jobs (
