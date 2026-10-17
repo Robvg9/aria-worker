@@ -70,6 +70,7 @@ assert.ok(asyncPauseSql.includes("pending.job->>'job_id'=p_job_id"), 'async exce
 assert.ok(asyncPauseSql.includes("v_mission_status <> 'running'"), 'new jobs may only be enqueued while the mission is running');
 assert.ok(asyncPauseSql.includes('NOT aria_internal.mission_job_authorization_allowed(v_mission_id,p_job_id)'), 'start/completion/status must consult the async-aware fail-closed predicate');
 assert.ok(integrationSql.includes('mi_async_pause'), 'integration SQL must preserve the single pending async job during pause');
+assert.ok(integrationSql.includes('job_async_unrelated_001'), 'integration SQL must cancel jobs not exactly bound by pending_jobs');
 assert.ok(integrationSql.includes('mi_human_gate_pause'), 'integration SQL must cancel unrelated jobs during a Human Gate pause');
 assert.ok(integrationSql.includes('mi_alternative_wait'), 'integration SQL must cancel jobs while replanning for an alternative strategy');
 
