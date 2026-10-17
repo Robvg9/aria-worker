@@ -184,4 +184,106 @@ BEGIN
   END IF;
 END;
 $function$;
+
+-- A paused mission may continue only the exact async job persisted in its checkpoint.
+INSERT INTO aria_internal.mission_state(mission_id,status)
+VALUES ('mi_async_pause','running');
+SELECT public.enqueue_execution_job_gateway(
+  'job_async_pause_001','mi_async_pause','device-test','shell.execute',
+  'echo async-waiter',NULL,10000,'{}'::jsonb,'{}'::jsonb
+);
+SELECT public.claim_execution_job_gateway('device-test');
+UPDATE aria_internal.mission_state
+   SET status='paused',
+       checkpoint=jsonb_build_object(
+         'pending_jobs',jsonb_build_object(
+           'safe_d1',jsonb_build_object('job_id','job_async_pause_001','status','queued','attempt',1)
+         ),
+         'recovery',jsonb_build_object('status','waiting_for_async_executor')
+       )
+ WHERE mission_id='mi_async_pause';
+DO $function$
+DECLARE r aria_internal.execution_jobs%ROWTYPE; started jsonb; state jsonb; completed jsonb;
+BEGIN
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_async_pause_001';
+  IF r.status <> 'claimed' OR r.completed_at IS NOT NULL THEN
+    RAISE EXCEPTION 'exact pending async job was cancelled by legitimate pause: %',row_to_json(r);
+  END IF;
+
+  started := public.start_execution_job_gateway('job_async_pause_001','device-test');
+  IF started IS NULL OR started->>'status' <> 'running' THEN
+    RAISE EXCEPTION 'exact pending async job could not start while mission waits: %',started;
+  END IF;
+
+  state := public.execution_job_authorization_status_gateway('job_async_pause_001','device-test');
+  IF state->>'authorized' <> 'true' OR state->>'status' <> 'running' OR state->>'mission_status' <> 'paused' THEN
+    RAISE EXCEPTION 'exact pending async job lost its authorization during wait: %',state;
+  END IF;
+
+  completed := public.complete_execution_job_gateway(
+    'job_async_pause_001','device-test','succeeded',0,'async-waiter','',
+    jsonb_build_object('status','succeeded','exit_code',0,'stdout','async-waiter')
+  );
+  IF completed IS NULL OR completed->>'status' <> 'succeeded' THEN
+    RAISE EXCEPTION 'exact pending async job could not complete while mission waits: %',completed;
+  END IF;
+END;
+$function$;
+
+-- A Human Gate pause is not an async-executor wait; no job may continue.
+INSERT INTO aria_internal.mission_state(mission_id,status)
+VALUES ('mi_human_gate_pause','running');
+SELECT public.enqueue_execution_job_gateway(
+  'job_human_gate_pause_001','mi_human_gate_pause','device-test','shell.execute',
+  'echo must-not-run-during-human-gate',NULL,10000,'{}'::jsonb,'{}'::jsonb
+);
+SELECT public.claim_execution_job_gateway('device-test');
+UPDATE aria_internal.mission_state
+   SET status='paused',
+       checkpoint=jsonb_build_object(
+         'human_gate',jsonb_build_object('status','pending','step_id','protected_d1'),
+         'pending_jobs','{}'::jsonb
+       )
+ WHERE mission_id='mi_human_gate_pause';
+DO $function$
+DECLARE r aria_internal.execution_jobs%ROWTYPE; started jsonb; state jsonb;
+BEGIN
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_human_gate_pause_001';
+  IF r.status <> 'cancelled' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'Human Gate pause failed to cancel unrelated job: %',row_to_json(r);
+  END IF;
+  started := public.start_execution_job_gateway('job_human_gate_pause_001','device-test');
+  IF started IS NOT NULL THEN RAISE EXCEPTION 'Human Gate pause allowed physical start: %',started; END IF;
+  state := public.execution_job_authorization_status_gateway('job_human_gate_pause_001','device-test');
+  IF state->>'authorized' <> 'false' OR state->>'status' <> 'cancelled' THEN
+    RAISE EXCEPTION 'Human Gate pause authorization status is not fail-closed: %',state;
+  END IF;
+END;
+$function$;
+
+-- "Waiting for alternative strategy" is also not permission to keep running jobs.
+INSERT INTO aria_internal.mission_state(mission_id,status)
+VALUES ('mi_alternative_wait','running');
+SELECT public.enqueue_execution_job_gateway(
+  'job_alternative_wait_001','mi_alternative_wait','device-test','shell.execute',
+  'echo must-not-run-during-replan',NULL,10000,'{}'::jsonb,'{}'::jsonb
+);
+SELECT public.claim_execution_job_gateway('device-test');
+UPDATE aria_internal.mission_state
+   SET status='waiting',
+       checkpoint=jsonb_build_object(
+         'pending_jobs','{}'::jsonb,
+         'recovery',jsonb_build_object('status','waiting_for_alternative_strategy')
+       )
+ WHERE mission_id='mi_alternative_wait';
+DO $function$
+DECLARE r aria_internal.execution_jobs%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_alternative_wait_001';
+  IF r.status <> 'cancelled' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
+    RAISE EXCEPTION 'alternative-strategy wait left a physical job authorized: %',row_to_json(r);
+  END IF;
+END;
+$function$;
+
 SELECT 'MISSION_JOB_AUTHORIZATION_FENCE_INTEGRATION_PASS' AS result;
