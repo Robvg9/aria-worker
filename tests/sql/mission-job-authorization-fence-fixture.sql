@@ -23,9 +23,45 @@ CREATE SCHEMA aria_internal;
 
 CREATE TABLE aria_internal.mission_state (
   mission_id text PRIMARY KEY,
+  goal text NOT NULL DEFAULT '',
   status text NOT NULL CHECK (status IN ('queued','planning','running','waiting','blocked','paused','failed','succeeded','cancelled')),
-  checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb
+  current_step integer NOT NULL DEFAULT 0,
+  total_steps integer NOT NULL DEFAULT 0,
+  completed_steps integer NOT NULL DEFAULT 0,
+  checkpoint jsonb NOT NULL DEFAULT '{}'::jsonb,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  lease_owner text,
+  lease_until timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  current_workspace text,
+  recovery_count integer NOT NULL DEFAULT 0,
+  last_recovery_reason text,
+  next_action text,
+  last_stderr text
 );
+
+-- The claim-eligibility and human-gate materialization helpers are minimal test
+-- fixtures for the isolated PostgreSQL contract; production definitions stay intact.
+CREATE TABLE aria_internal.autonomy_goals (
+  goal_id text PRIMARY KEY,
+  status text,
+  objective_verification_status text,
+  last_mission_id text,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE TABLE aria_internal.vision_objectives (
+  objective_id text PRIMARY KEY,
+  status text
+);
+CREATE OR REPLACE FUNCTION aria_internal.resolve_dependency_goal_id(p_dependency text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $function$
+  SELECT p_dependency;
+$function$;
+CREATE OR REPLACE FUNCTION aria_internal.aria_materialize_human_gate_approval(p_checkpoint jsonb)
+RETURNS jsonb LANGUAGE sql IMMUTABLE AS $function$
+  SELECT coalesce(p_checkpoint,'{}'::jsonb);
+$function$;
 
 CREATE TABLE aria_internal.execution_jobs (
   job_id text PRIMARY KEY,
