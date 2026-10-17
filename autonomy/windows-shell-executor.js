@@ -68,7 +68,10 @@ function parseShellJob(job, deviceId) {
   return Object.freeze({ script, cwd, timeout_ms: timeoutMs, dry_run: payload.dry_run === true });
 }
 
-function executePowerShell({ script, cwd, timeout_ms: timeoutMs, dry_run: dryRun }) {
+function executePowerShell({ script, cwd, timeout_ms: timeoutMs, dry_run: dryRun, signal }) {
+  if (signal && signal.aborted) {
+    return Promise.resolve({ status: 'cancelled', exit_code: null, stdout: '', stderr: 'mission_authorization_revoked', duration_ms: 0, metadata: { shell: 'powershell.exe', cwd, cancelled: true } });
+  }
   if (dryRun) {
     return Promise.resolve({
       status: 'planned',
@@ -106,6 +109,7 @@ function executePowerShell({ script, cwd, timeout_ms: timeoutMs, dry_run: dryRun
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
       resolve({ ...result, duration_ms: Date.now() - started });
     };
 
@@ -119,6 +123,19 @@ function executePowerShell({ script, cwd, timeout_ms: timeoutMs, dry_run: dryRun
         metadata: { shell: 'powershell.exe', cwd, timeout_ms: timeoutMs }
       });
     }, timeoutMs);
+
+    const onAbort = () => {
+      killProcessTree(child.pid);
+      finish({
+        status: 'cancelled',
+        exit_code: null,
+        stdout: stdout.slice(-MAX_OUTPUT_BYTES),
+        stderr: `${stderr}\nmission_authorization_revoked: PowerShell process tree termination requested`.trim().slice(-MAX_OUTPUT_BYTES),
+        metadata: { shell: 'powershell.exe', cwd, timeout_ms: timeoutMs, cancelled: true }
+      });
+    };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    if (signal && signal.aborted) onAbort();
 
     child.stdout.on('data', (chunk) => {
       stdoutBytes += chunk.length;
