@@ -145,11 +145,15 @@ function parseJson(text) {
   }
 }
 
-async function qwen(prompt, timeoutMs) {
+async function qwen(prompt, timeoutMs, externalSignal) {
   if (!RESOURCE_PROFILE.local_llm_eligible) {
     throw new Error('local_llm_resource_guard:' + RESOURCE_PROFILE.guard_reason);
   }
+  if (externalSignal && externalSignal.aborted) throw new Error('mission_authorization_revoked');
   const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (externalSignal) externalSignal.addEventListener('abort', onAbort, { once: true });
+  if (externalSignal && externalSignal.aborted) onAbort();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs || 120000));
   try {
     const response = await fetch(OLLAMA_URL + '/api/generate', {
@@ -159,12 +163,14 @@ async function qwen(prompt, timeoutMs) {
       signal: controller.signal,
     });
     const body = await response.json().catch(() => null);
+    if (externalSignal && externalSignal.aborted) throw new Error('mission_authorization_revoked');
     if (!response.ok || typeof (body && body.response) !== 'string') {
       throw new Error('ollama_' + String(response.status || 'invalid'));
     }
     return body.response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim().slice(0, 18000);
   } finally {
     clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
   }
 }
 
@@ -315,8 +321,10 @@ async function fetchJsonWithTimeout(url, timeoutMs = 5000) {
   }
 }
 
-async function chromeCdpCall(method, params = {}) {
-  const tabs = await fetchJsonWithTimeout(CDP_BASE_URL + '/json', 5000);
+async function chromeCdpCall(method, params = {}, signal) {
+  if (signal && signal.aborted) throw new Error('mission_authorization_revoked');
+  const tabs = await fetchJsonWithTimeout(CDP_BASE_URL + '/json', 5000, signal);
+  if (signal && signal.aborted) throw new Error('mission_authorization_revoked');
   const page = tabs.find((tab) => tab && tab.type === 'page' && String(tab.url || '').includes('aria.robvg9.workers.dev/pwa'));
   if (!page || !page.webSocketDebuggerUrl || typeof WebSocket !== 'function') {
     throw new Error('chrome_cdp_page_unavailable');
@@ -324,17 +332,26 @@ async function chromeCdpCall(method, params = {}) {
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   const response = await new Promise((resolve, reject) => {
     let settled = false;
+    let timer = null;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
       fn(value);
     };
-    const timer = setTimeout(() => {
+    const onAbort = () => {
+      try { ws.close(); } catch {}
+      finish(reject, new Error('mission_authorization_revoked'));
+    };
+    timer = setTimeout(() => {
       try { ws.close(); } catch {}
       finish(reject, new Error('chrome_cdp_timeout'));
     }, 7000);
-    ws.onopen = () => ws.send(JSON.stringify({ id: 1, method, params }));
+    ws.onopen = () => {
+      if (signal && signal.aborted) return onAbort();
+      ws.send(JSON.stringify({ id: 1, method, params }));
+    };
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(String(event.data || ''));
@@ -346,6 +363,8 @@ async function chromeCdpCall(method, params = {}) {
       }
     };
     ws.onerror = () => finish(reject, new Error('chrome_cdp_socket_error'));
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    if (signal && signal.aborted) onAbort();
   });
   try { ws.close(); } catch {}
   return response || {};
@@ -389,7 +408,8 @@ async function chromeCdpInteractiveNodes() {
 }
 
 
-async function chromeCdpAct(node, action, text) {
+async function chromeCdpAct(node, action, text, signal) {
+  if (signal && signal.aborted) throw new Error('mission_authorization_revoked');
   let index = Number.isInteger(node && node.attributes && node.attributes.cdp_index) ? node.attributes.cdp_index : -1;
   if (index < 0) {
     const match = String(node && node.id || '').match(/^cdp-(\d+)-/);
@@ -407,7 +427,8 @@ async function chromeCdpAct(node, action, text) {
     "if(" + JSON.stringify(action) + "==='type'){el.focus();const value=" + JSON.stringify(String(text == null ? '' : text)) + ";if('value' in el){const proto=Object.getPrototypeOf(el);const d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(el,value);else el.value=value;}else if(el.isContentEditable){el.textContent=value;}el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true};}" +
     "return {ok:false,error:'chrome_cdp_action_unsupported'};" +
   "})()";
-  const response = await chromeCdpCall('Runtime.evaluate', { returnByValue: true, awaitPromise: true, expression });
+  const response = await chromeCdpCall('Runtime.evaluate', { returnByValue: true, awaitPromise: true, expression }, signal);
+  if (signal && signal.aborted) throw new Error('mission_authorization_revoked');
   return response && response.result && response.result.value || { ok:false, error:'chrome_cdp_empty_result' };
 }
 
@@ -512,7 +533,7 @@ async function executeDecision(adapter, decision, ui, signal) {
   if (!node) return { status: 'failed', error: 'target_not_found' };
   if (node.attributes && node.attributes.source === 'chrome-cdp') {
     if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
-    const cdp = await chromeCdpAct(node, decision.action, decision.text).catch((error) => ({ ok: false, error: String(error && error.message || error) }));
+    const cdp = await chromeCdpAct(node, decision.action, decision.text, signal).catch((error) => ({ ok: false, error: String(error && error.message || error) }));
     if (signal && signal.aborted) return { status: 'cancelled', error: 'mission_authorization_revoked' };
     return { status: cdp && cdp.ok ? 'succeeded' : 'failed', error: cdp && cdp.error || null, method: 'chrome-cdp' };
   }
@@ -675,7 +696,7 @@ async function runAutonomousRwht(options) {
       const response = await chromeCdpCall('Runtime.evaluate', {
         returnByValue: true,
         expression: 'location.hash || "#home"',
-      });
+      }, signal);
       return String(response?.result?.value || '#home');
     } catch {
       return null;
@@ -688,7 +709,7 @@ async function runAutonomousRwht(options) {
     const base = String(startUrl).split('#')[0];
     const url = base + route;
     try {
-      await chromeCdpCall('Page.navigate', { url });
+      await chromeCdpCall('Page.navigate', { url }, signal);
       assertNotCancelled();
       await new Promise((resolve) => setTimeout(resolve, 900));
       assertNotCancelled();
@@ -854,7 +875,8 @@ async function runAutonomousRwht(options) {
     if (!fastCoverageMode) {
       try {
         const tiny = promptForTinySelector(goal, current, screenHash, exercisedControls);
-        const rawModel = await model(tiny.prompt, 30000);
+        const rawModel = await model(tiny.prompt, 30000, signal);
+        assertNotCancelled();
         decision = decisionFromTinySelection(rawModel, current, screenHash, exercisedControls)
           || normalizeDecision(parseJson(rawModel));
       } catch (error) {
