@@ -8,6 +8,7 @@ const sql = fs.readFileSync(migrationPath, 'utf8');
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'aria-agent.js'), 'utf8');
 const shellExecutor = fs.readFileSync(path.join(__dirname, '..', 'autonomy', 'windows-shell-executor.js'), 'utf8');
 const desktopAdapter = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
+const chromeSemanticAction = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-chrome-semantic-action.js'), 'utf8');
 const rwhtController = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'autonomous-rwht-controller.js'), 'utf8');
 const deviceGateway = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'aria-device-gateway', 'index.ts'), 'utf8');
 const integrationSql = fs.readFileSync(path.join(__dirname, 'sql', 'mission-job-authorization-fence.integration.sql'), 'utf8');
@@ -42,6 +43,8 @@ assert.ok(shellExecutor.includes("status: 'cancelled'"), 'PowerShell runner must
 assert.ok(shellExecutor.includes('killProcessTree(child.pid)'), 'PowerShell runner must terminate the child process tree on cancellation');
 assert.ok(desktopAdapter.includes('function abortableDelay(ms, signal)'), 'desktop waits must be interruptible');
 assert.ok(desktopAdapter.includes("status: 'cancelled'"), 'desktop automation must propagate cancellation');
+assert.ok(chromeSemanticAction.includes('signal.removeEventListener(\'abort\', onAbort)'), 'semantic CDP requests must close on cancellation');
+assert.ok(chromeSemanticAction.includes('cdpCall(\'Runtime.evaluate\', {returnByValue:true,awaitPromise:true,expression:actionExpression},timeout_ms,pageUrl,signal)'), 'semantic CDP actions must stop retrying after cancellation');
 assert.ok(rwhtController.includes('assertNotCancelled'), 'RWHT must check revocation between physical actions');
 assert.ok(deviceGateway.includes('jobStatusMatch=p.match'), 'device gateway must expose the authenticated job status endpoint');
 assert.ok(deviceGateway.includes("supabase.rpc('execution_job_authorization_status_gateway'"), 'device gateway must use the protected security-definer RPC, not direct internal schema access');
