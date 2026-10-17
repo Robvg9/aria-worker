@@ -77,6 +77,7 @@ assert.ok(integrationSql.includes('mi_alternative_wait'), 'integration SQL must 
 
 const humanGateWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'e2e-human-gate-safe-autonomy.yml'), 'utf8');
 assert.ok(humanGateWorkflow.includes('EXACT_PENDING_JOB_BOUND'), 'live Human Gate workflow must verify exact async pending-job binding');
+assert.ok(humanGateWorkflow.includes('EXACT_SHA_SUPABASE_DEPLOY_PASS'), 'live Human Gate E2E must wait for the same-SHA runtime deploy before testing');
 assert.ok(humanGateWorkflow.includes('EXACT_PROTECTED_JOB_BOUND'), 'approved protected job must bind only the exact pending step');
 assert.ok(humanGateWorkflow.includes('HUMAN_GATE_AUTHORIZATION_PASS_PHYSICAL_EXECUTOR_PENDING'), 'workflow must report physical executor unavailable separately from gate authorization');
 assert.ok(humanGateWorkflow.includes('test_cleanup_executor_unavailable'), 'unclaimed test jobs must be cancelled rather than left on the production queue');
