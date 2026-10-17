@@ -85,5 +85,8 @@ assert.ok(!humanGateWorkflow.includes('assert s.get("status")=="waiting"'), 'asy
 assert.ok(!humanGateWorkflow.includes('assert pf.get("status")=="waiting"'), 'protected async wait branch must trust persisted mission state, not the generic runner response status');
 assert.ok(humanGateWorkflow.includes('assert "waiting" in sdb,sdb'), 'safe test must reconcile wait status from the database snapshot');
 assert.ok(humanGateWorkflow.includes('assert "waiting" in pdb,pdb'), 'protected test must reconcile wait status from the database snapshot');
+assert.ok(humanGateWorkflow.includes('STALE_TEST_MISSIONS_CLEANED'), 'live E2E must emit stale test-owned mission cleanup evidence');
+assert.ok(humanGateWorkflow.includes("metadata->>'probe'='human_gate_safe_autonomy'"), 'cleanup must be scoped only to this workflow's probe missions');
+assert.ok(humanGateWorkflow.includes("updated_at < now() - interval '10 minutes'"), 'cleanup must leave recently created test missions untouched');
 
 console.log('mission job authorization fence contract tests passed');
