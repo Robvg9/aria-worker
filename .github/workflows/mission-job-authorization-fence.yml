@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/20261017180000_mission_job_authorization_fence_v1.sql'
+      - 'supabase/migrations/20261017190000_mission_job_authorization_fence_async_pause_v1.sql'
       - 'tests/mission-job-authorization-fence-contract.test.js'
       - 'tests/sql/mission-job-authorization-fence-fixture.sql'
       - 'tests/sql/mission-job-authorization-fence.integration.sql'
@@ -16,6 +17,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/20261017180000_mission_job_authorization_fence_v1.sql'
+      - 'supabase/migrations/20261017190000_mission_job_authorization_fence_async_pause_v1.sql'
       - 'tests/mission-job-authorization-fence-contract.test.js'
       - 'tests/sql/mission-job-authorization-fence-fixture.sql'
       - 'tests/sql/mission-job-authorization-fence.integration.sql'
@@ -70,6 +72,8 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence-fixture.sql
       - name: Apply proposed migration to isolated PostgreSQL
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261017180000_mission_job_authorization_fence_v1.sql
+      - name: Apply async-pause authorization correction to isolated PostgreSQL
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261017190000_mission_job_authorization_fence_async_pause_v1.sql
       - name: Verify queue / claim / start authorization state transitions
         run: psql -v ON_ERROR_STOP=1 -f tests/sql/mission-job-authorization-fence.integration.sql
 
