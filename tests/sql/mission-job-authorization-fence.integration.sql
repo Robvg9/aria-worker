@@ -240,6 +240,59 @@ BEGIN
 END;
 $function$;
 
+-- A terminal result for the exact pending async job must resume the parent mission.
+-- Before the job is terminal, the waiting mission remains unclaimable.
+INSERT INTO aria_internal.mission_state(mission_id,status)
+VALUES ('mi_async_resume_terminal','running');
+SELECT public.enqueue_execution_job_gateway(
+  'job_async_resume_terminal_001','mi_async_resume_terminal','device-test','shell.execute',
+  'printf SAFE_AUTONOMY_OK',NULL,10000,'{}'::jsonb,'{}'::jsonb
+);
+SELECT public.claim_execution_job_gateway('device-test');
+UPDATE aria_internal.mission_state
+   SET status='waiting',
+       checkpoint=jsonb_build_object(
+         'pending_jobs',jsonb_build_object(
+           'safe_d1',jsonb_build_object('job_id','job_async_resume_terminal_001','status','queued','attempt',1)
+         ),
+         'recovery',jsonb_build_object('status','waiting_for_async_executor')
+       )
+ WHERE mission_id='mi_async_resume_terminal';
+DO $function$
+DECLARE claimed jsonb; r aria_internal.execution_jobs%ROWTYPE; started jsonb; completed jsonb;
+BEGIN
+  claimed := aria_internal.aria_mission_claim_by_id_lease('mi_async_resume_terminal','async-resume-probe-worker');
+  IF claimed IS NOT NULL THEN
+    RAISE EXCEPTION 'async waiter resumed before its exact pending job reached terminal state: %',claimed;
+  END IF;
+
+  SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_async_resume_terminal_001';
+  IF r.status <> 'claimed' THEN
+    RAISE EXCEPTION 'pre-terminal async probe job should remain claimed: %',row_to_json(r);
+  END IF;
+
+  started := public.start_execution_job_gateway('job_async_resume_terminal_001','device-test');
+  IF started IS NULL OR started->>'status' <> 'running' THEN
+    RAISE EXCEPTION 'exact pending async job could not start during wait: %',started;
+  END IF;
+
+  completed := public.complete_execution_job_gateway(
+    'job_async_resume_terminal_001','device-test','succeeded',0,'SAFE_AUTONOMY_OK','',
+    jsonb_build_object('status','succeeded','exit_code',0,'stdout','SAFE_AUTONOMY_OK')
+  );
+  IF completed IS NULL OR completed->>'status' <> 'succeeded' OR completed->>'stdout' <> 'SAFE_AUTONOMY_OK' THEN
+    RAISE EXCEPTION 'exact pending async job did not persist its success marker: %',completed;
+  END IF;
+
+  claimed := aria_internal.aria_mission_claim_by_id_lease('mi_async_resume_terminal','async-resume-probe-worker');
+  IF claimed IS NULL OR claimed->>'status' <> 'running'
+     OR claimed->>'lease_owner' <> 'async-resume-probe-worker'
+     OR claimed->>'last_recovery_reason' <> 'async_executor_completed_resumed' THEN
+    RAISE EXCEPTION 'parent mission did not resume after exact async job completion: %',claimed;
+  END IF;
+END;
+$function$;
+
 -- A Human Gate pause is not an async-executor wait; no job may continue.
 INSERT INTO aria_internal.mission_state(mission_id,status)
 VALUES ('mi_human_gate_pause','running');
