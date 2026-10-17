@@ -161,6 +161,7 @@ assert.doesNotMatch(settingsRunner,/matched_expected_empty_auth_probes/,'Auth 40
 console.log('SETTINGS RWHT STRICT AUTH-400 CORRELATION CONTRACT: PASS');
 
 assert.match(settingsRunner,/\.authScreen:visible form\.authCard/);
+assert.match(settingsRunner,/\.settingsViewport:visible/,'Settings itself is an authenticated surface after relogin with #settings retained.');
 assert.match(settingsRunner,/input\[aria-label="Correo"\]/);
 assert.match(settingsRunner,/input\[aria-label="Contraseña"\]/);
 assert.match(settingsRunner,/settings_auth_submit_input_mismatch/);
