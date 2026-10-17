@@ -1,6 +1,7 @@
 -- Fail-closed mission authorization fence for physical execution jobs.
--- The mission row is the authorization lock: status transitions hold it before
--- cancelling pending jobs; start takes the same lock before moving claimed -> running.
+-- The mission row is the authorization lock: status transitions terminalize
+-- queued/claimed jobs and revoke running jobs. The Windows agent monitors the
+-- job status and terminates cancellable child processes after revocation.
 
 CREATE OR REPLACE FUNCTION aria_internal.cancel_unauthorized_pending_jobs(p_mission_id text, p_reason text DEFAULT 'mission_not_authorized')
 RETURNS integer
@@ -20,7 +21,7 @@ BEGIN
          exit_code = NULL,
          stderr = concat_ws(E'\\n', NULLIF(j.stderr,''), 'fail_closed:' || left(coalesce(p_reason,'mission_not_authorized'),160))
    WHERE j.mission_id = p_mission_id
-     AND j.status IN ('queued','claimed')
+     AND j.status IN ('queued','claimed','running')
      AND j.completed_at IS NULL;
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
