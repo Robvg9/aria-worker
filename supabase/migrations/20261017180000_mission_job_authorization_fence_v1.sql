@@ -154,3 +154,51 @@ BEGIN
   );
 END;
 $function$;
+
+-- Do not hand an already-enqueued job to an agent if its parent mission is
+-- no longer executable. Terminalize the claimed row explicitly instead of
+-- returning NULL while leaving a lease that could be recovered later.
+CREATE OR REPLACE FUNCTION public.claim_execution_job_gateway(p_device_id text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'aria_internal'
+AS $function$
+DECLARE
+  v_job aria_internal.execution_jobs%ROWTYPE;
+  v_mission_status text;
+  r jsonb;
+BEGIN
+  SELECT x.* INTO v_job
+    FROM aria_internal.claim_execution_job(p_device_id) AS x
+   LIMIT 1;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  SELECT m.status INTO v_mission_status
+    FROM aria_internal.mission_state m
+   WHERE m.mission_id = v_job.mission_id;
+
+  IF NOT FOUND OR v_mission_status NOT IN ('running','waiting') THEN
+    UPDATE aria_internal.execution_jobs
+       SET status='cancelled',
+           completed_at=clock_timestamp(),
+           updated_at=clock_timestamp(),
+           lease_owner=NULL,
+           lease_until=NULL,
+           claimed_at=NULL,
+           exit_code=NULL,
+           stderr=concat_ws(E'\\n', NULLIF(stderr,''), 'fail_closed:mission_not_authorized_at_claim')
+     WHERE job_id=v_job.job_id AND status='claimed'
+     RETURNING to_jsonb(execution_jobs.*) INTO r;
+
+    IF r IS NOT NULL THEN
+      INSERT INTO aria_internal.execution_job_events(job_id,device_id,event_type,payload)
+      VALUES (v_job.job_id,p_device_id,'job.blocked_mission_not_authorized',
+              jsonb_build_object('mission_id',v_job.mission_id,'mission_status',v_mission_status,'phase','claim','at',clock_timestamp()));
+    END IF;
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_job);
+END;
+$function$;
