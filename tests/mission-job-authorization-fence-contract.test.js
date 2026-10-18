@@ -103,6 +103,10 @@ assert.ok(freshExecutorWorkflow.includes('executor_matches = re.findall(r"([A-Za
 assert.match(freshExecutorWorkflow, /SAFE_COMMAND = "printf SAFE_AUTONOMY_OK"/, 'Termux executor must use a POSIX-safe benign command');
 assert.match(freshExecutorWorkflow, /PROTECTED_COMMAND = "printf PROTECTED_ACTION_OK"/, 'Termux protected-gate probe must remain harmless');
 assert.doesNotMatch(freshExecutorWorkflow, /DEVICE_ID="windows-lacueva-780886"/, 'Human Gate E2E must not hardcode a stale Windows device');
+assert.match(freshExecutorWorkflow, /ORDER BY CASE WHEN agent_type='android-termux' THEN 0 ELSE 1 END, last_seen_at DESC/, 'Human Gate E2E must prefer the currently heartbeat-verified Android fallback when available');
+assert.ok(humanGateWorkflow.includes('assert safe_physical_execution_pass'), 'Human Gate E2E must fail closed unless SAFE_AUTONOMY_OK physical completion is persisted');
+assert.ok(humanGateWorkflow.includes('assert protected_physical_execution_pass'), 'Human Gate E2E must fail closed unless approved PROTECTED_ACTION_OK physical completion is persisted');
+assert.ok(!humanGateWorkflow.includes('PHYSICAL_EXECUTION_GATE_REMAINS_SEPARATE'), 'Human Gate E2E must not return ALL_PASS when physical execution is missing');
 
 
 assert.ok(asyncResumeSql.includes("waiting_for_async_executor"), 'resume migration must require the async-executor wait marker');
