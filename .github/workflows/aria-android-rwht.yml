@@ -45,6 +45,7 @@ jobs:
           node tests/android-autonomous-gateway-contract.test.js
           node tests/planner-v11-android-autonomous.test.js
           node tests/android-ui-agent-autonomous-transport.test.js
+          node tests/termux-autostart-contract.test.js
       - name: Java 17
         uses: actions/setup-java@v4
         with:

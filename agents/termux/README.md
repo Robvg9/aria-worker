@@ -8,6 +8,8 @@ The files in this directory support a persistent, reboot-tolerant worker:
 
 - `aria-agent.js` — polls the ARIA device gateway, claims governed jobs, executes `shell.execute`, and returns results.
 - `start-agent.sh` — loads a local environment file, acquires a wake lock when available, optionally fast-forwards the local checkout from `origin/main`, supervises the agent, and restarts it after unexpected exits.
+
+- The optional auto-pull is bounded by `ARIA_AGENT_GIT_PULL_TIMEOUT_SEC` (default 20 seconds; accepted range 5–120). If it fails/times out, the supervisor starts the existing local agent. If the `timeout` utility is unavailable, it skips auto-pull rather than risking a stalled heartbeat. Set `ARIA_AGENT_AUTO_PULL=false` to disable auto-pull explicitly.
 - `boot/start-aria-agent` — Termux:Boot launcher that starts the supervisor after Android boot.
 - `install-autostart.sh` — idempotent installer that copies the boot launcher into `~/.termux/boot/` and clears a stale stop marker.
 

@@ -79,7 +79,23 @@ cd "$AGENT_DIR"
 
 while [ "$STOPPING" -eq 0 ] && [ ! -f "$STOP_FILE" ]; do
   if [ "${ARIA_AGENT_AUTO_PULL:-true}" = "true" ] && git -C "$AGENT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    GIT_TERMINAL_PROMPT=0 git -C "$AGENT_DIR" pull --ff-only origin main >/dev/null 2>&1 || true
+    PULL_TIMEOUT_SEC="${ARIA_AGENT_GIT_PULL_TIMEOUT_SEC:-20}"
+    case "$PULL_TIMEOUT_SEC" in
+      ''|*[!0-9]*) PULL_TIMEOUT_SEC=20 ;;
+    esac
+    if [ "$PULL_TIMEOUT_SEC" -lt 5 ] || [ "$PULL_TIMEOUT_SEC" -gt 120 ]; then
+      PULL_TIMEOUT_SEC=20
+    fi
+
+    if command -v timeout >/dev/null 2>&1; then
+      if GIT_TERMINAL_PROMPT=0 timeout "${PULL_TIMEOUT_SEC}s" git -C "$AGENT_DIR" pull --ff-only origin main >/dev/null 2>&1; then
+        :
+      else
+        echo "[ARIA] auto-pull failed or timed out; continuing with local checkout"
+      fi
+    else
+      echo "[ARIA] timeout utility unavailable; skipping auto-pull to preserve agent availability"
+    fi
   fi
 
   if [ ! -f "$AGENT_SCRIPT" ]; then
