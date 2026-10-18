@@ -129,7 +129,7 @@ jobs:
              AND last_seen_at > now() - interval '120 seconds'
              AND capabilities @> '["shell.execute"]'::jsonb
              AND agent_type IN ('windows-local','android-termux')
-           ORDER BY CASE WHEN agent_type='windows-local' THEN 0 ELSE 1 END, last_seen_at DESC
+           ORDER BY CASE WHEN agent_type='android-termux' THEN 0 ELSE 1 END, last_seen_at DESC
            LIMIT 1;
           """)
           # sql() returns psql's Unicode table; parse the device/type cell without anchoring around the border glyphs.
@@ -262,9 +262,15 @@ jobs:
           cdb=sql("select status from aria_internal.mission_state where mission_id='"+can+"';")
           assert "cancelled" in cdb
 
+          # Never report the end-to-end gate as green when a physical marker
+          # is missing. Authorization correctness and physical execution are
+          # separate conditions; both must be proved for this release gate.
+          assert safe_physical_execution_pass, "SAFE_PHYSICAL_EXECUTION_REQUIRED: no persisted SAFE_AUTONOMY_OK physical completion"
+          assert protected_physical_execution_pass, "PROTECTED_PHYSICAL_EXECUTION_REQUIRED: no persisted approved PROTECTED_ACTION_OK physical completion"
+
           print("HG_E2E_PASS")
           print("HUMAN_GATE_AUTHORIZATION = VERIFIED E2E")
-          print("PHYSICAL_EXECUTION = VERIFIED" if safe_physical_execution_pass and protected_physical_execution_pass else "PHYSICAL_EXECUTION_GATE_REMAINS_SEPARATE")
+          print("PHYSICAL_EXECUTION = VERIFIED")
           print("ALL_PASS")
           PY
 
