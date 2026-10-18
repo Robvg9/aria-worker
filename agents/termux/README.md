@@ -10,6 +10,8 @@ The files in this directory support a persistent, reboot-tolerant worker:
 - `start-agent.sh` — loads a local environment file, acquires a wake lock when available, optionally fast-forwards the local checkout from `origin/main`, supervises the agent, and restarts it after unexpected exits.
 
 - The optional auto-pull is bounded by `ARIA_AGENT_GIT_PULL_TIMEOUT_SEC` (default 20 seconds; accepted range 5–120). If it fails/times out, the supervisor starts the existing local agent. If the `timeout` utility is unavailable, it skips auto-pull rather than risking a stalled heartbeat. Set `ARIA_AGENT_AUTO_PULL=false` to disable auto-pull explicitly.
+
+- The `ARIA Android RWHT Autonomous` CI workflow publishes the debug UI-agent APK plus `BUILD-MANIFEST.txt` and `SHA256SUMS.txt` as an artifact named with the exact commit SHA (14-day retention). This makes a built package available for a controlled physical recovery attempt; it does not prove that the APK was installed or that the Android heartbeat recovered.
 - `boot/start-aria-agent` — Termux:Boot launcher that starts the supervisor after Android boot.
 - `install-autostart.sh` — idempotent installer that copies the boot launcher into `~/.termux/boot/` and clears a stale stop marker.
 

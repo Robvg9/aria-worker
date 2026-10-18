@@ -9,6 +9,7 @@ const boot = fs.readFileSync(path.join(__dirname, '../agents/termux/boot/start-a
 const installer = fs.readFileSync(path.join(__dirname, '../agents/termux/install-autostart.sh'), 'utf8');
 const docs = fs.readFileSync(path.join(__dirname, '../agents/termux/README.md'), 'utf8');
 const agent = fs.readFileSync(path.join(__dirname, '../agents/termux/aria-agent.js'), 'utf8');
+const androidWorkflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/aria-android-rwht.yml'), 'utf8');
 
 assert.ok(supervisor.startsWith('#!/data/data/com.termux/files/usr/bin/bash'));
 assert.ok(supervisor.includes('ARIA_DEVICE_GATEWAY_URL'));
@@ -45,6 +46,11 @@ assert.ok(installer.includes('supervisor.log'));
 assert.ok(!installer.includes('ARIA_DEVICE_TOKEN='));
 assert.ok(docs.includes('install-autostart.sh'));
 assert.ok(docs.includes('Android boot'));
+assert.ok(androidWorkflow.includes('actions/upload-artifact@v4'), 'Android debug APK must be published as a CI artifact');
+assert.ok(androidWorkflow.includes('aria-android-ui-agent-debug-${{ github.sha }}'), 'APK artifact name must be tied to the exact commit SHA');
+assert.ok(androidWorkflow.includes('android-ui-agent/app/build/outputs/apk/debug/app-debug.apk'), 'APK path must be uploaded');
+assert.ok(androidWorkflow.includes('BUILD-MANIFEST.txt'), 'APK artifact must include a build manifest');
+assert.ok(androidWorkflow.includes('SHA256SUMS.txt'), 'APK artifact must include a SHA-256 checksum file');
 assert.ok(agent.includes("timeoutMs:8_000"));
 assert.ok(!agent.includes('job_claim_watchdog_timeout'), 'Android agent must not leave timed-out jobs executing in the background');
 assert.ok(!agent.includes('Promise.race([\n        claimAndExecute()'), 'Android agent must not overlap a previous job with a new claim');

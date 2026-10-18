@@ -11,6 +11,7 @@ on:
       - 'supabase/functions/aria-planner-v11/**'
       - 'tests/android-*.test.js'
       - 'tests/planner-v11-android-autonomous.test.js'
+      - 'tests/termux-autostart-contract.test.js'
       - 'package.json'
   push:
     branches: [main]
@@ -22,6 +23,7 @@ on:
       - 'supabase/functions/aria-planner-v11/**'
       - 'tests/android-*.test.js'
       - 'tests/planner-v11-android-autonomous.test.js'
+      - 'tests/termux-autostart-contract.test.js'
       - 'package.json'
 
 jobs:
@@ -66,3 +68,20 @@ jobs:
       - name: Build debug APK
         working-directory: android-ui-agent
         run: gradle :app:assembleDebug --no-daemon
+      - name: Generate APK checksum and build manifest
+        run: |
+          APK="android-ui-agent/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          sha256sum "$APK" > android-ui-agent/app/build/outputs/apk/debug/SHA256SUMS.txt
+          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          printf 'commit=%s\napk=%s\nsha256=%s\n' "$GITHUB_SHA" "$APK" "$SHA256" > android-ui-agent/app/build/outputs/apk/debug/BUILD-MANIFEST.txt
+      - name: Upload Android UI Agent APK and manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-android-ui-agent-debug-${{ github.sha }}
+          path: |
+            android-ui-agent/app/build/outputs/apk/debug/app-debug.apk
+            android-ui-agent/app/build/outputs/apk/debug/SHA256SUMS.txt
+            android-ui-agent/app/build/outputs/apk/debug/BUILD-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 14
