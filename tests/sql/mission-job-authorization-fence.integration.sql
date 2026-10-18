@@ -237,6 +237,28 @@ BEGIN
   IF completed IS NULL OR completed->>'status' <> 'succeeded' THEN
     RAISE EXCEPTION 'exact pending async job could not complete while mission waits: %',completed;
   END IF;
+
+  IF (SELECT status FROM aria_internal.mission_state WHERE mission_id='mi_async_pause') <> 'queued' THEN
+    RAISE EXCEPTION 'completed exact async job left the mission waiting instead of resumable: %',
+      (SELECT row_to_json(m) FROM aria_internal.mission_state m WHERE mission_id='mi_async_pause');
+  END IF;
+  IF (SELECT checkpoint->'recovery'->>'status' FROM aria_internal.mission_state WHERE mission_id='mi_async_pause') <> 'clear' THEN
+    RAISE EXCEPTION 'async completion did not clear waiting recovery state';
+  END IF;
+  IF (SELECT checkpoint->'pending_jobs'->'safe_d1'->>'job_id' FROM aria_internal.mission_state WHERE mission_id='mi_async_pause') <> 'job_async_pause_001' THEN
+    RAISE EXCEPTION 'resume must preserve the exact pending job ID for runner reconciliation';
+  END IF;
+  IF (SELECT count(*) FROM aria_internal.runner_tick_requests WHERE mission_id='mi_async_pause') <> 1 THEN
+    RAISE EXCEPTION 'successful async completion must enqueue one canonical runner tick';
+  END IF;
+
+  -- A duplicate/stale/unbound job completion must not trigger a second resume.
+  PERFORM aria_internal.schedule_mission_runner_after_execution_job(
+    'mi_async_pause','succeeded','job_async_unrelated_001','device-test'
+  );
+  IF (SELECT count(*) FROM aria_internal.runner_tick_requests WHERE mission_id='mi_async_pause') <> 1 THEN
+    RAISE EXCEPTION 'unbound job completion incorrectly woke the mission';
+  END IF;
 END;
 $function$;
 
@@ -268,6 +290,9 @@ BEGIN
   IF state->>'authorized' <> 'false' OR state->>'status' <> 'cancelled' THEN
     RAISE EXCEPTION 'Human Gate pause authorization status is not fail-closed: %',state;
   END IF;
+  IF EXISTS (SELECT 1 FROM aria_internal.runner_tick_requests WHERE mission_id='mi_human_gate_pause') THEN
+    RAISE EXCEPTION 'Human Gate pause unexpectedly scheduled a runner continuation';
+  END IF;
 END;
 $function$;
 
@@ -292,6 +317,9 @@ BEGIN
   SELECT * INTO r FROM aria_internal.execution_jobs WHERE job_id='job_alternative_wait_001';
   IF r.status <> 'cancelled' OR r.completed_at IS NULL OR r.lease_owner IS NOT NULL OR r.lease_until IS NOT NULL THEN
     RAISE EXCEPTION 'alternative-strategy wait left a physical job authorized: %',row_to_json(r);
+  END IF;
+  IF EXISTS (SELECT 1 FROM aria_internal.runner_tick_requests WHERE mission_id='mi_alternative_wait') THEN
+    RAISE EXCEPTION 'alternative-strategy wait unexpectedly scheduled async continuation';
   END IF;
 END;
 $function$;

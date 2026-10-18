@@ -5,8 +5,10 @@ const path = require('node:path');
 
 const migrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017180000_mission_job_authorization_fence_v1.sql');
 const asyncPauseMigrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017190000_mission_job_authorization_fence_async_pause_v1.sql');
+const asyncResumeMigrationPath = path.join(__dirname, '..', 'supabase', 'migrations', '20261017200000_mission_job_authorization_async_completion_resume_v1.sql');
 const sql = fs.readFileSync(migrationPath, 'utf8');
 const asyncPauseSql = fs.readFileSync(asyncPauseMigrationPath, 'utf8');
+const asyncResumeSql = fs.readFileSync(asyncResumeMigrationPath, 'utf8');
 const agent = fs.readFileSync(path.join(__dirname, '..', 'agents', 'windows', 'aria-agent.js'), 'utf8');
 const shellExecutor = fs.readFileSync(path.join(__dirname, '..', 'autonomy', 'windows-shell-executor.js'), 'utf8');
 const desktopAdapter = fs.readFileSync(path.join(__dirname, '..', 'computer-use', 'windows-desktop-adapter.js'), 'utf8');
@@ -101,5 +103,15 @@ assert.ok(freshExecutorWorkflow.includes('executor_matches = re.findall(r"([A-Za
 assert.match(freshExecutorWorkflow, /SAFE_COMMAND = "printf SAFE_AUTONOMY_OK"/, 'Termux executor must use a POSIX-safe benign command');
 assert.match(freshExecutorWorkflow, /PROTECTED_COMMAND = "printf PROTECTED_ACTION_OK"/, 'Termux protected-gate probe must remain harmless');
 assert.doesNotMatch(freshExecutorWorkflow, /DEVICE_ID="windows-lacueva-780886"/, 'Human Gate E2E must not hardcode a stale Windows device');
+
+
+assert.ok(asyncResumeSql.includes("waiting_for_async_executor"), 'resume migration must require the async-executor wait marker');
+assert.ok(asyncResumeSql.includes("pending.job->>'job_id' = p_job_id"), 'resume migration must bind continuation to the exact pending job ID');
+assert.ok(asyncResumeSql.includes("SET status = 'queued'"), 'completed async result must move the waiting mission to a canonical resumable state');
+assert.ok(asyncResumeSql.includes("runner_tick_for_mission(p_mission_id)"), 'resume migration must request a canonical runner tick after the state update');
+assert.ok(asyncResumeSql.includes("REVOKE ALL ON FUNCTION aria_internal.schedule_mission_runner_after_execution_job"), 'scheduler helper must remain internal');
+assert.ok(integrationSql.includes("runner_tick_requests"), 'integration SQL must assert the canonical runner continuation request');
+assert.ok(integrationSql.includes("successful async completion must enqueue one canonical runner tick"), 'integration SQL must assert the async resume tick');
+assert.ok(integrationSql.includes("unbound job completion incorrectly woke the mission"), 'integration SQL must reject a stale or unbound continuation');
 
 console.log('mission job authorization fence contract tests passed');

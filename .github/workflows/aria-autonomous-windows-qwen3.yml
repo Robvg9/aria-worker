@@ -3,6 +3,54 @@ name: ARIA Autonomous Windows Qwen3
 on:
   push:
     branches: [main]
+    paths:
+      - 'pwa/**'
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'supabase/functions/**'
+      - 'supabase/migrations/20261017*mission_job_authorization*'
+      - 'autonomy/**'
+      - 'rwht/pc-browser/**'
+      - 'tests/pc-rwht-browser.test.js'
+      - 'tests/mission-job-authorization-fence-contract.test.js'
+      - 'tests/sql/mission-job-authorization-fence-*.sql'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/mission-job-authorization-fence.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/pc-rwht.yml'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - 'agents/windows/**'
+      - 'tests/autonomous-windows-qwen3.test.js'
+      - '.github/workflows/aria-autonomous-windows-qwen3.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pwa/**'
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'supabase/functions/**'
+      - 'supabase/migrations/20261017*mission_job_authorization*'
+      - 'autonomy/**'
+      - 'rwht/pc-browser/**'
+      - 'tests/pc-rwht-browser.test.js'
+      - 'tests/mission-job-authorization-fence-contract.test.js'
+      - 'tests/sql/mission-job-authorization-fence-*.sql'
+      - '.github/workflows/aria-cloudflare-deploy.yml'
+      - '.github/workflows/aria-pwa-fast-deploy.yml'
+      - '.github/workflows/supabase-canonical-deploy.yml'
+      - '.github/workflows/mission-job-authorization-fence.yml'
+      - '.github/workflows/e2e-human-gate-safe-autonomy.yml'
+      - '.github/workflows/chat-rwht-authenticated.yml'
+      - '.github/workflows/capabilities-rwht-authenticated.yml'
+      - '.github/workflows/pc-rwht.yml'
+      - '.github/workflows/aria-pwa-steps-7-8-live.yml'
+      - 'agents/windows/**'
+      - 'tests/autonomous-windows-qwen3.test.js'
+      - '.github/workflows/aria-autonomous-windows-qwen3.yml'
   workflow_dispatch:
 
 permissions:
