@@ -173,7 +173,7 @@ $function$;
 
 CREATE OR REPLACE FUNCTION aria_internal.schedule_mission_runner_after_execution_job(
   p_mission_id text,
-  p_status text,
+  p_job_status text,
   p_job_id text,
   p_device_id text
 )

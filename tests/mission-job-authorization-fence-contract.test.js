@@ -106,6 +106,8 @@ assert.doesNotMatch(freshExecutorWorkflow, /DEVICE_ID="windows-lacueva-780886"/,
 
 
 assert.ok(asyncResumeSql.includes("waiting_for_async_executor"), 'resume migration must require the async-executor wait marker');
+assert.ok(asyncResumeSql.includes("p_job_status text"), 'async resume migration must preserve the live scheduler input parameter name');
+assert.ok(!asyncResumeSql.includes("p_status text"), 'async resume migration must not rename the existing scheduler parameter');
 assert.ok(asyncResumeSql.includes("pending.job->>'job_id' = p_job_id"), 'resume migration must bind continuation to the exact pending job ID');
 assert.ok(asyncResumeSql.includes("SET status = 'queued'"), 'completed async result must move the waiting mission to a canonical resumable state');
 assert.ok(asyncResumeSql.includes("runner_tick_for_mission(p_mission_id)"), 'resume migration must request a canonical runner tick after the state update');
