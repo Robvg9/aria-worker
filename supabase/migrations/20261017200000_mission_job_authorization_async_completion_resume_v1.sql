@@ -4,7 +4,7 @@
 -- completion to queued, then enqueue the canonical runner tick.
 CREATE OR REPLACE FUNCTION aria_internal.schedule_mission_runner_after_execution_job(
   p_mission_id text,
-  p_status text,
+  p_job_status text,
   p_job_id text,
   p_device_id text
 )
@@ -25,7 +25,7 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  IF p_status IS NULL OR p_status NOT IN ('succeeded','failed','timeout') THEN
+  IF p_job_status IS NULL OR p_job_status NOT IN ('succeeded','failed','timeout') THEN
     RETURN NULL;
   END IF;
 
@@ -49,7 +49,7 @@ BEGIN
      AND j.device_id = p_device_id
      AND j.completed_at IS NOT NULL;
 
-  IF NOT FOUND OR v_job_status IS DISTINCT FROM p_status THEN
+  IF NOT FOUND OR v_job_status IS DISTINCT FROM p_job_status THEN
     RETURN NULL;
   END IF;
 
@@ -84,7 +84,7 @@ BEGIN
                     'status','clear',
                     'resumed_from','waiting_for_async_executor',
                     'completed_job_id',p_job_id,
-                    'completed_job_status',p_status,
+                    'completed_job_status',p_job_status,
                     'resumed_at',clock_timestamp()
                   ),
              true
@@ -114,7 +114,7 @@ BEGIN
       'mission.async_executor_resumed',
       jsonb_build_object(
         'mission_id',p_mission_id,
-        'job_status',p_status,
+        'job_status',p_job_status,
         'from_status',v_mission_status,
         'to_status','queued',
         'reason','exact_pending_async_job_completed',
@@ -139,7 +139,7 @@ BEGIN
       'mission.continuation_tick_failed',
       jsonb_build_object(
         'mission_id',p_mission_id,
-        'job_status',p_status,
+        'job_status',p_job_status,
         'error',SQLERRM,
         'recovery','supervisor_tick',
         'at',clock_timestamp()
