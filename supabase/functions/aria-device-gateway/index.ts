@@ -334,7 +334,7 @@ function summarizeAndroidUiEvidence(value:unknown){
   const ui=source.ui&&typeof source.ui==='object'?source.ui as Record<string,any>:{};
   const diagnostic=source.diagnostic&&typeof source.diagnostic==='object'?source.diagnostic as Record<string,any>:{};
   const uiDiagnostic=ui.diagnostic&&typeof ui.diagnostic==='object'?ui.diagnostic as Record<string,any>:{};
-  const safeString=(value:unknown,max=160)=>typeof value==='string'?value.replace(/[\\r\\n]+/g,' ').slice(0,max):null;
+  const safeString=(value:unknown,max=160)=>typeof value==='string'?value.replace(/[\r\n]+/g,' ').slice(0,max):null;
   const flags={battlecruiser:false,login:false,dashboard:false};
   let nodeCount=0;
   const visit=(node:any,depth=0):void=>{
@@ -343,9 +343,9 @@ function summarizeAndroidUiEvidence(value:unknown){
     const visibleText=['text','name','label','contentDescription']
       .map(key=>typeof node[key]==='string'?String(node[key]).slice(0,500):'')
       .join(' ').toLowerCase();
-    if(/battle\\s*cruiser|battlecruiser/.test(visibleText))flags.battlecruiser=true;
-    if(/\\blog\\s*in\\b|\\bsign\\s*in\\b|\\biniciar sesi[oó]n\\b|\\bacceder\\b/.test(visibleText))flags.login=true;
-    if(/\\bdashboard\\b|\\bpanel de control\\b/.test(visibleText))flags.dashboard=true;
+    if(/battle\s*cruiser|battlecruiser/.test(visibleText))flags.battlecruiser=true;
+    if(/\blog\s*in\b|\bsign\s*in\b|\biniciar sesi[oó]n\b|\bacceder\b/.test(visibleText))flags.login=true;
+    if(/\bdashboard\b|\bpanel de control\b/.test(visibleText))flags.dashboard=true;
     if(Array.isArray(node.children))for(const child of node.children)visit(child,depth+1);
   };
   const rootNode=ui.root&&typeof ui.root==='object'?ui.root:source.root;
