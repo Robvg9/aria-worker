@@ -396,7 +396,7 @@ async function executionJobGatewayCall(kind:string,args:any){
           ${Number.isInteger(args.exitCode)?args.exitCode:null},
           ${typeof args.stdout==='string'?args.stdout:''},
           ${typeof args.stderr==='string'?args.stderr:''},
-          ${JSON.stringify(args.result||{})}::jsonb
+          ${JSON.stringify(args.result||{})}::text::jsonb
         ) as data`;
         return rows?.[0]?.data??null;
       }

@@ -62,4 +62,9 @@ assert.ok(gateway.includes('node_count'), 'the summary must record the observed 
 assert.ok(gateway.includes('cleanMetadata.android_ui_summary=androidUiSummary'), 'the compact summary must be included in the persisted job result metadata');
 assert.ok(gateway.includes('baseMetadata.autonomous_test!==true'), 'Android UI summary must not overwrite the autonomous-runner trace summary');
 
+// Real Postgres stored execution_jobs.result as a JSONB string scalar when the serialized JSON
+// parameter was cast directly to jsonb. Force text -> jsonb so operators can query metadata directly.
+assert.ok(gateway.includes('${JSON.stringify(args.result||{})}::text::jsonb'), 'result serialization must parse the JSON text into a JSONB object');
+assert.ok(!gateway.includes('${JSON.stringify(args.result||{})}::jsonb'), 'result serialization must not double-encode the payload as a JSONB string scalar');
+
 console.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
