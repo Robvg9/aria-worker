@@ -93,10 +93,16 @@ assert.ok(humanGateWorkflow.includes("updated_at < now() - interval '10 minutes'
 assert.ok((humanGateWorkflow.match(/coalesce\(stdout,''\)/g) || []).length >= 2, 'both physical success branches must read the actual job stdout');
 assert.ok(humanGateWorkflow.includes('"SAFE_AUTONOMY_OK" in sj'), 'safe physical PASS must verify the exact stdout marker');
 assert.ok(humanGateWorkflow.includes('"PROTECTED_ACTION_OK" in pj'), 'protected physical PASS must verify the exact stdout marker');
+assert.ok(humanGateWorkflow.includes('assert safe_physical_execution_pass'), 'Human Gate E2E must fail closed unless SAFE_AUTONOMY_OK physical completion is persisted');
+assert.ok(humanGateWorkflow.includes('assert protected_physical_execution_pass'), 'Human Gate E2E must fail closed unless approved PROTECTED_ACTION_OK physical completion is persisted');
+assert.ok(!humanGateWorkflow.includes('PHYSICAL_EXECUTION_GATE_REMAINS_SEPARATE'), 'Human Gate E2E must not return ALL_PASS while physical execution is missing');
+assert.ok(humanGateWorkflow.includes('print("PHYSICAL_EXECUTION = VERIFIED")'), 'global PASS must only be emitted after both physical marker assertions');
+
 
 
 const freshExecutorWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'e2e-human-gate-safe-autonomy.yml'), 'utf8');
 assert.match(freshExecutorWorkflow, /last_seen_at > now\(\) - interval '120 seconds'/, 'Human Gate E2E must only select executors with fresh heartbeats');
+assert.match(freshExecutorWorkflow, /ORDER BY CASE WHEN agent_type='android-termux' THEN 0 ELSE 1 END, last_seen_at DESC/, 'Human Gate E2E must prefer the currently verified Android fallback when it has a fresh heartbeat');
 assert.match(freshExecutorWorkflow, /capabilities @> '\["shell\.execute"\]'::jsonb/, 'Human Gate E2E must require declared shell capability');
 assert.match(freshExecutorWorkflow, /DEVICE_AGENT_TYPE = executor_matches\[0\]/, 'Human Gate E2E must target the selected registry device');
 assert.ok(freshExecutorWorkflow.includes('executor_matches = re.findall(r"([A-Za-z0-9_-]{8,128})\\|(windows-local|android-termux)", fresh_executor)'), 'fresh executor parser must handle psql table borders while limiting supported agent types');
@@ -115,5 +121,52 @@ assert.ok(asyncResumeSql.includes("REVOKE ALL ON FUNCTION aria_internal.schedule
 assert.ok(integrationSql.includes("runner_tick_requests"), 'integration SQL must assert the canonical runner continuation request');
 assert.ok(integrationSql.includes("successful async completion must enqueue one canonical runner tick"), 'integration SQL must assert the async resume tick');
 assert.ok(integrationSql.includes("unbound job completion incorrectly woke the mission"), 'integration SQL must reject a stale or unbound continuation');
+
+
+const webPushGatePolicy = require(path.join(__dirname, '..', 'scripts', 'ci', 'aria-webpush-predecessor-policy.cjs'));
+const webPushWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-meditation-webpush-production-e2e.yml'), 'utf8');
+const absorbWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'aria-absorb.yml'), 'utf8');
+
+// The predecessor policy must match GitHub's actual Web Push push-path filter.
+for (const triggerPath of webPushGatePolicy.WEB_PUSH_TRIGGER_PATHS) {
+  assert.ok(webPushWorkflow.includes(`'${triggerPath}'`), `Web Push predecessor policy must mirror workflow path filter ${triggerPath}`);
+}
+
+const gatewayOnlyPush = {
+  commits: [{
+    added: [],
+    modified: [
+      'supabase/functions/aria-device-gateway/index.ts',
+      'tests/android-ui-agent-autonomous-transport.test.js',
+    ],
+    removed: [],
+  }],
+};
+assert.deepEqual(
+  webPushGatePolicy.webPushPredecessorDecision(gatewayOnlyPush),
+  { required: false, reason: 'no-webpush-trigger-path', matchedPath: null },
+  'unrelated gateway-only deploys must not wait for a Web Push workflow GitHub did not trigger',
+);
+
+const webPushRelevantPush = {
+  commits: [{ added: [], modified: ['supabase/functions/aria-mission-runner-v22/index.ts'], removed: [] }],
+};
+const webPushDecision = webPushGatePolicy.webPushPredecessorDecision(webPushRelevantPush);
+assert.equal(webPushDecision.required, true, 'changes covered by the Web Push workflow must wait for its exact-SHA result');
+assert.equal(webPushDecision.matchedPath, 'supabase/functions/aria-mission-runner-v22/index.ts');
+
+assert.equal(
+  webPushGatePolicy.webPushPredecessorDecision({ commits: [] }).required,
+  true,
+  'missing changed-file metadata must fail closed rather than silently skip the predecessor',
+);
+assert.equal(
+  webPushGatePolicy.webPushPredecessorDecision(gatewayOnlyPush, 'workflow_dispatch').required,
+  true,
+  'manual LIVE certification must retain the Web Push predecessor',
+);
+assert.ok(absorbWorkflow.includes('aria-webpush-predecessor-policy.cjs'), 'ABSORB must calculate the applicable exact-SHA Web Push predecessor');
+assert.ok(absorbWorkflow.includes('steps.webpush-predecessor.outputs.predecessor'), 'ABSORB must pass the scoped predecessor result to the exact-SHA wait');
+assert.ok(!absorbWorkflow.includes('LIVE_GATE_PREDECESSORS: "ARIA Meditation IA — Production Web Push E2E"'), 'ABSORB must not unconditionally wait for Web Push on unrelated function-only changes');
 
 console.log('mission job authorization fence contract tests passed');
