@@ -30,7 +30,8 @@ function buildFailureDecisionMessage(input = {}, decision = decideFailureEscalat
     ctx.optional ? 'Capacidad opcional: sí.' : 'Capacidad opcional: no.',
     `Decisión recomendada: ${decision.action}.`,
     decision.action === 'request_human_decision' ? 'Robert puede decidir: continuar por otra ruta, escalar a otra IA/proveedor o dejar esta capacidad fuera por ahora.' : 'ARIA debe cambiar la estrategia antes de seguir repitiendo el mismo intento.',
-    'All For One no forma parte de esta decisión: es un mecanismo de sondeo/auditoría independiente.'
+    'All For One no forma parte de esta decisión: es un mecanismo de sondeo/auditoría independiente.',
+    'Nota: Si esta misión fue rechazada por un Human Gate (ej. mission_hg_REJ_1790382088864), la autonomía debe reevaluar la necesidad de la tarea antes de reintentar.'
   ].join(' ');
 }
 
