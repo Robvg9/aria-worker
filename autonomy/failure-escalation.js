@@ -12,12 +12,17 @@ function normalizeFailureContext(input = {}) {
 function decideFailureEscalation(input = {}, policy = {}) {
   const p = { ...DEFAULTS, ...policy };
   const ctx = normalizeFailureContext(input);
+  
+  // Fix: Ensure we don't get stuck in a loop if all routes fail
+  if (ctx.consecutive_failures >= p.hard_limit) {
+    return Object.freeze({ mode:'escalate', action:'request_human_decision', user_decision_required:true, reason:'model_execution_failed_all_routes' });
+  }
+
   if (ctx.consecutive_failures < p.repeat_threshold) return Object.freeze({ mode:'continue', action:'continue_with_same_path', user_decision_required:false, reason:'below_escalation_threshold' });
   if (ctx.new_evidence_count === 0 && ctx.consecutive_failures >= p.repeat_threshold) {
     if (ctx.external_dependency && ctx.optional && !ctx.critical) return Object.freeze({ mode:'escalate', action:'request_human_decision', user_decision_required:true, reason:'repeated_external_optional_failure' });
     return Object.freeze({ mode:'escalate', action:'change_path', user_decision_required:false, reason:'repeated_failure_without_new_evidence' });
   }
-  if (ctx.consecutive_failures >= p.hard_limit) return Object.freeze({ mode:'escalate', action:ctx.critical?'change_path':'request_human_decision', user_decision_required:!ctx.critical, reason:'hard_failure_limit_reached' });
   return Object.freeze({ mode:'escalate', action:'change_path', user_decision_required:false, reason:'threshold_reached_with_new_evidence' });
 }
 
