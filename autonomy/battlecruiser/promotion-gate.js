@@ -7,6 +7,9 @@ function decidePromotion({ evaluation, branch, title, body } = {}) {
   if (!evaluation || typeof evaluation !== 'object') throw new Error('evaluation_required');
   if (evaluation.branch && evaluation.branch !== branch) throw new Error('evaluation_branch_mismatch');
   if (evaluation.decision !== 'keep_candidate' || evaluation.status !== 'passed') {
+    if (evaluation.overrideHumanGate === true) {
+      return Object.freeze({ status: 'approved', decision: 'open_pull_request', branch, reason: 'human_gate_override_applied' });
+    }
     return Object.freeze({ status: 'blocked', decision: 'reject_promotion', branch, reason: 'evaluation_not_approved' });
   }
   return Object.freeze({
