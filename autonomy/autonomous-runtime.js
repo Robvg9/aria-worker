@@ -18,6 +18,7 @@ function createAutonomousRuntime({
   device = {},
   agentExecutors = {},
   policy = {},
+  selfImprovement = null,
   now
 } = {}) {
   if (!activation || typeof activation.execute !== 'function') throw new TypeError('activation runtime required');
@@ -39,6 +40,7 @@ function createAutonomousRuntime({
     deviceDispatcher,
     agentExecutors,
     policy,
+    selfImprovement,
     now
   });
 

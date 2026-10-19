@@ -1,0 +1,47 @@
+name: ARIA Windows Coordinator Refresh
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - aria/self-improvement-v1-main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-windows-coordinator-refresh-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Refresh installed coordinator and request watchdog reload
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $runtime='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
+          $shaFile='D:\ARIA-Windows-Agent\Logs\runtime-source-sha'
+          $killFile='D:\ARIA-Windows-Agent\Logs\kill-request.json'
+          New-Item -ItemType Directory -Force -Path (Split-Path $runtime) | Out-Null
+          New-Item -ItemType Directory -Force -Path (Split-Path $shaFile) | Out-Null
+          Copy-Item '.\autonomy\self-improvement-coordinator-v1.js' $runtime -Force
+          Set-Content -Path $shaFile -Value '${{ github.sha }}' -Encoding ASCII
+          @{source_sha='${{ github.sha }}';reason='github_coordinator_refresh'} | ConvertTo-Json -Compress | Set-Content -Path $killFile -Encoding UTF8 -Force
+          Write-Host 'ARIA_COORDINATOR_REFRESH=PASS'
+          Write-Host 'ARIA_WATCHDOG_RELOAD_REQUEST=PASS'
+
+      - name: Verify installed file
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='D:\ARIA-Windows-Agent\Runtime\windows\self-improvement-coordinator-v1.js'
+          if(-not(Test-Path $p)){throw 'Installed coordinator missing'}
+          $c=Get-Content -Raw $p
+          if($c -notmatch 'no_actionable_changes'){throw 'Updated coordinator marker missing'}
+          Write-Host 'ARIA_COORDINATOR_INSTALLED=PASS'

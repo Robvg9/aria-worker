@@ -1,0 +1,23 @@
+name: ARIA ROBVG Health Diagnostics
+on:
+  workflow_dispatch:
+jobs:
+  robvg-health-diag:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        run: |
+          git config --global --add safe.directory "%CD%" 2>nul
+          git reset --hard HEAD
+          git clean -ffdx
+          set SHA=%GITHUB_SHA%
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$b=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('x-access-token:'+$env:GITHUB_TOKEN)); git config --local http.https://github.com/.extraheader ('AUTHORIZATION: basic '+$b)"
+          git fetch --no-tags --depth=1 origin %SHA%
+          git checkout --detach --force %SHA%
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run ROBVG health diagnostics
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\agents\windows\robvg-health-diag.ps1"
+          if errorlevel 1 exit /b 1

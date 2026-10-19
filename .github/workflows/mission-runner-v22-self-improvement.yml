@@ -1,0 +1,27 @@
+name: mission-runner-v22-self-improvement
+
+on:
+  push:
+    branches: ["aria/self-improvement-v1-main"]
+  pull_request:
+    branches: ["main", "aria/meditation-ia-v1-main"]
+
+concurrency:
+  group: mission-runner-v22-self-improvement-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate runner, Meditation IA and self-improvement contracts
+        run: |
+          node tests/self-improvement-runtime-gateway-v1.test.js
+          node tests/mission-runner-v22-self-improvement-route.test.js
+          node tests/windows-self-improvement-runtime.test.js
+          node tests/meditation-ia-controller-v1.test.js
+          node tests/dynamic-goal-failure-depth.test.js

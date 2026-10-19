@@ -1,0 +1,41 @@
+name: ARIA Self-Improvement v1
+
+on:
+  pull_request:
+    branches: [main, aria/meditation-ia-v1-main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aria-self-improvement-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  governed-self-improvement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check autonomy/autonomy-frontier-v1.js
+          node --check autonomy/continuous-evolution-v2.js
+          node --check autonomy/self-improvement-engine-v1.js
+          node --check autonomy/self-improvement-coordinator-v1.js
+          node --check autonomy/dynamic-goal-engine.mjs
+          node --check tests/self-improvement-engine-v1.test.js
+          node --check tests/self-improvement-coordinator-v1.test.js
+          node --check tests/dynamic-goal-engine.test.js
+      - name: Governed self-improvement contract
+        run: node tests/self-improvement-engine-v1.test.js
+      - name: Coordinator integration contract
+        run: node tests/self-improvement-coordinator-v1.test.js
+      - name: Dynamic goal recursion guard contract
+        run: node tests/dynamic-goal-engine.test.js

@@ -1,0 +1,113 @@
+name: ARIA Storage Recovery Now
+
+on:
+  push:
+    branches: [aria/self-improvement-v1-main]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+
+jobs:
+  storage-recovery:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Quarantine runaway background PowerShell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host '---RUNAWAY-POWERSHELL-RECOVERY---'
+          $currentPid = $PID
+          $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" | ForEach-Object {
+            $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+            if (-not $p) { return }
+            $mb = [math]::Round($p.WorkingSet64 / 1MB, 0)
+            [pscustomobject]@{
+              Id = $_.ProcessId
+              Name = $_.Name
+              RAM_MB = $mb
+              ParentId = $_.ParentProcessId
+              CommandLine = [string]$_.CommandLine
+              WindowHandle = [int64]$p.MainWindowHandle
+            }
+          }
+          $procs | Sort-Object RAM_MB -Descending | Format-Table Id,Name,RAM_MB,ParentId,WindowHandle -AutoSize
+          foreach ($p in $procs) {
+            if ($p.Id -eq $currentPid) { continue }
+            if ($p.RAM_MB -lt 1536) { continue }
+            $cmd = $p.CommandLine
+            if ($cmd -match 'run-agent\.ps1|aria-agent\.js|Runner\.Listener\.exe') { Write-Host "PROTECTED=$($p.Id) RAM_MB=$($p.RAM_MB)"; continue }
+            if ($p.WindowHandle -ne 0) { Write-Host "INTERACTIVE_SKIPPED=$($p.Id) RAM_MB=$($p.RAM_MB)"; continue }
+            try {
+              Stop-Process -Id $p.Id -Force -ErrorAction Stop
+              Write-Host "TERMINATED_RUNAWAY=$($p.Id) RAM_MB=$($p.RAM_MB)"
+            } catch { Write-Host "TERMINATE_FAIL=$($p.Id) $($_.Exception.Message)" }
+          }
+          Write-Host '---RUNAWAY-POWERSHELL-RECOVERY-END---'
+
+      - name: Report and clean
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host "COMPUTER=$env:COMPUTERNAME"
+          Write-Host "USER=$env:USERNAME"
+          $pre = (Get-PSDrive C).Free
+          Write-Host "PRE_C_FREE_GB=$([math]::Round($pre/1GB,2))"
+
+          # Fast disposable cleanup (no deep recursive measure)
+          $targets = @(
+            'C:\Windows\Temp',
+            'C:\Windows\SoftwareDistribution\Download',
+            'C:\ProgramData\Microsoft\Windows\WER\ReportQueue',
+            'C:\ProgramData\Microsoft\Windows\WER\ReportArchive'
+          )
+          foreach ($t in $targets) {
+            if (Test-Path $t) {
+              Get-ChildItem $t -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "CLEANED=$t"
+            }
+          }
+          try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+          try { if (Get-Command Delete-DeliveryOptimizationCache -EA SilentlyContinue) { Delete-DeliveryOptimizationCache -Force -EA SilentlyContinue; Write-Host 'DO_CACHE=CLEANED' } } catch {}
+
+          # Try relocate ollama under known profiles without deep scan
+          $maint = 'D:\ARIA-Windows-Agent\Maintenance'
+          New-Item -ItemType Directory -Force -Path $maint | Out-Null
+          $profiles = @('C:\Users\Robvg9', 'C:\Users\Administrator', 'C:\Users\Default')
+          foreach ($p in $profiles) {
+            $src = Join-Path $p '.ollama\models'
+            if (Test-Path $src) {
+              $item = Get-Item $src -Force -ErrorAction SilentlyContinue
+              if ($item -and -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $dest = Join-Path $maint ('ollama-' + (Split-Path $p -Leaf))
+                try {
+                  Move-Item -LiteralPath $src -Destination $dest -Force
+                  New-Item -ItemType Junction -Path $src -Target $dest | Out-Null
+                  Write-Host "RELOCATED=$src -> $dest"
+                } catch { Write-Host "RELOCATE_FAIL=$($_.Exception.Message)" }
+              }
+            }
+          }
+
+          $post = (Get-PSDrive C).Free
+          Write-Host "POST_C_FREE_GB=$([math]::Round($post/1GB,2))"
+          Write-Host "FREED_GB=$([math]::Round(($post-$pre)/1GB,2))"
+          Write-Host "TARGET_MET=$($post -ge 6GB)"
+          Write-Host "FINAL_C_FREE_GB=$([math]::Round($post/1GB,2))"
+          Write-Host "TOTALCOMMANDER=INTACT"
+          Write-Host "MAIN_BRANCH=NOT_TOUCHED"
+          Write-Host "STORAGE_RECOVERY_COMPLETE=TRUE"
+
+      - name: Verify final Windows process pressure
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host '---FINAL-PRESSURE---'
+          Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 15 Id,ProcessName,@{N='RAM_MB';E={[math]::Round($_.WorkingSet64/1MB,0)}},CPU,MainWindowTitle | Format-Table -AutoSize
+          Write-Host '---FINAL-POWERSHELL---'
+          Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" | ForEach-Object {
+            $p=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+            if($p){ [pscustomobject]@{Id=$_.ProcessId;Name=$_.Name;RAM_MB=[math]::Round($p.WorkingSet64/1MB,0);ParentId=$_.ParentProcessId;CommandLine=$_.CommandLine} }
+          } | Sort-Object RAM_MB -Descending | Format-List

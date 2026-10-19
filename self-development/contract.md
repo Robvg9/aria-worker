@@ -19,6 +19,17 @@ Controlled self-improvement orchestration.
 - Branch-Isolated Sandbox: all experimental mutations are staged on a non-main branch; production is never the sandbox.
 - Change Risk Analyzer: impact/dependency/protected-path analysis produces risk and approval requirements before mutation.
 - Automatic Regression Builder: verified skills generate deterministic regression artifacts that can detect capability drift.
+- Failure Intelligence: repeated failures are normalized into stable signatures, clustered into patterns, escalated by recurrence and repair recurrence, and converted into governed prevention/countermeasure work instead of blind retry loops.
+
+## Failure Intelligence boundary
+- An isolated incident remains an incident.
+- Repeated equivalent failures become a recurrent/pattern candidate/confirmed pattern according to deterministic thresholds.
+- A failure recurring after a verified repair escalates to `root_cause_required`.
+- Confirmed patterns carry occurrence history and evidence references.
+- Countermeasures remain governed: the engine can identify that prevention is required, but verified prevention is still required before reusable promotion.
+- Pattern detection must not silently authorize destructive, production, or physical mutations.
+- Post-repair recurrence reopens root-cause analysis rather than trusting the previous fix.
+- The learning engine may receive persisted failure history and automatically attach the matching pattern/countermeasure to the lesson before promotion.
 
 ## Safety contract
 - Inspection is read-only.
@@ -34,6 +45,7 @@ Controlled self-improvement orchestration.
 - Deployment is not implicit; this block does not bypass Router, Permission, Gateway, Credential Boundary, or Governance.
 - No secrets or hidden durable state are introduced.
 - A failed/unverified learning result can create diagnostics but cannot produce an active reusable capability.
+- Failure Intelligence is evidence-driven and fail-closed when history or signatures are ambiguous.
 
 ## LIVE certification
 The repository contains a one-shot GitHub Actions certification for the 2.0 sandbox boundary. It validates the real branch workspace, read/write isolation, regression generation, and governed PR promotion, then closes and deletes its temporary artifacts.

@@ -9,17 +9,14 @@ on:
       - 'autonomy/windows-shell-executor.js'
       - 'computer-use/**'
       - '.github/workflows/aria-windows-runtime-repair.yml'
-  pull_request:
-    paths:
-      - 'agents/windows/**'
-      - 'autonomy/meditation-ia-controller.js'
-      - 'autonomy/windows-shell-executor.js'
-      - 'computer-use/**'
-      - '.github/workflows/aria-windows-runtime-repair.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: aria-windows-repair-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -33,25 +30,16 @@ jobs:
       - name: Checkout ARIA runtime
         uses: actions/checkout@v4
 
-      - name: Safe C cleanup and relocate ARIA caches to D
+      - name: Verify host storage without blocking ARIA repair
         run: |
           $ErrorActionPreference = 'Continue'
-          $dRoot='D:\ARIA-Windows-Agent\Maintenance'
-          New-Item -ItemType Directory -Force -Path $dRoot | Out-Null
-          $before=(Get-PSDrive C).Free
-          Write-Host "C_FREE_BEFORE_GB=$([math]::Round($before/1GB,2))"
-          foreach($p in @("$env:TEMP\*","$env:LOCALAPPDATA\Temp\*","$env:WINDIR\Temp\*","$env:LOCALAPPDATA\Microsoft\Windows\INetCache\*","$env:LOCALAPPDATA\CrashDumps\*","$env:LOCALAPPDATA\D3DSCache\*","C:\Windows\SoftwareDistribution\Download\*","C:\ProgramData\Microsoft\Windows\WER\ReportQueue\*","C:\ProgramData\Microsoft\Windows\WER\ReportArchive\*")){try{Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}catch{}}
-          if(Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue){try{Delete-DeliveryOptimizationCache -Force -ErrorAction SilentlyContinue}catch{}}
-          if(Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue){try{Clear-RecycleBin -Force -ErrorAction SilentlyContinue}catch{}}
-          if(Get-Command npm.cmd -ErrorAction SilentlyContinue){try{npm.cmd cache clean --force | Out-Host}catch{}}
-          if(Get-Command pip.exe -ErrorAction SilentlyContinue){try{pip.exe cache purge | Out-Host}catch{}}
-          $ollama=Join-Path $env:USERPROFILE '.ollama\models';$ollamaD=Join-Path $dRoot 'ollama-models'
-          if(Test-Path $ollama -PathType Container){try{$it=Get-Item $ollama -Force;if(-not($it.Attributes -band [IO.FileAttributes]::ReparsePoint)){if(Test-Path $ollamaD){Remove-Item $ollamaD -Recurse -Force -ErrorAction SilentlyContinue};New-Item -ItemType Directory -Force -Path (Split-Path $ollamaD)|Out-Null;Get-Process -Name ollama -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue;Move-Item -LiteralPath $ollama -Destination $ollamaD -Force;New-Item -ItemType Junction -Path $ollama -Target $ollamaD|Out-Null;Write-Host "OLLAMA_MODELS_RELOCATED=True TARGET=$ollamaD"}else{Write-Host 'OLLAMA_MODELS_ALREADY_RELOCATED=True'}}catch{Write-Warning "OLLAMA_RELOCATE_FAILED=$($_.Exception.Message)"}}
-          if(Get-Command dism.exe -ErrorAction SilentlyContinue){try{dism.exe /Online /Cleanup-Image /StartComponentCleanup /Quiet|Out-Host}catch{}}
-          $after=(Get-PSDrive C).Free
-          Write-Host "C_FREE_AFTER_GB=$([math]::Round($after/1GB,2))"
-          Write-Host "C_FREED_GB=$([math]::Round(($after-$before)/1GB,2))"
-          Write-Host 'ARIA_CLEANUP=PASS'
+          $c = Get-PSDrive C -ErrorAction SilentlyContinue
+          if ($null -eq $c) {
+            Write-Warning 'C drive not available to cleanup probe; continuing repair.'
+          } else {
+            Write-Host "C_FREE_GB=$([math]::Round($c.Free/1GB,2))"
+          }
+          Write-Host 'ARIA_CLEANUP=NONBLOCKING'
 
       - name: Enforce singleton Agent and singleton watchdog without restart
         run: |
@@ -62,11 +50,9 @@ jobs:
           $watchdogs=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object{$_.Name-match'^powershell(\.exe)?$'-and[string]$_.CommandLine-match'(?i)run-agent\.ps1'})
           $agents=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object{$_.Name-match'^node(\.exe)?$'-and[string]$_.CommandLine-match'(?i)aria-agent\.js'})
           Write-Host "WATCHDOGS_BEFORE=$($watchdogs.Count) KEEP_W=$keepW AGENTS_BEFORE=$($agents.Count) KEEP_A=$keepA"
-          foreach($p in $watchdogs){if([int]$p.ProcessId-ne$keepW){Write-Host "STOP_DUPLICATE_WATCHDOG=$($p.ProcessId)";Stop-Process -Id ([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
-          foreach($p in $agents){if([int]$p.ProcessId-ne$keepA){Write-Host "STOP_DUPLICATE_AGENT=$($p.ProcessId)";Stop-Process -Id ([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
+          foreach($p in $watchdogs){if([int]$p.ProcessId-ne$keepW){Stop-Process -Id ([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
+          foreach($p in $agents){if([int]$p.ProcessId-ne$keepA){Stop-Process -Id ([int]$p.ProcessId)-Force-ErrorAction SilentlyContinue}}
           Start-Sleep -Seconds 2
-          $lock='D:\ARIA-Windows-Agent\Runtime\meditation\controller.lock'
-          if(Test-Path $lock){$lp=0;try{$j=Get-Content -Raw $lock|ConvertFrom-Json;$lp=[int]$j.pid}catch{};$q=$null;if($lp-gt0){$q=Get-CimInstance Win32_Process -Filter "ProcessId = $lp" -ErrorAction SilentlyContinue};if($null-eq$q -or $lp-eq$keepA){Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue;Write-Host "MEDITATION_LOCK_CLEARED_PID=$lp"}else{Write-Host "MEDITATION_LOCK_OWNER_PID=$lp"}}
           Write-Host 'ARIA_SINGLETON_REPAIR=PASS'
 
       - name: Ensure Meditation IA endpoint online and activate
@@ -76,19 +62,17 @@ jobs:
           try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5}catch{}
           if($null-eq$s){$agent='D:\ARIA-Windows-Agent\Runtime\windows\run-agent.ps1';if(-not(Test-Path $agent)){throw 'Agent launcher missing'};Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$agent -WindowStyle Hidden;for($i=0;$i-lt30;$i++){Start-Sleep 1;try{$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 2;if($null-ne$s){break}}catch{}}}
           if($null-eq$s){throw 'Meditation endpoint offline'}
-          if($s.mode-ne'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;Write-Host ("MEDITATION_ACTIVATE status={0} mode={1} session={2} tick={3}"-f$r.status,$s.mode,$s.session_id,$s.tick_count)}else{Write-Host "MEDITATION_ALREADY_ACTIVE session=$($s.session_id)"}
+          if($s.mode-ne'active'){$r=Invoke-RestMethod -Method Post -Uri $start -TimeoutSec 10;Start-Sleep 3;$s=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5;Write-Host ("MEDITATION_ACTIVATE status={0} mode={1} session={2} tick={3}"-f$r.status,$s.mode,$s.session_id,$s.tick_count)}
           if($s.mode-ne'active'){throw "Meditation IA activation failed mode=$($s.mode)"}
           Write-Host 'MEDITATION_ACTIVATION=PASS'
 
-      - name: Verify continuity heartbeat and C space
+      - name: Verify continuity heartbeat
         run: |
           $ErrorActionPreference='Stop'
           $u='http://127.0.0.1:45873/status';$a=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
           if($a.mode-ne'active'){throw "Mode not active: $($a.mode)"}
           $t=[int]$a.tick_count;Start-Sleep -Seconds 12;$b=Invoke-RestMethod -Method Get -Uri $u -TimeoutSec 5
-          $c=(Get-PSDrive C).Free
           Write-Host "MEDITATION_TICKS_INITIAL=$t MEDITATION_TICKS_FINAL=$($b.tick_count) MODE=$($b.mode)"
-          Write-Host "C_FREE_FINAL_GB=$([math]::Round($c/1GB,2))"
           if($b.mode-ne'active'){throw "Meditation stopped: $($b.mode)"}
           if([int]$b.tick_count-lt$t){throw 'Tick counter regressed'}
           Write-Host 'MEDITATION_HEARTBEAT=PASS'
