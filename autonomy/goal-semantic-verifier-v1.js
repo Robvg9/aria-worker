@@ -89,6 +89,12 @@ function verifyGenericGoal(goal, step, result) {
   // semantic evidence unless the step has an explicit verifier constraint.
   const verify = step?.verify && typeof step.verify === "object" ? step.verify : {};
   const hasExplicitConstraint = Object.keys(verify).length > 0;
+  
+  // Fix for capability_mismatch: ensure capability matches if defined
+  if (step.capability && step.required_capability && step.capability !== step.required_capability) {
+    return { verified: false, reason: "capability_mismatch" };
+  }
+
   if (!hasExplicitConstraint) {
     return { verified: false, reason: "explicit_goal_verifier_required" };
   }
