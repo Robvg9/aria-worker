@@ -93,10 +93,16 @@ assert.ok(humanGateWorkflow.includes("updated_at < now() - interval '10 minutes'
 assert.ok((humanGateWorkflow.match(/coalesce\(stdout,''\)/g) || []).length >= 2, 'both physical success branches must read the actual job stdout');
 assert.ok(humanGateWorkflow.includes('"SAFE_AUTONOMY_OK" in sj'), 'safe physical PASS must verify the exact stdout marker');
 assert.ok(humanGateWorkflow.includes('"PROTECTED_ACTION_OK" in pj'), 'protected physical PASS must verify the exact stdout marker');
+assert.ok(humanGateWorkflow.includes('assert safe_physical_execution_pass'), 'Human Gate E2E must fail closed unless SAFE_AUTONOMY_OK physical completion is persisted');
+assert.ok(humanGateWorkflow.includes('assert protected_physical_execution_pass'), 'Human Gate E2E must fail closed unless approved PROTECTED_ACTION_OK physical completion is persisted');
+assert.ok(!humanGateWorkflow.includes('PHYSICAL_EXECUTION_GATE_REMAINS_SEPARATE'), 'Human Gate E2E must not return ALL_PASS while physical execution is missing');
+assert.ok(humanGateWorkflow.includes('print("PHYSICAL_EXECUTION = VERIFIED")'), 'global PASS must only be emitted after both physical marker assertions');
+
 
 
 const freshExecutorWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'e2e-human-gate-safe-autonomy.yml'), 'utf8');
 assert.match(freshExecutorWorkflow, /last_seen_at > now\(\) - interval '120 seconds'/, 'Human Gate E2E must only select executors with fresh heartbeats');
+assert.match(freshExecutorWorkflow, /ORDER BY CASE WHEN agent_type='android-termux' THEN 0 ELSE 1 END, last_seen_at DESC/, 'Human Gate E2E must prefer the currently verified Android fallback when it has a fresh heartbeat');
 assert.match(freshExecutorWorkflow, /capabilities @> '\["shell\.execute"\]'::jsonb/, 'Human Gate E2E must require declared shell capability');
 assert.match(freshExecutorWorkflow, /DEVICE_AGENT_TYPE = executor_matches\[0\]/, 'Human Gate E2E must target the selected registry device');
 assert.ok(freshExecutorWorkflow.includes('executor_matches = re.findall(r"([A-Za-z0-9_-]{8,128})\\|(windows-local|android-termux)", fresh_executor)'), 'fresh executor parser must handle psql table borders while limiting supported agent types');
