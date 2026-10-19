@@ -53,4 +53,13 @@ assert.ok(gateway.includes('postgres(dbUrl'), 'gateway must use the governed Pos
 assert.ok(gateway.includes('claim_execution_job_gateway'), 'gateway claim must call the governed claim routine');
 assert.ok(agent.includes("timeoutMs:8_000"), 'agent claim request must have a bounded transport timeout');
 
-// CI revalidation marker: exercise Android RWHT workflow on the current main toolchain.\nconsole.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
+// CI revalidation marker: exercise Android RWHT workflow on the current main toolchain.\n// Physical Android UI responses are sanitized into durable metadata instead of being discarded.
+assert.ok(gateway.includes('function summarizeAndroidUiEvidence'), 'Android UI evidence summary must be persisted by the result gateway');
+assert.ok(gateway.includes('android_ui_summary'), 'successful Android UI jobs must retain a compact evidence summary');
+assert.ok(gateway.includes('ui_evidence_hash'), 'the summary must preserve the actual post-action UI evidence hash');
+assert.ok(gateway.includes('battlecruiser_marker_visible'), 'the summary must expose an app-specific visible marker without storing page text');
+assert.ok(gateway.includes('node_count'), 'the summary must record the observed accessibility tree size');
+assert.ok(gateway.includes('cleanMetadata.android_ui_summary=androidUiSummary'), 'the compact summary must be included in the persisted job result metadata');
+assert.ok(gateway.includes('baseMetadata.autonomous_test!==true'), 'Android UI summary must not overwrite the autonomous-runner trace summary');
+
+console.log('ANDROID UI AGENT AUTONOMOUS TRANSPORT: PASS');
