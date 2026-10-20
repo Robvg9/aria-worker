@@ -347,16 +347,18 @@ async function dispatch(
     const body = await parseRouteBody(request);
     const payload = validateRecordPayload(body);
     if (!payload) return bad(400, "invalid_record_payload");
-    const { error } = await admin
-      .from("aria_vault_records")
-      .insert({
-        owner_id: ownerId,
-        vault_id: vaultId,
-        record_id: recordId,
-        ...payload,
-      });
-    if (error?.code === "23505") return bad(409, "revision_already_exists");
+    const { error } = await admin.rpc("aria_vault_append_record_revision_v1", {
+      p_owner_id: ownerId,
+      p_vault_id: vaultId,
+      p_record_id: recordId,
+      p_revision: payload.revision,
+      p_format_version: payload.format_version,
+      p_payload_nonce: payload.payload_nonce,
+      p_ciphertext: payload.ciphertext,
+    });
+    if (error?.code === "40001") return bad(409, "revision_conflict");
     if (error?.code === "23503") return bad(404, "vault_not_found");
+    if (error?.code === "22023") return bad(400, "invalid_record_payload");
     if (error) throw new ApiError(503, "storage_unavailable");
     return reply(201, { saved: true, record_id: recordId, revision: payload.revision }, origin, requestId);
   }
