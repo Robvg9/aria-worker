@@ -72,15 +72,17 @@ BEGIN
 END;
 $function$;
 
--- Only the guarded function may append a record revision. The app keeps SELECT,
--- while direct service_role INSERT is removed to prevent bypassing the lock.
+-- Compatibility ordering is deliberate: do not revoke the existing service_role INSERT
+-- grant in this migration, or the currently deployed API (which still uses direct INSERT)
+-- would fail between schema migration and API rollout. After the API using this RPC is LIVE
+-- and verified, apply a separate privilege-tightening migration to revoke direct INSERT.
+-- The public client roles remain denied by the original migration/RLS boundary.
 REVOKE ALL ON FUNCTION public.aria_vault_append_record_revision_v1(
   uuid, uuid, uuid, bigint, smallint, text, text
 ) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.aria_vault_append_record_revision_v1(
   uuid, uuid, uuid, bigint, smallint, text, text
 ) TO service_role;
-REVOKE INSERT ON TABLE public.aria_vault_records FROM service_role;
 
 COMMENT ON FUNCTION public.aria_vault_append_record_revision_v1(
   uuid, uuid, uuid, bigint, smallint, text, text
