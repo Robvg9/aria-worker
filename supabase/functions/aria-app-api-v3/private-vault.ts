@@ -179,15 +179,26 @@ async function finalizeAudit(
   auditId: string,
   status: number,
   requestId: string,
-): Promise<void> {
-  const { error } = await admin
-    .from("aria_vault_audit_events")
-    .update({ outcome: outcomeFor(status), status_code: status })
-    .eq("id", auditId)
-    .eq("owner_id", ownerId);
-  if (error) {
-    // Do not log provider messages, request bodies, ciphertext, keys or user content.
-    console.error("aria_private_vault_audit_finalize_failed", { requestId, code: error.code ?? "unknown" });
+): Promise<boolean> {
+  try {
+    const { error } = await admin
+      .from("aria_vault_audit_events")
+      .update({ outcome: outcomeFor(status), status_code: status })
+      .eq("id", auditId)
+      .eq("owner_id", ownerId);
+    if (error) {
+      // Do not log provider messages, request bodies, ciphertext, keys or user content.
+      console.error("aria_private_vault_audit_finalize_failed", { requestId, code: error.code ?? "unknown" });
+      return false;
+    }
+    return true;
+  } catch (error) {
+    const code = (error && typeof error === "object" && "code" in error &&
+      typeof (error as { code?: unknown }).code === "string")
+      ? (error as { code: string }).code
+      : "unknown";
+    console.error("aria_private_vault_audit_finalize_failed", { requestId, code });
+    return false;
   }
 }
 
@@ -429,7 +440,12 @@ export async function handlePrivateVaultRequest(
         response = reply(503, { error: "storage_unavailable" }, origin, requestId);
       }
     }
-    await finalizeAudit(admin, ownerId, auditId, response.status, requestId);
+    const auditFinalized = await finalizeAudit(admin, ownerId, auditId, response.status, requestId);
+    if (!auditFinalized) {
+      // The dispatched operation may already have changed state. Never claim it failed
+      // or succeeded without a terminal audit row; callers must reconcile before retrying.
+      return reply(503, { error: "audit_finalize_failed", operation_result: "unknown" }, origin, requestId);
+    }
     return response;
   } catch (error) {
     const code = (error && typeof error === "object" && "code" in error &&
