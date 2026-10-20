@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { handlePrivateVaultRequest } from "../aria-app-api-v3/private-vault.ts";
 import {
   MAX_CIPHERTEXT_B64URL_CHARS,
   parseOptionalRevision,
@@ -149,4 +150,37 @@ Deno.test("atomic revision migration serializes each record and preserves rollou
   assert(!sql.includes("REVOKE INSERT ON TABLE public.aria_vault_records FROM service_role"), "do not break the old LIVE API before the RPC route is deployed");
   assertStringIncludes(sql, "REVOKE ALL ON FUNCTION public.aria_vault_append_record_revision_v1");
   assertStringIncludes(sql, "GRANT EXECUTE ON FUNCTION public.aria_vault_append_record_revision_v1");
+});
+
+
+Deno.test("API reports unknown operation outcome if audit finalization fails", async () => {
+  const admin = {
+    rpc: async () => ({ data: { allowed: true, retry_after_seconds: 60 }, error: null }),
+    from: (table: string) => {
+      assertEquals(table, "aria_vault_audit_events");
+      return {
+        insert: (_row: unknown) => ({
+          select: (_columns: string) => ({
+            single: async () => ({ data: { id: RECORD_ID }, error: null }),
+          }),
+        }),
+        update: (_row: unknown) => ({
+          eq: (_column: string, _value: string) => ({
+            eq: async (_ownerColumn: string, _ownerId: string) => ({
+              error: { code: "AUDIT_FINALIZE_TEST_FAILURE" },
+            }),
+          }),
+        }),
+      };
+    },
+  } as any;
+
+  const response = await handlePrivateVaultRequest(
+    new Request("https://example.test/functions/v1/aria-app-api-v3/private-vault/not-a-route"),
+    VAULT_ID,
+    RECORD_ID,
+    admin,
+  );
+  assertEquals(response.status, 503);
+  assertEquals(await response.json(), { error: "audit_finalize_failed", operation_result: "unknown" });
 });
