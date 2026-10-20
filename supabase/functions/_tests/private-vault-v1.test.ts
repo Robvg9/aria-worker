@@ -143,7 +143,7 @@ Deno.test("vault routes through the existing authenticated API without an extra 
 Deno.test("atomic revision migration serializes each record and removes direct insert bypass", async () => {
   const sql = await Deno.readTextFile(new URL("../../migrations/20261020160000_aria_encrypt_atomic_record_revisions.sql", import.meta.url));
   assertStringIncludes(sql, "pg_catalog.pg_advisory_xact_lock");
-  assertStringIncludes(sql, "MAX(r.revision)");
+  assertStringIncludes(sql, "pg_catalog.max(r.revision)");
   assertStringIncludes(sql, "p_revision <> v_expected_revision");
   assertStringIncludes(sql, "ERRCODE = '40001'");
   assertStringIncludes(sql, "REVOKE INSERT ON TABLE public.aria_vault_records FROM service_role");
