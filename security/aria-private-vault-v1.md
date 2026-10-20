@@ -40,7 +40,7 @@ No delete endpoint is provided in this step. Destructive deletion and removal of
 - Opaque UUIDv4-style IDs; KDF salt 16 bytes, AES-GCM nonce 12 bytes, wrapped 32-byte root key plus 16-byte GCM tag.
 - Ciphertext-only record payload is capped at 1 MiB plaintext plus the 16-byte GCM tag (base64url representation capped at 1,398,123 characters).
 - JSON body reads are streaming and bounded to 1,500,000 bytes. Schemas reject extra keys including `title`, `body`, `content`, `password`, `key`, `owner_id` and `user_id`.
-- Revisions are insert-only. The first API implementation enforced uniqueness only; the proposed Step 7 hardening routes appends through a transaction-scoped lock that requires the next consecutive revision and removes direct `service_role` INSERT. Requests do not include client-selected ownership fields.
+- Revisions are insert-only. The first API implementation enforced uniqueness only; the proposed Step 7 hardening routes appends through a transaction-scoped lock that requires the next consecutive revision. For safe rollout, the initial RPC migration preserves the existing `service_role` INSERT grant temporarily; a separate privilege-tightening migration must revoke it only after the RPC-backed API is deployed and verified, never before. Requests do not include client-selected ownership fields.
 - Errors are generic to callers. Server log output is limited to request ID and stable error code, without user content/provider messages.
 
 ## Verification supplied by this branch
