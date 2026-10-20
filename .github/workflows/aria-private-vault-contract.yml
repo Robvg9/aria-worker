@@ -9,6 +9,7 @@ on:
       - 'supabase/functions/_shared/private-vault-contract.ts'
       - 'supabase/functions/_tests/private-vault-v1.test.ts'
       - 'supabase/migrations/20261016150000_aria_private_vault_v1.sql'
+      - 'supabase/migrations/20261020160000_aria_encrypt_atomic_record_revisions.sql'
       - 'security/aria-private-vault-v1.md'
       - '.github/workflows/aria-private-vault-contract.yml'
   push:
@@ -20,6 +21,7 @@ on:
       - 'supabase/functions/_shared/private-vault-contract.ts'
       - 'supabase/functions/_tests/private-vault-v1.test.ts'
       - 'supabase/migrations/20261016150000_aria_private_vault_v1.sql'
+      - 'supabase/migrations/20261020160000_aria_encrypt_atomic_record_revisions.sql'
       - 'security/aria-private-vault-v1.md'
       - '.github/workflows/aria-private-vault-contract.yml'
 
