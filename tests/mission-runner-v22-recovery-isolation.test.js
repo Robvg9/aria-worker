@@ -43,3 +43,25 @@ if (!migration.includes("status = 'blocked'")) {
   throw new Error("exhausted terminal pending-job missions must fail closed, not stay silently paused");
 }
 console.log("paused pending-job reclaim cap contract: PASS");
+
+
+// RWHT must honor the governed Android-specific UI capability without weakening
+// the autonomous Computer Use requirement for desktop or non-Android devices.
+const rwhtGuardStart = s.indexOf("function objectivePlanAlignment");
+const rwhtGuardEnd = s.indexOf("function evidenceBoundSynthesisVerification", rwhtGuardStart);
+if (rwhtGuardStart < 0 || rwhtGuardEnd < 0) {
+  throw new Error("missing mission runner objective-plan alignment guard");
+}
+const rwhtGuard = s.slice(rwhtGuardStart, rwhtGuardEnd);
+for (const marker of [
+  "const hasAndroidUi=(steps||[]).some((step:any)=>",
+  "operation==='computer.use.android'",
+  "deviceId.startsWith('android-termux-')",
+  "if(isRwht && !hasAutonomous && !hasAndroidUi)",
+  "executorType(step)==='device'",
+]) {
+  if (!rwhtGuard.includes(marker)) {
+    throw new Error("missing Android-scoped RWHT capability contract: " + marker);
+  }
+}
+console.log("mission-runner-v22 Android-specific RWHT capability contract: PASS");

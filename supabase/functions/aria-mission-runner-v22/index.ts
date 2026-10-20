@@ -2803,13 +2803,23 @@ function objectivePlanAlignment(goal:string, steps:any[]){
     || /(real world human|auditoría física|auditoria fisica|recorre.*interfaz|prueba física|prueba fisica|prueba de interfaz|botón|botones)/.test(text);
   const hasDevice=executors.includes('device');
   const hasAutonomous=ops.includes('computer.use.autonomous');
+  // Android has its own governed UI executor. Accept it for RWHT only when the
+  // plan explicitly targets a Termux Android device and the step is a physical
+  // device executor; desktop/other-device RWHT still requires autonomous Computer Use.
+  const hasAndroidUi=(steps||[]).some((step:any)=>{
+    const operation=String(step?.operation||'').toLowerCase();
+    const deviceId=String(step?.target?.device_id||step?.input?.device_id||'');
+    return executorType(step)==='device'
+      && operation==='computer.use.android'
+      && deviceId.startsWith('android-termux-');
+  });
   const hasGithubWrite=ops.some((op:string)=>['create_branch','file_write','open_pr','pr_merge'].includes(op));
-  if(isRwht && !hasAutonomous){
+  if(isRwht && !hasAutonomous && !hasAndroidUi){
     return {
       ok:false,
       kind:'rwht_capability_mismatch',
-      reason:'El objetivo exige una prueba RWHT, pero el plan no contiene ejecución autónoma de Computer Use en un dispositivo.',
-      required:['executor_type=device','operation=computer.use.autonomous'],
+      reason:'El objetivo exige una ejecución física gobernada: computer.use.autonomous en escritorio o computer.use.android dirigido explícitamente a Android.',
+      required:['executor_type=device','operation=computer.use.autonomous OR computer.use.android + android-termux-*'],
       forbidden:[],
     };
   }
