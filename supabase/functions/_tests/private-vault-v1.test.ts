@@ -132,7 +132,21 @@ Deno.test("vault routes through the existing authenticated API without an extra 
   assertStringIncludes(embedded, "export function privateVaultAuthFailure");
   assertStringIncludes(embedded, '.eq("owner_id", ownerId)');
   assertStringIncludes(embedded, "aria_vault_consume_rate_limit_v1");
+  assertStringIncludes(embedded, 'admin.rpc("aria_vault_append_record_revision_v1", {');
+  assert(!embedded.includes('.from("aria_vault_records")\n      .insert('), "record inserts must go through the atomic revision RPC");
   assertStringIncludes(embedded, "aria_vault_audit_events");
   assert(!embedded.includes('access-control-allow-origin", "*"'), "private vault must not use wildcard CORS");
   assert(!embedded.includes("Deno.serve"), "embedded helper must not start a second server");
+});
+
+
+Deno.test("atomic revision migration serializes each record and removes direct insert bypass", async () => {
+  const sql = await Deno.readTextFile(new URL("../../migrations/20261020160000_aria_encrypt_atomic_record_revisions.sql", import.meta.url));
+  assertStringIncludes(sql, "pg_catalog.pg_advisory_xact_lock");
+  assertStringIncludes(sql, "MAX(r.revision)");
+  assertStringIncludes(sql, "p_revision <> v_expected_revision");
+  assertStringIncludes(sql, "ERRCODE = '40001'");
+  assertStringIncludes(sql, "REVOKE INSERT ON TABLE public.aria_vault_records FROM service_role");
+  assertStringIncludes(sql, "REVOKE ALL ON FUNCTION public.aria_vault_append_record_revision_v1");
+  assertStringIncludes(sql, "GRANT EXECUTE ON FUNCTION public.aria_vault_append_record_revision_v1");
 });
