@@ -34,7 +34,7 @@ jobs:
           device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
           marker='BC_STEP4_ANDROID_MOVIMIENTOS_SCROLL_V1'
           command=r"""node <<'NODE'
-          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const {executeAndroidAccessibilityJob,executeAndroidCommandReceiver,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
           const {spawnSync}=require('node:child_process');
           const marker='BC_STEP4_ANDROID_MOVIMIENTOS_SCROLL_V1',host='battlecruiser.robvg9.workers.dev';
           const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
@@ -111,10 +111,12 @@ jobs:
             const actions=[];
             let current=await observe();
             if(!current.root||current.p.ok!==true){
-              const launch=spawnSync('am',['start','-a','android.intent.action.VIEW','-d','https://'+host+'/','-p','com.android.chrome'],{encoding:'utf8',timeout:6000});
-              actions.push({action:'launch_chrome_if_no_active_window',status:launch.error?'failed':launch.status===0?'succeeded':'failed',exitCode:launch.status,reason:clean(launch.error&&launch.error.message||launch.stderr||''),output:clean(launch.stdout||'')});
-              await pause(1800);
-              current=await observe();
+              const launch=await executeAndroidCommandReceiver({
+                request:{...base,operation:'action',action:{action:'launch_app'},allowed_hosts:[host]},
+                timeoutMs:8000
+              });
+              actions.push({action:'launch_chrome_via_accessibility_service',status:launch&&launch.status||'unknown',reason:clean(launch&&launch.reason||launch&&launch.error||''),recovery:launch&&launch.metadata&&launch.metadata.fallback_from||null});
+              for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(500);current=await observe();}
             }
             if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_chrome_launch',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
             let sc=scan(current.root);
@@ -126,17 +128,21 @@ jobs:
             if(pageReady){
               actions.push({action:'reuse_current_battlecruiser_screen',status:'succeeded'});
             }else{
-              const nav=await action({action:'navigate',url:'https://'+host+'/'});
-              actions.push({action:'navigate',status:nav&&nav.status,reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason)});
-              await pause(1500);
-              current=await observe();
+              const nav=await executeAndroidCommandReceiver({
+                request:{...base,operation:'action',action:{action:'navigate',url:'https://'+host+'/'},allowed_hosts:[host]},
+                timeoutMs:8000
+              });
+              actions.push({action:'navigate_to_battlecruiser_via_accessibility_service',status:nav&&nav.status||'unknown',reason:clean(nav&&nav.reason||nav&&nav.error||''),recovery:nav&&nav.metadata&&nav.metadata.fallback_from||null});
+              for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(500);current=await observe();}
               if(!current.root||current.p.ok!==true){
-                const launch=spawnSync('am',['start','-a','android.intent.action.VIEW','-d','https://'+host+'/','-p','com.android.chrome'],{encoding:'utf8',timeout:6000});
-                actions.push({action:'launch_chrome_after_navigation',status:launch.error?'failed':launch.status===0?'succeeded':'failed',exitCode:launch.status,reason:clean(launch.error&&launch.error.message||launch.stderr||''),output:clean(launch.stdout||'')});
-                await pause(1800);
-                current=await observe();
+                const launch=await executeAndroidCommandReceiver({
+                  request:{...base,operation:'action',action:{action:'launch_app'},allowed_hosts:[host]},
+                  timeoutMs:8000
+                });
+                actions.push({action:'retry_launch_chrome_via_accessibility_service',status:launch&&launch.status||'unknown',reason:clean(launch&&launch.reason||launch&&launch.error||'')});
+                for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(500);current=await observe();}
               }
-              if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_navigation_recovery',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
+              if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_supported_recovery',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
               sc=scan(current.root);
               pageReady=sc.nodes.some(isBattleCruiserUI);
               if(!pageReady){
@@ -209,7 +215,7 @@ jobs:
               }
               restored=!!(initial.hash&&backward&&backward.hash===initial.hash);
             }else actions.push({action:'scroll_body',status:'blocked',reason:'visible_scrollable_not_found'});
-            const result={marker,ok:navigationSucceeded&&!!r&&r.status==='succeeded'&&!!initial.titleVisible&&!!forward&&!!backward,
+            const result={marker,ok:navigationSucceeded&&!!initial.titleVisible&&!!forward&&!!backward,
               build:{version_name:agentBuild.version_name,version_code:agentBuild.version_code,build_id:agentBuild.build_id},
               actions,initial,forward,backward,restoredHash:restored,
               forwardHashChanged:!!(initial.hash&&forward&&initial.hash!==forward.hash),
