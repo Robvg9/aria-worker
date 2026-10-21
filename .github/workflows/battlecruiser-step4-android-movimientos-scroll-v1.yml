@@ -110,11 +110,17 @@ jobs:
             const actions=[];
             let current=await observe();
             if(!current.root||current.p.ok!==true){
-              const launch=await action({action:'launch_app'});
-              actions.push({action:'launch_chrome_via_local_accessibility_ipc',status:launch&&launch.status||'unknown',reason:clean(launch&&launch.reason||launch&&launch.payload&&launch.payload.reason||''),recovery:launch&&launch.metadata&&launch.metadata.recovery_attempted===true});
-              for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(500);current=await observe();}
+              actions.push({action:'initial_observe',status:'blocked',reason:clean(current.r&&current.r.reason||current.p.reason||'window_unavailable')});
+              const nav=await action({action:'navigate',url:'https://'+host+'/'});
+              actions.push({action:'recover_by_supported_navigation_before_launch',status:nav&&nav.status||'unknown',reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason||'')});
+              for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(750);current=await observe();}
             }
-            if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_chrome_launch',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
+            if(!current.root||current.p.ok!==true){
+              const launch=await action({action:'launch_app'});
+              actions.push({action:'supported_launch_app_fallback',status:launch&&launch.status||'unknown',reason:clean(launch&&launch.reason||launch&&launch.payload&&launch.payload.reason||''),recovery:launch&&launch.metadata&&launch.metadata.recovery_attempted===true});
+              for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(750);current=await observe();}
+            }
+            if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_supported_recovery',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
             let sc=scan(current.root);
             const labelOf=n=>n.names.join(' | ');
             const exact=(re,opts={})=>sc.nodes.find(x=>x.names.some(t=>re.test(norm(t)))&&(!opts.visible||x.visible)&&(!opts.clickable||x.clickable)&&(!opts.enabled||x.enabled));
@@ -126,26 +132,25 @@ jobs:
             }else{
               const nav=await action({action:'navigate',url:'https://'+host+'/'});
               actions.push({action:'navigate_via_local_accessibility_ipc',status:nav&&nav.status||'unknown',reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason||''),recovery:nav&&nav.metadata&&nav.metadata.recovery_attempted===true});
-              for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(500);current=await observe();}
+              for(let i=0;i<10;i++){
+                await pause(750);
+                current=await observe();
+                if(current.root&&current.p.ok===true){
+                  sc=scan(current.root);
+                  pageReady=sc.nodes.some(isBattleCruiserUI);
+                  if(pageReady) break;
+                }
+              }
               if(!current.root||current.p.ok!==true){
                 const launch=await action({action:'launch_app'});
-                actions.push({action:'retry_launch_chrome_via_local_accessibility_ipc',status:launch&&launch.status||'unknown',reason:clean(launch&&launch.reason||launch&&launch.payload&&launch.payload.reason||'')});
-                for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(500);current=await observe();}
-              }
-              if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_supported_recovery',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
-              sc=scan(current.root);
-              pageReady=sc.nodes.some(isBattleCruiserUI);
-              if(!pageReady){
-                const launch=spawnSync('am',['start','-a','android.intent.action.VIEW','-d','https://'+host+'/','-p','com.android.chrome'],{encoding:'utf8',timeout:6000});
-                actions.push({action:'explicit_chrome_open_battlecruiser',status:launch.error?'failed':launch.status===0?'succeeded':'failed',exitCode:launch.status,reason:clean(launch.error&&launch.error.message||launch.stderr||''),output:clean(launch.stdout||'')});
-                await pause(1800);
-                current=await observe();
+                actions.push({action:'supported_launch_app_fallback',status:launch&&launch.status||'unknown',reason:clean(launch&&launch.reason||launch&&launch.payload&&launch.payload.reason||'')});
+                for(let i=0;i<8&&(!current.root||current.p.ok!==true);i++){await pause(750);current=await observe();}
                 if(current.root&&current.p.ok===true){sc=scan(current.root);pageReady=sc.nodes.some(isBattleCruiserUI);}
               }
-              navigationSucceeded=pageReady;
-              if(!pageReady){
-                const visibleLabels=sc.nodes.filter(x=>x.visible&&x.text&&/abrir men[uú]|cerrar men[uú]|centro de control|productos|ventas|movimientos|iniciar sesi[oó]n|usuario|contrase[nñ]a|battlecruiser|inventario/i.test(x.text)).slice(0,30).map(x=>({role:x.role,text:x.text}));
-                console.log(JSON.stringify({marker,ok:false,stage:'battlecruiser_ui_not_detected_after_chrome_recovery',actions,screen:{hash:current.p.evidence_hash||null,nodeCount:sc.nodeCount,visibleLabels}}));process.exitCode=2;return;
+              navigationSucceeded=!!(current.root&&current.p.ok===true&&pageReady);
+              if(!navigationSucceeded){
+                const visibleLabels=(current.root?sc.nodes:[]).filter(x=>x.visible&&x.text&&/abrir men[uú]|cerrar men[uú]|centro de control|productos|ventas|movimientos|iniciar sesi[oó]n|usuario|contrase[nñ]a|battlecruiser|inventario/i.test(x.text)).slice(0,30).map(x=>({role:x.role,text:x.text}));
+                console.log(JSON.stringify({marker,ok:false,stage:'battlecruiser_ui_not_detected_after_supported_recovery',actions,screen:{hash:current.p&&current.p.evidence_hash||null,nodeCount:current.root?sc.nodeCount:0,visibleLabels}}));process.exitCode=2;return;
               }
             }
             let target=exact(/^movimientos$/,{visible:true,clickable:true,enabled:true})||exact(/^movimientos de inventario$/,{visible:true,clickable:true,enabled:true});
