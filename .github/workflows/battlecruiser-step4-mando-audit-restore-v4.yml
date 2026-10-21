@@ -1,4 +1,5 @@
 name: BattleCruiser Step 4 Mando Audit Filter Restore V4 (Read Only)
+# Android device reconnected; rerun read-only filter/clear restoration check.
 on:
   push:
     branches:
