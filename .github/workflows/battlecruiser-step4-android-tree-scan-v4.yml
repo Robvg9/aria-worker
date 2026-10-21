@@ -17,7 +17,7 @@ jobs:
     environment: production
     timeout-minutes: 8
     steps:
-      - name: Submit one structured physical read-only tree scan
+      - name: Navigate to allowed host then capture fresh Android tree
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
@@ -39,23 +39,112 @@ jobs:
           command = r"""node <<'NODE'
           const {executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
           const marker='BC_STEP4_ANDROID_PREF_TREE_SCAN_V4';
-          const clean=s=>typeof s==='string'?s.replace(/\\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
-          (async()=>{
-            const r=await executeAndroidAccessibilityJob({command:JSON.stringify({operation:'observe',target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:['battlecruiser.robvg9.workers.dev']}),timeoutMs:18000});
-            const p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null,nodes=[];
-            const walk=(n,path)=>{
-              if(!n||typeof n!=='object')return;
-              const text=[n.name,n.label,n.text,n.contentDescription,n.hint].map(clean).filter(Boolean).join(' | ');
-              const row={id:typeof n.id==='string'?n.id:'',path,role:clean(n.role),className:clean(n.className||n.class),text,visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,checkable:typeof n.checkable==='boolean'?n.checkable:null,checked:typeof n.checked==='boolean'?n.checked:null,scrollable:!!n.scrollable,bounds:n.bounds||null};
-              if(text||row.clickable||row.checkable===true||row.scrollable)nodes.push(row);
-              if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i));
+          const host='battlecruiser.robvg9.workers.dev';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
+          const norm=s=>clean(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[‐-‒–—]/g,'-').replace(/\s+/g,' ').trim();
+          const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          async function send(request){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...request}),timeoutMs:18000});}
+          async function observe(){const r=await send({operation:'observe'});const p=r&&r.payload||{};return {r,p,root:p.root||(p.ui&&p.ui.root)||null};}
+          async function action(a){return await send({operation:'action',action:a});}
+          function scan(root){
+            const out=[],seen=new Set();let count=0;
+            const walk=(n,path,depth)=>{
+              if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||depth>28||count>=1200)return;
+              seen.add(n);count++;
+              const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);
+              const text=names.join(' | ');
+              const nodeId=typeof n.id==='string'&&n.id?n.id:path;
+              out.push({id:nodeId,path,role:clean(n.role),className:clean(n.className||n.class),names,text,
+                visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,
+                checkable:typeof n.checkable==='boolean'?n.checkable:null,
+                checked:typeof n.checked==='boolean'?n.checked:null,
+                scrollable:!!n.scrollable,bounds:n.bounds||null});
+              if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,depth+1));
             };
-            walk(root,'0');
-            const relevant=/Actualización automática|Sincronización automática|Sincronizar al abrir app|Sincronizar solo en Wi.Fi|Notificaciones|Modo compacto|Restaurar preferencias|Preferencias personales|Abrir menú|Cerrar menú|Configuración/i;
-            const selected=nodes.filter(n=>relevant.test(n.text)||n.checkable===true||/switch|checkbox/i.test(n.role+' '+n.className)).slice(0,100);
-            console.log(JSON.stringify({marker,status:r&&r.status,ok:p.ok===true,reason:clean(r&&r.reason||p.reason),packageName:clean(p.packageName||(p.ui&&p.ui.packageName)),evidenceHash:p.evidence_hash||null,uiEvidenceHash:p.ui&&p.ui.evidence_hash||null,nodeCount:nodes.length,rootAvailable:!!root,nodes:selected}));
-            if(!r||r.status!=='succeeded'||p.ok!==true||!root)process.exitCode=1;
-          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
+            walk(root,'0',0);
+            return {nodeCount:count,nodes:out};
+          }
+          const definitions=[
+            {key:'auto_refresh',label:'actualizacion automatica',re:/actualizacion automatica/},
+            {key:'sync_auto',label:'sincronizacion automatica',re:/sincronizacion automatica/},
+            {key:'sync_on_open',label:'sincronizar al abrir app',re:/sincronizar al abrir app/},
+            {key:'sync_wifi_only',label:'sincronizar solo en wi-fi',re:/sincronizar solo en wi.?fi/},
+            {key:'notifications',label:'notificaciones',re:/notificaciones/},
+            {key:'compact_mode',label:'modo compacto',re:/modo compacto/}
+          ];
+          function summarize(snap){
+            const nodes=snap.nodes||[];
+            const controls=definitions.map(d=>{
+              const matches=nodes.filter(n=>n.names.some(v=>d.re.test(norm(v)))||d.re.test(norm(n.text)));
+              const actual=matches.filter(n=>n.role.toLowerCase()==='switch'||n.role.toLowerCase()==='checkbox'||/switch|checkbox/i.test(n.className)||n.checkable===true);
+              return {key:d.key,match_count:matches.length,nodes:(actual.length?actual:matches).slice(0,8).map(n=>({id:n.id,path:n.path,role:n.role,className:n.className,text:n.text,checkable:n.checkable,checked:n.checked,enabled:n.enabled,visible:n.visible,bounds:n.bounds}))};
+            });
+            const switchLike=nodes.filter(n=>n.visible&&(n.checkable===true||/switch|checkbox/i.test(n.role+' '+n.className))).slice(0,50)
+              .map(n=>({id:n.id,path:n.path,role:n.role,className:n.className,text:n.text,checkable:n.checkable,checked:n.checked,enabled:n.enabled,visible:n.visible,bounds:n.bounds}));
+            const labels=nodes.filter(n=>n.visible&&n.text&&/abrir menu|cerrar menu|preferencias|configuracion|centro de control|actualizacion automatica|sincronizacion automatica|sincronizar al abrir app|sincronizar solo en wi.fi|notificaciones|modo compacto|restaurar preferencias/i.test(norm(n.text)))
+              .slice(0,50).map(n=>({id:n.id,path:n.path,text:n.text,visible:n.visible,clickable:n.clickable,enabled:n.enabled,scrollable:n.scrollable,bounds:n.bounds}));
+            return {nodeCount:snap.nodeCount,controls,switchLike,labels};
+          }
+          (async()=>{
+            const actions=[];
+            let nav=await action({action:'navigate',url:'https://'+host});
+            actions.push({action:'navigate',status:nav&&nav.status,reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason)});
+            await pause(1600);
+            let current=await observe();
+            for(let i=0;i<3&&(!current.root||current.p.ok!==true);i++){await pause(700);current=await observe();}
+            if(!current.root||current.p.ok!==true){
+              console.log(JSON.stringify({marker,ok:false,stage:'initial_observe',actions,reason:clean(current.r&&current.r.reason||current.p.reason),packageName:clean(current.p.packageName),uiOk:current.p.ui&&current.p.ui.ok===true}));
+              process.exitCode=1;return;
+            }
+            let scanned=scan(current.root);
+            const exact=(s,word)=>norm(s)===word;
+            const find=(re,options={})=>scanned.nodes.find(n=>n.names.some(v=>re.test(norm(v)))&&(!options.visible||n.visible)&&(!options.clickable||n.clickable)&&(!options.enabled||n.enabled));
+            const isPrefs=()=>scanned.nodes.some(n=>n.visible&&n.names.some(v=>/preferencias personales|actualizacion automatica|sincronizacion automatica|sincronizar al abrir app|sincronizar solo en wi.fi|modo compacto/i.test(norm(v))));
+            let drawerOpen=scanned.nodes.some(n=>n.visible&&n.names.some(v=>exact(v,'cerrar menu')));
+            if(!isPrefs()&&!drawerOpen){
+              const open=find(/abrir menu/,{visible:true,clickable:true,enabled:true});
+              if(open){
+                const r=await action({action:'click',nodeId:open.id});
+                actions.push({action:'open_navigation_drawer',target:open.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+                await pause(350);current=await observe();if(current.root&&current.p.ok===true)scanned=scan(current.root);
+                drawerOpen=scanned.nodes.some(n=>n.visible&&n.names.some(v=>exact(v,'cerrar menu')));
+              }
+            }
+            let pref=find(/^preferencias$/,{visible:true,clickable:true,enabled:true});
+            for(let i=0;i<3&&!isPrefs()&&!pref;i++){
+              const drawer=scanned.nodes.find(n=>n.id==='0.0.0.0.2.1')||scanned.nodes.find(n=>n.visible&&n.scrollable&&/centro de control|inventario|usuarios|configuracion/i.test(norm(n.text)));
+              const target=drawer?drawer.id:'0.0.0.0.2.1';
+              const r=await action({action:'scroll',nodeId:target,direction:'forward'});
+              actions.push({action:'scroll_navigation_drawer',target,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await pause(300);current=await observe();if(current.root&&current.p.ok===true)scanned=scan(current.root);
+              pref=find(/^preferencias$/,{visible:true,clickable:true,enabled:true});
+            }
+            if(!isPrefs()&&pref){
+              const r=await action({action:'click',nodeId:pref.id});
+              actions.push({action:'open_preferences',target:pref.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await pause(800);current=await observe();if(current.root&&current.p.ok===true)scanned=scan(current.root);
+            }
+            const topSnap={packageName:clean(current.p.packageName||(current.p.ui&&current.p.ui.packageName)),evidenceHash:current.p.evidence_hash||null,uiEvidenceHash:current.p.ui&&current.p.ui.evidence_hash||null,...summarize(scanned)};
+            let lowerSnap=null;
+            const onPrefs=isPrefs();
+            if(onPrefs){
+              const main=scanned.nodes.find(n=>n.id==='0.0.0'&&n.visible)||scanned.nodes.find(n=>n.visible&&n.scrollable&&n.id!=='0.0.0.0.2.1');
+              const target=main?main.id:'0.0.0';
+              const r=await action({action:'scroll',nodeId:target,direction:'forward'});
+              actions.push({action:'scroll_preferences_content',target,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await pause(300);current=await observe();
+              if(current.root&&current.p.ok===true){
+                scanned=scan(current.root);
+                lowerSnap={packageName:clean(current.p.packageName||(current.p.ui&&current.p.ui.packageName)),evidenceHash:current.p.evidence_hash||null,uiEvidenceHash:current.p.ui&&current.p.ui.evidence_hash||null,...summarize(scanned)};
+              } else {
+                lowerSnap={observeStatus:current.r&&current.r.status,reason:clean(current.r&&current.r.reason||current.p.reason),nodeCount:0};
+              }
+            }
+            const result={marker,ok:true,preferences_reached:onPrefs,actions,top:topSnap,lower:lowerSnap};
+            console.log(JSON.stringify(result));
+            if(!onPrefs)process.exitCode=2;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
           NODE"""
           metadata = {
             'goal_source': 'chat', 'source_application': 'ChatGPT', 'project_name': 'BattleCruiser',
@@ -81,7 +170,7 @@ jobs:
                   try:body=json.loads(raw)
                   except Exception:body={'raw_excerpt':raw[:800]}
                   return exc.code,body
-          code,submitted=post('aria-direct-v1',{'goal':'BattleCruiser Paso 4/15: escaneo FÍSICO de solo lectura del árbol accesible actual del Chrome Android registrado para capturar la evidencia de los seis interruptores de Preferencias. Ejecuta shell.execute en el dispositivo Android explícito, usando exactamente el comando estructurado y devuelve salida sanitizada con marker BC_STEP4_ANDROID_PREF_TREE_SCAN_V4. No pulses ni modifiques ningún control, no uses Restaurar preferencias, no ejecutes acciones de negocio.', 'mission_id':mission_id,'metadata':metadata},90)
+          code,submitted=post('aria-direct-v1',{'goal':'BattleCruiser Paso 4/15: abrir la URL autorizada en Chrome Android, navegar solo por menú hasta Preferencias y extraer árbol accesible fresco de solo lectura para los seis interruptores. Ejecuta shell.execute en el dispositivo Android explicitado y entrega el marker BC_STEP4_ANDROID_PREF_TREE_SCAN_V4 con datos reales; no pulses interruptores, Restaurar preferencias ni acciones de negocio.', 'mission_id':mission_id,'metadata':metadata},90)
           print('DISPATCH_HTTP='+str(code))
           print('MISSION_ID='+mission_id)
           print('DISPATCH_STATUS='+str(submitted.get('dispatch',{}).get('status','unknown')))
@@ -98,6 +187,6 @@ jobs:
               time.sleep(3)
           status=str(latest.get('status','unknown'))
           print('FINAL_STATUS='+status)
-          print('FINAL_SUMMARY='+json.dumps({k:latest.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results','recovery_update') if k in latest},ensure_ascii=False)[:2500])
+          print('FINAL_SUMMARY='+json.dumps({k:latest.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results','recovery_update') if k in latest},ensure_ascii=False)[:6000])
           if status!='succeeded': raise SystemExit(1)
           PY
