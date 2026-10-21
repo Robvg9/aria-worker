@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-android-movimientos-scroll-v1-notification-recovery
+  group: bc-step4-android-movimientos-scroll-v1-notification-probe-v2
   cancel-in-progress: true
 jobs:
   android-movimientos-scroll-v1:
@@ -309,7 +309,7 @@ jobs:
           s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
           if s!='succeeded':
               notification_mid=f"mission_bc_step4_android_accessibility_recovery_notification_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
-              notification_goal=("Send exactly one harmless Android notification to the explicitly enrolled Android Termux device asking the owner to open ARIA Local Mission, enable its Accessibility service in Android Settings, and return Chrome/BattleCruiser to the foreground. Use the device notification capability android.notification / notifications.push; do not use a shell notification command. Do not open system Settings remotely, change preferences, touch business data, submit forms, or claim the UI test passed.")
+              notification_goal=("Android Paso 4/15 recovery certification. Build and execute a governed two-step device plan on the explicitly enrolled Android Termux device: (1) READ ONLY shell.execute command exactly: echo BC_STEP4_ANDROID_RECOVERY_SHELL_OK; command -v sh; command -v termux-open-url; verify stdout contains BC_STEP4_ANDROID_RECOVERY_SHELL_OK; (2) send exactly one harmless android.notification through the native ARIA device notification capability (notifications.push), not by shell CLI. Notification title: BattleCruiser — Paso 4/15. Message: Para completar las pruebas físicas, abre ARIA Local Mission y activa su servicio de Accesibilidad en Ajustes de Android; después vuelve a Chrome/BattleCruiser. No repitas las pruebas de PC. Use a unique notification id for this run. Do not open Settings remotely, change preferences, touch business data, submit forms, or claim the UI test passed. This plan must include an executable read-only shell step and an executable notification step; if either cannot be planned, report BLOCKED without claiming delivery.")
               notification_metadata={
                   'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser',
                   'source':'battlecruiser_step4_android_accessibility_recovery_notification',
