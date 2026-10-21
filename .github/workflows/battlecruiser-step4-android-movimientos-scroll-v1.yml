@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-android-movimientos-scroll-v1-postdeploy
+  group: bc-step4-android-movimientos-scroll-v1-recovery-diagnostic
   cancel-in-progress: false
 jobs:
   android-movimientos-scroll-v1:
@@ -35,6 +35,7 @@ jobs:
           marker='BC_STEP4_ANDROID_MOVIMIENTOS_SCROLL_V1'
           command=r"""node <<'NODE'
           const {executeAndroidAccessibilityJob,executeAndroidCommandReceiver,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const {spawnSync}=require('node:child_process');
           const marker='BC_STEP4_ANDROID_MOVIMIENTOS_SCROLL_V1',host='battlecruiser.robvg9.workers.dev';
           const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
           const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
@@ -102,26 +103,55 @@ jobs:
             return {packageName:clean(obs.p.packageName||(obs.p.ui&&obs.p.ui.packageName)),evidenceHash:obs.p.evidence_hash||null,uiEvidenceHash:obs.p.ui&&obs.p.ui.evidence_hash||null,nodeCount:sc.nodeCount,prefsTitleVisible,controls,relevantMenu,appMarkers,visibleText,scrollables,preferenceStates};
           }
           (async()=>{
-            let health=await probeLocalIpcHealth({timeoutMs:2500});
-            let bootstrap=null;
+            let health=await probeLocalIpcHealth({timeoutMs:2200});
+            let bootstrap=null, termuxOpen=null, diagBefore=null, observeRecovery=null;
+            const safeProbe=(bin,args,timeout=1800)=>{
+              try {
+                const r=spawnSync(bin,args,{encoding:'utf8',timeout,maxBuffer:250000});
+                const raw=String(r.stdout||r.stderr||'').replace(/\\r/g,'');
+                return {status:r.status,error:r.error?String(r.error.message||r.error):null,output:clean(raw).slice(0,650)};
+              } catch(e) { return {status:null,error:clean(String(e&&e.message||e)),output:''}; }
+            };
+            const localHealthSummary=h=>({ok:h&&h.ok===true,status:h&&h.status||null,reason:clean(h&&h.reason||''),transport:h&&h.metadata&&h.metadata.transport||null,expected_protocol:h&&h.metadata&&h.metadata.expected_protocol||null,actual_protocol:h&&h.metadata&&h.metadata.actual_protocol||null,version_name:h&&h.metadata&&h.metadata.version_name||h&&h.payload&&h.payload.version_name||null,version_code:h&&h.metadata&&h.metadata.version_code||h&&h.payload&&h.payload.version_code||null,build_id:h&&h.metadata&&h.metadata.build_id||h&&h.payload&&h.payload.build_id||null});
             if(!health||health.ok!==true){
-              // The no-op wait is read-only; it exercises the agent's own command-receiver fallback/recovery before we gate on build identity.
-              try{
-                bootstrap=await send({operation:'action',action:{action:'wait',ms:0}},4500);
-                await pause(500);
-                health=await probeLocalIpcHealth({timeoutMs:2500});
-              }catch(e){bootstrap={status:'failed',reason:clean(String(e&&e.message||e))};}
+              // Diagnostic is read-only; it reports only installed package metadata and accessibility-service state.
+              diagBefore={
+                uid:safeProbe('id',[]),
+                tools:safeProbe('sh',['-c','command -v termux-open-url; command -v pm; command -v settings; command -v dumpsys; command -v am']),
+                installedAgentPackage:safeProbe('pm',['dump','com.robvg9.ariauiagent.debug']),
+                accessibilityEnabled:safeProbe('settings',['get','secure','accessibility_enabled']),
+                enabledAccessibilityServices:safeProbe('settings',['get','secure','enabled_accessibility_services'])
+              };
+              // Try the ordinary Android URL-intent route (no form submission or business write).
+              termuxOpen=safeProbe('termux-open-url',['https://'+host+'/'],3500);
+              await pause(1400);
+              health=await probeLocalIpcHealth({timeoutMs:2200});
+              if(!health||health.ok!==true){
+                try{
+                  bootstrap=await send({operation:'action',action:{action:'wait',ms:0}},4500);
+                  await pause(450);
+                  health=await probeLocalIpcHealth({timeoutMs:2200});
+                }catch(e){bootstrap={status:'failed',reason:clean(String(e&&e.message||e))};}
+              }
+              if(!health||health.ok!==true){
+                try{
+                  observeRecovery=await send({operation:'observe'},4500);
+                  await pause(300);
+                  health=await probeLocalIpcHealth({timeoutMs:2200});
+                }catch(e){observeRecovery={status:'failed',reason:clean(String(e&&e.message||e))};}
+              }
             }
             const hp=health&&health.payload||{};
             const hm=health&&health.metadata||{};
             const agentBuild={ok:health&&health.ok===true,version_name:hp.version_name||hm.version_name||null,version_code:hp.version_code||hm.version_code||null,build_id:hp.build_id||hm.build_id||null};
             agentBuild.exact_build=agentBuild.ok===true&&String(agentBuild.version_name)==='1.1.23'&&Number(agentBuild.version_code)===29&&String(agentBuild.build_id)==='3708b31b319884f7d42082414a82cdd11450fe2d';
             if(!agentBuild.exact_build){
-              console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',agentBuild,
-                health_reason:clean(health&&health.reason||''),
-                health_status:health&&health.status||null,
-                health_metadata:{transport:hm.transport||null,expected_protocol:hm.expected_protocol||null,actual_protocol:hm.actual_protocol||null},
-                read_only_bootstrap:bootstrap?{status:bootstrap.status||null,reason:clean(bootstrap.reason||bootstrap.payload&&bootstrap.payload.reason||''),transport:bootstrap.metadata&&bootstrap.metadata.transport||null,attempt:bootstrap.metadata&&bootstrap.metadata.attempt||null,recovery_attempted:bootstrap.metadata&&bootstrap.metadata.recovery_attempted===true,payload_build:{version_name:bootstrap.payload&&bootstrap.payload.version_name||null,version_code:bootstrap.payload&&bootstrap.payload.version_code||null,build_id:bootstrap.payload&&bootstrap.payload.build_id||null}}:null
+              console.log(JSON.stringify({marker,ok:false,stage:'android_accessibility_ipc_or_exact_build_unavailable',agentBuild,
+                health:localHealthSummary(health),
+                preflight:diagBefore,
+                openBattleCruiserViaAndroid:termuxOpen,
+                readOnlyWait:bootstrap?{status:bootstrap.status||null,reason:clean(bootstrap.reason||bootstrap.payload&&bootstrap.payload.reason||''),transport:bootstrap.metadata&&bootstrap.metadata.transport||null,attempt:bootstrap.metadata&&bootstrap.metadata.attempt||null,recovery_attempted:bootstrap.metadata&&bootstrap.metadata.recovery_attempted===true,fallback_reason:clean(bootstrap.metadata&&bootstrap.metadata.fallback_reason||''),payload_build:{version_name:bootstrap.payload&&bootstrap.payload.version_name||null,version_code:bootstrap.payload&&bootstrap.payload.version_code||null,build_id:bootstrap.payload&&bootstrap.payload.build_id||null}}:null,
+                readOnlyObserve:observeRecovery?{status:observeRecovery.status||null,reason:clean(observeRecovery.reason||observeRecovery.payload&&observeRecovery.payload.reason||''),transport:observeRecovery.metadata&&observeRecovery.metadata.transport||null,attempt:observeRecovery.metadata&&observeRecovery.metadata.attempt||null,recovery_attempted:observeRecovery.metadata&&observeRecovery.metadata.recovery_attempted===true}:null
               }));process.exitCode=20;return;
             }
             const actions=[];
