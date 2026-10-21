@@ -1,0 +1,92 @@
+name: BattleCruiser Step 4 Android UI Label Capture V5 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-ui-label-capture-v5.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-ui-label-capture-v5
+  cancel-in-progress: false
+jobs:
+  android-ui-label-capture:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 6
+    steps:
+      - name: Capture Android accessibility labels including contentDescription
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_android_ui_label_capture_v5_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_ANDROID_UI_LABEL_CAPTURE_V5'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_ANDROID_UI_LABEL_CAPTURE_V5',host='battlecruiser.robvg9.workers.dev';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().slice(0,90):'';
+          function scan(root){const out=[],seen=new Set();const walk=(n,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>22||out.length>=450)return;seen.add(n);out.push({id:clean(n.id||''),role:clean(n.role||''),className:clean(n.className||n.class||''),name:clean(n.name),label:clean(n.label),contentDescription:clean(n.contentDescription),hint:clean(n.hint),text:clean(n.text),visible:n.visible!==false,clickable:!!n.clickable});(n.children||[]).forEach(c=>walk(c,d+1));};walk(root,0);return out;}
+          const labelOf=n=>[n.name,n.label,n.contentDescription,n.hint,n.text,n.role,n.className].filter(Boolean).join(' ');
+          async function main(){
+            const navigation=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'action',action:{action:'navigate',url:'https://'+host}}),timeoutMs:12000});
+            const wait=ms=>new Promise(r=>setTimeout(r,ms));
+            await wait(2400);
+            const attempts=[];let observed=null,p={},root=null,ns=[],menu=false;
+            for(let i=1;i<=3;i++){
+              observed=await executeAndroidAccessibilityJob({command:JSON.stringify({...base,operation:'observe'}),timeoutMs:8000});
+              p=observed&&observed.payload||{};root=p.root||(p.ui&&p.ui.root)||null;ns=root?scan(root):[];
+              menu=ns.some(n=>n.visible&&n.clickable&&/abrir menu/i.test(n.name+' '+n.label+' '+n.text));
+              attempts.push({attempt:i,status:observed&&observed.status,reason:clean(observed&&observed.reason||observed&&observed.stderr||''),hash:p.evidence_hash||p.ui&&p.ui.evidence_hash||null,nodeCount:ns.length,menuAvailable:menu});
+              if(observed&&observed.status==='succeeded'&&root&&menu)break;
+              if(i<3)await wait(900);
+            }
+            let h=null;try{h=await probeLocalIpcHealth({timeoutMs:2500});}catch(e){h={ok:false,reason:String(e&&e.message||e)};}
+            const hp=h&&h.payload||{};
+            const result={
+              marker,ok:navigation&&navigation.status==='succeeded'&&observed&&observed.status==='succeeded'&&!!root&&menu,
+              navigation:{status:navigation&&navigation.status,reason:clean(navigation&&navigation.reason||navigation&&navigation.stderr||'')},
+              attempts,
+              screen:{hash:p.evidence_hash||p.ui&&p.ui.evidence_hash||null,nodeCount:ns.length,menuAvailable:menu,titleMarkers:ns.filter(n=>n.visible&&/inicio|productos|ventas|centro de mando/i.test(labelOf(n))).length},
+              buildProbe:{ok:!!(h&&h.ok===true),version_name:hp.version_name||h&&h.metadata&&h.metadata.version_name||null,version_code:hp.version_code||h&&h.metadata&&h.metadata.version_code||null,build_id:hp.build_id||h&&h.metadata&&h.metadata.build_id||null},
+              safety:{navigatedOnly:true,preferencesChanged:false,businessWrites:false,formsSubmitted:false}
+            };
+            console.log(JSON.stringify(result));if(!result.ok)process.exitCode=1;
+          }
+          main().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_ui_label_capture_v5','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':12000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=75):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'Ejecuta shell.execute en el Android explícito para navegar una vez a BattleCruiser LIVE y capturar el árbol de accesibilidad, buscando Abrir menú también en contentDescription, hint, role y className, además de name/label/text. Espera a que cargue y observa hasta tres veces. No hagas clic ni cambies datos. Marcador BC_STEP4_ANDROID_UI_LABEL_CAPTURE_V5.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True:print('DISPATCH_ERROR='+json.dumps(body,ensure_ascii=False)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={}
+          for i in range(1,41):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              time.sleep(2)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:3500])
+          if s!='succeeded':raise SystemExit(1)
+          PY
