@@ -128,7 +128,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'En Android, abrir Movimientos LIVE, desplazar la vista con gesto táctil y abrir/cerrar Desde y Hasta con Atrás sin cambiar fechas. Solo después aplicar filtros con valores predeterminados si el botón es visible; no abrir movimientos ni cambiar datos. Exige agente 1.1.23 exacto. Marcador BC_STEP4_MOVIMIENTOS_DATE_INPUTS_OPEN_DISMISS_V2.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'Ejecuta shell.execute en Android para abrir Movimientos en BattleCruiser LIVE, usar un gesto táctil para exponer los controles Desde y Hasta, abrir y cerrar ambos selectores de fecha con Atrás sin elegir ninguna fecha, y pulsar Aplicar una sola vez con los filtros predeterminados si el botón está visible. No abras filas ni modifiques datos comerciales o stock. Exige agente 1.1.23 exacto. Marcador BC_STEP4_MOVIMIENTOS_DATE_INPUTS_OPEN_DISMISS_V2.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
