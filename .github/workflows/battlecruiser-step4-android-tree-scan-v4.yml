@@ -1,0 +1,103 @@
+name: BattleCruiser Step 4 Android Tree Scan V4 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-tree-scan-v4.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-tree-scan-v4
+  cancel-in-progress: false
+jobs:
+  android-tree-scan:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Submit one structured physical read-only tree scan
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, sys, time, urllib.request, urllib.error
+          project = os.environ.get('SUPABASE_PROJECT_REF', '').strip()
+          secret = os.environ.get('ARIA_RUNTIME_SHARED_SECRET', '')
+          if not project or not secret:
+              raise SystemExit('BLOCKED: required production secrets unavailable; values are never printed')
+          base = f'https://{project}.supabase.co/functions/v1'
+          headers = {'Authorization': 'Bearer ' + secret, 'content-type': 'application/json', 'cache-control': 'no-store'}
+          mission_id = f"mission_bc_step4_android_tree_scan_v4_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device_id = 'android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker = 'BC_STEP4_ANDROID_PREF_TREE_SCAN_V4'
+          command = r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_ANDROID_PREF_TREE_SCAN_V4';
+          const clean=s=>typeof s==='string'?s.replace(/\\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
+          (async()=>{
+            const r=await executeAndroidAccessibilityJob({command:JSON.stringify({operation:'observe',target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:['battlecruiser.robvg9.workers.dev']}),timeoutMs:18000});
+            const p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null,nodes=[];
+            const walk=(n,path)=>{
+              if(!n||typeof n!=='object')return;
+              const text=[n.name,n.label,n.text,n.contentDescription,n.hint].map(clean).filter(Boolean).join(' | ');
+              const row={id:typeof n.id==='string'?n.id:'',path,role:clean(n.role),className:clean(n.className||n.class),text,visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,checkable:typeof n.checkable==='boolean'?n.checkable:null,checked:typeof n.checked==='boolean'?n.checked:null,scrollable:!!n.scrollable,bounds:n.bounds||null};
+              if(text||row.clickable||row.checkable===true||row.scrollable)nodes.push(row);
+              if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i));
+            };
+            walk(root,'0');
+            const relevant=/Actualización automática|Sincronización automática|Sincronizar al abrir app|Sincronizar solo en Wi.Fi|Notificaciones|Modo compacto|Restaurar preferencias|Preferencias personales|Abrir menú|Cerrar menú|Configuración/i;
+            const selected=nodes.filter(n=>relevant.test(n.text)||n.checkable===true||/switch|checkbox/i.test(n.role+' '+n.className)).slice(0,100);
+            console.log(JSON.stringify({marker,status:r&&r.status,ok:p.ok===true,reason:clean(r&&r.reason||p.reason),packageName:clean(p.packageName||(p.ui&&p.ui.packageName)),evidenceHash:p.evidence_hash||null,uiEvidenceHash:p.ui&&p.ui.evidence_hash||null,nodeCount:nodes.length,rootAvailable:!!root,nodes:selected}));
+            if(!r||r.status!=='succeeded'||p.ok!==true||!root)process.exitCode=1;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1});
+          NODE"""
+          metadata = {
+            'goal_source': 'chat', 'source_application': 'ChatGPT', 'project_name': 'BattleCruiser',
+            'source': 'battlecruiser_step4_android_tree_scan_v4', 'verification_marker': marker,
+            'device_id': device_id, 'requested_device_id': device_id,
+            'operation': 'shell.execute', 'executor_type': 'device', 'requested_capability': 'shell.execute',
+            'command': command, 'risk': 'READ', 'timeout_ms': 30000,
+            'target_package': 'com.android.chrome', 'allowed_hosts': ['battlecruiser.robvg9.workers.dev'],
+            'read_only': True, 'business_data_mutated': False, 'explicit_device_intent': True,
+            'human_gate_required': False
+          }
+          def post(fn, payload, timeout=60, trigger=None):
+              h=dict(headers)
+              if trigger: h['x-aria-trigger']=trigger
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=h,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as resp:
+                      raw=resp.read().decode(errors='replace')
+                      try:return resp.status,json.loads(raw)
+                      except Exception:return resp.status,{'raw_excerpt':raw[:800]}
+              except urllib.error.HTTPError as exc:
+                  raw=exc.read().decode(errors='replace')
+                  try:body=json.loads(raw)
+                  except Exception:body={'raw_excerpt':raw[:800]}
+                  return exc.code,body
+          code,submitted=post('aria-direct-v1',{'goal':'BattleCruiser Paso 4/15: escaneo FÍSICO de solo lectura del árbol accesible actual del Chrome Android registrado para capturar la evidencia de los seis interruptores de Preferencias. Ejecuta shell.execute en el dispositivo Android explícito, usando exactamente el comando estructurado y devuelve salida sanitizada con marker BC_STEP4_ANDROID_PREF_TREE_SCAN_V4. No pulses ni modifiques ningún control, no uses Restaurar preferencias, no ejecutes acciones de negocio.', 'mission_id':mission_id,'metadata':metadata},90)
+          print('DISPATCH_HTTP='+str(code))
+          print('MISSION_ID='+mission_id)
+          print('DISPATCH_STATUS='+str(submitted.get('dispatch',{}).get('status','unknown')))
+          print('QUEUE_STATUS='+str(submitted.get('queue',{}).get('status','unknown')))
+          if code>=300 or submitted.get('ok') is not True:
+              print('DISPATCH_ERROR='+json.dumps(submitted,ensure_ascii=False)[:1800]); raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          latest={}
+          for attempt in range(1,61):
+              status_code,latest=post('aria-mission-runner-v22',{'mission_id':mission_id},75)
+              status=str(latest.get('status','unknown'))
+              print('POLL='+json.dumps({'attempt':attempt,'http':status_code,'status':status,'error':latest.get('error'),'next_action':latest.get('next_action'),'mission_id':mission_id},ensure_ascii=False))
+              if status in terminal or status_code in (401,403,404): break
+              time.sleep(3)
+          status=str(latest.get('status','unknown'))
+          print('FINAL_STATUS='+status)
+          print('FINAL_SUMMARY='+json.dumps({k:latest.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results','recovery_update') if k in latest},ensure_ascii=False)[:2500])
+          if status!='succeeded': raise SystemExit(1)
+          PY
