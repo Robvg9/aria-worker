@@ -347,9 +347,8 @@ function summarizeAndroidUiEvidence(value:unknown){
     {key:'notifications',label:'Notificaciones'},
     {key:'compact_mode',label:'Modo compacto'}
   ];
-  const preferenceMatches=new Map<string,any[]>(
-    preferenceDefinitions.map((entry:any)=>[entry.key,[]])
-  );
+  const preferenceMatches=new Map<string,any[]>();
+  preferenceDefinitions.forEach((entry:any)=>preferenceMatches.set(entry.key,[]));
   const preferenceTargets=preferenceDefinitions.map((entry:any)=>({
     key:entry.key,
     normalizedLabel:normalizeUiText(entry.label)
