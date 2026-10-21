@@ -108,24 +108,51 @@ jobs:
             agentBuild.exact_build=agentBuild.ok===true&&String(agentBuild.version_name)==='1.1.23'&&Number(agentBuild.version_code)===29&&String(agentBuild.build_id)==='3708b31b319884f7d42082414a82cdd11450fe2d';
             if(!agentBuild.exact_build){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',agentBuild}));process.exitCode=20;return;}
             const actions=[];
-            const nav=await action({action:'navigate',url:'https://'+host});
-            actions.push({action:'navigate',status:nav&&nav.status,reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason)});
-            await pause(5000);
             let current=await observe();
-            for(let i=0;i<8&&(!current.root||current.p.ok!==true||scan(current.root).nodeCount<70);i++){await pause(1000);current=await observe();}
-            if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'initial_observe',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
+            for(let i=0;i<6&&(!current.root||current.p.ok!==true||scan(current.root).nodeCount<30);i++){await pause(700);current=await observe();}
+            if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'initial_observe',reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
             let sc=scan(current.root);
             const labelOf=n=>n.names.join(' | ');
             const exact=(re,opts={})=>sc.nodes.find(x=>x.names.some(t=>re.test(norm(t)))&&(!opts.visible||x.visible)&&(!opts.clickable||x.clickable)&&(!opts.enabled||x.enabled));
-            let open=exact(/^abrir menu$/,{visible:true,clickable:true,enabled:true}) || sc.nodes.find(x=>x.visible&&x.clickable&&x.enabled&&x.role==='button'&&/android\.widget\.(Button|ImageButton)/i.test(x.className)&&x.names.some(t=>/menu|menú|navigation|drawer/i.test(norm(t))));
-            if(!open){console.log(JSON.stringify({marker,ok:false,stage:'menu_button_missing',actions,screen:{hash:current.p.evidence_hash||null,nodeCount:sc.nodeCount}}));process.exitCode=2;return;}
-            let r=await action({action:'click',nodeId:open.id});
-            actions.push({action:'open_menu',target:open.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
-            await pause(1100);current=await observe();
-            if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'observe_after_menu',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=3;return;}
-            sc=scan(current.root);
+            const isBattleCruiserUI=n=>n.visible&&n.names.some(t=>/^abrir menu$|^cerrar menu$|^centro de control$|^productos$|^movimientos(?: de inventario)?$/i.test(norm(t)));
+            let pageReady=sc.nodes.some(isBattleCruiserUI);
+            let navigationSucceeded=pageReady;
+            if(pageReady){
+              actions.push({action:'reuse_current_battlecruiser_screen',status:'succeeded'});
+            }else{
+              const nav=await action({action:'navigate',url:'https://'+host+'/'});
+              actions.push({action:'navigate',status:nav&&nav.status,reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason)});
+              await pause(2500);
+              current=await observe();
+              for(let i=0;i<6&&(!current.root||current.p.ok!==true||scan(current.root).nodeCount<30);i++){await pause(700);current=await observe();}
+              if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'observe_after_navigation',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
+              sc=scan(current.root);
+              pageReady=sc.nodes.some(isBattleCruiserUI);
+              navigationSucceeded=pageReady;
+              if(!pageReady){
+                const visibleLabels=sc.nodes.filter(x=>x.visible&&x.text&&/abrir men[uú]|cerrar men[uú]|centro de control|productos|ventas|movimientos|iniciar sesi[oó]n|usuario|contrase[nñ]a|battlecruiser|inventario/i.test(x.text)).slice(0,30).map(x=>({role:x.role,text:x.text}));
+                console.log(JSON.stringify({marker,ok:false,stage:'battlecruiser_ui_not_detected',actions,screen:{hash:current.p.evidence_hash||null,nodeCount:sc.nodeCount,visibleLabels}}));process.exitCode=2;return;
+              }
+            }
             let target=exact(/^movimientos$/,{visible:true,clickable:true,enabled:true})||exact(/^movimientos de inventario$/,{visible:true,clickable:true,enabled:true});
+            let r=null;
+            if(!target){
+              const close=exact(/^cerrar menu$/,{visible:true,clickable:true,enabled:true});
+              const open=exact(/^abrir menu$/,{visible:true,clickable:true,enabled:true}) || sc.nodes.find(x=>x.visible&&x.clickable&&x.enabled&&x.role==='button'&&/android\.widget\.(Button|ImageButton)/i.test(x.className)&&x.names.some(t=>/menu|menú|navigation|drawer/i.test(norm(t))));
+              if(close){
+                actions.push({action:'menu_already_open',target:close.id,status:'succeeded'});
+              }else{
+                if(!open){const visibleLabels=sc.nodes.filter(x=>x.visible&&x.text&&/abrir men[uú]|cerrar men[uú]|centro de control|productos|ventas|movimientos|inventario/i.test(x.text)).slice(0,30).map(x=>({role:x.role,text:x.text}));console.log(JSON.stringify({marker,ok:false,stage:'menu_button_missing',actions,screen:{hash:current.p.evidence_hash||null,nodeCount:sc.nodeCount,visibleLabels}}));process.exitCode=3;return;}
+                r=await action({action:'click',nodeId:open.id});
+                actions.push({action:'open_menu',target:open.id,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              }
+              await pause(900);current=await observe();
+              if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'observe_after_menu',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=4;return;}
+              sc=scan(current.root);
+              target=exact(/^movimientos$/,{visible:true,clickable:true,enabled:true})||exact(/^movimientos de inventario$/,{visible:true,clickable:true,enabled:true});
+            }
             for(let i=0;i<4&&!target;i++){
+
               const drawer=sc.nodes.find(x=>x.visible&&x.scrollable&&x.path.startsWith('0.0.0.0.2'))||sc.nodes.find(x=>x.visible&&x.scrollable);
               if(!drawer)break;
               r=await action({action:'scroll',nodeId:drawer.id,direction:i<2?'backward':'forward'});
@@ -164,7 +191,7 @@ jobs:
               }
               restored=!!(initial.hash&&backward&&backward.hash===initial.hash);
             }else actions.push({action:'scroll_body',status:'blocked',reason:'visible_scrollable_not_found'});
-            const result={marker,ok:nav&&nav.status==='succeeded'&&r&&r.status==='succeeded'&&!!initial.titleVisible&&!!forward&&!!backward,
+            const result={marker,ok:navigationSucceeded&&!!r&&r.status==='succeeded'&&!!initial.titleVisible&&!!forward&&!!backward,
               build:{version_name:agentBuild.version_name,version_code:agentBuild.version_code,build_id:agentBuild.build_id},
               actions,initial,forward,backward,restoredHash:restored,
               forwardHashChanged:!!(initial.hash&&forward&&initial.hash!==forward.hash),
