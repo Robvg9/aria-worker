@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-android-preferences-snapshot-v6-loadfix
+  group: bc-step4-android-preferences-snapshot-v6-postdeploy
   cancel-in-progress: false
 jobs:
   android-preferences:
