@@ -803,8 +803,13 @@ class AriaAccessibilityService : AccessibilityService() {
             return JSONObject().put("id", path).put("role", "text").put("text", "[node_limit]")
         }
         budget.count += 1
+        // Refresh each child node, not only the top-level window root. Chromium can
+        // return a node with its className set to CheckBox while stale checkable /
+        // checked flags are still false until that individual node is refreshed.
+        val nodeRefreshSucceeded = runCatching { node.refresh() }.getOrDefault(false)
         val bounds = Rect().also { node.getBoundsInScreen(it) }
         val obj = JSONObject()
+            .put("nodeRefreshSucceeded", nodeRefreshSucceeded)
             .put("id", path)
             .put("role", roleFor(node))
             .put("name", truncate(node.contentDescription?.toString(), 300))
