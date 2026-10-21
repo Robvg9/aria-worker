@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-android-movimientos-scroll-v1-recovery-diagnostic
+  group: bc-step4-android-movimientos-scroll-v1-settings-recovery
   cancel-in-progress: false
 jobs:
   android-movimientos-scroll-v1:
@@ -120,7 +120,10 @@ jobs:
                 tools:safeProbe('sh',['-c','command -v termux-open-url; command -v pm; command -v settings; command -v dumpsys; command -v am']),
                 installedAgentPackage:safeProbe('pm',['dump','com.robvg9.ariauiagent.debug']),
                 accessibilityEnabled:safeProbe('settings',['get','secure','accessibility_enabled']),
-                enabledAccessibilityServices:safeProbe('settings',['get','secure','enabled_accessibility_services'])
+                enabledAccessibilityServices:safeProbe('settings',['get','secure','enabled_accessibility_services']),
+                accessibilityEnabledUser0:safeProbe('settings',['--user','0','get','secure','accessibility_enabled']),
+                enabledAccessibilityServicesUser0:safeProbe('settings',['--user','0','get','secure','enabled_accessibility_services']),
+                agentProcessVisibility:safeProbe('sh',['-c',"ps -A | grep -i 'ariauiagent\\|termux' | head -12"])
               };
               // Try the ordinary Android URL-intent route (no form submission or business write).
               termuxOpen=safeProbe('termux-open-url',['https://'+host+'/'],3500);
