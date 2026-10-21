@@ -1,0 +1,143 @@
+name: BattleCruiser Step 4 Movimientos Date Inputs Open Dismiss V2 (Read Only)
+# Android device reconnected; re-run safe filter selection and restoration test.
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-movimientos-date-inputs-open-dismiss-v2.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-movimientos-date-inputs-open-dismiss-v2-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-movimientos-date-inputs-open-dismiss-v2:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Observe read-only Mando audit type/status filters and restore defaults
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_movimientos_date_inputs_open_dismiss_v2_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_MOVIMIENTOS_DATE_INPUTS_OPEN_DISMISS_V2'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_MOVIMIENTOS_DATE_INPUTS_OPEN_DISMISS_V2',host='battlecruiser.robvg9.workers.dev';
+          const expectedBuild='3708b31b319884f7d42082414a82cdd11450fe2d';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+          const wait=ms=>new Promise(r=>setTimeout(r,ms));
+          async function send(q,timeoutMs=8000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
+          async function observe(){const r=await send({operation:'observe'},8000),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a},9000);}
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          const exact=(ns,label)=>ns.find(n=>n.names.some(t=>norm(t)===norm(label))&&n.visible&&n.clickable&&n.enabled);
+          async function fresh(){let cur=await observe();if(!cur.root||cur.p.ok!==true){await wait(250);cur=await observe();}return cur;}
+          async function clickWait(n,label,timeline){const r=await action({action:'click',nodeId:n.id});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(300);return fresh();}
+          const dateNodes=cur=>(cur.root?scan(cur.root):[]).filter(n=>n.visible&&n.enabled&&n.clickable&&/DatePicker/i.test(n.className)&&n.bounds&&(Number(n.bounds.bottom)-Number(n.bounds.top))>=70&&Number(n.bounds.bottom)<=2205).sort((a,b)=>(Number(a.bounds?.top)||0)-(Number(b.bounds?.top)||0));
+          function summary(cur){const ns=cur.root?scan(cur.root):[];return ns.filter(n=>n.visible&&/^\d+\s+movimientos$/i.test(norm(n.text))).map(n=>clean(n.text)).slice(0,2);}
+          function brief(cur){const ns=cur.root?scan(cur.root):[];return {hash:cur.p&&cur.p.evidence_hash||null,nodeCount:ns.length,summary:summary(cur),dates:dateNodes(cur).map(n=>({id:n.id,top:n.bounds.top,bottom:n.bounds.bottom,height:Number(n.bounds.bottom)-Number(n.bounds.top),className:n.className,clickable:n.clickable,visible:n.visible})),controls:ns.filter(n=>n.visible&&n.text&&/desde|hasta|aplicar|todos los almacenes|todos los tipos|movimientos/i.test(norm(n.text))).slice(0,18).map(n=>({id:n.id,text:clean(n.text),role:n.role,className:n.className,clickable:n.clickable,bounds:n.bounds}))};}
+          async function dismissDate(cur,which,timeline){
+            let ds=dateNodes(cur);
+            if(ds.length<2)return {ok:false,stage:'two_date_controls_not_fully_visible',screen:brief(cur)};
+            const target=ds[which],hashBefore=cur.p&&cur.p.evidence_hash||null;
+            const opened=await clickWait(target,which===0?'open_desde_date':'open_hasta_date',timeline);
+            const openHash=opened.p&&opened.p.evidence_hash||null;
+            const openTree=opened.root?scan(opened.root):[];
+            const dialogVisible=openTree.some(n=>n.visible&&(/date|calendar|datepicker/i.test(n.className+' '+n.role)||/seleccionar fecha|elige una fecha|cancelar|ok|aceptar/i.test(norm(n.text))))&&openHash!==hashBefore;
+            const back=await action({action:'press',keyCode:4});
+            timeline.push({step:which===0?'dismiss_desde_with_back':'dismiss_hasta_with_back',status:back&&back.status,reason:clean(back&&back.reason||back&&back.payload&&back.payload.reason)});
+            await wait(300);const closed=await fresh();
+            const closedHash=closed.p&&closed.p.evidence_hash||null;
+            const closedDates=dateNodes(closed);
+            const returned=!!hashBefore&&!!closedHash&&hashBefore===closedHash;
+            return {ok:!!(opened.p&&opened.p.ok===true)&&!!(back&&back.status==='succeeded')&&!!(openHash&&openHash!==hashBefore)&&closedDates.length>=2,which:which===0?'Desde':'Hasta',targetBounds:target.bounds,hashBefore,hashOpen:openHash,hashClosed:closedHash,openStateChanged:!!(openHash&&openHash!==hashBefore),dialogVisible,closedDateCount:closedDates.length,returnedToExactHash:returned,screenAfterClose:brief(closed),cur:closed};
+          }
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:2200}),hp=h&&h.payload||{};
+            const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
+            const timeline=[];
+            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(1000);
+            let cur=await fresh(),ns=cur.root?scan(cur.root):[],menu=exact(ns,'Abrir menú')||exact(ns,'Abrir menu');
+            if(!menu){console.log(JSON.stringify({marker,ok:false,stage:'menu_button_not_found',timeline,screen:brief(cur),safety:{datesChanged:false,filtersApplied:false,businessWrites:false}}));process.exitCode=1;return;}
+            cur=await clickWait(menu,'open_menu',timeline);
+            ns=cur.root?scan(cur.root):[];
+            let dest=exact(ns,'Movimientos');
+            for(let k=0;k<5&&!dest;k++){
+              const drawer=ns.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0.0.2'))||ns.find(n=>n.visible&&n.scrollable);
+              if(!drawer)break;
+              r=await action({action:'scroll',nodeId:drawer.id,direction:k<2?'backward':'forward'});
+              timeline.push({step:'scroll_menu_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(200);cur=await fresh();ns=cur.root?scan(cur.root):[];dest=exact(ns,'Movimientos');
+            }
+            if(!dest){console.log(JSON.stringify({marker,ok:false,stage:'movimientos_menu_item_not_found',timeline,screen:brief(cur),safety:{datesChanged:false,filtersApplied:false,businessWrites:false}}));process.exitCode=2;return;}
+            cur=await clickWait(dest,'open_movimientos',timeline);
+            // One real touch swipe brings both date controls into the view; avoid repeated slow semantic scrolling.
+            let ds=dateNodes(cur);
+            for(let k=0;k<2&&ds.length<2;k++){
+              r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:380});
+              timeline.push({step:'swipe_dates_into_view_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(250);cur=await fresh();ds=dateNodes(cur);
+            }
+            const initial=brief(cur);
+            if(ds.length<2){console.log(JSON.stringify({marker,ok:false,stage:'date_controls_not_fully_visible',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,initial,safety:{datesChanged:false,filtersApplied:false,businessWrites:false}}));process.exitCode=3;return;}
+            const from=await dismissDate(cur,0,timeline);
+            if(!from.ok){console.log(JSON.stringify({marker,ok:false,stage:'from_control_open_close_failed',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,initial,from:{...from,cur:undefined},safety:{datesChanged:false,filtersApplied:false,businessWrites:false}}));process.exitCode=4;return;}
+            cur=from.cur;
+            const to=await dismissDate(cur,1,timeline);
+            if(!to.ok){console.log(JSON.stringify({marker,ok:false,stage:'to_control_open_close_failed',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,initial,from:{...from,cur:undefined},to:{...to,cur:undefined},safety:{datesChanged:false,filtersApplied:false,businessWrites:false}}));process.exitCode=5;return;}
+            cur=to.cur;
+            // Apply is a read-only list query; execute once at defaults only if it is visible and actionable.
+            ns=cur.root?scan(cur.root):[];
+            let apply=exact(ns,'Aplicar')||exact(ns,'Actualizar')||exact(ns,'Refrescar');
+            for(let k=0;k<2&&!apply;k++){
+              r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:380});
+              timeline.push({step:'swipe_apply_into_view_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(250);cur=await fresh();ns=cur.root?scan(cur.root):[];apply=exact(ns,'Aplicar')||exact(ns,'Actualizar')||exact(ns,'Refrescar');
+            }
+            const beforeApply=brief(cur);
+            let applyResult=null,afterApply=null;
+            if(apply){applyResult=await action({action:'click',nodeId:apply.id});timeline.push({step:'apply_default_date_filters',status:applyResult&&applyResult.status,reason:clean(applyResult&&applyResult.reason||applyResult&&applyResult.payload&&applyResult.payload.reason)});await wait(700);afterApply=await fresh();}
+            const result={marker,ok:from.ok&&to.ok&&!!(applyResult&&applyResult.status==='succeeded'),build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,initial,from:{...from,cur:undefined},to:{...to,cur:undefined},beforeApply,applyResult:applyResult?{status:applyResult.status,reason:clean(applyResult.reason||applyResult.payload&&applyResult.payload.reason)}:null,afterApply:afterApply?brief(afterApply):null,safety:{dateValuesChanged:false,filtersAppliedOnlyAtDefaults:true,recordsOpened:false,businessWrites:false,stockMutated:false,formsSubmitted:false}};
+            console.log(JSON.stringify(result));if(!result.ok)process.exitCode=6;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_movimientos_date_inputs_open_dismiss_v2','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':45000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=75):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'En Android, abrir Movimientos LIVE, desplazar la vista con gesto táctil y abrir/cerrar Desde y Hasta con Atrás sin cambiar fechas. Solo después aplicar filtros con valores predeterminados si el botón es visible; no abrir movimientos ni cambiar datos. Exige agente 1.1.23 exacto. Marcador BC_STEP4_MOVIMIENTOS_DATE_INPUTS_OPEN_DISMISS_V2.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={}
+          for i in range(1,61):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              time.sleep(3)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
+          if s!='succeeded':raise SystemExit(1)
+          PY
