@@ -133,7 +133,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'BattleCruiser Paso 4/15: prueba física READ ONLY de filtros de categoría de Ventas: Todos, Bebidas, Confituras, Dulces artesanales y restaurar Todos. Captura hash/conteos/marcadores sanitizados; no añadir carrito, no confirmar venta, no cerrar turno, no escribir datos. Marcador BC_STEP4_SALES_CATEGORY_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'Ejecuta shell.execute en el dispositivo Android explicitado, usando el comando Node incluido en metadata para navegar con Accesibilidad Android autorizada en BattleCruiser LIVE y probar solo los filtros locales de categorías Todos, Bebidas, Confituras y Dulces artesanales, restaurando Todos. Captura hashes, conteos y marcadores sanitizados. No añadir al carrito, no confirmar ventas, no cerrar turnos ni escribir datos de negocio. Marcador BC_STEP4_SALES_CATEGORY_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
