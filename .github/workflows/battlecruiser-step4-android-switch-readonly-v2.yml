@@ -1,0 +1,107 @@
+﻿name: BattleCruiser Step 4 Android Physical Observation V2 (Read Only)
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-android-switch-readonly-v2.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-android-switch-e2e
+  cancel-in-progress: true
+jobs:
+  android-observation:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 12
+    steps:
+      - name: Create a canonical read-only Android observation mission
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, sys, time, urllib.request, urllib.error
+          project = os.environ.get('SUPABASE_PROJECT_REF', '').strip()
+          secret = os.environ.get('ARIA_RUNTIME_SHARED_SECRET', '')
+          if not project or not secret:
+              raise SystemExit('BLOCKED: required production secrets unavailable; values are not printed')
+          base = f'https://{project}.supabase.co/functions/v1'
+          headers = {'Authorization': 'Bearer ' + secret, 'content-type': 'application/json', 'cache-control': 'no-store'}
+          mission_id = f"mission_bc_step4_android_physical_observe_v2_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device_id = 'android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          host = 'battlecruiser.robvg9.workers.dev'
+          marker = 'BC_STEP4_ANDROID_PHYSICAL_OBSERVE_V2'
+          goal = (
+            'BattleCruiser Paso 4/15: capturar una observación física REAL y READ ONLY del árbol accesible actual de Chrome en el teléfono Android registrado. '
+            'Usa computer.use.android en el dispositivo solicitado. Esta misión solo observa el estado actual; no navegar ni pulsar ningún control en esta primera lectura. '
+            'Registra árbol sanitizado, aplicación/paquete activo, recuento de nodos y hash de evidencia para decidir el siguiente paso gobernado. '
+            'No pulses interruptores, Restaurar preferencias, botones de negocio, formularios, LogOut, ni cambies datos. '
+            'Marcador de verificación: BC_STEP4_ANDROID_PHYSICAL_OBSERVE_V2. Devuelve evidencia real; no inventes contenido.'
+          )
+          metadata = {
+            'goal_source': 'chat', 'source_application': 'ChatGPT', 'project_name': 'BattleCruiser',
+            'source': 'battlecruiser_step4_physical_observe_v2', 'verification_marker': marker,
+            'device_id': device_id, 'requested_device_id': device_id,
+            'operation': 'computer.use.android', 'executor_type': 'device',
+            'requested_capability': 'computer.use.android', 'target_package': 'com.android.chrome',
+            'allowed_hosts': [host], 'read_only': True, 'business_data_mutated': False,
+            'risk': 'READ', 'timeout_ms': 30000, 'explicit_device_intent': True,
+            'human_gate_required': False
+          }
+          plan = [{
+            'id': 'observe_current_android_ui', 'operation': 'computer.use.android', 'executor_type': 'device',
+            'target': {'type': 'device', 'device_id': device_id},
+            'input': {'operation': 'observe', 'target_package': 'com.android.chrome', 'allow_any_app': False, 'allowed_hosts': [host]},
+            'risk': 'READ', 'timeout_ms': 30000,
+            'policy': {'tool_use': True, 'no_side_effects': True, 'read_only_audit': True, 'explicit_device_intent': True, 'spanish_output_required': True},
+            'verify': {'response_content_nonempty': True},
+            'selection': {'selection_reason': 'Explicit, allowlisted, read-only Android observation', 'requested_device_id': device_id, 'verification_marker': marker, 'requested_capability': 'computer.use.android'}
+          }]
+          checkpoint = {'plan': plan, 'stage': 'execution', 'completed_steps': [], 'attempts': {}, 'results': {}, 'pending_jobs': {}, 'read_only': True, 'verification_marker': marker}
+          def post(fn, payload, timeout=60, trigger=None):
+              h = dict(headers)
+              if trigger: h['x-aria-trigger'] = trigger
+              req = urllib.request.Request(base + '/' + fn, data=json.dumps(payload).encode(), headers=h, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as resp:
+                      raw = resp.read().decode(errors='replace')
+                      try: return resp.status, json.loads(raw)
+                      except Exception: return resp.status, {'raw_excerpt': raw[:500]}
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode(errors='replace')
+                  try: body = json.loads(raw)
+                  except Exception: body = {'raw_excerpt': raw[:500]}
+                  return exc.code, body
+          code, intake = post('aria-mission-intake-v1', {'goal': goal, 'mission_id': mission_id, 'metadata': metadata, 'checkpoint': checkpoint}, 60)
+          print('INTAKE_HTTP=' + str(code))
+          print('MISSION_ID=' + mission_id)
+          print('INTAKE_OK=' + str(intake.get('ok')))
+          if code >= 300 or intake.get('ok') is not True:
+              print('INTAKE_ERROR=' + json.dumps(intake, ensure_ascii=False)[:1200])
+              raise SystemExit(2)
+          code, kick = post('aria-canonical-runtime-v1', {'mission_id': mission_id}, 90, 'mission-tick')
+          print('CANONICAL_HTTP=' + str(code))
+          print('CANONICAL_STATUS=' + str(kick.get('status', 'unknown')))
+          print('CANONICAL_ERROR=' + str(kick.get('error', ''))[:300])
+          if code >= 300 or kick.get('ok') is False:
+              print('CANONICAL_BODY=' + json.dumps({k:v for k,v in kick.items() if k not in ('token','secret')}, ensure_ascii=False)[:1200])
+              raise SystemExit(3)
+          terminal = {'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          latest = kick
+          for attempt in range(1, 76):
+              status_code, latest = post('aria-mission-runner-v22', {'mission_id': mission_id}, 75)
+              status = str(latest.get('status', 'unknown'))
+              print('POLL=' + json.dumps({'attempt':attempt,'http':status_code,'status':status,'error':latest.get('error'),'next_action':latest.get('next_action'),'mission_id':mission_id}, ensure_ascii=False))
+              if status in terminal or status_code in (401,403,404): break
+              time.sleep(4)
+          status = str(latest.get('status', 'unknown'))
+          print('FINAL_STATUS=' + status)
+          print('FINAL_SUMMARY=' + json.dumps({k:latest.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results','recovery_update') if k in latest}, ensure_ascii=False)[:3000])
+          if status != 'succeeded': raise SystemExit(1)
+          PY
