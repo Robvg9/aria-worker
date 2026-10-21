@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: bc-step4-sales-category-filters-v1
+  group: bc-step4-mando-audit-filters-v1
   cancel-in-progress: false
 jobs:
   android-mando-audit-filters:
@@ -155,7 +155,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   try:return e.code,json.loads(e.read().decode())
                   except:return e.code,{}
-          code,body=post('aria-direct-v1',{'goal':'Ejecuta shell.execute en el dispositivo Android explicitado, usando el comando Node incluido en metadata para navegar con Accesibilidad Android autorizada en BattleCruiser LIVE y probar solo los filtros locales de categorías Todos, Bebidas, Confituras y Dulces artesanales, restaurando Todos. Captura hashes, conteos y marcadores sanitizados. No añadir al carrito, no confirmar ventas, no cerrar turnos ni escribir datos de negocio. Marcador BC_STEP4_MANDO_AUDIT_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
+          code,body=post('aria-direct-v1',{'goal':'Ejecuta shell.execute en el dispositivo Android explicitado, usando el comando Node incluido en metadata para navegar con Accesibilidad Android autorizada en BattleCruiser LIVE al Centro de Mando. Cambia los filtros de auditoría a tipo venta y estado error, observa solo hashes y marcadores no personales, y pulsa Limpiar filtros para restaurar Todos. La fuente de filtros está comprobada: listar_auditoria_admin es RPC de lectura. No abras registros ni modifiques auditoría ni datos de negocio. Exige agente 1.1.23 exacto. Marcador BC_STEP4_MANDO_AUDIT_FILTERS_READONLY_V1.','mission_id':mission_id,'metadata':metadata})
           print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
           if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
           terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
