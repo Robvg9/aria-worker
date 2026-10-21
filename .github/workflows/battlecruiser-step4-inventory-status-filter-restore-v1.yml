@@ -91,17 +91,31 @@ jobs:
             r=await action({action:'click',nodeId:exhausted.id});timeline.push({step:'choose_status_agotados',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(400);cur=await fresh();
             ns=cur.root?scan(cur.root):[];
             let apply=exact(ns,'Aplicar',{visible:true,clickable:true,enabled:true})||exact(ns,'Aplicar filtros',{visible:true,clickable:true,enabled:true});
+            let clearCandidate=exact(ns,'Limpiar',{visible:true,clickable:true,enabled:true})||exact(ns,'Limpiar filtros',{visible:true,clickable:true,enabled:true});
+            for(let k=0;k<2&&(!apply||!clearCandidate);k++){
+              r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:450});
+              timeline.push({step:'swipe_inventory_apply_clear_into_view_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];
+              apply=exact(ns,'Aplicar',{visible:true,clickable:true,enabled:true})||exact(ns,'Aplicar filtros',{visible:true,clickable:true,enabled:true});
+              clearCandidate=exact(ns,'Limpiar',{visible:true,clickable:true,enabled:true})||exact(ns,'Limpiar filtros',{visible:true,clickable:true,enabled:true});
+            }
             let applyResult=null;
             if(apply){
               applyResult=await action({action:'click',nodeId:apply.id});timeline.push({step:'apply_inventory_status',status:applyResult&&applyResult.status,reason:clean(applyResult&&applyResult.reason||applyResult&&applyResult.payload&&applyResult.payload.reason)});await wait(700);cur=await fresh();
-            } else timeline.push({step:'apply_inventory_status',status:'not_found',reason:'no visible apply button; selection is local'});
+            } else timeline.push({step:'apply_inventory_status',status:'not_found',reason:'no visible apply button after physical swipe'});
             const filtered=snapshot(cur),filteredHash=cur.p?.evidence_hash||null;
             ns=cur.root?scan(cur.root):[];
             let clear=exact(ns,'Limpiar',{visible:true,clickable:true,enabled:true})||exact(ns,'Limpiar filtros',{visible:true,clickable:true,enabled:true});
+            for(let k=0;k<2&&!clear;k++){
+              r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:900,durationMs:450});
+              timeline.push({step:'swipe_inventory_clear_into_view_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(450);cur=await fresh();ns=cur.root?scan(cur.root):[];
+              clear=exact(ns,'Limpiar',{visible:true,clickable:true,enabled:true})||exact(ns,'Limpiar filtros',{visible:true,clickable:true,enabled:true});
+            }
             let clearResult=null;
             if(clear){
               clearResult=await action({action:'click',nodeId:clear.id});timeline.push({step:'clear_inventory_filters',status:clearResult&&clearResult.status,reason:clean(clearResult&&clearResult.reason||clearResult&&clearResult.payload&&clearResult.payload.reason)});await wait(700);cur=await fresh();
-            }else timeline.push({step:'clear_inventory_filters',status:'not_found',reason:'no visible clear button'});
+            }else timeline.push({step:'clear_inventory_filters',status:'not_found',reason:'no visible clear button after physical swipe'});
             const after=snapshot(cur),finalNodes=cur.root?scan(cur.root):[];
             const defaultStatus=!!exact(finalNodes,'Todos los estados',{visible:true,clickable:true,enabled:true});
             const defaultWarehouse=!!exact(finalNodes,'Todos los almacenes',{visible:true,clickable:true,enabled:true});
