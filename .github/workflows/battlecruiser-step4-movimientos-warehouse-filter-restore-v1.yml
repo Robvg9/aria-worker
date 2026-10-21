@@ -1,0 +1,128 @@
+name: BattleCruiser Step 4 Movimientos Warehouse Filter Restore V1 (Read Only)
+# Android device reconnected; re-run safe filter selection and restoration test.
+on:
+  push:
+    branches:
+      - aria/bc-step4-android-e2e-20261021
+    paths:
+      - .github/workflows/battlecruiser-step4-movimientos-warehouse-filter-restore-v1.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bc-step4-movimientos-warehouse-filter-restore-v1-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  android-movimientos-warehouse-filter-restore-v1:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 8
+    steps:
+      - name: Observe read-only Mando audit type/status filters and restore defaults
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ARIA_RUNTIME_SHARED_SECRET: ${{ secrets.ARIA_RUNTIME_SHARED_SECRET }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          project=os.environ.get('SUPABASE_PROJECT_REF','').strip()
+          secret=os.environ.get('ARIA_RUNTIME_SHARED_SECRET','')
+          if not project or not secret: raise SystemExit('BLOCKED: production secrets unavailable')
+          base=f'https://{project}.supabase.co/functions/v1'
+          headers={'Authorization':'Bearer '+secret,'content-type':'application/json','cache-control':'no-store'}
+          mission_id=f"mission_bc_step4_movimientos_warehouse_filter_restore_v1_{os.environ['RUN_ID']}_{os.environ['RUN_ATTEMPT']}"
+          device='android-termux-a1ebcfc7-9287-4603-a0f9-c519d12fd092'
+          marker='BC_STEP4_MOVIMIENTOS_WAREHOUSE_FILTER_RESTORE_V1'
+          command=r"""node <<'NODE'
+          const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const marker='BC_STEP4_MOVIMIENTOS_WAREHOUSE_FILTER_RESTORE_V1',host='battlecruiser.robvg9.workers.dev';
+          const expectedBuild='3708b31b319884f7d42082414a82cdd11450fe2d';
+          const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
+          const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,140):'';
+          const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').trim();
+          const wait=ms=>new Promise(r=>setTimeout(r,ms));
+          async function send(q,timeoutMs=12000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
+          async function observe(){const r=await send({operation:'observe'},6000),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a},10000);}
+          function scan(root){const nodes=[],seen=new Set();let count=0;const walk=(n,path,d)=>{if(!n||typeof n!=='object'||Array.isArray(n)||seen.has(n)||d>28||count>=1200)return;seen.add(n);count++;const names=['name','label','contentDescription','text','hint'].map(k=>clean(n[k])).filter(Boolean);nodes.push({id:typeof n.id==='string'&&n.id?n.id:path,path,role:clean(n.role),className:clean(n.className||n.class),names,text:names.join(' | '),visible:n.visible!==false,clickable:!!n.clickable,enabled:n.enabled!==false,scrollable:!!n.scrollable,bounds:n.bounds||null});if(Array.isArray(n.children))n.children.forEach((c,i)=>walk(c,path+'.'+i,d+1));};walk(root,'0',0);return nodes;}
+          const exact=(nodes,label,opts={})=>nodes.find(n=>n.names.some(t=>norm(t)===norm(label))&&(!opts.visible||n.visible)&&(!opts.clickable||n.clickable)&&(!opts.enabled||n.enabled));
+          const control=(ns,label)=>ns.find(n=>n.visible&&n.enabled&&n.clickable&&norm(n.text)===norm(label));
+          function summary(cur){const ns=cur.root?scan(cur.root):[];const m=ns.find(n=>n.visible&&n.text&&/^\d+\s+movimientos$/i.test(norm(n.text)));return m?clean(m.text):null;}
+          function snapshot(cur){const ns=cur.root?scan(cur.root):[];return {hash:cur.p&&cur.p.evidence_hash||null,nodeCount:ns.length,summary:summary(cur),controls:ns.filter(n=>n.visible&&n.text&&/todos los almacenes|todos los tipos|la cueva|tumejor opcion|movimientos|aplicar/i.test(norm(n.text))).slice(0,25).map(n=>({id:n.id,text:clean(n.text),role:n.role,visible:n.visible,clickable:n.clickable,enabled:n.enabled,bounds:n.bounds})),scrollables:ns.filter(n=>n.visible&&n.scrollable).map(n=>({id:n.id,path:n.path,bounds:n.bounds})).slice(0,8)};}
+          async function fresh(){let cur=await observe();for(let k=0;k<4&&(!cur.root||cur.p.ok!==true);k++){await wait(400);cur=await observe();}return cur;}
+          async function clickWait(node,label,timeline){const r=await action({action:'click',nodeId:node.id});timeline.push({step:label,status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(450);return fresh();}
+          async function swipeUntil(cur,predicate,direction,timeline,prefix){
+            for(let k=0;k<4;k++){
+              let ns=cur.root?scan(cur.root):[];
+              if(predicate(ns))return cur;
+              const r=await action({action:'swipe',x1:540,y1:direction==='up'?1900:900,x2:540,y2:direction==='up'?900:1900,durationMs:450});
+              timeline.push({step:prefix+'_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(450);cur=await fresh();
+            }
+            return cur;
+          }
+          async function chooseOption(cur,option,timeline,step){let ns=cur.root?scan(cur.root):[],opt=exact(ns,option,{visible:true,clickable:true,enabled:true});if(!opt)return {ok:false,stage:'option_not_found',option,cur};const before=cur.p&&cur.p.evidence_hash||null;cur=await clickWait(opt,step,timeline);const after=cur.p&&cur.p.evidence_hash||null;return {ok:true,option,hashBefore:before,hashAfter:after,hashChanged:!!before&&!!after&&before!==after,cur};}
+          (async()=>{
+            const h=await probeLocalIpcHealth({timeoutMs:2500}),hp=h&&h.payload||{};
+            const exactBuild=h&&h.ok===true&&String(hp.version_name)==='1.1.23'&&Number(hp.version_code)===29&&String(hp.build_id)===expectedBuild;
+            if(!exactBuild){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',build:{ok:!!h?.ok,version_name:hp.version_name||null,version_code:hp.version_code||null,build_id:hp.build_id||null}}));process.exitCode=20;return;}
+            const timeline=[];
+            let r=await action({action:'navigate',url:'https://'+host+'/'});timeline.push({step:'navigate_live',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(1000);
+            let cur=await fresh(),ns=cur.root?scan(cur.root):[],open=exact(ns,'Abrir menú',{visible:true,clickable:true,enabled:true});
+            for(let k=0;k<6&&!open;k++){await wait(350);cur=await fresh();ns=cur.root?scan(cur.root):[];open=exact(ns,'Abrir menú',{visible:true,clickable:true,enabled:true});}
+            if(!open){console.log(JSON.stringify({marker,ok:false,stage:'menu_not_found',timeline,screen:snapshot(cur)}));process.exitCode=1;return;}
+            cur=await clickWait(open,'open_menu',timeline);
+            let dest=exact(cur.root?scan(cur.root):[],'Movimientos',{visible:true,clickable:true,enabled:true});
+            for(let k=0;k<6&&!dest;k++){ns=cur.root?scan(cur.root):[];const drawer=ns.find(n=>n.visible&&n.scrollable&&n.path.startsWith('0.0.0.0.2'))||ns.find(n=>n.visible&&n.scrollable);if(!drawer)break;r=await action({action:'scroll',nodeId:drawer.id,direction:k<3?'backward':'forward'});timeline.push({step:'scroll_menu_'+(k+1),status:r&&r.status});await wait(300);cur=await fresh();dest=exact(cur.root?scan(cur.root):[],'Movimientos',{visible:true,clickable:true,enabled:true});}
+            if(!dest){console.log(JSON.stringify({marker,ok:false,stage:'movimientos_button_not_found',timeline,screen:snapshot(cur)}));process.exitCode=2;return;}
+            cur=await clickWait(dest,'open_movimientos',timeline);await wait(700);cur=await fresh();
+            const filtersVisible=ns=>!!control(ns,'Todos los almacenes')&&!!control(ns,'Todos los tipos');
+            cur=await swipeUntil(cur,filtersVisible,'up',timeline,'swipe_movimientos_to_warehouse_filter');
+            let nsNow=cur.root?scan(cur.root):[],warehouse=control(nsNow,'Todos los almacenes');
+            const baseline=snapshot(cur);
+            if(!warehouse){console.log(JSON.stringify({marker,ok:false,stage:'warehouse_filter_not_visible',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline,safety:{filtersOnly:true,businessWrites:false,stockMutated:false,recordsOpened:false}}));process.exitCode=3;return;}
+            cur=await clickWait(warehouse,'open_warehouse_filter',timeline);
+            const chosen=await chooseOption(cur,'La Cueva',timeline,'choose_warehouse_la_cueva');
+            let filteredView=null,restoredSelection=false;
+            if(chosen.ok){
+              cur=chosen.cur;filteredView=snapshot(cur);
+              let selected=control(cur.root?scan(cur.root):[],'La Cueva')||control(cur.root?scan(cur.root):[],'Todos los almacenes');
+              for(let k=0;k<3&&!selected;k++){const swipe=await action({action:'swipe',x1:540,y1:900,x2:540,y2:1900,durationMs:450});timeline.push({step:'swipe_back_to_warehouse_filter_'+(k+1),status:swipe&&swipe.status});await wait(450);cur=await fresh();selected=control(cur.root?scan(cur.root):[],'La Cueva')||control(cur.root?scan(cur.root):[],'Todos los almacenes');}
+              if(selected){
+                cur=await clickWait(selected,'open_warehouse_filter_for_restore',timeline);
+                const back=await chooseOption(cur,'Todos los almacenes',timeline,'restore_warehouse_all');
+                if(back.ok){cur=back.cur;nsNow=cur.root?scan(cur.root):[];restoredSelection=!!control(nsNow,'Todos los almacenes');}
+              }
+            }
+            const final=snapshot(cur),finalNs=cur.root?scan(cur.root):[];
+            const finalWarehouse=control(finalNs,'Todos los almacenes'),finalType=control(finalNs,'Todos los tipos');
+            const summaryRestored=!!baseline.summary&&!!final.summary&&norm(baseline.summary)===norm(final.summary);
+            const ok=chosen.ok&&chosen.hashChanged&&restoredSelection&&!!finalWarehouse&&!!finalType&&summaryRestored;
+            const result={marker,ok,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline,filteredView,chooseWarehouse:{ok:chosen.ok,hashBefore:chosen.hashBefore,hashAfter:chosen.hashAfter,hashChanged:chosen.hashChanged},restoredSelection,summaryRestored,final,safety:{filtersOnly:true,readOnlyListQuery:true,recordsOpened:false,businessWrites:false,stockMutated:false,formsSubmitted:false,logoutClicked:false}};
+            console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;
+          })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
+          NODE"""
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_movimientos_warehouse_filter_restore_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':45000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          def post(fn,payload,timeout=75):
+              req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode())
+              except urllib.error.HTTPError as e:
+                  try:return e.code,json.loads(e.read().decode())
+                  except:return e.code,{}
+          code,body=post('aria-direct-v1',{'goal':'Ejecuta shell.execute en Android para abrir Movimientos LIVE, seleccionar el filtro local de almacén La Cueva y restaurar Todos los almacenes. Observa solo etiquetas genéricas, hashes y el resumen de movimientos; no abras registros, compras, transferencias, vales ni modifiques stock. Exige agente 1.1.23 exacto. Marcador BC_STEP4_MOVIMIENTOS_WAREHOUSE_FILTER_RESTORE_V1.','mission_id':mission_id,'metadata':metadata})
+          print('DISPATCH_HTTP='+str(code));print('MISSION_ID='+mission_id);print('DISPATCH_STATUS='+str(body.get('dispatch',{}).get('status','unknown')))
+          if code>=300 or body.get('ok') is not True:print(json.dumps(body)[:1200]);raise SystemExit(2)
+          terminal={'succeeded','failed','blocked','rejected','cancelled','human_required','paused'}
+          last={}
+          for i in range(1,61):
+              c,last=post('aria-mission-runner-v22',{'mission_id':mission_id})
+              s=str(last.get('status','unknown'));print('POLL='+json.dumps({'n':i,'http':c,'status':s,'error':last.get('error'),'next_action':last.get('next_action')}))
+              if s in terminal or c in (401,403,404):break
+              time.sleep(3)
+          s=str(last.get('status','unknown'));print('FINAL_STATUS='+s);print('FINAL='+json.dumps({k:last.get(k) for k in ('ok','status','mission_id','error','next_action','executor_types','results') if k in last},ensure_ascii=False)[:6000])
+          if s!='succeeded':raise SystemExit(1)
+          PY
