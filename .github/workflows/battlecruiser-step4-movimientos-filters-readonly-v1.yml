@@ -104,10 +104,12 @@ jobs:
             const typeSel=control(ns,'Todos los tipos');
             if(!typeSel){console.log(JSON.stringify({marker,ok:false,stage:'movement_type_filter_not_visible',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline,safety:{businessWrites:false,recordsOpened:false}}));process.exitCode=3;return;}
             cur=await clickWait(typeSel,'open_type_filter',timeline);
+            let filteredView=null;
             let chosen=await chooseOption(cur,'Venta',timeline,'choose_type_venta');
             if(chosen.ok){
               cur=chosen.cur;ns=cur.root?scan(cur.root):[];
               const labels=ns.filter(n=>n.visible&&n.text&&/todos los tipos|venta|compra|transf|vale/i.test(norm(n.text))).map(n=>clean(n.text)).slice(0,20);
+              filteredView=snapshot(cur);
               outcomes.push({filter:'type',status:'selected_and_observed',selected:'Venta',hashBefore:chosen.hashBefore,hashAfter:chosen.hashAfter,hashChanged:chosen.hashChanged,labels});
               ns=cur.root?scan(cur.root):[];let apply=control(ns,'Aplicar');
               if(apply){cur=await clickWait(apply,'apply_type_filter',timeline);await wait(450);outcomes.push({filter:'apply_after_venta',status:'clicked',hash:cur.p&&cur.p.evidence_hash||null,screen:snapshot(cur)});}
@@ -140,8 +142,12 @@ jobs:
             }else timeline.push({step:'restore_type_all',status:'not_found'});
             const final=snapshot(cur);ns=cur.root?scan(cur.root):[];
             const finalType=control(ns,'Todos los tipos'),finalWarehouse=control(ns,'Todos los almacenes'),applyBtn=control(ns,'Aplicar');
-            const ok=outcomes.some(x=>x.filter==='type'&&x.status==='selected_and_observed')&&restoredSelection&&!!finalType&&!!finalWarehouse&&!!applyBtn;
-            const result={marker,ok,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline,outcomes,restoredSelection,final:{...final,defaultTypeVisible:!!finalType,defaultWarehouseVisible:!!finalWarehouse,applyVisible:!!applyBtn},safety:{filtersOnly:true,readOnlyListQuery:true,recordsOpened:false,businessWrites:false,stockMutated:false,formsSubmitted:false}};
+            const baseSummary=baseline.controls.find(x=>/^\\d+\\s+movimientos$/i.test(norm(x.text)))?.text||null;
+            const finalSummary=final.controls.find(x=>/^\\d+\\s+movimientos$/i.test(norm(x.text)))?.text||null;
+            const summaryRestored=!!baseSummary&&!!finalSummary&&norm(baseSummary)===norm(finalSummary);
+            const selectionObserved=outcomes.some(x=>x.filter==='type'&&x.status==='selected_and_observed'&&x.hashChanged===true);
+            const ok=selectionObserved&&restoredSelection&&!!finalType&&!!finalWarehouse&&summaryRestored;
+            const result={marker,ok,build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,baseline,filteredView,outcomes,restoredSelection,summaryRestored,final:{...final,defaultTypeVisible:!!finalType,defaultWarehouseVisible:!!finalWarehouse,applyVisible:!!applyBtn,baseSummary,finalSummary},safety:{filtersOnly:true,readOnlyListQuery:true,recordsOpened:false,businessWrites:false,stockMutated:false,formsSubmitted:false}};
             console.log(JSON.stringify(result));if(!result.ok)process.exitCode=4;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
           NODE"""
