@@ -74,8 +74,15 @@ jobs:
             }
             if(!dest){console.log(JSON.stringify({marker,ok:false,stage:'inventory_button_not_found',timeline,screen:snapshot(cur)}));process.exitCode=2;return;}
             r=await action({action:'click',nodeId:dest.id});timeline.push({step:'open_inventory',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(800);cur=await fresh();
-            let before=snapshot(cur),bn=cur.root?scan(cur.root):[];
+            let bn=cur.root?scan(cur.root):[];
             let refresh=exact(bn,'Refrescar',{visible:true,clickable:true,enabled:true})||exact(bn,'Actualizar',{visible:true,clickable:true,enabled:true});
+            for(let k=0;k<4&&!refresh;k++){
+              r=await action({action:'swipe',x1:540,y1:1900,x2:540,y2:620,durationMs:480});
+              timeline.push({step:'swipe_inventory_to_refresh_'+(k+1),status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});
+              await wait(450);cur=await fresh();bn=cur.root?scan(cur.root):[];
+              refresh=exact(bn,'Refrescar',{visible:true,clickable:true,enabled:true})||exact(bn,'Actualizar',{visible:true,clickable:true,enabled:true});
+            }
+            let before=snapshot(cur);
             if(!refresh){console.log(JSON.stringify({marker,ok:false,stage:'refresh_button_not_visible_or_actionable',build:{version_name:hp.version_name,version_code:hp.version_code,build_id:hp.build_id},timeline,before,safety:{businessWrites:false,stockMutated:false,rowsOpened:false}}));process.exitCode=3;return;}
             r=await action({action:'click',nodeId:refresh.id});timeline.push({step:'click_readonly_refresh',status:r&&r.status,reason:clean(r&&r.reason||r&&r.payload&&r.payload.reason)});await wait(1200);cur=await fresh();
             const after=snapshot(cur),nsAfter=cur.root?scan(cur.root):[];
