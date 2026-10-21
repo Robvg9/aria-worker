@@ -35,7 +35,8 @@ assert.ok(!transport.includes('/system/bin/am broadcast'), 'legacy broadcast tra
 assert.ok(ipc.includes('127.0.0.1'), 'local IPC server must bind loopback');
 assert.ok(ipcAuth.includes('const val PATH = "/execute"'), 'IPC auth contract must expose execute endpoint');
 const gradle = fs.readFileSync(require('node:path').join(root, 'android-ui-agent/app/build.gradle.kts'), 'utf8');
-assert.ok(gradle.includes('versionCode = 27'), 'APK version code must advance for the refreshed physical certification build');
+assert.ok(gradle.includes('versionCode = 28'), 'APK version code must advance for checked-state serialization');
+assert.ok(gradle.includes('versionName = "1.1.22"'), 'APK version name must advance for checked-state serialization');
 assert.ok(gradle.includes('ARIA_BUILD_ID'), 'APK must embed exact build identity');
 assert.ok(ipc.includes('buildId') || ipc.includes('ARIA_BUILD_ID'), 'IPC health must expose exact APK build identity');
 assert.ok(transport.includes('build_id'), 'Termux health metadata must carry exact APK build identity');
@@ -44,6 +45,8 @@ assert.ok(serviceIpc.includes('LocalIpcServer(this).also { it.start() }'), 'Acce
 assert.ok(serviceIpc.includes('localIpcServer?.stop()'), 'AccessibilityService must stop local IPC');
 assert.ok(serviceIpc.includes('refreshAccessibilityRoot'), 'Accessibility evidence capture must refresh the browser root before serialization');
 assert.ok(serviceIpc.includes('root.refresh()'), 'Accessibility evidence capture must call AccessibilityNodeInfo.refresh()');
+assert.ok(serviceIpc.includes('.put("checkable", node.isCheckable)'), 'Accessibility snapshots must preserve checkable state');
+assert.ok(serviceIpc.includes('.put("checked", node.isChecked)'), 'Accessibility snapshots must preserve checked state');
 assert.ok(service.includes('val browserTarget = targetPackage?.let { approvedBrowsers.contains(it) } == true'), 'browser clicks must use the bounded gesture path first');
 assert.ok(service.includes('gestureClick(node) || node.performAction(AccessibilityNodeInfo.ACTION_CLICK)'), 'browser click fallback must remain available');
 assert.ok(!service.includes('PLACEHOLDER_SERVICE'), 'placeholder accessibility service must not remain active');
@@ -59,6 +62,12 @@ assert.ok(gateway.includes('android_ui_summary'), 'successful Android UI jobs mu
 assert.ok(gateway.includes('ui_evidence_hash'), 'the summary must preserve the actual post-action UI evidence hash');
 assert.ok(gateway.includes('battlecruiser_marker_visible'), 'the summary must expose an app-specific visible marker without storing page text');
 assert.ok(gateway.includes('node_count'), 'the summary must record the observed accessibility tree size');
+assert.ok(gateway.includes('preference_switches'), 'the summary must persist allowlisted preference switch state');
+assert.ok(gateway.includes("checkable:typeof node?.checkable==='boolean'?node.checkable:null"), 'the summary must preserve unknown checkable state as null');
+assert.ok(gateway.includes("checked:typeof node?.checked==='boolean'?node.checked:null"), 'the summary must preserve unknown checked state as null');
+for (const label of ['Actualización automática','Sincronización automática','Sincronizar al abrir app','Sincronizar solo en Wi-Fi','Notificaciones','Modo compacto']) {
+  assert.ok(gateway.includes(label), 'missing allowlisted preference-state label: ' + label);
+}
 assert.ok(gateway.includes('cleanMetadata.android_ui_summary=androidUiSummary'), 'the compact summary must be included in the persisted job result metadata');
 assert.ok(gateway.includes('baseMetadata.autonomous_test!==true'), 'Android UI summary must not overwrite the autonomous-runner trace summary');
 
