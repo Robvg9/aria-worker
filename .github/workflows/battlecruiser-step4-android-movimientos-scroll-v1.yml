@@ -35,15 +35,16 @@ jobs:
           marker='BC_STEP4_ANDROID_MOVIMIENTOS_SCROLL_V1'
           command=r"""node <<'NODE'
           const {executeAndroidAccessibilityJob,probeLocalIpcHealth}=require('./computer-use/android-accessibility-v1.js');
+          const {spawnSync}=require('node:child_process');
           const marker='BC_STEP4_ANDROID_MOVIMIENTOS_SCROLL_V1',host='battlecruiser.robvg9.workers.dev';
           const base={target_package:'com.android.chrome',allow_any_app:false,allowed_hosts:[host]};
           const clean=s=>typeof s==='string'?s.replace(/\s+/g,' ').trim().replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig,'[redacted]').slice(0,120):'';
           const norm=s=>clean(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/[‐-‒–—]/g,'-').trim();
           const stateFromText=s=>{const m=norm(s).match(/estado de la opcion:\s*(activada|desactivada)\./);return m?m[1]:null;};
           const pause=ms=>new Promise(r=>setTimeout(r,ms));
-          async function send(q){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs:18000});}
-          async function observe(){const r=await send({operation:'observe'}),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
-          async function action(a){return await send({operation:'action',action:a});}
+          async function send(q,timeoutMs=5000){return await executeAndroidAccessibilityJob({command:JSON.stringify({...base,...q}),timeoutMs});}
+          async function observe(){const r=await send({operation:'observe'},3500),p=r&&r.payload||{},root=p.root||(p.ui&&p.ui.root)||null;return {r,p,root};}
+          async function action(a){return await send({operation:'action',action:a},6000);}
           function scan(root){
             const nodes=[],seen=new Set();let count=0;
             const walk=(n,path,d)=>{
@@ -109,8 +110,13 @@ jobs:
             if(!agentBuild.exact_build){console.log(JSON.stringify({marker,ok:false,stage:'exact_agent_build_mismatch',agentBuild}));process.exitCode=20;return;}
             const actions=[];
             let current=await observe();
-            for(let i=0;i<6&&(!current.root||current.p.ok!==true||scan(current.root).nodeCount<30);i++){await pause(700);current=await observe();}
-            if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'initial_observe',reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
+            if(!current.root||current.p.ok!==true){
+              const launch=spawnSync('am',['start','-a','android.intent.action.VIEW','-d','https://'+host+'/','-p','com.android.chrome'],{encoding:'utf8',timeout:6000});
+              actions.push({action:'launch_chrome_if_no_active_window',status:launch.error?'failed':launch.status===0?'succeeded':'failed',exitCode:launch.status,reason:clean(launch.error&&launch.error.message||launch.stderr||''),output:clean(launch.stdout||'')});
+              await pause(1800);
+              current=await observe();
+            }
+            if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_chrome_launch',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
             let sc=scan(current.root);
             const labelOf=n=>n.names.join(' | ');
             const exact=(re,opts={})=>sc.nodes.find(x=>x.names.some(t=>re.test(norm(t)))&&(!opts.visible||x.visible)&&(!opts.clickable||x.clickable)&&(!opts.enabled||x.enabled));
@@ -122,16 +128,28 @@ jobs:
             }else{
               const nav=await action({action:'navigate',url:'https://'+host+'/'});
               actions.push({action:'navigate',status:nav&&nav.status,reason:clean(nav&&nav.reason||nav&&nav.payload&&nav.payload.reason)});
-              await pause(2500);
+              await pause(1500);
               current=await observe();
-              for(let i=0;i<6&&(!current.root||current.p.ok!==true||scan(current.root).nodeCount<30);i++){await pause(700);current=await observe();}
-              if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'observe_after_navigation',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
+              if(!current.root||current.p.ok!==true){
+                const launch=spawnSync('am',['start','-a','android.intent.action.VIEW','-d','https://'+host+'/','-p','com.android.chrome'],{encoding:'utf8',timeout:6000});
+                actions.push({action:'launch_chrome_after_navigation',status:launch.error?'failed':launch.status===0?'succeeded':'failed',exitCode:launch.status,reason:clean(launch.error&&launch.error.message||launch.stderr||''),output:clean(launch.stdout||'')});
+                await pause(1800);
+                current=await observe();
+              }
+              if(!current.root||current.p.ok!==true){console.log(JSON.stringify({marker,ok:false,stage:'active_window_unavailable_after_navigation_recovery',actions,reason:clean(current.r&&current.r.reason||current.p.reason)}));process.exitCode=1;return;}
               sc=scan(current.root);
               pageReady=sc.nodes.some(isBattleCruiserUI);
+              if(!pageReady){
+                const launch=spawnSync('am',['start','-a','android.intent.action.VIEW','-d','https://'+host+'/','-p','com.android.chrome'],{encoding:'utf8',timeout:6000});
+                actions.push({action:'explicit_chrome_open_battlecruiser',status:launch.error?'failed':launch.status===0?'succeeded':'failed',exitCode:launch.status,reason:clean(launch.error&&launch.error.message||launch.stderr||''),output:clean(launch.stdout||'')});
+                await pause(1800);
+                current=await observe();
+                if(current.root&&current.p.ok===true){sc=scan(current.root);pageReady=sc.nodes.some(isBattleCruiserUI);}
+              }
               navigationSucceeded=pageReady;
               if(!pageReady){
                 const visibleLabels=sc.nodes.filter(x=>x.visible&&x.text&&/abrir men[uú]|cerrar men[uú]|centro de control|productos|ventas|movimientos|iniciar sesi[oó]n|usuario|contrase[nñ]a|battlecruiser|inventario/i.test(x.text)).slice(0,30).map(x=>({role:x.role,text:x.text}));
-                console.log(JSON.stringify({marker,ok:false,stage:'battlecruiser_ui_not_detected',actions,screen:{hash:current.p.evidence_hash||null,nodeCount:sc.nodeCount,visibleLabels}}));process.exitCode=2;return;
+                console.log(JSON.stringify({marker,ok:false,stage:'battlecruiser_ui_not_detected_after_chrome_recovery',actions,screen:{hash:current.p.evidence_hash||null,nodeCount:sc.nodeCount,visibleLabels}}));process.exitCode=2;return;
               }
             }
             let target=exact(/^movimientos$/,{visible:true,clickable:true,enabled:true})||exact(/^movimientos de inventario$/,{visible:true,clickable:true,enabled:true});
@@ -200,7 +218,7 @@ jobs:
             if(!result.ok)process.exitCode=6;
           })().catch(e=>{console.log(JSON.stringify({marker,ok:false,error:clean(String(e&&e.message||e))}));process.exitCode=1;});
           NODE"""
-          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_movimientos_scroll_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':60000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
+          metadata={'goal_source':'chat','source_application':'ChatGPT','project_name':'BattleCruiser','source':'battlecruiser_step4_android_movimientos_scroll_v1','verification_marker':marker,'device_id':device,'requested_device_id':device,'operation':'shell.execute','executor_type':'device','requested_capability':'shell.execute','command':command,'risk':'READ','timeout_ms':90000,'target_package':'com.android.chrome','allowed_hosts':['battlecruiser.robvg9.workers.dev'],'read_only':True,'business_data_mutated':False,'explicit_device_intent':True,'human_gate_required':False}
           def post(fn,payload,timeout=75):
               req=urllib.request.Request(base+'/'+fn,data=json.dumps(payload).encode(),headers=headers,method='POST')
               try:
